@@ -38,13 +38,22 @@ public struct D3D11RendererError: Error, CustomStringConvertible, Sendable {
     }
 }
 
-private struct UnsupportedRenderCommandError: Error, CustomStringConvertible, Sendable {
+/// Diagnostic payload for frame-fallback commands the D3D11/Direct2D path cannot paint.
+/// Used for stderr reporting only; unsupported commands are soft-skipped so a single
+/// reserved command cannot abort the rest of the frame or permanently demote Direct2D.
+private struct UnsupportedRenderCommandDiagnostic: CustomStringConvertible, Sendable {
     let backend: String
     let commandName: String
 
     var description: String {
         "\(backend) does not support RenderCommand.\(commandName)."
     }
+}
+
+/// Clip-stack entry for frame-fallback pushClip/popClip (mirrors GPUISceneBridge semantics).
+private struct FrameClipStackEntry {
+    var rect: Rect
+    var operation: ClipOperation
 }
 
 /// Blend modes supported by the D3D11 fallback renderer.
@@ -104,6 +113,11 @@ public final class D3D11Renderer: RenderBackend {
     private var tearingSupported = false
     private var consecutiveDeviceLostCount = 0
     private static let maxDeviceLostRecoveryAttempts = 3
+    /// Keys already logged for soft-skipped unsupported frame commands (`backend|name`).
+    /// Keeps stderr informative without flooding every animated frame.
+    private var loggedUnsupportedCommandKeys: Set<String> = []
+    /// Backends for which an end-of-frame skip summary has already been emitted.
+    private var loggedUnsupportedFrameSummaries: Set<String> = []
 
     public init(configuration: D3D11RendererConfiguration = D3D11RendererConfiguration()) {
         self.configuration = configuration
@@ -220,6 +234,12 @@ public final class D3D11Renderer: RenderBackend {
                 try handlePresentResult(hr)
                 return
             } catch {
+                // Real Direct2D device/draw failures demote for the session.
+                // Unsupported path/blur/text commands soft-skip inside renderWithDirect2D
+                // and must not reach here (otherwise one reserved command kills Direct2D).
+                renderLog(
+                    "[D3D11Renderer] Direct2D frame failed (\(error)); demoting to D3D11 fallback for this session."
+                )
                 releaseDirect2DTarget()
                 isDirect2DEnabled = false
             }
@@ -286,21 +306,83 @@ public final class D3D11Renderer: RenderBackend {
             deviceContext.pointee.lpVtbl.pointee.ClearRenderTargetView(deviceContext, renderTargetView, buffer.baseAddress)
         }
 
+        // Logical surface bounds for clip-stack resolution. Draw helpers still
+        // scale individual commands into pixel space.
+        let logicalSurfaceSize = Size(
+            width: Double(surface.pixelSize.width) / scaleFactor,
+            height: Double(surface.pixelSize.height) / scaleFactor
+        )
+        var clipStack: [FrameClipStackEntry] = []
+        var skippedUnsupportedCount = 0
+
         for command in frame.commands {
-            try draw(
-                command,
-                surfaceSize: surface.pixelSize,
-                scaleFactor: scaleFactor,
-                deviceContext: deviceContext,
-                rectangleVertexShader: vertexShader,
-                rectanglePixelShader: pixelShader,
-                rectangleConstantBuffer: constantBuffer,
-                bitmapVertexShader: bitmapVertexShader,
-                bitmapPixelShader: bitmapPixelShader,
-                bitmapConstantBuffer: bitmapConstantBuffer,
-                bitmapSamplerState: bitmapSamplerState
-            )
+            switch command {
+            case .fillRect(let fillRectCommand):
+                let effectiveClip = resolveFrameEffectiveClip(
+                    commandClip: fillRectCommand.clipRect,
+                    clipStack: clipStack,
+                    surfaceSize: logicalSurfaceSize
+                )
+                guard !effectiveClip.isEmpty else { continue }
+                var clipped = fillRectCommand
+                // Only materialize a clip when the stack or command contributed one;
+                // avoid pushing a full-surface scissor for every unclipped draw.
+                if !clipStack.isEmpty || fillRectCommand.clipRect != nil {
+                    clipped.clipRect = effectiveClip
+                }
+                try draw(
+                    fillRect: clipped,
+                    surfaceSize: surface.pixelSize,
+                    scaleFactor: scaleFactor,
+                    deviceContext: deviceContext,
+                    vertexShader: vertexShader,
+                    pixelShader: pixelShader,
+                    constantBuffer: constantBuffer
+                )
+
+            case .drawBitmap(let drawBitmapCommand):
+                let effectiveClip = resolveFrameEffectiveClip(
+                    commandClip: drawBitmapCommand.clipRect,
+                    clipStack: clipStack,
+                    surfaceSize: logicalSurfaceSize
+                )
+                guard !effectiveClip.isEmpty else { continue }
+                var clipped = drawBitmapCommand
+                if !clipStack.isEmpty || drawBitmapCommand.clipRect != nil {
+                    clipped.clipRect = effectiveClip
+                }
+                try draw(
+                    bitmap: clipped,
+                    surfaceSize: surface.pixelSize,
+                    scaleFactor: scaleFactor,
+                    deviceContext: deviceContext,
+                    vertexShader: bitmapVertexShader,
+                    pixelShader: bitmapPixelShader,
+                    constantBuffer: bitmapConstantBuffer,
+                    samplerState: bitmapSamplerState
+                )
+
+            case .pushClip(let clipCommand):
+                pushFrameClip(clipCommand, onto: &clipStack, surfaceSize: logicalSurfaceSize)
+
+            case .popClip:
+                // Empty-stack pop is a safe no-op (matches GPUISceneBridge / VAL-SCENE-009).
+                if !clipStack.isEmpty {
+                    clipStack.removeLast()
+                }
+
+            case .fillPath, .strokePath, .applyBlur, .drawText:
+                // Soft-skip: do not abort the frame or throw. Diagnostics stay visible
+                // without inventing placeholder geometry that could hide rendering loss.
+                noteUnsupportedRenderCommand(command, backend: "D3D11 fallback")
+                skippedUnsupportedCount += 1
+            }
         }
+
+        noteUnsupportedFrameSummaryIfNeeded(
+            backend: "D3D11 fallback",
+            skippedCount: skippedUnsupportedCount
+        )
 
         let syncInterval: UINT = vsyncEnabled ? 1 : 0
         var presentFlags: UINT = 0
@@ -746,16 +828,67 @@ public final class D3D11Renderer: RenderBackend {
 
         SWU_D2DClear(deviceContext, clearColor.red, clearColor.green, clearColor.blue, clearColor.alpha)
 
+        // Logical surface size for clip-stack resolution (Direct2D draws in DIP/logical space).
+        let logicalSurfaceSize: Size
+        if let surface {
+            logicalSurfaceSize = Size(
+                width: Double(surface.pixelSize.width) / scaleFactor,
+                height: Double(surface.pixelSize.height) / scaleFactor
+            )
+        } else {
+            logicalSurfaceSize = Size(width: 0, height: 0)
+        }
+        var clipStack: [FrameClipStackEntry] = []
+        var skippedUnsupportedCount = 0
+
         for command in frame.commands {
             switch command {
             case .fillRect(let fillRectCommand):
-                try drawWithDirect2D(fillRect: fillRectCommand, deviceContext: deviceContext)
+                let effectiveClip = resolveFrameEffectiveClip(
+                    commandClip: fillRectCommand.clipRect,
+                    clipStack: clipStack,
+                    surfaceSize: logicalSurfaceSize
+                )
+                guard !effectiveClip.isEmpty else { continue }
+                var clipped = fillRectCommand
+                if !clipStack.isEmpty || fillRectCommand.clipRect != nil {
+                    clipped.clipRect = effectiveClip
+                }
+                try drawWithDirect2D(fillRect: clipped, deviceContext: deviceContext)
+
             case .drawBitmap(let drawBitmapCommand):
-                try drawWithDirect2D(bitmap: drawBitmapCommand, scaleFactor: scaleFactor, deviceContext: deviceContext)
-            case .fillPath, .strokePath, .applyBlur, .drawText, .pushClip, .popClip:
-                throw unsupportedRenderCommand(command, backend: "Direct2D")
+                let effectiveClip = resolveFrameEffectiveClip(
+                    commandClip: drawBitmapCommand.clipRect,
+                    clipStack: clipStack,
+                    surfaceSize: logicalSurfaceSize
+                )
+                guard !effectiveClip.isEmpty else { continue }
+                var clipped = drawBitmapCommand
+                if !clipStack.isEmpty || drawBitmapCommand.clipRect != nil {
+                    clipped.clipRect = effectiveClip
+                }
+                try drawWithDirect2D(bitmap: clipped, scaleFactor: scaleFactor, deviceContext: deviceContext)
+
+            case .pushClip(let clipCommand):
+                pushFrameClip(clipCommand, onto: &clipStack, surfaceSize: logicalSurfaceSize)
+
+            case .popClip:
+                if !clipStack.isEmpty {
+                    clipStack.removeLast()
+                }
+
+            case .fillPath, .strokePath, .applyBlur, .drawText:
+                // Soft-skip reserved commands. Throwing here used to demote Direct2D
+                // permanently and abort the frame; keep painting supported neighbors.
+                noteUnsupportedRenderCommand(command, backend: "Direct2D")
+                skippedUnsupportedCount += 1
             }
         }
+
+        noteUnsupportedFrameSummaryIfNeeded(
+            backend: "Direct2D",
+            skippedCount: skippedUnsupportedCount
+        )
 
         let hr = SWU_D2DEndDraw(deviceContext)
         shouldEndDraw = false
@@ -857,46 +990,6 @@ public final class D3D11Renderer: RenderBackend {
         }
 
         try throwIfFailed(hr, operation: "Draw Direct2D bitmap")
-    }
-
-    private func draw(
-        _ command: RenderCommand,
-        surfaceSize: IntSize,
-        scaleFactor: Double,
-        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
-        rectangleVertexShader: UnsafeMutablePointer<ID3D11VertexShader>,
-        rectanglePixelShader: UnsafeMutablePointer<ID3D11PixelShader>,
-        rectangleConstantBuffer: UnsafeMutablePointer<ID3D11Buffer>,
-        bitmapVertexShader: UnsafeMutablePointer<ID3D11VertexShader>,
-        bitmapPixelShader: UnsafeMutablePointer<ID3D11PixelShader>,
-        bitmapConstantBuffer: UnsafeMutablePointer<ID3D11Buffer>,
-        bitmapSamplerState: UnsafeMutablePointer<ID3D11SamplerState>
-    ) throws {
-        switch command {
-        case .fillRect(let fillRectCommand):
-            try draw(
-                fillRect: fillRectCommand,
-                surfaceSize: surfaceSize,
-                scaleFactor: scaleFactor,
-                deviceContext: deviceContext,
-                vertexShader: rectangleVertexShader,
-                pixelShader: rectanglePixelShader,
-                constantBuffer: rectangleConstantBuffer
-            )
-        case .drawBitmap(let drawBitmapCommand):
-            try draw(
-                bitmap: drawBitmapCommand,
-                surfaceSize: surfaceSize,
-                scaleFactor: scaleFactor,
-                deviceContext: deviceContext,
-                vertexShader: bitmapVertexShader,
-                pixelShader: bitmapPixelShader,
-                constantBuffer: bitmapConstantBuffer,
-                samplerState: bitmapSamplerState
-            )
-        case .fillPath, .strokePath, .applyBlur, .drawText, .pushClip, .popClip:
-            throw unsupportedRenderCommand(command, backend: "D3D11 fallback")
-        }
     }
 
     private func draw(
@@ -1127,6 +1220,35 @@ public final class D3D11Renderer: RenderBackend {
         return try body()
     }
 
+    /// Soft-skips an unsupported frame command with one-shot diagnostics per backend/type.
+    /// Does not throw: the rest of the frame continues so supported commands still present.
+    private func noteUnsupportedRenderCommand(_ command: RenderCommand, backend: String) {
+        let name = renderCommandName(command)
+        let key = "\(backend)|\(name)"
+        guard loggedUnsupportedCommandKeys.insert(key).inserted else {
+            return
+        }
+
+        let diagnostic = UnsupportedRenderCommandDiagnostic(backend: backend, commandName: name)
+        renderLog(
+            "[D3D11Renderer] \(diagnostic.description) Skipping command and continuing the frame. "
+                + "Further skips of this type are silent. Prefer the GPUI scene path for path/blur/text; "
+                + "frame fallback keeps fillRect, drawBitmap, and axis-aligned clip stack only."
+        )
+    }
+
+    /// One-shot end-of-frame summary so skip volume is visible without per-frame spam.
+    private func noteUnsupportedFrameSummaryIfNeeded(backend: String, skippedCount: Int) {
+        guard skippedCount > 0 else { return }
+        guard loggedUnsupportedFrameSummaries.insert(backend).inserted else { return }
+
+        renderLog(
+            "[D3D11Renderer] \(backend) finished a frame with \(skippedCount) unsupported command(s) skipped. "
+                + "fillRect/drawBitmap and axis-aligned clip stack still presented; path/blur/text need the scene path or broader backend support. "
+                + "Further per-frame summaries for this backend are silent."
+        )
+    }
+
     private func currentScaleFactor() -> Double {
         if let hwnd {
             let dpi = GetDpiForWindow(hwnd)
@@ -1348,10 +1470,6 @@ func releaseCOM<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
     pointer = nil
 }
 
-private func unsupportedRenderCommand(_ command: RenderCommand, backend: String) -> UnsupportedRenderCommandError {
-    UnsupportedRenderCommandError(backend: backend, commandName: renderCommandName(command))
-}
-
 private func renderCommandName(_ command: RenderCommand) -> String {
     switch command {
     case .fillRect:
@@ -1371,6 +1489,64 @@ private func renderCommandName(_ command: RenderCommand) -> String {
     case .popClip:
         return "popClip"
     }
+}
+
+/// Resolves stack + per-command clip for the frame fallback (VAL-SCENE-009 semantics).
+private func resolveFrameEffectiveClip(
+    commandClip: Rect?,
+    clipStack: [FrameClipStackEntry],
+    surfaceSize: Size
+) -> Rect {
+    let fullSurface = Rect(x: 0, y: 0, width: surfaceSize.width, height: surfaceSize.height)
+    var effective = fullSurface
+
+    for entry in clipStack {
+        switch entry.operation {
+        case .intersect:
+            if let intersected = effective.intersected(with: entry.rect) {
+                effective = intersected
+            } else {
+                return Rect.zero
+            }
+        case .replace:
+            effective = entry.rect
+        }
+    }
+
+    if let commandClip {
+        if let intersected = effective.intersected(with: commandClip) {
+            effective = intersected
+        } else {
+            return Rect.zero
+        }
+    }
+
+    return effective
+}
+
+/// Appends a frame-fallback clip. Ellipse → bounding rect; path → full-surface no-op.
+private func pushFrameClip(
+    _ command: ClipCommand,
+    onto clipStack: inout [FrameClipStackEntry],
+    surfaceSize: Size
+) {
+    let clipRect: Rect
+    switch command.shape {
+    case .rect(let rect, _):
+        // Axis-aligned clip only; corner radius is ignored on the frame fallback.
+        clipRect = rect
+    case .ellipse(let center, let radiusX, let radiusY):
+        clipRect = Rect(
+            x: center.x - radiusX,
+            y: center.y - radiusY,
+            width: radiusX * 2,
+            height: radiusY * 2
+        )
+    case .path:
+        clipRect = Rect(x: 0, y: 0, width: surfaceSize.width, height: surfaceSize.height)
+    }
+
+    clipStack.append(FrameClipStackEntry(rect: clipRect, operation: command.operation))
 }
 
 let hresultHandle: HRESULT = HRESULT(bitPattern: 0x80070006)

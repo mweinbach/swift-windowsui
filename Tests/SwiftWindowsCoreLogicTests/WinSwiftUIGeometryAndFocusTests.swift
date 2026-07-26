@@ -115,12 +115,10 @@ final class WinSwiftUIGeometryAndFocusTests: XCTestCase {
     func testDefaultFocusMapsToRetainedNodeProperties() async {
         await MainActor.run {
             let ns = Namespace().wrappedValue
-            var isFocused = true
-            let binding = FocusState<Bool>().projectedValue
-            isFocused = true
+            let focusState = FocusState<Bool>(wrappedValue: true)
             let node = makeNode(
                 Text("DEFAULT")
-                    .defaultFocus(binding, in: ns)
+                    .defaultFocus(focusState.projectedValue, in: ns)
             )
             XCTAssertTrue(node.isFocusable)
             XCTAssertTrue(node.isHitTestVisible)

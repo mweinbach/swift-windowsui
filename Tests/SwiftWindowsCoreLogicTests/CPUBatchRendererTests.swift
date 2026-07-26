@@ -30,7 +30,7 @@ struct CPUBatchRendererTests {
                 scaleFactor: 1.0
             ))
 
-        var scene = GPUIScene(clearColor: Color(red: 0.25, green: 0.5, blue: 0.75, alpha: 1))
+        let scene = GPUIScene(clearColor: Color(red: 0.25, green: 0.5, blue: 0.75, alpha: 1))
         try renderer.render(scene: scene)
 
         let bitmap = try #require(renderer.lastRenderedBitmap)

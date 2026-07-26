@@ -45,8 +45,9 @@ final class CrossViewRenderingParityTests: XCTestCase {
             Canvas { ctx, size in
                 var path = Path()
                 path.moveTo(Point(x: 0, y: 0))
+                path.lineTo(Point(x: size.width, y: size.height))
                 path.lineTo(Point(x: size.width, y: 0))
-                path.lineTo(Point(x: size.width / 2, y: size.height))
+                path.lineTo(Point(x: 0, y: size.height))
                 path.close()
                 ctx.fill(path, with: .color(Color(red: 0.95, green: 0.6, blue: 0.2, alpha: 1)))
             }
@@ -201,9 +202,10 @@ final class CrossViewRenderingParityTests: XCTestCase {
                 .foregroundColor(.white)
         )
         for _ in 0..<depth {
+            let child = view
             view = AnyView(
                 VStack(alignment: .center, spacing: 0) {
-                    view
+                    child
                 }
                 .padding(2)
             )
@@ -218,12 +220,13 @@ final class CrossViewRenderingParityTests: XCTestCase {
 
     func testDeeplyNestedHierarchyStillEmitsLeafText() async {
         await MainActor.run {
-            let scene = deeplyNestedScene(depth: 20)
+            let depth = 20
+            let scene = deeplyNestedScene(depth: depth)
             let totalNativeGlyphs = scene.layers.reduce(0) { $0 + $1.glyphs.count }
             XCTAssertGreaterThan(
                 totalNativeGlyphs,
                 0,
-                "Leaf Text must survive 20 levels of VStack/padding wrapping — layout collapse would silently swallow it"
+                "Leaf Text must survive \(depth) levels of VStack/padding wrapping — layout collapse would silently swallow it"
             )
         }
     }

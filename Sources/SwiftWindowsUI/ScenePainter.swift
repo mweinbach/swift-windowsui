@@ -174,6 +174,43 @@ public enum ScenePainter {
 
     // MARK: - Private
 
+    private struct PaintTraversalContext {
+        let node: ViewNode
+        let parentOrigin: Point
+        let inheritedClip: Rect?
+        let inheritedClipCornerRadius: Double
+        let layerIndex: Int
+        let primitiveOpacity: Float
+        let inheritedColorEffects: [RetainedColorEffect]
+        let inheritedBlurRadius: Double
+        let inheritedBlurOpaque: Bool
+        let inheritedBlendMode: BlendMode
+        let inheritedTransform: Transform2D
+        let isInsideDrawingGroup: Bool
+        let skipCacheUpdates: Bool
+    }
+
+    private struct PaintNodeFinishState {
+        let node: ViewNode
+        let startPaintRecord: Int
+        let cacheKey: ViewPaintCacheKey
+        let hasChildren: Bool
+        let borderColor: Color
+        let paintFrame: Rect
+        let effectiveClip: Rect?
+        let effectiveClipCornerRadius: Double
+        let opacity: Float
+        let colorEffects: [RetainedColorEffect]
+        let effectiveBlendMode: BlendMode
+        let layerIndex: Int
+        let skipCacheUpdates: Bool
+    }
+
+    private enum PaintTraversalStep {
+        case enter(PaintTraversalContext)
+        case finish(PaintNodeFinishState)
+    }
+
     private static func paintNode(
         _ node: ViewNode,
         into scene: inout GPUIScene,
@@ -198,225 +235,291 @@ public enum ScenePainter {
         isInsideDrawingGroup: Bool = false,
         skipCacheUpdates: Bool = false
     ) {
-        let startPaintRecord = scene.paintRecordCount
-        guard !node.isHidden else {
-            if !skipCacheUpdates {
-                node.cachedSceneKey = nil
-                node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+        var traversal: [PaintTraversalStep] = [
+            .enter(
+                PaintTraversalContext(
+                    node: node,
+                    parentOrigin: parentOrigin,
+                    inheritedClip: inheritedClip,
+                    inheritedClipCornerRadius: inheritedClipCornerRadius,
+                    layerIndex: layerIndex,
+                    primitiveOpacity: primitiveOpacity,
+                    inheritedColorEffects: inheritedColorEffects,
+                    inheritedBlurRadius: inheritedBlurRadius,
+                    inheritedBlurOpaque: inheritedBlurOpaque,
+                    inheritedBlendMode: inheritedBlendMode,
+                    inheritedTransform: inheritedTransform,
+                    isInsideDrawingGroup: isInsideDrawingGroup,
+                    skipCacheUpdates: skipCacheUpdates
+                )
+            )
+        ]
+
+        while let traversalStep = traversal.popLast() {
+            let context: PaintTraversalContext
+            switch traversalStep {
+            case .finish(let state):
+                finishPaintNode(
+                    state,
+                    into: &scene,
+                    surfaceSize: surfaceSize,
+                    displayScale: displayScale
+                )
+                continue
+
+            case .enter(let entryContext):
+                context = entryContext
             }
-            node.markSubtreeRendered()
-            return
-        }
 
-        let effectiveBlendMode: BlendMode = node.blendMode == .normal ? inheritedBlendMode : node.blendMode
+            let node = context.node
+            let parentOrigin = context.parentOrigin
+            let inheritedClip = context.inheritedClip
+            let inheritedClipCornerRadius = context.inheritedClipCornerRadius
+            let layerIndex = context.layerIndex
+            let primitiveOpacity = context.primitiveOpacity
+            let inheritedColorEffects = context.inheritedColorEffects
+            let inheritedBlurRadius = context.inheritedBlurRadius
+            let inheritedBlurOpaque = context.inheritedBlurOpaque
+            let inheritedBlendMode = context.inheritedBlendMode
+            let inheritedTransform = context.inheritedTransform
+            let isInsideDrawingGroup = context.isInsideDrawingGroup
+            let skipCacheUpdates = context.skipCacheUpdates
 
-        // The node's frame in its parent's local coordinate space.
-        let nodeLocalFrame = Rect(
-            x: parentOrigin.x + node.resolvedFrame.origin.x,
-            y: parentOrigin.y + node.resolvedFrame.origin.y,
-            width: node.resolvedFrame.size.width,
-            height: node.resolvedFrame.size.height
-        )
-
-        // Map the local frame into screen space using the inherited ancestor
-        // transform, then apply the node's own transform centered around the
-        // screen-space center so that scaleEffect/rotationEffect affect both
-        // the node and all descendants consistently.
-        let centeredTransform: Transform2D
-        let paintFrame: Rect
-        if node.transform.isIdentity {
-            centeredTransform = .identity
-            paintFrame = nodeLocalFrame.applying(transform: inheritedTransform)
-        } else {
-            let nodeScreenFrame = nodeLocalFrame.applying(transform: inheritedTransform)
-            let center = Point(x: nodeScreenFrame.midX, y: nodeScreenFrame.midY)
-            centeredTransform = Transform2D.translation(x: -center.x, y: -center.y)
-                .concatenating(node.transform)
-                .concatenating(.translation(x: center.x, y: center.y))
-            paintFrame = nodeScreenFrame.applying(transform: centeredTransform)
-        }
-        let effectiveTransform = centeredTransform.concatenating(inheritedTransform)
-
-        guard paintFrame.size.width > 0, paintFrame.size.height > 0 else {
-            if !skipCacheUpdates {
-                node.cachedSceneKey = nil
-                node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
-            }
-            node.markSubtreeRendered()
-            return
-        }
-
-        // Occlusion culling against inherited clip.
-        if !clipAllowsDrawing(clip: inheritedClip, rect: paintFrame) {
-            if !skipCacheUpdates {
-                node.cachedSceneKey = nil
-                node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
-            }
-            node.markSubtreeRendered()
-            return
-        }
-
-        var effectiveClip = inheritedClip
-        var effectiveClipCornerRadius = inheritedClipCornerRadius
-        if node.clipsToBounds {
-            if let inherited = inheritedClip {
-                guard let clipped = inherited.intersected(with: paintFrame) else {
-                    if !skipCacheUpdates {
-                        node.cachedSceneKey = nil
-                        node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
-                    }
-                    node.markSubtreeRendered()
-                    return
+            let startPaintRecord = scene.paintRecordCount
+            guard !node.isHidden else {
+                if !skipCacheUpdates {
+                    node.cachedSceneKey = nil
+                    node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
                 }
-                effectiveClip = clipped
+                node.markSubtreeRendered()
+                continue
+            }
+
+            let effectiveBlendMode: BlendMode = node.blendMode == .normal ? inheritedBlendMode : node.blendMode
+
+            // The node's frame in its parent's local coordinate space.
+            let nodeLocalFrame = Rect(
+                x: parentOrigin.x + node.resolvedFrame.origin.x,
+                y: parentOrigin.y + node.resolvedFrame.origin.y,
+                width: node.resolvedFrame.size.width,
+                height: node.resolvedFrame.size.height
+            )
+
+            // Map the local frame into screen space using the inherited ancestor
+            // transform, then apply the node's own transform centered around the
+            // screen-space center so that scaleEffect/rotationEffect affect both
+            // the node and all descendants consistently.
+            let centeredTransform: Transform2D
+            let paintFrame: Rect
+            if node.transform.isIdentity {
+                centeredTransform = .identity
+                paintFrame = nodeLocalFrame.applying(transform: inheritedTransform)
             } else {
-                effectiveClip = paintFrame
+                let nodeScreenFrame = nodeLocalFrame.applying(transform: inheritedTransform)
+                let center = Point(x: nodeScreenFrame.midX, y: nodeScreenFrame.midY)
+                centeredTransform = Transform2D.translation(x: -center.x, y: -center.y)
+                    .concatenating(node.transform)
+                    .concatenating(.translation(x: center.x, y: center.y))
+                paintFrame = nodeScreenFrame.applying(transform: centeredTransform)
             }
-            if node.cornerRadius > 0 {
-                effectiveClipCornerRadius = node.cornerRadius
-            }
-        }
+            let effectiveTransform = centeredTransform.concatenating(inheritedTransform)
 
-        // GPUI/Zed carries opacity as an inherited paint scalar.
-        let opacity = primitiveOpacity * Float(node.opacity)
-        let colorEffects = inheritedColorEffects + node.colorEffects
-        let blurRadius = max(inheritedBlurRadius, node.blurRadius)
-        let blurOpaque = inheritedBlurOpaque || node.blurOpaque
-        let resolvedHoverEffect = node.resolvedActiveHoverEffect
-        let cacheKey = ViewPaintCacheKey(
-            bounds: paintFrame,
-            contentMask: effectiveClip,
-            opacity: opacity,
-            blurRadius: blurRadius,
-            blurOpaque: blurOpaque,
-            blendMode: effectiveBlendMode,
-            isCompositingGroup: node.isCompositingGroup,
-            drawingGroup: node.drawingGroup,
-            colorEffects: colorEffects,
-            visualEffects: node.visualEffects,
-            viewMask: node.viewMask,
-            displayScale: displayScale,
-            isHovered: node.isHovered,
-            hoverEffect: resolvedHoverEffect,
-            isFocused: node.isFocused,
-            isFocusEffectDisabled: node.isFocusEffectDisabled
-        )
-        guard opacity > 0 else {
-            if !skipCacheUpdates {
+            guard paintFrame.size.width > 0, paintFrame.size.height > 0 else {
+                if !skipCacheUpdates {
+                    node.cachedSceneKey = nil
+                    node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+                }
+                node.markSubtreeRendered()
+                continue
+            }
+
+            // Occlusion culling against inherited clip.
+            if !clipAllowsDrawing(clip: inheritedClip, rect: paintFrame) {
+                if !skipCacheUpdates {
+                    node.cachedSceneKey = nil
+                    node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+                }
+                node.markSubtreeRendered()
+                continue
+            }
+
+            var effectiveClip = inheritedClip
+            var effectiveClipCornerRadius = inheritedClipCornerRadius
+            if node.clipsToBounds {
+                if let inherited = inheritedClip {
+                    guard let clipped = inherited.intersected(with: paintFrame) else {
+                        if !skipCacheUpdates {
+                            node.cachedSceneKey = nil
+                            node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+                        }
+                        node.markSubtreeRendered()
+                        continue
+                    }
+                    effectiveClip = clipped
+                } else {
+                    effectiveClip = paintFrame
+                }
+                if node.cornerRadius > 0 {
+                    effectiveClipCornerRadius = node.cornerRadius
+                }
+            }
+
+            // GPUI/Zed carries opacity as an inherited paint scalar.
+            let opacity = primitiveOpacity * Float(node.opacity)
+            let colorEffects = inheritedColorEffects + node.colorEffects
+            let blurRadius = max(inheritedBlurRadius, node.blurRadius)
+            let blurOpaque = inheritedBlurOpaque || node.blurOpaque
+            let resolvedHoverEffect = node.resolvedActiveHoverEffect
+            let cacheKey = ViewPaintCacheKey(
+                bounds: paintFrame,
+                contentMask: effectiveClip,
+                opacity: opacity,
+                blurRadius: blurRadius,
+                blurOpaque: blurOpaque,
+                blendMode: effectiveBlendMode,
+                isCompositingGroup: node.isCompositingGroup,
+                drawingGroup: node.drawingGroup,
+                colorEffects: colorEffects,
+                visualEffects: node.visualEffects,
+                viewMask: node.viewMask,
+                displayScale: displayScale,
+                isHovered: node.isHovered,
+                hoverEffect: resolvedHoverEffect,
+                isFocused: node.isFocused,
+                isFocusEffectDisabled: node.isFocusEffectDisabled
+            )
+            guard opacity > 0 else {
+                if !skipCacheUpdates {
+                    node.cachedSceneKey = cacheKey
+                    node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+                }
+                node.markSubtreeRendered()
+                continue
+            }
+
+            if !skipCacheUpdates,
+                let previousScene,
+                !node.hasDirtySubtree,
+                node.cachedSceneKey == cacheKey,
+                let cachedScenePaintRange = node.cachedScenePaintRange
+            {
+                _ = scene.replay(cachedScenePaintRange, from: previousScene)
+                let delta = startPaintRecord - cachedScenePaintRange.lowerBound
+                node.shiftCachedSceneRangesRecursively(by: delta)
                 node.cachedSceneKey = cacheKey
-                node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+                node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
+                node.markSubtreeRendered()
+                replayCount += 1
+                continue
             }
-            node.markSubtreeRendered()
-            return
-        }
 
-        if !skipCacheUpdates,
-            let previousScene,
-            !node.hasDirtySubtree,
-            node.cachedSceneKey == cacheKey,
-            let cachedScenePaintRange = node.cachedScenePaintRange
-        {
-            _ = scene.replay(cachedScenePaintRange, from: previousScene)
-            let delta = startPaintRecord - cachedScenePaintRange.lowerBound
-            node.shiftCachedSceneRangesRecursively(by: delta)
-            node.cachedSceneKey = cacheKey
-            node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
-            node.markSubtreeRendered()
-            replayCount += 1
-            return
-        }
-
-        if let hoverShadow = node.hoverEffectShadowCommand(
-            for: paintFrame,
-            inheritedClip: inheritedClip,
-            opacity: opacity
-        ) {
-            scene.addQuad(
-                quad(for: hoverShadow, surfaceSize: surfaceSize, displayScale: displayScale),
-                toLayer: layerIndex
-            )
-        }
-
-        // Shadow
-        let effectiveShadowColor = node.shadowColor.multipliedAlpha(by: opacity)
-        if effectiveShadowColor.alpha > 0 {
-            let shadowRect =
-                paintFrame
-                .outset(by: max(0, node.shadowSpread))
-                .offsetBy(dx: node.shadowOffset.x, dy: node.shadowOffset.y)
-
-            if clipAllowsDrawing(clip: inheritedClip, rect: shadowRect) {
-                let scaledShadowRect = scaleRect(shadowRect, by: displayScale)
-                let shadowClip = clipRectFloats(inheritedClip, surfaceSize: surfaceSize, displayScale: displayScale)
-                scene.addShadow(
-                    ShadowPrimitive(
-                        x: Float(scaledShadowRect.origin.x),
-                        y: Float(scaledShadowRect.origin.y),
-                        width: Float(scaledShadowRect.size.width),
-                        height: Float(scaledShadowRect.size.height),
-                        cornerRadius: Float((node.cornerRadius + max(0, node.shadowSpread)) * displayScale),
-                        colorR: effectiveShadowColor.red,
-                        colorG: effectiveShadowColor.green,
-                        colorB: effectiveShadowColor.blue,
-                        colorA: effectiveShadowColor.alpha,
-                        blurRadius: Float(node.shadowSpread * displayScale),
-                        offsetX: Float(node.shadowOffset.x * displayScale),
-                        offsetY: Float(node.shadowOffset.y * displayScale),
-                        clipX: shadowClip.0,
-                        clipY: shadowClip.1,
-                        clipWidth: shadowClip.2,
-                        clipHeight: shadowClip.3
-                    ), toLayer: layerIndex)
-            }
-        }
-
-        if let focusEffect = node.focusEffectCommand(
-            for: paintFrame,
-            inheritedClip: inheritedClip,
-            opacity: opacity
-        ) {
-            scene.addQuad(
-                quad(for: focusEffect, surfaceSize: surfaceSize, displayScale: displayScale),
-                toLayer: layerIndex
-            )
-        }
-
-        // Outline (drawn outside the border)
-        if node.outlineColor.alpha > 0, node.outlineWidth > 0 {
-            let outlineRect = paintFrame.outset(by: node.outlineWidth)
-            if clipAllowsDrawing(clip: inheritedClip, rect: outlineRect) {
-                scene.addQuad(
-                    solidQuad(
-                        rect: outlineRect,
-                        cornerRadius: node.cornerRadius + node.outlineWidth,
-                        color: node.outlineColor,
-                        opacity: opacity,
-                        clip: inheritedClip,
-                        surfaceSize: surfaceSize,
-                        displayScale: displayScale,
-                        colorEffects: colorEffects
-                    ), toLayer: layerIndex)
-            }
-        }
-
-        // Border (full rect drawn under the fill area; for leaf nodes the
-        // inset fill leaves the border ring visible).
-        let borderColor = node.borderGradient?.startColor ?? node.borderColor
-        if borderColor.alpha > 0, node.borderWidth > 0,
-            node.backgroundPath == nil,
-            clipAllowsDrawing(clip: effectiveClip, rect: paintFrame)
-        {
-            if let borderSegments = BorderSegments.dashedSegments(
-                frame: paintFrame,
-                width: node.borderWidth,
-                cornerRadius: node.cornerRadius,
-                strokeStyle: node.borderStrokeStyle
+            if let hoverShadow = node.hoverEffectShadowCommand(
+                for: paintFrame,
+                inheritedClip: inheritedClip,
+                opacity: opacity
             ) {
-                for segment in borderSegments where clipAllowsDrawing(clip: effectiveClip, rect: segment.rect) {
+                scene.addQuad(
+                    quad(for: hoverShadow, surfaceSize: surfaceSize, displayScale: displayScale),
+                    toLayer: layerIndex
+                )
+            }
+
+            // Shadow
+            let effectiveShadowColor = node.shadowColor.multipliedAlpha(by: opacity)
+            if effectiveShadowColor.alpha > 0 {
+                let shadowRect =
+                    paintFrame
+                    .outset(by: max(0, node.shadowSpread))
+                    .offsetBy(dx: node.shadowOffset.x, dy: node.shadowOffset.y)
+
+                if clipAllowsDrawing(clip: inheritedClip, rect: shadowRect) {
+                    let scaledShadowRect = scaleRect(shadowRect, by: displayScale)
+                    let shadowClip = clipRectFloats(inheritedClip, surfaceSize: surfaceSize, displayScale: displayScale)
+                    scene.addShadow(
+                        ShadowPrimitive(
+                            x: Float(scaledShadowRect.origin.x),
+                            y: Float(scaledShadowRect.origin.y),
+                            width: Float(scaledShadowRect.size.width),
+                            height: Float(scaledShadowRect.size.height),
+                            cornerRadius: Float((node.cornerRadius + max(0, node.shadowSpread)) * displayScale),
+                            colorR: effectiveShadowColor.red,
+                            colorG: effectiveShadowColor.green,
+                            colorB: effectiveShadowColor.blue,
+                            colorA: effectiveShadowColor.alpha,
+                            blurRadius: Float(node.shadowSpread * displayScale),
+                            offsetX: Float(node.shadowOffset.x * displayScale),
+                            offsetY: Float(node.shadowOffset.y * displayScale),
+                            clipX: shadowClip.0,
+                            clipY: shadowClip.1,
+                            clipWidth: shadowClip.2,
+                            clipHeight: shadowClip.3
+                        ), toLayer: layerIndex)
+                }
+            }
+
+            if let focusEffect = node.focusEffectCommand(
+                for: paintFrame,
+                inheritedClip: inheritedClip,
+                opacity: opacity
+            ) {
+                scene.addQuad(
+                    quad(for: focusEffect, surfaceSize: surfaceSize, displayScale: displayScale),
+                    toLayer: layerIndex
+                )
+            }
+
+            // Outline (drawn outside the border)
+            if node.outlineColor.alpha > 0, node.outlineWidth > 0 {
+                let outlineRect = paintFrame.outset(by: node.outlineWidth)
+                if clipAllowsDrawing(clip: inheritedClip, rect: outlineRect) {
+                    scene.addQuad(
+                        solidQuad(
+                            rect: outlineRect,
+                            cornerRadius: node.cornerRadius + node.outlineWidth,
+                            color: node.outlineColor,
+                            opacity: opacity,
+                            clip: inheritedClip,
+                            surfaceSize: surfaceSize,
+                            displayScale: displayScale,
+                            colorEffects: colorEffects
+                        ), toLayer: layerIndex)
+                }
+            }
+
+            // Border (full rect drawn under the fill area; for leaf nodes the
+            // inset fill leaves the border ring visible).
+            let borderColor = node.borderGradient?.startColor ?? node.borderColor
+            if borderColor.alpha > 0, node.borderWidth > 0,
+                node.backgroundPath == nil,
+                clipAllowsDrawing(clip: effectiveClip, rect: paintFrame)
+            {
+                if let borderSegments = BorderSegments.dashedSegments(
+                    frame: paintFrame,
+                    width: node.borderWidth,
+                    cornerRadius: node.cornerRadius,
+                    strokeStyle: node.borderStrokeStyle
+                ) {
+                    for segment in borderSegments where clipAllowsDrawing(clip: effectiveClip, rect: segment.rect) {
+                        scene.addQuad(
+                            fillQuad(
+                                rect: segment.rect,
+                                cornerRadius: segment.cornerRadius,
+                                color: borderColor,
+                                gradient: node.borderGradient,
+                                opacity: opacity,
+                                clip: effectiveClip,
+                                surfaceSize: surfaceSize,
+                                displayScale: displayScale,
+                                colorEffects: colorEffects,
+                                clipCornerRadius: effectiveClipCornerRadius,
+                                blendMode: effectiveBlendMode
+                            ), toLayer: layerIndex)
+                    }
+                } else {
                     scene.addQuad(
                         fillQuad(
-                            rect: segment.rect,
-                            cornerRadius: segment.cornerRadius,
+                            rect: paintFrame,
+                            cornerRadius: node.cornerRadius,
                             color: borderColor,
                             gradient: node.borderGradient,
                             opacity: opacity,
@@ -428,349 +531,379 @@ public enum ScenePainter {
                             blendMode: effectiveBlendMode
                         ), toLayer: layerIndex)
                 }
-            } else {
+            }
+
+            // Background fill (inset by border width)
+            let fillRect = node.borderWidth > 0 ? paintFrame.inset(by: node.borderWidth) : paintFrame
+            let fillCornerRadius = max(0, node.cornerRadius - node.borderWidth)
+
+            let resolvedBGColor = node.backgroundColor ?? node.backgroundGradient?.startColor
+            if let bg = resolvedBGColor, bg.alpha > 0,
+                fillRect.size.width > 0, fillRect.size.height > 0,
+                clipAllowsDrawing(clip: effectiveClip, rect: fillRect),
+                node.backgroundPath == nil
+            {
                 scene.addQuad(
                     fillQuad(
-                        rect: paintFrame,
-                        cornerRadius: node.cornerRadius,
-                        color: borderColor,
-                        gradient: node.borderGradient,
+                        rect: fillRect,
+                        cornerRadius: fillCornerRadius,
+                        color: bg,
+                        gradient: node.backgroundGradient,
                         opacity: opacity,
                         clip: effectiveClip,
                         surfaceSize: surfaceSize,
                         displayScale: displayScale,
                         colorEffects: colorEffects,
+                        blurRadius: Float(blurRadius * displayScale),
+                        blurOpaque: blurOpaque ? 1 : 0,
                         clipCornerRadius: effectiveClipCornerRadius,
                         blendMode: effectiveBlendMode
-                    ), toLayer: layerIndex)
-            }
-        }
-
-        // Background fill (inset by border width)
-        let fillRect = node.borderWidth > 0 ? paintFrame.inset(by: node.borderWidth) : paintFrame
-        let fillCornerRadius = max(0, node.cornerRadius - node.borderWidth)
-
-        let resolvedBGColor = node.backgroundColor ?? node.backgroundGradient?.startColor
-        if let bg = resolvedBGColor, bg.alpha > 0,
-            fillRect.size.width > 0, fillRect.size.height > 0,
-            clipAllowsDrawing(clip: effectiveClip, rect: fillRect),
-            node.backgroundPath == nil
-        {
-            scene.addQuad(
-                fillQuad(
-                    rect: fillRect,
-                    cornerRadius: fillCornerRadius,
-                    color: bg,
-                    gradient: node.backgroundGradient,
-                    opacity: opacity,
-                    clip: effectiveClip,
-                    surfaceSize: surfaceSize,
-                    displayScale: displayScale,
-                    colorEffects: colorEffects,
-                    blurRadius: Float(blurRadius * displayScale),
-                    blurOpaque: blurOpaque ? 1 : 0,
-                    clipCornerRadius: effectiveClipCornerRadius,
-                    blendMode: effectiveBlendMode
-                ),
-                toLayer: layerIndex
-            )
-        }
-
-        if let path = node.backgroundPath, fillRect.size.width > 0, fillRect.size.height > 0,
-            clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
-        {
-            let scaledPath = path.scaled(to: fillRect)
-            let pathBounds = scaledPath.segments.boundingRect ?? fillRect
-            if let bg = resolvedBGColor, bg.alpha > 0 {
-                Self.emit(
-                    path: PathPrimitive(
-                        elements: scaledPath.segments.map { segment in
-                            switch segment {
-                            case .moveTo(let p): return .moveTo(p)
-                            case .lineTo(let p): return .lineTo(p)
-                            case .quadCurveTo(let c, let e): return .quadraticCurveTo(control: c, end: e)
-                            case .cubicCurveTo(let c1, let c2, let e):
-                                return .cubicCurveTo(control1: c1, control2: c2, end: e)
-                            case .arc(let c, let r, let s, let e, let cw):
-                                return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
-                            case .close: return .close
-                            }
-                        },
-                        bounds: pathBounds,
-                        fillColor: bg,
-                        clipBounds: effectiveClip
-                    ), into: &scene, layerIndex: layerIndex)
-            }
-            let effectiveStrokeColor = node.borderColor.multipliedAlpha(by: opacity)
-            if effectiveStrokeColor.alpha > 0, node.borderWidth > 0 {
-                Self.emit(
-                    path: PathPrimitive(
-                        elements: scaledPath.segments.map { segment in
-                            switch segment {
-                            case .moveTo(let p): return .moveTo(p)
-                            case .lineTo(let p): return .lineTo(p)
-                            case .quadCurveTo(let c, let e): return .quadraticCurveTo(control: c, end: e)
-                            case .cubicCurveTo(let c1, let c2, let e):
-                                return .cubicCurveTo(control1: c1, control2: c2, end: e)
-                            case .arc(let c, let r, let s, let e, let cw):
-                                return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
-                            case .close: return .close
-                            }
-                        },
-                        bounds: pathBounds,
-                        strokeColor: effectiveStrokeColor,
-                        lineWidth: node.borderWidth,
-                        clipBounds: effectiveClip
-                    ), into: &scene, layerIndex: layerIndex)
-            }
-        }
-
-        if let hoverOverlay = node.hoverEffectOverlayCommand(
-            for: fillRect,
-            cornerRadius: fillCornerRadius,
-            clipRect: effectiveClip,
-            opacity: opacity
-        ) {
-            scene.addQuad(
-                quad(for: hoverOverlay, surfaceSize: surfaceSize, displayScale: displayScale),
-                toLayer: layerIndex
-            )
-        }
-
-        let drawsRedactionPlaceholder =
-            node.redactionReasons.contains(.placeholder)
-            && (node.bitmapSurface != nil || (node.text?.isEmpty == false))
-            && fillRect.size.width > 0
-            && fillRect.size.height > 0
-            && clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
-
-        if drawsRedactionPlaceholder {
-            scene.addQuad(
-                solidQuad(
-                    rect: fillRect,
-                    cornerRadius: retainedRedactionPlaceholderCornerRadius(for: fillRect),
-                    color: retainedRedactionPlaceholderBaseColor,
-                    opacity: opacity,
-                    clip: effectiveClip,
-                    surfaceSize: surfaceSize,
-                    displayScale: displayScale,
-                    clipCornerRadius: effectiveClipCornerRadius,
-                    blendMode: effectiveBlendMode
-                ), toLayer: layerIndex)
-        } else if let bitmapSurface = node.bitmapSurface,
-            fillRect.size.width > 0, fillRect.size.height > 0,
-            clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
-        {
-            let scaledFillRect = scaleRect(fillRect, by: displayScale)
-            let clipR = clipRectFloats(effectiveClip, surfaceSize: surfaceSize, displayScale: displayScale)
-            let textureID = scene.registerImageResource(bitmapSurface)
-            scene.addImage(
-                ImagePrimitive(
-                    screenX: Float(scaledFillRect.origin.x),
-                    screenY: Float(scaledFillRect.origin.y),
-                    screenW: Float(scaledFillRect.size.width),
-                    screenH: Float(scaledFillRect.size.height),
-                    opacity: opacity,
-                    clipX: clipR.0,
-                    clipY: clipR.1,
-                    clipWidth: clipR.2,
-                    clipHeight: clipR.3,
-                    textureID: textureID
-                ), toLayer: layerIndex)
-        }
-
-        if !drawsRedactionPlaceholder,
-            let text = node.text, !text.isEmpty,
-            fillRect.size.width > 0, fillRect.size.height > 0,
-            clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
-        {
-            let effectiveTextStyle = node.textStyle.multipliedOpacity(by: opacity)
-            var nativeGlyphs: [GlyphPrimitive] = []
-            var pixelGlyphs: [GlyphPrimitive] = []
-            var textDecorationQuads: [QuadPrimitive] = []
-            appendTextGlyphs(
-                for: text,
-                style: effectiveTextStyle,
-                in: fillRect,
-                opacity: 1,
-                clip: effectiveClip,
-                surfaceSize: surfaceSize,
-                displayScale: displayScale,
-                textSystem: textSystem,
-                into: &nativeGlyphs,
-                pixelGlyphs: &pixelGlyphs,
-                decorationQuads: &textDecorationQuads
-            )
-            for glyph in nativeGlyphs {
-                scene.addGlyph(glyph, toLayer: layerIndex)
-            }
-            for glyph in pixelGlyphs {
-                scene.addPixelGlyph(glyph, toLayer: layerIndex)
-            }
-            for quad in textDecorationQuads {
-                scene.addQuad(quad, toLayer: layerIndex)
-            }
-            usedNativeGlyphs = usedNativeGlyphs || !nativeGlyphs.isEmpty
-            usedPixelGlyphs = usedPixelGlyphs || !pixelGlyphs.isEmpty
-        }
-
-        // Canvas custom drawing -- mirror the RenderFrame canvasDraw path
-        // (see Runtime.swift) so `Canvas { ctx, size in ... }` content renders
-        // through the default GPUIScene/D3D11 path, not only the frame fallback.
-        if let canvasDraw = node.canvasDraw,
-            fillRect.size.width > 0, fillRect.size.height > 0,
-            clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
-        {
-            var canvasContext = CanvasGraphicsContext()
-            canvasDraw(&canvasContext, fillRect.size)
-            appendCanvasOperations(
-                canvasContext.operations,
-                into: &scene,
-                origin: fillRect.origin,
-                baseClip: effectiveClip,
-                opacity: opacity,
-                layerIndex: layerIndex,
-                surfaceSize: surfaceSize,
-                displayScale: displayScale,
-                textSystem: textSystem,
-                usedNativeGlyphs: &usedNativeGlyphs,
-                usedPixelGlyphs: &usedPixelGlyphs
-            )
-        }
-
-        // Children -- sort by zIndex (stable) and rely on scene draw orders
-        // rather than allocating paint-order layers.  parentOrigin is kept in
-        // untransformed local space; the accumulated screen-space transform is
-        // passed separately so that both child origin and size are affected.
-        let scrollX = node.scrollAxis == .horizontal ? node.resolvedScrollOffset : 0
-        let scrollY = node.scrollAxis == .vertical ? node.resolvedScrollOffset : 0
-        let childOrigin = Point(
-            x: nodeLocalFrame.origin.x - scrollX,
-            y: nodeLocalFrame.origin.y - scrollY
-        )
-
-        let sortedChildren: [ViewNode]
-        if node.children.contains(where: { $0.zIndex != 0 }) {
-            sortedChildren = node.children.enumerated()
-                .sorted { a, b in
-                    if a.element.zIndex != b.element.zIndex {
-                        return a.element.zIndex < b.element.zIndex
-                    }
-                    return a.offset < b.offset
-                }
-                .map(\.element)
-        } else {
-            sortedChildren = node.children
-        }
-
-        if (node.drawingGroup != nil || node.isCompositingGroup) && !isInsideDrawingGroup && !sortedChildren.isEmpty {
-            // Compositing group: render children into an offscreen buffer so
-            // overlapping content is blended together before ancestor opacity
-            // or blend modes are applied.
-            let subShift = Transform2D.translation(x: -paintFrame.origin.x, y: -paintFrame.origin.y)
-            let subInheritedTransform = subShift.concatenating(inheritedTransform)
-
-            let subWidth = max(1, Int((paintFrame.size.width * displayScale).rounded(.up)))
-            let subHeight = max(1, Int((paintFrame.size.height * displayScale).rounded(.up)))
-            let subSize = IntSize(width: Int32(subWidth), height: Int32(subHeight))
-
-            var subScene = GPUIScene(clearColor: .clear)
-            var subDeferred: [DeferredDrawState] = []
-            var subNative = false
-            var subPixel = false
-            var subReplay = 0
-
-            for child in sortedChildren {
-                if child.paintsInDeferredPhase {
-                    continue
-                }
-                paintNode(
-                    child,
-                    into: &subScene,
-                    deferredDraws: &subDeferred,
-                    parentOrigin: childOrigin,
-                    inheritedClip: nil,
-                    inheritedClipCornerRadius: 0,
-                    layerIndex: 0,
-                    surfaceSize: surfaceSize,
-                    displayScale: displayScale,
-                    textSystem: textSystem,
-                    previousScene: nil,
-                    primitiveOpacity: 1.0,
-                    inheritedColorEffects: [],
-                    inheritedBlurRadius: 0,
-                    inheritedBlurOpaque: false,
-                    inheritedBlendMode: .normal,
-                    usedNativeGlyphs: &subNative,
-                    usedPixelGlyphs: &subPixel,
-                    replayCount: &subReplay,
-                    inheritedTransform: subInheritedTransform,
-                    isInsideDrawingGroup: true,
-                    skipCacheUpdates: true
+                    ),
+                    toLayer: layerIndex
                 )
             }
 
-            subScene.finish()
-            let bitmap = GPUIRawSceneRasterizer.rasterize(subScene, size: subSize)
-
-            let textureID = scene.registerImageResource(bitmap)
-            let scaledFrame = scaleRect(paintFrame, by: displayScale)
-            let clipR = clipRectFloats(effectiveClip, surfaceSize: surfaceSize, displayScale: displayScale)
-            let imageOpacity = primitiveOpacity * Float(node.opacity)
-            scene.addImage(
-                ImagePrimitive(
-                    screenX: Float(scaledFrame.origin.x),
-                    screenY: Float(scaledFrame.origin.y),
-                    screenW: Float(scaledFrame.size.width),
-                    screenH: Float(scaledFrame.size.height),
-                    opacity: imageOpacity,
-                    clipX: clipR.0,
-                    clipY: clipR.1,
-                    clipWidth: clipR.2,
-                    clipHeight: clipR.3,
-                    textureID: textureID
-                ), toLayer: layerIndex)
-        } else {
-            for child in sortedChildren {
-                if child.paintsInDeferredPhase {
-                    continue
+            if let path = node.backgroundPath, fillRect.size.width > 0, fillRect.size.height > 0,
+                clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
+            {
+                let scaledPath = path.scaled(to: fillRect)
+                let pathBounds = scaledPath.segments.boundingRect ?? fillRect
+                if let bg = resolvedBGColor, bg.alpha > 0 {
+                    Self.emit(
+                        path: PathPrimitive(
+                            elements: scaledPath.segments.map { segment in
+                                switch segment {
+                                case .moveTo(let p): return .moveTo(p)
+                                case .lineTo(let p): return .lineTo(p)
+                                case .quadCurveTo(let c, let e): return .quadraticCurveTo(control: c, end: e)
+                                case .cubicCurveTo(let c1, let c2, let e):
+                                    return .cubicCurveTo(control1: c1, control2: c2, end: e)
+                                case .arc(let c, let r, let s, let e, let cw):
+                                    return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
+                                case .close: return .close
+                                }
+                            },
+                            bounds: pathBounds,
+                            fillColor: bg,
+                            clipBounds: effectiveClip
+                        ), into: &scene, layerIndex: layerIndex)
                 }
-                paintNode(
-                    child,
+                let effectiveStrokeColor = node.borderColor.multipliedAlpha(by: opacity)
+                if effectiveStrokeColor.alpha > 0, node.borderWidth > 0 {
+                    Self.emit(
+                        path: PathPrimitive(
+                            elements: scaledPath.segments.map { segment in
+                                switch segment {
+                                case .moveTo(let p): return .moveTo(p)
+                                case .lineTo(let p): return .lineTo(p)
+                                case .quadCurveTo(let c, let e): return .quadraticCurveTo(control: c, end: e)
+                                case .cubicCurveTo(let c1, let c2, let e):
+                                    return .cubicCurveTo(control1: c1, control2: c2, end: e)
+                                case .arc(let c, let r, let s, let e, let cw):
+                                    return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
+                                case .close: return .close
+                                }
+                            },
+                            bounds: pathBounds,
+                            strokeColor: effectiveStrokeColor,
+                            lineWidth: node.borderWidth,
+                            clipBounds: effectiveClip
+                        ), into: &scene, layerIndex: layerIndex)
+                }
+            }
+
+            if let hoverOverlay = node.hoverEffectOverlayCommand(
+                for: fillRect,
+                cornerRadius: fillCornerRadius,
+                clipRect: effectiveClip,
+                opacity: opacity
+            ) {
+                scene.addQuad(
+                    quad(for: hoverOverlay, surfaceSize: surfaceSize, displayScale: displayScale),
+                    toLayer: layerIndex
+                )
+            }
+
+            let drawsRedactionPlaceholder =
+                node.redactionReasons.contains(.placeholder)
+                && (node.bitmapSurface != nil || (node.text?.isEmpty == false))
+                && fillRect.size.width > 0
+                && fillRect.size.height > 0
+                && clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
+
+            if drawsRedactionPlaceholder {
+                scene.addQuad(
+                    solidQuad(
+                        rect: fillRect,
+                        cornerRadius: retainedRedactionPlaceholderCornerRadius(for: fillRect),
+                        color: retainedRedactionPlaceholderBaseColor,
+                        opacity: opacity,
+                        clip: effectiveClip,
+                        surfaceSize: surfaceSize,
+                        displayScale: displayScale,
+                        clipCornerRadius: effectiveClipCornerRadius,
+                        blendMode: effectiveBlendMode
+                    ), toLayer: layerIndex)
+            } else if let bitmapSurface = node.bitmapSurface,
+                fillRect.size.width > 0, fillRect.size.height > 0,
+                clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
+            {
+                let scaledFillRect = scaleRect(fillRect, by: displayScale)
+                let clipR = clipRectFloats(effectiveClip, surfaceSize: surfaceSize, displayScale: displayScale)
+                let textureID = scene.registerImageResource(bitmapSurface)
+                scene.addImage(
+                    ImagePrimitive(
+                        screenX: Float(scaledFillRect.origin.x),
+                        screenY: Float(scaledFillRect.origin.y),
+                        screenW: Float(scaledFillRect.size.width),
+                        screenH: Float(scaledFillRect.size.height),
+                        opacity: opacity,
+                        clipX: clipR.0,
+                        clipY: clipR.1,
+                        clipWidth: clipR.2,
+                        clipHeight: clipR.3,
+                        textureID: textureID
+                    ), toLayer: layerIndex)
+            }
+
+            if !drawsRedactionPlaceholder,
+                let text = node.text, !text.isEmpty,
+                fillRect.size.width > 0, fillRect.size.height > 0,
+                clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
+            {
+                let effectiveTextStyle = node.textStyle.multipliedOpacity(by: opacity)
+                var nativeGlyphs: [GlyphPrimitive] = []
+                var pixelGlyphs: [GlyphPrimitive] = []
+                var textDecorationQuads: [QuadPrimitive] = []
+                appendTextGlyphs(
+                    for: text,
+                    style: effectiveTextStyle,
+                    in: fillRect,
+                    opacity: 1,
+                    clip: effectiveClip,
+                    surfaceSize: surfaceSize,
+                    displayScale: displayScale,
+                    textSystem: textSystem,
+                    into: &nativeGlyphs,
+                    pixelGlyphs: &pixelGlyphs,
+                    decorationQuads: &textDecorationQuads
+                )
+                for glyph in nativeGlyphs {
+                    scene.addGlyph(glyph, toLayer: layerIndex)
+                }
+                for glyph in pixelGlyphs {
+                    scene.addPixelGlyph(glyph, toLayer: layerIndex)
+                }
+                for quad in textDecorationQuads {
+                    scene.addQuad(quad, toLayer: layerIndex)
+                }
+                usedNativeGlyphs = usedNativeGlyphs || !nativeGlyphs.isEmpty
+                usedPixelGlyphs = usedPixelGlyphs || !pixelGlyphs.isEmpty
+            }
+
+            // Canvas custom drawing -- mirror the RenderFrame canvasDraw path
+            // (see Runtime.swift) so `Canvas { ctx, size in ... }` content renders
+            // through the default GPUIScene/D3D11 path, not only the frame fallback.
+            if let canvasDraw = node.canvasDraw,
+                fillRect.size.width > 0, fillRect.size.height > 0,
+                clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
+            {
+                var canvasContext = CanvasGraphicsContext()
+                canvasDraw(&canvasContext, fillRect.size)
+                appendCanvasOperations(
+                    canvasContext.operations,
                     into: &scene,
-                    deferredDraws: &deferredDraws,
-                    parentOrigin: childOrigin,
-                    inheritedClip: effectiveClip,
-                    inheritedClipCornerRadius: effectiveClipCornerRadius,
+                    origin: fillRect.origin,
+                    baseClip: effectiveClip,
+                    opacity: opacity,
                     layerIndex: layerIndex,
                     surfaceSize: surfaceSize,
                     displayScale: displayScale,
                     textSystem: textSystem,
-                    previousScene: previousScene,
-                    primitiveOpacity: opacity,
-                    inheritedColorEffects: colorEffects,
-                    inheritedBlurRadius: blurRadius,
-                    inheritedBlurOpaque: blurOpaque,
-                    inheritedBlendMode: effectiveBlendMode,
                     usedNativeGlyphs: &usedNativeGlyphs,
-                    usedPixelGlyphs: &usedPixelGlyphs,
-                    replayCount: &replayCount,
-                    inheritedTransform: effectiveTransform
+                    usedPixelGlyphs: &usedPixelGlyphs
                 )
             }
+
+            // Children -- sort by zIndex (stable) and rely on scene draw orders
+            // rather than allocating paint-order layers.  parentOrigin is kept in
+            // untransformed local space; the accumulated screen-space transform is
+            // passed separately so that both child origin and size are affected.
+            let scrollX = node.scrollAxis == .horizontal ? node.resolvedScrollOffset : 0
+            let scrollY = node.scrollAxis == .vertical ? node.resolvedScrollOffset : 0
+            let childOrigin = Point(
+                x: nodeLocalFrame.origin.x - scrollX,
+                y: nodeLocalFrame.origin.y - scrollY
+            )
+
+            let sortedChildren: [ViewNode]
+            if node.children.contains(where: { $0.zIndex != 0 }) {
+                sortedChildren = node.children.enumerated()
+                    .sorted { a, b in
+                        if a.element.zIndex != b.element.zIndex {
+                            return a.element.zIndex < b.element.zIndex
+                        }
+                        return a.offset < b.offset
+                    }
+                    .map(\.element)
+            } else {
+                sortedChildren = node.children
+            }
+
+            if (node.drawingGroup != nil || node.isCompositingGroup) && !isInsideDrawingGroup && !sortedChildren.isEmpty
+            {
+                // Compositing group: render children into an offscreen buffer so
+                // overlapping content is blended together before ancestor opacity
+                // or blend modes are applied.
+                let subShift = Transform2D.translation(x: -paintFrame.origin.x, y: -paintFrame.origin.y)
+                let subInheritedTransform = subShift.concatenating(inheritedTransform)
+
+                let subWidth = max(1, Int((paintFrame.size.width * displayScale).rounded(.up)))
+                let subHeight = max(1, Int((paintFrame.size.height * displayScale).rounded(.up)))
+                let subSize = IntSize(width: Int32(subWidth), height: Int32(subHeight))
+
+                var subScene = GPUIScene(clearColor: .clear)
+                var subDeferred: [DeferredDrawState] = []
+                var subNative = false
+                var subPixel = false
+                var subReplay = 0
+
+                for child in sortedChildren {
+                    if child.paintsInDeferredPhase {
+                        continue
+                    }
+                    paintNode(
+                        child,
+                        into: &subScene,
+                        deferredDraws: &subDeferred,
+                        parentOrigin: childOrigin,
+                        inheritedClip: nil,
+                        inheritedClipCornerRadius: 0,
+                        layerIndex: 0,
+                        surfaceSize: surfaceSize,
+                        displayScale: displayScale,
+                        textSystem: textSystem,
+                        previousScene: nil,
+                        primitiveOpacity: 1.0,
+                        inheritedColorEffects: [],
+                        inheritedBlurRadius: 0,
+                        inheritedBlurOpaque: false,
+                        inheritedBlendMode: .normal,
+                        usedNativeGlyphs: &subNative,
+                        usedPixelGlyphs: &subPixel,
+                        replayCount: &subReplay,
+                        inheritedTransform: subInheritedTransform,
+                        isInsideDrawingGroup: true,
+                        skipCacheUpdates: true
+                    )
+                }
+
+                subScene.finish()
+                let bitmap = GPUIRawSceneRasterizer.rasterize(subScene, size: subSize)
+
+                let textureID = scene.registerImageResource(bitmap)
+                let scaledFrame = scaleRect(paintFrame, by: displayScale)
+                let clipR = clipRectFloats(effectiveClip, surfaceSize: surfaceSize, displayScale: displayScale)
+                let imageOpacity = primitiveOpacity * Float(node.opacity)
+                scene.addImage(
+                    ImagePrimitive(
+                        screenX: Float(scaledFrame.origin.x),
+                        screenY: Float(scaledFrame.origin.y),
+                        screenW: Float(scaledFrame.size.width),
+                        screenH: Float(scaledFrame.size.height),
+                        opacity: imageOpacity,
+                        clipX: clipR.0,
+                        clipY: clipR.1,
+                        clipWidth: clipR.2,
+                        clipHeight: clipR.3,
+                        textureID: textureID
+                    ), toLayer: layerIndex)
+            } else {
+                traversal.append(
+                    .finish(
+                        PaintNodeFinishState(
+                            node: node,
+                            startPaintRecord: startPaintRecord,
+                            cacheKey: cacheKey,
+                            hasChildren: !sortedChildren.isEmpty,
+                            borderColor: borderColor,
+                            paintFrame: paintFrame,
+                            effectiveClip: effectiveClip,
+                            effectiveClipCornerRadius: effectiveClipCornerRadius,
+                            opacity: opacity,
+                            colorEffects: colorEffects,
+                            effectiveBlendMode: effectiveBlendMode,
+                            layerIndex: layerIndex,
+                            skipCacheUpdates: skipCacheUpdates
+                        )
+                    )
+                )
+                for child in sortedChildren.reversed() where !child.paintsInDeferredPhase {
+                    traversal.append(
+                        .enter(
+                            PaintTraversalContext(
+                                node: child,
+                                parentOrigin: childOrigin,
+                                inheritedClip: effectiveClip,
+                                inheritedClipCornerRadius: effectiveClipCornerRadius,
+                                layerIndex: layerIndex,
+                                primitiveOpacity: opacity,
+                                inheritedColorEffects: colorEffects,
+                                inheritedBlurRadius: blurRadius,
+                                inheritedBlurOpaque: blurOpaque,
+                                inheritedBlendMode: effectiveBlendMode,
+                                inheritedTransform: effectiveTransform,
+                                isInsideDrawingGroup: false,
+                                skipCacheUpdates: false
+                            )
+                        )
+                    )
+                }
+                continue
+            }
+
+            finishPaintNode(
+                PaintNodeFinishState(
+                    node: node,
+                    startPaintRecord: startPaintRecord,
+                    cacheKey: cacheKey,
+                    hasChildren: !sortedChildren.isEmpty,
+                    borderColor: borderColor,
+                    paintFrame: paintFrame,
+                    effectiveClip: effectiveClip,
+                    effectiveClipCornerRadius: effectiveClipCornerRadius,
+                    opacity: opacity,
+                    colorEffects: colorEffects,
+                    effectiveBlendMode: effectiveBlendMode,
+                    layerIndex: layerIndex,
+                    skipCacheUpdates: skipCacheUpdates
+                ),
+                into: &scene,
+                surfaceSize: surfaceSize,
+                displayScale: displayScale
+            )
         }
+    }
+
+    private static func finishPaintNode(
+        _ state: PaintNodeFinishState,
+        into scene: inout GPUIScene,
+        surfaceSize: Size,
+        displayScale: Double
+    ) {
+        let node = state.node
 
         // Border overlay for nodes with children: re-drawn after children so
         // the border ring remains visible when child content fills the frame.
         // Uses thin edge segments instead of a full-rect fill.
-        if !sortedChildren.isEmpty,
-            borderColor.alpha > 0, node.borderWidth > 0,
+        if state.hasChildren,
+            state.borderColor.alpha > 0, node.borderWidth > 0,
             node.backgroundPath == nil,
-            clipAllowsDrawing(clip: effectiveClip, rect: paintFrame)
+            clipAllowsDrawing(clip: state.effectiveClip, rect: state.paintFrame)
         {
             let segments: [BorderSegment]
             if let dashed = BorderSegments.dashedSegments(
-                frame: paintFrame,
+                frame: state.paintFrame,
                 width: node.borderWidth,
                 cornerRadius: node.cornerRadius,
                 strokeStyle: node.borderStrokeStyle
@@ -778,32 +911,32 @@ public enum ScenePainter {
                 segments = dashed
             } else {
                 segments = BorderSegments.solidSegments(
-                    frame: paintFrame,
+                    frame: state.paintFrame,
                     width: node.borderWidth,
                     cornerRadius: node.cornerRadius
                 )
             }
-            for segment in segments where clipAllowsDrawing(clip: effectiveClip, rect: segment.rect) {
+            for segment in segments where clipAllowsDrawing(clip: state.effectiveClip, rect: segment.rect) {
                 scene.addQuad(
                     fillQuad(
                         rect: segment.rect,
                         cornerRadius: segment.cornerRadius,
-                        color: borderColor,
+                        color: state.borderColor,
                         gradient: node.borderGradient,
-                        opacity: opacity,
-                        clip: effectiveClip,
+                        opacity: state.opacity,
+                        clip: state.effectiveClip,
                         surfaceSize: surfaceSize,
                         displayScale: displayScale,
-                        colorEffects: colorEffects,
-                        clipCornerRadius: effectiveClipCornerRadius,
-                        blendMode: effectiveBlendMode
-                    ), toLayer: layerIndex)
+                        colorEffects: state.colorEffects,
+                        clipCornerRadius: state.effectiveClipCornerRadius,
+                        blendMode: state.effectiveBlendMode
+                    ), toLayer: state.layerIndex)
             }
         }
 
-        if !skipCacheUpdates {
-            node.cachedSceneKey = cacheKey
-            node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
+        if !state.skipCacheUpdates {
+            node.cachedSceneKey = state.cacheKey
+            node.cachedScenePaintRange = state.startPaintRecord..<scene.paintRecordCount
         }
         node.markSubtreeRendered()
     }

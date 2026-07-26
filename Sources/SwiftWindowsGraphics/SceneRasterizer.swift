@@ -899,20 +899,20 @@ private func flattenCubic(start: Point, control1: Point, control2: Point, end: P
 private func flattenArc(center: Point, radius: Double, startAngle: Double, endAngle: Double, clockwise: Bool)
     -> [FlattenedSegment]
 {
-    var start = startAngle
+    // Only the end angle is normalized into the directed sweep range; start is fixed.
     var end = endAngle
     if clockwise {
-        while end > start { end -= 2 * .pi }
+        while end > startAngle { end -= 2 * .pi }
     } else {
-        while end < start { end += 2 * .pi }
+        while end < startAngle { end += 2 * .pi }
     }
-    let sweep = end - start
+    let sweep = end - startAngle
     let steps = max(4, Int(ceil(abs(sweep) * radius * 0.5)))
     var segs: [FlattenedSegment] = []
     let step = sweep / Double(steps)
-    var prev = Point(x: center.x + radius * cos(start), y: center.y + radius * sin(start))
+    var prev = Point(x: center.x + radius * cos(startAngle), y: center.y + radius * sin(startAngle))
     for i in 1...steps {
-        let a = start + step * Double(i)
+        let a = startAngle + step * Double(i)
         let p = Point(x: center.x + radius * cos(a), y: center.y + radius * sin(a))
         segs.append(FlattenedSegment(start: prev, end: p))
         prev = p

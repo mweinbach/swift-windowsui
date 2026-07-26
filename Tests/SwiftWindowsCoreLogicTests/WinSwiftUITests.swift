@@ -14504,19 +14504,19 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(node.isFocusable)
 
             node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue))
-            assertColor(selectedColor, red: 0.29, green: 0, blue: 0.51, alpha: 0.5)
+            XCTAssertEqual(selectedColor, Color.indigo.opacity(0.5))
             XCTAssertEqual(invalidationCount, 1)
 
             node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.leftArrow.rawValue))
-            assertColor(selectedColor, red: 0, green: 0, blue: 1, alpha: 0.5)
+            XCTAssertEqual(selectedColor, Color.blue.opacity(0.5))
             XCTAssertEqual(invalidationCount, 2)
 
             node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.upArrow.rawValue))
-            assertColor(selectedColor, red: 0, green: 0, blue: 1, alpha: 0.6)
+            XCTAssertEqual(selectedColor, Color.blue.opacity(0.6))
             XCTAssertEqual(invalidationCount, 3)
 
             node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
-            assertColor(selectedColor, red: 0, green: 0, blue: 1, alpha: 0.5)
+            XCTAssertEqual(selectedColor, Color.blue.opacity(0.5))
             XCTAssertEqual(invalidationCount, 4)
         }
     }
@@ -14537,11 +14537,11 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.upArrow.rawValue))
-            assertColor(selectedColor, red: 0, green: 0, blue: 1, alpha: 0.5)
+            XCTAssertEqual(selectedColor, Color.blue.opacity(0.5))
             XCTAssertEqual(invalidationCount, 0)
 
             node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue))
-            assertColor(selectedColor, red: 0.29, green: 0, blue: 0.51, alpha: 1)
+            XCTAssertEqual(selectedColor, .indigo)
             XCTAssertEqual(invalidationCount, 1)
         }
     }
@@ -14625,7 +14625,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(allTexts(in: datePickerNode), ["2026-05-10 14:38"])
 
             XCTAssertFalse(allTexts(in: colorPickerNode).contains("ACCENT"))
-            XCTAssertEqual(allTexts(in: colorPickerNode), ["#0000FF"])
+            XCTAssertEqual(allTexts(in: colorPickerNode), ["#007AFF"])
             XCTAssertEqual(colorPickerNode.children[0].backgroundColor, .blue)
         }
     }
@@ -15046,9 +15046,10 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(firstText(in: node.children[1].children[2]), "HIGH")
 
             let sliderNode = node.children[1].children[1]
+            XCTAssertEqual(sliderNode.preferredSize?.width, 100)
             sliderNode.onDragStart?(Point(x: 0, y: 0))
-            sliderNode.onDragChange?(Point(x: 91, y: 0), Point(x: 91, y: 0))
-            sliderNode.onDragEnd?(Point(x: 91, y: 0), Point(x: 91, y: 0))
+            sliderNode.onDragChange?(Point(x: 41, y: 0), Point(x: 41, y: 0))
+            sliderNode.onDragEnd?(Point(x: 41, y: 0), Point(x: 41, y: 0))
 
             XCTAssertEqual(value, 6.0, accuracy: 0.001)
             XCTAssertEqual(editingChanges, [true, false])
@@ -15677,6 +15678,8 @@ final class WinSwiftUITests: XCTestCase {
             let colorShader = ShaderLibrary.default.tint(.float(0.25), .color(.red))
             let distortionShader = ShaderLibrary.default.wave(amount: .float(2.0))
             let layerShader = Shader("manualLayer", arguments: [.size(CGSize(width: 3, height: 4))])
+            let expectedColorShaderDescription =
+                "default.tint(float:0.25;color:red:\(Color.red.red),green:\(Color.red.green),blue:\(Color.red.blue),alpha:\(Color.red.alpha))"
             let node = makeNode(
                 Text("SHADER")
                     .colorEffect(colorShader)
@@ -15688,13 +15691,12 @@ final class WinSwiftUITests: XCTestCase {
                     .layerEffect(layerShader, maxSampleOffset: CGSize(width: 2, height: 1))
             )
 
-            XCTAssertEqual(
-                colorShader.description, "default.tint(float:0.25;color:red:1.0,green:0.0,blue:0.0,alpha:1.0)")
+            XCTAssertEqual(colorShader.description, expectedColorShaderDescription)
             XCTAssertEqual(distortionShader.description, "default.wave(amount:float:2.0)")
             XCTAssertEqual(
                 node.visualEffects,
                 [
-                    "colorEffect(shader:default.tint(float:0.25;color:red:1.0,green:0.0,blue:0.0,alpha:1.0),enabled:true)",
+                    "colorEffect(shader:\(expectedColorShaderDescription),enabled:true)",
                     "distortionEffect(shader:default.wave(amount:float:2.0),maxSampleOffset:8.0,6.0,enabled:false)",
                     "layerEffect(shader:manualLayer(size:3.0,4.0),maxSampleOffset:2.0,1.0,enabled:true)",
                 ]
@@ -21365,7 +21367,9 @@ final class DocumentGroupTests: XCTestCase {
                 }
             }
             let scene = DocumentGroup(editing: TestDoc.self) { config in
-                Text(config.document.wrappedValue is TestDoc ? "EDIT" : "")
+                // Exercise the typed FileDocumentConfiguration without a vacuous
+                // `is TestDoc` check (always true for FileDocumentConfiguration<TestDoc>).
+                Text(config.isEditable ? "EDIT" : "VIEW")
             }
             let config = scene.makeWindowConfiguration()
             XCTAssertTrue(config.isDocumentGroup)

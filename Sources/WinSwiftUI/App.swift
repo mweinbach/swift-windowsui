@@ -2539,25 +2539,25 @@ public protocol WidgetBundle {
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 @resultBuilder
 public enum WidgetBundleBuilder {
-    public static func buildBlock(_ widgets: Widget...) -> Widget {
+    public static func buildBlock(_ widgets: any Widget...) -> any Widget {
         WidgetGroup(widgets: widgets)
     }
-    public static func buildOptional(_ widget: Widget?) -> Widget {
+    public static func buildOptional(_ widget: (any Widget)?) -> any Widget {
         widget ?? WidgetGroup(widgets: [])
     }
-    public static func buildEither(first widget: Widget) -> Widget {
+    public static func buildEither(first widget: any Widget) -> any Widget {
         widget
     }
-    public static func buildEither(second widget: Widget) -> Widget {
+    public static func buildEither(second widget: any Widget) -> any Widget {
         widget
     }
-    public static func buildArray(_ widgets: [Widget]) -> Widget {
+    public static func buildArray(_ widgets: [any Widget]) -> any Widget {
         WidgetGroup(widgets: widgets)
     }
-    public static func buildExpression(_ widget: Widget) -> Widget {
+    public static func buildExpression(_ widget: any Widget) -> any Widget {
         widget
     }
-    public static func buildLimitedAvailability(_ widget: Widget) -> Widget {
+    public static func buildLimitedAvailability(_ widget: any Widget) -> any Widget {
         widget
     }
 }
@@ -2565,8 +2565,8 @@ public enum WidgetBundleBuilder {
 public struct WidgetGroup: Widget {
     public typealias Body = Never
     public var body: Never { fatalError("WidgetGroup has no body") }
-    public let widgets: [Widget]
-    public init(widgets: [Widget]) {
+    public let widgets: [any Widget]
+    public init(widgets: [any Widget]) {
         self.widgets = widgets
     }
 }
@@ -2581,22 +2581,33 @@ extension Never: @preconcurrency WidgetConfiguration {}
 public struct StaticConfiguration<IntentType, Content: View>: WidgetConfiguration where IntentType: Intent {
     public typealias Body = Never
     public var body: Never { fatalError("StaticConfiguration has no body") }
-    public init(kind: String, provider: TimelineProvider, content: @escaping (TimelineEntry) -> Content) {}
+    public init<Provider: TimelineProvider>(
+        kind: String,
+        provider: Provider,
+        content: @escaping (Provider.Entry) -> Content
+    ) {}
 }
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 public struct IntentConfiguration<IntentType, Content: View>: WidgetConfiguration where IntentType: Intent {
     public typealias Body = Never
     public var body: Never { fatalError("IntentConfiguration has no body") }
-    public init(
-        kind: String, intent: IntentType.Type, provider: TimelineProvider, content: @escaping (TimelineEntry) -> Content
+    public init<Provider: TimelineProvider>(
+        kind: String,
+        intent: IntentType.Type,
+        provider: Provider,
+        content: @escaping (Provider.Entry) -> Content
     ) {}
 }
-@available(macOS 17.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+// AppIntentConfiguration shipped with WidgetKit on iOS 17 / macOS 14 (not macOS 17).
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct AppIntentConfiguration<IntentType, Content: View>: WidgetConfiguration where IntentType: AppIntent {
     public typealias Body = Never
     public var body: Never { fatalError("AppIntentConfiguration has no body") }
-    public init(
-        kind: String, intent: IntentType.Type, provider: TimelineProvider, content: @escaping (TimelineEntry) -> Content
+    public init<Provider: TimelineProvider>(
+        kind: String,
+        intent: IntentType.Type,
+        provider: Provider,
+        content: @escaping (Provider.Entry) -> Content
     ) {}
 }
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)

@@ -80,10 +80,11 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
                     .frame(width: 60, height: 60)
                     .border(.red, width: 2)
             )
-            // Edge pixel (within the 2px border) should be red
+            // Edge pixel (within the 2px border) should match semantic red.
             let edge = colorAt(bitmap, x: 0, y: 0)
-            XCTAssertGreaterThan(edge?.red ?? 0, 0.8)
-            XCTAssertLessThan(edge?.green ?? 1, 0.2)
+            XCTAssertEqual(edge?.red ?? -1, Color.red.red, accuracy: 0.01)
+            XCTAssertEqual(edge?.green ?? -1, Color.red.green, accuracy: 0.01)
+            XCTAssertEqual(edge?.blue ?? -1, Color.red.blue, accuracy: 0.01)
             // Interior pixel (inset by border width) should be black fill
             let interior = colorAt(bitmap, x: 10, y: 10)
             XCTAssertLessThan(interior?.red ?? 1, 0.2)
@@ -119,7 +120,7 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
             for y in 0..<30 {
                 for x in 0..<20 {
                     if let c = colorAt(bitmap, x: x, y: y),
-                        c.green > 0.7, c.red < 0.3, c.blue < 0.3
+                        c.green > 0.7, c.red < 0.3, c.blue < 0.4
                     {
                         foundGreen = true
                         break
@@ -369,10 +370,9 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
                     .colorInvert()
             )
             let center = colorAt(bitmap, x: 20, y: 20)
-            // Inverted red (1,0,0) -> (0,1,1)
-            XCTAssertLessThan(center?.red ?? 1, 0.1)
-            XCTAssertGreaterThan(center?.green ?? 0, 0.9)
-            XCTAssertGreaterThan(center?.blue ?? 0, 0.9)
+            XCTAssertEqual(center?.red ?? -1, 1 - Color.red.red, accuracy: 0.01)
+            XCTAssertEqual(center?.green ?? -1, 1 - Color.red.green, accuracy: 0.01)
+            XCTAssertEqual(center?.blue ?? -1, 1 - Color.red.blue, accuracy: 0.01)
         }
     }
 
@@ -432,10 +432,12 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
                 size: IntSize(width: 60, height: 60)
             )
             let center = colorAt(bitmap, x: 20, y: 20)
-            // Screen(Blue over Red) = Magenta (1,0,1)
-            XCTAssertGreaterThan(center?.red ?? 0, 0.8)
-            XCTAssertLessThan(center?.green ?? 1, 0.2)
-            XCTAssertGreaterThan(center?.blue ?? 0, 0.8)
+            let expectedRed = 1 - ((1 - Color.blue.red) * (1 - Color.red.red))
+            let expectedGreen = 1 - ((1 - Color.blue.green) * (1 - Color.red.green))
+            let expectedBlue = 1 - ((1 - Color.blue.blue) * (1 - Color.red.blue))
+            XCTAssertEqual(center?.red ?? -1, expectedRed, accuracy: 0.01)
+            XCTAssertEqual(center?.green ?? -1, expectedGreen, accuracy: 0.01)
+            XCTAssertEqual(center?.blue ?? -1, expectedBlue, accuracy: 0.01)
         }
     }
 
@@ -475,10 +477,12 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
                 size: IntSize(width: 60, height: 60)
             )
             let center = colorAt(bitmap, x: 20, y: 20)
-            // Additive(Red over Green) = Yellow (1,1,0)
-            XCTAssertGreaterThan(center?.red ?? 0, 0.8)
-            XCTAssertGreaterThan(center?.green ?? 0, 0.8)
-            XCTAssertLessThan(center?.blue ?? 1, 0.2)
+            let expectedRed = min(Color.red.red + Color.green.red, 1)
+            let expectedGreen = min(Color.red.green + Color.green.green, 1)
+            let expectedBlue = min(Color.red.blue + Color.green.blue, 1)
+            XCTAssertEqual(center?.red ?? -1, expectedRed, accuracy: 0.01)
+            XCTAssertEqual(center?.green ?? -1, expectedGreen, accuracy: 0.01)
+            XCTAssertEqual(center?.blue ?? -1, expectedBlue, accuracy: 0.01)
         }
     }
 

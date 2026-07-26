@@ -1,0 +1,152 @@
+name: Windows CI
+
+# Practical Windows validation ladder for the retained Swift UI toolkit.
+# Uses repository scripts only for environment prep and checks:
+#   scripts/with-swift.ps1   - locate VS + Swift and prepare the build env
+#   scripts/agent-check.ps1  - contracts / quick / full validation ladder
+#
+# Trigger arrangement (maintainable, cost-aware):
+#   contracts - every push and pull_request (no toolchain required)
+#   quick     - pull requests and non-main pushes (focused serial validation)
+#   full      - pushes to main, weekly schedule, and workflow_dispatch
+#               (full tests + demo build + scene/frame screenshots)
+#
+# SwiftPM work is always serial inside agent-check.ps1 so jobs never race
+# the shared .build database within a runner.
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # Weekly full validation against toolchain / runner drift.
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+    inputs:
+      run_quick:
+        description: Also run quick validation
+        type: boolean
+        default: false
+      run_full:
+        description: Run full validation
+        type: boolean
+        default: true
+
+concurrency:
+  group: windows-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pin to a released Windows toolchain that satisfies Package.swift
+  # (swift-tools-version: 6.2). Bump deliberately when the project moves.
+  SWIFT_VERSION: swift-6.3-release
+  SWIFT_BUILD: 6.3-RELEASE
+
+jobs:
+  contracts:
+    name: Contract checks
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Run architecture contract checks
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass `
+            -File scripts/agent-check.ps1 -ContractsOnly
+
+  quick:
+    name: Quick validation
+    runs-on: windows-2022
+    needs: contracts
+    # PRs and feature-branch pushes get the focused ladder.
+    # Main pushes are covered by the full job instead (superset coverage).
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'push' && github.ref != 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.run_quick)
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Swift for Windows
+        uses: compnerd/gha-setup-swift@v0.4.0
+        with:
+          swift-version: ${{ env.SWIFT_VERSION }}
+          swift-build: ${{ env.SWIFT_BUILD }}
+          cache: true
+
+      - name: Prepare Swift environment (repository scripts)
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass `
+            -File scripts/with-swift.ps1 -CheckOnly
+
+      - name: Print Swift version
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass `
+            -File scripts/with-swift.ps1 swift --version
+
+      - name: Run quick agent checks
+        shell: pwsh
+        run: |
+          # agent-check -Quick re-runs contracts, then focused scene /
+          # renderer / runtime tests and the demo product build serially.
+          powershell -NoProfile -ExecutionPolicy Bypass `
+            -File scripts/agent-check.ps1 -Quick
+
+  full:
+    name: Full validation
+    runs-on: windows-2022
+    needs: contracts
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.run_full)
+    timeout-minutes: 150
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Swift for Windows
+        uses: compnerd/gha-setup-swift@v0.4.0
+        with:
+          swift-version: ${{ env.SWIFT_VERSION }}
+          swift-build: ${{ env.SWIFT_BUILD }}
+          cache: true
+
+      - name: Prepare Swift environment (repository scripts)
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass `
+            -File scripts/with-swift.ps1 -CheckOnly
+
+      - name: Print Swift version
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass `
+            -File scripts/with-swift.ps1 swift --version
+
+      - name: Run full agent checks
+        shell: pwsh
+        run: |
+          # agent-check -Full runs contracts, full swift test, demo build,
+          # and scene + frame-fallback screenshots serially.
+          powershell -NoProfile -ExecutionPolicy Bypass `
+            -File scripts/agent-check.ps1 -Full
+
+      - name: Upload screenshot artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-demo-screenshots
+          path: |
+            artifacts/demo-screenshot.png
+            artifacts/demo-screenshot.raw.bmp
+            artifacts/demo-screenshot-frame.png
+            artifacts/demo-screenshot-frame.raw.bmp
+          if-no-files-found: warn
+          retention-days: 14

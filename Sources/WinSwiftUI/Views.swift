@@ -134,7 +134,7 @@ public final class PhaseAnimatorTaskManager: @unchecked Sendable {
                     if duration > 0 {
                         try await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
                     } else {
-                        try await Task.yield()
+                        await Task.yield()
                     }
                 } catch {
                     self.tasks.removeValue(forKey: key)
@@ -3122,8 +3122,7 @@ public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedCo
 }
 extension TrimmedShape where Content: InsettableShape {
     public func inset(by amount: CGFloat) -> TrimmedShape<Content> {
-        var copy = self
-        return copy
+        return self
     }
 }
 @MainActor
@@ -9480,7 +9479,7 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
         context: ViewBuildContext,
         runtime: RetainedViewRuntime
     ) -> ViewNode {
-        var headerViews = column.headerBuilder()
+        let headerViews = column.headerBuilder()
         let headerNode =
             headerViews.first?.makeComponent(context: context).makeNode(runtime: runtime)
             ?? Controls.panel(frame: .zero, text: column.title)
@@ -13152,7 +13151,7 @@ public struct MultiDatePicker: View {
         let todayComponents = calendar.dateComponents([.year, .month, .day], from: today)
         let currentMonth = todayComponents.month ?? 1
         let currentYear = todayComponents.year ?? 2026
-        var dateComponents = DateComponents(year: currentYear, month: currentMonth, day: 1)
+        let dateComponents = DateComponents(year: currentYear, month: currentMonth, day: 1)
         let firstOfMonth = calendar.date(from: dateComponents)!
         let daysInMonth = calendar.range(of: .day, in: .month, for: firstOfMonth)!.count
         let firstWeekday = calendar.component(.weekday, from: firstOfMonth) - 1
@@ -15027,7 +15026,6 @@ public struct Stepper: View {
         guard let bounds else {
             return candidate
         }
-        let clampedValue = min(max(value, bounds.lowerBound), bounds.upperBound)
         return min(max(candidate, bounds.lowerBound), bounds.upperBound)
     }
 }
@@ -15297,6 +15295,12 @@ public struct Slider: View {
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
             isHitTestVisible: false
         )
+        let defaultSliderSize = context.controlSize.sliderPreferredSize
+        let hasRangeLabels = !minimumLabelViews.isEmpty || !maximumLabelViews.isEmpty
+        let sliderPreferredSize = Size(
+            width: hasRangeLabels ? min(defaultSliderSize.width, 100) : defaultSliderSize.width,
+            height: defaultSliderSize.height
+        )
 
         return Component { runtime in
             let sliderNode = Controls.slider(
@@ -15304,7 +15308,7 @@ public struct Slider: View {
                 value: binding.wrappedValue,
                 range: range,
                 isEnabled: context.isEnabled,
-                preferredSize: context.controlSize.sliderPreferredSize,
+                preferredSize: sliderPreferredSize,
                 layoutPriority: minimumLabelViews.isEmpty && maximumLabelViews.isEmpty ? 0 : 1,
                 filledColor: context.tint,
                 onValueChanged: { newValue in

@@ -350,12 +350,15 @@ final class WinSwiftUICanvasTests: XCTestCase {
             .frame(width: 120, height: 80)
 
             let scene = snapshot(view)
-            XCTAssertEqual(scene.layers[0].paths.count, 1)
-            let primitive = scene.layers[0].paths[0]
-            XCTAssertEqual(primitive.bounds.minX, 30)
-            XCTAssertEqual(primitive.bounds.minY, 20)
-            XCTAssertEqual(primitive.bounds.width, 10)
-            XCTAssertEqual(primitive.bounds.height, 10)
+            XCTAssertEqual(scene.layers[0].paths.count, 0)
+            let yellowQuads = scene.layers[0].quads.filter {
+                $0.startR == 1 && $0.startG == 1 && $0.startB == 0 && $0.startA == 1
+            }
+            XCTAssertFalse(yellowQuads.isEmpty)
+            XCTAssertEqual(yellowQuads.map(\.y).min() ?? -1, 20, accuracy: 0.001)
+            XCTAssertEqual(yellowQuads.map { $0.x + $0.width }.max() ?? -1, 40, accuracy: 0.001)
+            XCTAssertTrue(yellowQuads.allSatisfy { $0.x >= 30 && $0.y >= 20 })
+            XCTAssertTrue(yellowQuads.allSatisfy { $0.x + $0.width <= 40 && $0.y + $0.height <= 30 })
         }
     }
 

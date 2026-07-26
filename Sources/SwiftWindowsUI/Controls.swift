@@ -1159,10 +1159,28 @@ public enum Controls {
             isHitTestVisible: true,
             children: [trackNode, filledNode, thumbNode]
         )
+        let state = SliderDragState()
+        state.usableTrackWidth = usableTrackWidth
+        sliderRoot.onLayout = { bounds in
+            let resolvedWidth = max(0, bounds.size.width)
+            let resolvedHeight = max(0, bounds.size.height)
+            let resolvedUsableTrackWidth = max(0, resolvedWidth - thumbSize)
+            let resolvedThumbX = resolvedUsableTrackWidth * progress
+            let resolvedTrackY = (resolvedHeight - trackHeight) * 0.5
+            let resolvedThumbY = (resolvedHeight - thumbSize) * 0.5
+
+            state.usableTrackWidth = resolvedUsableTrackWidth
+            trackNode.frame = Rect(x: 0, y: resolvedTrackY, width: resolvedWidth, height: trackHeight)
+            filledNode.frame = Rect(
+                x: 0,
+                y: resolvedTrackY,
+                width: resolvedThumbX + thumbSize * 0.5,
+                height: trackHeight
+            )
+            thumbNode.frame = Rect(x: resolvedThumbX, y: resolvedThumbY, width: thumbSize, height: thumbSize)
+        }
 
         if isEnabled {
-            let state = SliderDragState()
-
             sliderRoot.isFocusable = true
             sliderRoot.onFocusEnter = { [weak sliderRoot] in
                 animate(.outline, sliderRoot, in: runtime, to: chrome.focusRingColor, duration: 0.12)
@@ -1176,7 +1194,7 @@ public enum Controls {
                 onEditingChanged?(true)
             }
             sliderRoot.onDragChange = { _, delta in
-                let deltaRatio = delta.x / max(1, usableTrackWidth)
+                let deltaRatio = delta.x / max(1, state.usableTrackWidth)
                 let rangeSpan = range.upperBound - range.lowerBound
                 let newValue = min(max(state.startValue + deltaRatio * rangeSpan, range.lowerBound), range.upperBound)
                 onValueChanged?(newValue)
@@ -1639,6 +1657,7 @@ private final class ButtonInteractionState {
 private final class SliderDragState {
     var startX: Double = 0
     var startValue: Double = 0
+    var usableTrackWidth: Double = 0
 }
 private final class DropdownState {
     var isOpen = false

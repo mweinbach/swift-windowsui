@@ -216,6 +216,18 @@ func expectedTimerInterval(for refreshRate: UInt32) -> UInt32 {
     let interval = (1000.0 / Double(rate)).rounded()
     return max(1, UInt32(interval))
 }
+
+/// Reference-type fake wall clock for recovery-policy tests.
+/// Capturing a class reference avoids mutable-local capture warnings when the
+/// host stores the clock closure.
+@MainActor
+final class FakeRecoveryClock {
+    var now: Double
+
+    init(_ now: Double) {
+        self.now = now
+    }
+}
 @MainActor
 final class WinSwiftUIWindowHostTests: XCTestCase {
     private func fillRectCommands(in frame: RenderFrame) -> [FillRectCommand] {
@@ -508,8 +520,8 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
                 surfaceDescriptorProvider: { _ in surface },
                 recoveryPolicy: .disabled
             )
-            var fakeNow = 1_000.0
-            host.recoveryClock = { fakeNow }
+            let clock = FakeRecoveryClock(1_000.0)
+            host.recoveryClock = { clock.now }
             let fakeWindow = Win32Window(title: "Test", clientSize: surface.pixelSize)
             host.windowDidCreate(fakeWindow)
 
@@ -522,7 +534,7 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             // Stop failing and wait an hour of simulated time. The default
             // policy must not attempt batch recovery.
             batchRenderer.setRenderShouldFail(false)
-            fakeNow += 3600
+            clock.now += 3600
             for _ in 0..<5 {
                 host.windowNeedsDisplay(fakeWindow)
             }
@@ -555,8 +567,8 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
                 recoveryPolicy: BatchBackendRecoveryPolicy(
                     isEnabled: true, initialRetryInterval: 5, maxRetryInterval: 60, backoffMultiplier: 2)
             )
-            var fakeNow = 10_000.0
-            host.recoveryClock = { fakeNow }
+            let clock = FakeRecoveryClock(10_000.0)
+            host.recoveryClock = { clock.now }
             let fakeWindow = Win32Window(title: "Test", clientSize: surface.pixelSize)
             host.windowDidCreate(fakeWindow)
 
@@ -568,14 +580,14 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             let batchAttachesAtDowngrade = batchRenderer.attachedSurfaces.count
 
             // Within the retry interval no recovery attempt should fire.
-            fakeNow += 2
+            clock.now += 2
             host.windowNeedsDisplay(fakeWindow)
             XCTAssertEqual(batchRenderer.attachedSurfaces.count, batchAttachesAtDowngrade)
             XCTAssertFalse(host.isUsingBatchPresentationBackend)
 
             // Past the retry interval, batch is still failing — attempt
             // fires, fails, and backoff doubles.
-            fakeNow += 4  // total elapsed: 6s after downgrade
+            clock.now += 4  // total elapsed: 6s after downgrade
             host.windowNeedsDisplay(fakeWindow)
             XCTAssertGreaterThan(
                 batchRenderer.attachedSurfaces.count, batchAttachesAtDowngrade,
@@ -586,7 +598,7 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
 
             // Healing the batch — now a recovery attempt should fully succeed.
             batchRenderer.setRenderShouldFail(false)
-            fakeNow += 30  // past the doubled backoff
+            clock.now += 30  // past the doubled backoff
             host.windowNeedsDisplay(fakeWindow)
             XCTAssertTrue(
                 host.isUsingBatchPresentationBackend,

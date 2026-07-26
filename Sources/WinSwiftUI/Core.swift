@@ -3237,14 +3237,13 @@ public struct ObservationRegistrar: Sendable {
     public init() {}
 
     public func access<Subject>(subject: Subject, keyPath: KeyPath<Subject, some Any>) {
-        guard let object = subject as? AnyObject else { return }
+        let object = subject as AnyObject
         guard let context = ObservationTrackingState.shared.contexts.last else { return }
         context.accesses.append((object, keyPath))
     }
 
     public func willSet<Subject>(subject: Subject, keyPath: KeyPath<Subject, some Any>) {
-        guard let object = subject as? AnyObject else { return }
-        ObservationCenter.shared.notify(object: object, keyPath: keyPath)
+        ObservationCenter.shared.notify(object: subject as AnyObject, keyPath: keyPath)
     }
 
     public func didSet<Subject>(subject: Subject, keyPath: KeyPath<Subject, some Any>) {}
@@ -14531,7 +14530,7 @@ public struct TintShapeStyle: ShapeStyle, Sendable, Equatable {
     }
 
     var retainedFallbackColor: Color {
-        Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0)
+        .accentColor
     }
 }
 public struct PlaceholderTextShapeStyle: ShapeStyle, Sendable, Equatable {
@@ -29373,8 +29372,8 @@ public struct AccessibilityFocusState<Value>: DynamicProperty {
         self.storage = Storage(value: false)
     }
 
-    public init() where Value: Hashable {
-        self.storage = Storage(value: Optional<Value>.none as! Value)
+    public init<Wrapped: Hashable>() where Value == Wrapped? {
+        self.storage = Storage(value: nil)
     }
 
     public var wrappedValue: Value {
@@ -29598,8 +29597,7 @@ public struct ReceivedTransferredFile: Sendable, Equatable {
         self.isOriginalFile = isOriginalFile
     }
 }
-public protocol CustomizableToolbarContent: View {
-    associatedtype Body: View
+public protocol CustomizableToolbarContent: View where Body: View {
     @ViewBuilder var body: Body { get }
 }
 extension Image {

@@ -877,7 +877,7 @@ public struct Path: Equatable, Sendable {
         switch last {
         case .moveTo(let p), .lineTo(let p), .quadraticCurveTo(_, let p), .cubicCurveTo(_, _, let p):
             return p
-        case .arc(let center, let radius, let startAngle, let endAngle, let clockwise):
+        case .arc(let center, let radius, _, let endAngle, _):
             return Point(x: center.x + radius * cos(endAngle), y: center.y + radius * sin(endAngle))
         case .close:
             return nil

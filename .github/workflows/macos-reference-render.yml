@@ -8,6 +8,11 @@ name: macOS reference render
 # This is the macOS-side test infrastructure half of the cross-
 # platform visual-parity contract documented in
 # docs/MacOSReferenceParityWorkflow.md.
+#
+# Note: jobs that fail before a runner is assigned (queued forever,
+# "Waiting for a runner to pick up this job", billing/minutes
+# exhaustion, org runner policy) are account/capacity issues and
+# cannot be fixed by workflow YAML alone.
 
 on:
   workflow_dispatch:
@@ -19,32 +24,121 @@ on:
     # Weekly refresh so the reference tracks toolchain / SDK drift.
     - cron: "0 6 * * 1"
 
+# Least privilege: read source, write workflow artifacts only.
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: macos-reference-render-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   render:
     name: Render reference PNGs on macOS
     runs-on: macos-15
+    timeout-minutes: 30
+
     steps:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Report runner / image context
+        run: |
+          set -euo pipefail
+          echo "ImageOS=${ImageOS:-}"
+          echo "ImageVersion=${ImageVersion:-}"
+          echo "RUNNER_OS=${RUNNER_OS:-} RUNNER_ARCH=${RUNNER_ARCH:-}"
+          sw_vers || true
+          echo "Installed Xcode apps:"
+          ls -1d /Applications/Xcode*.app 2>/dev/null || echo "(none)"
+          echo "Current xcode-select:"
+          xcode-select -p || true
+
       - name: Select Xcode toolchain
-        run: sudo xcode-select -s /Applications/Xcode_16.app
+        run: |
+          set -euo pipefail
+          # Prefer a stable Xcode 16.x on macos-15 without assuming a
+          # single hard-coded app name (images ship 16.4/16.3/… and
+          # often symlink Xcode.app -> default; bare Xcode_16.app may
+          # be absent). Fall back to the image default when needed.
+          #
+          # Scripts must stay bash 3.2-compatible (/bin/bash on macOS).
+          selected=""
+          for app in \
+            /Applications/Xcode_16.4.app \
+            /Applications/Xcode_16.3.app \
+            /Applications/Xcode_16.2.app \
+            /Applications/Xcode_16.1.app \
+            /Applications/Xcode_16.0.app \
+            /Applications/Xcode_16.app \
+            /Applications/Xcode.app
+          do
+            if [ -d "$app/Contents/Developer" ]; then
+              selected="$app"
+              break
+            fi
+          done
+
+          if [ -z "$selected" ]; then
+            # Dynamic fallback: newest installed Xcode_16*.app by version sort.
+            # sort -V is available on macOS runners; keep parsing bash 3.2-safe.
+            # `|| true` so an empty glob does not abort under set -e / pipefail.
+            xcode16_apps=$(ls -1d /Applications/Xcode_16*.app 2>/dev/null | sort -V -r || true)
+            for app in $xcode16_apps; do
+              if [ -d "$app/Contents/Developer" ]; then
+                selected="$app"
+                break
+              fi
+            done
+          fi
+
+          if [ -z "$selected" ]; then
+            echo "::error::No usable Xcode installation found under /Applications"
+            ls -la /Applications/Xcode*.app 2>/dev/null || true
+            exit 1
+          fi
+
+          echo "Selecting Xcode at: $selected"
+          sudo xcode-select -s "$selected/Contents/Developer"
+          xcode-select -p
+          xcodebuild -version
+          # Accept license / first-launch when the image requires it.
+          sudo xcodebuild -license accept 2>/dev/null || true
+          sudo xcodebuild -runFirstLaunch 2>/dev/null || true
 
       - name: Print Swift version
-        run: swift --version
+        run: |
+          set -euo pipefail
+          swift --version
+          which swift
 
       - name: Build macos-reference-renderer
-        run: swift build --product macos-reference-renderer -c release
+        run: |
+          set -euo pipefail
+          swift build --product macos-reference-renderer -c release
 
       - name: Render reference scenes
-        run: swift run -c release macos-reference-renderer
+        run: |
+          set -euo pipefail
+          swift run -c release macos-reference-renderer
 
       - name: List output
-        run: ls -la artifacts/macos-reference
+        run: |
+          set -euo pipefail
+          ls -la artifacts/macos-reference
+          # Fail early with a clear message if no PNGs were produced.
+          png_count=$(find artifacts/macos-reference -maxdepth 1 -type f -name '*.png' | wc -l | tr -d ' ')
+          if [ "$png_count" -eq 0 ]; then
+            echo "::error::No PNG files written under artifacts/macos-reference/"
+            exit 1
+          fi
+          echo "PNG count: $png_count"
 
       - name: Upload PNG artifacts
         uses: actions/upload-artifact@v4
         with:
           name: macos-reference-png
           path: artifacts/macos-reference/*.png
+          if-no-files-found: error
           retention-days: 30

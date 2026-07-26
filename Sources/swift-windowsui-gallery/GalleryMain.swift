@@ -172,6 +172,7 @@ struct SwiftWindowsUIGalleryTool {
                     .opacity(0.5)
                     .drawingGroup()
                 )),
+            // MARK: Controls — buttons
             GallerySpec(
                 id: "button", title: "Button",
                 view: AnyView(
@@ -179,21 +180,164 @@ struct SwiftWindowsUIGalleryTool {
                         .frame(width: 100, height: 40)
                 )),
             GallerySpec(
-                id: "toggle", title: "Toggle",
+                id: "button-destructive", title: "Button Destructive",
                 view: AnyView(
-                    Toggle("Enabled", isOn: .constant(true))
-                        .frame(width: 140, height: 40)
+                    Button("Delete", role: .destructive) {}
+                        .frame(width: 100, height: 40)
                 )),
             GallerySpec(
-                id: "slider", title: "Slider",
+                id: "button-disabled", title: "Button Disabled",
+                view: AnyView(
+                    Button("Unavailable") {}
+                        .disabled(true)
+                        .frame(width: 120, height: 40)
+                )),
+            GallerySpec(
+                id: "button-styles", title: "Button Styles",
+                view: AnyView(
+                    VStack(spacing: 8) {
+                        Button("Default") {}
+                            .frame(width: 140, height: 32)
+                        Button("Prominent") {}
+                            .buttonStyle(BorderedProminentButtonStyle())
+                            .frame(width: 140, height: 32)
+                        Button("Plain") {}
+                            .buttonStyle(PlainButtonStyle())
+                            .frame(width: 140, height: 32)
+                    }
+                    .frame(width: 180, height: 140)
+                )),
+            GallerySpec(
+                id: "button-focusable", title: "Button Focusable",
+                view: AnyView(
+                    Button("Focus Me") {}
+                        .focusable(true)
+                        .focused(FocusState(wrappedValue: true).projectedValue)
+                        .frame(width: 120, height: 40)
+                )),
+
+            // MARK: Controls — text input
+            GallerySpec(
+                id: "text-field", title: "TextField Filled",
+                view: AnyView(
+                    TextField("Placeholder", text: .constant("Hello"))
+                        .frame(width: 160, height: 36)
+                        .padding(8)
+                )),
+            GallerySpec(
+                id: "text-field-empty", title: "TextField Empty",
+                view: AnyView(
+                    TextField("Search", text: .constant(""))
+                        .frame(width: 160, height: 36)
+                        .padding(8)
+                )),
+            GallerySpec(
+                id: "text-field-disabled", title: "TextField Disabled",
+                view: AnyView(
+                    TextField("Locked", text: .constant("Read only"))
+                        .disabled(true)
+                        .frame(width: 160, height: 36)
+                        .padding(8)
+                )),
+            GallerySpec(
+                id: "text-field-focused", title: "TextField Focused",
+                view: AnyView(
+                    TextField("Name", text: .constant("Ada"))
+                        .focused(FocusState(wrappedValue: true).projectedValue)
+                        .frame(width: 160, height: 36)
+                        .padding(8)
+                )),
+            GallerySpec(
+                id: "secure-field", title: "SecureField",
+                view: AnyView(
+                    SecureField("Password", text: .constant("secret"))
+                        .frame(width: 160, height: 36)
+                        .padding(8)
+                )),
+            GallerySpec(
+                id: "text-input-stack", title: "Text Input Stack",
+                view: AnyView(
+                    VStack(spacing: 8) {
+                        TextField("Email", text: .constant("a@b.co"))
+                            .frame(width: 160, height: 30)
+                        SecureField("Password", text: .constant("secret"))
+                            .frame(width: 160, height: 30)
+                        TextField("Notes", text: .constant(""))
+                            .disabled(true)
+                            .frame(width: 160, height: 30)
+                    }
+                    .padding(8)
+                    .frame(width: 180, height: 140)
+                )),
+
+            // MARK: Controls — toggle / slider / picker / stepper
+            GallerySpec(
+                id: "toggle", title: "Toggle On",
+                view: AnyView(
+                    Toggle("Enabled", isOn: .constant(true))
+                        .frame(width: 150, height: 36)
+                )),
+            GallerySpec(
+                id: "toggle-off", title: "Toggle Off",
+                view: AnyView(
+                    Toggle("Disabled Flag", isOn: .constant(false))
+                        .frame(width: 160, height: 36)
+                )),
+            GallerySpec(
+                id: "toggle-disabled", title: "Toggle Disabled",
+                view: AnyView(
+                    Toggle("Locked", isOn: .constant(true))
+                        .disabled(true)
+                        .frame(width: 150, height: 36)
+                )),
+            GallerySpec(
+                id: "toggle-states", title: "Toggle States",
+                view: AnyView(
+                    VStack(alignment: .leading, spacing: 10) {
+                        Toggle("Notifications", isOn: .constant(true))
+                        Toggle("Sounds", isOn: .constant(false))
+                        Toggle("Airplane", isOn: .constant(true))
+                            .disabled(true)
+                    }
+                    .frame(width: 170, height: 140)
+                    .padding(8)
+                )),
+            GallerySpec(
+                id: "slider", title: "Slider Mid",
                 view: AnyView(
                     Slider(value: .constant(0.5))
-                        .frame(width: 160, height: 40)
+                        .frame(width: 160, height: 36)
                 )),
+            GallerySpec(
+                id: "slider-low", title: "Slider Low",
+                view: AnyView(
+                    Slider(value: .constant(0.15), in: 0...1)
+                        .frame(width: 160, height: 36)
+                )),
+            GallerySpec(
+                id: "slider-high", title: "Slider High",
+                view: AnyView(
+                    Slider(value: .constant(0.9), in: 0...1)
+                        .frame(width: 160, height: 36)
+                )),
+            GallerySpec(
+                id: "slider-labeled", title: "Slider Labeled",
+                view: AnyView(
+                    Slider(value: .constant(0.65), in: 0...1) {
+                        Text("Volume")
+                    } minimumValueLabel: {
+                        Text("0")
+                    } maximumValueLabel: {
+                        Text("100")
+                    }
+                    .frame(width: 230, height: 80)
+                    .padding(8)
+                ),
+                size: IntSize(width: 260, height: 140)),
             GallerySpec(
                 id: "picker", title: "Picker",
                 view: AnyView(
-                    Picker("Color", selection: .constant(0)) {
+                    Picker("Color", selection: .constant(1)) {
                         Text("Red").tag(0)
                         Text("Green").tag(1)
                         Text("Blue").tag(2)
@@ -201,31 +345,185 @@ struct SwiftWindowsUIGalleryTool {
                     .frame(width: 160, height: 40)
                 )),
             GallerySpec(
-                id: "text-field", title: "TextField",
+                id: "picker-theme", title: "Picker Theme",
                 view: AnyView(
-                    TextField("Placeholder", text: .constant("Hello"))
-                        .frame(width: 160, height: 40)
+                    Picker("Theme", selection: .constant(2)) {
+                        Text("Light").tag(0)
+                        Text("Dark").tag(1)
+                        Text("Auto").tag(2)
+                    }
+                    .frame(width: 160, height: 40)
+                )),
+            GallerySpec(
+                id: "stepper", title: "Stepper",
+                view: AnyView(
+                    Stepper(value: .constant(5), in: 0...10) {
+                        Text("Count: 5")
+                    }
+                    .frame(width: 150, height: 40)
+                )),
+            GallerySpec(
+                id: "stepper-bounds", title: "Stepper At Max",
+                view: AnyView(
+                    Stepper(value: .constant(10), in: 0...10) {
+                        Text("Count: 10")
+                    }
+                    .frame(width: 150, height: 40)
+                )),
+
+            // MARK: Controls — progress
+            GallerySpec(
+                id: "progress-view", title: "Progress Determinate",
+                view: AnyView(
+                    ProgressView(value: 0.6)
+                        .frame(width: 140, height: 36)
+                )),
+            GallerySpec(
+                id: "progress-low", title: "Progress Low",
+                view: AnyView(
+                    ProgressView(value: 0.15)
+                        .frame(width: 140, height: 36)
+                )),
+            GallerySpec(
+                id: "progress-complete", title: "Progress Complete",
+                view: AnyView(
+                    ProgressView(value: 1.0)
+                        .frame(width: 140, height: 36)
+                )),
+            GallerySpec(
+                id: "progress-indeterminate", title: "Progress Indeterminate",
+                view: AnyView(
+                    ProgressView()
+                        .frame(width: 80, height: 40)
+                )),
+            GallerySpec(
+                id: "progress-labeled", title: "Progress Labeled",
+                view: AnyView(
+                    ProgressView("Loading", value: 0.4)
+                        .frame(width: 160, height: 50)
                         .padding(8)
                 )),
+            GallerySpec(
+                id: "progress-states", title: "Progress States",
+                view: AnyView(
+                    VStack(spacing: 12) {
+                        ProgressView(value: 0.25)
+                            .frame(width: 150, height: 20)
+                        ProgressView(value: 0.55)
+                            .frame(width: 150, height: 20)
+                        ProgressView(value: 0.9)
+                            .frame(width: 150, height: 20)
+                        ProgressView()
+                            .frame(width: 40, height: 20)
+                    }
+                    .padding(8)
+                    .frame(width: 180, height: 140)
+                )),
+
+            // MARK: Controls — lists & scrolling
             GallerySpec(
                 id: "list", title: "List",
                 view: AnyView(
                     List {
-                        Text("Item 1")
-                        Text("Item 2")
-                        Text("Item 3")
+                        Text("Inbox")
+                        Text("Sent")
+                        Text("Archive")
+                        Text("Trash")
                     }
-                    .frame(width: 160, height: 120)
+                    .frame(width: 160, height: 140)
                 )),
+            GallerySpec(
+                id: "list-foreach", title: "List ForEach",
+                view: AnyView(
+                    List {
+                        ForEach(0..<6, id: \.self) { index in
+                            Text("Row \(index + 1)")
+                        }
+                    }
+                    .frame(width: 160, height: 150)
+                )),
+            GallerySpec(
+                id: "list-data", title: "List Data",
+                view: AnyView(
+                    List(["Alpha", "Beta", "Gamma", "Delta"], id: \.self) { name in
+                        Text(name)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                    }
+                    .listStyle(InsetListStyle(alternatesRowBackgrounds: true))
+                    .frame(width: 230, height: 180)
+                ),
+                size: IntSize(width: 250, height: 200)),
+            GallerySpec(
+                id: "scroll-view", title: "ScrollView",
+                view: AnyView(
+                    ScrollView {
+                        VStack(spacing: 6) {
+                            ForEach(0..<8, id: \.self) { index in
+                                Text("Scroll row \(index + 1)")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(6)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(
+                                                index % 2 == 0
+                                                    ? Color(red: 0.18, green: 0.22, blue: 0.30, alpha: 1)
+                                                    : Color(red: 0.12, green: 0.15, blue: 0.20, alpha: 1)
+                                            )
+                                    )
+                            }
+                        }
+                        .padding(6)
+                    }
+                    .frame(width: 170, height: 150)
+                )),
+            GallerySpec(
+                id: "scroll-view-shapes", title: "ScrollView Shapes",
+                view: AnyView(
+                    ScrollView {
+                        VStack(spacing: 8) {
+                            ForEach(0..<5, id: \.self) { index in
+                                Rectangle()
+                                    .fill(index % 2 == 0 ? .red : .blue)
+                                    .frame(width: 140, height: 28)
+                            }
+                        }
+                    }
+                    .frame(width: 160, height: 100)
+                )),
+
+            // MARK: Controls — form / navigation / composite
             GallerySpec(
                 id: "form", title: "Form",
                 view: AnyView(
                     Form {
-                        TextField("Name", text: .constant(""))
-                        Toggle("Active", isOn: .constant(false))
+                        Section("Account") {
+                            TextField("Name", text: .constant("Ada"))
+                            Toggle("Active", isOn: .constant(true))
+                        }
+                        Section("Prefs") {
+                            Slider(value: .constant(0.4))
+                        }
                     }
-                    .frame(width: 160, height: 120)
+                    .frame(width: 170, height: 160)
                 )),
+            GallerySpec(
+                id: "form-settings", title: "Form Settings",
+                view: AnyView(
+                    Form {
+                        TextField("User", text: .constant("admin"))
+                        SecureField("Pass", text: .constant("secret"))
+                        Toggle("Dark Mode", isOn: .constant(true))
+                        Picker("Theme", selection: .constant(1)) {
+                            Text("Light").tag(0)
+                            Text("Dark").tag(1)
+                        }
+                        Button("Save") {}
+                    }
+                    .formStyle(GroupedFormStyle())
+                    .frame(width: 240, height: 220)
+                ),
+                size: IntSize(width: 260, height: 240)),
             GallerySpec(
                 id: "navigation-stack", title: "NavigationStack",
                 view: AnyView(
@@ -234,6 +532,53 @@ struct SwiftWindowsUIGalleryTool {
                             .navigationTitle("Home")
                     }
                     .frame(width: 160, height: 120)
+                )),
+            GallerySpec(
+                id: "controls-panel", title: "Controls Panel",
+                view: AnyView(
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Panel")
+                            .foregroundColor(.white)
+                        TextField("Query", text: .constant("swiftui"))
+                            .frame(height: 28)
+                        HStack(spacing: 8) {
+                            Toggle("On", isOn: .constant(true))
+                            Toggle("Off", isOn: .constant(false))
+                        }
+                        Slider(value: .constant(0.55))
+                            .frame(height: 24)
+                        ProgressView(value: 0.7)
+                            .frame(height: 16)
+                        HStack(spacing: 8) {
+                            Button("OK") {}
+                                .frame(width: 56, height: 28)
+                            Button("Cancel", role: .cancel) {}
+                                .frame(width: 84, height: 28)
+                            Button("Delete", role: .destructive) {}
+                                .disabled(true)
+                                .frame(width: 84, height: 28)
+                        }
+                    }
+                    .padding(10)
+                    .frame(width: 260, height: 210)
+                ),
+                size: IntSize(width: 280, height: 230)),
+            GallerySpec(
+                id: "focus-ring", title: "Focus Ring Pair",
+                view: AnyView(
+                    VStack(spacing: 10) {
+                        TextField("Focused", text: .constant("Active"))
+                            .focused(FocusState(wrappedValue: true).projectedValue)
+                            .frame(width: 150, height: 32)
+                        TextField("Blurred", text: .constant("Idle"))
+                            .focused(FocusState(wrappedValue: false).projectedValue)
+                            .frame(width: 150, height: 32)
+                        Button("Submit") {}
+                            .focusable(true)
+                            .frame(width: 100, height: 32)
+                    }
+                    .padding(8)
+                    .frame(width: 180, height: 150)
                 )),
             GallerySpec(
                 id: "aspect-ratio", title: "Aspect Ratio",
@@ -290,20 +635,6 @@ struct SwiftWindowsUIGalleryTool {
                     }
                 )),
             GallerySpec(
-                id: "progress-view", title: "ProgressView",
-                view: AnyView(
-                    ProgressView(value: 0.6)
-                        .frame(width: 120, height: 40)
-                )),
-            GallerySpec(
-                id: "stepper", title: "Stepper",
-                view: AnyView(
-                    Stepper(value: .constant(5), in: 0...10) {
-                        Text("Count: 5")
-                    }
-                    .frame(width: 140, height: 40)
-                )),
-            GallerySpec(
                 id: "menu", title: "Menu",
                 view: AnyView(
                     Menu("Options") {
@@ -348,26 +679,12 @@ struct SwiftWindowsUIGalleryTool {
                     .frame(width: 120, height: 80)
                 )),
             GallerySpec(
-                id: "scroll-view", title: "ScrollView",
-                view: AnyView(
-                    ScrollView {
-                        VStack(spacing: 8) {
-                            ForEach(0..<5) { i in
-                                Rectangle()
-                                    .fill(i % 2 == 0 ? .red : .blue)
-                                    .frame(width: 140, height: 30)
-                            }
-                        }
-                    }
-                    .frame(width: 160, height: 100)
-                )),
-            GallerySpec(
                 id: "for-each", title: "ForEach",
                 view: AnyView(
                     VStack(spacing: 4) {
-                        ForEach(0..<4) { i in
+                        ForEach(0..<4, id: \.self) { index in
                             Rectangle()
-                                .fill(i % 2 == 0 ? .green : .yellow)
+                                .fill(index % 2 == 0 ? .green : .yellow)
                                 .frame(width: 140, height: 20)
                         }
                     }
@@ -481,13 +798,12 @@ struct SwiftWindowsUIGalleryTool {
         ]
 
         var entries: [GalleryEntry] = []
-        let size = IntSize(width: 200, height: 200)
         let displayScale = 1.0
 
         for spec in gallerySpecs {
             let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
                 of: spec.view,
-                size: size,
+                size: spec.size,
                 displayScale: displayScale,
                 clearColor: .black
             )
@@ -501,6 +817,7 @@ struct SwiftWindowsUIGalleryTool {
                     id: spec.id,
                     title: spec.title,
                     filename: filename,
+                    size: spec.size,
                     primitiveCount: snapshot.scene.primitiveCount,
                     layerCount: snapshot.scene.layers.count
                 ))
@@ -520,6 +837,14 @@ private struct GallerySpec {
     let id: String
     let title: String
     let view: AnyView
+    let size: IntSize
+
+    init(id: String, title: String, view: AnyView, size: IntSize = IntSize(width: 200, height: 200)) {
+        self.id = id
+        self.title = title
+        self.view = view
+        self.size = size
+    }
 }
 
 // MARK: - Gallery Entry
@@ -528,6 +853,7 @@ private struct GalleryEntry {
     let id: String
     let title: String
     let filename: String
+    let size: IntSize
     let primitiveCount: Int
     let layerCount: Int
 }
@@ -539,7 +865,7 @@ private func writeGalleryHTML(entries: [GalleryEntry], to url: URL) throws {
         """
         <div class="card">
             <div class="image-wrapper">
-                <img src="\(entry.filename)" alt="\(entry.title)" width="200" height="200">
+                <img src="\(entry.filename)" alt="\(entry.title)" width="\(entry.size.width)" height="\(entry.size.height)">
             </div>
             <div class="info">
                 <div class="title">\(entry.title)</div>
@@ -566,7 +892,7 @@ private func writeGalleryHTML(entries: [GalleryEntry], to url: URL) throws {
                 .subtitle { color: #8b949e; font-size: 13px; margin-bottom: 24px; }
                 .grid {
                     display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+                    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
                     gap: 16px;
                 }
                 .card {
@@ -584,6 +910,8 @@ private func writeGalleryHTML(entries: [GalleryEntry], to url: URL) throws {
                 }
                 img {
                     display: block;
+                    max-width: 100%;
+                    height: auto;
                     border-radius: 4px;
                     border: 1px solid #30363d;
                     image-rendering: pixelated;
@@ -606,7 +934,7 @@ private func writeGalleryHTML(entries: [GalleryEntry], to url: URL) throws {
         </head>
         <body>
             <h1>SwiftWindowsUI Gallery</h1>
-            <div class="subtitle">\(entries.count) snapshots &middot; 200&times;200 &middot; raw-scene backend</div>
+            <div class="subtitle">\(entries.count) snapshots &middot; responsive canvases &middot; raw-scene backend &middot; shapes, effects, and real controls</div>
             <div class="grid">
                 \(cards)
             </div>

@@ -7,6 +7,17 @@ import XCTest
 @testable import SwiftWindowsUI
 @testable import WinSwiftUI
 
+/// Reference-type wall clock so escaping `recoveryClock` closures capture an
+/// immutable reference instead of a mutable local binding (avoids Sendable /
+/// concurrent-capture diagnostics while remaining MainActor-only in practice).
+/// File-scoped so it does not inherit `@MainActor` isolation from the suite.
+private final class RendererHealthRecoveryClock: @unchecked Sendable {
+    var now: Double
+    init(_ now: Double) {
+        self.now = now
+    }
+}
+
 /// `WinSwiftUIWindowHost.rendererHealthSnapshot` is the public surface for
 /// observing pipeline state from app code. These tests pin the contract
 /// across startup, downgrade, recovery scheduling, and active-animation
@@ -81,8 +92,8 @@ final class RendererHealthSnapshotTests: XCTestCase {
             let (host, batchRenderer, _, fakeWindow) = makeHost(
                 recoveryPolicy: BatchBackendRecoveryPolicy(
                     isEnabled: true, initialRetryInterval: 5, maxRetryInterval: 60, backoffMultiplier: 2))
-            var fakeNow = 100.0
-            host.recoveryClock = { fakeNow }
+            let clock = RendererHealthRecoveryClock(100.0)
+            host.recoveryClock = { clock.now }
 
             batchRenderer.setRenderShouldFail(true)
             host.window(fakeWindow, didResizeTo: IntSize(width: 640, height: 480))
@@ -97,7 +108,7 @@ final class RendererHealthSnapshotTests: XCTestCase {
                 "Initial retry interval should be the first scheduled attempt")
 
             // Half the interval has passed.
-            fakeNow += 2.5
+            clock.now += 2.5
             let snap2 = host.rendererHealthSnapshot
             XCTAssertEqual(snap2.nextBatchRecoveryInSeconds ?? -1, 2.5, accuracy: 0.001)
         }
@@ -122,8 +133,8 @@ final class RendererHealthSnapshotTests: XCTestCase {
             let (host, batchRenderer, _, fakeWindow) = makeHost(
                 recoveryPolicy: BatchBackendRecoveryPolicy(
                     isEnabled: true, initialRetryInterval: 5, maxRetryInterval: 60, backoffMultiplier: 2))
-            var fakeNow = 200.0
-            host.recoveryClock = { fakeNow }
+            let clock = RendererHealthRecoveryClock(200.0)
+            host.recoveryClock = { clock.now }
 
             batchRenderer.setRenderShouldFail(true)
             host.window(fakeWindow, didResizeTo: IntSize(width: 640, height: 480))
@@ -131,7 +142,7 @@ final class RendererHealthSnapshotTests: XCTestCase {
             XCTAssertEqual(host.rendererHealthSnapshot.activeBackend, .frame)
 
             batchRenderer.setRenderShouldFail(false)
-            fakeNow += 10  // past the retry interval
+            clock.now += 10  // past the retry interval
             host.windowNeedsDisplay(fakeWindow)
 
             let snap = host.rendererHealthSnapshot

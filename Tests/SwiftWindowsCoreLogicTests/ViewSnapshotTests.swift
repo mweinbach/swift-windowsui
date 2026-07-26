@@ -20,13 +20,13 @@ final class ViewSnapshotTests: XCTestCase {
             XCTAssertEqual(bitmap.width, 110)
             XCTAssertEqual(bitmap.height, 60)
 
-            // Center pixel inside the red rect should be red
+            // Center pixel inside the red rect should match the semantic system red.
             let center = bitmap.pixelColor(atX: 50, y: 25)
             XCTAssertNotNil(center)
-            XCTAssertEqual(Double(center?.red ?? 0), 1, accuracy: 0.01)
-            XCTAssertEqual(Double(center?.green ?? 0), 0, accuracy: 0.01)
-            XCTAssertEqual(Double(center?.blue ?? 0), 0, accuracy: 0.01)
-            XCTAssertEqual(Double(center?.alpha ?? 0), 1, accuracy: 0.01)
+            XCTAssertEqual(Double(center?.red ?? 0), Double(Color.red.red), accuracy: 0.01)
+            XCTAssertEqual(Double(center?.green ?? 0), Double(Color.red.green), accuracy: 0.01)
+            XCTAssertEqual(Double(center?.blue ?? 0), Double(Color.red.blue), accuracy: 0.01)
+            XCTAssertEqual(Double(center?.alpha ?? 0), Double(Color.red.alpha), accuracy: 0.01)
 
             // Corner pixel outside the rect should be black (clear color)
             let corner = bitmap.pixelColor(atX: 105, y: 55)

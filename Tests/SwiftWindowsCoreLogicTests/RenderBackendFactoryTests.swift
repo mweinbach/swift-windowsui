@@ -33,7 +33,7 @@ struct RenderBackendFactoryTests {
                 scaleFactor: 1.0
             ))
 
-        var frame = RenderFrame(clearColor: Color(red: 1, green: 0, blue: 0, alpha: 1))
+        let frame = RenderFrame(clearColor: Color(red: 1, green: 0, blue: 0, alpha: 1))
         try backend.render(frame: frame)
     }
 

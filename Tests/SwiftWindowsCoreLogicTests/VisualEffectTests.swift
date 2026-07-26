@@ -85,13 +85,17 @@ struct VisualEffectTests {
 
     @Test("Encode colorMultiply effect")
     func encodeColorMultiply() async {
-        let effects: [RetainedColorEffect] = [.colorMultiply(.red)]
+        // Assert against live system color components (macOS HIG values), not
+        // pure primaries, so this test verifies effect-parameter propagation.
+        let multiply = Color.red
+        let effects: [RetainedColorEffect] = [.colorMultiply(multiply)]
         let (type, intensity, p1, p2, p3, p4) = ScenePainter.encodeColorEffects(effects)
+        let tolerance: Float = 1e-5
         #expect(type == 7)
         #expect(intensity == 0)
-        #expect(p1 == 1)
-        #expect(p2 == 0)
-        #expect(p3 == 0)
+        #expect(abs(p1 - multiply.red) <= tolerance)
+        #expect(abs(p2 - multiply.green) <= tolerance)
+        #expect(abs(p3 - multiply.blue) <= tolerance)
         #expect(p4 == 0)
     }
 
@@ -208,10 +212,13 @@ struct VisualEffectTests {
 
     @Test("ScenePainter encodes colorMultiply into quad primitives")
     func scenePainterEncodesColorMultiply() async {
+        // Assert against live system color components (macOS HIG values), not
+        // pure primaries, so this test verifies effect-parameter propagation.
+        let multiply = Color.green
         let root = ViewNode(
             frame: Rect(x: 0, y: 0, width: 100, height: 100),
             backgroundColor: Color(red: 1, green: 1, blue: 1, alpha: 1),
-            colorEffects: [.colorMultiply(.green)]
+            colorEffects: [.colorMultiply(multiply)]
         )
 
         let scene = ScenePainter.paint(
@@ -231,10 +238,11 @@ struct VisualEffectTests {
             return
         }
 
+        let tolerance: Float = 1e-5
         #expect(quad.effectType == 7)
-        #expect(quad.effectParam1 == 0)
-        #expect(quad.effectParam2 == 1)
-        #expect(quad.effectParam3 == 0)
+        #expect(abs(quad.effectParam1 - multiply.red) <= tolerance)
+        #expect(abs(quad.effectParam2 - multiply.green) <= tolerance)
+        #expect(abs(quad.effectParam3 - multiply.blue) <= tolerance)
     }
 
     // MARK: - Blur Tests

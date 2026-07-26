@@ -16119,6 +16119,11 @@ public struct Slider: View {
             }
 
             let labelNode = labelComponent.makeNode(runtime: runtime)
+            // In the labeled form the track row gives up vertical space before
+            // the label does: a constrained parent squeezes the track (which
+            // re-resolves its geometry in onLayout) instead of shrinking the
+            // label's frame until its text overflows onto the track.
+            rowNode.layoutPriority = -1
             return Controls.stackPanel(
                 stackLayout: .vertical(spacing: 6, alignment: .stretch),
                 isHitTestVisible: false,
@@ -16326,6 +16331,10 @@ public struct ProgressView: View {
             guard !label.isEmpty || !currentValueLabel.isEmpty else {
                 return progressNode
             }
+
+            // Labeled form: the bar absorbs vertical compression before the
+            // label/header does so the label text never overflows onto it.
+            progressNode.layoutPriority = -1
 
             guard !currentValueLabel.isEmpty else {
                 let labelNode = labelComponent.makeNode(runtime: runtime)
@@ -16612,6 +16621,10 @@ public struct Gauge: View {
             guard hasHeader || hasBounds || hasMarkedLabels else {
                 return gaugeNode
             }
+
+            // Labeled form: the bar absorbs vertical compression before the
+            // header/bounds labels do so label text never overflows onto it.
+            gaugeNode.layoutPriority = -1
 
             var children: [ViewNode] = []
             if hasHeader {

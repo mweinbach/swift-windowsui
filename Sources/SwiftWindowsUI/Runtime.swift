@@ -5978,8 +5978,13 @@ public final class RetainedViewRuntime {
             focusedNode?.onActivate?()
 
         case .escape:
+            let focusedBeforeEscape = focusedNode
             focusedNode?.onKeyDown?(event)
-            updateFocusTarget(to: nil)
+            // A presentation's Escape-dismiss may restore focus to another
+            // node; only clear focus when nothing reclaimed it.
+            if focusedNode === focusedBeforeEscape {
+                updateFocusTarget(to: nil)
+            }
             return
 
         default:

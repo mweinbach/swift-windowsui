@@ -1892,6 +1892,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     func windowDidChangeSystemSettings(_ window: Win32Window) {
         syncAnimationDriver(for: window)
+        // The system appearance snapshot was invalidated by the host; rebuild
+        // so high-contrast / theme changes apply without an app restart.
+        if isRendererReady {
+            reloadContent()
+        }
     }
 
     func windowDidChangeActiveState(_ window: Win32Window, isActive: Bool) {
@@ -1945,6 +1950,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                     verticalSizeClass: self?.resolvedVerticalSizeClass ?? .regular,
                     undoManager: self?.undoManager
                 )
+                .applyingSystemAppearance(self?.window.systemAppearance ?? .unavailable)
             }
         )
     }

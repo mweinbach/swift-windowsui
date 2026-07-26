@@ -1,89 +1,62 @@
 # AGENTS.md
 
-This repository is a Windows-only custom-rendered UI toolkit prototype. Keep changes aligned with the retained runtime, the renderer-neutral frame contract, and the `WinSwiftUI` compatibility layer instead of inventing parallel abstractions.
+SwiftUI on Windows as a native Swift UI stack: SwiftUI-shaped app code on a
+retained runtime, a renderer-neutral scene contract, a Win32 host, and a
+Direct3D 11 presentation path. The architecture is GPUI-inspired Swift, not a
+wrapper around native Win32 controls. Swift / SwiftPM; all tooling is
+PowerShell scripts under `scripts/`.
 
-## Project Shape
+## Layout
 
-- `SwiftWindowsCore`: shared geometry, color, input, and surface types
-- `SwiftWindowsGraphics`: `RenderBackend`, `RenderFrame`, gradients, and draw commands
-- `SwiftWindowsLayout`: stack layout primitives and experimental generic layout helpers
-- `SwiftWindowsPlatform`: Win32 host, window delegate bridge, timer/input/message handling
-- `SwiftWindowsUI`: retained `ViewNode` tree, runtime, controls, text plumbing, and legacy `FoundationApp`
-- `SwiftWindowsRendererD3D11`: the concrete D3D11 backend used by the demo
-- `WinSwiftUI`: SwiftUI-shaped app/view surface mapped onto the retained runtime
-- `SwiftWindowsDemo`: shared-source demo screen used by the app and snapshot tool
-- `swift-windowsui`: executable that boots the demo through `WinSwiftUI`
-- `swift-windowsui-snapshot`: executable that builds the demo through `WinSwiftUIRendererSnapshotter` and rasterizes raw scene/frame data offscreen
+SwiftPM targets under `Sources/`, top of the stack first:
 
-## Core Mental Model
+- `WinSwiftUI` — the SwiftUI-shaped API app code imports on Windows.
+- `SwiftWindowsUI` — the retained runtime (`RetainedViewRuntime`); `Runtime.swift` is the source of truth for layout, hit testing, focus, clipping, and animation.
+- `SwiftWindowsGraphics` — renderer-neutral `GPUIScene` paint records, typed primitives, and the CPU rasterizer.
+- `SwiftWindowsRendererD3D11` / `SwiftWindowsPlatform` — D3D11 backend and Win32 host.
+- `SwiftWindowsDemo` — shared-source demo (same source builds against macOS SwiftUI); `swift-windowsui` runs it, `swift-windowsui-snapshot` renders it offscreen for screenshots.
 
-- The active demo path is `AppEntry.swift` -> `WinSwiftUI.App` / `WindowGroup` -> `WinSwiftUIWindowHost` -> `Win32Window` events -> `RetainedViewRuntime` -> `GPUIScene` -> `D3D11BatchRenderer`, with `RenderFrame` -> `D3D11Renderer` kept as a fallback/debug path.
-- The screenshot path is intentionally not a desktop capture. `scripts/demo-screenshot.ps1` runs `swift-windowsui-snapshot`, pulls the raw `GPUIScene` or `RenderFrame` from the retained runtime, rasterizes it with `GPUIRawSceneRasterizer`, and writes image artifacts under `artifacts/`.
-- The runtime is retained-mode and mutable. Prefer mutating `ViewNode` state and letting the runtime invalidate/re-render.
-- The shared render graph is intentionally tiny. Most visible features reduce to `FillRectCommand`.
-- `ViewBuildContext` carries inherited SwiftUI-shaped style and environment state into retained components; prefer extending that propagation path over introducing global UI state.
-- `SwiftWindowsScene` exists, but it is not the primary path used by the demo.
-- `LayoutNode` and `FixedLayoutBox` are present, but the running UI currently relies on `ViewLayoutMode` and `StackLayout`.
-- `FoundationApp` still exists, but it is no longer the main demo bootstrap path.
+`extern/zed` is a read-only reference checkout; never edit or build it.
 
-## Editing Rules
+## Invariants
 
-- Treat `Sources/SwiftWindowsUI/Runtime.swift` as the source of truth for layout, hit testing, focus traversal, clipping, frame caching, and animation behavior.
-- Keep UI-facing code on the main actor. `ViewNode`, `RetainedViewRuntime`, `Controls`, `WinSwiftUI`, and the demo app are all main-actor-centric.
-- When changing `Controls.button`, preserve the focus/press/activate animation lifecycle unless the task explicitly changes interaction behavior.
-- Remember that text in `PixelText.swift` is uppercase bitmap text with `?` fallback. Do not assume full font shaping or native text measurement.
-- If you add new visual features, consider whether they belong in the shared render graph first, not only in `D3D11Renderer`.
-- If you change renderer behavior, keep the backend-neutral API in `SwiftWindowsGraphics` coherent with the implementation.
-- If you change Win32 message handling, keep `WindowDelegate` callbacks and `KeyboardEvent` translation consistent with existing runtime expectations.
-- When extending `WinSwiftUI`, prefer SwiftUI-shaped names and call-site compatibility over framework-specific convenience APIs.
-- Preserve the same-source contract for the demo: the shared demo view/app code should stay usable with `import WinSwiftUI` on Windows and `import SwiftUI` on macOS.
+`scripts/check-contracts.ps1` machine-checks the architecture contracts. Run it
+before and after architecture-sensitive edits; if a change fights a contract,
+rethink the change, not the contract. In addition:
 
-## Validation
+- App rendering goes through `WinSwiftUIWindowHost` and `RetainedViewRuntime`; `SwiftWindowsScene` and `FoundationApp` are not the primary path.
+- `GPUIScene.paintOperations` is the presentation-order paint stream; family batches are data-layout optimizations, never presentation order.
+- UI-facing code (runtime, controls, host, `WinSwiftUI`) is main-actor-centric.
+- Screenshots are raw retained-runtime output via `swift-windowsui-snapshot`; never desktop or window capture.
+- Demo source stays SwiftUI-shaped and same-source with macOS; fix Windows rendering bugs in the stack, not with platform-only APIs in demo code.
+- Prefer extending `ViewBuildContext` and inherited environment propagation over global UI state.
 
-- Run `swift test` for shared logic changes.
-- Run `swift test --filter RetainedViewRuntimeTests` when iterating on retained runtime behavior.
-- Run `swift test --filter WinSwiftUITests` when iterating on the SwiftUI-shaped compatibility layer.
-- Run `swift build --product swift-windowsui` for renderer, host, or demo-entry changes because the test target does not cover all executable wiring.
-- Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-screenshot.ps1` after visual UI changes. Open `artifacts/demo-screenshot.png` to inspect the rendered scene. Use `-FrameDebug -OutputPath artifacts/demo-screenshot-frame.png` to compare the frame fallback path.
-- Prefer a manual demo run for changes in `Win32Host`, `WinSwiftUIWindowHost`, `PixelText`, or `D3D11Renderer`.
+## Build, test, verify
 
-## Viewing Rendered Screenshots
+Invoke scripts as `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/<name>.ps1`.
+Never run two SwiftPM commands against the same `.build` directory in parallel.
 
-- Default scene screenshot:
-  `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-screenshot.ps1`
-- Frame fallback screenshot:
-  `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-screenshot.ps1 -FrameDebug -OutputPath artifacts/demo-screenshot-frame.png`
-- The PNG to view is `artifacts/demo-screenshot.png` by default. The raw rasterizer source is also left beside it as `artifacts/demo-screenshot.raw.bmp`.
-- In Codex, inspect the PNG directly with the image viewer rather than relying on the OS window. For this workspace, the default absolute path is `C:\Users\maxw6\Projects\swift-windowsui\artifacts\demo-screenshot.png`.
-- If the screenshot looks wrong, debug the retained runtime, `WinSwiftUIRendererSnapshotter`, `GPUIScene`, `RenderFrame`, or `GPUIRawSceneRasterizer` path first. Do not reintroduce `CopyFromScreen` or foreground-window screenshots as the primary validation path.
+```powershell
+scripts/agent-check.ps1 -ContractsOnly    # contract checks; run before architecture-sensitive edits
+scripts/agent-check.ps1 -Quick            # after runtime, scene, renderer, or screenshot changes
+scripts/agent-check.ps1 -Full             # release-quality validation
+scripts/lint.ps1                          # toolchain swift-format on changed Swift files; run before finishing (-Path <file> if the checkout is dirty)
+scripts/test.ps1 -Filter <TestClass>      # focused XCTest, e.g. RetainedViewRuntimeTests, GPUISceneTests, D3D11BatchRendererTests
+scripts/build.ps1 -Product swift-windowsui
+scripts/demo-screenshot.ps1               # writes artifacts/demo-screenshot.png — open and inspect after visual changes
+```
 
-## High-Value File Targets
+Generated output belongs under `artifacts/` or the OS temp directory; the
+contract check rejects root-level logs and screenshots. Commit as you go with
+clear messages, and keep `README.md` and `docs/` current when architecture or
+compatibility changes.
 
-- `Sources/WinSwiftUI/Core.swift`: shared aliases, modifiers, environment/observation wrappers, and compatibility helpers
-- `Sources/WinSwiftUI/Views.swift`: SwiftUI-shaped view/container/control mappings
-- `Sources/WinSwiftUI/App.swift`: `App`, `Scene`, `WindowGroup`, and retained-runtime hosting
-- `Sources/swift-windowsui/AppEntry.swift`: active demo entry point
-- `Sources/SwiftWindowsDemo/DemoDashboard.swift`: shared-source demo screen
-- `Sources/WinSwiftUI/RenderSnapshot.swift`: raw retained-runtime snapshot API for screenshots and tooling
-- `Sources/SwiftWindowsGraphics/SceneRasterizer.swift`: CPU rasterizer for raw `GPUIScene`/`RenderFrame` screenshot artifacts
-- `Sources/SwiftWindowsUI/Runtime.swift`: retained tree behavior and render-frame generation
-- `Sources/SwiftWindowsUI/Controls.swift`: reusable retained control builders and animation hooks
-- `Sources/SwiftWindowsUI/PixelText.swift`: bitmap text measurement and rasterization
-- `Sources/SwiftWindowsPlatform/Win32Host.swift`: native windowing and input translation
-- `Sources/SwiftWindowsRendererD3D11/D3D11Renderer.swift`: D3D11 pipeline, swap chain, scissor clipping, rounded rect shader
+## Task docs (read when relevant)
 
-## Documentation Guidance
-
-- Describe the project as a custom-rendered Windows UI toolkit, not as a wrapper around native Win32 widgets.
-- Call out the retained runtime, renderer-neutral frame generation, Win32 host, D3D11 presentation path, and the `WinSwiftUI` compatibility layer.
-- Be explicit that the repository remains Windows-only even though shared app source can target SwiftUI on macOS.
-- Mention current limits honestly: subset SwiftUI parity, bitmap/native text limits, and thin automated coverage for renderer/platform layers.
-- Update `README.md`, `AGENTS.md`, and relevant files under `docs` with any significant compatibility or architecture changes.
-
-## Docs
-
-As you work, create and update documentation in the `docs` directory so usage and architecture stay current.
-
-## Commits and Git
-
-- Make commits as you go with clear messages so changes do not pile up.
+- `docs/Testing.md` — full validation matrix: script details, test filters, screenshot and gallery workflows.
+- `docs/GPURenderingPipeline.md` — how a view tree becomes pixels, with the test protecting each step.
+- `docs/WinSwiftUI.md` — what the compatibility layer is and how it maps onto the runtime.
+- `docs/CompatibilityStatus.md` — what is safe to use today in the shared-source subset.
+- `docs/MacOSDesignParity.md`, `docs/AnimationParity.md` — pinned macOS design and animation constants, enforced by parity tests.
+- `docs/MacOSReferenceParityWorkflow.md` — producing macOS reference renders and comparing them against Windows output.
+- `docs/StabilizationRoadmap.md` — the phased plan toward release quality.

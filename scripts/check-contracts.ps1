@@ -108,14 +108,16 @@ function Assert-NoRootScratchFiles {
     }
 }
 
+Assert-PathExists "AGENTS.md" "AGENTS.md must exist at the repo root for agent handoff."
 Assert-PathExists "CLAUDE.md" "CLAUDE.md must exist at the repo root for agent handoff."
 Assert-PathExists ".swift-format" ".swift-format must exist so Swift formatting is deterministic."
 
-Assert-Contains "CLAUDE.md" "SwiftUI on Windows" "CLAUDE.md must state the SwiftUI-on-Windows goal."
-Assert-Contains "CLAUDE.md" "GPUI" "CLAUDE.md must state the GPUI-inspired rendering target."
-Assert-Contains "CLAUDE.md" "RetainedViewRuntime" "CLAUDE.md must anchor agents on the retained runtime."
-Assert-Contains "CLAUDE.md" "paintOperations" "CLAUDE.md must preserve the paintOperations presentation contract."
-Assert-Contains "CLAUDE.md" "agent-check\.ps1" "CLAUDE.md must document the agent validation loop."
+Assert-Contains "CLAUDE.md" "@AGENTS\.md" "CLAUDE.md must import AGENTS.md so both agent context files share one source of truth."
+Assert-Contains "AGENTS.md" "SwiftUI on Windows" "AGENTS.md must state the SwiftUI-on-Windows goal."
+Assert-Contains "AGENTS.md" "GPUI" "AGENTS.md must state the GPUI-inspired rendering target."
+Assert-Contains "AGENTS.md" "RetainedViewRuntime" "AGENTS.md must anchor agents on the retained runtime."
+Assert-Contains "AGENTS.md" "paintOperations" "AGENTS.md must preserve the paintOperations presentation contract."
+Assert-Contains "AGENTS.md" "agent-check\.ps1" "AGENTS.md must document the agent validation loop."
 Assert-Contains "README.md" "scripts/agent-check\.ps1" "README.md must point contributors to the agent check script."
 Assert-Contains "docs/Testing.md" "agent-check\.ps1" "docs/Testing.md must document the agent check script."
 

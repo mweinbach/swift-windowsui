@@ -172,6 +172,6 @@ The GUI demo was also launched with a short `swift run swift-windowsui` startup 
 
 ## Documentation
 
-Additional framework notes live in [`docs/WinSwiftUI.md`](/D:/Projects/swift-windowsui/docs/WinSwiftUI.md).
-Testing and visual-check commands live in [`docs/Testing.md`](/D:/Projects/swift-windowsui/docs/Testing.md).
-Agent handoff and architecture guardrails live in [`CLAUDE.md`](/D:/Projects/swift-windowsui/CLAUDE.md).
+Additional framework notes live in [`docs/WinSwiftUI.md`](docs/WinSwiftUI.md).
+Testing and visual-check commands live in [`docs/Testing.md`](docs/Testing.md).
+Agent handoff and architecture guardrails live in [`AGENTS.md`](AGENTS.md), which `CLAUDE.md` imports.

@@ -17150,11 +17150,50 @@ extension SwiftWindowsCore.Color {
     }
 
     public nonisolated func resolvedForContrast(_ contrast: ColorSchemeContrast) -> SwiftWindowsCore.Color {
-        guard contrast == .increased, self == .secondary else {
+        guard contrast == .increased else {
             return self
         }
 
-        return resolvedHighContrastSecondary()
+        if self == .secondary {
+            return resolvedHighContrastSecondary()
+        }
+
+        // Snap the low-contrast hierarchical fallback greys
+        // (`.tertiary` / `.quaternary` / `.quinary`) onto a legible
+        // high-contrast ramp so text and chrome using them stay readable.
+        // Colors outside the ramp pass through untouched.
+        for (source, target) in Self.highContrastGreyRamp where self == source {
+            let components = target.rgba
+            return SwiftWindowsCore.Color(
+                red: components.0,
+                green: components.1,
+                blue: components.2,
+                alpha: rgba.3
+            )
+        }
+
+        return self
+    }
+
+    /// High-contrast equivalents for the hierarchical fallback greys, dimmest
+    /// last. Alpha is taken from the source color at resolution time.
+    nonisolated private static var highContrastGreyRamp:
+        [(source: SwiftWindowsCore.Color, target: SwiftWindowsCore.Color)]
+    {
+        [
+            (
+                HierarchicalShapeStyle.tertiary.retainedFallbackColor,
+                SwiftWindowsCore.Color(red: 0.84, green: 0.88, blue: 0.94, alpha: 1)
+            ),
+            (
+                HierarchicalShapeStyle.quaternary.retainedFallbackColor,
+                SwiftWindowsCore.Color(red: 0.78, green: 0.82, blue: 0.89, alpha: 1)
+            ),
+            (
+                HierarchicalShapeStyle.quinary.retainedFallbackColor,
+                SwiftWindowsCore.Color(red: 0.72, green: 0.77, blue: 0.85, alpha: 1)
+            ),
+        ]
     }
 
     public nonisolated func resolvedForBackgroundProminence(_ prominence: BackgroundProminence)
@@ -18807,11 +18846,33 @@ private func retainedInspectorPresentation(
                 wrapsScrollingContent: true
             )
         )
+        // Deferred painting keeps the inspector above all base content and
+        // gives its subtree hit-test priority over base content. An inspector
+        // is non-modal, so there is no scrim: base content stays interactive.
+        let overlayContainer = Controls.panel(
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [inspectorNode]
+        )
+        overlayContainer.paintsInDeferredPhase = true
+        overlayContainer.nodeTag = "inspector-overlay"
         let root = Controls.panel(
             layoutMode: .absolute,
             isHitTestVisible: false,
-            children: [baseNode, inspectorNode]
+            children: [baseNode, overlayContainer]
         )
+
+        let focusedAtPresentation = runtime.focusedNode
+        let dismissInspector: @MainActor () -> Void = {
+            retainedRestorePresentationFocus(
+                runtime: runtime,
+                focusedAtPresentation: focusedAtPresentation,
+                baseNode: baseNode,
+                overlayNode: overlayContainer
+            )
+            onInteractiveDismiss()
+        }
+        attachRetainedEscapeDismiss(to: root, dismiss: dismissInspector)
 
         let columnWidth = baseNode.inspectorColumnWidth
 
@@ -18819,6 +18880,9 @@ private func retainedInspectorPresentation(
             let boundsFrame = Rect(origin: .zero, size: bounds.size)
             if baseNode.frame != boundsFrame {
                 baseNode.frame = boundsFrame
+            }
+            if overlayContainer.frame != boundsFrame {
+                overlayContainer.frame = boundsFrame
             }
 
             let inspectorWidth: Double = columnWidth ?? 320

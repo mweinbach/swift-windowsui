@@ -265,7 +265,9 @@ with native widgets.
       controls and activate default button actions
 - [ ] Focus changes update UIA focus; bounds track layout after resize
 - [ ] Hidden / `accessibilityHidden` nodes omitted or marked correctly
-- [ ] Mapping unit tests green; contracts still pass
+- [x] Mapping unit tests green; contracts still pass
+      (`AccessibilityProjection` — derived tree, trait→control-type table,
+      action invocation; Win32 provider wiring remains)
 - [ ] Docs state remaining UIA pattern gaps
 
 ### Validation commands
@@ -317,9 +319,14 @@ high-contrast / accessibility display preferences in retained chrome.
 
 - [ ] System high-contrast toggle is observed without app restart (or
       documented if restart is required for specific settings)
+      (wired: `SystemAppearanceSnapshot` re-sampled on
+      WM_SETTINGCHANGE/WM_SYSCOLORCHANGE → environment → reload; manual HC
+      theme smoke still pending)
 - [ ] Supported demo controls remain legible in high contrast
-- [ ] Semantic colors do not hard-code low-contrast greys when HC is on
-- [ ] Unit tests cover mapping tables; screenshot optional HC fixture
+- [x] Semantic colors do not hard-code low-contrast greys when HC is on
+      (hierarchical greys snap to a legible HC ramp via `resolvedForContrast`)
+- [x] Unit tests cover mapping tables; screenshot optional HC fixture
+      (`SystemAppearanceTests` — injected snapshots, precedence, grey ramp)
 - [ ] Docs describe precedence: app override > system > toolkit default
 
 ### Validation commands

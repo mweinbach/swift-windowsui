@@ -118,6 +118,12 @@ public final class Win32Window {
     private var cachedRefreshRate: UINT = 60
     private var refreshRateDirty = true
 
+    // System appearance sampling
+    /// Injectable settings source; defaults to live Win32 sampling. Tests
+    /// substitute a fake so the host stays headless.
+    public var systemAppearanceProvider: any SystemAppearanceProvider = Win32SystemAppearanceProvider()
+    private var cachedSystemAppearance: SystemAppearanceSnapshot?
+
     // High-resolution timer support
     public var useHighResolutionTimer: Bool = false
     private var highResTimerHandle: HANDLE?
@@ -164,6 +170,26 @@ public final class Win32Window {
             cachedRefreshRate = queryMonitorRefreshRate()
         }
         return cachedRefreshRate
+    }
+
+    /// Latest sampled system appearance (light/dark, high contrast, text
+    /// scale, reduce motion). Sampled lazily on first access and re-sampled
+    /// after `WM_SETTINGCHANGE` / `WM_SYSCOLORCHANGE`.
+    public var systemAppearance: SystemAppearanceSnapshot {
+        if let cachedSystemAppearance {
+            return cachedSystemAppearance
+        }
+
+        let sampled = systemAppearanceProvider.sampleSystemAppearance()
+        cachedSystemAppearance = sampled
+        return sampled
+    }
+
+    /// Drops the cached snapshot so the next `systemAppearance` access
+    /// re-samples from the provider. Called from the settings-change message
+    /// path; internal so headless tests can drive the same invalidation.
+    internal func invalidateSystemAppearanceCache() {
+        cachedSystemAppearance = nil
     }
 
     public func create() throws {
@@ -218,6 +244,10 @@ public final class Win32Window {
         if let window = createdWindow {
             RegisterTouchWindow(window, 0)
         }
+
+        // Prime the system appearance snapshot at startup so the first
+        // environment build sees current OS settings.
+        _ = systemAppearance
 
         delegate?.windowDidCreate(self)
     }
@@ -631,6 +661,14 @@ public final class Win32Window {
             return 0
 
         case UINT(WM_SETTINGCHANGE):
+            invalidateSystemAppearanceCache()
+            delegate?.windowDidChangeSystemSettings(self)
+            return 0
+
+        case UINT(WM_SYSCOLORCHANGE):
+            // High-contrast theme switches broadcast WM_SYSCOLORCHANGE;
+            // route them through the same settings invalidation path.
+            invalidateSystemAppearanceCache()
             delegate?.windowDidChangeSystemSettings(self)
             return 0
 
@@ -937,6 +975,136 @@ public final class Win32Window {
         }
 
         return DefWindowProcW(hwnd, message, wParam, lParam)
+    }
+}
+
+// MARK: - System appearance sampling
+
+/// Value snapshot of OS-level appearance settings that drive environment
+/// appearance (color scheme, high contrast, text scale, reduce motion).
+/// Sampled through `SystemAppearanceProvider` on `Win32Window` and mapped
+/// into `EnvironmentValues` by the WinSwiftUI layer.
+public struct SystemAppearanceSnapshot: Sendable, Equatable {
+    /// Light/dark preference. `nil` when the OS preference cannot be
+    /// determined; callers keep their existing default in that case.
+    public enum ColorSchemePreference: Sendable, Equatable {
+        case light
+        case dark
+    }
+
+    public var colorSchemePreference: ColorSchemePreference?
+    public var isHighContrastEnabled: Bool
+    /// Text scale as a multiplier (1.0 == 100%). `nil` when unavailable.
+    public var textScaleFactor: Double?
+    /// Reduced-motion preference. `nil` when unavailable.
+    public var prefersReducedMotion: Bool?
+
+    public init(
+        colorSchemePreference: ColorSchemePreference? = nil,
+        isHighContrastEnabled: Bool = false,
+        textScaleFactor: Double? = nil,
+        prefersReducedMotion: Bool? = nil
+    ) {
+        self.colorSchemePreference = colorSchemePreference
+        self.isHighContrastEnabled = isHighContrastEnabled
+        self.textScaleFactor = textScaleFactor
+        self.prefersReducedMotion = prefersReducedMotion
+    }
+
+    /// Neutral snapshot used when no system information is available.
+    public static let unavailable = SystemAppearanceSnapshot()
+}
+
+/// Source of `SystemAppearanceSnapshot` values. The production default is
+/// `Win32SystemAppearanceProvider`; tests inject fakes so the host stays
+/// headless (no live OS theme flips required).
+public protocol SystemAppearanceProvider: Sendable {
+    func sampleSystemAppearance() -> SystemAppearanceSnapshot
+}
+
+/// Live Win32 sampler: `SystemParametersInfoW` for high contrast and
+/// client-area animation, registry reads for the app light/dark preference
+/// and text scale. Every field degrades to `nil`/`false` when the
+/// underlying call fails.
+public struct Win32SystemAppearanceProvider: SystemAppearanceProvider {
+    public init() {}
+
+    public func sampleSystemAppearance() -> SystemAppearanceSnapshot {
+        SystemAppearanceSnapshot(
+            colorSchemePreference: Self.sampleColorSchemePreference(),
+            isHighContrastEnabled: Self.sampleHighContrastEnabled(),
+            textScaleFactor: Self.sampleTextScaleFactor(),
+            prefersReducedMotion: Self.samplePrefersReducedMotion()
+        )
+    }
+
+    private static func sampleHighContrastEnabled() -> Bool {
+        var highContrast = HIGHCONTRASTW()
+        highContrast.cbSize = UINT(MemoryLayout<HIGHCONTRASTW>.size)
+        guard SystemParametersInfoW(UINT(SPI_GETHIGHCONTRAST), highContrast.cbSize, &highContrast, 0) else {
+            return false
+        }
+
+        return (highContrast.dwFlags & DWORD(HCF_HIGHCONTRASTON)) != 0
+    }
+
+    private static func samplePrefersReducedMotion() -> Bool? {
+        // Windows BOOL is a 32-bit integer; Swift's WinSDK does not export
+        // the BOOL alias, so use Int32 for the raw storage.
+        var animationEnabled: Int32 = 0
+        guard SystemParametersInfoW(UINT(SPI_GETCLIENTAREAANIMATION), 0, &animationEnabled, 0) else {
+            return nil
+        }
+
+        // Client-area animation off is the closest Win32-exposed proxy for
+        // the "reduce motion" accessibility preference.
+        return animationEnabled == 0
+    }
+
+    private static func sampleColorSchemePreference() -> SystemAppearanceSnapshot.ColorSchemePreference? {
+        guard let appsUseLightTheme = readCurrentUserDWORD(
+            subKey: #"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"#,
+            valueName: "AppsUseLightTheme"
+        ) else {
+            return nil
+        }
+
+        return appsUseLightTheme == 0 ? .dark : .light
+    }
+
+    private static func sampleTextScaleFactor() -> Double? {
+        guard let percent = readCurrentUserDWORD(
+            subKey: #"Software\Microsoft\Accessibility"#,
+            valueName: "TextScaleFactor"
+        ), percent > 0 else {
+            return nil
+        }
+
+        return Double(percent) / 100.0
+    }
+
+    private static func readCurrentUserDWORD(subKey: String, valueName: String) -> DWORD? {
+        var value: DWORD = 0
+        var size = DWORD(MemoryLayout<DWORD>.size)
+        let status = subKey.withWideChars { subKeyPointer in
+            valueName.withWideChars { valuePointer in
+                RegGetValueW(
+                    HKEY_CURRENT_USER,
+                    subKeyPointer,
+                    valuePointer,
+                    DWORD(RRF_RT_REG_DWORD),
+                    nil,
+                    &value,
+                    &size
+                )
+            }
+        }
+
+        guard status == ERROR_SUCCESS else {
+            return nil
+        }
+
+        return value
     }
 }
 @MainActor

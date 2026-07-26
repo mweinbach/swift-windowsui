@@ -148,7 +148,7 @@ Use these when you accept retained approximations.
 | **Gestures** | Tap, long-press (release-inside), drag mapped to pointer | Duration thresholds, full gesture composition/arbitration, simultaneous value streaming |
 | **Focus** | Focus rings, `@FocusState`, activation | Dynamic `@FocusedValue` retargeting as focus moves; environment `isFocused` live transitions |
 | **Drag and drop** | API + metadata on nodes | Full delete/reorder/drop affordances and OS drag sessions |
-| **Accessibility** | Metadata on `ViewNode` (label, traits, actions, …) | Win32 UI Automation exposure |
+| **Accessibility** | Metadata on `ViewNode` + derived `AccessibilityElementProjection` (control-type mapping, named actions, focus/selection state) | Win32 UI Automation provider wiring |
 | **Materials / blur** | Tint/blur metadata; design-parity constants | Full backdrop materials everywhere; backend blur limits |
 | **Blend / drawing groups** | Metadata; some blend modes on frame fallback | Scene-path offscreen group compositing as full SwiftUI drawing groups |
 | **3D transforms** | Z-axis rotation maps to 2D; metadata stored | Full 3D projection pipeline |
@@ -183,9 +183,16 @@ behavior** unless a note says otherwise.
 | `isLuminanceReduced`, `isSceneCaptured`, `isTabBarShowingSections` | **Shim** | Overrideable; not derived from OS |
 | Most accessibility environment booleans | **Shim** | Readable/overrideable; only `accessibilityReduceMotion` affects retained animation creation |
 | `privacySensitive` | **Shim** | Metadata; no OS capture exclusion |
-| `colorSchemeContrast` | **Partial** | Affects secondary foreground brightness; not Windows high-contrast integration |
+| `colorSchemeContrast` | **Partial** | Derived from Windows high contrast via `SystemAppearanceSnapshot` (WM_SETTINGCHANGE/WM_SYSCOLORCHANGE); affects secondary foreground + hierarchical greys |
 | `scrollDismissesKeyboard` | **Shim** | No software keyboard host |
 | Dictation / writing tools / keyboard type / content type text metadata | **Shim** | Stored; not wired to IME policy |
+
+**System appearance precedence:** app override (`preferredColorScheme`,
+explicit `.environment(_:_:)` sets) > system snapshot (Windows high contrast,
+light/dark preference, reduce motion — sampled at startup and on
+`WM_SETTINGCHANGE`/`WM_SYSCOLORCHANGE`) > toolkit default. Snapshot fields
+that are unavailable (e.g. undeterminable theme preference) leave the
+existing environment value untouched.
 
 ### Visual / animation metadata without full runtime
 

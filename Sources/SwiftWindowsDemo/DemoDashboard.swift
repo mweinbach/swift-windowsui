@@ -1407,56 +1407,60 @@ struct DemoSettingsScreen: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Profile") {
-                    TextField("Display Name", text: $model.displayName)
+            // The form is taller than small windows; scroll instead of
+            // squeezing sections until their tracks vanish.
+            ScrollView {
+                Form {
+                    Section("Profile") {
+                        TextField("Display Name", text: $model.displayName)
 
-                    Picker("Theme", selection: $model.theme) {
-                        Text("SYSTEM").tag(DemoThemeOption.system)
-                        Text("LIGHT").tag(DemoThemeOption.light)
-                        Text("DARK").tag(DemoThemeOption.dark)
-                    }
-                    .pickerStyle(.segmented)
+                        Picker("Theme", selection: $model.theme) {
+                            Text("SYSTEM").tag(DemoThemeOption.system)
+                            Text("LIGHT").tag(DemoThemeOption.light)
+                            Text("DARK").tag(DemoThemeOption.dark)
+                        }
+                        .pickerStyle(.segmented)
 
-                    Stepper(
-                        "Items Per Page: \(model.itemsPerPage)",
-                        value: $model.itemsPerPage,
-                        in: 5...30,
-                        step: 5
-                    )
-                }
-
-                Section("Preferences") {
-                    Toggle("Enable Animations", isOn: $model.animationsEnabled)
-                    Toggle("Sound Effects", isOn: $model.soundEffectsEnabled)
-                    Toggle("Share Usage Data", isOn: $model.shareUsageData)
-
-                    Divider()
-
-                    Slider(value: $model.fontScale, in: 0.8...1.4) {
-                        Text("Font Scale")
-                    }
-                }
-
-                Section("Resources") {
-                    Gauge(value: model.storageUsed, in: 0...1) {
-                        Text("Storage Used")
+                        Stepper(
+                            "Items Per Page: \(model.itemsPerPage)",
+                            value: $model.itemsPerPage,
+                            in: 5...30,
+                            step: 5
+                        )
                     }
 
-                    ProgressView("Sync Progress", value: model.syncProgress)
+                    Section("Preferences") {
+                        Toggle("Enable Animations", isOn: $model.animationsEnabled)
+                        Toggle("Sound Effects", isOn: $model.soundEffectsEnabled)
+                        Toggle("Share Usage Data", isOn: $model.shareUsageData)
 
-                    Button("Sync Now") {
-                        model.runSync()
+                        Divider()
+
+                        Slider(value: $model.fontScale, in: 0.8...1.4) {
+                            Text("Font Scale")
+                        }
                     }
-                }
 
-                Section("Actions") {
-                    Button("Save Settings") {
-                        model.saveSettings()
+                    Section("Resources") {
+                        Gauge(value: model.storageUsed, in: 0...1) {
+                            Text("Storage Used")
+                        }
+
+                        ProgressView("Sync Progress", value: model.syncProgress)
+
+                        Button("Sync Now") {
+                            model.runSync()
+                        }
                     }
 
-                    Button("Reset To Defaults", role: .destructive) {
-                        model.resetSettings()
+                    Section("Actions") {
+                        Button("Save Settings") {
+                            model.saveSettings()
+                        }
+
+                        Button("Reset To Defaults", role: .destructive) {
+                            model.resetSettings()
+                        }
                     }
                 }
             }

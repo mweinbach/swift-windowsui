@@ -7,7 +7,32 @@ import WinSwiftUI
 struct SwiftWindowsUIGalleryTool {
     @MainActor
     static func main() throws {
-        let outputDir = URL(fileURLWithPath: "artifacts/gallery")
+        // Minimal additive CLI:
+        //   --entries <csv>     only render the listed entry ids
+        //   --output-dir <path> write PNGs/index somewhere else
+        // Defaults keep the historical behavior (all entries, artifacts/gallery).
+        var outputDirPath = "artifacts/gallery"
+        var entryFilter: Set<String>?
+        var argumentIndex = 1
+        let arguments = CommandLine.arguments
+        while argumentIndex < arguments.count {
+            let argument = arguments[argumentIndex]
+            if argument == "--output-dir", argumentIndex + 1 < arguments.count {
+                outputDirPath = arguments[argumentIndex + 1]
+                argumentIndex += 1
+            } else if argument == "--entries", argumentIndex + 1 < arguments.count {
+                entryFilter = Set(
+                    arguments[argumentIndex + 1]
+                        .split(separator: ",")
+                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+                )
+                argumentIndex += 1
+            }
+            argumentIndex += 1
+        }
+
+        let outputDir = URL(fileURLWithPath: outputDirPath)
         try FileManager.default.createDirectory(
             at: outputDir,
             withIntermediateDirectories: true
@@ -801,6 +826,9 @@ struct SwiftWindowsUIGalleryTool {
         let displayScale = 1.0
 
         for spec in gallerySpecs {
+            if let entryFilter, !entryFilter.contains(spec.id) {
+                continue
+            }
             let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
                 of: spec.view,
                 size: spec.size,

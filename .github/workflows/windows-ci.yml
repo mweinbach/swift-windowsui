@@ -9,7 +9,8 @@ name: Windows CI
 #   contracts - every push and pull_request (no toolchain required)
 #   quick     - pull requests and non-main pushes (focused serial validation)
 #   full      - pushes to main, weekly schedule, and workflow_dispatch
-#               (full tests + demo build + scene/frame screenshots)
+#               (full tests + demo build + scene/frame screenshots
+#               + gallery regression gate)
 #
 # SwiftPM work is always serial inside agent-check.ps1 so jobs never race
 # the shared .build database within a runner.
@@ -134,7 +135,8 @@ jobs:
         shell: pwsh
         run: |
           # agent-check -Full runs contracts, full swift test, demo build,
-          # and scene + frame-fallback screenshots serially.
+          # scene + frame-fallback screenshots, and the gallery regression
+          # gate (gallery-compare.ps1) serially.
           powershell -NoProfile -ExecutionPolicy Bypass `
             -File scripts/agent-check.ps1 -Full
 
@@ -148,5 +150,17 @@ jobs:
             artifacts/demo-screenshot.raw.bmp
             artifacts/demo-screenshot-frame.png
             artifacts/demo-screenshot-frame.raw.bmp
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload gallery compare artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-gallery-compare
+          path: |
+            artifacts/gallery-compare/report.txt
+            artifacts/gallery-compare/current/*.png
+            artifacts/gallery-compare/diffs/*.png
           if-no-files-found: warn
           retention-days: 14

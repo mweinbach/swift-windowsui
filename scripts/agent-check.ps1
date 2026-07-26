@@ -2,7 +2,8 @@ param(
     [switch]$Quick,
     [switch]$Full,
     [switch]$Format,
-    [switch]$ContractsOnly
+    [switch]$ContractsOnly,
+    [switch]$GalleryCompare
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,6 +12,7 @@ $buildScript = Join-Path $PSScriptRoot "build.ps1"
 $lintScript = Join-Path $PSScriptRoot "lint.ps1"
 $contractScript = Join-Path $PSScriptRoot "check-contracts.ps1"
 $screenshotScript = Join-Path $PSScriptRoot "demo-screenshot.ps1"
+$galleryCompareScript = Join-Path $PSScriptRoot "gallery-compare.ps1"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
 function Get-ReportedExitCode {
@@ -88,6 +90,9 @@ if ($Full) {
     Invoke-Step "frame fallback screenshot" {
         & $screenshotScript -FrameDebug -OutputPath (Join-Path $repoRoot "artifacts/demo-screenshot-frame.png")
     }
+    Invoke-Step "gallery regression gate" {
+        & $galleryCompareScript
+    }
 } else {
     Invoke-Step "GPUISceneTests" {
         & $testScript -Filter "GPUISceneTests"
@@ -103,6 +108,11 @@ if ($Full) {
     }
     Invoke-Step "swift build swift-windowsui" {
         & $buildScript -Product "swift-windowsui"
+    }
+    if ($GalleryCompare) {
+        Invoke-Step "gallery regression gate" {
+            & $galleryCompareScript
+        }
     }
 }
 

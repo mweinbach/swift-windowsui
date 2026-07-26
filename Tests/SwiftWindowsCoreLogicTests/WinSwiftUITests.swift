@@ -10902,7 +10902,8 @@ final class WinSwiftUITests: XCTestCase {
             guard case .absolute = presentedNode.layoutMode else {
                 return XCTFail("Expected sheet presentation to use retained absolute overlay layout")
             }
-            XCTAssertEqual(presentedNode.children.count, 3)
+            XCTAssertEqual(presentedNode.children.count, 2)
+            XCTAssertEqual(presentedNode.children.last?.nodeTag, "sheet-overlay")
             XCTAssertTrue(allTexts(in: presentedNode).contains("ROOT"))
             XCTAssertTrue(allTexts(in: presentedNode).contains("SHEET"))
             XCTAssertTrue(allTexts(in: presentedNode).contains("DONE"))
@@ -10984,9 +10985,13 @@ final class WinSwiftUITests: XCTestCase {
                     }
             )
 
-            XCTAssertEqual(defaultNode.children[1].nodeTag, "sheet-scrim-dismiss-enabled")
-            XCTAssertTrue(defaultNode.children[1].isHitTestVisible)
-            defaultNode.children[1].onActivate?()
+            guard let defaultScrim = presentationOverlayChild(in: defaultNode, overlayTag: "sheet-overlay", index: 0)
+            else {
+                return
+            }
+            XCTAssertEqual(defaultScrim.nodeTag, "sheet-scrim-dismiss-enabled")
+            XCTAssertTrue(defaultScrim.isHitTestVisible)
+            defaultScrim.onActivate?()
             XCTAssertFalse(defaultPresented)
             XCTAssertEqual(defaultDismissCount, 1)
 
@@ -11004,9 +11009,13 @@ final class WinSwiftUITests: XCTestCase {
                     }
             )
 
-            XCTAssertEqual(disabledNode.children[1].nodeTag, "sheet-scrim-dismiss-disabled")
-            XCTAssertFalse(disabledNode.children[1].isHitTestVisible)
-            XCTAssertNil(disabledNode.children[1].onActivate)
+            guard let disabledScrim = presentationOverlayChild(in: disabledNode, overlayTag: "sheet-overlay", index: 0)
+            else {
+                return
+            }
+            XCTAssertEqual(disabledScrim.nodeTag, "sheet-scrim-dismiss-disabled")
+            XCTAssertFalse(disabledScrim.isHitTestVisible)
+            XCTAssertNil(disabledScrim.onActivate)
             XCTAssertTrue(disabledPresented)
 
             var reenabledPresented = true
@@ -11024,8 +11033,15 @@ final class WinSwiftUITests: XCTestCase {
                     }
             )
 
-            XCTAssertEqual(reenabledNode.children[1].nodeTag, "sheet-scrim-dismiss-enabled")
-            reenabledNode.children[1].onActivate?()
+            guard let reenabledScrim = presentationOverlayChild(
+                in: reenabledNode,
+                overlayTag: "sheet-overlay",
+                index: 0
+            ) else {
+                return
+            }
+            XCTAssertEqual(reenabledScrim.nodeTag, "sheet-scrim-dismiss-enabled")
+            reenabledScrim.onActivate?()
             XCTAssertFalse(reenabledPresented)
         }
     }
@@ -11050,9 +11066,13 @@ final class WinSwiftUITests: XCTestCase {
                     }
             )
 
-            XCTAssertEqual(enabledNode.children[1].nodeTag, "sheet-scrim-background-interactive")
-            XCTAssertFalse(enabledNode.children[1].isHitTestVisible)
-            XCTAssertNil(enabledNode.children[1].onActivate)
+            guard let enabledScrim = presentationOverlayChild(in: enabledNode, overlayTag: "sheet-overlay", index: 0)
+            else {
+                return
+            }
+            XCTAssertEqual(enabledScrim.nodeTag, "sheet-scrim-background-interactive")
+            XCTAssertFalse(enabledScrim.isHitTestVisible)
+            XCTAssertNil(enabledScrim.onActivate)
             XCTAssertTrue(enabledPresented)
             XCTAssertEqual(enabledDismissCount, 0)
 
@@ -11070,9 +11090,16 @@ final class WinSwiftUITests: XCTestCase {
                     }
             )
 
-            XCTAssertEqual(upThroughNode.children[1].nodeTag, "sheet-scrim-background-interactive")
-            XCTAssertFalse(upThroughNode.children[1].isHitTestVisible)
-            XCTAssertNil(upThroughNode.children[1].onActivate)
+            guard let upThroughScrim = presentationOverlayChild(
+                in: upThroughNode,
+                overlayTag: "sheet-overlay",
+                index: 0
+            ) else {
+                return
+            }
+            XCTAssertEqual(upThroughScrim.nodeTag, "sheet-scrim-background-interactive")
+            XCTAssertFalse(upThroughScrim.isHitTestVisible)
+            XCTAssertNil(upThroughScrim.onActivate)
             XCTAssertTrue(upThroughPresented)
 
             var disabledPresented = true
@@ -11090,9 +11117,13 @@ final class WinSwiftUITests: XCTestCase {
                     }
             )
 
-            XCTAssertEqual(disabledNode.children[1].nodeTag, "sheet-scrim-dismiss-enabled")
-            XCTAssertTrue(disabledNode.children[1].isHitTestVisible)
-            disabledNode.children[1].onActivate?()
+            guard let disabledScrim = presentationOverlayChild(in: disabledNode, overlayTag: "sheet-overlay", index: 0)
+            else {
+                return
+            }
+            XCTAssertEqual(disabledScrim.nodeTag, "sheet-scrim-dismiss-enabled")
+            XCTAssertTrue(disabledScrim.isHitTestVisible)
+            disabledScrim.onActivate?()
             XCTAssertFalse(disabledPresented)
         }
     }
@@ -11110,8 +11141,9 @@ final class WinSwiftUITests: XCTestCase {
                     }
             )
 
-            guard let sheetPanel = scrollsNode.children.last else {
-                return XCTFail("Expected retained sheet panel")
+            guard let sheetPanel = presentationOverlayChild(in: scrollsNode, overlayTag: "sheet-overlay", index: 1)
+            else {
+                return
             }
             XCTAssertEqual(sheetPanel.children.count, 1)
 
@@ -11132,8 +11164,12 @@ final class WinSwiftUITests: XCTestCase {
                     }
             )
 
-            guard let dragIndicatorSheet = dragIndicatorNode.children.last else {
-                return XCTFail("Expected retained sheet panel with drag indicator")
+            guard let dragIndicatorSheet = presentationOverlayChild(
+                in: dragIndicatorNode,
+                overlayTag: "sheet-overlay",
+                index: 1
+            ) else {
+                return
             }
             XCTAssertEqual(dragIndicatorSheet.children.count, 2)
             XCTAssertEqual(dragIndicatorSheet.children[1].nodeTag, "presentation-content-scrolls")
@@ -11147,8 +11183,8 @@ final class WinSwiftUITests: XCTestCase {
                     }
             )
 
-            guard let resizesSheet = resizesNode.children.last,
-                let resizesContent = resizesSheet.children.first
+            guard let resizesContent = presentationOverlayChild(in: resizesNode, overlayTag: "sheet-overlay", index: 1)?
+                .children.first
             else {
                 return XCTFail("Expected retained sheet content")
             }
@@ -11175,10 +11211,15 @@ final class WinSwiftUITests: XCTestCase {
                     .environment(\.horizontalSizeClass, .compact)
             )
 
-            XCTAssertEqual(sheetNode.children.count, 3)
-            XCTAssertEqual(sheetNode.children[1].nodeTag, "sheet-scrim-dismiss-enabled")
-            XCTAssertTrue(allTexts(in: sheetNode.children[2]).contains("SHEET POPOVER"))
-            sheetNode.children[1].onActivate?()
+            XCTAssertEqual(sheetNode.children.count, 2)
+            guard let sheetScrim = presentationOverlayChild(in: sheetNode, overlayTag: "sheet-overlay", index: 0),
+                let sheetPanel = presentationOverlayChild(in: sheetNode, overlayTag: "sheet-overlay", index: 1)
+            else {
+                return
+            }
+            XCTAssertEqual(sheetScrim.nodeTag, "sheet-scrim-dismiss-enabled")
+            XCTAssertTrue(allTexts(in: sheetPanel).contains("SHEET POPOVER"))
+            sheetScrim.onActivate?()
             XCTAssertFalse(sheetPopoverPresented)
 
             let fullScreenNode = makeNode(
@@ -11197,8 +11238,15 @@ final class WinSwiftUITests: XCTestCase {
             fullScreenNode.onLayout?(Rect(x: 0, y: 0, width: 320, height: 180))
 
             XCTAssertEqual(fullScreenNode.children.count, 2)
-            XCTAssertTrue(allTexts(in: fullScreenNode.children[1]).contains("FULL POPOVER"))
-            XCTAssertEqual(fullScreenNode.children[1].frame, Rect(x: 0, y: 0, width: 320, height: 180))
+            guard let coverPanel = presentationOverlayChild(
+                in: fullScreenNode,
+                overlayTag: "full-screen-cover-overlay",
+                index: 0
+            ) else {
+                return
+            }
+            XCTAssertTrue(allTexts(in: coverPanel).contains("FULL POPOVER"))
+            XCTAssertEqual(coverPanel.frame, Rect(x: 0, y: 0, width: 320, height: 180))
 
             let noneNode = makeNode(
                 Text("ROOT")
@@ -11213,8 +11261,12 @@ final class WinSwiftUITests: XCTestCase {
             noneNode.onLayout?(Rect(x: 0, y: 0, width: 320, height: 180))
 
             XCTAssertEqual(noneNode.children.count, 2)
-            XCTAssertTrue(allTexts(in: noneNode.children[1]).contains("PLAIN POPOVER"))
-            XCTAssertNotEqual(noneNode.children[1].frame, Rect(x: 0, y: 0, width: 320, height: 180))
+            guard let plainPopoverPanel = presentationOverlayChild(in: noneNode, overlayTag: "popover-overlay", index: 1)
+            else {
+                return
+            }
+            XCTAssertTrue(allTexts(in: plainPopoverPanel).contains("PLAIN POPOVER"))
+            XCTAssertNotEqual(plainPopoverPanel.frame, Rect(x: 0, y: 0, width: 320, height: 180))
         }
     }
 
@@ -11264,16 +11316,21 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(Set<PresentationDetent>([.medium, .large, .height(320), .fraction(0.4)]).count, 4)
             XCTAssertTrue(allTexts(in: presentedNode).contains("DETENT SHEET"))
             XCTAssertTrue(allTexts(in: presentedNode).contains("DONE"))
-            guard let sheetPanel = presentedNode.children.last else {
-                return XCTFail("Expected retained sheet panel")
+            guard let sheetPanel = presentationOverlayChild(in: presentedNode, overlayTag: "sheet-overlay", index: 1)
+            else {
+                return
             }
             XCTAssertEqual(sheetPanel.children.count, 2)
             XCTAssertEqual(sheetPanel.children.first?.children.first?.preferredSize, Size(width: 36, height: 5))
             XCTAssertEqual(sheetPanel.children.first?.children.first?.cornerRadius, 2.5)
 
             let (_, renderedPresentedNode) = makeRuntimeNode(view, size: Size(width: 800, height: 600))
-            guard let renderedSheetPanel = renderedPresentedNode.children.last else {
-                return XCTFail("Expected rendered retained sheet panel")
+            guard let renderedSheetPanel = presentationOverlayChild(
+                in: renderedPresentedNode,
+                overlayTag: "sheet-overlay",
+                index: 1
+            ) else {
+                return
             }
             XCTAssertEqual(
                 renderedSheetPanel.frame.size.height,
@@ -11295,8 +11352,12 @@ final class WinSwiftUITests: XCTestCase {
                             .presentationDragIndicator(.hidden)
                     }
             )
-            guard let hiddenIndicatorPanel = hiddenIndicatorNode.children.last else {
-                return XCTFail("Expected retained hidden-indicator sheet panel")
+            guard let hiddenIndicatorPanel = presentationOverlayChild(
+                in: hiddenIndicatorNode,
+                overlayTag: "sheet-overlay",
+                index: 1
+            ) else {
+                return
             }
             XCTAssertEqual(hiddenIndicatorPanel.children.count, 1)
 
@@ -11308,8 +11369,12 @@ final class WinSwiftUITests: XCTestCase {
                     },
                 size: Size(width: 800, height: 600)
             )
-            guard let heightDetentPanel = heightDetentNode.children.last else {
-                return XCTFail("Expected height-detent sheet panel")
+            guard let heightDetentPanel = presentationOverlayChild(
+                in: heightDetentNode,
+                overlayTag: "sheet-overlay",
+                index: 1
+            ) else {
+                return
             }
             XCTAssertEqual(heightDetentPanel.frame.size.height, 320, accuracy: 0.001)
             XCTAssertEqual(heightDetentPanel.frame.origin.y, 280, accuracy: 0.001)
@@ -11322,8 +11387,12 @@ final class WinSwiftUITests: XCTestCase {
                     },
                 size: Size(width: 800, height: 600)
             )
-            guard let fractionDetentPanel = fractionDetentNode.children.last else {
-                return XCTFail("Expected fraction-detent sheet panel")
+            guard let fractionDetentPanel = presentationOverlayChild(
+                in: fractionDetentNode,
+                overlayTag: "sheet-overlay",
+                index: 1
+            ) else {
+                return
             }
             XCTAssertEqual(
                 fractionDetentPanel.frame.size.height,
@@ -11377,8 +11446,9 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(allTexts(in: presentedNode).contains("STYLED SHEET"))
             XCTAssertTrue(allTexts(in: presentedNode).contains("DONE"))
             XCTAssertTrue(allTexts(in: presentedNode).contains("PRESENTATION BACKGROUND"))
-            guard let sheetPanel = presentedNode.children.last else {
-                return XCTFail("Expected retained sheet panel")
+            guard let sheetPanel = presentationOverlayChild(in: presentedNode, overlayTag: "sheet-overlay", index: 1)
+            else {
+                return
             }
             XCTAssertNil(sheetPanel.backgroundColor)
             XCTAssertEqual(sheetPanel.backgroundGradient?.startColor, .red)
@@ -11397,8 +11467,9 @@ final class WinSwiftUITests: XCTestCase {
                             .presentationCornerRadius(nil)
                     }
             )
-            guard let resetSheetPanel = resetNode.children.last else {
-                return XCTFail("Expected retained reset sheet panel")
+            guard let resetSheetPanel = presentationOverlayChild(in: resetNode, overlayTag: "sheet-overlay", index: 1)
+            else {
+                return
             }
             XCTAssertNil(resetSheetPanel.backgroundColor)
             XCTAssertNil(resetSheetPanel.backgroundGradient)
@@ -11419,8 +11490,9 @@ final class WinSwiftUITests: XCTestCase {
                     }
             )
 
-            guard let popoverPanel = popoverNode.children.last else {
-                return XCTFail("Expected retained popover panel")
+            guard let popoverPanel = presentationOverlayChild(in: popoverNode, overlayTag: "popover-overlay", index: 1)
+            else {
+                return
             }
             XCTAssertEqual(popoverPanel.backgroundColor, popoverColor)
             XCTAssertNil(popoverPanel.backgroundGradient)
@@ -11442,8 +11514,12 @@ final class WinSwiftUITests: XCTestCase {
                     }
             )
 
-            guard let coverPanel = coverNode.children.last else {
-                return XCTFail("Expected retained full-screen cover panel")
+            guard let coverPanel = presentationOverlayChild(
+                in: coverNode,
+                overlayTag: "full-screen-cover-overlay",
+                index: 0
+            ) else {
+                return
             }
             XCTAssertNil(coverPanel.backgroundColor)
             XCTAssertEqual(coverPanel.backgroundGradient?.startColor, .green)
@@ -11814,7 +11890,8 @@ final class WinSwiftUITests: XCTestCase {
             guard case .absolute = presentedNode.layoutMode else {
                 return XCTFail("Expected alert presentation to use retained absolute overlay layout")
             }
-            XCTAssertEqual(presentedNode.children.count, 3)
+            XCTAssertEqual(presentedNode.children.count, 2)
+            XCTAssertEqual(presentedNode.children.last?.nodeTag, "alert-overlay")
             XCTAssertTrue(allTexts(in: presentedNode).contains("ROOT"))
             XCTAssertTrue(allTexts(in: presentedNode).contains("DELETE ITEM"))
             XCTAssertTrue(allTexts(in: presentedNode).contains("THIS CANNOT BE UNDONE"))
@@ -11936,7 +12013,8 @@ final class WinSwiftUITests: XCTestCase {
             guard case .absolute = presentedNode.layoutMode else {
                 return XCTFail("Expected actionSheet to use retained absolute overlay layout")
             }
-            XCTAssertEqual(presentedNode.children.count, 3)
+            XCTAssertEqual(presentedNode.children.count, 2)
+            XCTAssertEqual(presentedNode.children.last?.nodeTag, "confirmation-dialog-overlay")
             XCTAssertTrue(allTexts(in: presentedNode).contains("ROOT"))
             XCTAssertTrue(allTexts(in: presentedNode).contains("FILE ACTIONS"))
             XCTAssertTrue(allTexts(in: presentedNode).contains("CHOOSE ONE"))
@@ -12021,7 +12099,8 @@ final class WinSwiftUITests: XCTestCase {
             guard case .absolute = presentedNode.layoutMode else {
                 return XCTFail("Expected confirmation dialog to use retained absolute overlay layout")
             }
-            XCTAssertEqual(presentedNode.children.count, 3)
+            XCTAssertEqual(presentedNode.children.count, 2)
+            XCTAssertEqual(presentedNode.children.last?.nodeTag, "confirmation-dialog-overlay")
             XCTAssertTrue(allTexts(in: presentedNode).contains("ROOT"))
             XCTAssertTrue(allTexts(in: presentedNode).contains("DISCARD CHANGES"))
             XCTAssertTrue(allTexts(in: presentedNode).contains("DIALOG PRESENTED"))
@@ -21204,6 +21283,32 @@ private func firstFocusable(in node: ViewNode) -> ViewNode? {
     }
 
     return nil
+}
+/// Returns the child at `index` inside a presented overlay container
+/// (`[base, overlay]` roots built by the retained presentation helpers:
+/// scrim at index 0, panel at index 1), asserting the overlay carries the
+/// expected `<kind>-overlay` tag.
+@MainActor
+private func presentationOverlayChild(
+    in node: ViewNode,
+    overlayTag: String,
+    index: Int,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) -> ViewNode? {
+    guard let overlay = node.children.last, overlay.nodeTag == overlayTag else {
+        XCTFail("Expected presentation overlay tagged \(overlayTag)", file: file, line: line)
+        return nil
+    }
+    guard overlay.children.count > index else {
+        XCTFail(
+            "Expected presentation overlay \(overlayTag) to have a child at index \(index)",
+            file: file,
+            line: line
+        )
+        return nil
+    }
+    return overlay.children[index]
 }
 final class WindowTitleBarTests: XCTestCase {
     func testWindowTitleBarVisibilityConfiguration() async {

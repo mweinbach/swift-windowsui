@@ -75,9 +75,9 @@ source-only API surface.
       circular progress, toggle thumb; pinned by `ControlGeometryTests` at
       gallery canvas sizes)
 - [ ] Text fields support selection, clipboard, caret, and IME smoke flows
-      (selection/clipboard/caret landed; clipboard injectable via
-      `\.textInputClipboard` environment; mouse-drag selection blocked on a
-      public text-measurement facade in SwiftWindowsUI; IME remains)
+      (selection, clipboard, caret, and mouse-drag selection landed —
+      clipboard injectable via `\.textInputClipboard`, drag selection via the
+      new public `RetainedTextMetrics`; IME remains)
 - [x] Lists/forms support mouse and keyboard navigation with stable row chrome
       (arrow-key selection with focus + scroll-into-view, constant row
       metrics, hover highlight, form section clipping)

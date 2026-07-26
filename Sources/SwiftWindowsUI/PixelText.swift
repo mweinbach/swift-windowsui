@@ -542,6 +542,106 @@ enum PixelFont {
         PixelFontAtlas.pattern(for: character)
     }
 }
+/// Text-measurement facade for caret placement and pointer hit testing
+/// outside the retained runtime. Measures through the same path
+/// `ViewNode.textContentSize` uses: native (DirectWrite/GDI) layout when
+/// installed, fixed pixel-font advance otherwise. All results are in logical
+/// points so they line up with `ViewNode.frame` and runtime pointer
+/// coordinates, and are content-relative (style insets are not included in
+/// caret boundaries).
+@MainActor
+public enum RetainedTextMetrics {
+    /// Measures exactly as `ViewNode.textContentSize` does: native layout
+    /// when installed, pixel-font fallback otherwise.
+    public static func size(
+        of text: String,
+        style: PixelTextStyle,
+        displayScale: Double = 1,
+        maxWidth: Double? = nil
+    ) -> Size {
+        NativeTextRenderer.measure(text, style: style, scaleFactor: displayScale, maxWidth: maxWidth)
+            ?? PixelFont.measure(text, style: style, maxWidth: maxWidth)
+    }
+
+    /// Leading-edge x of the caret at character `offset` within a single line.
+    public static func caretX(
+        atOffset offset: Int,
+        in line: String,
+        style: PixelTextStyle,
+        displayScale: Double = 1
+    ) -> Double {
+        let boundaries = caretBoundaries(in: line, style: style, displayScale: displayScale)
+        return boundaries[max(0, min(offset, line.count))]
+    }
+
+    /// Character offset whose caret boundary is nearest `x` within a single
+    /// line. `x` outside the line's extent clamps to the nearest edge.
+    public static func characterOffset(
+        atX x: Double,
+        in line: String,
+        style: PixelTextStyle,
+        displayScale: Double = 1
+    ) -> Int {
+        guard !line.isEmpty else {
+            return 0
+        }
+
+        let boundaries = caretBoundaries(in: line, style: style, displayScale: displayScale)
+        let clampedX = max(0, min(x, boundaries[line.count]))
+        var bestOffset = 0
+        var bestDistance = abs(boundaries[0] - clampedX)
+        for offset in 1...line.count {
+            let distance = abs(boundaries[offset] - clampedX)
+            if distance < bestDistance {
+                bestDistance = distance
+                bestOffset = offset
+            }
+        }
+        return bestOffset
+    }
+
+    /// Caret boundary x positions for every character offset in `line`,
+    /// derived from native glyph advances when available and from the fixed
+    /// pixel-font advance otherwise.
+    private static func caretBoundaries(in line: String, style: PixelTextStyle, displayScale: Double) -> [Double]
+    {
+        let count = line.count
+        if count > 0,
+            let layout = NativeTextRenderer.layout(line, style: style, scaleFactor: displayScale, maxWidth: nil),
+            let nativeLine = layout.lines.first
+        {
+            var boundaries = [Double](repeating: -1, count: count + 1)
+            boundaries[count] = 0
+            for glyph in nativeLine.glyphs {
+                guard let sourceIndex = glyph.sourceIndex, sourceIndex >= 0, sourceIndex < count else {
+                    continue
+                }
+                boundaries[sourceIndex] = glyph.origin.x
+                boundaries[count] = max(boundaries[count], glyph.origin.x + glyph.advance)
+            }
+            // Ligatures and clusters leave interior offsets without a glyph;
+            // snap them forward to the next real boundary so the caret never
+            // lands inside a cluster.
+            var nextBoundary = boundaries[count]
+            for offset in stride(from: count, through: 0, by: -1) {
+                if boundaries[offset] < 0 {
+                    boundaries[offset] = nextBoundary
+                } else {
+                    nextBoundary = boundaries[offset]
+                }
+            }
+            return boundaries
+        }
+
+        let scale = max(style.scale, 0.01)
+        var boundaries = [Double](repeating: 0, count: count + 1)
+        for offset in 1...count {
+            boundaries[offset] =
+                (Double(offset) * Double(PixelFont.glyphWidth) + Double(offset - 1) * style.letterSpacing) * scale
+        }
+        return boundaries
+    }
+}
 enum TextDecorationCommandBuilder {
     static func appendCommands(
         for text: String,

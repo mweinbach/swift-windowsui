@@ -12653,60 +12653,60 @@ private func textInputComponent(
             onEditingChanged?(false)
             refreshChrome()
         }
-        node.onKeyDown = { event in
-            @MainActor func currentSelectionState() -> (caret: Int, range: Range<Int>?, anchor: Int) {
-                let text = binding.wrappedValue
-                let caret = clampedTextOffset(node.textInputCaretOffset, in: text)
-                guard let range = node.textInputSelection?.editableCharacterRange(in: text) else {
-                    return (caret, nil, caret)
-                }
-                let anchor = caret == range.lowerBound ? range.upperBound : range.lowerBound
-                return (caret, range, anchor)
+        @MainActor func currentSelectionState() -> (caret: Int, range: Range<Int>?, anchor: Int) {
+            let text = binding.wrappedValue
+            let caret = clampedTextOffset(node.textInputCaretOffset, in: text)
+            guard let range = node.textInputSelection?.editableCharacterRange(in: text) else {
+                return (caret, nil, caret)
             }
-            @MainActor func applySelection(anchor: Int, extent: Int) {
-                let text = binding.wrappedValue
-                let clampedAnchor = clampedTextOffset(anchor, in: text)
-                let clampedExtent = clampedTextOffset(extent, in: text)
-                let lower = min(clampedAnchor, clampedExtent)
-                let upper = max(clampedAnchor, clampedExtent)
-                node.textInputCaretOffset = clampedExtent
-                if lower == upper {
-                    if let selection {
-                        let nextSelection = TextSelection.insertion(
-                            at: lower,
-                            in: text,
-                            affinity: context.textSelectionAffinity
-                        )
-                        selection.wrappedValue = nextSelection
-                        node.textInputSelection = nextSelection.retainedSelection(in: text)
-                    } else {
-                        node.textInputSelection = nil
-                    }
-                } else {
-                    let affinity: TextSelectionAffinity = clampedExtent >= clampedAnchor ? .downstream : .upstream
-                    node.textInputSelection = RetainedTextSelection(
-                        indices: .range(lower..<upper),
-                        affinity: affinity.retainedAffinity
+            let anchor = caret == range.lowerBound ? range.upperBound : range.lowerBound
+            return (caret, range, anchor)
+        }
+        @MainActor func applySelection(anchor: Int, extent: Int) {
+            let text = binding.wrappedValue
+            let clampedAnchor = clampedTextOffset(anchor, in: text)
+            let clampedExtent = clampedTextOffset(extent, in: text)
+            let lower = min(clampedAnchor, clampedExtent)
+            let upper = max(clampedAnchor, clampedExtent)
+            node.textInputCaretOffset = clampedExtent
+            if lower == upper {
+                if let selection {
+                    let nextSelection = TextSelection.insertion(
+                        at: lower,
+                        in: text,
+                        affinity: context.textSelectionAffinity
                     )
-                    if let selection {
-                        let lowerIndex = text.index(text.startIndex, offsetBy: lower)
-                        let upperIndex = text.index(text.startIndex, offsetBy: upper)
-                        selection.wrappedValue = TextSelection(
-                            indices: .selection(lowerIndex..<upperIndex),
-                            affinity: affinity
-                        )
-                    }
+                    selection.wrappedValue = nextSelection
+                    node.textInputSelection = nextSelection.retainedSelection(in: text)
+                } else {
+                    node.textInputSelection = nil
                 }
-                refreshChrome()
+            } else {
+                let affinity: TextSelectionAffinity = clampedExtent >= clampedAnchor ? .downstream : .upstream
+                node.textInputSelection = RetainedTextSelection(
+                    indices: .range(lower..<upper),
+                    affinity: affinity.retainedAffinity
+                )
+                if let selection {
+                    let lowerIndex = text.index(text.startIndex, offsetBy: lower)
+                    let upperIndex = text.index(text.startIndex, offsetBy: upper)
+                    selection.wrappedValue = TextSelection(
+                        indices: .selection(lowerIndex..<upperIndex),
+                        affinity: affinity
+                    )
+                }
             }
-            @MainActor func setCaretOffset(_ offset: Int) {
-                applySelection(anchor: offset, extent: offset)
-            }
-            @MainActor func deleteSelection(_ range: Range<Int>) {
-                binding.wrappedValue = binding.wrappedValue.removingText(in: range)
-                setCaretOffset(range.lowerBound)
-                context.invalidate()
-            }
+            refreshChrome()
+        }
+        @MainActor func setCaretOffset(_ offset: Int) {
+            applySelection(anchor: offset, extent: offset)
+        }
+        @MainActor func deleteSelection(_ range: Range<Int>) {
+            binding.wrappedValue = binding.wrappedValue.removingText(in: range)
+            setCaretOffset(range.lowerBound)
+            context.invalidate()
+        }
+        node.onKeyDown = { event in
 
             if event.key == .enter, !allowsNewlines {
                 if let onCommit {
@@ -12865,6 +12865,30 @@ private func textInputComponent(
             binding.wrappedValue = binding.wrappedValue.replacingText(in: replacementRange, with: character)
             setCaretOffset(replacementRange.lowerBound + character.count)
             context.invalidate()
+        }
+
+        // Pointer-down places the caret at the hit offset; dragging extends
+        // the selection from the down anchor. The runtime's drag branch in
+        // pointerDown skips focus updates, so focus is requested explicitly.
+        let pointerDragAnchor = TextInputPointerDragAnchor()
+        @MainActor func textOffset(atRootPoint point: Point) -> Int {
+            textInputOffset(
+                atRootPoint: point,
+                labelNode: labelNode,
+                text: binding.wrappedValue,
+                isSecure: isSecure,
+                allowsNewlines: allowsNewlines,
+                displayScale: runtime.displayScale
+            )
+        }
+        node.onDragStart = { point in
+            runtime.requestFocus(node)
+            let offset = textOffset(atRootPoint: point)
+            pointerDragAnchor.value = offset
+            applySelection(anchor: offset, extent: offset)
+        }
+        node.onDragChange = { point, _ in
+            applySelection(anchor: pointerDragAnchor.value, extent: textOffset(atRootPoint: point))
         }
 
         return node
@@ -13031,6 +13055,137 @@ private func updateTextInputEditingChrome(
     node.removeAllChildren()
     node.addChild(labelNode)
     node.addChild(contentNode)
+}
+/// Sticky down-anchor for a pointer drag inside a text input. The anchor must
+/// survive the selection collapsing back to an insertion point mid-drag, so
+/// it cannot be re-derived from the live selection state.
+private final class TextInputPointerDragAnchor {
+    var value = 0
+}
+/// Maps a root-space pointer point to a character offset in a retained text
+/// input. Offsets stay in real-character space; secure fields measure their
+/// masked display text, single-line inputs clamp to the first hard line, and
+/// multi-line editors map y to hard line rows the same way
+/// `updateTextInputEditingChrome` stacks them.
+@MainActor
+private func textInputOffset(
+    atRootPoint point: Point,
+    labelNode: ViewNode,
+    text: String,
+    isSecure: Bool,
+    allowsNewlines: Bool,
+    displayScale: Double
+) -> Int {
+    guard !text.isEmpty else {
+        return 0
+    }
+
+    let displayText = isSecure ? String(repeating: "*", count: text.count) : text
+    let localPoint = textInputContentPoint(labelNode: labelNode, rootPoint: point)
+    let lineRanges = textInputHardLineRanges(in: displayText)
+
+    let row: Int
+    if allowsNewlines, lineRanges.count > 1 {
+        row = textInputLineRow(
+            atY: localPoint.y,
+            lineRanges: lineRanges,
+            text: displayText,
+            style: labelNode.textStyle,
+            displayScale: displayScale
+        )
+    } else {
+        row = 0
+    }
+
+    let lineRange = lineRanges[row]
+    let line = displayText.textSubstring(in: lineRange)
+    let column = RetainedTextMetrics.characterOffset(
+        atX: localPoint.x,
+        in: line,
+        style: labelNode.textStyle,
+        displayScale: displayScale
+    )
+    return lineRange.lowerBound + column
+}
+/// Converts a root-space point into the coordinate space of a text input's
+/// content label by accumulating frame origins along the parent chain and
+/// subtracting ancestor scroll offsets, mirroring the runtime's hit-test
+/// origin math. Ancestor transforms are not accounted for.
+@MainActor
+private func textInputContentPoint(labelNode: ViewNode, rootPoint: Point) -> Point {
+    var chain: [ViewNode] = []
+    var current: ViewNode? = labelNode
+    while let ancestor = current {
+        chain.append(ancestor)
+        current = ancestor.parent
+    }
+
+    var origin = Point(x: 0, y: 0)
+    for (index, ancestor) in chain.reversed().enumerated() {
+        origin = Point(x: origin.x + ancestor.frame.origin.x, y: origin.y + ancestor.frame.origin.y)
+        guard index < chain.count - 1 else {
+            continue
+        }
+        // Remaining chain entries are children of `ancestor`, laid out in its
+        // scrolled content space.
+        switch ancestor.scrollAxis {
+        case .horizontal:
+            origin.x -= ancestor.scrollOffset
+        case .vertical:
+            origin.y -= ancestor.scrollOffset
+        case nil:
+            break
+        }
+    }
+    return Point(x: rootPoint.x - origin.x, y: rootPoint.y - origin.y)
+}
+/// Hard line ranges (split on "\n") exactly as `updateTextInputEditingChrome`
+/// computes them.
+private func textInputHardLineRanges(in text: String) -> [Range<Int>] {
+    var lineRanges: [Range<Int>] = []
+    var lineStart = 0
+    var offset = 0
+    for character in text {
+        if character == "\n" {
+            lineRanges.append(lineStart..<offset)
+            lineStart = offset + 1
+        }
+        offset += 1
+    }
+    lineRanges.append(lineStart..<offset)
+    return lineRanges
+}
+/// Hard-line row whose vertical extent contains `y`, clamped to the
+/// outermost rows. Row heights use the measured line-label heights the
+/// editing chrome stacks from the content top; empty lines still occupy a
+/// full line-height row there once the caret or selection reaches them.
+@MainActor
+private func textInputLineRow(
+    atY y: Double,
+    lineRanges: [Range<Int>],
+    text: String,
+    style: PixelTextStyle,
+    displayScale: Double
+) -> Int {
+    var rowTop = 0.0
+    var lastRow = 0
+    for (index, lineRange) in lineRanges.enumerated() {
+        let line = text.textSubstring(in: lineRange)
+        let height = max(
+            1,
+            RetainedTextMetrics.size(
+                of: line.isEmpty ? " " : line,
+                style: style,
+                displayScale: displayScale
+            ).height
+        )
+        if y < rowTop + height {
+            return index
+        }
+        rowTop += height
+        lastRow = index
+    }
+    return lastRow
 }
 extension RetainedTextSelection {
     /// Non-empty character-offset range for single-range selections, clamped

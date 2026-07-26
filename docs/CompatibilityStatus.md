@@ -105,7 +105,7 @@ dashboard composition on a single custom-rendered window.
 | `Picker` | **Partial** | Segmented, menu, inline, radio, wheel-style shells; not native OS pickers |
 | `Stepper`, `Slider` | **Implemented** | Binding writes with ranges / steps |
 | `ProgressView`, `Gauge` | **Partial** | Determinate / indeterminate retained chrome |
-| `TextField`, `SecureField`, `TextEditor` | **Partial** | Focusable retained input; caret, shift-selection, select-all, clipboard shortcuts (secure fields block copy/cut); no mouse-drag selection or IME |
+| `TextField`, `SecureField`, `TextEditor` | **Partial** | Focusable retained input; caret, shift-selection, select-all, clipboard shortcuts, mouse-drag selection (secure fields block copy/cut); no IME |
 | `DatePicker` | **Partial** | Label/value + arrow increments; style shells; not a native calendar UI |
 | `MultiDatePicker` | **Partial** | Month grid multi-select for current month |
 | `ColorPicker` | **Partial** | Swatch + palette keyboard cycle; no native color dialog |
@@ -116,9 +116,9 @@ dashboard composition on a single custom-rendered window.
 | `TabView` | **Partial** | Retained tab bar + page; limited platform tab features |
 | `searchable` | **Partial** | Prepends retained search field; placement chrome differs by placement |
 | `toolbar` / `ToolbarItem` | **Partial** | Compact retained command row; not a native title-bar toolbar |
-| `sheet`, `fullScreenCover`, `popover` | **Partial** | Retained overlays; detents/placement approximated; no native presentation |
-| `alert`, `confirmationDialog`, `actionSheet` | **Partial** | Retained modal chrome |
-| `contextMenu` | **Partial** | Retained menu overlay path |
+| `sheet`, `fullScreenCover`, `popover` | **Partial** | Retained overlays: deferred layering, scrim dismissal, clamped placement, focus restoration (fullScreenCover: layering only); detents approximated; no native presentation |
+| `alert`, `confirmationDialog`, `actionSheet` | **Partial** | Retained modal chrome: deferred layering, Escape/scrim dismissal per SwiftUI semantics, focus restoration |
+| `contextMenu` | **Partial** | Retained menu overlay: clamped anchor, scrim/Escape dismissal, focus restoration |
 | `ShareLink` | **Partial** | Copies transferable items to clipboard (not system share sheet) |
 | `PhotosPicker` | **Partial** | Opens file dialog; not Photos framework |
 | `SettingsLink` / `RenameButton` / `EditButton` | **Partial** | Buttons wired to environment actions / edit mode where present |

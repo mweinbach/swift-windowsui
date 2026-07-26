@@ -5590,7 +5590,10 @@ public final class RetainedViewRuntime {
     let textSystem: WindowTextSystem
     private weak var hoveredNode: ViewNode?
     private weak var pressedNode: ViewNode?
-    private weak var focusedNode: ViewNode?
+    /// The node currently holding keyboard focus, if any. Read-only so
+    /// presentation builders can capture and later restore focus; mutate
+    /// only through `requestFocus` / focus traversal.
+    public private(set) weak var focusedNode: ViewNode?
     private weak var hoveredScrollIndicatorNode: ViewNode?
     private weak var activeScrollIndicatorNode: ViewNode?
     private var colorAnimations: [ColorAnimationKey: ViewColorAnimation] = [:]

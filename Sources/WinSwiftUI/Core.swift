@@ -18353,6 +18353,115 @@ private func retainedPresentationScrollContentNode(_ contentNode: ViewNode) -> V
     scrollNode.nodeTag = "presentation-content-scrolls"
     return scrollNode
 }
+/// Chains an Escape-key dismissal onto every node in the subtree, preserving
+/// any existing key-down handler, mirroring the Menu overlay's behavior.
+@MainActor
+private func attachRetainedEscapeDismiss(to node: ViewNode, dismiss: @escaping @MainActor () -> Void) {
+    let existingKeyDown = node.onKeyDown
+    node.onKeyDown = { event in
+        existingKeyDown?(event)
+        if event.key == .escape {
+            dismiss()
+        }
+    }
+
+    for child in node.children {
+        attachRetainedEscapeDismiss(to: child, dismiss: dismiss)
+    }
+}
+/// Runs `restoreFocus` before any existing activation handler in the subtree
+/// so activating a presentation's action buttons also returns keyboard focus
+/// to the control that was focused when the presentation appeared.
+@MainActor
+private func attachRetainedPresentationFocusRestore(
+    to node: ViewNode,
+    restoreFocus: @escaping @MainActor () -> Void
+) {
+    if let activate = node.onActivate {
+        node.onActivate = {
+            restoreFocus()
+            activate()
+        }
+    }
+
+    for child in node.children {
+        attachRetainedPresentationFocusRestore(to: child, restoreFocus: restoreFocus)
+    }
+}
+@MainActor
+private func retainedPresentationNode(_ node: ViewNode, isWithin ancestor: ViewNode) -> Bool {
+    var current: ViewNode? = node
+    while let currentNode = current {
+        if currentNode === ancestor {
+            return true
+        }
+        current = currentNode.parent
+    }
+    return false
+}
+@MainActor
+private func retainedFirstFocusableNode(in node: ViewNode) -> ViewNode? {
+    if node.isFocusable {
+        return node
+    }
+    for child in node.children {
+        if let match = retainedFirstFocusableNode(in: child) {
+            return match
+        }
+    }
+    return nil
+}
+/// Restores keyboard focus after an overlay dismissal: back to the node that
+/// was focused when the presentation appeared, or — when that node is gone or
+/// nothing was focused — to the first focusable control in the base content
+/// (approximating SwiftUI's restoration to the presentation's source control).
+@MainActor
+private func retainedRestorePresentationFocus(
+    runtime: RetainedViewRuntime,
+    focusedAtPresentation: ViewNode?,
+    baseNode: ViewNode,
+    overlayNode: ViewNode
+) {
+    if let focusedAtPresentation,
+        !retainedPresentationNode(focusedAtPresentation, isWithin: overlayNode),
+        retainedPresentationNode(focusedAtPresentation, isWithin: runtime.root)
+    {
+        runtime.requestFocus(focusedAtPresentation)
+        return
+    }
+
+    if let fallback = retainedFirstFocusableNode(in: baseNode) {
+        runtime.requestFocus(fallback)
+    }
+}
+/// Absolute origin of `node` within the window, approximated by walking the
+/// parent chain. Ancestor scroll offsets are not accounted for, matching the
+/// retained menu's attachment approximation.
+@MainActor
+private func retainedPresentationAbsoluteOrigin(of node: ViewNode) -> Point {
+    var origin = Point.zero
+    var current: ViewNode? = node
+    while let currentNode = current {
+        origin = Point(
+            x: origin.x + currentNode.frame.origin.x,
+            y: origin.y + currentNode.frame.origin.y
+        )
+        current = currentNode.parent
+    }
+    return origin
+}
+/// Frame that makes an overlay scrim cover the full canvas, no matter where
+/// the presentation's root sits in the window.
+@MainActor
+private func retainedPresentationCanvasScrimFrame(root: ViewNode, canvasSize: Size) -> Rect {
+    let rootOrigin = retainedPresentationAbsoluteOrigin(of: root)
+    return Rect(
+        x: -rootOrigin.x,
+        y: -rootOrigin.y,
+        width: canvasSize.width,
+        height: canvasSize.height
+    )
+}
 @MainActor
 private func retainedSheetPresentation(
     base: Component,
@@ -18379,11 +18488,6 @@ private func retainedSheetPresentation(
         } else {
             scrimNode.nodeTag = "sheet-scrim-dismiss-enabled"
         }
-        if scrimDismissesSheet {
-            scrimNode.onActivate = {
-                onInteractiveDismiss()
-            }
-        }
         let sheetBackgroundColor =
             presentationChrome.hasBackgroundOverride
             ? presentationChrome.backgroundColor
@@ -18408,26 +18512,60 @@ private func retainedSheetPresentation(
                 padding: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
                 alignment: .stretch
             ),
-            isHitTestVisible: false,
+            // Hit-test visible so clicks on the sheet's padding do not fall
+            // through to the dismissal scrim behind it.
+            isHitTestVisible: true,
             children: retainedPresentationChildren(
                 contentNode: sheetContentNode,
                 chrome: presentationChrome,
                 wrapsScrollingContent: true
             )
         )
+        // Deferred painting keeps the presented sheet above all base content
+        // and gives its subtree hit-test priority over base content.
+        let overlayContainer = Controls.panel(
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [scrimNode, sheetNode]
+        )
+        overlayContainer.paintsInDeferredPhase = true
+        overlayContainer.nodeTag = "sheet-overlay"
         let root = Controls.panel(
             layoutMode: .absolute,
             isHitTestVisible: false,
-            children: [baseNode, scrimNode, sheetNode]
+            children: [baseNode, overlayContainer]
         )
+
+        let focusedAtPresentation = runtime.focusedNode
+        let dismissSheet: @MainActor () -> Void = {
+            retainedRestorePresentationFocus(
+                runtime: runtime,
+                focusedAtPresentation: focusedAtPresentation,
+                baseNode: baseNode,
+                overlayNode: overlayContainer
+            )
+            onInteractiveDismiss()
+        }
+        if scrimDismissesSheet {
+            scrimNode.onActivate = {
+                dismissSheet()
+            }
+        }
+        attachRetainedEscapeDismiss(to: root, dismiss: dismissSheet)
 
         root.onLayout = { bounds in
             let boundsFrame = Rect(origin: .zero, size: bounds.size)
             if baseNode.frame != boundsFrame {
                 baseNode.frame = boundsFrame
             }
-            if scrimNode.frame != boundsFrame {
-                scrimNode.frame = boundsFrame
+            if overlayContainer.frame != boundsFrame {
+                overlayContainer.frame = boundsFrame
+            }
+            // The scrim always covers the full canvas, no matter where the
+            // presentation's root sits in the window.
+            let scrimFrame = retainedPresentationCanvasScrimFrame(root: root, canvasSize: context.canvasSize)
+            if scrimNode.frame != scrimFrame {
+                scrimNode.frame = scrimFrame
             }
 
             var sheetSize = sheetNode.intrinsicContentSize()
@@ -18481,19 +18619,33 @@ private func retainedFullScreenCoverPresentation(
                 alignment: .stretch,
                 mainAlignment: .start
             ),
-            isHitTestVisible: false,
+            // Hit-test visible so the modal cover swallows clicks instead of
+            // letting them fall through to the base content it covers.
+            isHitTestVisible: true,
             children: retainedPresentationChildren(contentNode: coverContentNode, chrome: presentationChrome)
         )
+        // Deferred painting keeps the cover above all base content and gives
+        // its subtree hit-test priority over base content.
+        let overlayContainer = Controls.panel(
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [coverNode]
+        )
+        overlayContainer.paintsInDeferredPhase = true
+        overlayContainer.nodeTag = "full-screen-cover-overlay"
         let root = Controls.panel(
             layoutMode: .absolute,
             isHitTestVisible: false,
-            children: [baseNode, coverNode]
+            children: [baseNode, overlayContainer]
         )
 
         root.onLayout = { bounds in
             let boundsFrame = Rect(origin: .zero, size: bounds.size)
             if baseNode.frame != boundsFrame {
                 baseNode.frame = boundsFrame
+            }
+            if overlayContainer.frame != boundsFrame {
+                overlayContainer.frame = boundsFrame
             }
             if coverNode.frame != boundsFrame {
                 coverNode.frame = boundsFrame
@@ -18509,7 +18661,8 @@ private func retainedPopoverPresentation(
     popover: Component,
     context: ViewBuildContext,
     attachmentAnchor: PopoverAttachmentAnchor,
-    arrowEdge: Edge
+    arrowEdge: Edge,
+    onInteractiveDismiss: @escaping @MainActor () -> Void
 ) -> Component {
     Component { runtime in
         let baseNode = base.makeNode(runtime: runtime)
@@ -18542,19 +18695,58 @@ private func retainedPopoverPresentation(
                 padding: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14),
                 alignment: .stretch
             ),
-            isHitTestVisible: false,
+            // Hit-test visible so clicks on the popover's padding do not fall
+            // through to the dismissal scrim behind it.
+            isHitTestVisible: true,
             children: retainedPresentationChildren(contentNode: popoverContentNode, chrome: presentationChrome)
         )
+        // Full-canvas transparent scrim: sits behind the popover inside the
+        // deferred overlay and dismisses on outside pointer-down.
+        let scrimNode = Controls.panel(isHitTestVisible: true)
+        scrimNode.nodeTag = "popover-dismiss-scrim"
+        // Deferred painting keeps the popover above all base content and gives
+        // its subtree hit-test priority over base content.
+        let overlayContainer = Controls.panel(
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [scrimNode, popoverNode]
+        )
+        overlayContainer.paintsInDeferredPhase = true
+        overlayContainer.nodeTag = "popover-overlay"
         let root = Controls.panel(
             layoutMode: .absolute,
             isHitTestVisible: false,
-            children: [baseNode, popoverNode]
+            children: [baseNode, overlayContainer]
         )
+
+        let focusedAtPresentation = runtime.focusedNode
+        let dismissPopover: @MainActor () -> Void = {
+            retainedRestorePresentationFocus(
+                runtime: runtime,
+                focusedAtPresentation: focusedAtPresentation,
+                baseNode: baseNode,
+                overlayNode: overlayContainer
+            )
+            onInteractiveDismiss()
+        }
+        scrimNode.onPointerDown = {
+            dismissPopover()
+        }
+        attachRetainedEscapeDismiss(to: root, dismiss: dismissPopover)
 
         root.onLayout = { bounds in
             let boundsFrame = Rect(origin: .zero, size: bounds.size)
             if baseNode.frame != boundsFrame {
                 baseNode.frame = boundsFrame
+            }
+            if overlayContainer.frame != boundsFrame {
+                overlayContainer.frame = boundsFrame
+            }
+            // The scrim always covers the full canvas, no matter where the
+            // presentation's root sits in the window.
+            let scrimFrame = retainedPresentationCanvasScrimFrame(root: root, canvasSize: context.canvasSize)
+            if scrimNode.frame != scrimFrame {
+                scrimNode.frame = scrimFrame
             }
 
             let popoverSize = popoverNode.intrinsicContentSize()
@@ -18771,7 +18963,8 @@ private func retainedCompactAdaptivePopoverPresentation(
                 popover: popoverComponent,
                 context: context,
                 attachmentAnchor: attachmentAnchor,
-                arrowEdge: arrowEdge
+                arrowEdge: arrowEdge,
+                onInteractiveDismiss: onInteractiveDismiss
             )
             .makeNode(runtime: runtime)
         }
@@ -18783,14 +18976,18 @@ private func retainedAlertPresentation(
     title: Component,
     message: Component?,
     actions: Component,
-    context: ViewBuildContext
+    context: ViewBuildContext,
+    dismiss: @escaping @MainActor () -> Void
 ) -> Component {
     Component { runtime in
         let baseNode = base.makeNode(runtime: runtime)
+        // Modal scrim: swallows outside clicks so they cannot reach the base
+        // content, but does not dismiss (matching SwiftUI alert behavior).
         let scrimNode = Controls.panel(
             backgroundColor: Color(red: 0.02, green: 0.03, blue: 0.05, alpha: 0.52),
-            isHitTestVisible: false
+            isHitTestVisible: true
         )
+        scrimNode.nodeTag = "alert-scrim"
 
         var alertChildren = [title.makeNode(runtime: runtime)]
         if let message {
@@ -18813,22 +19010,55 @@ private func retainedAlertPresentation(
                 padding: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
                 alignment: .stretch
             ),
-            isHitTestVisible: false,
+            // Hit-test visible so clicks on the alert's padding do not fall
+            // through to the scrim behind it.
+            isHitTestVisible: true,
             children: alertChildren
         )
+        // Deferred painting keeps the alert above all base content and gives
+        // its subtree hit-test priority over base content.
+        let overlayContainer = Controls.panel(
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [scrimNode, alertNode]
+        )
+        overlayContainer.paintsInDeferredPhase = true
+        overlayContainer.nodeTag = "alert-overlay"
         let root = Controls.panel(
             layoutMode: .absolute,
             isHitTestVisible: false,
-            children: [baseNode, scrimNode, alertNode]
+            children: [baseNode, overlayContainer]
         )
+
+        let focusedAtPresentation = runtime.focusedNode
+        let restoreFocus: @MainActor () -> Void = {
+            retainedRestorePresentationFocus(
+                runtime: runtime,
+                focusedAtPresentation: focusedAtPresentation,
+                baseNode: baseNode,
+                overlayNode: overlayContainer
+            )
+        }
+        let dismissAlert: @MainActor () -> Void = {
+            restoreFocus()
+            dismiss()
+        }
+        attachRetainedEscapeDismiss(to: root, dismiss: dismissAlert)
+        attachRetainedPresentationFocusRestore(to: alertNode, restoreFocus: restoreFocus)
 
         root.onLayout = { bounds in
             let boundsFrame = Rect(origin: .zero, size: bounds.size)
             if baseNode.frame != boundsFrame {
                 baseNode.frame = boundsFrame
             }
-            if scrimNode.frame != boundsFrame {
-                scrimNode.frame = boundsFrame
+            if overlayContainer.frame != boundsFrame {
+                overlayContainer.frame = boundsFrame
+            }
+            // The scrim always covers the full canvas, no matter where the
+            // presentation's root sits in the window.
+            let scrimFrame = retainedPresentationCanvasScrimFrame(root: root, canvasSize: context.canvasSize)
+            if scrimNode.frame != scrimFrame {
+                scrimNode.frame = scrimFrame
             }
 
             let alertSize = alertNode.intrinsicContentSize()
@@ -18877,7 +19107,8 @@ private func retainedAlertPresentation(
         title: title,
         message: message,
         actions: actions,
-        context: context
+        context: context,
+        dismiss: dismiss
     )
 }
 @MainActor
@@ -18943,7 +19174,8 @@ private func retainedAlertBuilderPresentation(
         title: titleComponent,
         message: messageComponent,
         actions: actionsComponent,
-        context: context
+        context: context,
+        dismiss: dismiss
     )
 }
 @MainActor
@@ -18993,10 +19225,13 @@ private func retainedConfirmationDialogPresentation(
 
     return Component { runtime in
         let baseNode = base.makeNode(runtime: runtime)
+        // Full-canvas scrim: swallows outside clicks and dismisses on outside
+        // pointer-down, matching SwiftUI confirmationDialog behavior.
         let scrimNode = Controls.panel(
             backgroundColor: Color(red: 0.02, green: 0.03, blue: 0.05, alpha: 0.44),
-            isHitTestVisible: false
+            isHitTestVisible: true
         )
+        scrimNode.nodeTag = "confirmation-dialog-scrim"
         let dialogNode = Controls.stackPanel(
             preferredSize: Size(width: 340, height: 0),
             backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.99),
@@ -19012,23 +19247,59 @@ private func retainedConfirmationDialogPresentation(
                 padding: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
                 alignment: .stretch
             ),
-            isHitTestVisible: false,
+            // Hit-test visible so clicks on the dialog's padding do not fall
+            // through to the dismissal scrim behind it.
+            isHitTestVisible: true,
             children: dialogChildren.map { $0.makeNode(runtime: runtime) }
         )
+        // Deferred painting keeps the dialog above all base content and gives
+        // its subtree hit-test priority over base content.
+        let overlayContainer = Controls.panel(
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [scrimNode, dialogNode]
+        )
+        overlayContainer.paintsInDeferredPhase = true
+        overlayContainer.nodeTag = "confirmation-dialog-overlay"
         let root = Controls.panel(
             preferredSize: baseNode.intrinsicContentSize(),
             layoutMode: .absolute,
             isHitTestVisible: false,
-            children: [baseNode, scrimNode, dialogNode]
+            children: [baseNode, overlayContainer]
         )
+
+        let focusedAtPresentation = runtime.focusedNode
+        let restoreFocus: @MainActor () -> Void = {
+            retainedRestorePresentationFocus(
+                runtime: runtime,
+                focusedAtPresentation: focusedAtPresentation,
+                baseNode: baseNode,
+                overlayNode: overlayContainer
+            )
+        }
+        let dismissDialog: @MainActor () -> Void = {
+            restoreFocus()
+            dismiss()
+        }
+        scrimNode.onPointerDown = {
+            dismissDialog()
+        }
+        attachRetainedEscapeDismiss(to: root, dismiss: dismissDialog)
+        attachRetainedPresentationFocusRestore(to: dialogNode, restoreFocus: restoreFocus)
 
         root.onLayout = { bounds in
             let boundsFrame = Rect(origin: .zero, size: bounds.size)
             if baseNode.frame != boundsFrame {
                 baseNode.frame = boundsFrame
             }
-            if scrimNode.frame != boundsFrame {
-                scrimNode.frame = boundsFrame
+            if overlayContainer.frame != boundsFrame {
+                overlayContainer.frame = boundsFrame
+            }
+            // The scrim always covers the full canvas, no matter where the
+            // presentation's root sits in the window.
+            let scrimFrame = retainedPresentationCanvasScrimFrame(root: root, canvasSize: context.canvasSize)
+            if scrimNode.frame != scrimFrame {
+                scrimNode.frame = scrimFrame
             }
 
             let dialogSize = dialogNode.intrinsicContentSize()
@@ -19161,7 +19432,6 @@ private func retainedContextMenuPresentation(
             panelChildren.append(previewComponent.makeNode(runtime: runtime))
         }
         let itemNode = itemComponent.makeNode(runtime: runtime)
-        attachRetainedActivationDismiss(to: itemNode, dismiss: dismiss)
         panelChildren.append(itemNode)
 
         let menuPanel = Controls.stackPanel(
@@ -19179,20 +19449,60 @@ private func retainedContextMenuPresentation(
                 padding: EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6),
                 alignment: .stretch
             ),
-            isHitTestVisible: false,
+            // Hit-test visible so clicks on the panel's padding do not fall
+            // through to the dismissal scrim behind it.
+            isHitTestVisible: true,
             children: panelChildren
         )
+        // Full-canvas transparent scrim: sits behind the panel inside the
+        // deferred overlay and dismisses on outside pointer-down.
+        let scrimNode = Controls.panel(isHitTestVisible: true)
+        scrimNode.nodeTag = "context-menu-dismiss-scrim"
+        // Deferred painting keeps the open context menu above all base content
+        // and gives its subtree hit-test priority over base content.
+        let overlayContainer = Controls.panel(
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [scrimNode, menuPanel]
+        )
+        overlayContainer.paintsInDeferredPhase = true
+        overlayContainer.nodeTag = "context-menu-overlay"
         let root = Controls.panel(
             preferredSize: baseNode.intrinsicContentSize(),
             layoutMode: .absolute,
             isHitTestVisible: false,
-            children: [baseNode, menuPanel]
+            children: [baseNode, overlayContainer]
         )
+
+        let focusedAtPresentation = runtime.focusedNode
+        let dismissWithFocusRestore: @MainActor () -> Void = {
+            retainedRestorePresentationFocus(
+                runtime: runtime,
+                focusedAtPresentation: focusedAtPresentation,
+                baseNode: baseNode,
+                overlayNode: overlayContainer
+            )
+            dismiss()
+        }
+        scrimNode.onPointerDown = {
+            dismissWithFocusRestore()
+        }
+        attachRetainedActivationDismiss(to: itemNode, dismiss: dismissWithFocusRestore)
+        attachRetainedEscapeDismiss(to: root, dismiss: dismissWithFocusRestore)
 
         root.onLayout = { bounds in
             let boundsFrame = Rect(origin: .zero, size: bounds.size)
             if baseNode.frame != boundsFrame {
                 baseNode.frame = boundsFrame
+            }
+            if overlayContainer.frame != boundsFrame {
+                overlayContainer.frame = boundsFrame
+            }
+            // The scrim always covers the full canvas, no matter where the
+            // presentation's root sits in the window.
+            let scrimFrame = retainedPresentationCanvasScrimFrame(root: root, canvasSize: context.canvasSize)
+            if scrimNode.frame != scrimFrame {
+                scrimNode.frame = scrimFrame
             }
 
             let panelSize = menuPanel.intrinsicContentSize()

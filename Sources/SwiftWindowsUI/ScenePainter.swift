@@ -359,8 +359,12 @@ public enum ScenePainter {
                 } else {
                     effectiveClip = paintFrame
                 }
-                if node.cornerRadius > 0 {
-                    effectiveClipCornerRadius = node.cornerRadius
+                if node.cornerRadius > 0 || node.cornerRadii?.hasPositiveRadius == true {
+                    // Clip rounding stays uniform; per-corner clips would
+                    // need four more floats on every primitive, so a
+                    // per-corner node clips children with its largest
+                    // corner radius.
+                    effectiveClipCornerRadius = node.cornerRadii?.maxRadius ?? node.cornerRadius
                 }
             }
 
@@ -441,7 +445,9 @@ public enum ScenePainter {
                             y: Float(scaledShadowRect.origin.y),
                             width: Float(scaledShadowRect.size.width),
                             height: Float(scaledShadowRect.size.height),
-                            cornerRadius: Float((node.cornerRadius + max(0, node.shadowSpread)) * displayScale),
+                            cornerRadius: Float(
+                                ((node.cornerRadii?.maxRadius ?? node.cornerRadius) + max(0, node.shadowSpread))
+                                    * displayScale),
                             colorR: effectiveShadowColor.red,
                             colorG: effectiveShadowColor.green,
                             colorB: effectiveShadowColor.blue,
@@ -475,7 +481,7 @@ public enum ScenePainter {
                     scene.addQuad(
                         solidQuad(
                             rect: outlineRect,
-                            cornerRadius: node.cornerRadius + node.outlineWidth,
+                            cornerRadius: (node.cornerRadii?.maxRadius ?? node.cornerRadius) + node.outlineWidth,
                             color: node.outlineColor,
                             opacity: opacity,
                             clip: inheritedClip,
@@ -496,7 +502,7 @@ public enum ScenePainter {
                 if let borderSegments = BorderSegments.dashedSegments(
                     frame: paintFrame,
                     width: node.borderWidth,
-                    cornerRadius: node.cornerRadius,
+                    cornerRadius: node.cornerRadii?.maxRadius ?? node.cornerRadius,
                     strokeStyle: node.borderStrokeStyle
                 ) {
                     for segment in borderSegments where clipAllowsDrawing(clip: effectiveClip, rect: segment.rect) {
@@ -520,6 +526,7 @@ public enum ScenePainter {
                         fillQuad(
                             rect: paintFrame,
                             cornerRadius: node.cornerRadius,
+                            cornerRadii: node.cornerRadii,
                             color: borderColor,
                             gradient: node.borderGradient,
                             opacity: opacity,
@@ -536,6 +543,8 @@ public enum ScenePainter {
             // Background fill (inset by border width)
             let fillRect = node.borderWidth > 0 ? paintFrame.inset(by: node.borderWidth) : paintFrame
             let fillCornerRadius = max(0, node.cornerRadius - node.borderWidth)
+            let fillCornerRadii =
+                node.borderWidth > 0 ? node.cornerRadii?.inset(by: node.borderWidth) : node.cornerRadii
 
             let resolvedBGColor = node.backgroundColor ?? node.backgroundGradient?.startColor
             if let bg = resolvedBGColor, bg.alpha > 0,
@@ -547,6 +556,7 @@ public enum ScenePainter {
                     fillQuad(
                         rect: fillRect,
                         cornerRadius: fillCornerRadius,
+                        cornerRadii: fillCornerRadii,
                         color: bg,
                         gradient: node.backgroundGradient,
                         opacity: opacity,
@@ -568,7 +578,11 @@ public enum ScenePainter {
             {
                 let scaledPath = path.scaled(to: fillRect)
                 let pathBounds = scaledPath.segments.boundingRect ?? fillRect
-                if let bg = resolvedBGColor, bg.alpha > 0 {
+                // Inherited opacity must compose into the path fill the
+                // same way it does for quad fills and the path stroke
+                // below; without this, shapes ignored ancestor opacity.
+                let effectiveFillColor = resolvedBGColor?.multipliedAlpha(by: opacity)
+                if let bg = effectiveFillColor, bg.alpha > 0 {
                     Self.emit(
                         path: PathPrimitive(
                             elements: scaledPath.segments.map { segment in
@@ -905,7 +919,7 @@ public enum ScenePainter {
             if let dashed = BorderSegments.dashedSegments(
                 frame: state.paintFrame,
                 width: node.borderWidth,
-                cornerRadius: node.cornerRadius,
+                cornerRadius: node.cornerRadii?.maxRadius ?? node.cornerRadius,
                 strokeStyle: node.borderStrokeStyle
             ) {
                 segments = dashed
@@ -913,7 +927,7 @@ public enum ScenePainter {
                 segments = BorderSegments.solidSegments(
                     frame: state.paintFrame,
                     width: node.borderWidth,
-                    cornerRadius: node.cornerRadius
+                    cornerRadius: node.cornerRadii?.maxRadius ?? node.cornerRadius
                 )
             }
             for segment in segments where clipAllowsDrawing(clip: state.effectiveClip, rect: segment.rect) {
@@ -947,6 +961,7 @@ public enum ScenePainter {
     private static func solidQuad(
         rect: Rect,
         cornerRadius: Double,
+        cornerRadii: RetainedCornerRadii? = nil,
         color: Color,
         opacity: Float,
         clip: Rect?,
@@ -962,7 +977,7 @@ public enum ScenePainter {
         let clipR = clipRectFloats(clip, surfaceSize: surfaceSize, displayScale: displayScale)
         let a = color.alpha * opacity
         let fx = encodeColorEffects(colorEffects)
-        return QuadPrimitive(
+        var quad = QuadPrimitive(
             x: Float(scaledRect.origin.x),
             y: Float(scaledRect.origin.y),
             width: Float(scaledRect.size.width),
@@ -984,11 +999,30 @@ public enum ScenePainter {
             effectParam3: fx.effectParam3,
             effectParam4: fx.effectParam4
         )
+        applyPerCornerRadii(cornerRadii, displayScale: displayScale, to: &quad)
+        return quad
+    }
+
+    /// Writes per-corner radii onto a quad (scaled to device pixels).
+    /// All-zero radii leave the quad on the uniform `cornerRadius` path.
+    private static func applyPerCornerRadii(
+        _ cornerRadii: RetainedCornerRadii?,
+        displayScale: Double,
+        to quad: inout QuadPrimitive
+    ) {
+        guard let cornerRadii, cornerRadii.hasPositiveRadius else {
+            return
+        }
+        quad.cornerRadiusTopLeft = Float(max(0, cornerRadii.topLeft) * displayScale)
+        quad.cornerRadiusTopRight = Float(max(0, cornerRadii.topRight) * displayScale)
+        quad.cornerRadiusBottomRight = Float(max(0, cornerRadii.bottomRight) * displayScale)
+        quad.cornerRadiusBottomLeft = Float(max(0, cornerRadii.bottomLeft) * displayScale)
     }
 
     private static func fillQuad(
         rect: Rect,
         cornerRadius: Double,
+        cornerRadii: RetainedCornerRadii? = nil,
         color: Color,
         gradient: GradientType?,
         opacity: Float,
@@ -1005,6 +1039,7 @@ public enum ScenePainter {
             return solidQuad(
                 rect: rect,
                 cornerRadius: cornerRadius,
+                cornerRadii: cornerRadii,
                 color: color,
                 opacity: opacity,
                 clip: clip,
@@ -1023,7 +1058,7 @@ public enum ScenePainter {
         let endColor = gradient.endColor
         let axis: Float = gradient.axis == .horizontal ? 1 : 0
         let fx = encodeColorEffects(colorEffects)
-        return QuadPrimitive(
+        var quad = QuadPrimitive(
             x: Float(scaledRect.origin.x),
             y: Float(scaledRect.origin.y),
             width: Float(scaledRect.size.width),
@@ -1047,6 +1082,8 @@ public enum ScenePainter {
             effectParam3: fx.effectParam3,
             effectParam4: fx.effectParam4
         )
+        applyPerCornerRadii(cornerRadii, displayScale: displayScale, to: &quad)
+        return quad
     }
 
     // MARK: - Canvas

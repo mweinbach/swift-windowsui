@@ -33,7 +33,11 @@ struct QuadInstance
     float clipCornerRadius;
     float blendMode;
     float rotationRadians;
-    // 12 bytes of padding so structured-buffer stride stays 128 (multi
+    float cornerRadiusTopLeft;
+    float cornerRadiusTopRight;
+    float cornerRadiusBottomRight;
+    float cornerRadiusBottomLeft;
+    // 12 bytes of padding so structured-buffer stride stays 144 (multi
     // of 16). HLSL requires 16-byte element alignment.
     float _reserved0;
     float _reserved1;
@@ -47,7 +51,7 @@ struct VSOutput
     float4 position : SV_Position;
     float2 localPosition : TEXCOORD0;
     float2 size : TEXCOORD1;
-    float radius : TEXCOORD2;
+    float4 cornerRadii : TEXCOORD2;
     float gradientAxis : TEXCOORD3;
     float4 startColor : COLOR0;
     float4 endColor : COLOR1;
@@ -110,7 +114,22 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     output.position = float4(clipPosition, 0.0, 1.0);
     output.localPosition = unit * rectSize;
     output.size = rectSize;
-    output.radius = inst.cornerRadius;
+    // Per-corner radii (x=topLeft, y=topRight, z=bottomRight,
+    // w=bottomLeft). When the primitive carries no per-corner values
+    // (all zero) the uniform cornerRadius is broadcast, which preserves
+    // the historic uniform-rounded-rect behaviour bit-for-bit. This
+    // mirrors QuadPrimitive.usesPerCornerRadii on the CPU side.
+    float4 cornerRadii = float4(
+        inst.cornerRadiusTopLeft,
+        inst.cornerRadiusTopRight,
+        inst.cornerRadiusBottomRight,
+        inst.cornerRadiusBottomLeft
+    );
+    if (cornerRadii.x <= 0.0 && cornerRadii.y <= 0.0 && cornerRadii.z <= 0.0 && cornerRadii.w <= 0.0)
+    {
+        cornerRadii = float4(inst.cornerRadius, inst.cornerRadius, inst.cornerRadius, inst.cornerRadius);
+    }
+    output.cornerRadii = cornerRadii;
     output.gradientAxis = inst.gradientAxis;
     output.startColor = float4(inst.startR, inst.startG, inst.startB, inst.startA);
     output.endColor = float4(inst.endR, inst.endG, inst.endB, inst.endA);
@@ -128,10 +147,18 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     return output;
 }
 
-float roundedRectDistance(float2 localPosition, float2 size, float radius)
+float roundedRectDistance(float2 localPosition, float2 size, float4 cornerRadii)
 {
     float2 halfSize = size * 0.5;
     float2 localPoint = localPosition - halfSize;
+    // cornerRadii: x=topLeft, y=topRight, z=bottomRight, w=bottomLeft in
+    // y-down pixel space. Select the radius of the quadrant the sample
+    // falls into, splitting along the rect's centrelines. The CPU
+    // rasterizer's roundedRectCoverage uses the same rule so both
+    // backends agree on the shape boundary.
+    float radius = localPoint.x > 0.0
+        ? (localPoint.y > 0.0 ? cornerRadii.z : cornerRadii.y)
+        : (localPoint.y > 0.0 ? cornerRadii.w : cornerRadii.x);
     float clampedRadius = min(radius, min(halfSize.x, halfSize.y));
     float2 corner = max(halfSize - float2(clampedRadius, clampedRadius), float2(0.0, 0.0));
     float2 delta = abs(localPoint) - corner;
@@ -202,7 +229,11 @@ float4 psMain(VSOutput input) : SV_Target
         if (input.clipRadius > 0.0)
         {
             float2 clipLocalPosition = input.pixelPosition - input.clipRect.xy;
-            float clipDistance = roundedRectDistance(clipLocalPosition, input.clipRect.zw, input.clipRadius);
+            // Clip corners stay uniform (clipCornerRadius is a single
+            // float); only the quad body supports per-corner radii.
+            float clipDistance = roundedRectDistance(
+                clipLocalPosition, input.clipRect.zw,
+                float4(input.clipRadius, input.clipRadius, input.clipRadius, input.clipRadius));
             float clipAA = max(fwidth(clipDistance), 0.75);
             clipAlpha = saturate(0.5 - clipDistance / clipAA);
             if (clipAlpha <= 0.0)
@@ -212,9 +243,17 @@ float4 psMain(VSOutput input) : SV_Target
         }
     }
 
-    float distance = roundedRectDistance(input.localPosition, input.size, input.radius);
+    float distance = roundedRectDistance(input.localPosition, input.size, input.cornerRadii);
     float aa = max(fwidth(distance), 0.75);
-    // Soft edge falloff when blurRadius is active (GPU approximation)
+    // NOTE (deliberate gap vs the CPU rasterizer): on the GPU path
+    // blurRadius only widens the quad's edge falloff; it does NOT blur
+    // the already-rendered backdrop. The CPU rasterizer applies a real
+    // separable Gaussian over the quad's bounds (applyBoxBlur), which is
+    // what makes Material backdrops look frosted. A true GPU backdrop
+    // blur needs a multi-pass render-target ping-pong (copy the region,
+    // separable blur, composite) that this single-pass batch pipeline
+    // does not have yet — Material panels on D3D11 therefore render as
+    // soft-edged tints rather than frosted glass.
     float blur = max(input.blurRadius, 0.0);
     float edgeSoftness = aa + blur * 2.0;
     float alpha = saturate(0.5 - distance / edgeSoftness);

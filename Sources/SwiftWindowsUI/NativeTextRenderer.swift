@@ -549,3 +549,89 @@ private func withWideString<Result>(_ string: String, _ body: (UnsafePointer<WCH
     wide.append(0)
     return wide.withUnsafeBufferPointer { body($0.baseAddress!) }
 }
+/// Probes installed fonts for glyph coverage so symbol icons can pick a font
+/// family that actually contains their private-use codepoints (Segoe Fluent
+/// Icons on Windows 11, Segoe MDL2 Assets on Windows 10) instead of painting
+/// `.notdef` boxes.
+///
+/// The probe rasterizes through the same DirectWrite path the icon painter
+/// uses and compares against a guaranteed-missing codepoint's `.notdef`
+/// output; family-level APIs are unusable for this because
+/// `IDWriteFactory.CreateTextFormat` succeeds even for families that are not
+/// installed (substitution happens later, at layout time).
+@MainActor
+enum NativeFontAvailability {
+    struct TestingOverrides {
+        var hasGlyph: ((Character, String) -> Bool)?
+    }
+
+    static var testingOverrides = TestingOverrides()
+
+    static func resetTestingOverrides() {
+        testingOverrides = TestingOverrides()
+    }
+
+    /// Returns the first family in `preferred` that is installed and contains
+    /// a glyph for `character`, preserving caller order (the fallback chain).
+    static func resolvedFontFamily(for character: Character, preferred: [String]) -> String? {
+        var seen = Set<String>()
+        for family in preferred where !family.isEmpty {
+            guard seen.insert(family.lowercased()).inserted else {
+                continue
+            }
+            if hasGlyph(character, fontFamily: family) {
+                return family
+            }
+        }
+        return nil
+    }
+
+    /// Returns whether `fontFamily` is installed and maps `character` to a
+    /// real glyph (not `.notdef`).
+    static func hasGlyph(_ character: Character, fontFamily: String) -> Bool {
+        if let override = testingOverrides.hasGlyph {
+            return override(character, fontFamily)
+        }
+        guard !fontFamily.isEmpty else {
+            return false
+        }
+        let cacheKey = "\(fontFamily.lowercased())|\(String(character).utf16.map { String($0) }.joined(separator: ","))"
+        if let cached = cache[cacheKey] {
+            return cached
+        }
+        let result = probeHasGlyph(character, fontFamily: fontFamily)
+        cache[cacheKey] = result
+        return result
+    }
+
+    private static var cache: [String: Bool] = [:]
+
+    /// A private-use codepoint from plane 16 that no shipping font contains;
+    /// its rasterization is the `.notdef` reference for glyph-presence checks.
+    private static let missingGlyphSentinel = "\u{10FFFD}"
+
+    /// Renders `character` with the candidate family through the same
+    /// DirectWrite path icons use, and compares it against the `.notdef`
+    /// reference: identical output means the glyph is genuinely missing.
+    private static func probeHasGlyph(_ character: Character, fontFamily: String) -> Bool {
+        let style = PixelTextStyle(color: .white, scale: 2, fontFamily: fontFamily)
+        guard let glyphBitmap = DirectWriteTextRenderer.rasterize(String(character), style: style, scaleFactor: 1),
+            glyphBitmap.pixels.contains(where: { $0 != 0 })
+        else {
+            return false
+        }
+
+        guard
+            let notdefBitmap = DirectWriteTextRenderer.rasterize(
+                missingGlyphSentinel, style: style, scaleFactor: 1)
+        else {
+            // No reference to compare against; a non-empty glyph bitmap is
+            // the best available evidence of coverage.
+            return true
+        }
+
+        return glyphBitmap.width != notdefBitmap.width
+            || glyphBitmap.height != notdefBitmap.height
+            || glyphBitmap.pixels != notdefBitmap.pixels
+    }
+}

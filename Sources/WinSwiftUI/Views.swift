@@ -1152,13 +1152,23 @@ public struct UnevenRoundedRectangle: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        shapeComponent(
+        // Map leading/trailing onto the renderer's absolute left/right
+        // corners; in RTL the leading edge is on the right.
+        let isRTL = context.layoutDirection == .rightToLeft
+        let radii = RetainedCornerRadii(
+            topLeft: isRTL ? cornerRadii.topTrailing : cornerRadii.topLeading,
+            topRight: isRTL ? cornerRadii.topLeading : cornerRadii.topTrailing,
+            bottomRight: isRTL ? cornerRadii.bottomLeading : cornerRadii.bottomTrailing,
+            bottomLeft: isRTL ? cornerRadii.bottomTrailing : cornerRadii.bottomLeading
+        )
+        return shapeComponent(
             fillStyle: fillStyle ?? context.foregroundStyle,
             fillRuleStyle: fillRuleStyle,
             strokeStyle: lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear),
             lineWidth: lineWidth,
             strokeLineStyle: strokeLineStyle,
-            cornerRadius: cornerRadii.retainedUniformFallbackRadius
+            cornerRadius: cornerRadii.retainedUniformFallbackRadius,
+            cornerRadii: radii
         )
     }
 
@@ -3417,7 +3427,8 @@ private func shapeComponent(
     strokeStyle: ForegroundStyle,
     lineWidth: Double,
     strokeLineStyle: StrokeStyle?,
-    cornerRadius: Double
+    cornerRadius: Double,
+    cornerRadii: RetainedCornerRadii? = nil
 ) -> Component {
     Component { _ in
         let fill = resolvedFill(from: fillStyle)
@@ -3431,6 +3442,7 @@ private func shapeComponent(
             cornerRadius: cornerRadius,
             isHitTestVisible: false
         )
+        node.cornerRadii = cornerRadii
         node.clipFillStyle = fillRuleStyle
         node.borderStrokeStyle =
             lineWidth > 0 ? strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: []) : nil
@@ -6321,11 +6333,9 @@ public struct Image: View {
                     preferredSize: preferredSize,
                     color: renderedColor,
                     scale: resolvedScale,
+                    weight: symbolVariants.contains(.fill) ? .bold : .regular,
                     alignment: alignment.textAlignment(layoutDirection: context.layoutDirection)
                 )
-                if symbolVariants.contains(.fill) {
-                    node.textStyle.weight = .bold
-                }
                 applyImageMetadata(to: node, context: context)
                 return retainedSymbolVariantNode(
                     iconNode: node,
@@ -12582,7 +12592,8 @@ private func textInputComponent(
         if !context.isEnabled {
             textColor = Color(red: 0.55, green: 0.58, blue: 0.62, alpha: 0.78)
         } else if isShowingPlaceholder {
-            textColor = Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 0.84)
+            // Placeholder renders at the macOS secondary-label prominence.
+            textColor = Color(red: 0.66, green: 0.70, blue: 0.76, alpha: 0.55)
         } else {
             textColor = context.foregroundColor
         }
@@ -12621,6 +12632,7 @@ private func textInputComponent(
         let node = Controls.stackPanel(
             preferredSize: preferredSize,
             backgroundColor: style.backgroundColor,
+            backgroundGradient: style.backgroundGradient,
             borderColor: style.borderColor,
             borderWidth: style.borderWidth,
             cornerRadius: style.cornerRadius,
@@ -14675,6 +14687,7 @@ public struct Toggle: View {
             ),
             isEnabled: context.isEnabled,
             animation: surfaceStyle.animation,
+            appliesSurfaceSheen: true,
             action: {
                 binding.wrappedValue.toggle()
                 context.invalidate()
@@ -14938,7 +14951,51 @@ public struct Picker<SelectionValue: Hashable>: View {
     ) -> ViewNode {
         let optionNodes: [ViewNode] = options.map { option in
             let isSelected = option.value.map { AnyHashable($0) == selectedAnyValue } ?? false
-            let palette = isSelected ? selectedPalette(tint: context.tint) : unselectedPalette
+            let isEnabled = context.isEnabled && option.value != nil
+
+            // macOS segmented controls own their label metrics: compact
+            // single-line labels, dark on the raised selected pill and
+            // primary-colored otherwise. Without the cap the default body
+            // scale starves the segment and the label collapses to zero
+            // height (previously rendered as invisible segment labels).
+            if option.node.text != nil {
+                var style = option.node.textStyle
+                style.scale = min(style.scale, 1.3)
+                if let nativeSize = style.nativeFontSize {
+                    style.nativeFontSize = min(nativeSize, 13)
+                }
+                style.lineSpacing = min(style.lineSpacing, 1)
+                style.maximumNumberOfLines = 1
+                style.lineBreakMode = .truncateTail
+                style.color =
+                    isEnabled
+                    ? (isSelected
+                        ? Color(red: 0.09, green: 0.09, blue: 0.11, alpha: 1.0)
+                        : Color(red: 0.92, green: 0.95, blue: 1.0, alpha: 0.88))
+                    : Color(red: 0.55, green: 0.58, blue: 0.62, alpha: 0.70)
+                option.node.textStyle = style
+            }
+
+            // Selected segment: raised light pill with a soft shadow (the
+            // standard button sheen supplies the top-lighter gradient).
+            // Unselected: transparent over the recessed track, brightening
+            // on hover/press.
+            let palette =
+                isSelected
+                ? SurfacePalette(
+                    idle: Color(red: 0.94, green: 0.95, blue: 0.98, alpha: 1.0),
+                    hovered: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 1.0),
+                    focused: Color(red: 0.97, green: 0.98, blue: 1.0, alpha: 1.0),
+                    pressed: Color(red: 0.86, green: 0.88, blue: 0.93, alpha: 1.0),
+                    activated: Color(red: 0.90, green: 0.92, blue: 0.96, alpha: 1.0)
+                )
+                : SurfacePalette(
+                    idle: .clear,
+                    hovered: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                    focused: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.11),
+                    pressed: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16),
+                    activated: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16)
+                )
 
             return Controls.button(
                 runtime: runtime,
@@ -14946,25 +15003,24 @@ public struct Picker<SelectionValue: Hashable>: View {
                 cornerRadius: 8,
                 palette: palette,
                 chrome: SurfaceChrome(
-                    borderColor: isSelected
-                        ? context.tint.opacity(0.45) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
-                    borderHoveredColor: isSelected
-                        ? context.tint.opacity(0.62) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.18),
-                    borderFocusedColor: isSelected
-                        ? context.tint.opacity(0.76) : Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.26),
-                    borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.34),
-                    borderWidth: 1,
+                    borderColor: isSelected ? Color(red: 0.10, green: 0.10, blue: 0.14, alpha: 0.18) : .clear,
+                    borderWidth: isSelected ? 1 : 0,
                     focusRingColor: context.tint.opacity(0.28),
-                    focusRingWidth: 2
+                    focusRingWidth: 2,
+                    shadowColor: isSelected ? Color(red: 0.0, green: 0.0, blue: 0.02, alpha: 0.32) : .clear,
+                    shadowPressedColor: isSelected ? Color(red: 0.0, green: 0.0, blue: 0.02, alpha: 0.18) : .clear,
+                    shadowOffset: Point(x: 0, y: 1),
+                    shadowSpread: 2
                 ),
                 clipsToBounds: true,
                 layoutMode: .stack(
                     .vertical(
-                        padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12),
+                        padding: EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8),
                         alignment: .center,
                         mainAlignment: .center
                     )),
-                isEnabled: context.isEnabled && option.value != nil,
+                isEnabled: isEnabled,
+                appliesSurfaceSheen: true,
                 action: option.value.map { value in
                     {
                         selection.wrappedValue = value
@@ -14975,15 +15031,23 @@ public struct Picker<SelectionValue: Hashable>: View {
             )
         }
 
+        // Recessed track: top-darker gradient reads as an inset groove the
+        // raised selected pill sits in. Track padding/spacing stay at the
+        // pinned 4pt geometry.
+        let trackColor = Color(red: 0.06, green: 0.08, blue: 0.12, alpha: 0.78)
         return Controls.stackPanel(
-            backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.90),
-            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+            backgroundColor: trackColor,
+            backgroundGradient: .linear(
+                SwiftWindowsGraphics.LinearGradient(
+                    startColor: trackColor,
+                    endColor: Color(red: 0.11, green: 0.14, blue: 0.20, alpha: 0.72))),
+            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.07),
             borderWidth: 1,
             cornerRadius: 12,
             clipsToBounds: true,
             stackLayout: .horizontal(
                 spacing: 4,
-                padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
+                padding: EdgeInsets(top: 1, leading: 4, bottom: 1, trailing: 4),
                 alignment: .stretch
             ),
             isHitTestVisible: false,
@@ -15809,6 +15873,7 @@ public struct Stepper: View {
             layoutMode: .stack(.vertical(alignment: .center, mainAlignment: .center)),
             isEnabled: isEnabled,
             animation: surfaceStyle.animation,
+            appliesSurfaceSheen: true,
             action: action,
             children: [titleNode]
         )
@@ -17766,6 +17831,7 @@ public struct Button: View {
                 isEnabled: context.isEnabled,
                 repeatBehavior: context.environmentValues.buttonRepeatBehavior.retainedBehavior,
                 animation: surfaceStyle.animation,
+                appliesSurfaceSheen: true,
                 action: {
                     ViewBuildContextScope.withCurrent(context) {
                         action()
@@ -17824,8 +17890,8 @@ public struct Button: View {
                     shadowHoveredColor: context.tint.opacity(0.26),
                     shadowFocusedColor: context.tint.opacity(0.32),
                     shadowPressedColor: context.tint.opacity(0.12),
-                    shadowOffset: Point(x: 0, y: 14),
-                    shadowSpread: 8
+                    shadowOffset: Point(x: 0, y: 3),
+                    shadowSpread: 4
                 ),
                 clipsToBounds: true,
                 animation: .default
@@ -18098,7 +18164,7 @@ private func buildSplitComponent(
         )
     }
 }
-private func resolvedSymbolIcon(for systemName: String, variants: SymbolVariants = .none) -> SymbolIcon {
+func resolvedSymbolIcon(for systemName: String, variants: SymbolVariants = .none) -> SymbolIcon {
     let resolvedName =
         variants.contains(.fill) && !systemName.hasSuffix(".fill")
         ? "\(systemName).fill"
@@ -18123,10 +18189,10 @@ private func resolvedSymbolIcon(for systemName: String, variants: SymbolVariants
     case "info", "info.fill", "info.circle", "info.circle.fill":
         return .info
     case "waveform.path.ecg", "waveform.path.ecg.fill", "chart.line.uptrend.xyaxis",
-        "chart.line.uptrend.xyaxis.fill", "waveform":
+        "chart.line.uptrend.xyaxis.fill", "waveform", "chart.bar", "chart.bar.fill":
         return .activity
     case "doc", "doc.fill", "doc.text", "doc.text.fill", "textformat", "textformat.fill",
-        "text.alignleft", "text.alignright", "text.aligncenter":
+        "text.alignleft", "text.alignright", "text.aligncenter", "doc.on.doc", "doc.on.clipboard":
         return .document
     case "rectangle.split.3x1", "rectangle.split.3x1.fill", "rectangle.split.2x1",
         "rectangle.split.2x1.fill", "square.split.2x1", "square.split.2x1.fill":
@@ -18140,12 +18206,67 @@ private func resolvedSymbolIcon(for systemName: String, variants: SymbolVariants
     case "chevron.down", "chevron.down.circle", "chevron.down.circle.fill", "arrowtriangle.down",
         "arrowtriangle.down.fill":
         return .chevronDown
+    case "chevron.up", "chevron.up.circle", "chevron.up.circle.fill", "arrowtriangle.up",
+        "arrowtriangle.up.fill":
+        return .chevronUp
+    case "chevron.left", "chevron.left.circle", "chevron.left.circle.fill", "arrowtriangle.left",
+        "arrowtriangle.left.fill":
+        return .chevronLeft
+    case "chevron.right", "chevron.right.circle", "chevron.right.circle.fill", "arrowtriangle.right",
+        "arrowtriangle.right.fill":
+        return .chevronRight
+    case "plus", "plus.circle", "plus.circle.fill":
+        return .plus
+    case "minus", "minus.circle", "minus.circle.fill":
+        return .minus
+    case "xmark", "xmark.circle", "xmark.circle.fill":
+        return .xmark
+    case "play", "play.fill", "play.circle", "play.circle.fill", "play.rectangle",
+        "play.rectangle.fill":
+        return .play
+    case "pause", "pause.fill", "pause.circle", "pause.circle.fill":
+        return .pause
+    case "arrow.left":
+        return .arrowLeft
+    case "arrow.right":
+        return .arrowRight
+    case "arrow.up", "square.and.arrow.up":
+        return .arrowUp
+    case "arrow.down", "square.and.arrow.down":
+        return .arrowDown
+    case "ellipsis", "ellipsis.circle", "ellipsis.circle.fill":
+        return .ellipsis
+    case "trash", "trash.fill":
+        return .trash
+    case "pencil", "pencil.circle", "pencil.circle.fill":
+        return .pencil
+    case "person", "person.fill", "person.circle", "person.circle.fill":
+        return .person
+    case "house", "house.fill":
+        return .house
+    case "star", "star.circle", "star.circle.fill":
+        return .star
+    case "star.fill":
+        return .starFill
+    case "heart":
+        return .heart
+    case "heart.fill":
+        return .heartFill
+    case "bell", "bell.fill":
+        return .bell
+    case "camera", "camera.fill":
+        return .camera
+    case "globe":
+        return .globe
+    case "map", "map.fill", "mappin", "mappin.circle", "mappin.circle.fill":
+        return .mapPin
     default:
         return .sparkle
     }
 }
 private struct ResolvedTextInputStyle {
     var backgroundColor: Color
+    var backgroundGradient: GradientType?
     var borderColor: Color
     var borderWidth: Double
     var cornerRadius: Double
@@ -18155,24 +18276,46 @@ extension TextFieldStyle {
     fileprivate func resolvedTextInputStyle(isEnabled: Bool) -> ResolvedTextInputStyle {
         switch kind {
         case .automatic, .roundedBorder:
+            // macOS rounded-border field: recessed well (top-darker inset
+            // gradient), hairline edge.
+            let backgroundColor =
+                isEnabled
+                ? Color(red: 0.06, green: 0.08, blue: 0.13, alpha: 0.85)
+                : Color(red: 0.07, green: 0.08, blue: 0.10, alpha: 0.58)
+            let insetGradient: GradientType? =
+                isEnabled
+                ? .linear(
+                    SwiftWindowsGraphics.LinearGradient(
+                        startColor: backgroundColor,
+                        endColor: Color(red: 0.10, green: 0.13, blue: 0.20, alpha: 0.78)))
+                : nil
             return ResolvedTextInputStyle(
-                backgroundColor: isEnabled
-                    ? Color(red: 0.08, green: 0.11, blue: 0.17, alpha: 0.82)
-                    : Color(red: 0.08, green: 0.09, blue: 0.11, alpha: 0.58),
+                backgroundColor: backgroundColor,
+                backgroundGradient: insetGradient,
                 borderColor: isEnabled
-                    ? Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.18)
+                    ? Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.16)
                     : Color(red: 0.45, green: 0.48, blue: 0.52, alpha: 0.20),
                 borderWidth: 1,
                 cornerRadius: 8,
                 padding: EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10)
             )
         case .squareBorder:
+            let backgroundColor =
+                isEnabled
+                ? Color(red: 0.06, green: 0.08, blue: 0.13, alpha: 0.85)
+                : Color(red: 0.07, green: 0.08, blue: 0.10, alpha: 0.58)
+            let insetGradient: GradientType? =
+                isEnabled
+                ? .linear(
+                    SwiftWindowsGraphics.LinearGradient(
+                        startColor: backgroundColor,
+                        endColor: Color(red: 0.10, green: 0.13, blue: 0.20, alpha: 0.78)))
+                : nil
             return ResolvedTextInputStyle(
-                backgroundColor: isEnabled
-                    ? Color(red: 0.08, green: 0.11, blue: 0.17, alpha: 0.82)
-                    : Color(red: 0.08, green: 0.09, blue: 0.11, alpha: 0.58),
+                backgroundColor: backgroundColor,
+                backgroundGradient: insetGradient,
                 borderColor: isEnabled
-                    ? Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.18)
+                    ? Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.16)
                     : Color(red: 0.45, green: 0.48, blue: 0.52, alpha: 0.20),
                 borderWidth: 1,
                 cornerRadius: 0,
@@ -18181,6 +18324,7 @@ extension TextFieldStyle {
         case .plain:
             return ResolvedTextInputStyle(
                 backgroundColor: .clear,
+                backgroundGradient: nil,
                 borderColor: .clear,
                 borderWidth: 0,
                 cornerRadius: 0,

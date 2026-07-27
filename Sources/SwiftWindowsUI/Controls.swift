@@ -184,12 +184,12 @@ public struct SurfaceChrome: Sendable {
         borderWidth: 1,
         focusRingColor: Color(red: 0.82, green: 0.90, blue: 1.0, alpha: 0.28),
         focusRingWidth: 2,
-        shadowColor: Color(red: 0.02, green: 0.05, blue: 0.10, alpha: 0.14),
-        shadowHoveredColor: Color(red: 0.02, green: 0.06, blue: 0.12, alpha: 0.18),
-        shadowFocusedColor: Color(red: 0.04, green: 0.10, blue: 0.18, alpha: 0.24),
+        shadowColor: Color(red: 0.02, green: 0.05, blue: 0.10, alpha: 0.16),
+        shadowHoveredColor: Color(red: 0.02, green: 0.06, blue: 0.12, alpha: 0.20),
+        shadowFocusedColor: Color(red: 0.04, green: 0.10, blue: 0.18, alpha: 0.26),
         shadowPressedColor: Color(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.10),
-        shadowOffset: Point(x: 0, y: 16),
-        shadowSpread: 10
+        shadowOffset: Point(x: 0, y: 3),
+        shadowSpread: 4
     )
 
     public static let `default` = SurfaceChrome(
@@ -204,7 +204,7 @@ public enum SplitAxis: Sendable {
     case horizontal
     case vertical
 }
-public enum SymbolIcon: String, Sendable {
+public enum SymbolIcon: String, Sendable, CaseIterable {
     case search = "\u{E721}"
     case folder = "\u{E8B7}"
     case settings = "\u{E713}"
@@ -220,9 +220,77 @@ public enum SymbolIcon: String, Sendable {
     case chevronDown = "\u{E70D}"
     case radioSelected = "\u{E915}"
     case radioUnselected = "\u{E916}"
+    case chevronUp = "\u{E70E}"
+    case chevronLeft = "\u{E76B}"
+    case chevronRight = "\u{E76C}"
+    case plus = "\u{E710}"
+    case minus = "\u{E738}"
+    case xmark = "\u{E711}"
+    case play = "\u{E768}"
+    case pause = "\u{E769}"
+    case arrowLeft = "\u{E72B}"
+    case arrowRight = "\u{E72A}"
+    case arrowUp = "\u{E74A}"
+    case arrowDown = "\u{E74B}"
+    case ellipsis = "\u{E712}"
+    case trash = "\u{E74D}"
+    case pencil = "\u{E70F}"
+    case person = "\u{E77B7}"
+    case house = "\u{E80F}"
+    case star = "\u{E734}"
+    case starFill = "\u{E735}"
+    case heart = "\u{EB51}"
+    case heartFill = "\u{EB52}"
+    case bell = "\u{EA8F}"
+    case camera = "\u{E722}"
+    case globe = "\u{E774}"
+    case mapPin = "\u{E707}"
+
+    /// Icon font families in fallback order: Fluent Icons ships with
+    /// Windows 11; Windows 10 only has MDL2 Assets (largely the same
+    /// private-use codepoints).
+    public static let fontFamilyFallbacks = ["Segoe Fluent Icons", "Segoe MDL2 Assets"]
+
+    /// The single private-use character backing this symbol.
+    public var character: Character {
+        rawValue.first ?? " "
+    }
 }
 @MainActor
 public enum Controls {
+    /// Darkened variant of a color with its alpha preserved. Used for the
+    /// bottom stop of control-surface gradient sheens.
+    public static func shaded(_ color: Color, by factor: Float) -> Color {
+        Color(
+            red: color.red * factor,
+            green: color.green * factor,
+            blue: color.blue * factor,
+            alpha: color.alpha
+        )
+    }
+
+    /// Vertical gradient sheen for control surfaces. The painter resolves a
+    /// gradient quad's top stop from the node's (animated) background color
+    /// and the bottom stop from this gradient's end color, so state color
+    /// animations stay fully visible while the surface reads as the subtle
+    /// top-lighter gradient of macOS Big Sur+ controls.
+    public static func backgroundSheen(for color: Color) -> GradientType? {
+        guard color.alpha > 0 else {
+            return nil
+        }
+        return .linear(LinearGradient(startColor: color, endColor: shaded(color, by: 0.82)))
+    }
+
+    /// Vertical border gradient: the top edge keeps the (animated) border
+    /// color while the bottom fades, reading as a hairline top-edge
+    /// highlight on standard controls.
+    public static func borderSheen(for color: Color) -> GradientType? {
+        guard color.alpha > 0 else {
+            return nil
+        }
+        return .linear(LinearGradient(startColor: color, endColor: color.multipliedAlpha(by: 0.55)))
+    }
+
     public static func panel(
         frame: Rect = .zero,
         preferredSize: Size? = nil,
@@ -660,6 +728,7 @@ public enum Controls {
                 .horizontal(
                     spacing: 14, padding: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14), alignment: .center
                 )),
+            appliesSurfaceSheen: true,
             action: action,
             children: contentChildren
         )
@@ -678,6 +747,7 @@ public enum Controls {
         isEnabled: Bool = true,
         repeatBehavior: RetainedButtonRepeatBehavior = .automatic,
         animation: ControlAnimationStyle = .default,
+        appliesSurfaceSheen: Bool = false,
         action: (() -> Void)? = nil,
         children: [ViewNode] = []
     ) -> ViewNode {
@@ -686,7 +756,11 @@ public enum Controls {
             preferredSize: preferredSize,
             layoutPriority: layoutPriority,
             backgroundColor: isEnabled ? palette.idle : palette.disabledBackground,
+            backgroundGradient: appliesSurfaceSheen
+                ? backgroundSheen(for: isEnabled ? palette.idle : palette.disabledBackground) : nil,
             borderColor: isEnabled ? chrome.borderColor : palette.disabledBorder,
+            borderGradient: appliesSurfaceSheen
+                ? borderSheen(for: isEnabled ? chrome.borderColor : palette.disabledBorder) : nil,
             borderWidth: chrome.borderWidth,
             outlineColor: .clear,
             outlineWidth: chrome.focusRingWidth,
@@ -739,6 +813,12 @@ public enum Controls {
             animate(.background, node, in: runtime, to: backgroundColor, duration: duration)
             animate(.border, node, in: runtime, to: borderColor, duration: duration)
             animate(.shadow, node, in: runtime, to: shadowColor, duration: duration)
+            if appliesSurfaceSheen {
+                // The sheen end stops track the (animated) surface colors so
+                // the gradient follows hover/press state changes.
+                node.backgroundGradient = backgroundSheen(for: backgroundColor)
+                node.borderGradient = borderSheen(for: borderColor)
+            }
         }
 
         node.onPointerEnter = {
@@ -783,6 +863,10 @@ public enum Controls {
             animate(.background, node, in: runtime, to: palette.activated, duration: animation.activationDuration)
             animate(.border, node, in: runtime, to: chrome.borderActivatedColor, duration: animation.activationDuration)
             animate(.shadow, node, in: runtime, to: chrome.shadowActivatedColor, duration: animation.activationDuration)
+            if appliesSurfaceSheen {
+                node?.backgroundGradient = backgroundSheen(for: palette.activated)
+                node?.borderGradient = borderSheen(for: chrome.borderActivatedColor)
+            }
             animateScale(node, to: 1.0, duration: animation.activationDuration)
             action?()
         }
@@ -863,12 +947,23 @@ public enum Controls {
         )
     }
 
+    /// Insets that empty the text content rect at paint time. Icon nodes keep
+    /// their private-use glyph as `text` (measurement metadata, existing
+    /// behavior), but the scene painter must never route that glyph to the
+    /// pixel-font fallback, which can only draw a crude 5x7 pattern or '?'.
+    /// With a non-positive content rect the text pass exits before emitting
+    /// any glyph, leaving painting to the rasterized bitmap (or the drawn
+    /// vector fallback).
+    private static let iconTextSuppressionInsets = EdgeInsets(
+        top: 0, leading: 1_000_000, bottom: 0, trailing: 1_000_000)
+
     public static func icon(
         _ symbol: SymbolIcon,
         frame: Rect = .zero,
         preferredSize: Size? = nil,
         color: Color = .white,
         scale: Double = 1.9,
+        weight: TextWeight = .regular,
         alignment: TextHorizontalAlignment = .center,
         fontFamily: String = "Segoe Fluent Icons"
     ) -> ViewNode {
@@ -878,7 +973,7 @@ public enum Controls {
             preferredSize: preferredSize,
             color: color,
             scale: scale,
-            weight: .regular,
+            weight: weight,
             fontFamily: fontFamily,
             alignment: alignment
         )
@@ -886,7 +981,42 @@ public enum Controls {
         // to assistive technology, so keep them out of the accessibility
         // tree by default (and out of folded button names).
         node.isAccessibilityHidden = true
+
+        let pointSize = max(12, scale * 6 + 8)
+        let targetSize = preferredSize ?? Size(width: pointSize, height: pointSize)
+
+        // Pick the first installed icon font that actually contains this
+        // glyph (Fluent Icons on Windows 11, MDL2 Assets on Windows 10).
+        let resolvedFamily = NativeFontAvailability.resolvedFontFamily(
+            for: symbol.character,
+            preferred: [fontFamily] + SymbolIcon.fontFamilyFallbacks
+        )
+        if let resolvedFamily {
+            var rasterStyle = node.textStyle
+            rasterStyle.fontFamily = resolvedFamily
+            rasterStyle.insets = .zero
+            if let bitmap = NativeTextRenderer.rasterize(symbol.rawValue, style: rasterStyle, scaleFactor: 1),
+                bitmapHasVisiblePixels(bitmap)
+            {
+                node.bitmapSurface = bitmap
+            }
+        }
+
+        if node.bitmapSurface == nil {
+            // No installed icon font carries this glyph: draw the symbol
+            // through the path tessellator instead of showing '?'.
+            node.canvasDraw = { context, size in
+                SymbolIconVectorRenderer.draw(symbol, in: size, color: color, into: &context)
+            }
+        }
+
+        node.textStyle.insets = iconTextSuppressionInsets
+        node.preferredSize = targetSize
         return node
+    }
+
+    private static func bitmapHasVisiblePixels(_ bitmap: BitmapSurface) -> Bool {
+        bitmap.pixels.contains { $0 != 0 }
     }
 
     public static func image(
@@ -918,6 +1048,7 @@ public enum Controls {
         clipsToBounds: Bool = true,
         isEnabled: Bool = true,
         animation: ControlAnimationStyle = .default,
+        appliesSurfaceSheen: Bool = false,
         action: (() -> Void)? = nil
     ) -> ViewNode {
         let labelNode = label(
@@ -941,6 +1072,7 @@ public enum Controls {
             layoutMode: .stack(.vertical(alignment: .center, mainAlignment: .center)),
             isEnabled: isEnabled,
             animation: animation,
+            appliesSurfaceSheen: appliesSurfaceSheen,
             action: action,
             children: [labelNode]
         )
@@ -962,13 +1094,24 @@ public enum Controls {
             pressed: Color(red: 0.72, green: 0.82, blue: 0.92, alpha: 1.0)
         ),
         chrome: SurfaceChrome = .elevatedButton,
+        checkedColor: Color = Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0),
         animation: ControlAnimationStyle = .default,
         onToggle: ((Bool) -> Void)? = nil
     ) -> ViewNode {
         let boxSize: Double = 20
+        // macOS checkbox: checked state is an accent-filled rounded box with
+        // a white check; unchecked is a subtle raised dark surface with a
+        // hairline edge.
         let resolvedBorderColor =
-            isError ? palette.errorBorder : (isEnabled ? chrome.borderColor : palette.disabledBorder)
-        let resolvedBackgroundColor = isEnabled ? palette.idle : palette.disabledBackground
+            isError
+            ? palette.errorBorder
+            : (isEnabled
+                ? (isChecked ? shaded(checkedColor, by: 0.70) : chrome.borderColor)
+                : palette.disabledBorder)
+        let resolvedBackgroundColor =
+            isEnabled
+            ? (isChecked ? checkedColor : palette.idle)
+            : palette.disabledBackground
         let resolvedForeground = isEnabled ? Color.white : palette.disabledForeground
 
         let checkIcon =
@@ -981,9 +1124,10 @@ public enum Controls {
         let box = panel(
             preferredSize: Size(width: boxSize, height: boxSize),
             backgroundColor: resolvedBackgroundColor,
+            backgroundGradient: isEnabled ? backgroundSheen(for: resolvedBackgroundColor) : nil,
             borderColor: resolvedBorderColor,
             borderWidth: isError ? 2 : chrome.borderWidth,
-            cornerRadius: 4,
+            cornerRadius: 5,
             layoutMode: .stack(.vertical(alignment: .center, mainAlignment: .center)),
             isHitTestVisible: false,
             children: [checkIcon]
@@ -1015,6 +1159,7 @@ public enum Controls {
                     spacing: 10, padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8), alignment: .center)),
             isEnabled: isEnabled,
             animation: animation,
+            appliesSurfaceSheen: true,
             action: action,
             children: [box, labelNode]
         )
@@ -1063,19 +1208,50 @@ public enum Controls {
         let thumbX = isOn ? trackWidth - thumbSize - thumbInset : thumbInset
         let thumbColor = isEnabled ? Color.white : palette.disabledForeground
 
+        // macOS switch thumb: near-white with a faint top-lighter gradient,
+        // a hairline edge, and a soft drop shadow lifting it off the track.
+        let thumbGradient: GradientType? =
+            isEnabled
+            ? .linear(
+                LinearGradient(
+                    startColor: thumbColor,
+                    endColor: Color(red: 0.88, green: 0.89, blue: 0.91, alpha: thumbColor.alpha)))
+            : nil
         let thumb = panel(
             frame: Rect(x: thumbX, y: thumbInset, width: thumbSize, height: thumbSize),
             backgroundColor: thumbColor,
+            backgroundGradient: thumbGradient,
+            borderColor: isEnabled ? Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.20) : .clear,
+            borderWidth: isEnabled ? 1 : 0,
+            shadowColor: isEnabled ? Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.32) : .clear,
+            shadowOffset: Point(x: 0, y: 1),
+            shadowSpread: 2,
             cornerRadius: thumbSize * 0.5,
             isHitTestVisible: false
         )
 
-        let resolvedBorderColor = isError ? palette.errorBorder : .clear
+        // Track: on state reads as a raised accent pill (top-lighter
+        // gradient); off state reads recessed (top-darker gradient) with a
+        // hairline edge, like NSSwitch.
+        let trackBackgroundColor =
+            isEnabled && !isOn ? shaded(resolvedTrackColor, by: 0.78) : resolvedTrackColor
+        let trackGradient: GradientType? =
+            isEnabled
+            ? .linear(
+                LinearGradient(
+                    startColor: trackBackgroundColor,
+                    endColor: isOn ? shaded(resolvedTrackColor, by: 0.85) : resolvedTrackColor))
+            : nil
+        let trackBorderColor =
+            isError
+            ? palette.errorBorder
+            : (isOn ? shaded(resolvedTrackColor, by: 0.70) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.10))
         let track = panel(
             preferredSize: Size(width: trackWidth, height: trackHeight),
-            backgroundColor: resolvedTrackColor,
-            borderColor: resolvedBorderColor,
-            borderWidth: isError ? 2 : 0,
+            backgroundColor: trackBackgroundColor,
+            backgroundGradient: trackGradient,
+            borderColor: trackBorderColor,
+            borderWidth: isError ? 2 : (isEnabled ? 1 : 0),
             cornerRadius: trackHeight * 0.5,
             layoutMode: .absolute,
             isHitTestVisible: false,
@@ -1171,9 +1347,17 @@ public enum Controls {
         let resolvedThumbColor = isEnabled ? thumbColor : palette.disabledForeground
 
         let trackY = (totalHeight - trackHeight) * 0.5
+        // Recessed track: top-darker gradient reads as an inset groove.
+        let trackSheen: GradientType? =
+            isEnabled
+            ? .linear(
+                LinearGradient(
+                    startColor: shaded(resolvedTrackColor, by: 0.78), endColor: resolvedTrackColor))
+            : nil
         let trackNode = panel(
             frame: Rect(x: 0, y: trackY, width: sliderWidth, height: trackHeight),
-            backgroundColor: resolvedTrackColor,
+            backgroundColor: isEnabled ? shaded(resolvedTrackColor, by: 0.78) : resolvedTrackColor,
+            backgroundGradient: trackSheen,
             cornerRadius: trackHeight * 0.5,
             isHitTestVisible: false
         )
@@ -1181,16 +1365,30 @@ public enum Controls {
         let filledNode = panel(
             frame: Rect(x: 0, y: trackY, width: filledWidth, height: trackHeight),
             backgroundColor: resolvedFilledColor,
+            backgroundGradient: backgroundSheen(for: resolvedFilledColor),
             cornerRadius: trackHeight * 0.5,
             isHitTestVisible: false
         )
 
         let thumbY = (totalHeight - thumbSize) * 0.5
+        // macOS slider thumb: bright knob with a faint gradient, hairline
+        // edge, and a soft shadow.
+        let thumbSheen: GradientType? =
+            isEnabled
+            ? .linear(
+                LinearGradient(
+                    startColor: resolvedThumbColor,
+                    endColor: Color(red: 0.88, green: 0.89, blue: 0.91, alpha: resolvedThumbColor.alpha)))
+            : nil
         let thumbNode = panel(
             frame: Rect(x: thumbX, y: thumbY, width: thumbSize, height: thumbSize),
             backgroundColor: resolvedThumbColor,
+            backgroundGradient: thumbSheen,
             borderColor: isError ? palette.errorBorder : Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.18),
             borderWidth: isError ? 2 : 1,
+            shadowColor: isEnabled && !isError ? Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.30) : .clear,
+            shadowOffset: Point(x: 0, y: 1),
+            shadowSpread: 2,
             cornerRadius: thumbSize * 0.5,
             isHitTestVisible: false
         )
@@ -1273,18 +1471,24 @@ public enum Controls {
 
         let progress = total > 0 ? min(max(value / total, 0), 1) : 0
         let filledWidth = barWidth * progress
+        let resolvedCornerRadius = min(cornerRadius, barHeight * 0.5)
 
+        // Recessed track with a top-darker gradient; fill carries the
+        // top-lighter accent sheen. Both ends are fully rounded.
         let trackNode = panel(
             frame: Rect(x: 0, y: 0, width: barWidth, height: barHeight),
-            backgroundColor: trackColor,
-            cornerRadius: cornerRadius,
+            backgroundColor: shaded(trackColor, by: 0.78),
+            backgroundGradient: .linear(
+                LinearGradient(startColor: shaded(trackColor, by: 0.78), endColor: trackColor)),
+            cornerRadius: resolvedCornerRadius,
             isHitTestVisible: false
         )
 
         let filledNode = panel(
             frame: Rect(x: 0, y: 0, width: filledWidth, height: barHeight),
             backgroundColor: filledColor,
-            cornerRadius: cornerRadius,
+            backgroundGradient: backgroundSheen(for: filledColor),
+            cornerRadius: resolvedCornerRadius,
             isHitTestVisible: false
         )
 
@@ -1300,6 +1504,9 @@ public enum Controls {
             let resolvedHeight = max(0, bounds.size.height)
             let resolvedBarHeight = min(barHeight, resolvedHeight)
             let resolvedBarY = max(0, (resolvedHeight - resolvedBarHeight) * 0.5)
+            let radius = min(cornerRadius, resolvedBarHeight * 0.5)
+            trackNode.cornerRadius = radius
+            filledNode.cornerRadius = radius
             trackNode.frame = Rect(x: 0, y: resolvedBarY, width: resolvedWidth, height: resolvedBarHeight)
             filledNode.frame = Rect(
                 x: 0,
@@ -1428,19 +1635,29 @@ public enum Controls {
         onSelect: (() -> Void)? = nil
     ) -> ViewNode {
         let outerSize: Double = 20
-        let innerSize: Double = 10
+        let innerSize: Double = 8
 
+        // macOS radio: selected state is an accent-filled circle with a
+        // white center dot; unselected is a subtle raised dark surface with
+        // a hairline edge.
         let resolvedBorderColor =
-            isError ? palette.errorBorder : (isEnabled ? chrome.borderColor : palette.disabledBorder)
-        let resolvedOuterBg = isEnabled ? palette.idle : palette.disabledBackground
-        let resolvedForeground = isEnabled ? selectedColor : palette.disabledForeground
+            isError
+            ? palette.errorBorder
+            : (isEnabled
+                ? (isSelected ? shaded(selectedColor, by: 0.70) : chrome.borderColor)
+                : palette.disabledBorder)
+        let resolvedOuterBg =
+            isEnabled
+            ? (isSelected ? selectedColor : palette.idle)
+            : palette.disabledBackground
+        let resolvedDotColor = isEnabled ? Color.white : palette.disabledForeground
 
         var outerChildren: [ViewNode] = []
         if isSelected {
             outerChildren.append(
                 panel(
                     preferredSize: Size(width: innerSize, height: innerSize),
-                    backgroundColor: resolvedForeground,
+                    backgroundColor: resolvedDotColor,
                     cornerRadius: innerSize * 0.5,
                     isHitTestVisible: false
                 )
@@ -1450,6 +1667,7 @@ public enum Controls {
         let outerCircle = panel(
             preferredSize: Size(width: outerSize, height: outerSize),
             backgroundColor: resolvedOuterBg,
+            backgroundGradient: isEnabled ? backgroundSheen(for: resolvedOuterBg) : nil,
             borderColor: resolvedBorderColor,
             borderWidth: isError ? 2 : chrome.borderWidth,
             cornerRadius: outerSize * 0.5,
@@ -1485,6 +1703,7 @@ public enum Controls {
                     spacing: 10, padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8), alignment: .center)),
             isEnabled: isEnabled,
             animation: animation,
+            appliesSurfaceSheen: true,
             action: action,
             children: [outerCircle, labelNode]
         )
@@ -1560,6 +1779,7 @@ public enum Controls {
                 titleScale: 1.5,
                 titleWeight: isCurrentSelection ? .semibold : .regular,
                 isEnabled: isEnabled,
+                appliesSurfaceSheen: true,
                 action: {
                     dropdownState.isOpen = false
                     onSelect?(index)
@@ -1605,6 +1825,7 @@ public enum Controls {
                     spacing: 4, padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12), alignment: .stretch)),
             isEnabled: isEnabled,
             animation: animation,
+            appliesSurfaceSheen: true,
             action: isEnabled
                 ? {
                     dropdownState.isOpen = !dropdownState.isOpen
@@ -1662,6 +1883,7 @@ public enum Controls {
                 clipsToBounds: true,
                 isEnabled: isEnabled,
                 animation: animation,
+                appliesSurfaceSheen: true,
                 action: isEnabled ? { onSelect?(index) } : nil
             )
         }

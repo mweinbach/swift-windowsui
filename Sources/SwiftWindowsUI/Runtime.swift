@@ -1327,6 +1327,53 @@ public struct FixedSizeAxes: Equatable, Sendable {
         self.vertical = vertical
     }
 }
+/// Per-corner rounding for a node's background/border, in points and
+/// absolute screen corners (the retained runtime has no layout-direction
+/// concept, so these are left/right rather than leading/trailing).
+/// A `nil` `ViewNode.cornerRadii` keeps the historic uniform
+/// `cornerRadius` behaviour. Rendered end-to-end by ScenePainter →
+/// QuadPrimitive → both render backends; consumers that only understand
+/// uniform rounding (shadow, outline, clip, dashed borders) fall back
+/// to `maxRadius`.
+public struct RetainedCornerRadii: Equatable, Sendable {
+    public var topLeft: Double
+    public var topRight: Double
+    public var bottomRight: Double
+    public var bottomLeft: Double
+
+    public init(topLeft: Double = 0, topRight: Double = 0, bottomRight: Double = 0, bottomLeft: Double = 0) {
+        self.topLeft = topLeft
+        self.topRight = topRight
+        self.bottomRight = bottomRight
+        self.bottomLeft = bottomLeft
+    }
+
+    public init(uniform radius: Double) {
+        self.init(topLeft: radius, topRight: radius, bottomRight: radius, bottomLeft: radius)
+    }
+
+    /// Largest single corner radius. Used by uniform-radius consumers
+    /// (shadow, outline, clip rect) when a node has per-corner radii.
+    public var maxRadius: Double {
+        max(topLeft, max(topRight, max(bottomRight, bottomLeft)))
+    }
+
+    public var hasPositiveRadius: Bool {
+        maxRadius > 0
+    }
+
+    /// Shrinks every corner by `amount`, clamped at 0 — the per-corner
+    /// equivalent of `max(0, cornerRadius - borderWidth)` used when
+    /// deriving a fill shape inside a border ring.
+    public func inset(by amount: Double) -> RetainedCornerRadii {
+        RetainedCornerRadii(
+            topLeft: max(0, topLeft - amount),
+            topRight: max(0, topRight - amount),
+            bottomRight: max(0, bottomRight - amount),
+            bottomLeft: max(0, bottomLeft - amount)
+        )
+    }
+}
 @MainActor
 public final class ViewNode {
     public var frame: Rect {
@@ -1390,6 +1437,15 @@ public final class ViewNode {
     }
 
     public var cornerRadius: Double {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    /// Optional per-corner rounding for the node's border/background
+    /// quads. When set with any radius > 0 it overrides the uniform
+    /// `cornerRadius` for the border and fill quads; uniform-only
+    /// consumers (shadow, outline, clip, dashed borders) use
+    /// `cornerRadii.maxRadius`.
+    public var cornerRadii: RetainedCornerRadii? {
         didSet { invalidateRuntime(.paint) }
     }
 
@@ -2523,6 +2579,7 @@ public final class ViewNode {
         shadowOffset: Point = .zero,
         shadowSpread: Double = 0,
         cornerRadius: Double = 0,
+        cornerRadii: RetainedCornerRadii? = nil,
         backgroundPath: RenderPath? = nil,
         canvasDraw: ((inout CanvasGraphicsContext, Size) -> Void)? = nil,
         clipsToBounds: Bool = false,
@@ -2774,6 +2831,7 @@ public final class ViewNode {
         self.shadowOffset = shadowOffset
         self.shadowSpread = shadowSpread
         self.cornerRadius = cornerRadius
+        self.cornerRadii = cornerRadii
         self.backgroundPath = backgroundPath
         self.canvasDraw = canvasDraw
         self.clipsToBounds = clipsToBounds

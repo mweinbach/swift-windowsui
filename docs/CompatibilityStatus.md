@@ -88,11 +88,11 @@ dashboard composition on a single custom-rendered window.
 | --- | --- | --- |
 | `Text` (string / verbatim / key) | **Partial** | Retained text; localization keys resolve to plain strings (no bundle tables) |
 | `Text` date / format / attributed | **Partial** | Deterministic string resolution; rich runs / live timers incomplete |
-| `Label`, `Image(systemName:)` | **Partial** | System icons are retained glyphs with limited variant/rendering modes |
+| `Label`, `Image(systemName:)` | **Partial** | System icons render as real Segoe Fluent/MDL2 glyphs (native bitmap) with a drawn-vector fallback — never `?`; ~40 common SF Symbols mapped, variants/scale honored |
 | `Image(_:)` named / file / resource | **Partial** | WIC PNG/JPEG/BMP; no full asset-catalog pipeline |
 | `AsyncImage` | **Partial** | URL load into retained image phases; not a full network image stack |
 | Basic shapes (`Rectangle`, `RoundedRectangle`, `Capsule`, `Circle`, `Ellipse`, …) | **Implemented** | Fill/stroke/border through retained primitives |
-| `UnevenRoundedRectangle` | **Partial** | Uniform radius fallback until per-corner primitives exist |
+| `UnevenRoundedRectangle` | **Implemented** | Per-corner radii end-to-end (RTL-aware); uniform-only consumers (shadow/outline/clip) fall back to max radius |
 | `Canvas` + `GraphicsContext` | **Partial** | Scene-path drawing; `symbols:` / `resolveSymbol`, blendMode, `withCGContext` not wired |
 | `ContentUnavailableView` | **Implemented** | Retained empty-state chrome |
 
@@ -149,7 +149,7 @@ Use these when you accept retained approximations.
 | **Focus** | Focus rings, `@FocusState`, activation | Dynamic `@FocusedValue` retargeting as focus moves; environment `isFocused` live transitions |
 | **Drag and drop** | API + metadata on nodes | Full delete/reorder/drop affordances and OS drag sessions |
 | **Accessibility** | Metadata on `ViewNode` + derived `AccessibilityElementProjection` + Win32 UI Automation provider (`WM_GETOBJECT`, fragment tree, InvokePattern, focus/structure events); default traits on Supported controls | Value/Text/Selection/Toggle patterns, live regions, fine-grained structure-changed events |
-| **Materials / blur** | Tint/blur metadata; design-parity constants | Full backdrop materials everywhere; backend blur limits |
+| **Materials / blur** | Tint/blur metadata; true separable-Gaussian backdrop blur on the CPU rasterizer; design-parity constants | D3D11 path approximates backdrop blur with widened edge falloff (documented gap; true multi-pass GPU blur pending) |
 | **Blend / drawing groups** | Metadata; some blend modes on frame fallback | Scene-path offscreen group compositing as full SwiftUI drawing groups |
 | **3D transforms** | Z-axis rotation maps to 2D; metadata stored | Full 3D projection pipeline |
 | **Color effects / shaders** | Metadata for invalidation / source shape | No compiled Metal/HLSL filter application yet |

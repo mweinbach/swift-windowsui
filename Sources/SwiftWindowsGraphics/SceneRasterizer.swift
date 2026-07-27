@@ -1,5 +1,4 @@
 import Foundation
-
 import SwiftWindowsCore
 
 /// Builds a 1D Gaussian kernel suitable for a separable two-pass blur.
@@ -213,7 +212,21 @@ private struct RasterTarget {
             }
         }
 
-        let radius = max(0, Double(quad.cornerRadius))
+        // Resolve the effective corner radii: per-corner values win when
+        // the primitive carries any; otherwise broadcast the uniform
+        // cornerRadius (the historic path, byte-identical output).
+        let cornerRadii: (topLeft: Double, topRight: Double, bottomRight: Double, bottomLeft: Double)
+        if quad.usesPerCornerRadii {
+            cornerRadii = (
+                topLeft: Double(quad.cornerRadiusTopLeft),
+                topRight: Double(quad.cornerRadiusTopRight),
+                bottomRight: Double(quad.cornerRadiusBottomRight),
+                bottomLeft: Double(quad.cornerRadiusBottomLeft)
+            )
+        } else {
+            let uniform = max(0, Double(quad.cornerRadius))
+            cornerRadii = (topLeft: uniform, topRight: uniform, bottomRight: uniform, bottomLeft: uniform)
+        }
         let start = RasterColor(red: quad.startR, green: quad.startG, blue: quad.startB, alpha: quad.startA)
         let end = RasterColor(red: quad.endR, green: quad.endG, blue: quad.endB, alpha: quad.endA)
         let effectType = quad.effectType
@@ -228,7 +241,7 @@ private struct RasterTarget {
                 let pixelCenterX = Double(x) + 0.5
                 let pixelCenterY = Double(y) + 0.5
                 let (localX, localY) = localOf(pixelCenterX, pixelCenterY)
-                let coverage = roundedRectCoverage(x: localX, y: localY, rect: rect, radius: radius)
+                let coverage = roundedRectCoverage(x: localX, y: localY, rect: rect, cornerRadii: cornerRadii)
                 guard coverage > 0 else {
                     continue
                 }
@@ -761,11 +774,33 @@ private func applyRasterColorEffect(
     return color
 }
 private func roundedRectCoverage(x: Double, y: Double, rect: Rect, radius: Double) -> Double {
-    guard radius > 0 else {
+    let r = max(0, radius)
+    return roundedRectCoverage(
+        x: x, y: y, rect: rect, cornerRadii: (topLeft: r, topRight: r, bottomRight: r, bottomLeft: r))
+}
+/// Per-corner variant of the uniform rounded-rect coverage above. The
+/// corner radius is selected by the quadrant the sample falls into
+/// (split along the rect's centrelines) — the same rule the D3D11
+/// pixel shader's `roundedRectDistance` implements, so both backends
+/// agree on the shape boundary. With four equal radii this reduces to
+/// exactly the historic uniform computation (byte-identical output).
+private func roundedRectCoverage(
+    x: Double,
+    y: Double,
+    rect: Rect,
+    cornerRadii: (topLeft: Double, topRight: Double, bottomRight: Double, bottomLeft: Double)
+) -> Double {
+    let localX = x - rect.midX
+    let localY = y - rect.midY
+    let radius =
+        localX > 0
+        ? (localY > 0 ? cornerRadii.bottomRight : cornerRadii.topRight)
+        : (localY > 0 ? cornerRadii.bottomLeft : cornerRadii.topLeft)
+    let clampedRadius = max(0, min(radius, min(rect.size.width, rect.size.height) * 0.5))
+    guard clampedRadius > 0 else {
         return rect.contains(Point(x: x, y: y)) ? 1 : 0
     }
 
-    let clampedRadius = min(radius, min(rect.size.width, rect.size.height) * 0.5)
     let innerMinX = rect.minX + clampedRadius
     let innerMaxX = rect.maxX - clampedRadius
     let innerMinY = rect.minY + clampedRadius

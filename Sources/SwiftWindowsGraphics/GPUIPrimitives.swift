@@ -12,7 +12,7 @@ public struct GPUIContentMask: Equatable, Sendable {
 
 /// A rounded rectangle with optional gradient fill, designed for direct upload
 /// to a D3D11 structured buffer. All fields are `Float` for GPU compatibility.
-/// Total: 24 floats = 96 bytes (divisible by 16 for StructuredBuffer alignment).
+/// Total: 36 floats = 144 bytes (divisible by 16 for StructuredBuffer alignment).
 @frozen
 public struct QuadPrimitive: Equatable, Sendable {
     // Position & size (pixels)
@@ -62,9 +62,20 @@ public struct QuadPrimitive: Equatable, Sendable {
     // keeping interior coordinates (corner radius, gradient axis,
     // local-space effects) computed in unrotated space.
     public var rotationRadians: Float
+    // Per-corner rounding in pixels: topLeft, topRight, bottomRight,
+    // bottomLeft. When any of these is > 0 the quad renders with
+    // per-corner radii and the uniform `cornerRadius` is ignored; when
+    // all are 0 the uniform `cornerRadius` applies exactly as before
+    // (this keeps every pre-existing scene byte-identical). The D3D11
+    // pixel shader and the CPU rasterizer implement the same
+    // quadrant-selection maths so both backends stay coherent.
+    public var cornerRadiusTopLeft: Float
+    public var cornerRadiusTopRight: Float
+    public var cornerRadiusBottomRight: Float
+    public var cornerRadiusBottomLeft: Float
     // Reserved padding so the struct's byte stride stays a multiple of
     // 16, which HLSL structured buffers require for their element
-    // alignment. Three floats of padding bring us from 116 to 128.
+    // alignment. Three floats of padding bring us from 132 to 144.
     public var _reserved0: Float
     public var _reserved1: Float
     public var _reserved2: Float
@@ -86,7 +97,11 @@ public struct QuadPrimitive: Equatable, Sendable {
         effectParam2: Float = 0,
         effectParam3: Float = 0,
         effectParam4: Float = 0,
-        rotationRadians: Float = 0
+        rotationRadians: Float = 0,
+        cornerRadiusTopLeft: Float = 0,
+        cornerRadiusTopRight: Float = 0,
+        cornerRadiusBottomRight: Float = 0,
+        cornerRadiusBottomLeft: Float = 0
     ) {
         self.x = x
         self.y = y
@@ -117,12 +132,23 @@ public struct QuadPrimitive: Equatable, Sendable {
         self.effectParam3 = effectParam3
         self.effectParam4 = effectParam4
         self.rotationRadians = rotationRadians
+        self.cornerRadiusTopLeft = cornerRadiusTopLeft
+        self.cornerRadiusTopRight = cornerRadiusTopRight
+        self.cornerRadiusBottomRight = cornerRadiusBottomRight
+        self.cornerRadiusBottomLeft = cornerRadiusBottomLeft
         self._reserved0 = 0
         self._reserved1 = 0
         self._reserved2 = 0
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }
+
+    /// True when per-corner radii override the uniform `cornerRadius`.
+    /// Both render backends check this exact predicate.
+    public var usesPerCornerRadii: Bool {
+        cornerRadiusTopLeft > 0 || cornerRadiusTopRight > 0
+            || cornerRadiusBottomRight > 0 || cornerRadiusBottomLeft > 0
+    }
 
     public var contentMask: GPUIContentMask {
         get {

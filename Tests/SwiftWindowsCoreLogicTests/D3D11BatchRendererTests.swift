@@ -116,10 +116,10 @@ final class D3D11BatchRendererTests: XCTestCase {
     }
 
     func testQuadPrimitiveStride() {
-        // 128 bytes (32 floats * 4 bytes) after adding rotationRadians
+        // 144 bytes (36 floats * 4 bytes) after adding per-corner radii
         // plus three reserved-padding floats — kept divisible by 16 so
         // HLSL structured-buffer alignment stays correct.
-        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 128)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 144)
     }
 
     func testGlyphPrimitiveStride() {

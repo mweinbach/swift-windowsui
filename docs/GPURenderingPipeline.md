@@ -295,3 +295,22 @@ The painter emits the panel's background quad with the encoded
 `blurRadius`; the CPU rasterizer's existing `applyBoxBlur` step
 produces the actual blurred backdrop in-place. Tested by
 `MaterialBackdropBlurTests`.
+
+**Backend gap (documented):** the D3D11 quad shader currently
+approximates backdrop blur by widening the edge falloff of the tinted
+quad — material panels on the default GPU path read as soft-edged
+tints, not frosted glass. A true GPU backdrop blur needs multi-pass
+render-target ping-pong in `D3D11BatchRenderer` and is tracked as
+follow-up work.
+
+## Per-corner radii
+
+`ViewNode.cornerRadii` (`RetainedCornerRadii`, absolute TL/TR/BR/BL)
+flows through `ScenePainter` into four extra fields on `QuadPrimitive`;
+both the HLSL rounded-rect SDF (quadrant-selecting) and the CPU
+rasterizer's coverage function consume them. All-zero per-corner radii
+(or a `nil` node property) preserve the historic uniform path
+byte-for-byte. Consumers that only understand uniform rounding
+(shadow, outline, clip, dashed borders) fall back to `maxRadius`.
+`UnevenRoundedRectangle` maps leading/trailing onto absolute corners
+(RTL-aware). Locked by `PerCornerRadiiTests`.

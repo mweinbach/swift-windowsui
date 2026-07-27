@@ -30,6 +30,7 @@ rethink the change, not the contract. In addition:
 - Screenshots are raw retained-runtime output via `swift-windowsui-snapshot`; never desktop or window capture.
 - Demo source stays SwiftUI-shaped and same-source with macOS; fix Windows rendering bugs in the stack, not with platform-only APIs in demo code.
 - Prefer extending `ViewBuildContext` and inherited environment propagation over global UI state.
+- Target dependency direction is machine-checked in `check-contracts.ps1` (forbidden imports per target): Core is the base; `WinSwiftUI` is renderer-neutral and must not depend on `SwiftWindowsRendererD3D11` — the D3D11 backend is pinned by the `swift-windowsui` executable (composition root) via `App.renderBackendFactory()`.
 
 ## Build, test, verify
 

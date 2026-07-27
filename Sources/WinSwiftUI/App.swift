@@ -6,8 +6,6 @@ import SwiftWindowsGraphics
 
 import SwiftWindowsPlatform
 
-import SwiftWindowsRendererD3D11
-
 import SwiftWindowsUI
 
 // MARK: - Timer State Observability
@@ -44,12 +42,17 @@ public protocol App {
     var body: Body { get }
 
     /// Override to inject a custom render backend factory.
-    /// Default is ``D3D11RenderBackendFactory`` on Windows.
+    ///
+    /// The default is the portable ``CPURenderBackendFactory`` so the
+    /// WinSwiftUI facade stays renderer-neutral (Phase 8 modularization).
+    /// The Windows product pins the D3D11 GPU factory at its composition
+    /// root — the `swift-windowsui` executable overrides this requirement
+    /// with the concrete factory from the renderer backend target.
     static func renderBackendFactory() -> RenderBackendFactory
 }
 extension App {
     public static func renderBackendFactory() -> RenderBackendFactory {
-        D3D11RenderBackendFactory()
+        CPURenderBackendFactory()
     }
 
     public static func main() {
@@ -1754,8 +1757,12 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     init(
         configuration: WindowGroupConfiguration,
-        renderer: any RenderBackend = DefaultRenderBackendFactory.make(),
-        batchRenderer: (any BatchRenderBackend)? = DefaultRenderBackendFactory.makeBatchBackend(),
+        // Backend-neutral defaults: the portable CPU reference backend. Real
+        // windows are always created by `WinSwiftUIWindowCoordinator`, which
+        // receives the app's `RenderBackendFactory` explicitly (D3D11 for the
+        // Windows product via its composition root).
+        renderer: any RenderBackend = CPURenderBackendFactory().makeRenderBackend(),
+        batchRenderer: (any BatchRenderBackend)? = CPURenderBackendFactory().makeBatchRenderBackend(),
         surfaceDescriptorProvider: @escaping @MainActor (Win32Window) -> SurfaceDescriptor? = WinSwiftUIWindowHost
             .defaultSurfaceDescriptor,
         sceneRenderer: (@MainActor (RetainedViewRuntime, Double) -> GPUIScene)? = nil,

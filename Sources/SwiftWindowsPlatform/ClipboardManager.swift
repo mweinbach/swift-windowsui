@@ -68,6 +68,9 @@ public final class Win32ClipboardFileStore: ClipboardFileStore {
         defer { CloseClipboard() }
 
         guard let handle = GetClipboardData(Self.cfHDrop) else { return [] }
+        // The clipboard block belongs to another process; validate the
+        // DROPFILES payload before DragQueryFileW walks its embedded offsets.
+        guard DropFilesPayloadValidator.hasWellFormedPayload(handle) else { return [] }
         let hDrop = handle.assumingMemoryBound(to: HDROP__.self)
         let count = DragQueryFileW(hDrop, 0xFFFF_FFFF, nil, 0)
         guard count > 0 else { return [] }
@@ -152,8 +155,23 @@ public enum ClipboardManager {
         guard let ptr = GlobalLock(hGlobal) else { return nil }
         defer { GlobalUnlock(hGlobal) }
 
-        let text = String(decodingCString: ptr.assumingMemoryBound(to: UTF16.CodeUnit.self), as: UTF16.self)
-        return text
+        // The clipboard block belongs to another process and may lack a null
+        // terminator, so the decode is bounded by the allocation size rather
+        // than scanning for a terminator blindly.
+        let unitCount = Int(GlobalSize(hGlobal)) / MemoryLayout<UTF16.CodeUnit>.size
+        let units = UnsafeBufferPointer(
+            start: ptr.assumingMemoryBound(to: UTF16.CodeUnit.self),
+            count: unitCount
+        )
+        return decodeNullTerminatedUTF16(units)
+    }
+
+    /// Decodes UTF-16 code units up to the first null, tolerating a missing
+    /// terminator (unterminated input decodes in full instead of reading
+    /// past the buffer). Internal so hostile-input tests can drive it.
+    static func decodeNullTerminatedUTF16(_ units: UnsafeBufferPointer<UTF16.CodeUnit>) -> String {
+        let end = units.firstIndex(of: 0) ?? units.count
+        return String(decoding: units[..<end], as: UTF16.self)
     }
 
     public static func copyItems(_ items: [Any]) {

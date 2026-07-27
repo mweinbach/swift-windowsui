@@ -134,11 +134,14 @@ public final class Win32FileDialogProvider: FileDialogProvider {
     }
 
     /// Double-null-terminated `lpstrFilter` payload ("Supported Files",
-    /// "*.ext;*.ext2"). Empty when there is nothing to filter on.
-    private static func makeFilterBuffer(allowedExtensions: [String]?) -> [WCHAR] {
+    /// "*.ext;*.ext2"). Empty when there is nothing to filter on. Null code
+    /// units are stripped from extensions: one would silently truncate the
+    /// joined pattern mid-list. Internal so hostile-input tests can drive it.
+    static func makeFilterBuffer(allowedExtensions: [String]?) -> [WCHAR] {
         guard let allowedExtensions = allowedExtensions, !allowedExtensions.isEmpty else {
             return []
         }
+        let sanitized = allowedExtensions.map { $0.replacingOccurrences(of: "\0", with: "") }
         var filterBuffer: [WCHAR] = []
         let desc = "Supported Files"
         desc.withWideChars { wideDesc in
@@ -149,7 +152,7 @@ public final class Win32FileDialogProvider: FileDialogProvider {
             }
             filterBuffer.append(0)
         }
-        let extPattern = allowedExtensions.map { "*." + $0 }.joined(separator: ";")
+        let extPattern = sanitized.map { "*." + $0 }.joined(separator: ";")
         extPattern.withWideChars { widePattern in
             var i = 0
             while widePattern[i] != 0 {
@@ -226,20 +229,7 @@ public enum FileDialogManager {
     }
 
     public static func moveToRecycleBin(fileURLs: [URL]) {
-        guard !fileURLs.isEmpty else { return }
-        var buffer: [WCHAR] = []
-        for url in fileURLs {
-            let path = url.path
-            path.withWideChars { widePath in
-                var i = 0
-                while widePath[i] != 0 {
-                    buffer.append(widePath[i])
-                    i += 1
-                }
-                buffer.append(0)
-            }
-        }
-        buffer.append(0)
+        guard let buffer = makeRecycleSourceList(fileURLs.map { $0.path }) else { return }
 
         buffer.withUnsafeBufferPointer { buf in
             guard let baseAddress = buf.baseAddress else { return }
@@ -249,6 +239,29 @@ public enum FileDialogManager {
             fileOp.fFlags = FILEOP_FLAGS(UInt16(FOF_ALLOWUNDO | FOF_NOCONFIRMATION))
             _ = SHFileOperationW(&fileOp)
         }
+    }
+
+    /// Builds the double-null-terminated wide path list for
+    /// `SHFILEOPSTRUCTW.pFrom`. Paths containing embedded null code units are
+    /// skipped: one would split the list and make `SHFileOperationW` act on a
+    /// truncated, different path — fail closed instead. Returns `nil` when no
+    /// usable paths remain. Internal so hostile-input tests can drive it.
+    static func makeRecycleSourceList(_ paths: [String]) -> [WCHAR]? {
+        var buffer: [WCHAR] = []
+        for path in paths {
+            guard !path.utf16.contains(0) else { continue }
+            path.withWideChars { widePath in
+                var i = 0
+                while widePath[i] != 0 {
+                    buffer.append(widePath[i])
+                    i += 1
+                }
+                buffer.append(0)
+            }
+        }
+        guard !buffer.isEmpty else { return nil }
+        buffer.append(0)
+        return buffer
     }
 
     /// Maps `UTType`s to Win32 file-dialog filter extensions.

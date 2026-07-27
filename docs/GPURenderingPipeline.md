@@ -181,10 +181,12 @@ into a `BitmapSurface` and reused across frames:
 3. If a resize fails on the batch backend, downgrade to the frame
    backend at the new size.
 
-The fallback is **one-way** by design: once a session downgrades, the
-batch backend is never invoked again for the lifetime of that window
-even if it stops failing. This keeps every subsequent frame from paying
-a failing `render` call before falling back.
+The default recovery policy is `BatchBackendRecoveryPolicy.standard`:
+after a downgrade the host retries the batch attach with exponential
+backoff (5s → 60s cap) and restores the scene backend when a retry
+succeeds (see "Two-way fallback recovery" below). Apps that need the
+historical **one-way** pin — where a downgraded session never invokes
+the batch backend again — pass `recoveryPolicy: .disabled`.
 
 **Invariants**
 - `testBatchRenderFailureDowngradesToFrameSameSession` covers single-

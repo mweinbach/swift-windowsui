@@ -2,7 +2,6 @@ import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsPlatform
-import SwiftWindowsRendererD3D11
 import SwiftWindowsUI
 
 // MARK: - Multi-window coordinator (Phase 5)
@@ -89,7 +88,10 @@ final class WinSwiftUIWindowCoordinator {
 
     init(
         sceneConfigurations: [WindowGroupConfiguration],
-        renderBackendFactory: RenderBackendFactory = D3D11RenderBackendFactory(),
+        // Backend-neutral default (portable CPU reference backend); `App.main()`
+        // always passes the app's `renderBackendFactory()` explicitly, so this
+        // default only serves direct coordinator users such as tests.
+        renderBackendFactory: RenderBackendFactory = CPURenderBackendFactory(),
         hooks: WindowCoordinatorHooks = .win32,
         hostFactory: (@MainActor (WindowGroupConfiguration, Bool) -> WinSwiftUIWindowHost)? = nil,
         sceneStorageScopeProvider: (@MainActor () -> String)? = nil

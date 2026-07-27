@@ -182,6 +182,158 @@ Assert-NoMatchesInRoots `
     "Desktop capture is not an acceptable screenshot validation path."
 Assert-NoRootScratchFiles
 
+# MARK: Phase 8 — target dependency direction
+#
+# Allowed internal imports per library target, derived from the declared
+# dependencies in Package.swift and the layered architecture (bottom to top):
+#
+#   SwiftWindowsCore          (no internal imports)
+#   SwiftWindowsGraphics      → Core
+#   SwiftWindowsLayout        → Core
+#   SwiftWindowsPlatform      → Core, CUIAInterop
+#   SwiftWindowsScene         → Core, Graphics            (legacy/secondary)
+#   SwiftWindowsRendererD3D11 → Core, Graphics, CDirect2DInterop
+#   SwiftWindowsUI            → Core, Graphics, Layout, Platform, CDirect2DInterop
+#   SwiftWindowsApp           → UI, RendererD3D11         (legacy/secondary)
+#   WinSwiftUI                → Core, Graphics, Layout, Platform, UI (+CUIAInterop
+#                               transitively via Platform for the UIA bridge)
+#   SwiftWindowsDemo          → WinSwiftUI only           (same-source demo)
+#
+# Executables (swift-windowsui, -snapshot, -gallery, macos-reference-renderer)
+# are composition roots and may import any internal module; they are not
+# scanned. Anything not listed as allowed above is forbidden below.
+$script:dependencyDirectionRules = @(
+    @{
+        Root      = "Sources/SwiftWindowsCore"
+        Forbidden = @(
+            "SwiftWindowsGraphics", "SwiftWindowsLayout", "SwiftWindowsPlatform",
+            "SwiftWindowsScene", "SwiftWindowsUI", "SwiftWindowsRendererD3D11",
+            "SwiftWindowsApp", "WinSwiftUI", "SwiftWindowsDemo",
+            "CDirect2DInterop", "CUIAInterop"
+        )
+    },
+    @{
+        Root      = "Sources/SwiftWindowsGraphics"
+        Forbidden = @(
+            "SwiftWindowsLayout", "SwiftWindowsPlatform", "SwiftWindowsScene",
+            "SwiftWindowsUI", "SwiftWindowsRendererD3D11", "SwiftWindowsApp",
+            "WinSwiftUI", "SwiftWindowsDemo", "CDirect2DInterop", "CUIAInterop"
+        )
+    },
+    @{
+        Root      = "Sources/SwiftWindowsLayout"
+        Forbidden = @(
+            "SwiftWindowsGraphics", "SwiftWindowsPlatform", "SwiftWindowsScene",
+            "SwiftWindowsUI", "SwiftWindowsRendererD3D11", "SwiftWindowsApp",
+            "WinSwiftUI", "SwiftWindowsDemo", "CDirect2DInterop", "CUIAInterop"
+        )
+    },
+    @{
+        Root      = "Sources/SwiftWindowsPlatform"
+        Forbidden = @(
+            "SwiftWindowsGraphics", "SwiftWindowsLayout", "SwiftWindowsScene",
+            "SwiftWindowsUI", "SwiftWindowsRendererD3D11", "SwiftWindowsApp",
+            "WinSwiftUI", "SwiftWindowsDemo", "CDirect2DInterop"
+        )
+    },
+    @{
+        Root      = "Sources/SwiftWindowsScene"
+        Forbidden = @(
+            "SwiftWindowsLayout", "SwiftWindowsPlatform", "SwiftWindowsUI",
+            "SwiftWindowsRendererD3D11", "SwiftWindowsApp", "WinSwiftUI",
+            "SwiftWindowsDemo", "CDirect2DInterop", "CUIAInterop"
+        )
+    },
+    @{
+        Root      = "Sources/SwiftWindowsRendererD3D11"
+        Forbidden = @(
+            "SwiftWindowsLayout", "SwiftWindowsPlatform", "SwiftWindowsScene",
+            "SwiftWindowsUI", "SwiftWindowsApp", "WinSwiftUI", "SwiftWindowsDemo",
+            "CUIAInterop"
+        )
+    },
+    @{
+        Root      = "Sources/SwiftWindowsUI"
+        Forbidden = @(
+            "SwiftWindowsScene", "SwiftWindowsRendererD3D11", "SwiftWindowsApp",
+            "WinSwiftUI", "SwiftWindowsDemo", "CUIAInterop"
+        )
+    },
+    @{
+        Root      = "Sources/SwiftWindowsApp"
+        Forbidden = @("SwiftWindowsScene", "WinSwiftUI", "SwiftWindowsDemo")
+    },
+    @{
+        # The facade is renderer-neutral: the D3D11 backend is selected by the
+        # app composition root, never imported here.
+        Root      = "Sources/WinSwiftUI"
+        Forbidden = @(
+            "SwiftWindowsScene", "SwiftWindowsRendererD3D11", "SwiftWindowsApp",
+            "SwiftWindowsDemo", "CDirect2DInterop"
+        )
+    },
+    @{
+        Root      = "Sources/SwiftWindowsDemo"
+        Forbidden = @(
+            "SwiftWindowsCore", "SwiftWindowsGraphics", "SwiftWindowsLayout",
+            "SwiftWindowsPlatform", "SwiftWindowsScene", "SwiftWindowsUI",
+            "SwiftWindowsRendererD3D11", "SwiftWindowsApp",
+            "CDirect2DInterop", "CUIAInterop"
+        )
+    }
+)
+
+foreach ($rule in $script:dependencyDirectionRules) {
+    $rootPath = Get-RepoPath $rule.Root
+    if (-not (Test-Path -LiteralPath $rootPath)) {
+        continue
+    }
+
+    $swiftFiles = Get-ChildItem -LiteralPath $rootPath -Recurse -File -Filter *.swift
+    foreach ($file in $swiftFiles) {
+        $importMatches = Select-String -LiteralPath $file.FullName -Pattern "(?m)^\s*(?:@_\w+\s+)*import\s+(?:(?:struct|class|enum|protocol|func|var|typealias)\s+)?([A-Za-z_][A-Za-z0-9_]*)"
+        foreach ($importMatch in $importMatches) {
+            $module = $importMatch.Matches[0].Groups[1].Value
+            if ($rule.Forbidden -contains $module) {
+                Add-Failure "$($rule.Root) must not import $module (target dependency direction; see Package.swift and the Phase 8 rules in check-contracts.ps1). Found at $($file.FullName):$($importMatch.LineNumber)."
+            }
+        }
+    }
+}
+
+# WinSwiftUI must not declare a target dependency on the D3D11 backend; the
+# Windows product selects it at the composition root instead.
+$packageManifest = Read-RepoFile "Package.swift"
+if ($packageManifest -match '(?s)name:\s*"WinSwiftUI"\s*,\s*dependencies:\s*\[(?<deps>[^\]]*)\]') {
+    if ($Matches.deps -match "SwiftWindowsRendererD3D11") {
+        Add-Failure "Package.swift: the WinSwiftUI target must not depend on SwiftWindowsRendererD3D11; the facade stays renderer-neutral behind RenderBackendFactory and the composition root picks the backend."
+    }
+} else {
+    Add-Failure "Package.swift must declare a WinSwiftUI target with an explicit dependency list."
+}
+
+# The product composition root must keep pinning the D3D11 GPU factory so the
+# app default stays scene/batch on the GPU with frame fallback.
+if ($packageManifest -match '(?s)name:\s*"swift-windowsui"\s*,\s*dependencies:\s*\[(?<deps>[^\]]*)\]') {
+    if ($Matches.deps -notmatch "SwiftWindowsRendererD3D11") {
+        Add-Failure "Package.swift: the swift-windowsui executable (composition root) must depend on SwiftWindowsRendererD3D11 so the product keeps the D3D11 GPU backend."
+    }
+} else {
+    Add-Failure "Package.swift must declare a swift-windowsui executable target with an explicit dependency list."
+}
+Assert-Contains `
+    "Sources/swift-windowsui/AppEntry.swift" `
+    "D3D11RenderBackendFactory" `
+    "The swift-windowsui composition root must override renderBackendFactory() with D3D11RenderBackendFactory so the product default stays the D3D11 GPU backend."
+Assert-NotContains `
+    "Sources/WinSwiftUI/App.swift" `
+    "SwiftWindowsRendererD3D11" `
+    "WinSwiftUI/App.swift must not reference the D3D11 backend; the facade default is the backend-neutral CPURenderBackendFactory."
+Assert-NotContains `
+    "Sources/WinSwiftUI/WindowCoordinator.swift" `
+    "SwiftWindowsRendererD3D11" `
+    "WinSwiftUI/WindowCoordinator.swift must not reference the D3D11 backend; factories are injected via RenderBackendFactory."
+
 if ($failures.Count -gt 0) {
     Write-Host "Contract checks failed:" -ForegroundColor Red
     foreach ($failure in $failures) {

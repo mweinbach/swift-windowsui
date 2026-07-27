@@ -1,7 +1,12 @@
+import struct Foundation.URL
+
 #if canImport(SwiftUI)
     import SwiftUI
 #else
     import WinSwiftUI
+#endif
+#if canImport(UniformTypeIdentifiers)
+    import UniformTypeIdentifiers
 #endif
 
 @MainActor
@@ -38,6 +43,9 @@ public final class DemoDashboardModel: ObservableObject {
     // Data screen state
     @Published public var components: [DemoComponent] = DemoComponent.defaults
     @Published public var selectedComponentID: Int? = DemoComponent.defaults.first?.id
+
+    // Integration surface state (color picker, file importer, drop target)
+    @Published var accentColor: Color = .blue
 
     public init() {}
 
@@ -88,6 +96,14 @@ public final class DemoDashboardModel: ObservableObject {
 
     func selectFirstComponent() {
         selectedComponentID = components.first?.id
+    }
+
+    func noteImportedFile(_ url: URL) {
+        performAction("IMPORTED \(url.lastPathComponent)")
+    }
+
+    func noteDroppedItems(count: Int) {
+        performAction("RECEIVED \(count) DROPPED \(count == 1 ? "FILE" : "FILES")")
     }
 
     func selectModule(_ module: DemoModule) {
@@ -1419,6 +1435,7 @@ public struct DemoComponent: Identifiable, Hashable, Sendable {
 struct DemoSettingsScreen: View {
     @ObservedObject var model: DemoDashboardModel
     @Environment(\.openWindow) private var openWindow
+    @State private var isImporterPresented = false
 
     var body: some View {
         NavigationStack {
@@ -1448,6 +1465,8 @@ struct DemoSettingsScreen: View {
                         Toggle("Enable Animations", isOn: $model.animationsEnabled)
                         Toggle("Sound Effects", isOn: $model.soundEffectsEnabled)
                         Toggle("Share Usage Data", isOn: $model.shareUsageData)
+
+                        ColorPicker("Accent Color", selection: $model.accentColor)
 
                         Divider()
 
@@ -1480,10 +1499,22 @@ struct DemoSettingsScreen: View {
                         Button("Open Second Window") {
                             openWindow(id: "main-dashboard")
                         }
+
+                        Button("Import File…") {
+                            isImporterPresented = true
+                        }
                     }
                 }
             }
             .navigationTitle("Settings")
+            .fileImporter(
+                isPresented: $isImporterPresented,
+                allowedContentTypes: [.image, .plainText]
+            ) { result in
+                if case .success(let url) = result {
+                    model.noteImportedFile(url)
+                }
+            }
         }
     }
 }
@@ -1509,6 +1540,10 @@ struct DemoDataScreen: View {
                         height: max(200, proxy.size.height - 224),
                         alignment: .topLeading
                     )
+                    .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                        model.noteDroppedItems(count: providers.count)
+                        return true
+                    }
 
                     Divider()
                         .frame(width: contentWidth)

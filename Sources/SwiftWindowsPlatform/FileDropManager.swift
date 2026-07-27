@@ -26,6 +26,63 @@ public protocol FileDropPayloadSource: AnyObject {
     func finishDrop(handle: UInt)
 }
 
+/// Bounds-checked validator for raw `DROPFILES` memory blocks (`CF_HDROP`
+/// clipboard data, `WM_DROPFILES` handles). `DragQueryFileW` walks the block
+/// trusting its embedded offsets, and the block is controlled by another
+/// process (the clipboard owner or the message sender), so the payload is
+/// validated here — fail closed — before any drag-drop API touches it.
+enum DropFilesPayloadValidator {
+    /// Fixed header size: DWORD pFiles + POINT pt + BOOL fNC + BOOL fWide.
+    static let headerSize = 20
+
+    /// `true` when `bytes` is a well-formed DROPFILES block: the header fits,
+    /// `pFiles` points at or past the header and inside the block, and the
+    /// file list (UTF-16 when `fWide` is set, ANSI otherwise) is a sequence
+    /// of null-terminated strings fully contained in the block, closed by the
+    /// empty-string (double-null) terminator. Zero files (an immediately
+    /// empty list) is well-formed.
+    static func isWellFormedPayload(_ bytes: UnsafeRawBufferPointer) -> Bool {
+        guard bytes.count >= headerSize + 1 else { return false }
+        let pFiles = Int(bytes.load(fromByteOffset: 0, as: UInt32.self))
+        let wide = bytes.load(fromByteOffset: 16, as: UInt32.self) != 0
+        let unitSize = wide ? 2 : 1
+        guard pFiles >= headerSize, pFiles + unitSize <= bytes.count else { return false }
+
+        var offset = pFiles
+        while true {
+            // Find the null terminator of the string starting at `offset`.
+            var end = offset
+            while end + unitSize <= bytes.count, codeUnit(bytes, at: end, wide: wide) != 0 {
+                end += unitSize
+            }
+            guard end + unitSize <= bytes.count else {
+                return false  // unterminated string — the block ran out first
+            }
+            if end == offset {
+                return true  // empty string: the double-null list terminator
+            }
+            offset = end + unitSize
+        }
+    }
+
+    /// `true` when the global allocation behind an HDROP-shaped handle holds
+    /// a well-formed DROPFILES payload. Invalid handles, undersized blocks,
+    /// and malformed contents all fail closed.
+    static func hasWellFormedPayload(_ handle: UnsafeMutableRawPointer) -> Bool {
+        let byteCount = GlobalSize(handle)
+        guard byteCount >= SIZE_T(headerSize) else { return false }
+        guard let base = GlobalLock(handle) else { return false }
+        defer { GlobalUnlock(handle) }
+        return isWellFormedPayload(UnsafeRawBufferPointer(start: base, count: Int(byteCount)))
+    }
+
+    private static func codeUnit(_ bytes: UnsafeRawBufferPointer, at offset: Int, wide: Bool) -> UInt32 {
+        wide
+            ? UInt32(bytes.load(fromByteOffset: offset, as: UInt16.self))
+            : UInt32(bytes.load(fromByteOffset: offset, as: UInt8.self))
+    }
+}
+
 /// Live shell drag-drop source (`DragQueryFileW` / `DragQueryPoint` /
 /// `DragFinish`), matching what Explorer produces when files are dragged onto
 /// a window registered with `DragAcceptFiles`.
@@ -33,7 +90,9 @@ public final class Win32FileDropPayloadSource: FileDropPayloadSource {
     public init() {}
 
     public func filePaths(forDropHandle handle: UInt) -> [String] {
-        guard let hDrop = Self.hDrop(for: handle) else { return [] }
+        guard let hDrop = Self.hDrop(for: handle),
+            DropFilesPayloadValidator.hasWellFormedPayload(UnsafeMutableRawPointer(hDrop))
+        else { return [] }
         let count = DragQueryFileW(hDrop, 0xFFFF_FFFF, nil, 0)
         guard count > 0 else { return [] }
 
@@ -70,6 +129,10 @@ public final class Win32FileDropPayloadSource: FileDropPayloadSource {
     /// pointee, so the handle is rebuilt from the raw `wParam` bits.
     private static func hDrop(for handle: UInt) -> UnsafeMutablePointer<HDROP__>? {
         guard handle != 0, let raw = UnsafeMutableRawPointer(bitPattern: handle) else { return nil }
+        // The handle arrives as raw message bits from another process; only
+        // hand it to the drag-drop API when it names a global allocation
+        // large enough to hold a DROPFILES header.
+        guard GlobalSize(raw) >= SIZE_T(DropFilesPayloadValidator.headerSize) else { return nil }
         return raw.assumingMemoryBound(to: HDROP__.self)
     }
 }

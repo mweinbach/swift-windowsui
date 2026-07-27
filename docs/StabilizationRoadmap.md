@@ -660,11 +660,14 @@ Coupling pressure:
 
 ### Exit criteria
 
-- [ ] Dependency graph documented and contract-checked where feasible
-- [ ] App-facing import remains `import WinSwiftUI` on Windows
-- [ ] Backend selection still defaults to scene/batch with frame fallback
-- [ ] `swift test` and demo products build without circular targets
-- [ ] No parallel retained-runtime rewrite
+- [x] Dependency graph documented and contract-checked where feasible
+      (`check-contracts.ps1` Phase 8 rules scan forbidden imports per target)
+- [x] App-facing import remains `import WinSwiftUI` on Windows
+- [x] Backend selection still defaults to scene/batch with frame fallback
+      (WinSwiftUI is renderer-neutral — default `CPURenderBackendFactory`;
+      the `swift-windowsui` composition root pins `D3D11RenderBackendFactory`)
+- [x] `swift test` and demo products build without circular targets
+- [x] No parallel retained-runtime rewrite
 
 ### Validation commands
 
@@ -695,18 +698,22 @@ Windows, and usable for dashboard-style apps in the Supported tier.
 4. **Docs package:** README + this roadmap + `WinSwiftUI.md` + `Testing.md` +
    GPU pipeline agree on default path and limits.
 5. **Sample apps:** demo + gallery exercise Supported tier only.
-6. **Release checklist** (below) signed off on a clean machine and CI.
+6. **Release checklist** ([`docs/ReleaseChecklist.md`](ReleaseChecklist.md))
+   signed off on a clean machine and CI.
 
 ### Exit criteria
 
 - [ ] Tagged release with matching changelog
+      (`CHANGELOG.md` seeded for 0.1.0 — flip `Unreleased` to the tag date)
 - [ ] Phase 0 Full CI green on release commit
 - [ ] Supported API matrix published for that version
-- [ ] Known limitations section lists: incomplete SwiftUI parity, UIA level,
+      (matrix maintained in `docs/CompatibilityStatus.md`; publish with tag)
+- [x] Known limitations section lists: incomplete SwiftUI parity, UIA level,
       multi-window level, text/IME level, frame visual subset, Windows-only
-      package
-- [ ] No Supported API documented as working when it is placeholder/no-op
-- [ ] Screenshot artifacts attached to release or CI run for scene + frame
+      package (CHANGELOG.md "Known limitations (0.1.0)")
+- [x] No Supported API documented as working when it is placeholder/no-op
+- [x] Screenshot artifacts attached to release or CI run for scene + frame
+      (Windows CI uploads screenshot + gallery-compare artifacts)
 
 ### Validation commands (release gate)
 
@@ -723,7 +730,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-screenshot.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-screenshot.ps1 -FrameDebug -OutputPath artifacts/demo-screenshot-frame.png
 ```
 
-Manual release smoke:
+Manual release smoke (full list with sign-off:
+[`docs/ReleaseChecklist.md`](ReleaseChecklist.md)):
 
 - Launch `swift-windowsui`; resize, scroll, keyboard focus, button activate
 - Force frame path once (`SWIFT_WINDOWSUI_FRAME_DEBUG=1`) and confirm it runs

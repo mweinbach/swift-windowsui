@@ -1149,15 +1149,24 @@ public struct Win32IMECompositionContextProvider: IMECompositionContextProvider 
         defer { ImmReleaseContext(hwnd, imc) }
 
         let byteCount = ImmGetCompositionStringW(imc, flag, nil, 0)
+        // Error returns (IMM_ERROR_NODATA / IMM_ERROR_GENERAL) are negative;
+        // the guard fails closed on those and on empty strings.
         guard byteCount > 0 else {
             return nil
         }
 
         let charCount = Int(byteCount) / MemoryLayout<WCHAR>.size
         var buffer = [WCHAR](repeating: 0, count: charCount + 1)
-        ImmGetCompositionStringW(imc, flag, &buffer, DWORD(byteCount))
-
-        return String(decoding: buffer.prefix(charCount), as: UTF16.self)
+        // The composition can shrink between the size query and the copy, so
+        // decode exactly what the second call reports rather than the
+        // original size — decoding `charCount` unconditionally would leak
+        // zero padding into the string.
+        let copiedBytes = ImmGetCompositionStringW(imc, flag, &buffer, DWORD(byteCount))
+        guard copiedBytes > 0 else {
+            return nil
+        }
+        let copiedChars = min(Int(copiedBytes), Int(byteCount)) / MemoryLayout<WCHAR>.size
+        return String(decoding: buffer.prefix(copiedChars), as: UTF16.self)
     }
 }
 

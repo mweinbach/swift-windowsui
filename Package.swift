@@ -99,6 +99,11 @@ let package = Package(
                 "SwiftWindowsRendererD3D11",
             ]
         ),
+        // WinSwiftUI is renderer-neutral: it programs against the
+        // RenderBackendFactory protocol in SwiftWindowsGraphics and must not
+        // depend on a concrete GPU backend. The D3D11 backend is selected by
+        // the app composition root (the swift-windowsui executable), which is
+        // the only target that pairs WinSwiftUI with SwiftWindowsRendererD3D11.
         .target(
             name: "WinSwiftUI",
             dependencies: [
@@ -107,7 +112,6 @@ let package = Package(
                 "SwiftWindowsLayout",
                 "SwiftWindowsPlatform",
                 "SwiftWindowsUI",
-                "SwiftWindowsRendererD3D11",
             ],
             linkerSettings: [
                 .linkedLibrary("Shell32")
@@ -119,10 +123,15 @@ let package = Package(
                 "WinSwiftUI"
             ]
         ),
+        // Composition root for the Windows product: pairs the renderer-neutral
+        // WinSwiftUI facade with the concrete D3D11 GPU backend (see
+        // `renderBackendFactory()` in AppEntry.swift).
         .executableTarget(
             name: "swift-windowsui",
             dependencies: [
                 "SwiftWindowsDemo",
+                "SwiftWindowsGraphics",
+                "SwiftWindowsRendererD3D11",
                 "WinSwiftUI",
             ]
         ),

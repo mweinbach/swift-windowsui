@@ -324,7 +324,8 @@ Rules of thumb for shared sources:
 | Settings / dashboard UI | Safe: stacks, lists, forms, buttons, toggles, pickers, text fields, navigation stack, tabs, sheets |
 | Custom drawing | Safe with limits: `Canvas`, shapes, gradients on scene path |
 | Maps, video, web, charts, IAP UI | Not safe: placeholders only |
-| Multi-window / Settings scene / documents | Not safe as hosted products |
+| Secondary windows via `openWindow` / `dismissWindow` | Safe within limits: coordinator-hosted independent windows for id/value-based `WindowGroup`s (`WindowCoordinatorTests`) |
+| Settings scene / document architecture | Not safe as hosted products (`openSettings` and `DocumentGroup` remain shims) |
 | Pixel-perfect macOS SwiftUI | Not the goal; use design/animation parity docs for constants only |
 | Accessibility for AT | Core UIA tree readable with invoke + focus events; advanced patterns (Value/Text/Selection) not yet |
 | Production Windows product shell | Safe within retained subset; keep host/renderer validation in the loop |

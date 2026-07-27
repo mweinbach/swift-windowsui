@@ -74,11 +74,16 @@ swift run swift-windowsui
 
 ## WinSwiftUI Coverage
 
-The current `WinSwiftUI` surface is intentionally a subset. It is designed to cover the demo and common dashboard-style composition patterns first.
+The current `WinSwiftUI` surface is intentionally a subset. It is designed to cover the demo and common dashboard-style composition patterns first. The per-API safety matrix (Implemented / Partial / Shim / Placeholder) lives in [`docs/CompatibilityStatus.md`](docs/CompatibilityStatus.md); prefer it over scanning public symbols.
 
 Included today:
 
 - App hosting: `App`, `Scene`, `WindowGroup`
+- Multi-window: default `openWindow` / `dismissWindow` routing through `WinSwiftUIWindowCoordinator` — each window gets its own host, retained runtime, and renderer; `supportsMultipleWindows` is true for coordinator-managed hosts. `openSettings` / `Settings` scenes remain unsupported
+- Accessibility: retained accessibility metadata is projected to Windows UI Automation (fragment tree, trait-derived control types, InvokePattern activation, focus/structure events); advanced Value/Text/Selection/Toggle patterns and live regions are not implemented
+- Text input: caret, highlighted selection, mouse-drag selection, clipboard shortcuts (Ctrl+C/X/V/A), and IME composition (marked text, candidate window positioned at the caret)
+- Platform integrations: real Win32 open/save dialogs behind `fileImporter` / `fileExporter`, Unicode text and file-list (`CF_HDROP`) clipboard, OS file drops (`WM_DROPFILES`) delivered to `onDrop`, an opt-in native `ChooseColorW` dialog for `ColorPicker`, and `Link` / `openURL` via `ShellExecuteW`
+- System appearance: light/dark and high contrast sampled at startup and re-sampled on `WM_SETTINGCHANGE` / `WM_SYSCOLORCHANGE`; app overrides (`preferredColorScheme`, explicit environment sets) take precedence
 - Core views: `Text`, including `Text(verbatim:)`, `StringProtocol`, and `LocalizedStringKey` inputs, `Image(systemName:)`, `Label`, `Link`, `Rectangle`, `RoundedRectangle`, `UnevenRoundedRectangle`, `Capsule`, `Circle`, `Ellipse`, `ContainerRelativeShape`, `AnyShape`, `Shape`, `Spacer`, `Divider`, `Group`, `GeometryReader`, `NavigationLink`
 - Containers: `NavigationStack`, `NavigationView`, `NavigationSplitView`, `TabView`, `VStack`, `HStack`, `LazyVStack`, `LazyHStack`, `Grid`, `GridRow`, `ZStack`, `ScrollView`, `ScrollViewReader`, `List` including data-driven and binding-backed row initializers, `Form`, `Section` including header/footer builder overloads, `GroupBox`, `DisclosureGroup`, `HSplitView`, `VSplitView`; stack spacing accepts SwiftUI-style `nil`
 - Collection helpers: `ForEach`, including open and closed integer ranges plus binding-backed mutable collections
@@ -174,4 +179,5 @@ The GUI demo was also launched with a short `swift run swift-windowsui` startup 
 
 Additional framework notes live in [`docs/WinSwiftUI.md`](docs/WinSwiftUI.md).
 Testing and visual-check commands live in [`docs/Testing.md`](docs/Testing.md).
+Release history and the versioning policy live in [`CHANGELOG.md`](CHANGELOG.md); the release smoke procedure lives in [`docs/ReleaseChecklist.md`](docs/ReleaseChecklist.md). Enforced performance budgets are listed in [`docs/PerformanceBudgets.md`](docs/PerformanceBudgets.md).
 Agent handoff and architecture guardrails live in [`AGENTS.md`](AGENTS.md), which `CLAUDE.md` imports.

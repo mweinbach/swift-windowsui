@@ -316,3 +316,12 @@ byte-for-byte. Consumers that only understand uniform rounding
 (shadow, outline, clip, dashed borders) fall back to `maxRadius`.
 `UnevenRoundedRectangle` maps leading/trailing onto absolute corners
 (RTL-aware). Locked by `PerCornerRadiiTests`.
+
+Clip handling is per-corner aware: each emitted quad resolves the exact
+uniform clip radius for the clip corners it actually reaches (0 when it
+reaches no corner zone, the shared radius when all reached corners agree,
+`maxRadius` only for quads spanning differently-rounded corners), so
+deliberately-square corners under `clipsToBounds` stay square. A node's
+own decoration quads (background, borders) take the *inherited* clip
+corner radius — SwiftUI semantics: a view's clip shapes its children,
+not its own background. Locked by `PerCornerClipTests`.

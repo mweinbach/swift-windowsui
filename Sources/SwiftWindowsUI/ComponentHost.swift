@@ -100,6 +100,7 @@ public final class ComponentHost {
         case .exporter(let exporter):
             let url = FileDialogManager.showSaveFileDialog(
                 defaultFilename: exporter.defaultFilename,
+                allowedExtensions: FileDialogManager.fileExtensions(forContentTypes: [exporter.contentType]),
                 defaultDirectory: defaultDirectory,
                 title: title
             )
@@ -112,6 +113,7 @@ public final class ComponentHost {
 
         case .importer(let importer):
             let urls = FileDialogManager.showOpenFileDialog(
+                allowedExtensions: FileDialogManager.fileExtensions(forContentTypes: importer.allowedContentTypes),
                 allowsMultipleSelection: false,
                 defaultDirectory: defaultDirectory,
                 title: title
@@ -125,6 +127,8 @@ public final class ComponentHost {
 
         case .importerMulti(let importerMulti):
             let urls = FileDialogManager.showOpenFileDialog(
+                allowedExtensions: FileDialogManager.fileExtensions(
+                    forContentTypes: importerMulti.allowedContentTypes),
                 allowsMultipleSelection: importerMulti.allowsMultipleSelection,
                 defaultDirectory: defaultDirectory,
                 title: title

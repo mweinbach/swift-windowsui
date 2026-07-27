@@ -1443,8 +1443,11 @@ public final class ViewNode {
     /// Optional per-corner rounding for the node's border/background
     /// quads. When set with any radius > 0 it overrides the uniform
     /// `cornerRadius` for the border and fill quads; uniform-only
-    /// consumers (shadow, outline, clip, dashed borders) use
-    /// `cornerRadii.maxRadius`.
+    /// consumers (shadow, outline, dashed borders) use
+    /// `cornerRadii.maxRadius`. Clip rounding resolves per corner for each
+    /// emitted quad (see ScenePainter.resolveClipCornerRadius), falling
+    /// back to `maxRadius` only for quads that span differently-rounded
+    /// corners.
     public var cornerRadii: RetainedCornerRadii? {
         didSet { invalidateRuntime(.paint) }
     }
@@ -3459,9 +3462,20 @@ public final class ViewNode {
 
                 switch stackLayout.axis {
                 case .vertical:
-                    let width =
-                        stackLayout.alignment == .stretch
-                        ? max(0, contentRect.size.width) : min(desiredSize.width, max(0, contentRect.size.width))
+                    let proposedWidth = max(0, contentRect.size.width)
+                    let measuredWidth = min(desiredSize.width, proposedWidth)
+                    let width: Double
+                    if stackLayout.alignment == .stretch {
+                        width = proposedWidth
+                    } else if measuredWidth == 0, child.expandsAlongStackCrossAxis, proposedWidth > 0 {
+                        // macOS parity: a flexible-width child (a Color /
+                        // background-painted panel with no intrinsic or
+                        // explicit width) takes the stack's cross-axis
+                        // width instead of collapsing to zero.
+                        width = proposedWidth
+                    } else {
+                        width = measuredWidth
+                    }
                     let height = max(0, allocatedMainSize)
 
                     let x: Double
@@ -3499,9 +3513,19 @@ public final class ViewNode {
 
                 case .horizontal:
                     let width = max(0, allocatedMainSize)
-                    let height =
-                        stackLayout.alignment == .stretch
-                        ? max(0, contentRect.size.height) : min(desiredSize.height, max(0, contentRect.size.height))
+                    let proposedHeight = max(0, contentRect.size.height)
+                    let measuredHeight = min(desiredSize.height, proposedHeight)
+                    let height: Double
+                    if stackLayout.alignment == .stretch {
+                        height = proposedHeight
+                    } else if measuredHeight == 0, child.expandsAlongStackCrossAxis, proposedHeight > 0 {
+                        // macOS parity: flexible-height children take the
+                        // stack's cross-axis height (mirrors the vertical
+                        // case above).
+                        height = proposedHeight
+                    } else {
+                        height = measuredHeight
+                    }
 
                     let y: Double
                     let usesCustomAlignmentGuide: Bool
@@ -4926,6 +4950,16 @@ public final class ViewNode {
         }
 
         return nil
+    }
+
+    /// True when the node paints flexible content (a background color,
+    /// gradient, or path) — the runtime stand-in for SwiftUI's
+    /// flexible-size views such as `Color`. Stack layout uses this to
+    /// expand zero-measuring painted children across the stack's cross
+    /// axis (macOS parity); spacers and empty containers stay false so
+    /// invisible nodes don't inflate.
+    fileprivate var expandsAlongStackCrossAxis: Bool {
+        backgroundColor != nil || backgroundGradient != nil || backgroundPath != nil
     }
 
     private var explicitHeight: Double? {

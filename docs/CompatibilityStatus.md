@@ -121,6 +121,7 @@ dashboard composition on a single custom-rendered window.
 | `contextMenu` | **Partial** | Retained menu overlay: clamped anchor, scrim/Escape dismissal, focus restoration |
 | `ShareLink` | **Partial** | Copies transferable items to clipboard (not system share sheet) |
 | `PhotosPicker` | **Partial** | Opens file dialog; not Photos framework |
+| `fileImporter` / `fileExporter` | **Partial** | Real Win32 open/save dialogs delivering URLs to the app closure; `allowedContentTypes` map to extension filters (category types approximate) |
 | `SettingsLink` / `RenameButton` / `EditButton` | **Partial** | Buttons wired to environment actions / edit mode where present |
 
 ### Modifiers commonly safe

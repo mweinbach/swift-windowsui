@@ -2329,6 +2329,45 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         )
     }
 
+    // MARK: - Frame fallback policy (Phase 6)
+    //
+    // Scene vs frame is an explicit product policy with observable health and
+    // recovery, not an accidental downgrade. The table below is the source of
+    // truth for the behaviour implemented in `attachPreferredRenderer`,
+    // `renderCurrentFrame`, `resizeActiveRenderer`,
+    // `fallbackToFrameRenderer`, and `attemptBatchBackendRecoveryIfDue`
+    // (docs/StabilizationRoadmap.md Phase 6 mirrors it).
+    //
+    // | Trigger                                  | Policy                                                        |
+    // |------------------------------------------|---------------------------------------------------------------|
+    // | Startup, batch available                 | Attach batch (scene) backend; reason `.defaultScene`.          |
+    // | Startup batch attach throws              | Downgrade to frame immediately; reason `.batchAttachFailure`.  |
+    // | Batch `render(scene:)` throws mid-frame  | Render that frame on the frame backend, then pin to frame;     |
+    // |                                          | reason `.batchRenderFailure`.                                  |
+    // | Batch `resize` throws                    | Downgrade at the new size; reason `.batchResizeFailure`.       |
+    // | After any downgrade, `.standard` policy  | Retry batch attach with exponential backoff (5s → 60s cap);    |
+    // |                                          | success restores scene with reason `.batchBackendRecovered`.   |
+    // | After any downgrade, `.disabled` policy  | One-way pin: batch is never invoked again this session.        |
+    // | Frame backend itself throws              | Log via `report`; the host session stays alive (no crash).     |
+    //
+    // What apps may force:
+    // - `SWIFT_WINDOWSUI_FRAME_DEBUG=1` (`StartupPresentationMode.frameDebug`,
+    //   `-FrameDebug` tooling): pins the frame backend from startup, reason
+    //   `.frameDebugOverride`; batch is never attached.
+    // - `recoveryPolicy: .disabled` on the host: opts out of two-way recovery.
+    // - `WinSwiftUIWindowHost.rendererHealthSnapshot`: public observability of
+    //   active backend, selection reason, and recovery countdown.
+    //
+    // Readability contract on the frame path (enforced by
+    // `FramePathDegradationTests` / `FrameFallbackPolicyTests`): text rides
+    // pre-rasterized bitmaps, fillRect keeps solid/linear-gradient fills with
+    // uniform corner radii, and vector path commands are CPU-rasterized into
+    // drawBitmaps by `FramePathDegradation` inside `D3D11Renderer`. Known
+    // cosmetic gaps vs the scene path (documented, not claimed as parity):
+    // rounded clip shapes degrade to rectangular clips, per-corner radii fall
+    // back to uniform, radial/conic gradients fall back to a solid base color,
+    // and soft shadows render as plain offset fills.
+
     private func attachPreferredRenderer(to surface: SurfaceDescriptor) throws {
         if startupPresentationMode == .frameDebug {
             try renderer.attach(to: surface)

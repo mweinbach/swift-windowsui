@@ -211,6 +211,14 @@ public final class D3D11Renderer: RenderBackend {
         let clearColor = frame.clearColor == .clear ? configuration.fallbackClearColor : frame.clearColor
         let scaleFactor = currentScaleFactor()
 
+        // Phase 6 readable degradation: rewrite fillPath/strokePath commands
+        // (Canvas drawing, backgroundPath nodes, SF-symbol vector fallback) as
+        // CPU-rasterized drawBitmap commands so vector chrome stays visible in
+        // a downgraded session instead of being soft-skipped below. Runs on
+        // both the Direct2D and D3D11 fallback branches; frames without path
+        // commands pass through unchanged.
+        let frame = FramePathDegradation.degradingPathsToBitmaps(in: frame, scaleFactor: scaleFactor)
+
         if
             isDirect2DEnabled,
             let direct2DDeviceContext,
@@ -1232,8 +1240,9 @@ public final class D3D11Renderer: RenderBackend {
         let diagnostic = UnsupportedRenderCommandDiagnostic(backend: backend, commandName: name)
         renderLog(
             "[D3D11Renderer] \(diagnostic.description) Skipping command and continuing the frame. "
-                + "Further skips of this type are silent. Prefer the GPUI scene path for path/blur/text; "
-                + "frame fallback keeps fillRect, drawBitmap, and axis-aligned clip stack only."
+                + "Further skips of this type are silent. Path commands are CPU-rasterized to bitmaps "
+                + "before reaching here; only reserved commands (applyBlur, drawText) still skip — "
+                + "prefer the GPUI scene path for those."
         )
     }
 
@@ -1244,7 +1253,8 @@ public final class D3D11Renderer: RenderBackend {
 
         renderLog(
             "[D3D11Renderer] \(backend) finished a frame with \(skippedCount) unsupported command(s) skipped. "
-                + "fillRect/drawBitmap and axis-aligned clip stack still presented; path/blur/text need the scene path or broader backend support. "
+                + "fillRect/drawBitmap, degraded path bitmaps, and the axis-aligned clip stack still presented; "
+                + "applyBlur/drawText need the scene path. "
                 + "Further per-frame summaries for this backend are silent."
         )
     }

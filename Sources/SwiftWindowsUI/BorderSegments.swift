@@ -57,6 +57,87 @@ enum BorderSegments {
         return segments
     }
 
+    /// Per-corner variant of ``solidSegments(frame:width:cornerRadius:)``.
+    /// Edge spans shrink by the radii of the corners they join, and only
+    /// corners with a positive radius emit arc segments — square corners
+    /// get no geometry, so the overlay can't paint faint arcs there.
+    /// With four equal radii this produces the same segments as the
+    /// uniform variant.
+    static func solidSegments(
+        frame: Rect,
+        width: Double,
+        cornerRadii: RetainedCornerRadii
+    ) -> [BorderSegment] {
+        guard width > 0, frame.size.width > 0, frame.size.height > 0 else {
+            return []
+        }
+
+        let segmentWidth = min(width, frame.size.width * 0.5, frame.size.height * 0.5)
+        guard segmentWidth > 0 else {
+            return []
+        }
+
+        let radiusCap = min(frame.size.width, frame.size.height) * 0.5
+        let topLeft = max(0, min(cornerRadii.topLeft, radiusCap))
+        let topRight = max(0, min(cornerRadii.topRight, radiusCap))
+        let bottomRight = max(0, min(cornerRadii.bottomRight, radiusCap))
+        let bottomLeft = max(0, min(cornerRadii.bottomLeft, radiusCap))
+
+        var segments: [BorderSegment] = []
+
+        // Edges span between the corner zones; each corner's arc fills the
+        // remaining gap (see appendCornerArc).
+        let top = Rect(
+            x: frame.origin.x + topLeft,
+            y: frame.origin.y,
+            width: frame.size.width - topLeft - topRight,
+            height: segmentWidth
+        )
+        let right = Rect(
+            x: frame.maxX - segmentWidth,
+            y: frame.origin.y + topRight,
+            width: segmentWidth,
+            height: frame.size.height - topRight - bottomRight
+        )
+        let bottom = Rect(
+            x: frame.origin.x + bottomLeft,
+            y: frame.maxY - segmentWidth,
+            width: frame.size.width - bottomLeft - bottomRight,
+            height: segmentWidth
+        )
+        let left = Rect(
+            x: frame.origin.x,
+            y: frame.origin.y + topLeft,
+            width: segmentWidth,
+            height: frame.size.height - topLeft - bottomLeft
+        )
+        for edge in [top, right, bottom, left] where edge.size.width > 0 && edge.size.height > 0 {
+            segments.append(BorderSegment(rect: edge, cornerRadius: 0))
+        }
+
+        let corners: [(arcIndex: Int, radius: Double)] = [
+            (0, topRight),
+            (1, bottomRight),
+            (2, bottomLeft),
+            (3, topLeft),
+        ]
+        for corner in corners where corner.radius > 0 {
+            appendCornerArc(
+                arcIndex: corner.arcIndex,
+                from: 0,
+                to: Double.pi * corner.radius / 2,
+                frame: frame,
+                width: segmentWidth,
+                cornerRadius: corner.radius,
+                arcLength: Double.pi * corner.radius / 2,
+                capExtension: 0,
+                into: &segments
+            )
+        }
+
+        return segments
+    }
+
     static func dashedSegments(
         frame: Rect,
         width: Double,

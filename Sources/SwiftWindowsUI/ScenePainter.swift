@@ -179,6 +179,7 @@ public enum ScenePainter {
         let parentOrigin: Point
         let inheritedClip: Rect?
         let inheritedClipCornerRadius: Double
+        let inheritedClipCornerRadii: RetainedCornerRadii?
         let layerIndex: Int
         let primitiveOpacity: Float
         let inheritedColorEffects: [RetainedColorEffect]
@@ -199,6 +200,12 @@ public enum ScenePainter {
         let paintFrame: Rect
         let effectiveClip: Rect?
         let effectiveClipCornerRadius: Double
+        /// Clip rounding imposed by ANCESTORS (not the node itself). The
+        /// border overlay is part of the node's own decoration, so — like
+        /// the background and border quads — it is rounded by its own
+        /// corner radii and must not be re-rounded by its own clip.
+        let inheritedClipCornerRadius: Double
+        let inheritedClipCornerRadii: RetainedCornerRadii?
         let opacity: Float
         let colorEffects: [RetainedColorEffect]
         let effectiveBlendMode: BlendMode
@@ -218,6 +225,7 @@ public enum ScenePainter {
         parentOrigin: Point,
         inheritedClip: Rect?,
         inheritedClipCornerRadius: Double = 0,
+        inheritedClipCornerRadii: RetainedCornerRadii? = nil,
         layerIndex: Int,
         surfaceSize: Size,
         displayScale: Double,
@@ -242,6 +250,7 @@ public enum ScenePainter {
                     parentOrigin: parentOrigin,
                     inheritedClip: inheritedClip,
                     inheritedClipCornerRadius: inheritedClipCornerRadius,
+                    inheritedClipCornerRadii: inheritedClipCornerRadii,
                     layerIndex: layerIndex,
                     primitiveOpacity: primitiveOpacity,
                     inheritedColorEffects: inheritedColorEffects,
@@ -275,6 +284,7 @@ public enum ScenePainter {
             let parentOrigin = context.parentOrigin
             let inheritedClip = context.inheritedClip
             let inheritedClipCornerRadius = context.inheritedClipCornerRadius
+            let inheritedClipCornerRadii = context.inheritedClipCornerRadii
             let layerIndex = context.layerIndex
             let primitiveOpacity = context.primitiveOpacity
             let inheritedColorEffects = context.inheritedColorEffects
@@ -345,6 +355,7 @@ public enum ScenePainter {
 
             var effectiveClip = inheritedClip
             var effectiveClipCornerRadius = inheritedClipCornerRadius
+            var effectiveClipCornerRadii = inheritedClipCornerRadii
             if node.clipsToBounds {
                 if let inherited = inheritedClip {
                     guard let clipped = inherited.intersected(with: paintFrame) else {
@@ -359,13 +370,34 @@ public enum ScenePainter {
                 } else {
                     effectiveClip = paintFrame
                 }
-                if node.cornerRadius > 0 || node.cornerRadii?.hasPositiveRadius == true {
-                    // Clip rounding stays uniform; per-corner clips would
-                    // need four more floats on every primitive, so a
-                    // per-corner node clips children with its largest
-                    // corner radius.
-                    effectiveClipCornerRadius = node.cornerRadii?.maxRadius ?? node.cornerRadius
+                if let cornerRadii = node.cornerRadii, cornerRadii.hasPositiveRadius {
+                    // Per-corner clips propagate as corner radii; each
+                    // emitted quad resolves the exact uniform radius for
+                    // the corners it actually reaches (see
+                    // resolveClipCornerRadius). The scalar keeps the
+                    // largest radius as the fallback for quads that span
+                    // differently-rounded corners.
+                    effectiveClipCornerRadius = cornerRadii.maxRadius
+                    effectiveClipCornerRadii = cornerRadii
+                } else if node.cornerRadius > 0 {
+                    effectiveClipCornerRadius = node.cornerRadius
+                    effectiveClipCornerRadii = nil
                 }
+            }
+
+            // Clip rounding for the node's OWN quads (border, background,
+            // overlay): a view's own decoration is shaped by its own corner
+            // radii and is not re-rounded by its own clip — only children
+            // are. The clip RECT still applies (own text/content is clipped
+            // to the node's bounds); only the corner rounding reverts to
+            // what ancestors imposed.
+            let ownClipCornerRadius: (Rect) -> Double = { quadRect in
+                resolveClipCornerRadius(
+                    forQuadRect: quadRect,
+                    clip: effectiveClip,
+                    cornerRadii: inheritedClipCornerRadii,
+                    uniformFallback: inheritedClipCornerRadius
+                )
             }
 
             // GPUI/Zed carries opacity as an inherited paint scalar.
@@ -517,7 +549,7 @@ public enum ScenePainter {
                                 surfaceSize: surfaceSize,
                                 displayScale: displayScale,
                                 colorEffects: colorEffects,
-                                clipCornerRadius: effectiveClipCornerRadius,
+                                clipCornerRadius: ownClipCornerRadius(segment.rect),
                                 blendMode: effectiveBlendMode
                             ), toLayer: layerIndex)
                     }
@@ -534,7 +566,7 @@ public enum ScenePainter {
                             surfaceSize: surfaceSize,
                             displayScale: displayScale,
                             colorEffects: colorEffects,
-                            clipCornerRadius: effectiveClipCornerRadius,
+                            clipCornerRadius: ownClipCornerRadius(paintFrame),
                             blendMode: effectiveBlendMode
                         ), toLayer: layerIndex)
                 }
@@ -566,7 +598,7 @@ public enum ScenePainter {
                         colorEffects: colorEffects,
                         blurRadius: Float(blurRadius * displayScale),
                         blurOpaque: blurOpaque ? 1 : 0,
-                        clipCornerRadius: effectiveClipCornerRadius,
+                        clipCornerRadius: ownClipCornerRadius(fillRect),
                         blendMode: effectiveBlendMode
                     ),
                     toLayer: layerIndex
@@ -655,7 +687,7 @@ public enum ScenePainter {
                         clip: effectiveClip,
                         surfaceSize: surfaceSize,
                         displayScale: displayScale,
-                        clipCornerRadius: effectiveClipCornerRadius,
+                        clipCornerRadius: ownClipCornerRadius(fillRect),
                         blendMode: effectiveBlendMode
                     ), toLayer: layerIndex)
             } else if let bitmapSurface = node.bitmapSurface,
@@ -844,6 +876,8 @@ public enum ScenePainter {
                             paintFrame: paintFrame,
                             effectiveClip: effectiveClip,
                             effectiveClipCornerRadius: effectiveClipCornerRadius,
+                            inheritedClipCornerRadius: inheritedClipCornerRadius,
+                            inheritedClipCornerRadii: inheritedClipCornerRadii,
                             opacity: opacity,
                             colorEffects: colorEffects,
                             effectiveBlendMode: effectiveBlendMode,
@@ -860,6 +894,7 @@ public enum ScenePainter {
                                 parentOrigin: childOrigin,
                                 inheritedClip: effectiveClip,
                                 inheritedClipCornerRadius: effectiveClipCornerRadius,
+                                inheritedClipCornerRadii: effectiveClipCornerRadii,
                                 layerIndex: layerIndex,
                                 primitiveOpacity: opacity,
                                 inheritedColorEffects: colorEffects,
@@ -886,6 +921,8 @@ public enum ScenePainter {
                     paintFrame: paintFrame,
                     effectiveClip: effectiveClip,
                     effectiveClipCornerRadius: effectiveClipCornerRadius,
+                    inheritedClipCornerRadius: inheritedClipCornerRadius,
+                    inheritedClipCornerRadii: inheritedClipCornerRadii,
                     opacity: opacity,
                     colorEffects: colorEffects,
                     effectiveBlendMode: effectiveBlendMode,
@@ -923,11 +960,19 @@ public enum ScenePainter {
                 strokeStyle: node.borderStrokeStyle
             ) {
                 segments = dashed
+            } else if let cornerRadii = node.cornerRadii, cornerRadii.hasPositiveRadius {
+                // Per-corner ring: square corners get no arc segments, so
+                // the overlay no longer paints faint arcs there.
+                segments = BorderSegments.solidSegments(
+                    frame: state.paintFrame,
+                    width: node.borderWidth,
+                    cornerRadii: cornerRadii
+                )
             } else {
                 segments = BorderSegments.solidSegments(
                     frame: state.paintFrame,
                     width: node.borderWidth,
-                    cornerRadius: node.cornerRadii?.maxRadius ?? node.cornerRadius
+                    cornerRadius: node.cornerRadius
                 )
             }
             for segment in segments where clipAllowsDrawing(clip: state.effectiveClip, rect: segment.rect) {
@@ -942,7 +987,12 @@ public enum ScenePainter {
                         surfaceSize: surfaceSize,
                         displayScale: displayScale,
                         colorEffects: state.colorEffects,
-                        clipCornerRadius: state.effectiveClipCornerRadius,
+                        clipCornerRadius: resolveClipCornerRadius(
+                            forQuadRect: segment.rect,
+                            clip: state.effectiveClip,
+                            cornerRadii: state.inheritedClipCornerRadii,
+                            uniformFallback: state.inheritedClipCornerRadius
+                        ),
                         blendMode: state.effectiveBlendMode
                     ), toLayer: state.layerIndex)
             }
@@ -1321,6 +1371,50 @@ public enum ScenePainter {
     private static func clipAllowsDrawing(clip: Rect?, rect: Rect) -> Bool {
         guard let clip = clip else { return true }
         return clip.intersected(with: rect) != nil
+    }
+
+    /// Resolves the uniform clip corner radius for one emitted quad against
+    /// a per-corner clip. Clip rounding is only visible in the corner zones
+    /// a quad actually reaches, so:
+    ///   - a quad reaching no clip-corner zone needs no rounding (0),
+    ///   - a quad reaching corners that all share one radius uses exactly
+    ///     that radius (e.g. the left segment of a joined control with
+    ///     rounded left corners and square right corners gets the left
+    ///     radius, and its square corners stay square),
+    ///   - a quad spanning differently-rounded corners falls back to the
+    ///     largest radius (the historic uniform approximation).
+    /// Without a per-corner clip the uniform fallback applies unchanged.
+    private static func resolveClipCornerRadius(
+        forQuadRect quadRect: Rect,
+        clip: Rect?,
+        cornerRadii: RetainedCornerRadii?,
+        uniformFallback: Double
+    ) -> Double {
+        guard let clip, let cornerRadii, cornerRadii.hasPositiveRadius else {
+            return uniformFallback
+        }
+
+        let zone = cornerRadii.maxRadius
+        var reached: [Double] = []
+        reached.reserveCapacity(4)
+        if quadRect.intersected(with: Rect(x: clip.minX, y: clip.minY, width: zone, height: zone)) != nil {
+            reached.append(cornerRadii.topLeft)
+        }
+        if quadRect.intersected(with: Rect(x: clip.maxX - zone, y: clip.minY, width: zone, height: zone)) != nil {
+            reached.append(cornerRadii.topRight)
+        }
+        let bottomRightZone = Rect(x: clip.maxX - zone, y: clip.maxY - zone, width: zone, height: zone)
+        if quadRect.intersected(with: bottomRightZone) != nil {
+            reached.append(cornerRadii.bottomRight)
+        }
+        if quadRect.intersected(with: Rect(x: clip.minX, y: clip.maxY - zone, width: zone, height: zone)) != nil {
+            reached.append(cornerRadii.bottomLeft)
+        }
+
+        guard let first = reached.first else {
+            return 0
+        }
+        return reached.allSatisfy { $0 == first } ? first : cornerRadii.maxRadius
     }
 
     /// Converts an optional clip Rect into four Float values for primitive clip fields.

@@ -1,13 +1,37 @@
 import Foundation
+import SwiftWindowsCore
 import WinSDK
 
+/// Abstraction over the Win32 common file dialogs. The production default is
+/// `Win32FileDialogProvider`, which shows real modal `GetOpenFileNameW` /
+/// `GetSaveFileNameW` dialogs; tests inject fakes so no live dialog appears
+/// on headless runners (same pattern as `SystemAppearanceProvider`).
 @MainActor
-public enum FileDialogManager {
-    public static func showOpenFileDialog(
-        allowedExtensions: [String]? = nil,
-        allowsMultipleSelection: Bool = false,
-        defaultDirectory: URL? = nil,
-        title: String? = nil
+public protocol FileDialogProvider: AnyObject {
+    func showOpenFileDialog(
+        allowedExtensions: [String]?,
+        allowsMultipleSelection: Bool,
+        defaultDirectory: URL?,
+        title: String?
+    ) -> [URL]
+
+    func showSaveFileDialog(
+        defaultFilename: String?,
+        allowedExtensions: [String]?,
+        defaultDirectory: URL?,
+        title: String?
+    ) -> URL?
+}
+
+/// Live Win32 common-dialog provider.
+public final class Win32FileDialogProvider: FileDialogProvider {
+    public init() {}
+
+    public func showOpenFileDialog(
+        allowedExtensions: [String]?,
+        allowsMultipleSelection: Bool,
+        defaultDirectory: URL?,
+        title: String?
     ) -> [URL] {
         var buffer = [WCHAR](repeating: 0, count: 4096)
         var ofn = OPENFILENAMEW()
@@ -28,27 +52,8 @@ public enum FileDialogManager {
             }
         }
 
-        var filterBuffer: [WCHAR] = []
-        if let allowedExtensions = allowedExtensions, !allowedExtensions.isEmpty {
-            let desc = "Supported Files"
-            desc.withWideChars { wideDesc in
-                var i = 0
-                while wideDesc[i] != 0 {
-                    filterBuffer.append(wideDesc[i])
-                    i += 1
-                }
-                filterBuffer.append(0)
-            }
-            let extPattern = allowedExtensions.map { "*." + $0 }.joined(separator: ";")
-            extPattern.withWideChars { widePattern in
-                var i = 0
-                while widePattern[i] != 0 {
-                    filterBuffer.append(widePattern[i])
-                    i += 1
-                }
-                filterBuffer.append(0)
-            }
-            filterBuffer.append(0)
+        let filterBuffer = Self.makeFilterBuffer(allowedExtensions: allowedExtensions)
+        if !filterBuffer.isEmpty {
             filterBuffer.withUnsafeBufferPointer { buf in
                 ofn.lpstrFilter = buf.baseAddress
             }
@@ -66,9 +71,9 @@ public enum FileDialogManager {
         }
 
         if allowsMultipleSelection {
-            return parseMultiSelect(buffer: buffer)
+            return Self.parseMultiSelect(buffer: buffer)
         } else {
-            let path = wideStringToString(buffer)
+            let path = Self.wideStringToString(buffer)
             if let url = URL(string: path) {
                 return [url]
             }
@@ -76,10 +81,11 @@ public enum FileDialogManager {
         }
     }
 
-    public static func showSaveFileDialog(
-        defaultFilename: String? = nil,
-        defaultDirectory: URL? = nil,
-        title: String? = nil
+    public func showSaveFileDialog(
+        defaultFilename: String?,
+        allowedExtensions: [String]?,
+        defaultDirectory: URL?,
+        title: String?
     ) -> URL? {
         var buffer = [WCHAR](repeating: 0, count: 4096)
 
@@ -109,6 +115,13 @@ public enum FileDialogManager {
             }
         }
 
+        let filterBuffer = Self.makeFilterBuffer(allowedExtensions: allowedExtensions)
+        if !filterBuffer.isEmpty {
+            filterBuffer.withUnsafeBufferPointer { buf in
+                ofn.lpstrFilter = buf.baseAddress
+            }
+        }
+
         ofn.Flags = DWORD(OFN_OVERWRITEPROMPT | OFN_EXPLORER)
 
         let result = GetSaveFileNameW(&ofn)
@@ -116,34 +129,37 @@ public enum FileDialogManager {
             return nil
         }
 
-        let path = wideStringToString(buffer)
+        let path = Self.wideStringToString(buffer)
         return URL(string: path)
     }
 
-    public static func moveToRecycleBin(fileURLs: [URL]) {
-        guard !fileURLs.isEmpty else { return }
-        var buffer: [WCHAR] = []
-        for url in fileURLs {
-            let path = url.path
-            path.withWideChars { widePath in
-                var i = 0
-                while widePath[i] != 0 {
-                    buffer.append(widePath[i])
-                    i += 1
-                }
-                buffer.append(0)
+    /// Double-null-terminated `lpstrFilter` payload ("Supported Files",
+    /// "*.ext;*.ext2"). Empty when there is nothing to filter on.
+    private static func makeFilterBuffer(allowedExtensions: [String]?) -> [WCHAR] {
+        guard let allowedExtensions = allowedExtensions, !allowedExtensions.isEmpty else {
+            return []
+        }
+        var filterBuffer: [WCHAR] = []
+        let desc = "Supported Files"
+        desc.withWideChars { wideDesc in
+            var i = 0
+            while wideDesc[i] != 0 {
+                filterBuffer.append(wideDesc[i])
+                i += 1
             }
+            filterBuffer.append(0)
         }
-        buffer.append(0)
-
-        buffer.withUnsafeBufferPointer { buf in
-            guard let baseAddress = buf.baseAddress else { return }
-            var fileOp = SHFILEOPSTRUCTW()
-            fileOp.wFunc = UINT(FO_DELETE)
-            fileOp.pFrom = baseAddress
-            fileOp.fFlags = FILEOP_FLAGS(UInt16(FOF_ALLOWUNDO | FOF_NOCONFIRMATION))
-            _ = SHFileOperationW(&fileOp)
+        let extPattern = allowedExtensions.map { "*." + $0 }.joined(separator: ";")
+        extPattern.withWideChars { widePattern in
+            var i = 0
+            while widePattern[i] != 0 {
+                filterBuffer.append(widePattern[i])
+                i += 1
+            }
+            filterBuffer.append(0)
         }
+        filterBuffer.append(0)
+        return filterBuffer
     }
 
     private static func parseMultiSelect(buffer: [WCHAR]) -> [URL] {
@@ -172,6 +188,121 @@ public enum FileDialogManager {
         let length = buffer.firstIndex(of: 0) ?? buffer.count
         let data = Data(bytes: buffer, count: length * MemoryLayout<WCHAR>.size)
         return String(data: data, encoding: .utf16LittleEndian) ?? ""
+    }
+}
+
+@MainActor
+public enum FileDialogManager {
+    /// Dialog backend. Defaults to the real Win32 common dialogs; tests
+    /// inject a fake `FileDialogProvider` and restore this afterwards.
+    public static var provider: any FileDialogProvider = Win32FileDialogProvider()
+
+    public static func showOpenFileDialog(
+        allowedExtensions: [String]? = nil,
+        allowsMultipleSelection: Bool = false,
+        defaultDirectory: URL? = nil,
+        title: String? = nil
+    ) -> [URL] {
+        provider.showOpenFileDialog(
+            allowedExtensions: allowedExtensions,
+            allowsMultipleSelection: allowsMultipleSelection,
+            defaultDirectory: defaultDirectory,
+            title: title
+        )
+    }
+
+    public static func showSaveFileDialog(
+        defaultFilename: String? = nil,
+        allowedExtensions: [String]? = nil,
+        defaultDirectory: URL? = nil,
+        title: String? = nil
+    ) -> URL? {
+        provider.showSaveFileDialog(
+            defaultFilename: defaultFilename,
+            allowedExtensions: allowedExtensions,
+            defaultDirectory: defaultDirectory,
+            title: title
+        )
+    }
+
+    public static func moveToRecycleBin(fileURLs: [URL]) {
+        guard !fileURLs.isEmpty else { return }
+        var buffer: [WCHAR] = []
+        for url in fileURLs {
+            let path = url.path
+            path.withWideChars { widePath in
+                var i = 0
+                while widePath[i] != 0 {
+                    buffer.append(widePath[i])
+                    i += 1
+                }
+                buffer.append(0)
+            }
+        }
+        buffer.append(0)
+
+        buffer.withUnsafeBufferPointer { buf in
+            guard let baseAddress = buf.baseAddress else { return }
+            var fileOp = SHFILEOPSTRUCTW()
+            fileOp.wFunc = UINT(FO_DELETE)
+            fileOp.pFrom = baseAddress
+            fileOp.fFlags = FILEOP_FLAGS(UInt16(FOF_ALLOWUNDO | FOF_NOCONFIRMATION))
+            _ = SHFileOperationW(&fileOp)
+        }
+    }
+
+    /// Maps `UTType`s to Win32 file-dialog filter extensions.
+    ///
+    /// Win32 common dialogs filter by filename extension only, so the mapping
+    /// is inherently approximate: types with no extension identity (`.data`,
+    /// `.url`, `.fileURL`) yield no filter, and category types cover only the
+    /// common container/raster extensions (`.image` → png/jpg/jpeg/bmp/gif,
+    /// `.audio` → mp3/wav/m4a/flac, `.movie`/`.video` → mp4/mov/wmv/avi/mkv),
+    /// which is narrower than the UTI's full conformance set. Returns `nil`
+    /// when no type maps to an extension, meaning "no filter".
+    public static func fileExtensions(forContentTypes types: [UTType]) -> [String]? {
+        var result: [String] = []
+        var seen = Set<String>()
+        for type in types {
+            for ext in fileExtensions(forContentType: type) where seen.insert(ext).inserted {
+                result.append(ext)
+            }
+        }
+        return result.isEmpty ? nil : result
+    }
+
+    private static func fileExtensions(forContentType type: UTType) -> [String] {
+        let identifier = type.identifier
+        let extensionPrefix = "public.filename-extension."
+        if identifier.hasPrefix(extensionPrefix) {
+            let ext = String(identifier.dropFirst(extensionPrefix.count))
+            return ext.isEmpty ? [] : [ext]
+        }
+        switch identifier {
+        case UTType.plainText.identifier, UTType.text.identifier, UTType.utf8PlainText.identifier,
+            "text/plain":
+            return ["txt"]
+        case UTType.png.identifier, "image/png":
+            return ["png"]
+        case UTType.jpeg.identifier, "image/jpeg":
+            return ["jpg", "jpeg"]
+        case UTType.json.identifier, "application/json":
+            return ["json"]
+        case UTType.pdf.identifier, "application/pdf":
+            return ["pdf"]
+        case UTType.html.identifier, "text/html":
+            return ["html", "htm"]
+        case UTType.zip.identifier, "application/zip":
+            return ["zip"]
+        case UTType.image.identifier:
+            return ["png", "jpg", "jpeg", "bmp", "gif"]
+        case UTType.audio.identifier:
+            return ["mp3", "wav", "m4a", "flac"]
+        case UTType.movie.identifier, UTType.video.identifier:
+            return ["mp4", "mov", "wmv", "avi", "mkv"]
+        default:
+            return []
+        }
     }
 }
 

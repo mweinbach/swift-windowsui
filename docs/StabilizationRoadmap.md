@@ -503,14 +503,43 @@ downgrade.
 6. Consider metrics counters (fallback count, recovery success) for demo
    probe logs.
 
+### Policy table (mirrors the source-of-truth comment at
+### `attachPreferredRenderer` in `Sources/WinSwiftUI/App.swift`)
+
+| Trigger | Policy |
+| --- | --- |
+| Startup, batch available | Attach batch (scene) backend; reason `.defaultScene` |
+| Startup batch attach throws | Downgrade to frame immediately; `.batchAttachFailure` |
+| Batch `render(scene:)` throws mid-frame | Render that frame on frame backend, then pin to frame; `.batchRenderFailure` |
+| Batch `resize` throws | Downgrade at the new size; `.batchResizeFailure` |
+| After downgrade, `.standard` policy | Retry batch attach with exponential backoff (5s → 60s cap); success restores scene (`.batchBackendRecovered`) |
+| After downgrade, `.disabled` policy | One-way pin: batch never invoked again this session |
+| Frame backend itself throws | Log via `report`; host session stays alive |
+
+Apps may force: `SWIFT_WINDOWSUI_FRAME_DEBUG=1` (pins frame from startup),
+`recoveryPolicy: .disabled`, and observability via `rendererHealthSnapshot`.
+
+Readability contract on the frame path (enforced by
+`FramePathDegradationTests` / `FrameFallbackPolicyTests`): text rides
+pre-rasterized bitmaps, `fillRect` keeps solid/linear-gradient fills with
+uniform corner radii, and vector path commands are CPU-rasterized into
+`drawBitmap`s by `FramePathDegradation` inside `D3D11Renderer`. Known
+cosmetic gaps vs the scene path (documented, not claimed as parity):
+rounded clip shapes degrade to rectangular clips, per-corner radii fall
+back to uniform, radial/conic gradients fall back to a solid base color,
+and soft shadows render as plain offset fills.
+
 ### Exit criteria
 
-- [ ] Written policy in this doc + `docs/GPURenderingPipeline.md` agree
-- [ ] Injected batch failure falls back without crashing the host session
-- [ ] Recovery restores scene backend under `.standard` when attach succeeds
-- [ ] `.disabled` remains one-way for the session
-- [ ] Full agent check still produces both scene and frame artifacts
-- [ ] README/WinSwiftUI docs do not claim frame ≡ scene visual parity
+- [x] Written policy in this doc + `docs/GPURenderingPipeline.md` agree
+      (table above; mirrors `attachPreferredRenderer` in App.swift)
+- [x] Injected batch failure falls back without crashing the host session
+      (`FrameFallbackPolicyTests`)
+- [x] Recovery restores scene backend under `.standard` when attach succeeds
+- [x] `.disabled` remains one-way for the session
+- [x] Full agent check still produces both scene and frame artifacts
+- [x] README/WinSwiftUI docs do not claim frame ≡ scene visual parity
+      (CompatibilityStatus marks the frame path Partial with listed gaps)
 
 ### Validation commands
 
@@ -535,8 +564,8 @@ unsupported.
 
 | Area | Today |
 | --- | --- |
-| Clipboard | Unicode text copy/paste via `ClipboardManager` |
-| File dialogs | `FileDialogManager` open (and related) Win32 common dialogs |
+| Clipboard | Unicode text + file-URL lists (`CF_HDROP`) via `ClipboardManager`; format enumeration (`hasText`/`hasFileURLs`) |
+| File dialogs | `FileDialogManager` open/save Win32 common dialogs behind an injectable provider; `allowedContentTypes` map to extension filters (category types approximate) |
 | Drag/drop | SwiftUI-shaped APIs + retained metadata; limited OS formats |
 | Open URL | Compatibility helper present; verify shell execute path |
 | Undo | Per-window `UndoManager` shim; not fully bridged to edit commands |
@@ -563,8 +592,10 @@ unsupported.
 ### Exit criteria
 
 - [ ] Supported integration list published; placeholders excluded
-- [ ] Clipboard + file dialog paths covered by automated tests where host
+- [x] Clipboard + file dialog paths covered by automated tests where host
       allows (or demo-probe hooks)
+      (`FileDialogIntegrationTests`, `ClipboardFileFormatTests`,
+      `OpenURLHardeningTests`; real-dialog display still needs manual smoke)
 - [ ] No Supported API is a silent no-op for core document workflows
 - [ ] Remaining platform gaps listed with “not supported in vX” language
 

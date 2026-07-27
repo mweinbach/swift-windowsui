@@ -405,6 +405,7 @@ struct DemoCenterPane: View {
 
                         DemoRenderPipelineChart(model: model)
                             .frame(width: layout.contentInnerWidth - 32, height: 80)
+                            .clipped()
                     }
                 }
                 .frame(width: layout.contentInnerWidth, alignment: .leading)
@@ -1241,7 +1242,7 @@ enum DemoModule: CaseIterable, Hashable {
         switch self {
         case .layout: return Color(red: 0.19, green: 0.25, blue: 0.38, opacity: 0.84)
         case .input: return Color(red: 0.16, green: 0.28, blue: 0.30, opacity: 0.84)
-        case .animation: return Color(red: 0.31, green: 0.24, blue: 0.18, opacity: 0.84)
+        case .animation: return Color(red: 0.20, green: 0.19, blue: 0.24, opacity: 0.84)
         case .controls: return Color(red: 0.28, green: 0.20, blue: 0.36, opacity: 0.84)
         }
     }
@@ -1250,7 +1251,7 @@ enum DemoModule: CaseIterable, Hashable {
         switch self {
         case .layout: return Color(red: 0.30, green: 0.40, blue: 0.58, opacity: 0.98)
         case .input: return Color(red: 0.24, green: 0.42, blue: 0.44, opacity: 0.98)
-        case .animation: return Color(red: 0.46, green: 0.36, blue: 0.26, opacity: 0.98)
+        case .animation: return Color(red: 0.36, green: 0.32, blue: 0.44, opacity: 0.98)
         case .controls: return Color(red: 0.44, green: 0.32, blue: 0.58, opacity: 0.98)
         }
     }
@@ -1259,7 +1260,7 @@ enum DemoModule: CaseIterable, Hashable {
         switch self {
         case .layout: return Color(red: 0.18, green: 0.24, blue: 0.37, opacity: 0.97)
         case .input: return Color(red: 0.15, green: 0.25, blue: 0.29, opacity: 0.97)
-        case .animation: return Color(red: 0.26, green: 0.21, blue: 0.18, opacity: 0.97)
+        case .animation: return Color(red: 0.17, green: 0.16, blue: 0.22, opacity: 0.97)
         case .controls: return Color(red: 0.24, green: 0.18, blue: 0.34, opacity: 0.97)
         }
     }
@@ -1268,7 +1269,7 @@ enum DemoModule: CaseIterable, Hashable {
         switch self {
         case .layout: return Color(red: 0.11, green: 0.16, blue: 0.27, opacity: 0.94)
         case .input: return Color(red: 0.10, green: 0.18, blue: 0.22, opacity: 0.94)
-        case .animation: return Color(red: 0.18, green: 0.15, blue: 0.13, opacity: 0.94)
+        case .animation: return Color(red: 0.11, green: 0.10, blue: 0.15, opacity: 0.94)
         case .controls: return Color(red: 0.17, green: 0.13, blue: 0.24, opacity: 0.94)
         }
     }

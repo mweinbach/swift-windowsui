@@ -1808,6 +1808,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             try attachPreferredRenderer(to: surface)
             isRendererReady = true
             runtime.displayScale = surface.scaleFactor
+            NativeTextRenderer.defaultIconDisplayScale = surface.scaleFactor
             runtime.setRootSize(logicalSize(for: surface))
             componentHost.reload()
             uiaBridge?.raiseStructureChanged()
@@ -1827,6 +1828,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         do {
             let scaleFactor = window.scaleFactor
             runtime.displayScale = scaleFactor
+            NativeTextRenderer.defaultIconDisplayScale = scaleFactor
             surfaceDescriptor?.pixelSize = size
             surfaceDescriptor?.scaleFactor = scaleFactor
             runtime.setRootSize(logicalSize(for: size, scaleFactor: scaleFactor))

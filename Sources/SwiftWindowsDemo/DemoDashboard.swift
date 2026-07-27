@@ -334,7 +334,7 @@ struct DemoSidebar: View {
                     }
 
                     Color.clear
-                        .frame(height: 10)
+                        .frame(width: layout.sidebarInnerWidth, height: 10)
                         .background(
                             LinearGradient(
                                 colors: [
@@ -397,17 +397,17 @@ struct DemoCenterPane: View {
                     VStack(alignment: .leading, spacing: 14) {
                         DemoMetricCard(
                             title: "INTERACTIONS", value: "\(model.interactionCount)", note: "EVENTS TRACKED",
-                            accent: model.selectedModule.glowColor
+                            accent: model.selectedModule.accentColor
                         )
                         .frame(width: layout.contentInnerWidth, alignment: .leading)
                         DemoMetricCard(
                             title: "MODULE", value: model.selectedModule.label, note: model.selectedModule.summary,
-                            accent: model.selectedModule.stripeColor
+                            accent: model.selectedModule.accentColor
                         )
                         .frame(width: layout.contentInnerWidth, alignment: .leading)
                         DemoMetricCard(
                             title: "TARGET", value: "SAME SOURCE", note: "IMPORT WINSWIFTUI OR SWIFTUI",
-                            accent: Color(red: 0.79, green: 0.87, blue: 0.97, opacity: 0.96)
+                            accent: Color(red: 0.30, green: 0.42, blue: 0.60, opacity: 0.95)
                         )
                         .frame(width: layout.contentInnerWidth, alignment: .leading)
                     }
@@ -415,17 +415,17 @@ struct DemoCenterPane: View {
                     HStack(alignment: .center, spacing: 18) {
                         DemoMetricCard(
                             title: "INTERACTIONS", value: "\(model.interactionCount)", note: "EVENTS TRACKED",
-                            accent: model.selectedModule.glowColor
+                            accent: model.selectedModule.accentColor
                         )
                         .frame(width: layout.metricCardWidth, alignment: .leading)
                         DemoMetricCard(
                             title: "MODULE", value: model.selectedModule.label, note: model.selectedModule.summary,
-                            accent: model.selectedModule.stripeColor
+                            accent: model.selectedModule.accentColor
                         )
                         .frame(width: layout.metricCardWidth, alignment: .leading)
                         DemoMetricCard(
                             title: "TARGET", value: "SAME SOURCE", note: "IMPORT WINSWIFTUI OR SWIFTUI",
-                            accent: Color(red: 0.79, green: 0.87, blue: 0.97, opacity: 0.96)
+                            accent: Color(red: 0.30, green: 0.42, blue: 0.60, opacity: 0.95)
                         )
                         .frame(width: layout.metricCardWidth, alignment: .leading)
                     }
@@ -583,9 +583,12 @@ struct DemoHeroCard: View {
         DemoTintedSurface(
             cornerRadius: layout.panelCornerRadius + 4,
             contentPadding: layout.panelPadding,
+            // Nearly opaque deep-navy stops: the headline/subtitle sit on this
+            // card, so it must stay dark over the light backdrop instead of
+            // washing out into mid-grey.
             colors: [
-                model.selectedModule.panelStartColor.opacity(0.92),
-                model.selectedModule.panelEndColor.opacity(0.70),
+                model.selectedModule.panelStartColor,
+                model.selectedModule.panelEndColor,
             ],
             stroke: DemoTheme.surfaceStrokeStrong,
             shadowColor: model.selectedModule.glowColor.opacity(0.12)
@@ -603,11 +606,15 @@ struct DemoHeroCard: View {
 
                 Text(model.selectedModule.summary)
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundColor(DemoTheme.secondaryText)
+                    .foregroundColor(DemoTheme.heroSubtitleText)
                     .multilineTextAlignment(.leading)
 
                 Color.clear
-                    .frame(height: 12)
+                    .frame(
+                        width: layout.contentInnerWidth
+                            - layout.panelPadding.leading - layout.panelPadding.trailing - 2,
+                        height: 12
+                    )
                     .background(
                         LinearGradient(
                             colors: [
@@ -635,7 +642,8 @@ struct DemoHeroCard: View {
 
                         DemoPillButton(
                             "CYCLE MODE",
-                            colors: [DemoTheme.fieldTop, DemoTheme.fieldBottom]
+                            colors: [DemoTheme.fieldTop, DemoTheme.fieldBottom],
+                            textColor: DemoTheme.primaryText
                         ) {
                             model.cycleModule()
                         }
@@ -655,7 +663,8 @@ struct DemoHeroCard: View {
 
                         DemoPillButton(
                             "CYCLE MODE",
-                            colors: [DemoTheme.fieldTop, DemoTheme.fieldBottom]
+                            colors: [DemoTheme.fieldTop, DemoTheme.fieldBottom],
+                            textColor: DemoTheme.primaryText
                         ) {
                             model.cycleModule()
                         }
@@ -792,7 +801,7 @@ struct DemoCapsuleText: View {
     var body: some View {
         Text(title)
             .font(.system(size: 10, weight: .semibold, design: .rounded))
-            .foregroundColor(DemoTheme.primaryText)
+            .foregroundColor(tint == nil ? DemoTheme.primaryText : DemoTheme.inverseText)
             .multilineTextAlignment(.center)
             .lineLimit(1)
             .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
@@ -822,17 +831,20 @@ struct DemoPillButton: View {
     let title: String
     let width: CGFloat?
     let colors: [Color]
+    let textColor: Color
     let perform: @MainActor @Sendable () -> Void
 
     init(
         _ title: String,
         width: CGFloat? = nil,
         colors: [Color],
+        textColor: Color = DemoTheme.inverseText,
         perform: @escaping @MainActor @Sendable () -> Void
     ) {
         self.title = title
         self.width = width
         self.colors = colors
+        self.textColor = textColor
         self.perform = perform
     }
 
@@ -847,7 +859,7 @@ struct DemoPillButton: View {
             ) {
                 Text(title)
                     .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .foregroundColor(DemoTheme.inverseText)
+                    .foregroundColor(textColor)
                     .multilineTextAlignment(.center)
                     .lineLimit(1)
                     .frame(width: width, height: 38)
@@ -1061,6 +1073,8 @@ enum DemoTheme {
     static let secondaryText = Color(red: 0.34, green: 0.40, blue: 0.50, opacity: 0.86)
     static let tertiaryText = Color(red: 0.46, green: 0.52, blue: 0.62, opacity: 0.80)
     static let inverseText = Color(red: 0.99, green: 1.0, blue: 1.0, opacity: 0.98)
+    /// Light secondary text for content that sits on the dark hero card.
+    static let heroSubtitleText = Color(red: 0.80, green: 0.86, blue: 0.95, opacity: 0.92)
     static let shadow = Color(red: 0.16, green: 0.20, blue: 0.30, opacity: 0.10)
 }
 struct DemoLayout {
@@ -1227,19 +1241,19 @@ enum DemoModule: CaseIterable, Hashable {
 
     var panelStartColor: Color {
         switch self {
-        case .layout: return Color(red: 0.18, green: 0.24, blue: 0.37, opacity: 0.84)
-        case .input: return Color(red: 0.15, green: 0.25, blue: 0.29, opacity: 0.84)
-        case .animation: return Color(red: 0.26, green: 0.21, blue: 0.18, opacity: 0.84)
-        case .controls: return Color(red: 0.24, green: 0.18, blue: 0.34, opacity: 0.84)
+        case .layout: return Color(red: 0.18, green: 0.24, blue: 0.37, opacity: 0.97)
+        case .input: return Color(red: 0.15, green: 0.25, blue: 0.29, opacity: 0.97)
+        case .animation: return Color(red: 0.26, green: 0.21, blue: 0.18, opacity: 0.97)
+        case .controls: return Color(red: 0.24, green: 0.18, blue: 0.34, opacity: 0.97)
         }
     }
 
     var panelEndColor: Color {
         switch self {
-        case .layout: return Color(red: 0.11, green: 0.16, blue: 0.27, opacity: 0.68)
-        case .input: return Color(red: 0.10, green: 0.18, blue: 0.22, opacity: 0.68)
-        case .animation: return Color(red: 0.18, green: 0.15, blue: 0.13, opacity: 0.68)
-        case .controls: return Color(red: 0.17, green: 0.13, blue: 0.24, opacity: 0.68)
+        case .layout: return Color(red: 0.11, green: 0.16, blue: 0.27, opacity: 0.94)
+        case .input: return Color(red: 0.10, green: 0.18, blue: 0.22, opacity: 0.94)
+        case .animation: return Color(red: 0.18, green: 0.15, blue: 0.13, opacity: 0.94)
+        case .controls: return Color(red: 0.17, green: 0.13, blue: 0.24, opacity: 0.94)
         }
     }
 
@@ -1249,37 +1263,37 @@ enum DemoModule: CaseIterable, Hashable {
             return [
                 DemoCard(
                     title: "STACK LAYOUT", summary: "PANELS STRETCH WITH PRIORITY AND PADDING",
-                    meta: "RETENTION-FIRST MEASUREMENT", accent: glowColor),
+                    meta: "RETENTION-FIRST MEASUREMENT", accent: accentColor),
                 DemoCard(
                     title: "CLIPPING", summary: "SCISSOR-READY RECT CLIPPING THROUGH THE RENDER FRAME",
-                    meta: "BACKEND-NEUTRAL COMMANDS", accent: stripeColor),
+                    meta: "BACKEND-NEUTRAL COMMANDS", accent: accentColor),
             ]
         case .input:
             return [
                 DemoCard(
                     title: "FOCUS CHAIN", summary: "TAB MOVES THROUGH FOCUSABLE RETAINED NODES",
-                    meta: "WINDOW DELEGATE TO RUNTIME", accent: glowColor),
+                    meta: "WINDOW DELEGATE TO RUNTIME", accent: accentColor),
                 DemoCard(
                     title: "PRESS STATES", summary: "BUTTONS DRIVE FOCUSED, PRESSED, AND ACTIVATED COLORS",
-                    meta: "MAIN-ACTOR CONTROL LIFECYCLE", accent: stripeColor),
+                    meta: "MAIN-ACTOR CONTROL LIFECYCLE", accent: accentColor),
             ]
         case .animation:
             return [
                 DemoCard(
                     title: "TICK DRIVER", summary: "WINDOW ANIMATION FRAMES ADVANCE COLOR TRANSITIONS",
-                    meta: "ONLY WHEN ACTIVE", accent: glowColor),
+                    meta: "ONLY WHEN ACTIVE", accent: accentColor),
                 DemoCard(
                     title: "FRAME CACHE", summary: "UNCHANGED UI REUSES THE LAST RENDER FRAME UNTIL INVALIDATED",
-                    meta: "RETENTION REDRAWS", accent: stripeColor),
+                    meta: "RETENTION REDRAWS", accent: accentColor),
             ]
         case .controls:
             return [
                 DemoCard(
                     title: "TOGGLE AND SLIDER", summary: "INTERACTIVE BINDING-DRIVEN CONTROLS",
-                    meta: "HIT-TEST AND FOCUS", accent: glowColor),
+                    meta: "HIT-TEST AND FOCUS", accent: accentColor),
                 DemoCard(
                     title: "TEXT INPUT", summary: "TEXTFIELD AND TEXTEDITOR WITH STATE", meta: "KEYBOARD ROUTING",
-                    accent: stripeColor),
+                    accent: accentColor),
             ]
         }
     }

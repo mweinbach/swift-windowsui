@@ -7,7 +7,15 @@ import SwiftWindowsGraphics
 import WinSDK
 
 @MainActor
-enum NativeTextRenderer {
+public enum NativeTextRenderer {
+    /// Display scale applied to icon bitmaps rasterized without an explicit
+    /// scale (the `displayScale` default of `Controls.icon`). Window hosts set
+    /// this alongside `RetainedViewRuntime.displayScale` before rebuilding the
+    /// component tree so eagerly rasterized icons match the physical display.
+    /// It defaults to 1 — the deterministic screenshot value — and offscreen
+    /// scale-1 tools leave it untouched, keeping their output byte-identical.
+    public static var defaultIconDisplayScale: Double = 1
+
     struct TestingOverrides {
         var measure: ((String, PixelTextStyle, Double, Double?) -> Size?)?
         var layout: ((String, PixelTextStyle, Double, Double?) -> NativeTextLayoutResult?)?

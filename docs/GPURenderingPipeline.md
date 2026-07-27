@@ -296,12 +296,14 @@ The painter emits the panel's background quad with the encoded
 produces the actual blurred backdrop in-place. Tested by
 `MaterialBackdropBlurTests`.
 
-**Backend gap (documented):** the D3D11 quad shader currently
-approximates backdrop blur by widening the edge falloff of the tinted
-quad — material panels on the default GPU path read as soft-edged
-tints, not frosted glass. A true GPU backdrop blur needs multi-pass
-render-target ping-pong in `D3D11BatchRenderer` and is tracked as
-follow-up work.
+**Backend parity:** the D3D11 batch renderer now performs true backdrop
+blur for material quads: each blur quad (axis-aligned, radius ≥ 1) splits
+the quad batch in presentation order, copies its backbuffer region,
+applies a two-pass separable Gaussian with the same kernel weights as the
+CPU rasterizer, and composites the tint over the blurred backdrop —
+nested materials blur the already-composited material beneath. Rotated
+blur quads deliberately stay on the old edge-softening path. Locked by
+`D3D11BackdropBlurTests` (WARP-device pixel tests).
 
 ## Per-corner radii
 

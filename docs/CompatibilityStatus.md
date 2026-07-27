@@ -149,7 +149,7 @@ Use these when you accept retained approximations.
 | **Focus** | Focus rings, `@FocusState`, activation | Dynamic `@FocusedValue` retargeting as focus moves; environment `isFocused` live transitions |
 | **Drag and drop** | API + metadata on nodes | Full delete/reorder/drop affordances and OS drag sessions |
 | **Accessibility** | Metadata on `ViewNode` + derived `AccessibilityElementProjection` + Win32 UI Automation provider (`WM_GETOBJECT`, fragment tree, InvokePattern, focus/structure events); default traits on Supported controls | Value/Text/Selection/Toggle patterns, live regions, fine-grained structure-changed events |
-| **Materials / blur** | Tint/blur metadata; true separable-Gaussian backdrop blur on the CPU rasterizer; design-parity constants | D3D11 path approximates backdrop blur with widened edge falloff (documented gap; true multi-pass GPU blur pending) |
+| **Materials / blur** | True separable-Gaussian backdrop blur on both paths (D3D11: backbuffer region copy + two-pass GPU blur, same kernel as CPU); design-parity constants | Rotated material quads approximate; no downsample chain |
 | **Blend / drawing groups** | Metadata; some blend modes on frame fallback | Scene-path offscreen group compositing as full SwiftUI drawing groups |
 | **3D transforms** | Z-axis rotation maps to 2D; metadata stored | Full 3D projection pipeline |
 | **Color effects / shaders** | Metadata for invalidation / source shape | No compiled Metal/HLSL filter application yet |

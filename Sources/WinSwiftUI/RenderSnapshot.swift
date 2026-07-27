@@ -37,6 +37,11 @@ public enum WinSwiftUIRendererSnapshotter {
     ) -> WinSwiftUIRenderSnapshot {
         let runtime = RetainedViewRuntime(clearColor: clearColor, root: ViewNode(), displayScale: displayScale)
         runtime.setRootSize(size)
+        // Icons rasterize eagerly at build time; point them at this render's
+        // scale (1 for the deterministic screenshot path), then restore.
+        let previousIconDisplayScale = NativeTextRenderer.defaultIconDisplayScale
+        NativeTextRenderer.defaultIconDisplayScale = displayScale
+        defer { NativeTextRenderer.defaultIconDisplayScale = previousIconDisplayScale }
 
         let context = ViewBuildContext(
             canvasSizeProvider: {

@@ -15031,6 +15031,19 @@ public struct Picker<SelectionValue: Hashable>: View {
             )
         }
 
+        // macOS segmented controls give every segment the same width: the
+        // widest intrinsic label sets the common base width, then the
+        // track's slack is shared equally on top. Without the common base,
+        // segments got equal slack over unequal text widths (wave-2
+        // geometry audit) and the pills rendered unequal.
+        if let commonSegmentWidth = optionNodes.map({ $0.intrinsicContentSize().width }).max(),
+            commonSegmentWidth > 0
+        {
+            for optionNode in optionNodes {
+                optionNode.preferredSize = Size(width: commonSegmentWidth, height: 0)
+            }
+        }
+
         // Recessed track: top-darker gradient reads as an inset groove the
         // raised selected pill sits in. Track padding/spacing stay at the
         // pinned 4pt geometry.
@@ -15806,12 +15819,17 @@ public struct Stepper: View {
         let increment = increment
 
         return Component { runtime in
+            // macOS renders the stepper as one joined segmented control:
+            // the left button is rounded on the left only, the right button
+            // on the right only, and the shared hairline borders meet as the
+            // divider. Per-corner radii keep the joined edge square.
             let decrementNode = Self.controlButton(
                 runtime: runtime,
                 title: "-",
                 accessibilityName: "Decrement",
                 isEnabled: context.isEnabled && canDecrement(),
                 preferredSize: context.controlSize.stepperButtonPreferredSize,
+                cornerRadii: RetainedCornerRadii(topLeft: 12, bottomLeft: 12),
                 action: {
                     decrement()
                     context.invalidate()
@@ -15823,6 +15841,7 @@ public struct Stepper: View {
                 accessibilityName: "Increment",
                 isEnabled: context.isEnabled && canIncrement(),
                 preferredSize: context.controlSize.stepperButtonPreferredSize,
+                cornerRadii: RetainedCornerRadii(topRight: 12, bottomRight: 12),
                 action: {
                     increment()
                     context.invalidate()
@@ -15831,17 +15850,28 @@ public struct Stepper: View {
 
             guard !context.labelsHidden else {
                 return Controls.stackPanel(
-                    stackLayout: .horizontal(spacing: 8, alignment: .center),
+                    stackLayout: .horizontal(spacing: 0, alignment: .center),
                     isHitTestVisible: false,
                     children: [decrementNode, incrementNode]
                 )
             }
 
             let labelNode = labelComponent.makeNode(runtime: runtime)
-            return Controls.stackPanel(
-                stackLayout: .horizontal(spacing: 8, alignment: .center),
+            // The buttons sit flush as a joined pair; the label keeps the
+            // 8pt gap the separate pills used to provide.
+            let labelSlot = Controls.panel(
+                layoutMode: .stack(
+                    .horizontal(
+                        padding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 8),
+                        alignment: .center
+                    )),
                 isHitTestVisible: false,
-                children: [labelNode, decrementNode, incrementNode]
+                children: [labelNode]
+            )
+            return Controls.stackPanel(
+                stackLayout: .horizontal(spacing: 0, alignment: .center),
+                isHitTestVisible: false,
+                children: [labelSlot, decrementNode, incrementNode]
             )
         }
     }
@@ -15852,9 +15882,19 @@ public struct Stepper: View {
         accessibilityName: String,
         isEnabled: Bool,
         preferredSize: Size,
+        cornerRadii: RetainedCornerRadii,
         action: @escaping @MainActor () -> Void
     ) -> ViewNode {
         let surfaceStyle = ButtonSurfaceStyle.default
+        // Joined-pair chrome: keep the standard hairline border and focus
+        // ring, but drop the elevated-button shadow — a hovering or pressed
+        // segment must not cast onto its sibling in the joined pair.
+        var joinedChrome = surfaceStyle.chrome
+        joinedChrome.shadowColor = .clear
+        joinedChrome.shadowHoveredColor = .clear
+        joinedChrome.shadowFocusedColor = .clear
+        joinedChrome.shadowPressedColor = .clear
+        joinedChrome.shadowActivatedColor = .clear
         let titleNode = Controls.label(
             title,
             color: isEnabled ? .white : surfaceStyle.palette.disabledForeground,
@@ -15868,8 +15908,12 @@ public struct Stepper: View {
             preferredSize: preferredSize,
             cornerRadius: 12,
             palette: surfaceStyle.palette,
-            chrome: surfaceStyle.chrome,
-            clipsToBounds: surfaceStyle.clipsToBounds,
+            chrome: joinedChrome,
+            // No self-clip: the painter falls back to `maxRadius` for
+            // per-corner clip rounding, which would re-round the square
+            // joined edge. The only child is a centered glyph that never
+            // reaches the edge, so clipping buys nothing here.
+            clipsToBounds: false,
             layoutMode: .stack(.vertical(alignment: .center, mainAlignment: .center)),
             isEnabled: isEnabled,
             animation: surfaceStyle.animation,
@@ -15877,6 +15921,7 @@ public struct Stepper: View {
             action: action,
             children: [titleNode]
         )
+        node.cornerRadii = cornerRadii
         // "+"/"-" glyphs are poor accessible names; default to the action
         // name (an explicit accessibilityLabel modifier still wins).
         node.accessibilityLabel = accessibilityName

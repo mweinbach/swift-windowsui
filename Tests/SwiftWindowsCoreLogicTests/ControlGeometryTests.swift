@@ -104,6 +104,8 @@ final class ControlGeometryTests: XCTestCase {
                 )
                 assertDescendantFramesWithinBounds(node)
                 let row = tryUnwrap(node.children.first)
+                // Joined pair: [label slot, decrement, increment] with the
+                // buttons flush against each other.
                 XCTAssertEqual(row.children.count, 3)
                 let decrement = row.children[1]
                 let increment = row.children[2]
@@ -113,6 +115,23 @@ final class ControlGeometryTests: XCTestCase {
                     accuracy: 0.51,
                     "stepper buttons should share width equally at \(width)pt"
                 )
+                XCTAssertEqual(
+                    decrement.resolvedFrame.maxX,
+                    increment.resolvedFrame.minX,
+                    accuracy: 0.51,
+                    "stepper buttons should sit flush as a joined pair at \(width)pt"
+                )
+                // Per-corner radii: rounded outer corners, square joined edge.
+                let decrementRadii = tryUnwrap(decrement.cornerRadii)
+                XCTAssertGreaterThan(decrementRadii.topLeft, 0)
+                XCTAssertGreaterThan(decrementRadii.bottomLeft, 0)
+                XCTAssertEqual(decrementRadii.topRight, 0, accuracy: 0.01)
+                XCTAssertEqual(decrementRadii.bottomRight, 0, accuracy: 0.01)
+                let incrementRadii = tryUnwrap(increment.cornerRadii)
+                XCTAssertEqual(incrementRadii.topLeft, 0, accuracy: 0.01)
+                XCTAssertEqual(incrementRadii.bottomLeft, 0, accuracy: 0.01)
+                XCTAssertGreaterThan(incrementRadii.topRight, 0)
+                XCTAssertGreaterThan(incrementRadii.bottomRight, 0)
                 XCTAssertGreaterThan(tryUnwrap(firstTextNode(in: row)).resolvedFrame.width, 0)
             }
         }
@@ -272,6 +291,13 @@ final class ControlGeometryTests: XCTestCase {
                 for optionWidth in optionWidths {
                     XCTAssertGreaterThan(optionWidth, 0)
                 }
+                // macOS segmented controls give every segment the same width.
+                XCTAssertEqual(
+                    optionWidths[0], optionWidths[1], accuracy: 0.51,
+                    "segments should be equal width at \(width)pt")
+                XCTAssertEqual(
+                    optionWidths[1], optionWidths[2], accuracy: 0.51,
+                    "segments should be equal width at \(width)pt")
                 // Options consume the full shell interior (4pt padding, 4pt spacing).
                 let consumed = optionWidths.reduce(0, +) + (2 * 4) + (2 * 4)
                 XCTAssertEqual(consumed, width, accuracy: 0.51)

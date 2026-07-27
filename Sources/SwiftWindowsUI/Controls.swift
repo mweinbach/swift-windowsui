@@ -965,7 +965,8 @@ public enum Controls {
         scale: Double = 1.9,
         weight: TextWeight = .regular,
         alignment: TextHorizontalAlignment = .center,
-        fontFamily: String = "Segoe Fluent Icons"
+        fontFamily: String = "Segoe Fluent Icons",
+        displayScale: Double = NativeTextRenderer.defaultIconDisplayScale
     ) -> ViewNode {
         let node = label(
             symbol.rawValue,
@@ -995,7 +996,12 @@ public enum Controls {
             var rasterStyle = node.textStyle
             rasterStyle.fontFamily = resolvedFamily
             rasterStyle.insets = .zero
-            if let bitmap = NativeTextRenderer.rasterize(symbol.rawValue, style: rasterStyle, scaleFactor: 1),
+            // Rasterize at the display scale so the bitmap stays crisp on
+            // >100% DPI displays; the painter stretches it into the same
+            // logical rect either way, and scale 1 keeps the deterministic
+            // screenshot output byte-identical.
+            let rasterScale = max(1, displayScale)
+            if let bitmap = NativeTextRenderer.rasterize(symbol.rawValue, style: rasterStyle, scaleFactor: rasterScale),
                 bitmapHasVisiblePixels(bitmap)
             {
                 node.bitmapSurface = bitmap

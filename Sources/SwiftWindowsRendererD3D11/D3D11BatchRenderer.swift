@@ -107,6 +107,12 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
     internal var pathCacheEntryCountForTesting: Int { pathRenderCache.count }
 
+    // Backdrop blur engine for Material quads (quads carrying a blurRadius).
+    // Created lazily on the first blurred quad and recreated whenever the
+    // D3D11 device changes so device-loss reattach can't leave it bound to
+    // a dead device.
+    private var blurEngine: D3D11BackdropBlurEngine?
+
     // MARK: - Surface State
 
     private var surface: SurfaceDescriptor?
@@ -144,6 +150,45 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         case pixelGlyphs(layerIndex: Int, range: Range<Int>, atlasSource: AtlasSource)
         case images(layerIndex: Int, range: Range<Int>, textureID: Int32)
         case paths(layerIndex: Int, range: Range<Int>)
+    }
+
+    /// One piece of a quad batch after splitting around Material quads.
+    /// Normal runs keep the single instanced draw; each blurred quad is
+    /// drawn individually through the backdrop blur engine so the blur
+    /// samples the scene exactly as painted before that quad.
+    enum QuadBatchSegment: Equatable {
+        case normal(range: Range<Int>)
+        case blurred(index: Int)
+    }
+
+    /// Splits a quad range into normal runs and individual blurred quads,
+    /// preserving presentation order. A quad takes the blurred path when
+    /// its blurRadius truncates to ≥ 1 (same predicate as the CPU
+    /// rasterizer's `Int(quad.blurRadius) > 0`); rotated blur quads stay
+    /// on the normal path because the backdrop region mapping is
+    /// axis-aligned — they keep the historic edge-softening fallback.
+    static func splitQuadRangeForBackdropBlur(
+        _ quads: [QuadPrimitive],
+        range: Range<Int>
+    ) -> [QuadBatchSegment] {
+        var segments: [QuadBatchSegment] = []
+        var runStart = range.lowerBound
+        for index in range {
+            guard quads.indices.contains(index) else { continue }
+            let quad = quads[index]
+            let isBlurred = Int(quad.blurRadius) > 0 && quad.rotationRadians == 0
+            if isBlurred {
+                if runStart < index {
+                    segments.append(.normal(range: runStart..<index))
+                }
+                segments.append(.blurred(index: index))
+                runStart = index + 1
+            }
+        }
+        if runStart < range.upperBound {
+            segments.append(.normal(range: runStart..<range.upperBound))
+        }
+        return segments
     }
 
     public struct RenderPlan: Equatable {
@@ -310,6 +355,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         // ID3D11Device we may be about to recreate, so reusing their SRVs
         // would be undefined behaviour after a device-loss reattach.
         releaseAllCachedPaths()
+        blurEngine?.detach()
+        blurEngine = nil
 
         self.surface = surface
         self.hwnd = hwnd
@@ -448,16 +495,29 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                 )
             case .quads(let layerIndex, let range):
                 let layer = finishedScene.layers[layerIndex]
-                try renderBatch(
-                    layer.quads,
-                    range: range,
-                    capacity: &quadInstanceCapacity,
-                    buffer: &quadInstanceBuffer,
-                    srv: &quadInstanceSRV,
-                    vs: quadVS, ps: quadPS,
-                    label: "quad",
-                    deviceContext: deviceContext
-                )
+                // Material quads (blurRadius ≥ 1) need the real backdrop
+                // blur, which breaks batching: each one snapshots the
+                // scene-so-far, blurs it, and composites its tint before
+                // any later primitive draws. Split the range into normal
+                // runs (still one instanced draw each) around them so
+                // paintOperations order is preserved exactly.
+                for segment in Self.splitQuadRangeForBackdropBlur(layer.quads, range: range) {
+                    switch segment {
+                    case .normal(let subRange):
+                        try renderBatch(
+                            layer.quads,
+                            range: subRange,
+                            capacity: &quadInstanceCapacity,
+                            buffer: &quadInstanceBuffer,
+                            srv: &quadInstanceSRV,
+                            vs: quadVS, ps: quadPS,
+                            label: "quad",
+                            deviceContext: deviceContext
+                        )
+                    case .blurred(let index):
+                        try renderBlurredMaterialQuad(layer.quads[index], deviceContext: deviceContext)
+                    }
+                }
             case .glyphs(let layerIndex, let range, _):
                 let layer = finishedScene.layers[layerIndex]
                 try renderGlyphBatch(
@@ -520,6 +580,18 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         var glyphPSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
             source: GlyphPipelineResources.vertexShaderSource, entryPoint: GlyphPipelineResources.pixelShaderEntryPoint,
             profile: "ps_5_0")
+        var materialVSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
+            source: batchMaterialQuadShaderSource, entryPoint: "vsMain", profile: "vs_5_0")
+        var materialPSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
+            source: batchMaterialQuadShaderSource, entryPoint: "psMain", profile: "ps_5_0")
+        var blurVSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
+            source: batchBackdropBlurShaderSource, entryPoint: "vsMain", profile: "vs_5_0")
+        var blurPSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
+            source: batchBackdropBlurShaderSource, entryPoint: "psMain", profile: "ps_5_0")
+        releaseCOMPointer(&blurPSBlob)
+        releaseCOMPointer(&blurVSBlob)
+        releaseCOMPointer(&materialPSBlob)
+        releaseCOMPointer(&materialVSBlob)
         releaseCOMPointer(&glyphPSBlob)
         releaseCOMPointer(&glyphVSBlob)
         releaseCOMPointer(&shadowPSBlob)
@@ -1461,6 +1533,55 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         while !pathRenderCache.isEmpty {
             releaseCachedPathEntry(at: pathRenderCache.count - 1)
         }
+    }
+
+    // MARK: - Backdrop Blur (Material quads)
+
+    private func ensureBlurEngine(
+        device: UnsafeMutablePointer<ID3D11Device>
+    ) throws -> D3D11BackdropBlurEngine {
+        if let blurEngine, blurEngine.matchesDevice(device) {
+            return blurEngine
+        }
+        blurEngine?.detach()
+        let engine = D3D11BackdropBlurEngine()
+        try engine.attach(device: device)
+        blurEngine = engine
+        return engine
+    }
+
+    /// Draws one Material quad with a true backdrop blur: snapshot the
+    /// backbuffer region under the quad, separable-Gaussian blur it, then
+    /// composite the quad's tint over the blurred result.
+    private func renderBlurredMaterialQuad(
+        _ quad: QuadPrimitive,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>
+    ) throws {
+        guard let device, let swapChain, let renderTargetView, let surface else {
+            return
+        }
+
+        let engine = try ensureBlurEngine(device: device)
+
+        var backBufferRaw: UnsafeMutableRawPointer?
+        var iid = IID_ID3D11Texture2D
+        let bufferHR = swapChain.pointee.lpVtbl.pointee.GetBuffer(swapChain, 0, &iid, &backBufferRaw)
+        try throwIfFailed(bufferHR, operation: "IDXGISwapChain1.GetBuffer(backdropBlur)")
+        var backBuffer = backBufferRaw?.assumingMemoryBound(to: ID3D11Texture2D.self)
+        defer { releaseCOMPointer(&backBuffer) }
+        guard let backBuffer else {
+            throw BatchRendererError(
+                operation: "IDXGISwapChain1.GetBuffer(backdropBlur)", hresult: batchHresultHandle)
+        }
+
+        try engine.drawBlurredQuad(
+            deviceContext: deviceContext,
+            backBuffer: backBuffer,
+            backBufferRTV: renderTargetView,
+            surfaceWidth: Int(surface.pixelSize.width),
+            surfaceHeight: Int(surface.pixelSize.height),
+            quad: quad
+        )
     }
 
     // MARK: - Helpers

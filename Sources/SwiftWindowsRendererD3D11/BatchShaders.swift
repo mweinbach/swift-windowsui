@@ -4,7 +4,13 @@
 
 // MARK: - Instanced Quad Shader (StructuredBuffer at t0, cbuffer at b0)
 
-let batchQuadShaderSource = #"""
+// Shared prefix for every quad-family shader: frame uniforms, the
+// QuadInstance structured-buffer layout, the instanced vertex shader,
+// and the rounded-rect / color-effect helpers. The plain quad pixel
+// shader and the material backdrop-composite pixel shader differ only
+// in their psMain, so both concatenate this prefix to guarantee the
+// vertex stage and instance layout stay in lockstep.
+private let batchQuadShaderSharedSource = #"""
 cbuffer FrameUniforms : register(b0)
 {
     float2 surfaceSize;
@@ -211,7 +217,9 @@ float3 applyColorEffect(float3 rgb, float effectType, float intensity, float par
 
     return rgb;
 }
+"""#
 
+let batchQuadShaderSource = batchQuadShaderSharedSource + "\n" + #"""
 float4 psMain(VSOutput input) : SV_Target
 {
     float clipAlpha = 1.0;
@@ -245,15 +253,16 @@ float4 psMain(VSOutput input) : SV_Target
 
     float distance = roundedRectDistance(input.localPosition, input.size, input.cornerRadii);
     float aa = max(fwidth(distance), 0.75);
-    // NOTE (deliberate gap vs the CPU rasterizer): on the GPU path
-    // blurRadius only widens the quad's edge falloff; it does NOT blur
-    // the already-rendered backdrop. The CPU rasterizer applies a real
-    // separable Gaussian over the quad's bounds (applyBoxBlur), which is
-    // what makes Material backdrops look frosted. A true GPU backdrop
-    // blur needs a multi-pass render-target ping-pong (copy the region,
-    // separable blur, composite) that this single-pass batch pipeline
-    // does not have yet — Material panels on D3D11 therefore render as
-    // soft-edged tints rather than frosted glass.
+    // NOTE (fallback only): on this plain batched path blurRadius merely
+    // widens the quad's edge falloff. Material quads never reach this
+    // shader — D3D11BatchRenderer.splitQuadRangeForBackdropBlur routes
+    // every axis-aligned quad with blurRadius >= 1 through
+    // D3D11BackdropBlurEngine, which blurs the real backdrop (separable
+    // Gaussian over the scene-so-far, matching the CPU rasterizer) and
+    // composites via batchMaterialQuadShaderSource. The edge-softening
+    // below remains for the two shapes the engine declines: rotated blur
+    // quads (the backdrop region mapping is axis-aligned) and sub-pixel
+    // radii that truncate to zero.
     float blur = max(input.blurRadius, 0.0);
     float edgeSoftness = aa + blur * 2.0;
     float alpha = saturate(0.5 - distance / edgeSoftness);
@@ -277,6 +286,172 @@ float4 psMain(VSOutput input) : SV_Target
     }
 
     return float4(color.rgb * color.a * alpha * clipAlpha, color.a * alpha * clipAlpha);
+}
+"""#
+
+// MARK: - Material Backdrop Composite Shader (StructuredBuffer t0, blurred backdrop t1)
+//
+// Same vertex stage and instance layout as the plain quad shader (shared
+// prefix above); the pixel shader composites the quad's tint over the
+// ALREADY-BLURRED backdrop instead of emitting the tint alone. The
+// backdrop texture holds the blurred "scene so far" for the quad's
+// region (produced by the separable blur pass below), sampled with
+// screen-space UVs derived from the region cbuffer. This is the GPU
+// counterpart of the CPU rasterizer's applyBoxBlur + tint: because the
+// tint composite is affine in the backdrop and the Gaussian is linear,
+// blur-then-tint and tint-then-blur agree for constant tints (and for
+// the smooth gradients materials actually use), so both backends
+// produce the same frosted-glass result.
+
+let batchMaterialQuadShaderSource = batchQuadShaderSharedSource + "\n" + #"""
+Texture2D backdropTexture : register(t1);
+SamplerState backdropSampler : register(s0);
+
+cbuffer BackdropRegion : register(b1)
+{
+    // xy = region origin in surface pixels, zw = size of the backdrop
+    // TEXTURE in pixels (the texture may be larger than the region:
+    // ping-pong targets grow-only, and the region always sits at the
+    // texture's origin, so dividing by texture size lands the sample on
+    // the right texel).
+    float4 backdropRegion;
+};
+
+float4 psMain(VSOutput input) : SV_Target
+{
+    float clipAlpha = 1.0;
+
+    // Per-pixel clip check: identical to the plain quad shader.
+    if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
+    {
+        if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
+            input.pixelPosition.x > input.clipRect.x + input.clipRect.z ||
+            input.pixelPosition.y > input.clipRect.y + input.clipRect.w)
+        {
+            discard;
+        }
+
+        if (input.clipRadius > 0.0)
+        {
+            float2 clipLocalPosition = input.pixelPosition - input.clipRect.xy;
+            float clipDistance = roundedRectDistance(
+                clipLocalPosition, input.clipRect.zw,
+                float4(input.clipRadius, input.clipRadius, input.clipRadius, input.clipRadius));
+            float clipAA = max(fwidth(clipDistance), 0.75);
+            clipAlpha = saturate(0.5 - clipDistance / clipAA);
+            if (clipAlpha <= 0.0)
+            {
+                discard;
+            }
+        }
+    }
+
+    float distance = roundedRectDistance(input.localPosition, input.size, input.cornerRadii);
+    float aa = max(fwidth(distance), 0.75);
+    // The backdrop blur is real now (done before this draw), so the
+    // coverage falloff is plain anti-aliasing — no blurRadius widening.
+    float alpha = saturate(0.5 - distance / aa);
+
+    float gradientT = input.gradientAxis > 0.5
+        ? saturate(input.localPosition.x / max(input.size.x, 1.0))
+        : saturate(input.localPosition.y / max(input.size.y, 1.0));
+
+    float4 color = lerp(input.startColor, input.endColor, gradientT);
+
+    // 8 = luminanceToAlpha
+    if (input.effectType > 7.5 && input.effectType < 8.5)
+    {
+        float lum = dot(color.rgb, float3(0.299, 0.587, 0.114));
+        color.rgb = float3(lum, lum, lum);
+        color.a = lum;
+    }
+    else
+    {
+        color.rgb = applyColorEffect(color.rgb, input.effectType, input.effectIntensity, input.effectParam1, input.effectParam2, input.effectParam3, input.effectParam4);
+    }
+
+    // Sample the blurred backdrop at this pixel's screen position.
+    // Pixels outside the region clamp to the region's edge texels.
+    float2 uv = (input.pixelPosition - backdropRegion.xy) / backdropRegion.zw;
+    float4 backdrop = backdropTexture.Sample(backdropSampler, uv);
+
+    // Source-over composite of the tint over the blurred backdrop,
+    // matching what the CPU rasterizer's in-place blur + blend yields.
+    float3 composited = color.rgb * color.a + backdrop.rgb * (1.0 - color.a);
+    float outA = input.blurOpaque > 0.5
+        ? 1.0
+        : color.a + backdrop.a * (1.0 - color.a);
+
+    float coverage = alpha * clipAlpha;
+    return float4(composited * coverage, outA * coverage);
+}
+"""#
+
+// MARK: - Separable Gaussian Blur Shader (fullscreen triangle, source t0)
+//
+// One pass of the two-pass separable Gaussian used for Material backdrop
+// blur. The batch renderer runs it horizontally into one offscreen
+// target, then vertically back into the other. Weights come from the
+// same gaussianBlurKernel(radius:) the CPU rasterizer uses (sigma =
+// radius / 2), uploaded by the engine into the cbuffer below, so both
+// backends share the exact kernel shape. Edge handling differs slightly:
+// the CPU pass re-normalizes the truncated kernel at bounds edges while
+// the GPU sampler clamps (edge-texel duplication) — visually equivalent
+// for the soft materials these passes serve.
+
+let batchBackdropBlurShaderSource = #"""
+cbuffer BlurParams : register(b0)
+{
+    // xy = texel-space step direction ((1/width, 0) or (0, 1/height)) in
+    // texture UV space, z = tap radius, w = unused.
+    float4 blurDirection;
+    // xy = region/texture UV scale (the ping-pong targets are grow-only,
+    // so the region being blurred may be smaller than the texture),
+    // zw = unused.
+    float4 blurUVScale;
+    // Symmetric Gaussian weights; blurWeights[0] is the centre tap and
+    // taps ±i both use entry i. 33 float4s = 132 floats, so radii up to
+    // 128 fit (materials top out at 40).
+    float4 blurWeights[33];
+};
+
+Texture2D blurSource : register(t0);
+SamplerState blurSampler : register(s0);
+
+struct VSOutput
+{
+    float4 position : SV_Position;
+    float2 uv : TEXCOORD0;
+};
+
+VSOutput vsMain(uint vertexID : SV_VertexID)
+{
+    // Single fullscreen triangle; no vertex buffers needed.
+    float2 pos = float2((vertexID << 1) & 2, vertexID & 2);
+    VSOutput output;
+    output.position = float4(pos.x * 2.0 - 1.0, 1.0 - pos.y * 2.0, 0.0, 1.0);
+    output.uv = pos;
+    return output;
+}
+
+float blurWeightAt(int index)
+{
+    return blurWeights[index >> 2][index & 3];
+}
+
+float4 psMain(VSOutput input) : SV_Target
+{
+    int radius = (int)blurDirection.z;
+    float2 uv = input.uv * blurUVScale.xy;
+    float4 sum = blurSource.Sample(blurSampler, uv) * blurWeightAt(0);
+    for (int i = 1; i <= radius; i++)
+    {
+        float weight = blurWeightAt(i);
+        float2 offset = blurDirection.xy * (float)i;
+        sum += blurSource.Sample(blurSampler, uv + offset) * weight;
+        sum += blurSource.Sample(blurSampler, uv - offset) * weight;
+    }
+    return sum;
 }
 """#
 

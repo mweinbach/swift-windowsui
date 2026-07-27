@@ -23,9 +23,10 @@ limits in `README.md`, `docs/WinSwiftUI.md`, `docs/Testing.md`,
   live regions are **not implemented**.
 - `EnvironmentValues.colorSchemeContrast` exists; **Windows high-contrast /
   system-settings wiring is not implemented**.
-- `EnvironmentValues.supportsMultipleWindows` defaults to `false`;
-  `openWindow` / `dismissWindow` are **no-ops** unless injected. One live
-  `WindowGroup` is the current host model.
+- `WinSwiftUIWindowCoordinator` hosts multiple windows (own host/runtime/
+  renderer each); default `openWindow` / `dismissWindow` routing is live and
+  `supportsMultipleWindows` is true for coordinator-managed hosts.
+  `openSettings` / `Settings` scenes remain **unsupported**.
 - Local validation scripts are strong. `.github/workflows/windows-ci.yml` now
   runs contracts on every change, Quick on pull requests / branch pushes, and
   Full plus screenshot upload on main, schedule, and manual dispatch. Hosted
@@ -76,10 +77,11 @@ source-only API surface.
       (track controls re-resolve geometry in `onLayout`: slider, progress bar,
       circular progress, toggle thumb; pinned by `ControlGeometryTests` at
       gallery canvas sizes)
-- [ ] Text fields support selection, clipboard, caret, and IME smoke flows
-      (selection, clipboard, caret, and mouse-drag selection landed —
-      clipboard injectable via `\.textInputClipboard`, drag selection via the
-      new public `RetainedTextMetrics`; IME remains)
+- [x] Text fields support selection, clipboard, caret, and IME smoke flows
+      (selection/clipboard/caret/drag landed earlier; IME composition now
+      flows WM_IME_* → marked underlined text → commit, candidate window
+      positioned at the caret — `TextInputIMECompositionTests`; live-IME
+      desktop smoke pending)
 - [x] Lists/forms support mouse and keyboard navigation with stable row chrome
       (arrow-key selection with focus + scroll-into-view, constant row
       metrics, hover highlight, form section clipping)
@@ -450,11 +452,17 @@ with per-window retained runtimes and honest `supportsMultipleWindows`.
 
 ### Exit criteria
 
-- [ ] Demo or gallery can open a second window via `openWindow`
-- [ ] Closing windows does not tear down unrelated runtimes incorrectly
-- [ ] `supportsMultipleWindows` reflects reality
-- [ ] Per-window invalidation/render loops remain main-actor safe
-- [ ] Automated host tests cover open/dismiss; manual multi-monitor smoke
+- [x] Demo or gallery can open a second window via `openWindow`
+      (settings screen "Open Second Window" button → `openWindow(id:)`;
+      `WinSwiftUIWindowCoordinator` spawns an independent host/runtime/
+      renderer)
+- [x] Closing windows does not tear down unrelated runtimes incorrectly
+      (per-window teardown on WM_DESTROY; last-window-quit via coordinator)
+- [x] `supportsMultipleWindows` reflects reality
+      (true for coordinator-managed hosts, false otherwise — pinned by test)
+- [x] Per-window invalidation/render loops remain main-actor safe
+- [x] Automated host tests cover open/dismiss; manual multi-monitor smoke
+      (`WindowCoordinatorTests` — 11 tests; desktop smoke pending)
 
 ### Validation commands
 

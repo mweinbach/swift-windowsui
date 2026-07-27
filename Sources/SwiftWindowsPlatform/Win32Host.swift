@@ -32,13 +32,18 @@ public protocol WindowDelegate: AnyObject {
     func windowDidChangeSystemSettings(_ window: Win32Window)
     func window(_ window: Win32Window, middleMouseDownAt point: Point)
     func window(_ window: Win32Window, middleMouseUpAt point: Point)
-    func window(_ window: Win32Window, imeCompositionStarted placeholder: Bool)
-    func window(_ window: Win32Window, imeCompositionString text: String)
-    func window(_ window: Win32Window, imeCompositionEnded placeholder: Bool)
-    func window(_ window: Win32Window, imeChar character: UInt32)
+    /// IME composition events (started / marked-text update / committed
+    /// result / ended). Only delivered while an IME is actively composing.
+    func window(_ window: Win32Window, imeComposition event: IMECompositionEvent)
+    /// Caret rectangle of the focused text input in logical root
+    /// coordinates, used to position the OS IME candidate/composition
+    /// window. Return `nil` when no text input is focused.
+    func windowTextInputCaretRect(_ window: Win32Window) -> Rect?
     func window(_ window: Win32Window, touchBegan points: [Point])
     func window(_ window: Win32Window, touchMoved points: [Point])
     func window(_ window: Win32Window, touchEnded points: [Point])
+    /// Files dropped onto the window from the shell (WM_DROPFILES).
+    func window(_ window: Win32Window, didReceiveFileDrop payload: FileDropPayload)
 }
 extension WindowDelegate {
     public func windowDidCreate(_ window: Win32Window) {}
@@ -62,13 +67,12 @@ extension WindowDelegate {
     public func windowDidChangeSystemSettings(_ window: Win32Window) {}
     public func window(_ window: Win32Window, middleMouseDownAt point: Point) {}
     public func window(_ window: Win32Window, middleMouseUpAt point: Point) {}
-    public func window(_ window: Win32Window, imeCompositionStarted placeholder: Bool) {}
-    public func window(_ window: Win32Window, imeCompositionString text: String) {}
-    public func window(_ window: Win32Window, imeCompositionEnded placeholder: Bool) {}
-    public func window(_ window: Win32Window, imeChar character: UInt32) {}
+    public func window(_ window: Win32Window, imeComposition event: IMECompositionEvent) {}
+    public func windowTextInputCaretRect(_ window: Win32Window) -> Rect? { nil }
     public func window(_ window: Win32Window, touchBegan points: [Point]) {}
     public func window(_ window: Win32Window, touchMoved points: [Point]) {}
     public func window(_ window: Win32Window, touchEnded points: [Point]) {}
+    public func window(_ window: Win32Window, didReceiveFileDrop payload: FileDropPayload) {}
 }
 public struct Win32PlatformError: Error, CustomStringConvertible, Sendable {
     public let operation: String
@@ -92,6 +96,12 @@ public final class Win32Window {
     /// `UIAProviderBridge`) to expose the window's content to assistive
     /// technology.
     public var accessibilityProvider: (any Win32WindowAccessibilityProvider)?
+
+    /// When true (the default), `WM_DESTROY` posts `PostQuitMessage`,
+    /// preserving the historical single-window quit behavior. Multi-window
+    /// coordinators set this to false and post the quit message themselves
+    /// once the last managed window has closed.
+    public var postsQuitMessageOnDestroy = true
 
     public let title: String
     public private(set) var clientSize: IntSize
@@ -128,6 +138,11 @@ public final class Win32Window {
     /// substitute a fake so the host stays headless.
     public var systemAppearanceProvider: any SystemAppearanceProvider = Win32SystemAppearanceProvider()
     private var cachedSystemAppearance: SystemAppearanceSnapshot?
+
+    // IME composition context
+    /// Injectable IMM32 seam; defaults to the live IMM32 API. Tests
+    /// substitute a fake so composition translation stays headless.
+    public var imeCompositionContextProvider: any IMECompositionContextProvider = Win32IMECompositionContextProvider()
 
     // High-resolution timer support
     public var useHighResolutionTimer: Bool = false
@@ -244,6 +259,11 @@ public final class Win32Window {
         }
 
         hwnd = createdWindow
+
+        // Accept files dragged from the shell (WM_DROPFILES).
+        if let window = createdWindow {
+            FileDropManager.setAcceptsDroppedFiles(on: window, true)
+        }
 
         // Register for touch input
         if let window = createdWindow {
@@ -718,24 +738,43 @@ public final class Win32Window {
             }
             return DefWindowProcW(hwnd, message, wParam, lParam)
 
-        // IME composition messages
+        // IME composition messages. The app paints its own marked
+        // (composition) text, so WM_IME_SETCONTEXT hides the OS in-line
+        // composition window while keeping the candidate window; composition
+        // and result strings become `IMECompositionEvent`s routed through
+        // the delegate. When no IME is active none of these fire and
+        // keyboard input is byte-identical to the pre-IME path.
+
+        case UINT(WM_IME_SETCONTEXT):
+            let adjustedLParam = Self.imeSetContextAdjustedLParam(lParam)
+            return DefWindowProcW(hwnd, message, wParam, adjustedLParam)
 
         case UINT(WM_IME_STARTCOMPOSITION):
-            delegate?.window(self, imeCompositionStarted: true)
+            updateIMECompositionWindowPosition()
+            delegate?.window(self, imeComposition: IMECompositionEvent(phase: .started))
             return DefWindowProcW(hwnd, message, wParam, lParam)
 
         case UINT(WM_IME_COMPOSITION):
-            if let compositionString = Self.extractIMECompositionString(hwnd: hwnd, lParam: lParam) {
-                delegate?.window(self, imeCompositionString: compositionString)
+            for event in Self.imeCompositionEvents(
+                lParam: lParam,
+                provider: imeCompositionContextProvider,
+                hwnd: hwnd
+            ) {
+                delegate?.window(self, imeComposition: event)
             }
+            updateIMECompositionWindowPosition()
             return DefWindowProcW(hwnd, message, wParam, lParam)
 
         case UINT(WM_IME_ENDCOMPOSITION):
-            delegate?.window(self, imeCompositionEnded: true)
+            delegate?.window(self, imeComposition: IMECompositionEvent(phase: .ended))
             return DefWindowProcW(hwnd, message, wParam, lParam)
 
         case UINT(WM_IME_CHAR):
-            delegate?.window(self, imeChar: UInt32(truncatingIfNeeded: wParam))
+            // Sent when input bypasses the composition window; treat the
+            // character as an immediately committed result string.
+            if let scalar = Unicode.Scalar(UInt32(truncatingIfNeeded: wParam)) {
+                delegate?.window(self, imeComposition: IMECompositionEvent(phase: .committed(String(scalar))))
+            }
             return 0
 
         // Touch input
@@ -747,7 +786,15 @@ public final class Win32Window {
         case UINT(WM_DESTROY):
             setAnimationTimerEnabled(false)
             delegate?.windowWillClose(self)
-            PostQuitMessage(0)
+            if postsQuitMessageOnDestroy {
+                PostQuitMessage(0)
+            }
+            return 0
+
+        case UINT(WM_DROPFILES):
+            if let payload = FileDropManager.payload(forDropHandle: UInt(wParam)) {
+                delegate?.window(self, didReceiveFileDrop: payload)
+            }
             return 0
 
         default:
@@ -769,28 +816,65 @@ public final class Win32Window {
 
     // MARK: - IME helpers
 
-    private static func extractIMECompositionString(hwnd: HWND?, lParam: LPARAM) -> String? {
-        guard let hwnd else { return nil }
-
-        let hasResult = (UInt(truncatingIfNeeded: lParam) & UInt(GCS_RESULTSTR)) != 0
-        let hasComposition = (UInt(truncatingIfNeeded: lParam) & UInt(GCS_COMPSTR)) != 0
-        let flag: DWORD = hasResult ? DWORD(GCS_RESULTSTR) : (hasComposition ? DWORD(GCS_COMPSTR) : 0)
-
-        guard flag != 0 else { return nil }
-
-        let imc = ImmGetContext(hwnd)
-        guard let imc else { return nil }
-        defer { ImmReleaseContext(hwnd, imc) }
-
-        let byteCount = ImmGetCompositionStringW(imc, flag, nil, 0)
-        guard byteCount > 0 else { return nil }
-
-        let charCount = Int(byteCount) / MemoryLayout<WCHAR>.size
-        var buffer = [WCHAR](repeating: 0, count: charCount + 1)
-        ImmGetCompositionStringW(imc, flag, &buffer, DWORD(byteCount))
-
-        return String(decoding: buffer.prefix(charCount), as: UTF16.self)
+    /// Adjusts a `WM_IME_SETCONTEXT` lParam so the OS does not draw its own
+    /// in-line composition window: the app paints marked text itself. The
+    /// candidate window stays enabled. Static and internal so headless tests
+    /// can verify the bit manipulation.
+    static func imeSetContextAdjustedLParam(_ lParam: LPARAM) -> LPARAM {
+        lParam & ~LPARAM(bitPattern: UInt64(Self.iscShowUICompositionWindowFlag))
     }
+
+    /// Pure translation of a `WM_IME_COMPOSITION` lParam into delegate events
+    /// via the injectable context provider. A single message can carry both a
+    /// composition-string update and a result string; the update is delivered
+    /// first so the commit lands on the latest marked state. Static and
+    /// internal so headless tests can drive it with a fake provider.
+    static func imeCompositionEvents(
+        lParam: LPARAM,
+        provider: any IMECompositionContextProvider,
+        hwnd: HWND?
+    ) -> [IMECompositionEvent] {
+        let flags = UInt(truncatingIfNeeded: lParam)
+        var events: [IMECompositionEvent] = []
+
+        if (flags & UInt(GCS_COMPSTR)) != 0,
+            let composition = provider.compositionString(window: hwnd)
+        {
+            events.append(IMECompositionEvent(phase: .updated(composition)))
+        }
+
+        if (flags & UInt(GCS_RESULTSTR)) != 0,
+            let result = provider.resultString(window: hwnd)
+        {
+            events.append(IMECompositionEvent(phase: .committed(result)))
+        }
+
+        return events
+    }
+
+    /// Repositions the IME composition/candidate window at the focused text
+    /// input's caret. The delegate reports the caret rectangle in logical
+    /// root coordinates; IMM32 expects client coordinates in physical pixels,
+    /// so the window scale factor is applied. Positioned at the caret's
+    /// bottom-leading corner so the candidate window opens below the text.
+    private func updateIMECompositionWindowPosition() {
+        guard let hwnd,
+            let caretRect = delegate?.windowTextInputCaretRect(self)
+        else {
+            return
+        }
+
+        let scale = scaleFactor
+        let clientPoint = Point(
+            x: (caretRect.origin.x * scale).rounded(),
+            y: ((caretRect.origin.y + caretRect.size.height) * scale).rounded()
+        )
+        imeCompositionContextProvider.setCompositionWindowPosition(clientPoint, window: hwnd)
+    }
+
+    /// `ISC_SHOWUICOMPOSITIONWINDOW` from imm.h. Declared locally because the
+    /// Swift WinSDK module does not export the constant.
+    private static let iscShowUICompositionWindowFlag: UInt32 = 0x8000_0000
 
     // MARK: - Touch helpers
 
@@ -1016,6 +1100,67 @@ public final class Win32Window {
     }
 }
 
+// MARK: - IME composition context
+
+/// IMM32 composition-context access behind an injectable seam (same
+/// precedent as `SystemAppearanceProvider`): the production default is
+/// `Win32IMECompositionContextProvider`; tests inject fakes so composition
+/// translation stays headless (no live IME required).
+public protocol IMECompositionContextProvider: Sendable {
+    /// Current in-progress composition string (`GCS_COMPSTR`), `nil` when
+    /// absent or unavailable.
+    func compositionString(window hwnd: HWND?) -> String?
+    /// Committed result string (`GCS_RESULTSTR`), `nil` when absent or
+    /// unavailable.
+    func resultString(window hwnd: HWND?) -> String?
+    /// Moves the composition window (`CFS_POINT`) to a client-space point in
+    /// physical pixels; the candidate window follows it.
+    func setCompositionWindowPosition(_ point: Point, window hwnd: HWND?)
+}
+
+/// Live IMM32 implementation used by `Win32Window` in production.
+public struct Win32IMECompositionContextProvider: IMECompositionContextProvider {
+    public init() {}
+
+    public func compositionString(window hwnd: HWND?) -> String? {
+        compositionString(window: hwnd, flag: DWORD(GCS_COMPSTR))
+    }
+
+    public func resultString(window hwnd: HWND?) -> String? {
+        compositionString(window: hwnd, flag: DWORD(GCS_RESULTSTR))
+    }
+
+    public func setCompositionWindowPosition(_ point: Point, window hwnd: HWND?) {
+        guard let hwnd, let imc = ImmGetContext(hwnd) else {
+            return
+        }
+        defer { ImmReleaseContext(hwnd, imc) }
+
+        var form = COMPOSITIONFORM()
+        form.dwStyle = DWORD(CFS_POINT)
+        form.ptCurrentPos = POINT(x: LONG(point.x), y: LONG(point.y))
+        ImmSetCompositionWindow(imc, &form)
+    }
+
+    private func compositionString(window hwnd: HWND?, flag: DWORD) -> String? {
+        guard let hwnd, let imc = ImmGetContext(hwnd) else {
+            return nil
+        }
+        defer { ImmReleaseContext(hwnd, imc) }
+
+        let byteCount = ImmGetCompositionStringW(imc, flag, nil, 0)
+        guard byteCount > 0 else {
+            return nil
+        }
+
+        let charCount = Int(byteCount) / MemoryLayout<WCHAR>.size
+        var buffer = [WCHAR](repeating: 0, count: charCount + 1)
+        ImmGetCompositionStringW(imc, flag, &buffer, DWORD(byteCount))
+
+        return String(decoding: buffer.prefix(charCount), as: UTF16.self)
+    }
+}
+
 // MARK: - System appearance sampling
 
 /// Value snapshot of OS-level appearance settings that drive environment
@@ -1153,10 +1298,17 @@ public struct Win32SystemAppearanceProvider: SystemAppearanceProvider {
 public enum Win32Application {
     @discardableResult
     public static func run(window: Win32Window) throws -> Int32 {
+        try start(window: window)
+        return try runMessageLoop()
+    }
+
+    /// Creates and shows the window without entering the message loop.
+    /// Multi-window coordinators use this to realize additional windows
+    /// after the primary window has booted.
+    public static func start(window: Win32Window) throws {
         Win32HighDpiSupport.enableIfNeeded()
         try window.create()
         window.show()
-        return try runMessageLoop()
     }
 
     @discardableResult
@@ -1169,6 +1321,12 @@ public enum Win32Application {
         }
 
         return Int32(truncatingIfNeeded: message.wParam)
+    }
+
+    /// Posts `WM_QUIT` so `runMessageLoop` returns. Used by multi-window
+    /// coordinators once the last managed window has closed.
+    public static func terminateMessageLoop() {
+        PostQuitMessage(0)
     }
 }
 @MainActor

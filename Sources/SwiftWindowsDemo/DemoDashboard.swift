@@ -1418,6 +1418,7 @@ public struct DemoComponent: Identifiable, Hashable, Sendable {
 /// segmented picker, stepper, toggles, slider, gauge, progress, and buttons.
 struct DemoSettingsScreen: View {
     @ObservedObject var model: DemoDashboardModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         NavigationStack {
@@ -1474,6 +1475,10 @@ struct DemoSettingsScreen: View {
 
                         Button("Reset To Defaults", role: .destructive) {
                             model.resetSettings()
+                        }
+
+                        Button("Open Second Window") {
+                            openWindow(id: "main-dashboard")
                         }
                     }
                 }

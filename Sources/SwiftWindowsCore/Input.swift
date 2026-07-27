@@ -60,3 +60,28 @@ public struct KeyboardEvent: Sendable {
         KeyboardKey(rawValue: keyCode)
     }
 }
+/// An input-method-editor (IME) composition event, translated from the
+/// `WM_IME_*` message stream by the Win32 host and routed to the focused
+/// text input. The host only emits these while an IME is actively composing;
+/// all other keyboard input keeps flowing through `KeyboardEvent`.
+public struct IMECompositionEvent: Sendable, Equatable {
+    public enum Phase: Sendable, Equatable {
+        /// The IME started a composition session.
+        case started
+        /// The in-progress (marked) composition string changed. An empty
+        /// string clears the marked text without committing.
+        case updated(String)
+        /// The IME produced a final result string to insert as normal text
+        /// (replacing the current selection, if any).
+        case committed(String)
+        /// The composition session ended. Any marked text still showing is
+        /// discarded when no commit preceded this.
+        case ended
+    }
+
+    public var phase: Phase
+
+    public init(phase: Phase) {
+        self.phase = phase
+    }
+}

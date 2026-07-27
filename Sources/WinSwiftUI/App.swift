@@ -57,12 +57,11 @@ extension App {
         let factory = Self.renderBackendFactory()
 
         do {
-            let host = WinSwiftUIWindowHost(
-                configuration: app.body.makeWindowConfiguration(),
-                renderer: factory.makeRenderBackend(),
-                batchRenderer: factory.makeBatchRenderBackend()
+            let coordinator = WinSwiftUIWindowCoordinator(
+                sceneConfigurations: [app.body.makeWindowConfiguration()],
+                renderBackendFactory: factory
             )
-            _ = try host.run()
+            _ = try coordinator.run()
         } catch {
             print("Failed to start WinSwiftUI app: \(error)")
         }
@@ -1608,6 +1607,16 @@ enum WindowHostInputEvent {
     case keyDown(KeyboardEvent)
     case keyboardFocusDidLeaveWindow
 }
+/// Per-window environment installed by `WinSwiftUIWindowCoordinator`. Hosts
+/// created without a coordinator keep the historical defaults: no-op window
+/// actions, `supportsMultipleWindows == false`, and the shared scene-storage
+/// scope.
+struct WindowSceneEnvironment {
+    var openWindow: OpenWindowAction
+    var dismissWindow: DismissWindowAction
+    var supportsMultipleWindows: Bool
+    var sceneStorageScope: String
+}
 @MainActor
 final class WinSwiftUIWindowHost: WindowDelegate {
     private enum PresentationBackend {
@@ -1719,6 +1728,21 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// Optional callback for recording input events after the runtime consumes them.
     /// Used by host tests to prove the real WinSwiftUIWindowHost routed converted input.
     var onInputEventRouted: ((WindowHostInputEvent) -> Void)?
+
+    /// Per-window environment installed by the window coordinator. Nil for
+    /// hosts created outside a coordinator (tests, single-window boots).
+    var windowEnvironment: WindowSceneEnvironment?
+
+    /// Invoked from `windowWillClose` after the host tears down its own UIA
+    /// bridge; the window coordinator uses it to drop the window's record and
+    /// apply the last-window-quit policy.
+    var onWindowClosed: ((WinSwiftUIWindowHost) -> Void)?
+
+    /// The Win32 window this host drives. Exposed for the window
+    /// coordinator's platform hooks (start/close) and for tests.
+    var platformWindow: Win32Window {
+        window
+    }
 
     /// Current timer state for observability. Updated by `syncAnimationDriver`.
     private(set) var currentTimerState: TimerState = TimerState(
@@ -1899,6 +1923,21 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         commitRuntimeState(in: window, interactive: true)
     }
 
+    func window(_ window: Win32Window, imeComposition event: IMECompositionEvent) {
+        runtime.imeComposition(event)
+        commitRuntimeState(in: window, interactive: true)
+    }
+
+    func windowTextInputCaretRect(_ window: Win32Window) -> Rect? {
+        runtime.focusedTextInputCaretRect
+    }
+
+    func window(_ window: Win32Window, didReceiveFileDrop payload: FileDropPayload) {
+        let logicalPoint = logicalPoint(payload.clientPoint, scaleFactor: window.scaleFactor)
+        _ = runtime.performFileDrop(payload.fileURLs, at: logicalPoint)
+        commitRuntimeState(in: window, interactive: true)
+    }
+
     func window(_ window: Win32Window, keyDown event: KeyboardEvent) {
         runtime.keyDown(event)
         onInputEventRouted?(.keyDown(event))
@@ -1957,6 +1996,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     func windowWillClose(_ window: Win32Window) {
         uiaBridge?.disconnect()
+        onWindowClosed?(self)
     }
 
     private var buildContext: ViewBuildContext {
@@ -1980,11 +2020,15 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                     scenePhase: self?.resolvedScenePhase ?? .active,
                     controlActiveState: self?.resolvedControlActiveState ?? .active,
                     appearsActive: self?.resolvedAppearsActive ?? true,
+                    supportsMultipleWindows: self?.windowEnvironment?.supportsMultipleWindows ?? false,
                     displayScale: displayScale,
                     pixelLength: Self.pixelLength(for: displayScale),
                     horizontalSizeClass: self?.resolvedHorizontalSizeClass ?? .regular,
                     verticalSizeClass: self?.resolvedVerticalSizeClass ?? .regular,
-                    undoManager: self?.undoManager
+                    undoManager: self?.undoManager,
+                    openWindow: self?.windowEnvironment?.openWindow ?? .noop,
+                    dismissWindow: self?.windowEnvironment?.dismissWindow ?? .noop,
+                    sceneStorageScope: self?.windowEnvironment?.sceneStorageScope ?? "shared"
                 )
                 .applyingSystemAppearance(self?.window.systemAppearance ?? .unavailable)
             }

@@ -55,7 +55,7 @@ public symbols.
 These categories are the intended production subset: settings-style and
 dashboard composition on a single custom-rendered window.
 
-### App hosting — Implemented (single window)
+### App hosting — Implemented (multi-window via coordinator)
 
 | API | Status | Notes |
 | --- | --- | --- |
@@ -105,10 +105,10 @@ dashboard composition on a single custom-rendered window.
 | `Picker` | **Partial** | Segmented, menu, inline, radio, wheel-style shells; not native OS pickers |
 | `Stepper`, `Slider` | **Implemented** | Binding writes with ranges / steps |
 | `ProgressView`, `Gauge` | **Partial** | Determinate / indeterminate retained chrome |
-| `TextField`, `SecureField`, `TextEditor` | **Partial** | Focusable retained input; caret, shift-selection, select-all, clipboard shortcuts, mouse-drag selection (secure fields block copy/cut); no IME |
+| `TextField`, `SecureField`, `TextEditor` | **Partial** | Focusable retained input; caret, shift-selection, select-all, clipboard shortcuts, mouse-drag selection, IME composition (marked text, candidate window at caret; secure fields block copy/cut) |
 | `DatePicker` | **Partial** | Label/value + arrow increments; style shells; not a native calendar UI |
 | `MultiDatePicker` | **Partial** | Month grid multi-select for current month |
-| `ColorPicker` | **Partial** | Swatch + palette keyboard cycle; no native color dialog |
+| `ColorPicker` | **Partial** | Swatch + palette keyboard cycle (default); native `ChooseColorW` dialog opt-in via `\.colorPickerUsesNativeDialog` |
 | `Menu` | **Partial** | Retained popup: canvas-clamped placement, scrim/Escape dismissal, focus restore, deferred layering; not a native Win32 menu bar |
 | `Link` | **Implemented** | Button that invokes `openURL` (ShellExecute on Windows) |
 | `NavigationStack` / `NavigationView` / `NavigationLink` | **Partial** | Local push/pop + title chrome; not UINavigationController semantics |
@@ -119,7 +119,7 @@ dashboard composition on a single custom-rendered window.
 | `sheet`, `fullScreenCover`, `popover` | **Partial** | Retained overlays: deferred layering, scrim dismissal, clamped placement, focus restoration (fullScreenCover: layering only); detents approximated; no native presentation |
 | `alert`, `confirmationDialog`, `actionSheet` | **Partial** | Retained modal chrome: deferred layering, Escape/scrim dismissal per SwiftUI semantics, focus restoration |
 | `contextMenu` | **Partial** | Retained menu overlay: clamped anchor, scrim/Escape dismissal, focus restoration |
-| `ShareLink` | **Partial** | Copies transferable items to clipboard (not system share sheet) |
+| `ShareLink` | **Partial** | Copies transferable items to clipboard — real file references (CF_HDROP) for file URLs, absolute strings otherwise (not system share sheet) |
 | `PhotosPicker` | **Partial** | Opens file dialog; not Photos framework |
 | `fileImporter` / `fileExporter` | **Partial** | Real Win32 open/save dialogs delivering URLs to the app closure; `allowedContentTypes` map to extension filters (category types approximate) |
 | `SettingsLink` / `RenameButton` / `EditButton` | **Partial** | Buttons wired to environment actions / edit mode where present |
@@ -148,7 +148,7 @@ Use these when you accept retained approximations.
 | **Scrolling** | Wheel/drag offset, indicators, bounce metadata | True two-axis scroll, paging / view-aligned deceleration, scroll observation callbacks, `ScrollViewReader` offset connection |
 | **Gestures** | Tap, long-press (release-inside), drag mapped to pointer | Duration thresholds, full gesture composition/arbitration, simultaneous value streaming |
 | **Focus** | Focus rings, `@FocusState`, activation | Dynamic `@FocusedValue` retargeting as focus moves; environment `isFocused` live transitions |
-| **Drag and drop** | API + metadata on nodes | Full delete/reorder/drop affordances and OS drag sessions |
+| **Drag and drop** | API + metadata on nodes; OS file drops (WM_DROPFILES) delivered to `onDrop` destinations as file URLs | Full delete/reorder/drop affordances, drag-over highlighting, OLE drag sessions |
 | **Accessibility** | Metadata on `ViewNode` + derived `AccessibilityElementProjection` + Win32 UI Automation provider (`WM_GETOBJECT`, fragment tree, InvokePattern, focus/structure events); default traits on Supported controls | Value/Text/Selection/Toggle patterns, live regions, fine-grained structure-changed events |
 | **Materials / blur** | True separable-Gaussian backdrop blur on both paths (D3D11: backbuffer region copy + two-pass GPU blur, same kernel as CPU); design-parity constants | Rotated material quads approximate; no downsample chain |
 | **Blend / drawing groups** | Metadata; some blend modes on frame fallback | Scene-path offscreen group compositing as full SwiftUI drawing groups |
@@ -170,12 +170,12 @@ behavior** unless a note says otherwise.
 
 | API | Status | Behavior today |
 | --- | --- | --- |
-| `openWindow` / `dismissWindow` | **Shim / no-op** (default) | Default actions no-op; inject handlers for tests/shared flows. No multi-window hosting |
+| `openWindow` / `dismissWindow` | **Implemented** (default routing) | Coordinator opens independent windows (own host/runtime/renderer) for id- and value-based WindowGroups; dismiss closes the calling scene's window or matches by id/value |
 | `openSettings` | **Shim / no-op** (default) | `SettingsLink` button calls it; no Settings scene lifecycle |
 | `requestReview` | **Shim / no-op** (default) | No StoreKit / Microsoft Store review prompt |
 | `Settings`, `DocumentGroup`, `MenuBarExtra` | **Shim / Partial** | Types and configs exist; not first-class hosted scene products |
 | `ImmersiveSpace`, `Volume`, Widget configs | **Shim** | Source shapes only; no visionOS / widget runtime |
-| `supportsMultipleWindows` | **Shim** | Defaults `false` |
+| `supportsMultipleWindows` | **Implemented** | True for coordinator-managed hosts; false otherwise |
 
 ### Environment / system flags
 
@@ -274,7 +274,7 @@ Do not expect these Apple/platform integrations on Windows retained runtime:
 | Full SF Symbols library + multicolor layers | Deterministic retained glyphs |
 | Asset catalogs as on Apple platforms | Path/WIC + hex color-name fallbacks |
 | UI Automation / VoiceOver parity | Core UIA provider implemented (read/invoke/focus); advanced patterns and live regions missing |
-| Multi-window document architecture | Single live `WindowGroup` host |
+| Multi-window document architecture | Multi-window hosting implemented (coordinator); DocumentGroup remains a shim |
 | Software keyboard / dictation | Not hosted |
 
 `Link` / `openURL` **does** shell-open URLs on Windows via `ShellExecuteW` — that

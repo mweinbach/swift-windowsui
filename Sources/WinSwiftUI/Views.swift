@@ -12602,7 +12602,7 @@ private func textInputComponent(
             .scaled(for: context.dynamicTypeSize)
             .scaled(by: context.textScale)
 
-        @MainActor func makeTextLabel(_ content: String) -> ViewNode {
+        @MainActor func makeTextLabel(_ content: String, underlined: Bool = false) -> ViewNode {
             Controls.label(
                 content,
                 color: textColor,
@@ -12620,7 +12620,8 @@ private func textInputComponent(
                 letterSpacing: context.letterSpacing ?? 1,
                 lineSpacing: context.lineSpacing ?? resolvedFont.resolvedLineSpacing,
                 lineBreakMode: allowsNewlines ? .wrap : .truncateTail,
-                maximumNumberOfLines: allowsNewlines ? nil : 1
+                maximumNumberOfLines: allowsNewlines ? nil : 1,
+                underline: underlined
             )
         }
         let contentText = isShowingPlaceholder ? (resolvedPlaceholder ?? "") : displayText
@@ -12677,6 +12678,15 @@ private func textInputComponent(
 
         let caretLineHeight = resolvedFont.resolvedNativeTextSize
         let chromeState = TextInputEditingChromeState()
+        // Display-ready marked (IME composition) text: secure fields mask it
+        // like their committed text, matching macOS secure-field behavior of
+        // allowing IME input but never echoing composition characters.
+        @MainActor func displayMarkedText() -> String? {
+            guard let marked = node.textInputMarkedText, !marked.isEmpty else {
+                return nil
+            }
+            return isSecure ? String(repeating: "*", count: marked.count) : marked
+        }
         @MainActor func refreshChrome() {
             updateTextInputEditingChrome(
                 node: node,
@@ -12686,13 +12696,68 @@ private func textInputComponent(
                 caretColor: textColor,
                 selectionColor: context.tint.opacity(0.35),
                 caretSize: Size(width: 1.5, height: caretLineHeight),
+                markedText: displayMarkedText(),
                 state: chromeState,
-                makeSegmentLabel: makeTextLabel
+                makeSegmentLabel: { makeTextLabel($0) },
+                makeMarkedSegmentLabel: { makeTextLabel($0, underlined: true) }
             )
         }
         // Rebuild caret/selection chrome after every layout pass so it tracks
         // focus, caret, and selection changes across runtime rebuilds.
         node.onLayout = { _ in refreshChrome() }
+
+        // Caret rectangle in root coordinates for the OS IME candidate
+        // window (ImmSetCompositionWindow via the window host). Follows the
+        // composition display state so the candidate window tracks the end of
+        // the marked text while composing.
+        node.textInputCaretRectProvider = { [weak node, weak labelNode] in
+            guard let node, let labelNode else {
+                return nil
+            }
+            let sourceText =
+                isSecure && !currentText.isEmpty
+                ? String(repeating: "*", count: currentText.count) : currentText
+            let selection = node.textInputSelection?.editableCharacterRange(in: sourceText)
+            let caret = clampedTextOffset(node.textInputCaretOffset, in: sourceText)
+            let display = textInputCompositionDisplayState(
+                contentText: sourceText,
+                caret: caret,
+                selection: selection,
+                markedText: displayMarkedText()
+            )
+            let lineRanges = textInputHardLineRanges(in: display.text)
+            let caretLineIndex = lineRanges.lastIndex(where: { $0.lowerBound <= display.caret }) ?? 0
+            var rowTop = 0.0
+            var rowHeight = max(1, caretLineHeight)
+            for (index, lineRange) in lineRanges.enumerated() {
+                let line = display.text.textSubstring(in: lineRange)
+                let height = max(
+                    1,
+                    RetainedTextMetrics.size(
+                        of: line.isEmpty ? " " : line,
+                        style: labelNode.textStyle,
+                        displayScale: runtime.displayScale
+                    ).height
+                )
+                if index == caretLineIndex {
+                    rowHeight = height
+                    break
+                }
+                rowTop += height
+            }
+            let caretLine = display.text.textSubstring(in: lineRanges[caretLineIndex])
+            let caretX = RetainedTextMetrics.caretX(
+                atOffset: display.caret - lineRanges[caretLineIndex].lowerBound,
+                in: caretLine,
+                style: labelNode.textStyle,
+                displayScale: runtime.displayScale
+            )
+            let rootPoint = textInputRootPoint(
+                labelNode: labelNode,
+                contentPoint: Point(x: caretX, y: rowTop)
+            )
+            return Rect(x: rootPoint.x, y: rootPoint.y, width: 0, height: rowHeight)
+        }
 
         node.isFocusable = true
         node.onFocusEnter = { [weak node] in
@@ -12763,6 +12828,16 @@ private func textInputComponent(
             context.invalidate()
         }
         node.onKeyDown = { event in
+
+            // Escape discards an in-progress IME composition without
+            // committing. Real IMEs normally consume Escape themselves and
+            // cancel via WM_IME_COMPOSITION; this covers IMEs that pass the
+            // key through.
+            if event.key == .escape, node.textInputMarkedText != nil {
+                node.textInputMarkedText = nil
+                refreshChrome()
+                return
+            }
 
             if event.key == .enter, !allowsNewlines {
                 if let onCommit {
@@ -12923,6 +12998,43 @@ private func textInputComponent(
             context.invalidate()
         }
 
+        // IME composition flow: updates track the marked (underlined)
+        // composition text at the caret without touching the binding; a
+        // commit inserts the result string as normal text, replacing the
+        // current selection exactly like typed input; ending the session
+        // discards any uncommitted marked text.
+        node.onIMEComposition = { event in
+            switch event.phase {
+            case .started:
+                break
+            case .updated(let composition):
+                let marked =
+                    allowsNewlines
+                    ? composition
+                    : String(composition.prefix(while: { $0 != "\r" && $0 != "\n" }))
+                node.textInputMarkedText = marked.isEmpty ? nil : marked
+                refreshChrome()
+            case .committed(let result):
+                node.textInputMarkedText = nil
+                let inserted =
+                    allowsNewlines
+                    ? result
+                    : String(result.prefix(while: { $0 != "\r" && $0 != "\n" }))
+                guard !inserted.isEmpty else {
+                    refreshChrome()
+                    return
+                }
+                let state = currentSelectionState()
+                let replacementRange = state.range ?? (state.caret..<state.caret)
+                binding.wrappedValue = binding.wrappedValue.replacingText(in: replacementRange, with: inserted)
+                setCaretOffset(replacementRange.lowerBound + inserted.count)
+                context.invalidate()
+            case .ended:
+                node.textInputMarkedText = nil
+                refreshChrome()
+            }
+        }
+
         // Pointer-down places the caret at the hit offset; dragging extends
         // the selection from the down anchor. The runtime's drag branch in
         // pointerDown skips focus updates, so focus is requested explicitly.
@@ -12960,16 +13072,38 @@ private final class TextInputEditingChromeState {
         var selectionLower: Int
         var selectionUpper: Int
         var isActive: Bool
+        var markedText: String
     }
 
     var signature: Signature?
+}
+/// Display-space text state while an IME composition is active: the marked
+/// (composition) text visually replaces the selection — or inserts at the
+/// caret — and the caret moves to the end of the marked range. With no
+/// marked text the inputs pass through unchanged, so the non-IME path is
+/// byte-identical.
+private func textInputCompositionDisplayState(
+    contentText: String,
+    caret: Int,
+    selection: Range<Int>?,
+    markedText: String?
+) -> (text: String, caret: Int, selection: Range<Int>?, markedRange: Range<Int>?) {
+    guard let markedText, !markedText.isEmpty else {
+        return (contentText, caret, selection, nil)
+    }
+
+    let insertion = selection ?? caret..<caret
+    let text = contentText.replacingText(in: insertion, with: markedText)
+    let markedRange = insertion.lowerBound..<(insertion.lowerBound + markedText.count)
+    return (text, markedRange.upperBound, nil, markedRange)
 }
 /// Reconciles the children of a retained text input node so the visible
 /// caret and selection highlight track the node's editing state. In the
 /// inactive state the node keeps exactly its plain label child; in the
 /// active state the label is hidden and replaced by per-line horizontal
-/// segment rows (plain label segments, a tinted highlight segment, and a
-/// 1.5pt caret) so painting flows through the regular scene/frame paths.
+/// segment rows (plain label segments, a tinted highlight segment, an
+/// underlined IME marked segment, and a 1.5pt caret) so painting flows
+/// through the regular scene/frame paths.
 @MainActor
 private func updateTextInputEditingChrome(
     node: ViewNode,
@@ -12979,21 +13113,34 @@ private func updateTextInputEditingChrome(
     caretColor: Color,
     selectionColor: Color,
     caretSize: Size,
+    markedText: String? = nil,
     state: TextInputEditingChromeState,
-    makeSegmentLabel: @MainActor (String) -> ViewNode
+    makeSegmentLabel: @MainActor (String) -> ViewNode,
+    makeMarkedSegmentLabel: (@MainActor (String) -> ViewNode)? = nil
 ) {
-    let selection =
+    let baseSelection =
         isShowingPlaceholder ? nil : node.textInputSelection?.editableCharacterRange(in: contentText)
-    let caret = clampedTextOffset(node.textInputCaretOffset, in: contentText)
+    let baseCaret = clampedTextOffset(node.textInputCaretOffset, in: contentText)
+    let display = textInputCompositionDisplayState(
+        contentText: contentText,
+        caret: baseCaret,
+        selection: baseSelection,
+        markedText: markedText
+    )
+    let displayText = display.text
+    let selection = display.selection
+    let caret = display.caret
+    let markedRange = display.markedRange
     let showsHighlight = selection != nil
     let showsCaret = node.isFocused && selection == nil
-    let isActive = showsCaret || showsHighlight
+    let isActive = showsCaret || showsHighlight || markedRange != nil
     let signature = TextInputEditingChromeState.Signature(
         isFocused: node.isFocused,
         caret: caret,
         selectionLower: selection?.lowerBound ?? caret,
         selectionUpper: selection?.upperBound ?? caret,
-        isActive: isActive
+        isActive: isActive,
+        markedText: markedText ?? ""
     )
     guard signature != state.signature else {
         return
@@ -13037,8 +13184,32 @@ private func updateTextInputEditingChrome(
         }
         let selectionIncludesLineBreak =
             selection.map { $0.lowerBound <= lineUpperBound && $0.upperBound > lineUpperBound } ?? false
+        let markedInLine: Range<Int>? = markedRange.flatMap { range in
+            let lower = max(range.lowerBound, lineLowerBound)
+            let upper = min(range.upperBound, lineUpperBound)
+            return lower < upper ? (lower - lineLowerBound)..<(upper - lineLowerBound) : nil
+        }
 
-        if let selectionInLine {
+        if let markedInLine {
+            // IME marked text: underlined segment, caret at its end.
+            let pre = line.textSubstring(in: 0..<markedInLine.lowerBound)
+            let marked = line.textSubstring(in: markedInLine)
+            let post = line.textSubstring(in: markedInLine.upperBound..<line.count)
+            if !pre.isEmpty {
+                children.append(makeSegmentLabel(pre))
+            }
+            if let makeMarkedSegmentLabel {
+                children.append(makeMarkedSegmentLabel(marked))
+            } else {
+                children.append(makeSegmentLabel(marked))
+            }
+            if isCaretLine {
+                children.append(makeCaretNode())
+            }
+            if !post.isEmpty {
+                children.append(makeSegmentLabel(post))
+            }
+        } else if let selectionInLine {
             let pre = line.textSubstring(in: 0..<selectionInLine.lowerBound)
             let highlighted = line.textSubstring(in: selectionInLine)
             let post = line.textSubstring(in: selectionInLine.upperBound..<line.count)
@@ -13079,7 +13250,7 @@ private func updateTextInputEditingChrome(
     var lineRanges: [Range<Int>] = []
     var lineStart = 0
     var offset = 0
-    for character in contentText {
+    for character in displayText {
         if character == "\n" {
             lineRanges.append(lineStart..<offset)
             lineStart = offset + 1
@@ -13091,7 +13262,7 @@ private func updateTextInputEditingChrome(
     let caretLineIndex = lineRanges.lastIndex(where: { $0.lowerBound <= caret }) ?? 0
     let rows = lineRanges.enumerated().map { index, lineRange in
         makeRow(
-            line: contentText.textSubstring(in: lineRange),
+            line: displayText.textSubstring(in: lineRange),
             lineLowerBound: lineRange.lowerBound,
             isCaretLine: showsCaret && index == caretLineIndex
         )
@@ -13194,6 +13365,36 @@ private func textInputContentPoint(labelNode: ViewNode, rootPoint: Point) -> Poi
         }
     }
     return Point(x: rootPoint.x - origin.x, y: rootPoint.y - origin.y)
+}
+/// Inverse of `textInputContentPoint`: converts a content-space point of a
+/// text input's label into root coordinates, applying the same ancestor
+/// origin accumulation and scroll offsets. Used to report the caret
+/// rectangle for IME candidate-window positioning.
+@MainActor
+private func textInputRootPoint(labelNode: ViewNode, contentPoint: Point) -> Point {
+    var chain: [ViewNode] = []
+    var current: ViewNode? = labelNode
+    while let ancestor = current {
+        chain.append(ancestor)
+        current = ancestor.parent
+    }
+
+    var origin = Point(x: 0, y: 0)
+    for (index, ancestor) in chain.reversed().enumerated() {
+        origin = Point(x: origin.x + ancestor.frame.origin.x, y: origin.y + ancestor.frame.origin.y)
+        guard index < chain.count - 1 else {
+            continue
+        }
+        switch ancestor.scrollAxis {
+        case .horizontal:
+            origin.x -= ancestor.scrollOffset
+        case .vertical:
+            origin.y -= ancestor.scrollOffset
+        case nil:
+            break
+        }
+    }
+    return Point(x: contentPoint.x + origin.x, y: contentPoint.y + origin.y)
 }
 /// Hard line ranges (split on "\n") exactly as `updateTextInputEditingChrome`
 /// computes them.
@@ -14121,6 +14322,7 @@ public struct ColorPicker: View {
                     selection: selection,
                     supportsOpacity: supportsOpacity,
                     isEnabled: context.isEnabled,
+                    usesNativeDialog: context.environmentValues.colorPickerUsesNativeDialog,
                     invalidate: context.invalidate
                 )
                 return controlNode
@@ -14138,6 +14340,7 @@ public struct ColorPicker: View {
                 selection: selection,
                 supportsOpacity: supportsOpacity,
                 isEnabled: context.isEnabled,
+                usesNativeDialog: context.environmentValues.colorPickerUsesNativeDialog,
                 invalidate: context.invalidate
             )
             return node
@@ -14149,6 +14352,7 @@ public struct ColorPicker: View {
         selection: Binding<Color>,
         supportsOpacity: Bool,
         isEnabled: Bool,
+        usesNativeDialog: Bool,
         invalidate: @escaping () -> Void
     ) {
         guard isEnabled else {
@@ -14158,7 +14362,14 @@ public struct ColorPicker: View {
         node.isFocusable = true
         node.isHitTestVisible = true
         node.onActivate = {
-            applyPaletteStep(to: selection, direction: 1, supportsOpacity: supportsOpacity, invalidate: invalidate)
+            if usesNativeDialog {
+                if let chosen = ColorDialogManager.chooseColor(initial: selection.wrappedValue) {
+                    selection.wrappedValue = chosen
+                    invalidate()
+                }
+            } else {
+                applyPaletteStep(to: selection, direction: 1, supportsOpacity: supportsOpacity, invalidate: invalidate)
+            }
         }
         node.onKeyDown = { event in
             switch event.key {
@@ -17626,9 +17837,11 @@ public struct ImportButton: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let label = label
+        let supportedContentTypes = supportedContentTypes
         let onImport = onImport
         return Button {
             let urls = FileDialogManager.showOpenFileDialog(
+                allowedExtensions: FileDialogManager.fileExtensions(forContentTypes: supportedContentTypes),
                 allowsMultipleSelection: true
             )
             if !urls.isEmpty {
@@ -18778,7 +18991,10 @@ public struct PhotosPicker: View {
         let single = selection
         let multiple = selections
         return Button {
-            let urls = FileDialogManager.showOpenFileDialog(allowsMultipleSelection: multiple != nil)
+            let urls = FileDialogManager.showOpenFileDialog(
+                allowedExtensions: FileDialogManager.fileExtensions(forContentTypes: [.image]),
+                allowsMultipleSelection: multiple != nil
+            )
             let items = urls.map { PhotosPickerItem(fileURL: $0) }
             if let multiple {
                 multiple.wrappedValue = items
@@ -18895,7 +19111,10 @@ public struct ImagePicker: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let binding = selection
         return Button {
-            let urls = FileDialogManager.showOpenFileDialog(allowsMultipleSelection: false)
+            let urls = FileDialogManager.showOpenFileDialog(
+                allowedExtensions: FileDialogManager.fileExtensions(forContentTypes: [.image]),
+                allowsMultipleSelection: false
+            )
             if let url = urls.first, let binding {
                 binding.wrappedValue = url
             }

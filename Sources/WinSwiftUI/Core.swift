@@ -6309,6 +6309,12 @@ public struct EnvironmentValues: @unchecked Sendable {
     /// for Ctrl+C/X/V editing commands. When nil, text inputs fall back to
     /// `TextInputClipboardProvider.current`.
     public var textInputClipboard: (any TextInputClipboard)?
+    /// When true, activating a `ColorPicker` opens the native Win32 color
+    /// dialog (`ColorDialogManager.provider`) instead of stepping the retained
+    /// palette. Defaults to false — the retained keyboard-friendly palette
+    /// stays the default; opt in with
+    /// `.environment(\.colorPickerUsesNativeDialog, true)`.
+    public var colorPickerUsesNativeDialog: Bool
     public var writingToolsBehavior: WritingToolsBehavior?
     public var writingToolsAffordanceVisibility: Visibility
     var searchDictationBehavior: TextInputDictationBehavior?
@@ -6394,6 +6400,12 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var revealInFinder: RevealInFinderAction
     public var defaultAppStorage: UserDefaults
     public var defaultSceneStorage: UserDefaults
+    /// Per-scene (per-window) scope isolating `@SceneStorage` values between
+    /// window instances. Single-window hosts keep the shared default scope;
+    /// the window coordinator assigns a unique scope per window. Internal
+    /// because it is a retained-runtime implementation detail, not a
+    /// SwiftUI-shaped environment value.
+    var sceneStorageScope: String
     public var focusedValues: FocusedValues
     public var environmentObjects: EnvironmentObjectValues
     public var backgroundMaterial: Material?
@@ -6587,7 +6599,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         dateFormatter: DateFormatter? = nil,
         widgetFamily: WidgetFamily? = nil,
         widgetRenderingMode: WidgetRenderingMode? = nil,
-        showsWidgetContainerBackground: Bool = true
+        showsWidgetContainerBackground: Bool = true,
+        sceneStorageScope: String = "shared"
     ) {
         self.colorScheme = colorScheme
         self.colorSchemeContrast = colorSchemeContrast
@@ -6707,6 +6720,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.textInputCompletion = nil
         self.textInputSuggestions = nil
         self.textInputClipboard = nil
+        self.colorPickerUsesNativeDialog = false
         self.writingToolsBehavior = nil
         self.writingToolsAffordanceVisibility = .automatic
         self.searchDictationBehavior = nil
@@ -6801,6 +6815,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.widgetFamily = widgetFamily
         self.widgetRenderingMode = widgetRenderingMode
         self.showsWidgetContainerBackground = showsWidgetContainerBackground
+        self.sceneStorageScope = sceneStorageScope
         self.customValues = [:]
     }
 
@@ -7583,22 +7598,42 @@ public struct AppStorage<Value>: DynamicProperty {
 private final class SceneStorageCenter {
     static let shared = SceneStorageCenter()
 
-    private var values: [String: Any] = [:]
+    /// Scope used by single-window hosts and callers without a window
+    /// coordinator; matches the historical process-global behavior.
+    static let defaultScope = "shared"
+
+    /// Values are isolated per scene (window) scope so multi-window apps get
+    /// SwiftUI-style per-window `@SceneStorage`.
+    private var values: [String: [String: Any]] = [:]
+
+    /// Scope applied to the current read/write; set transiently via
+    /// `withScope` so the many key-only read/write closures above stay
+    /// unchanged.
+    private var activeScope = SceneStorageCenter.defaultScope
+
+    func withScope<Result>(_ scope: String, _ body: () -> Result) -> Result {
+        let previous = activeScope
+        activeScope = scope
+        defer {
+            activeScope = previous
+        }
+        return body()
+    }
 
     func value<Value>(for key: String, default defaultValue: Value) -> Value {
-        values[key] as? Value ?? defaultValue
+        values[activeScope]?[key] as? Value ?? defaultValue
     }
 
     func optionalValue<Value>(for key: String) -> Value? {
-        values[key] as? Value
+        values[activeScope]?[key] as? Value
     }
 
     func setValue<Value>(_ value: Value, for key: String) {
-        values[key] = value
+        values[activeScope, default: [:]][key] = value
     }
 
     func removeValue(for key: String) {
-        values.removeValue(forKey: key)
+        values[activeScope]?[key] = nil
     }
 }
 @MainActor
@@ -7611,6 +7646,11 @@ public struct SceneStorage<Value>: DynamicProperty {
         let readValue: @MainActor (String, Value) -> Value
         let writeValue: @MainActor (String, Value) -> Void
         var invalidate: (@MainActor () -> Void)?
+        /// Scene (window) scope this storage is bound to. Captured from the
+        /// build context on the first build-scoped read; storages that never
+        /// see a build context keep the shared default scope, preserving the
+        /// historical single-window behavior.
+        var scope = SceneStorageCenter.defaultScope
 
         init(
             key: String,
@@ -7626,10 +7666,14 @@ public struct SceneStorage<Value>: DynamicProperty {
 
         var value: Value {
             get {
-                readValue(key, defaultValue)
+                SceneStorageCenter.shared.withScope(scope) {
+                    readValue(key, defaultValue)
+                }
             }
             set {
-                writeValue(key, newValue)
+                SceneStorageCenter.shared.withScope(scope) {
+                    writeValue(key, newValue)
+                }
                 invalidate?()
             }
         }
@@ -7901,6 +7945,7 @@ public struct SceneStorage<Value>: DynamicProperty {
                 storage.invalidate = {
                     context.invalidate()
                 }
+                storage.scope = context.environmentValues.sceneStorageScope
             }
             return storage.value
         }
@@ -24800,7 +24845,15 @@ extension View {
                 childNode.onDropExited = dropExited
                 childNode.onDropProviders = providerAction.map { action in
                     { items, location in
-                        action(items.compactMap { $0 as? NSItemProvider }, location)
+                        // OS file drops (WM_DROPFILES) deliver raw `URL`
+                        // items; wrap them so the SwiftUI-shaped handler sees
+                        // the NSItemProviders it expects.
+                        action(
+                            items.compactMap { item in
+                                (item as? NSItemProvider) ?? (item as? URL).map { NSItemProvider(contentsOf: $0) }
+                            },
+                            location
+                        )
                     }
                 }
                 childNode.onDropPayloads = payloadAction

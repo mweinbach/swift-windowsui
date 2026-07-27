@@ -166,7 +166,19 @@ public enum ClipboardManager {
             return
         }
         if items.count == 1, let url = items.first as? URL {
-            copyString(url.absoluteString)
+            // File URLs go onto the clipboard as a real HDROP file list so
+            // Explorer-style targets receive actual files; non-file URLs keep
+            // the absolute-string behavior.
+            if url.isFileURL {
+                copyFileURLs([url])
+            } else {
+                copyString(url.absoluteString)
+            }
+            return
+        }
+        let fileURLs = items.compactMap { ($0 as? URL).flatMap { $0.isFileURL ? $0 : nil } }
+        if fileURLs.count == items.count, !fileURLs.isEmpty {
+            copyFileURLs(fileURLs)
             return
         }
     }

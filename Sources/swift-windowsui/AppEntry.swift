@@ -12,7 +12,10 @@ struct SwiftWindowsUIDemoApp: App {
     init() {}
 
     var body: some Scene {
-        WindowGroup("Swift Windows UI") {
+        // The id registers the scene with the window coordinator so the
+        // settings screen's `openWindow(id:)` can spawn additional windows
+        // hosting the same content.
+        WindowGroup("Swift Windows UI", id: "main-dashboard") {
             DemoRootView(model: model)
         }
     }

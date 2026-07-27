@@ -2049,6 +2049,14 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    /// In-progress IME composition (marked) text displayed at the caret and
+    /// painted underlined by the editing chrome until the composition
+    /// commits or cancels. Transient display state only; never part of the
+    /// bound text. Secure fields mask it like their committed text.
+    public var textInputMarkedText: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var isFindDisabled: Bool {
         didSet { invalidateRuntime(.paint) }
     }
@@ -2481,6 +2489,13 @@ public final class ViewNode {
     public var onFocusEnter: (() -> Void)?
     public var onFocusExit: (() -> Void)?
     public var onKeyDown: ((KeyboardEvent) -> Void)?
+    /// IME composition events routed by the runtime to the focused node;
+    /// installed by text inputs, `nil` elsewhere.
+    public var onIMEComposition: ((IMECompositionEvent) -> Void)?
+    /// Reports the caret rectangle in root (logical) coordinates so the
+    /// window host can position the OS IME candidate/composition window.
+    /// Installed by text inputs; `nil` elsewhere.
+    public var textInputCaretRectProvider: (() -> Rect?)?
     /// When true, unmodified up/down arrow keys are delivered to this node's
     /// `onKeyDown` before the runtime's scroll-key handling, so a focused node
     /// (e.g. a selectable list row) can claim vertical arrows for navigation.
@@ -2979,6 +2994,7 @@ public final class ViewNode {
         self.writingToolsBehavior = writingToolsBehavior
         self.writingToolsAffordanceVisibility = writingToolsAffordanceVisibility
         self.textInputDictationBehavior = textInputDictationBehavior
+        self.textInputMarkedText = nil
         self.isFindDisabled = isFindDisabled
         self.isReplaceDisabled = isReplaceDisabled
         self.isFindNavigatorPresented = isFindNavigatorPresented
@@ -3084,6 +3100,8 @@ public final class ViewNode {
         self.onFocusEnter = nil
         self.onFocusExit = nil
         self.onKeyDown = nil
+        self.onIMEComposition = nil
+        self.textInputCaretRectProvider = nil
         self.onKeyUp = nil
         self.onActivate = nil
         self.onRepeatActivate = nil
@@ -6060,6 +6078,66 @@ public final class RetainedViewRuntime {
         contextNode.onContextMenu?(point)
     }
 
+    /// Delivers an OS file drop (Explorer files via `WM_DROPFILES`, forwarded
+    /// by the window host) to the topmost drop-accepting node under `point`.
+    ///
+    /// Payload mapping: the dropped file URLs are delivered as the raw `[Any]`
+    /// items (`URL` values). A node with `onValidateDrop` gates the drop; the
+    /// payload is then performed through `onDropPayloads` (preferred) or
+    /// `onDropProviders`. The WinSwiftUI `onDrop(of:perform:)` modifier wraps
+    /// `URL` items in `NSItemProvider(contentsOf:)`, so OS file drops reach
+    /// the standard SwiftUI-shaped handler. `onDropRows` is deliberately not
+    /// used: its row index is list-relative and meaningless for a
+    /// window-level drop. Returns true when a node accepted the drop.
+    @discardableResult
+    public func performFileDrop(_ fileURLs: [URL], at point: Point) -> Bool {
+        guard !fileURLs.isEmpty else {
+            return false
+        }
+
+        let items: [Any] = fileURLs.map { $0 as Any }
+        let hitNode = hitTest(at: point)
+        guard
+            let target = node(
+                for: nearestDispatchIndex(
+                    from: dispatchIndex(for: hitNode),
+                    where: { candidate in
+                        candidate.isDropDestinationEnabled
+                            && Self.acceptsFileDrop(candidate)
+                            && (candidate.onValidateDrop != nil || candidate.onDropPayloads != nil
+                                || candidate.onDropProviders != nil)
+                    }
+                )
+            )
+        else {
+            return false
+        }
+
+        if let validate = target.onValidateDrop, !validate(items, point) {
+            return false
+        }
+
+        var handled = false
+        if let payloads = target.onDropPayloads {
+            handled = payloads(items, point)
+        }
+        if !handled, let providers = target.onDropProviders {
+            handled = providers(items, point)
+        }
+        return handled
+    }
+
+    /// Window-level drops always carry file URLs, so a destination whose
+    /// accepted-content-type list is non-empty must opt into file URLs
+    /// (`public.file-url` or the broader `public.url`).
+    private static func acceptsFileDrop(_ node: ViewNode) -> Bool {
+        let accepted = node.dropAcceptedContentTypes
+        guard !accepted.isEmpty else {
+            return true
+        }
+        return accepted.contains(UTType.fileURL.identifier) || accepted.contains(UTType.url.identifier)
+    }
+
     public func keyDown(_ event: KeyboardEvent) {
         switch event.key {
         case .tab:
@@ -6112,6 +6190,22 @@ public final class RetainedViewRuntime {
     public func keyboardFocusDidLeaveWindow() {
         buttonRepeatState = nil
         updateFocusTarget(to: nil)
+    }
+
+    /// Routes an IME composition event to the focused text input. Nodes
+    /// without an `onIMEComposition` handler ignore it; when no IME is
+    /// active this is never called and keyboard input flows through
+    /// `keyDown` exactly as before.
+    public func imeComposition(_ event: IMECompositionEvent) {
+        focusedNode?.onIMEComposition?(event)
+    }
+
+    /// Caret rectangle of the focused text input in root (logical)
+    /// coordinates, used to position the OS IME candidate/composition
+    /// window. `nil` when the focused node is not a text input or cannot
+    /// report a caret.
+    public var focusedTextInputCaretRect: Rect? {
+        focusedNode?.textInputCaretRectProvider?()
     }
 
     public func requestFocus(_ node: ViewNode?) {

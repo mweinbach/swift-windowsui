@@ -158,8 +158,8 @@ into a `BitmapSurface` and reused across frames:
    doesn't bust the cache.
 2. Entries idle more than 60 frames are evicted; the cache is capped at
    256 entries with LRU eviction.
-3. On `attach` (e.g. device-loss reattach) the cache is fully drained so
-   no stale device-bound SRVs are reused.
+3. On `attach` and on `detach` the cache is fully drained so no stale
+   device-bound SRVs are reused.
 
 **Invariants**
 - Translation-invariant cache key works
@@ -168,6 +168,56 @@ into a `BitmapSurface` and reused across frames:
   (`testPathsDifferingInShapeStayDistinct` etc.).
 - Fresh renderer reports empty cache and zero hit/miss counters
   (`testFreshRendererHasEmptyPathCache`).
+
+## 4b. Resource lifetime: `attach` / `detach`
+
+Both backend protocols (`RenderBackend`, `BatchRenderBackend`) declare
+`detach()` alongside `attach(to:)`, defaulting to a no-op for backends that
+own no platform resources (the CPU rasterizer, test fakes). The D3D11
+implementations release everything the attach created — device, context,
+DXGI factory, swap chain, render target view, every shader and pipeline
+state, all four instance buffers, both glyph atlases, the image-texture
+map, the path cache and the backdrop-blur engine — and reset `isAttached`.
+
+Two properties of a GPU surface make this mandatory rather than tidy:
+
+- A swap chain **pins the HWND it presents to**, and nothing else in the
+  process ever releases it. Without `detach()`, closing a window leaked its
+  whole device, including blur ping-pong textures that reach tens of
+  megabytes at 4K, so a session that opens and closes windows exhausted
+  video memory.
+- Flip-model presentation is **exclusive per window**. A presenter switch
+  that attaches the second backend before the first lets go asks DXGI for a
+  second flip-model chain on the same HWND.
+
+The call sites, all on the main actor:
+
+| Site | Why |
+|---|---|
+| top of `attach` / `attachOffscreen` | attach always starts from nothing, so re-attach cannot rebind a removed device or leave a second swap chain behind |
+| `WinSwiftUIWindowHost.windowWillClose` | release while the HWND is still alive |
+| `fallbackToFrameRenderer`, and the batch-attach-failure branch of `attachPreferredRenderer` | batch lets go before the frame backend claims the HWND |
+| `attemptBatchBackendRecoveryIfDue` | frame lets go before batch re-claims it; a failed recovery re-attaches the frame backend so the window keeps presenting |
+
+Creation calls route their COM out-params through `makeCOM(into:_:)`
+(`COMOwnership.swift`), which creates into a local and releases the
+destination only once the replacement exists — so a re-attach cannot
+overwrite a live pointer and a failed create leaves the previous resource
+intact. `deinit` on both renderers is a debug assertion, not a teardown
+path: releasing requires the immediate context and therefore the main
+actor, which a nonisolated `deinit` cannot reach.
+
+**Invariants** (`RenderBackendLifetimeTests`)
+- `testDetachReleasesEveryCOMObjectTheRendererOwns` — every stored pointer,
+  the image map and the path cache are empty afterwards.
+- `testAttachDetachAttachRoundTripProducesTheSamePixels` — a re-attached
+  renderer draws the identical frame on a newly created device.
+- `testRepeatedAttachDetachCyclesReturnToZeroLiveObjects` — the open/close
+  loop does not accumulate.
+- `testWindowWillCloseDetachesBothBackends`,
+  `testMidSessionDowngradeDetachesBatchBeforeAttachingFrame`,
+  `testBatchRecoveryDetachesFrameBackendBeforeReattachingBatch` — the host
+  really calls it, in the right order.
 
 ## 5. Backend dispatch + fallback chain
 
@@ -312,10 +362,12 @@ frame backend. Apps that need the historical one-way pin behaviour pass
 | `backoffMultiplier`    | 2.0           | Each failed attempt doubles the wait (up to the cap).      |
 
 The host attempts a re-attach during the next `renderCurrentFrame` whose
-clock is past the scheduled time. On success: `activeBackend = .scene`,
-backoff resets, presentation selection reports
-`.batchBackendRecovered`. On failure: backoff doubles, next attempt
-scheduled. Locked in by
+clock is past the scheduled time. Because the frame backend currently owns
+the HWND's swap chain, the attempt `detach()`es it first (see §4b). On
+success: `activeBackend = .scene`, backoff resets, presentation selection
+reports `.batchBackendRecovered`. On failure: the half-attached batch
+backend is detached, the frame backend is re-attached so the window keeps
+presenting, backoff doubles, next attempt scheduled. Locked in by
 `WinSwiftUIWindowHostTests.testRecoveryPolicyDisabledKeepsOneWayPinBehaviour`
 and `…testRecoveryPolicyEnabledRestoresBatchBackendAfterTransientFailure`.
 

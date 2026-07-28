@@ -112,6 +112,11 @@ if ($Full) {
     Invoke-Step "CrossBackendPixelParityTests" {
         & $testScript -Filter "CrossBackendPixelParityTests"
     }
+    # GPU resource lifetime: detach() releases what attach() acquired, and
+    # the host calls it on window close and on every presenter switch.
+    Invoke-Step "RenderBackendLifetimeTests" {
+        & $testScript -Filter "RenderBackendLifetimeTests"
+    }
     Invoke-Step "MalformedInputResilienceTests" {
         & $testScript -Filter "MalformedInputResilienceTests"
     }

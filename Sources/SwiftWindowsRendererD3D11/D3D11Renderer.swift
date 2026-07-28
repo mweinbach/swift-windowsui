@@ -64,7 +64,15 @@ public enum D3D11BlendMode: Hashable, Sendable {
 }
 
 public final class D3D11Renderer: RenderBackend {
-    public private(set) var isAttached = false
+    public private(set) var isAttached = false {
+        didSet { isAttachedMirror = isAttached }
+    }
+
+    /// Sendable mirror of ``isAttached`` so `deinit` — which is nonisolated
+    /// and therefore cannot read main-actor state — can still tell whether
+    /// the owner forgot to call ``detach()``.
+    private nonisolated(unsafe) var isAttachedMirror = false
+
     public private(set) var isDirect2DEnabled = false
     /// Controls vertical sync. When true, Present uses sync interval 1;
     /// when false, sync interval 0 (and tearing flag when supported).
@@ -153,6 +161,12 @@ public final class D3D11Renderer: RenderBackend {
             throw D3D11RendererError(operation: "Resolve HWND", hresult: hresultHandle)
         }
 
+        // Attach always starts from nothing. The host re-attaches this
+        // backend on every downgrade from the batch backend, and a leftover
+        // flip-model swap chain on the same HWND would make DXGI reject the
+        // new one — the wedge `detach()` exists to prevent.
+        detach()
+
         self.surface = surface
         self.hwnd = hwnd
 
@@ -164,6 +178,76 @@ public final class D3D11Renderer: RenderBackend {
         configureDirect2DIfPossible()
 
         isAttached = true
+    }
+
+    /// Releases every D3D11 and Direct2D object this renderer owns and
+    /// returns it to the pre-attach state.
+    ///
+    /// Ordering follows the dependency chain: the Direct2D target wraps the
+    /// swap chain's back buffer, so Direct2D goes first; then the pipeline
+    /// is unbound from the immediate context and flushed; then views before
+    /// the resources they view, and the swap chain (which pins the HWND)
+    /// before the device that created it. Everything runs on the main actor,
+    /// where the immediate context is used.
+    public func detach() {
+        releaseDirect2DResources()
+
+        if let deviceContext {
+            var noTargets: UnsafeMutablePointer<ID3D11RenderTargetView>?
+            deviceContext.pointee.lpVtbl.pointee.OMSetRenderTargets(deviceContext, 1, &noTargets, nil)
+            deviceContext.pointee.lpVtbl.pointee.ClearState(deviceContext)
+            deviceContext.pointee.lpVtbl.pointee.Flush(deviceContext)
+        }
+
+        releaseCOM(&rasterizerState)
+        // `blendState` and `blendStates[.normal]` are the same object stored
+        // twice under one reference, so the dictionary owns the release and
+        // the property is only cleared.
+        if let normal = blendStates[.normal], normal == blendState {
+            blendState = nil
+        }
+        for state in blendStates.values {
+            var releasable: UnsafeMutablePointer<ID3D11BlendState>? = state
+            releaseCOM(&releasable)
+        }
+        blendStates.removeAll()
+        releaseCOM(&blendState)
+        currentBlendMode = .normal
+
+        releaseCOM(&bitmapSamplerState)
+        releaseCOM(&bitmapConstantBuffer)
+        releaseCOM(&bitmapPixelShader)
+        releaseCOM(&bitmapVertexShader)
+        releaseCOM(&constantBuffer)
+        releaseCOM(&pixelShader)
+        releaseCOM(&vertexShader)
+
+        releaseCOM(&renderTargetView)
+        releaseCOM(&swapChain)
+        releaseCOM(&dxgiFactory)
+        releaseCOM(&deviceContext)
+        releaseCOM(&device)
+
+        surface = nil
+        hwnd = nil
+        tearingSupported = false
+        didAttemptDirect2DSetup = false
+        consecutiveDeviceLostCount = 0
+        isAttached = false
+    }
+
+    deinit {
+        // Backstop, not a teardown path: `detach()` has to run on the main
+        // actor because it drives the immediate context, and a nonisolated
+        // deinit cannot. The host calls `detach()` from `windowWillClose`
+        // and on every presenter switch; reaching here still attached means
+        // one of those call sites was missed, so say so loudly in debug
+        // builds instead of leaking silently.
+        assert(
+            !isAttachedMirror,
+            "D3D11Renderer was deallocated while still attached — its device, swap chain and Direct2D "
+                + "resources leak. Call detach() from the owner's teardown."
+        )
     }
 
     public func resize(to size: IntSize) throws {
@@ -416,8 +500,13 @@ public final class D3D11Renderer: RenderBackend {
             D3D_FEATURE_LEVEL_10_0,
         ]
 
+        // Create into locals and install only on success: a failed attempt
+        // that still wrote an out-param would otherwise overwrite (and leak)
+        // whatever the properties already held.
         let createDevice: (UnsafePointer<D3D_FEATURE_LEVEL>?, UINT) -> HRESULT = { pointer, count in
-            D3D11CreateDevice(
+            var createdDevice: UnsafeMutablePointer<ID3D11Device>?
+            var createdContext: UnsafeMutablePointer<ID3D11DeviceContext>?
+            let hr = D3D11CreateDevice(
                 nil,
                 D3D_DRIVER_TYPE_HARDWARE,
                 nil,
@@ -425,10 +514,21 @@ public final class D3D11Renderer: RenderBackend {
                 pointer,
                 count,
                 UINT(D3D11_SDK_VERSION),
-                &self.device,
+                &createdDevice,
                 &featureLevel,
-                &self.deviceContext
+                &createdContext
             )
+
+            if hr >= 0, createdDevice != nil, createdContext != nil {
+                releaseCOM(&self.device)
+                releaseCOM(&self.deviceContext)
+                self.device = createdDevice
+                self.deviceContext = createdContext
+            } else {
+                releaseCOM(&createdContext)
+                releaseCOM(&createdDevice)
+            }
+            return hr
         }
 
         let hr = featureLevels.withUnsafeBufferPointer { buffer in
@@ -496,40 +596,48 @@ public final class D3D11Renderer: RenderBackend {
             throw D3D11RendererError(operation: "Create D3D11 pipeline", hresult: hresultHandle)
         }
 
-        let vertexShaderHR = device.pointee.lpVtbl.pointee.CreateVertexShader(
-            device,
-            vertexShaderBlob.pointee.lpVtbl.pointee.GetBufferPointer(vertexShaderBlob),
-            SIZE_T(vertexShaderBlob.pointee.lpVtbl.pointee.GetBufferSize(vertexShaderBlob)),
-            nil,
-            &vertexShader
-        )
+        let vertexShaderHR = makeCOM(into: &vertexShader) { shader in
+            device.pointee.lpVtbl.pointee.CreateVertexShader(
+                device,
+                vertexShaderBlob.pointee.lpVtbl.pointee.GetBufferPointer(vertexShaderBlob),
+                SIZE_T(vertexShaderBlob.pointee.lpVtbl.pointee.GetBufferSize(vertexShaderBlob)),
+                nil,
+                &shader
+            )
+        }
         try throwIfFailed(vertexShaderHR, operation: "ID3D11Device.CreateVertexShader")
 
-        let pixelShaderHR = device.pointee.lpVtbl.pointee.CreatePixelShader(
-            device,
-            pixelShaderBlob.pointee.lpVtbl.pointee.GetBufferPointer(pixelShaderBlob),
-            SIZE_T(pixelShaderBlob.pointee.lpVtbl.pointee.GetBufferSize(pixelShaderBlob)),
-            nil,
-            &pixelShader
-        )
+        let pixelShaderHR = makeCOM(into: &pixelShader) { shader in
+            device.pointee.lpVtbl.pointee.CreatePixelShader(
+                device,
+                pixelShaderBlob.pointee.lpVtbl.pointee.GetBufferPointer(pixelShaderBlob),
+                SIZE_T(pixelShaderBlob.pointee.lpVtbl.pointee.GetBufferSize(pixelShaderBlob)),
+                nil,
+                &shader
+            )
+        }
         try throwIfFailed(pixelShaderHR, operation: "ID3D11Device.CreatePixelShader")
 
-        let bitmapVertexShaderHR = device.pointee.lpVtbl.pointee.CreateVertexShader(
-            device,
-            bitmapVertexShaderBlob.pointee.lpVtbl.pointee.GetBufferPointer(bitmapVertexShaderBlob),
-            SIZE_T(bitmapVertexShaderBlob.pointee.lpVtbl.pointee.GetBufferSize(bitmapVertexShaderBlob)),
-            nil,
-            &bitmapVertexShader
-        )
+        let bitmapVertexShaderHR = makeCOM(into: &bitmapVertexShader) { shader in
+            device.pointee.lpVtbl.pointee.CreateVertexShader(
+                device,
+                bitmapVertexShaderBlob.pointee.lpVtbl.pointee.GetBufferPointer(bitmapVertexShaderBlob),
+                SIZE_T(bitmapVertexShaderBlob.pointee.lpVtbl.pointee.GetBufferSize(bitmapVertexShaderBlob)),
+                nil,
+                &shader
+            )
+        }
         try throwIfFailed(bitmapVertexShaderHR, operation: "ID3D11Device.CreateVertexShader(bitmap)")
 
-        let bitmapPixelShaderHR = device.pointee.lpVtbl.pointee.CreatePixelShader(
-            device,
-            bitmapPixelShaderBlob.pointee.lpVtbl.pointee.GetBufferPointer(bitmapPixelShaderBlob),
-            SIZE_T(bitmapPixelShaderBlob.pointee.lpVtbl.pointee.GetBufferSize(bitmapPixelShaderBlob)),
-            nil,
-            &bitmapPixelShader
-        )
+        let bitmapPixelShaderHR = makeCOM(into: &bitmapPixelShader) { shader in
+            device.pointee.lpVtbl.pointee.CreatePixelShader(
+                device,
+                bitmapPixelShaderBlob.pointee.lpVtbl.pointee.GetBufferPointer(bitmapPixelShaderBlob),
+                SIZE_T(bitmapPixelShaderBlob.pointee.lpVtbl.pointee.GetBufferSize(bitmapPixelShaderBlob)),
+                nil,
+                &shader
+            )
+        }
         try throwIfFailed(bitmapPixelShaderHR, operation: "ID3D11Device.CreatePixelShader(bitmap)")
 
         var constantBufferDescriptor = D3D11_BUFFER_DESC()
@@ -537,7 +645,9 @@ public final class D3D11Renderer: RenderBackend {
         constantBufferDescriptor.Usage = D3D11_USAGE_DEFAULT
         constantBufferDescriptor.BindFlags = UINT(D3D11_BIND_CONSTANT_BUFFER.rawValue)
 
-        let constantBufferHR = device.pointee.lpVtbl.pointee.CreateBuffer(device, &constantBufferDescriptor, nil, &constantBuffer)
+        let constantBufferHR = makeCOM(into: &constantBuffer) { buffer in
+            device.pointee.lpVtbl.pointee.CreateBuffer(device, &constantBufferDescriptor, nil, &buffer)
+        }
         try throwIfFailed(constantBufferHR, operation: "ID3D11Device.CreateBuffer")
 
         var bitmapConstantBufferDescriptor = D3D11_BUFFER_DESC()
@@ -545,7 +655,9 @@ public final class D3D11Renderer: RenderBackend {
         bitmapConstantBufferDescriptor.Usage = D3D11_USAGE_DEFAULT
         bitmapConstantBufferDescriptor.BindFlags = UINT(D3D11_BIND_CONSTANT_BUFFER.rawValue)
 
-        let bitmapConstantBufferHR = device.pointee.lpVtbl.pointee.CreateBuffer(device, &bitmapConstantBufferDescriptor, nil, &bitmapConstantBuffer)
+        let bitmapConstantBufferHR = makeCOM(into: &bitmapConstantBuffer) { buffer in
+            device.pointee.lpVtbl.pointee.CreateBuffer(device, &bitmapConstantBufferDescriptor, nil, &buffer)
+        }
         try throwIfFailed(bitmapConstantBufferHR, operation: "ID3D11Device.CreateBuffer(bitmap)")
 
         var samplerDescriptor = D3D11_SAMPLER_DESC()
@@ -555,7 +667,9 @@ public final class D3D11Renderer: RenderBackend {
         samplerDescriptor.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP
         samplerDescriptor.MaxLOD = FLOAT(D3D11_FLOAT32_MAX)
 
-        let samplerStateHR = device.pointee.lpVtbl.pointee.CreateSamplerState(device, &samplerDescriptor, &bitmapSamplerState)
+        let samplerStateHR = makeCOM(into: &bitmapSamplerState) { state in
+            device.pointee.lpVtbl.pointee.CreateSamplerState(device, &samplerDescriptor, &state)
+        }
         try throwIfFailed(samplerStateHR, operation: "ID3D11Device.CreateSamplerState")
 
         var blendDescriptor = D3D11_BLEND_DESC()
@@ -570,7 +684,9 @@ public final class D3D11Renderer: RenderBackend {
         blendDescriptor.RenderTarget.0.BlendOpAlpha = D3D11_BLEND_OP_ADD
         blendDescriptor.RenderTarget.0.RenderTargetWriteMask = UINT8(D3D11_COLOR_WRITE_ENABLE_ALL.rawValue)
 
-        let blendStateHR = device.pointee.lpVtbl.pointee.CreateBlendState(device, &blendDescriptor, &blendState)
+        let blendStateHR = makeCOM(into: &blendState) { state in
+            device.pointee.lpVtbl.pointee.CreateBlendState(device, &blendDescriptor, &state)
+        }
         try throwIfFailed(blendStateHR, operation: "ID3D11Device.CreateBlendState")
         if let blendState {
             blendStates[.normal] = blendState
@@ -622,7 +738,9 @@ public final class D3D11Renderer: RenderBackend {
         rasterizerDescriptor.ScissorEnable = true
         rasterizerDescriptor.DepthClipEnable = true
 
-        let rasterizerStateHR = device.pointee.lpVtbl.pointee.CreateRasterizerState(device, &rasterizerDescriptor, &rasterizerState)
+        let rasterizerStateHR = makeCOM(into: &rasterizerState) { state in
+            device.pointee.lpVtbl.pointee.CreateRasterizerState(device, &rasterizerDescriptor, &state)
+        }
         try throwIfFailed(rasterizerStateHR, operation: "ID3D11Device.CreateRasterizerState")
     }
 
@@ -631,12 +749,14 @@ public final class D3D11Renderer: RenderBackend {
             return
         }
 
-        var rawFactory: UnsafeMutableRawPointer?
-        var iid = IID_IDXGIFactory2
-        let hr = CreateDXGIFactory1(&iid, &rawFactory)
+        let hr = makeCOM(into: &dxgiFactory) { factory in
+            var rawFactory: UnsafeMutableRawPointer?
+            var iid = IID_IDXGIFactory2
+            let hr = CreateDXGIFactory1(&iid, &rawFactory)
+            factory = rawFactory?.assumingMemoryBound(to: IDXGIFactory2.self)
+            return hr
+        }
         try throwIfFailed(hr, operation: "CreateDXGIFactory1")
-
-        dxgiFactory = rawFactory?.assumingMemoryBound(to: IDXGIFactory2.self)
 
         // Check for tearing support via IDXGIFactory5::CheckFeatureSupport.
         checkTearingSupport()
@@ -709,15 +829,17 @@ public final class D3D11Renderer: RenderBackend {
         descriptor.Flags = swapChainFlags
 
         let unknownDevice = UnsafeMutableRawPointer(device).assumingMemoryBound(to: IUnknown.self)
-        let hr = dxgiFactory.pointee.lpVtbl.pointee.CreateSwapChainForHwnd(
-            dxgiFactory,
-            unknownDevice,
-            hwnd,
-            &descriptor,
-            nil,
-            nil,
-            &swapChain
-        )
+        let hr = makeCOM(into: &swapChain) { chain in
+            dxgiFactory.pointee.lpVtbl.pointee.CreateSwapChainForHwnd(
+                dxgiFactory,
+                unknownDevice,
+                hwnd,
+                &descriptor,
+                nil,
+                nil,
+                &chain
+            )
+        }
         try throwIfFailed(hr, operation: "IDXGIFactory2.CreateSwapChainForHwnd")
 
         let _ = dxgiFactory.pointee.lpVtbl.pointee.MakeWindowAssociation(
@@ -742,7 +864,9 @@ public final class D3D11Renderer: RenderBackend {
         }
 
         let resource = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
-        let viewHR = device.pointee.lpVtbl.pointee.CreateRenderTargetView(device, resource, nil, &renderTargetView)
+        let viewHR = makeCOM(into: &renderTargetView) { view in
+            device.pointee.lpVtbl.pointee.CreateRenderTargetView(device, resource, nil, &view)
+        }
         var releasableTexture: UnsafeMutablePointer<ID3D11Texture2D>? = texture
         releaseCOM(&releasableTexture)
         try throwIfFailed(viewHR, operation: "ID3D11Device.CreateRenderTargetView")
@@ -1468,16 +1592,6 @@ func makePixelAlignedBitmapRect(from rect: Rect, bitmapSize: IntSize, scaleFacto
         width: Double(max(bitmapSize.width, 1)),
         height: Double(max(bitmapSize.height, 1))
     )
-}
-
-func releaseCOM<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
-    guard let rawPointer = pointer else {
-        return
-    }
-
-    let unknown = UnsafeMutableRawPointer(rawPointer).assumingMemoryBound(to: IUnknown.self)
-    _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
-    pointer = nil
 }
 
 private func renderCommandName(_ command: RenderCommand) -> String {

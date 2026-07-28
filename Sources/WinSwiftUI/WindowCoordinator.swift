@@ -54,10 +54,10 @@ struct WindowCoordinatorHooks {
 /// scene-storage scope. Everything stays on the main actor, matching the
 /// rest of the UI stack.
 ///
-/// Close policy: closing a window tears down only that window's host (UIA
-/// disconnect happens in `WinSwiftUIWindowHost.windowWillClose`; the renderer
-/// attachment is released with the host — the backend protocols have no
-/// explicit detach surface). When the last managed window closes, the
+/// Close policy: closing a window tears down only that window's host —
+/// `WinSwiftUIWindowHost.windowWillClose` disconnects UIA and calls
+/// `detach()` on both render backends, which releases the swap chain while
+/// the HWND is still alive. When the last managed window closes, the
 /// coordinator terminates the message loop, matching the historical
 /// single-window quit behavior.
 @MainActor

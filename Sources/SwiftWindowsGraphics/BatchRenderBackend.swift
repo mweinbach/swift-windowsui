@@ -23,8 +23,24 @@ public protocol BatchRenderBackend: AnyObject {
 
     /// Render a complete GPUIScene.
     func render(scene: GPUIScene) throws
+
+    /// Releases every resource this backend acquired for its surface and
+    /// returns it to the pre-attach state.
+    ///
+    /// The counterpart to ``attach(to:)``: a GPU backend holds a swap chain
+    /// that pins its HWND, plus a device, pipeline objects, atlases and
+    /// caches that nothing else in the process can release. Callers must
+    /// invoke this when the window closes and before handing the same
+    /// surface to a different backend, since flip-model presentation is
+    /// exclusive per window. Detaching an unattached backend is a no-op,
+    /// and a detached backend must be re-attachable.
+    func detach()
 }
 
 extension BatchRenderBackend {
     public func bindResources(for scene: GPUIScene) {}
+
+    /// Backends that own no platform resources (software rasterizers, test
+    /// fakes) inherit a no-op teardown.
+    public func detach() {}
 }

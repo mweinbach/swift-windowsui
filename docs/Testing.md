@@ -78,6 +78,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   disagree on are present but `XCTSkip`ped with the workstream that will
   unskip them and the measured match ratio; see
   `docs/GPURenderingPipeline.md` § 7 for the current divergence list.
+- `RenderBackendLifetimeTests` — GPU resource lifetime: `detach()` empties
+  every stored COM pointer, the image map and the path cache; attach →
+  detach → attach round-trips draw the identical frame on a fresh device;
+  repeated cycles do not accumulate; and the host calls `detach()` on
+  window close and on both directions of a presenter switch, always before
+  the incoming backend claims the HWND. Attaches its own WARP renderer
+  rather than the shared `WARPBatchRenderer`, since it destroys the device.
 
 Test runs never write images into the source tree: `check-contracts.ps1`
 fails if a `ReferenceImages` directory appears under `Tests/`. Reviewed

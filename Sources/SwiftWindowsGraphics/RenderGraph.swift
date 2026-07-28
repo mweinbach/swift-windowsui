@@ -86,11 +86,27 @@ public protocol RenderBackend: AnyObject {
     func attach(to surface: SurfaceDescriptor) throws
     func resize(to size: IntSize) throws
     func render(frame: RenderFrame) throws
+
+    /// Releases every resource this backend acquired for its surface and
+    /// returns it to the pre-attach state.
+    ///
+    /// The counterpart to ``attach(to:)``: a GPU backend holds a swap chain
+    /// that pins its HWND, plus a device, pipeline objects and caches that
+    /// nothing else in the process can release. Callers must invoke this
+    /// when the window closes and before handing the same surface to a
+    /// different backend, since flip-model presentation is exclusive per
+    /// window. Detaching an unattached backend is a no-op, and a detached
+    /// backend must be re-attachable.
+    func detach()
 }
 extension RenderBackend {
     public var backendDisplayName: String { "2D RENDERER" }
 
     public var backendStatusDescription: String { "\(backendDisplayName) READY" }
+
+    /// Backends that own no platform resources (software rasterizers, test
+    /// fakes) inherit a no-op teardown.
+    public func detach() {}
 }
 public struct RenderFrame: Equatable, Sendable {
     public var clearColor: Color

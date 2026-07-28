@@ -197,11 +197,12 @@ func readWARPPixels(
 /// One WARP-attached `D3D11BatchRenderer`, shared by every test that needs
 /// the real GPU frame path.
 ///
-/// Attaching compiles a dozen shaders and creates a device, and the
-/// renderer has no `detach()` yet, so tests reuse a single instance and
-/// resize it per scene instead of creating one per test. Bound resources
-/// (image textures, atlases, the path cache) therefore persist across
-/// tests — scenes that bind images must use distinct texture IDs.
+/// Attaching compiles a dozen shaders and creates a device, so tests reuse
+/// a single instance and resize it per scene instead of creating one per
+/// test. Bound resources (image textures, atlases, the path cache)
+/// therefore persist across tests — scenes that bind images must use
+/// distinct texture IDs. Tests that need a clean device attach their own
+/// renderer and `detach()` it themselves.
 @MainActor
 enum WARPBatchRenderer {
     private static var cached: D3D11BatchRenderer?

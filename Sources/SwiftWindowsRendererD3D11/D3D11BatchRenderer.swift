@@ -19,7 +19,14 @@ import WinSDK.DirectX
 
 @MainActor
 public final class D3D11BatchRenderer: BatchRenderBackend {
-    public private(set) var isAttached = false
+    public private(set) var isAttached = false {
+        didSet { isAttachedMirror = isAttached }
+    }
+
+    /// Sendable mirror of ``isAttached`` so `deinit` — which is nonisolated
+    /// and therefore cannot read main-actor state — can still tell whether
+    /// the owner forgot to call ``detach()``.
+    private nonisolated(unsafe) var isAttachedMirror = false
 
     public var backendDisplayName: String { "D3D11 BATCH" }
 
@@ -87,21 +94,29 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
     // MARK: - Dynamic Instance Buffers
 
+    // Capacities grow with the scene and are restored to these on detach,
+    // so a re-attached renderer starts from the same footprint a fresh one
+    // would rather than inheriting the peak of the previous session.
+    private static let initialQuadInstanceCapacity = 256
+    private static let initialImageInstanceCapacity = 256
+    private static let initialGlyphInstanceCapacity = 512
+    private static let initialShadowInstanceCapacity = 256
+
     private var quadInstanceBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var quadInstanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
-    private var quadInstanceCapacity: Int = 256
+    private var quadInstanceCapacity = D3D11BatchRenderer.initialQuadInstanceCapacity
 
     private var imageInstanceBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var imageInstanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
-    private var imageInstanceCapacity: Int = 256
+    private var imageInstanceCapacity = D3D11BatchRenderer.initialImageInstanceCapacity
 
     private var glyphInstanceBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var glyphInstanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
-    private var glyphInstanceCapacity: Int = 512
+    private var glyphInstanceCapacity = D3D11BatchRenderer.initialGlyphInstanceCapacity
 
     private var shadowInstanceBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var shadowInstanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
-    private var shadowInstanceCapacity: Int = 256
+    private var shadowInstanceCapacity = D3D11BatchRenderer.initialShadowInstanceCapacity
 
     private var glyphAtlasTexture: UnsafeMutablePointer<ID3D11Texture2D>?
     private var glyphAtlasSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
@@ -161,6 +176,77 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     // MARK: - Init
 
     public init() {}
+
+    /// Every COM object this renderer currently owns, counted one stored
+    /// property at a time. `detach()` must bring this to zero; a new field
+    /// that forgets to release itself shows up here rather than as a leak
+    /// nobody can see. The blur engine and the path cache report their own
+    /// holdings through `blurEngineOwnsResourcesForTesting` and
+    /// `pathCacheEntryCountForTesting`.
+    internal var liveCOMObjectCountForTesting: Int {
+        var count = 0
+        func tally(_ pointer: UnsafeMutableRawPointer?) {
+            if pointer != nil {
+                count += 1
+            }
+        }
+
+        tally(device.map(UnsafeMutableRawPointer.init))
+        tally(deviceContext.map(UnsafeMutableRawPointer.init))
+        tally(dxgiFactory.map(UnsafeMutableRawPointer.init))
+        tally(swapChain.map(UnsafeMutableRawPointer.init))
+        tally(renderTargetView.map(UnsafeMutableRawPointer.init))
+        tally(offscreenTexture.map(UnsafeMutableRawPointer.init))
+
+        tally(quadVS.map(UnsafeMutableRawPointer.init))
+        tally(quadPS.map(UnsafeMutableRawPointer.init))
+        tally(imageVS.map(UnsafeMutableRawPointer.init))
+        tally(imagePS.map(UnsafeMutableRawPointer.init))
+        tally(glyphVS.map(UnsafeMutableRawPointer.init))
+        tally(glyphPS.map(UnsafeMutableRawPointer.init))
+        tally(shadowVS.map(UnsafeMutableRawPointer.init))
+        tally(shadowPS.map(UnsafeMutableRawPointer.init))
+
+        tally(frameUniformBuffer.map(UnsafeMutableRawPointer.init))
+        tally(blendState.map(UnsafeMutableRawPointer.init))
+        tally(rasterizerState.map(UnsafeMutableRawPointer.init))
+        tally(samplerState.map(UnsafeMutableRawPointer.init))
+
+        tally(quadInstanceBuffer.map(UnsafeMutableRawPointer.init))
+        tally(quadInstanceSRV.map(UnsafeMutableRawPointer.init))
+        tally(imageInstanceBuffer.map(UnsafeMutableRawPointer.init))
+        tally(imageInstanceSRV.map(UnsafeMutableRawPointer.init))
+        tally(glyphInstanceBuffer.map(UnsafeMutableRawPointer.init))
+        tally(glyphInstanceSRV.map(UnsafeMutableRawPointer.init))
+        tally(shadowInstanceBuffer.map(UnsafeMutableRawPointer.init))
+        tally(shadowInstanceSRV.map(UnsafeMutableRawPointer.init))
+
+        tally(glyphAtlasTexture.map(UnsafeMutableRawPointer.init))
+        tally(glyphAtlasSRV.map(UnsafeMutableRawPointer.init))
+        tally(pixelGlyphAtlasTexture.map(UnsafeMutableRawPointer.init))
+        tally(pixelGlyphAtlasSRV.map(UnsafeMutableRawPointer.init))
+
+        for entry in imageResources.values {
+            tally(entry.texture.map(UnsafeMutableRawPointer.init))
+            tally(entry.srv.map(UnsafeMutableRawPointer.init))
+        }
+        for entry in pathRenderCache {
+            tally(UnsafeMutableRawPointer(entry.texture))
+            tally(UnsafeMutableRawPointer(entry.srv))
+        }
+
+        return count
+    }
+
+    /// True while a backdrop-blur engine is alive and holding device
+    /// resources of its own.
+    internal var blurEngineOwnsResourcesForTesting: Bool { blurEngine != nil }
+
+    /// The `ID3D11Device` address this renderer is currently bound to, so a
+    /// test can tell a genuine device recreation from a re-used one.
+    internal var deviceAddressForTesting: UInt {
+        device.map { UInt(bitPattern: $0) } ?? 0
+    }
 
     public enum AtlasSource: Equatable {
         case snapshot
@@ -258,8 +344,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
 
         if var existing = imageResources.removeValue(forKey: textureID) {
-            releaseCOMPointer(&existing.srv)
-            releaseCOMPointer(&existing.texture)
+            releaseCOM(&existing.srv)
+            releaseCOM(&existing.texture)
         }
 
         imageResources[textureID] = ImageResourceEntry(bitmap: bitmap, texture: nil, srv: nil)
@@ -268,6 +354,19 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     public func bindResources(for scene: GPUIScene) {
         for binding in scene.imageResources {
             bindImageResource(binding.bitmap, for: binding.textureID)
+        }
+    }
+
+    /// Releases the GPU side of every bound image and forgets the bindings.
+    /// The bitmaps themselves are re-supplied by `bindResources(for:)` on
+    /// the next frame, so nothing is lost by dropping them with the device.
+    private func releaseAllImageResources() {
+        while let (textureID, _) = imageResources.first {
+            guard var entry = imageResources.removeValue(forKey: textureID) else {
+                continue
+            }
+            releaseCOM(&entry.srv)
+            releaseCOM(&entry.texture)
         }
     }
 
@@ -393,22 +492,12 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             throw BatchRendererError(operation: "Resolve HWND", hresult: batchHresultHandle)
         }
 
-        // Drop any cached textures from a prior device — they belong to a
-        // ID3D11Device we may be about to recreate, so reusing their SRVs
-        // would be undefined behaviour after a device-loss reattach.
-        releaseAllCachedPaths()
-        blurEngine?.detach()
-        blurEngine = nil
-
-        // Switching targets: an offscreen texture from a previous
-        // attachOffscreen() must not outlive the switch, since its render
-        // target view is about to be replaced by the swap chain's. Full
-        // device teardown is a separate concern.
-        if renderTargetKind == .offscreen {
-            releaseCOMPointer(&renderTargetView)
-            releaseCOMPointer(&offscreenTexture)
-        }
-        renderTargetKind = .swapChain
+        // Attach always starts from nothing. Re-attach is how the host
+        // recovers from a failed backend, so keeping the previous device
+        // would re-bind a possibly-removed one, and keeping the previous
+        // swap chain would leave a second flip-model chain on this HWND —
+        // the two wedges this teardown exists to prevent.
+        detach()
 
         self.surface = surface
         self.targetPixelSize = surface.pixelSize
@@ -432,18 +521,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// chain so readback bytes match what a window would have shown.
     /// `readOffscreenPixels()` returns the result.
     public func attachOffscreen(size: IntSize, driver: OffscreenDriver = .hardwareFirst) throws {
-        releaseAllCachedPaths()
-        blurEngine?.detach()
-        blurEngine = nil
+        // Same contract as the windowed attach: start from nothing, so a
+        // swap chain left over from a previous windowed attach cannot keep
+        // pinning an HWND this renderer no longer draws to.
+        detach()
 
-        releaseCOMPointer(&renderTargetView)
-        releaseCOMPointer(&offscreenTexture)
-        // A swap chain left over from a windowed attach pins an HWND we no
-        // longer draw to; the offscreen target replaces it outright.
-        releaseCOMPointer(&swapChain)
-
-        self.surface = nil
-        self.hwnd = nil
         self.targetPixelSize = size
         renderTargetKind = .offscreen
 
@@ -452,6 +534,90 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         try createOffscreenTarget(size: size)
 
         isAttached = true
+    }
+
+    /// Releases every D3D11 object this renderer owns and returns it to the
+    /// pre-attach state.
+    ///
+    /// Ordering follows the dependency chain: unbind the pipeline from the
+    /// immediate context and flush so the driver stops referencing the
+    /// views, then release views before the resources they view, then the
+    /// swap chain (which pins the HWND) before the device that created it.
+    /// Everything runs on the main actor, where the immediate context is
+    /// used — there is no thread on which a deferred release would be safe.
+    public func detach() {
+        if let deviceContext {
+            var noTargets: UnsafeMutablePointer<ID3D11RenderTargetView>?
+            deviceContext.pointee.lpVtbl.pointee.OMSetRenderTargets(deviceContext, 1, &noTargets, nil)
+            deviceContext.pointee.lpVtbl.pointee.ClearState(deviceContext)
+            deviceContext.pointee.lpVtbl.pointee.Flush(deviceContext)
+        }
+
+        blurEngine?.detach()
+        blurEngine = nil
+        releaseAllCachedPaths()
+        releaseAllImageResources()
+
+        releaseCOM(&glyphAtlasSRV)
+        releaseCOM(&glyphAtlasTexture)
+        glyphAtlasSize = .zero
+        releaseCOM(&pixelGlyphAtlasSRV)
+        releaseCOM(&pixelGlyphAtlasTexture)
+        pixelGlyphAtlasSize = .zero
+
+        releaseCOM(&quadInstanceSRV)
+        releaseCOM(&quadInstanceBuffer)
+        quadInstanceCapacity = Self.initialQuadInstanceCapacity
+        releaseCOM(&imageInstanceSRV)
+        releaseCOM(&imageInstanceBuffer)
+        imageInstanceCapacity = Self.initialImageInstanceCapacity
+        releaseCOM(&glyphInstanceSRV)
+        releaseCOM(&glyphInstanceBuffer)
+        glyphInstanceCapacity = Self.initialGlyphInstanceCapacity
+        releaseCOM(&shadowInstanceSRV)
+        releaseCOM(&shadowInstanceBuffer)
+        shadowInstanceCapacity = Self.initialShadowInstanceCapacity
+
+        releaseCOM(&samplerState)
+        releaseCOM(&rasterizerState)
+        releaseCOM(&blendState)
+        releaseCOM(&frameUniformBuffer)
+
+        releaseCOM(&shadowPS)
+        releaseCOM(&shadowVS)
+        releaseCOM(&glyphPS)
+        releaseCOM(&glyphVS)
+        releaseCOM(&imagePS)
+        releaseCOM(&imageVS)
+        releaseCOM(&quadPS)
+        releaseCOM(&quadVS)
+
+        releaseCOM(&renderTargetView)
+        releaseCOM(&offscreenTexture)
+        releaseCOM(&swapChain)
+        releaseCOM(&dxgiFactory)
+        releaseCOM(&deviceContext)
+        releaseCOM(&device)
+
+        renderTargetKind = .swapChain
+        surface = nil
+        hwnd = nil
+        targetPixelSize = .zero
+        isAttached = false
+    }
+
+    deinit {
+        // Backstop, not a teardown path: `detach()` has to run on the main
+        // actor because it drives the immediate context, and a nonisolated
+        // deinit cannot. The host calls `detach()` from `windowWillClose`
+        // and on every presenter switch; reaching here still attached means
+        // one of those call sites was missed, so say so loudly in debug
+        // builds instead of leaking silently.
+        assert(
+            !isAttachedMirror,
+            "D3D11BatchRenderer was deallocated while still attached — its device, swap chain and "
+                + "atlases leak. Call detach() from the owner's teardown."
+        )
     }
 
     public func resize(to size: IntSize) throws {
@@ -472,7 +638,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                 return
             }
 
-            releaseCOMPointer(&renderTargetView)
+            releaseCOM(&renderTargetView)
             deviceContext?.pointee.lpVtbl.pointee.ClearState(deviceContext)
 
             let hr = swapChain.pointee.lpVtbl.pointee.ResizeBuffers(
@@ -486,8 +652,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             try throwIfFailed(hr, operation: "IDXGISwapChain1.ResizeBuffers")
             try createRenderTargetView()
         case .offscreen:
-            releaseCOMPointer(&renderTargetView)
-            releaseCOMPointer(&offscreenTexture)
+            releaseCOM(&renderTargetView)
+            releaseCOM(&offscreenTexture)
             deviceContext?.pointee.lpVtbl.pointee.ClearState(deviceContext)
             try createOffscreenTarget(size: size)
         }
@@ -710,7 +876,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             }
             // Balance the +1 `GetBuffer` hands back so both cases hand the
             // caller an owned reference.
-            retainCOMPointer(offscreenTexture)
+            retainCOM(offscreenTexture)
             return offscreenTexture
         }
     }
@@ -736,7 +902,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         descriptor.Usage = D3D11_USAGE_DEFAULT
         descriptor.BindFlags = UINT(D3D11_BIND_RENDER_TARGET.rawValue)
 
-        let textureHR = device.pointee.lpVtbl.pointee.CreateTexture2D(device, &descriptor, nil, &offscreenTexture)
+        let textureHR = makeCOM(into: &offscreenTexture) { texture in
+            device.pointee.lpVtbl.pointee.CreateTexture2D(device, &descriptor, nil, &texture)
+        }
         try throwIfFailed(textureHR, operation: "ID3D11Device.CreateTexture2D(offscreen)")
 
         guard let offscreenTexture else {
@@ -744,7 +912,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
 
         let resource = UnsafeMutableRawPointer(offscreenTexture).assumingMemoryBound(to: ID3D11Resource.self)
-        let viewHR = device.pointee.lpVtbl.pointee.CreateRenderTargetView(device, resource, nil, &renderTargetView)
+        let viewHR = makeCOM(into: &renderTargetView) { view in
+            device.pointee.lpVtbl.pointee.CreateRenderTargetView(device, resource, nil, &view)
+        }
         try throwIfFailed(viewHR, operation: "ID3D11Device.CreateRenderTargetView(offscreen)")
     }
 
@@ -778,7 +948,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         var staging: UnsafeMutablePointer<ID3D11Texture2D>?
         let stagingHR = device.pointee.lpVtbl.pointee.CreateTexture2D(device, &descriptor, nil, &staging)
         try throwIfFailed(stagingHR, operation: "ID3D11Device.CreateTexture2D(readback)")
-        defer { releaseCOMPointer(&staging) }
+        defer { releaseCOM(&staging) }
         guard let staging else {
             throw BatchRendererError(operation: "CreateTexture2D(readback)", hresult: batchHresultHandle)
         }
@@ -844,18 +1014,18 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             source: batchBackdropBlurShaderSource, entryPoint: "vsMain", profile: "vs_5_0")
         var blurPSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
             source: batchBackdropBlurShaderSource, entryPoint: "psMain", profile: "ps_5_0")
-        releaseCOMPointer(&blurPSBlob)
-        releaseCOMPointer(&blurVSBlob)
-        releaseCOMPointer(&materialPSBlob)
-        releaseCOMPointer(&materialVSBlob)
-        releaseCOMPointer(&glyphPSBlob)
-        releaseCOMPointer(&glyphVSBlob)
-        releaseCOMPointer(&shadowPSBlob)
-        releaseCOMPointer(&shadowVSBlob)
-        releaseCOMPointer(&imagePSBlob)
-        releaseCOMPointer(&imageVSBlob)
-        releaseCOMPointer(&quadPSBlob)
-        releaseCOMPointer(&quadVSBlob)
+        releaseCOM(&blurPSBlob)
+        releaseCOM(&blurVSBlob)
+        releaseCOM(&materialPSBlob)
+        releaseCOM(&materialVSBlob)
+        releaseCOM(&glyphPSBlob)
+        releaseCOM(&glyphVSBlob)
+        releaseCOM(&shadowPSBlob)
+        releaseCOM(&shadowVSBlob)
+        releaseCOM(&imagePSBlob)
+        releaseCOM(&imageVSBlob)
+        releaseCOM(&quadPSBlob)
+        releaseCOM(&quadVSBlob)
     }
 
     // MARK: - Device Creation
@@ -880,6 +1050,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         var lastHR: HRESULT = batchHresultInvalidArgument
         for driverType in driverTypes {
             for featureLevels in featureLevelSets {
+                // Create into locals: a driver that fails part-way through
+                // may still have written an out-param, and a retry writing
+                // straight into the stored properties would leak it.
+                var createdDevice: UnsafeMutablePointer<ID3D11Device>?
+                var createdContext: UnsafeMutablePointer<ID3D11DeviceContext>?
                 var featureLevel = D3D_FEATURE_LEVEL(0)
                 let hr = featureLevels.withUnsafeBufferPointer { buffer in
                     D3D11CreateDevice(
@@ -890,16 +1065,22 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                         buffer.baseAddress,
                         UINT(buffer.count),
                         UINT(D3D11_SDK_VERSION),
-                        &self.device,
+                        &createdDevice,
                         &featureLevel,
-                        &self.deviceContext
+                        &createdContext
                     )
                 }
 
-                if hr >= 0, device != nil, deviceContext != nil {
+                if hr >= 0, createdDevice != nil, createdContext != nil {
+                    releaseCOM(&device)
+                    releaseCOM(&deviceContext)
+                    device = createdDevice
+                    deviceContext = createdContext
                     return
                 }
 
+                releaseCOM(&createdContext)
+                releaseCOM(&createdDevice)
                 lastHR = hr < 0 ? hr : batchHresultHandle
                 if hr != batchHresultInvalidArgument {
                     break
@@ -915,12 +1096,14 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             return
         }
 
-        var rawFactory: UnsafeMutableRawPointer?
-        var iid = IID_IDXGIFactory2
-        let hr = CreateDXGIFactory1(&iid, &rawFactory)
+        let hr = makeCOM(into: &dxgiFactory) { factory in
+            var rawFactory: UnsafeMutableRawPointer?
+            var iid = IID_IDXGIFactory2
+            let hr = CreateDXGIFactory1(&iid, &rawFactory)
+            factory = rawFactory?.assumingMemoryBound(to: IDXGIFactory2.self)
+            return hr
+        }
         try throwIfFailed(hr, operation: "CreateDXGIFactory1")
-
-        dxgiFactory = rawFactory?.assumingMemoryBound(to: IDXGIFactory2.self)
     }
 
     private func createSwapChain(size: IntSize) throws {
@@ -945,15 +1128,17 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         descriptor.Flags = 0
 
         let unknownDevice = UnsafeMutableRawPointer(device).assumingMemoryBound(to: IUnknown.self)
-        let hr = dxgiFactory.pointee.lpVtbl.pointee.CreateSwapChainForHwnd(
-            dxgiFactory,
-            unknownDevice,
-            hwnd,
-            &descriptor,
-            nil,
-            nil,
-            &swapChain
-        )
+        let hr = makeCOM(into: &swapChain) { chain in
+            dxgiFactory.pointee.lpVtbl.pointee.CreateSwapChainForHwnd(
+                dxgiFactory,
+                unknownDevice,
+                hwnd,
+                &descriptor,
+                nil,
+                nil,
+                &chain
+            )
+        }
         try throwIfFailed(hr, operation: "IDXGIFactory2.CreateSwapChainForHwnd")
     }
 
@@ -972,9 +1157,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
 
         let resource = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
-        let viewHR = device.pointee.lpVtbl.pointee.CreateRenderTargetView(device, resource, nil, &renderTargetView)
+        let viewHR = makeCOM(into: &renderTargetView) { view in
+            device.pointee.lpVtbl.pointee.CreateRenderTargetView(device, resource, nil, &view)
+        }
         var releasableTexture: UnsafeMutablePointer<ID3D11Texture2D>? = texture
-        releaseCOMPointer(&releasableTexture)
+        releaseCOM(&releasableTexture)
         try throwIfFailed(viewHR, operation: "ID3D11Device.CreateRenderTargetView")
     }
 
@@ -1023,7 +1210,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         uniformDesc.Usage = D3D11_USAGE_DEFAULT
         uniformDesc.BindFlags = UINT(D3D11_BIND_CONSTANT_BUFFER.rawValue)
 
-        let uniformHR = device.pointee.lpVtbl.pointee.CreateBuffer(device, &uniformDesc, nil, &frameUniformBuffer)
+        let uniformHR = makeCOM(into: &frameUniformBuffer) { buffer in
+            device.pointee.lpVtbl.pointee.CreateBuffer(device, &uniformDesc, nil, &buffer)
+        }
         try throwIfFailed(uniformHR, operation: "ID3D11Device.CreateBuffer(frameUniforms)")
 
         var blendDescriptor = D3D11_BLEND_DESC()
@@ -1038,7 +1227,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         blendDescriptor.RenderTarget.0.BlendOpAlpha = D3D11_BLEND_OP_ADD
         blendDescriptor.RenderTarget.0.RenderTargetWriteMask = UINT8(D3D11_COLOR_WRITE_ENABLE_ALL.rawValue)
 
-        let blendHR = device.pointee.lpVtbl.pointee.CreateBlendState(device, &blendDescriptor, &blendState)
+        let blendHR = makeCOM(into: &blendState) { state in
+            device.pointee.lpVtbl.pointee.CreateBlendState(device, &blendDescriptor, &state)
+        }
         try throwIfFailed(blendHR, operation: "ID3D11Device.CreateBlendState")
 
         var rasterizerDescriptor = D3D11_RASTERIZER_DESC()
@@ -1047,8 +1238,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         rasterizerDescriptor.ScissorEnable = false
         rasterizerDescriptor.DepthClipEnable = true
 
-        let rasterizerHR = device.pointee.lpVtbl.pointee.CreateRasterizerState(
-            device, &rasterizerDescriptor, &rasterizerState)
+        let rasterizerHR = makeCOM(into: &rasterizerState) { state in
+            device.pointee.lpVtbl.pointee.CreateRasterizerState(device, &rasterizerDescriptor, &state)
+        }
         try throwIfFailed(rasterizerHR, operation: "ID3D11Device.CreateRasterizerState")
 
         var samplerDescriptor = D3D11_SAMPLER_DESC()
@@ -1058,7 +1250,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         samplerDescriptor.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP
         samplerDescriptor.MaxLOD = FLOAT(D3D11_FLOAT32_MAX)
 
-        let samplerHR = device.pointee.lpVtbl.pointee.CreateSamplerState(device, &samplerDescriptor, &samplerState)
+        let samplerHR = makeCOM(into: &samplerState) { state in
+            device.pointee.lpVtbl.pointee.CreateSamplerState(device, &samplerDescriptor, &state)
+        }
         try throwIfFailed(samplerHR, operation: "ID3D11Device.CreateSamplerState")
 
         try createInstanceBuffer(
@@ -1106,32 +1300,36 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     ) throws {
         var vsBlob: UnsafeMutablePointer<ID3DBlob>? = try Self.compileShaderSource(
             source: source, entryPoint: "vsMain", profile: "vs_5_0")
-        defer { releaseCOMPointer(&vsBlob) }
+        defer { releaseCOM(&vsBlob) }
 
         var psBlob: UnsafeMutablePointer<ID3DBlob>? = try Self.compileShaderSource(
             source: source, entryPoint: "psMain", profile: "ps_5_0")
-        defer { releaseCOMPointer(&psBlob) }
+        defer { releaseCOM(&psBlob) }
 
         guard let vsBlob, let psBlob else {
             throw BatchRendererError(operation: "Compile \(label) shaders", hresult: batchHresultHandle)
         }
 
-        let vsHR = device.pointee.lpVtbl.pointee.CreateVertexShader(
-            device,
-            vsBlob.pointee.lpVtbl.pointee.GetBufferPointer(vsBlob),
-            SIZE_T(vsBlob.pointee.lpVtbl.pointee.GetBufferSize(vsBlob)),
-            nil,
-            &vs
-        )
+        let vsHR = makeCOM(into: &vs) { shader in
+            device.pointee.lpVtbl.pointee.CreateVertexShader(
+                device,
+                vsBlob.pointee.lpVtbl.pointee.GetBufferPointer(vsBlob),
+                SIZE_T(vsBlob.pointee.lpVtbl.pointee.GetBufferSize(vsBlob)),
+                nil,
+                &shader
+            )
+        }
         try throwIfFailed(vsHR, operation: "ID3D11Device.CreateVertexShader(\(label))")
 
-        let psHR = device.pointee.lpVtbl.pointee.CreatePixelShader(
-            device,
-            psBlob.pointee.lpVtbl.pointee.GetBufferPointer(psBlob),
-            SIZE_T(psBlob.pointee.lpVtbl.pointee.GetBufferSize(psBlob)),
-            nil,
-            &ps
-        )
+        let psHR = makeCOM(into: &ps) { shader in
+            device.pointee.lpVtbl.pointee.CreatePixelShader(
+                device,
+                psBlob.pointee.lpVtbl.pointee.GetBufferPointer(psBlob),
+                SIZE_T(psBlob.pointee.lpVtbl.pointee.GetBufferSize(psBlob)),
+                nil,
+                &shader
+            )
+        }
         try throwIfFailed(psHR, operation: "ID3D11Device.CreatePixelShader(\(label))")
     }
 
@@ -1166,11 +1364,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
         if hr < 0 {
             let details = shaderCompilerDetails(from: errorBlob)
-            releaseCOMPointer(&errorBlob)
+            releaseCOM(&errorBlob)
             throw BatchRendererError(operation: "D3DCompile(\(entryPoint))", hresult: hr, details: details)
         }
 
-        releaseCOMPointer(&errorBlob)
+        releaseCOM(&errorBlob)
 
         guard let shaderBlob else {
             throw BatchRendererError(operation: "D3DCompile(\(entryPoint))", hresult: batchHresultHandle)
@@ -1200,8 +1398,10 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         srv: inout UnsafeMutablePointer<ID3D11ShaderResourceView>?,
         label: String
     ) throws {
-        releaseCOMPointer(&srv)
-        releaseCOMPointer(&buffer)
+        // The SRV views the buffer, so it goes first; the buffer itself is
+        // replaced by `makeCOM`, which releases the old one only once the
+        // new one exists.
+        releaseCOM(&srv)
 
         var bufferDesc = D3D11_BUFFER_DESC()
         bufferDesc.ByteWidth = UINT(capacity * strideBytes)
@@ -1211,7 +1411,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         bufferDesc.MiscFlags = UINT(D3D11_RESOURCE_MISC_BUFFER_STRUCTURED.rawValue)
         bufferDesc.StructureByteStride = UINT(strideBytes)
 
-        let bufHR = device.pointee.lpVtbl.pointee.CreateBuffer(device, &bufferDesc, nil, &buffer)
+        let bufHR = makeCOM(into: &buffer) { newBuffer in
+            device.pointee.lpVtbl.pointee.CreateBuffer(device, &bufferDesc, nil, &newBuffer)
+        }
         try throwIfFailed(bufHR, operation: "ID3D11Device.CreateBuffer(\(label) instances)")
 
         guard let buffer else {
@@ -1227,7 +1429,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
 
         let resource = UnsafeMutableRawPointer(buffer).assumingMemoryBound(to: ID3D11Resource.self)
-        let srvHR = device.pointee.lpVtbl.pointee.CreateShaderResourceView(device, resource, &srvDesc, &srv)
+        let srvHR = makeCOM(into: &srv) { view in
+            device.pointee.lpVtbl.pointee.CreateShaderResourceView(device, resource, &srvDesc, &view)
+        }
         try throwIfFailed(srvHR, operation: "ID3D11Device.CreateShaderResourceView(\(label))")
     }
 
@@ -1348,8 +1552,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
 
         if texture == nil || size.width != snapshot.width || size.height != snapshot.height {
-            releaseCOMPointer(&srv)
-            releaseCOMPointer(&texture)
+            releaseCOM(&srv)
+            releaseCOM(&texture)
 
             var textureDesc = D3D11_TEXTURE2D_DESC()
             textureDesc.Width = UINT(snapshot.width)
@@ -1361,7 +1565,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             textureDesc.Usage = D3D11_USAGE_DEFAULT
             textureDesc.BindFlags = UINT(D3D11_BIND_SHADER_RESOURCE.rawValue)
 
-            let textureHR = device.pointee.lpVtbl.pointee.CreateTexture2D(device, &textureDesc, nil, &texture)
+            let textureHR = makeCOM(into: &texture) { newTexture in
+                device.pointee.lpVtbl.pointee.CreateTexture2D(device, &textureDesc, nil, &newTexture)
+            }
             try throwIfFailed(textureHR, operation: "ID3D11Device.CreateTexture2D(glyph atlas)")
 
             guard let texture else {
@@ -1377,7 +1583,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             }
 
             let resource = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
-            let srvHR = device.pointee.lpVtbl.pointee.CreateShaderResourceView(device, resource, &srvDesc, &srv)
+            let srvHR = makeCOM(into: &srv) { view in
+                device.pointee.lpVtbl.pointee.CreateShaderResourceView(device, resource, &srvDesc, &view)
+            }
             try throwIfFailed(srvHR, operation: "ID3D11Device.CreateShaderResourceView(glyph atlas)")
             size = IntSize(width: snapshot.width, height: snapshot.height)
         }
@@ -1515,13 +1723,13 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             try throwIfFailed(srvHR, operation: "ID3D11Device.CreateShaderResourceView(image)")
         } catch {
             var releasableTexture: UnsafeMutablePointer<ID3D11Texture2D>? = texture
-            releaseCOMPointer(&releasableTexture)
+            releaseCOM(&releasableTexture)
             throw error
         }
 
         guard let srv else {
             var releasableTexture: UnsafeMutablePointer<ID3D11Texture2D>? = texture
-            releaseCOMPointer(&releasableTexture)
+            releaseCOM(&releasableTexture)
             throw BatchRendererError(operation: "CreateShaderResourceView(image)", hresult: batchHresultHandle)
         }
 
@@ -1780,9 +1988,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     private func releaseCachedPathEntry(at index: Int) {
         let entry = pathRenderCache.remove(at: index)
         var srvOpt: UnsafeMutablePointer<ID3D11ShaderResourceView>? = entry.srv
-        releaseCOMPointer(&srvOpt)
+        releaseCOM(&srvOpt)
         var textureOpt: UnsafeMutablePointer<ID3D11Texture2D>? = entry.texture
-        releaseCOMPointer(&textureOpt)
+        releaseCOM(&textureOpt)
     }
 
     private func releaseAllCachedPaths() {
@@ -1820,7 +2028,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         let engine = try ensureBlurEngine(device: device)
 
         var backBuffer: UnsafeMutablePointer<ID3D11Texture2D>? = try acquireBackBuffer()
-        defer { releaseCOMPointer(&backBuffer) }
+        defer { releaseCOM(&backBuffer) }
         guard let backBuffer else {
             throw BatchRendererError(operation: "Resolve back buffer", hresult: batchHresultHandle)
         }
@@ -1864,19 +2072,6 @@ public struct BatchRendererError: Error, CustomStringConvertible, Sendable {
 
         return "\(prefix) \(details)"
     }
-}
-private func retainCOMPointer<T>(_ pointer: UnsafeMutablePointer<T>) {
-    let unknown = UnsafeMutableRawPointer(pointer).assumingMemoryBound(to: IUnknown.self)
-    _ = unknown.pointee.lpVtbl.pointee.AddRef(unknown)
-}
-private func releaseCOMPointer<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
-    guard let rawPointer = pointer else {
-        return
-    }
-
-    let unknown = UnsafeMutableRawPointer(rawPointer).assumingMemoryBound(to: IUnknown.self)
-    _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
-    pointer = nil
 }
 private let batchHresultHandle: HRESULT = HRESULT(bitPattern: 0x8007_0006)
 private let batchHresultInvalidArgument: HRESULT = HRESULT(bitPattern: 0x8007_0057)

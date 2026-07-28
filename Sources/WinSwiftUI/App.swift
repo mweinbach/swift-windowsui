@@ -2003,6 +2003,14 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     func windowWillClose(_ window: Win32Window) {
         uiaBridge?.disconnect()
+        // Release the GPU stack while the HWND is still alive. A swap chain
+        // pins the window it presents to and nothing else in the process
+        // will ever release it, so a closed window without this leaks its
+        // whole device — including the blur ping-pong textures, which are
+        // tens of megabytes at 4K.
+        isRendererReady = false
+        batchRenderer?.detach()
+        renderer.detach()
         onWindowClosed?(self)
     }
 
@@ -2401,6 +2409,13 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     // | After any downgrade, `.disabled` policy  | One-way pin: batch is never invoked again this session.        |
     // | Frame backend itself throws              | Log via `report`; the host session stays alive (no crash).     |
     //
+    // Every transition in that table releases the outgoing backend before
+    // the incoming one attaches (`detach()`, see docs/GPURenderingPipeline.md
+    // § 4b). A flip-model swap chain owns its HWND exclusively, so "both
+    // backends attached to one window" is not a state this policy may enter,
+    // in either direction — and `windowWillClose` detaches both, because
+    // nothing else in the process ever releases a swap chain.
+    //
     // What apps may force:
     // - `SWIFT_WINDOWSUI_FRAME_DEBUG=1` (`StartupPresentationMode.frameDebug`,
     //   `-FrameDebug` tooling): pins the frame backend from startup, reason
@@ -2435,6 +2450,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                 return
             } catch {
                 report("Batch renderer attach failed; falling back to frame renderer. \(error)")
+                // A partially-attached batch backend may already own a swap
+                // chain for this HWND, and flip-model presentation is
+                // exclusive per window: release it before the frame backend
+                // asks DXGI for a second one.
+                batchRenderer.detach()
                 try renderer.attach(to: surface)
                 activeBackend = .frame
                 updatePresentationSelection(reason: .batchAttachFailure(String(describing: error)))
@@ -2483,6 +2503,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         }
 
         surfaceDescriptor = surface
+        // Presenter switch: the batch backend still owns a flip-model swap
+        // chain on this HWND, and DXGI treats that ownership as exclusive.
+        // Without this release the frame backend's `CreateSwapChainForHwnd`
+        // throws and the window freezes on its last presented frame.
+        batchRenderer?.detach()
         try renderer.attach(to: surface)
         try renderer.resize(to: surface.pixelSize)
         activeBackend = .frame
@@ -2525,6 +2550,10 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         }
 
         do {
+            // The other half of the presenter switch: the frame backend owns
+            // this HWND's swap chain right now, so it has to let go before
+            // the batch backend can claim it.
+            renderer.detach()
             try batchRenderer.attach(to: surface)
             try batchRenderer.resize(to: surface.pixelSize)
             activeBackend = .scene
@@ -2533,6 +2562,16 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             report("Batch renderer recovered after fallback.")
             updatePresentationSelection(reason: .batchBackendRecovered)
         } catch {
+            // Recovery failed with the frame backend already released: put
+            // it back so the window keeps presenting instead of freezing on
+            // its last frame until the next attempt.
+            batchRenderer.detach()
+            do {
+                try renderer.attach(to: surface)
+                try renderer.resize(to: surface.pixelSize)
+            } catch {
+                report("Frame renderer re-attach after a failed batch recovery failed: \(error).")
+            }
             extendBatchRecoveryBackoff(now: now)
             report("Batch renderer recovery attempt failed: \(error). Will retry in \(currentBatchRecoveryInterval)s.")
         }

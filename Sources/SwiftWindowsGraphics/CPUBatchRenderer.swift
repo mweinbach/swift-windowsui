@@ -42,6 +42,13 @@ public final class CPUBatchRenderer: BatchRenderBackend, RenderBackend {
         currentSize = size
     }
 
+    /// No platform resources to release; drops the retained frame so a
+    /// detached renderer holds nothing and re-attaches from a clean state.
+    public func detach() {
+        currentSize = .zero
+        lastRenderedBitmap = nil
+    }
+
     public func bindResources(for scene: GPUIScene) {
         // CPU rasterizer reads atlas and image data directly from the scene;
         // no GPU resource binding is required.

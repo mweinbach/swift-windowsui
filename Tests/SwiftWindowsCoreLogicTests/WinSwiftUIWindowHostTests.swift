@@ -23,11 +23,28 @@ import SwiftWindowsRendererD3D11
 /// Captures the effective refresh rate behavior by examining timer configuration.
 /// Returns the expected timer interval in milliseconds for a given refresh rate.
 
+/// A process-wide monotonic tick the backend fakes stamp their attach and
+/// detach calls with, so a test can assert that a presenter switch releases
+/// one backend's swap chain *before* the other claims the HWND — an
+/// ordering neither backend can observe on its own.
+@MainActor
+enum FakeBackendLifecycleOrder {
+    private static var tick = 0
+
+    static func next() -> Int {
+        tick += 1
+        return tick
+    }
+}
+
 @MainActor
 final class FakeRenderBackend: RenderBackend {
     private(set) var attachedSurfaces: [SurfaceDescriptor] = []
     private(set) var resizedSizes: [IntSize] = []
     private(set) var renderedFrames: [RenderFrame] = []
+    private(set) var detachCount = 0
+    private(set) var lastAttachOrder = 0
+    private(set) var lastDetachOrder = 0
     private(set) var attachShouldFail: Bool
     private(set) var resizeShouldFail: Bool
     private(set) var renderShouldFail: Bool
@@ -47,6 +64,7 @@ final class FakeRenderBackend: RenderBackend {
             throw failureError
         }
         attachedSurfaces.append(surface)
+        lastAttachOrder = FakeBackendLifecycleOrder.next()
     }
 
     func resize(to size: IntSize) throws {
@@ -61,6 +79,11 @@ final class FakeRenderBackend: RenderBackend {
             throw failureError
         }
         renderedFrames.append(frame)
+    }
+
+    func detach() {
+        detachCount += 1
+        lastDetachOrder = FakeBackendLifecycleOrder.next()
     }
 
     func setAttachShouldFail(_ shouldFail: Bool) {
@@ -87,6 +110,9 @@ final class FakeBatchRenderBackend: BatchRenderBackend {
     private(set) var renderedScenes: [GPUIScene] = []
     private(set) var boundScenes: [GPUIScene] = []
     private(set) var events: [Event] = []
+    private(set) var detachCount = 0
+    private(set) var lastAttachOrder = 0
+    private(set) var lastDetachOrder = 0
     private(set) var attachShouldFail: Bool
     private(set) var resizeShouldFail: Bool
     private(set) var renderShouldFail: Bool
@@ -107,6 +133,7 @@ final class FakeBatchRenderBackend: BatchRenderBackend {
             throw failureError
         }
         attachedSurfaces.append(surface)
+        lastAttachOrder = FakeBackendLifecycleOrder.next()
     }
 
     func resize(to size: IntSize) throws {
@@ -114,6 +141,11 @@ final class FakeBatchRenderBackend: BatchRenderBackend {
             throw failureError
         }
         resizedSizes.append(size)
+    }
+
+    func detach() {
+        detachCount += 1
+        lastDetachOrder = FakeBackendLifecycleOrder.next()
     }
 
     func bindResources(for scene: GPUIScene) {

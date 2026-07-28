@@ -151,26 +151,26 @@ final class D3D11BackdropBlurEngine {
     /// Releases every device-dependent resource. Called on device
     /// reattach and by the renderer's own teardown paths.
     func detach() {
-        releaseCOMPointer(&srvB)
-        releaseCOMPointer(&rtvB)
-        releaseCOMPointer(&textureB)
-        releaseCOMPointer(&srvA)
-        releaseCOMPointer(&rtvA)
-        releaseCOMPointer(&textureA)
+        releaseCOM(&srvB)
+        releaseCOM(&rtvB)
+        releaseCOM(&textureB)
+        releaseCOM(&srvA)
+        releaseCOM(&rtvA)
+        releaseCOM(&textureA)
         textureCapacity = (0, 0)
 
-        releaseCOMPointer(&rasterizerState)
-        releaseCOMPointer(&blendState)
-        releaseCOMPointer(&samplerState)
-        releaseCOMPointer(&quadInstanceSRV)
-        releaseCOMPointer(&quadInstanceBuffer)
-        releaseCOMPointer(&regionBuffer)
-        releaseCOMPointer(&frameUniformBuffer)
-        releaseCOMPointer(&blurParamsBuffer)
-        releaseCOMPointer(&materialPS)
-        releaseCOMPointer(&materialVS)
-        releaseCOMPointer(&blurPS)
-        releaseCOMPointer(&blurVS)
+        releaseCOM(&rasterizerState)
+        releaseCOM(&blendState)
+        releaseCOM(&samplerState)
+        releaseCOM(&quadInstanceSRV)
+        releaseCOM(&quadInstanceBuffer)
+        releaseCOM(&regionBuffer)
+        releaseCOM(&frameUniformBuffer)
+        releaseCOM(&blurParamsBuffer)
+        releaseCOM(&materialPS)
+        releaseCOM(&materialVS)
+        releaseCOM(&blurPS)
+        releaseCOM(&blurVS)
         device = nil
     }
 
@@ -413,12 +413,12 @@ final class D3D11BackdropBlurEngine {
         let newWidth = max(textureCapacity.width, width)
         let newHeight = max(textureCapacity.height, height)
 
-        releaseCOMPointer(&srvB)
-        releaseCOMPointer(&rtvB)
-        releaseCOMPointer(&textureB)
-        releaseCOMPointer(&srvA)
-        releaseCOMPointer(&rtvA)
-        releaseCOMPointer(&textureA)
+        releaseCOM(&srvB)
+        releaseCOM(&rtvB)
+        releaseCOM(&textureB)
+        releaseCOM(&srvA)
+        releaseCOM(&rtvA)
+        releaseCOM(&textureA)
 
         textureA = try Self.createPingPongTexture(device: device, width: newWidth, height: newHeight)
         rtvA = try Self.createRenderTargetView(device: device, texture: textureA, label: "blur A")
@@ -631,7 +631,7 @@ final class D3D11BackdropBlurEngine {
     ) throws -> UnsafeMutablePointer<ID3D11VertexShader> {
         var blob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
             source: source, entryPoint: "vsMain", profile: "vs_5_0", label: label)
-        defer { releaseCOMPointer(&blob) }
+        defer { releaseCOM(&blob) }
         guard let blob else {
             throw BatchRendererError(operation: "Compile \(label) vertex shader", hresult: blurHresultHandle)
         }
@@ -657,7 +657,7 @@ final class D3D11BackdropBlurEngine {
     ) throws -> UnsafeMutablePointer<ID3D11PixelShader> {
         var blob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
             source: source, entryPoint: "psMain", profile: "ps_5_0", label: label)
-        defer { releaseCOMPointer(&blob) }
+        defer { releaseCOM(&blob) }
         guard let blob else {
             throw BatchRendererError(operation: "Compile \(label) pixel shader", hresult: blurHresultHandle)
         }
@@ -713,11 +713,11 @@ final class D3D11BackdropBlurEngine {
             {
                 details = String(cString: rawPointer.assumingMemoryBound(to: CChar.self))
             }
-            releaseCOMPointer(&errorBlob)
+            releaseCOM(&errorBlob)
             throw BatchRendererError(operation: "D3DCompile(\(label).\(entryPoint))", hresult: hr, details: details)
         }
 
-        releaseCOMPointer(&errorBlob)
+        releaseCOM(&errorBlob)
         guard let shaderBlob else {
             throw BatchRendererError(operation: "D3DCompile(\(label).\(entryPoint))", hresult: blurHresultHandle)
         }
@@ -747,16 +747,6 @@ final class D3D11BackdropBlurEngine {
             throw BatchRendererError(operation: operation, hresult: hr)
         }
     }
-}
-
-private func releaseCOMPointer<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
-    guard let rawPointer = pointer else {
-        return
-    }
-
-    let unknown = UnsafeMutableRawPointer(rawPointer).assumingMemoryBound(to: IUnknown.self)
-    _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
-    pointer = nil
 }
 
 private let blurHresultHandle: HRESULT = HRESULT(bitPattern: 0x8007_0006)

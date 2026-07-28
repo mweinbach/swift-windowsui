@@ -26,7 +26,13 @@ not replace the paint stream for presentation.
 
 Offscreen compositing and `drawingGroup` passes render into a temporary
 `GPUIScene`. Those passes must not update `ViewNode.cachedScenePaintRange`,
-because the cached ranges refer to the outer scene's `paintRecords`.
+because the cached ranges refer to the outer scene's `paintRecords`. The
+temporary scene does carry the frame's glyph atlases — without them the CPU
+rasterizer drops every glyph, so all text inside the group disappears — but it
+reads them through `NativeGlyphAtlas.currentSnapshot()`, which does not consume
+the frame's dirty region. The group's buffer is sized from its frame *clamped to
+the effective clip* and refuses to allocate past an area budget, falling back to
+inline painting; see `docs/GPURenderingPipeline.md` §2b.
 
 To force the frame fallback locally:
 

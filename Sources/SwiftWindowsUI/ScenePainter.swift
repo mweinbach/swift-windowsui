@@ -14,7 +14,20 @@ public enum ScenePainter {
     /// can't be tessellated at all stays as a single CPU path.
     /// Updates `scene.paintMetrics` so apps and tests can observe the
     /// GPU promotion rate at the frame boundary.
-    internal static func emit(path: PathPrimitive, into scene: inout GPUIScene, layerIndex: Int) {
+    ///
+    /// This is the single lowering point for path geometry, so it is also
+    /// where logical points become device pixels: callers build paths in
+    /// the same logical space as every other primitive and `emit` applies
+    /// `displayScale` exactly once, before tessellation, so the promoted
+    /// quads and the residual CPU path land in the same space the backends
+    /// already assume.
+    internal static func emit(
+        path logicalPath: PathPrimitive,
+        into scene: inout GPUIScene,
+        layerIndex: Int,
+        displayScale: Double
+    ) {
+        let path = logicalPath.scaled(by: displayScale)
         guard let mixed = PathToQuadTessellator.tessellateMixed(path) else {
             scene.addPath(path, toLayer: layerIndex)
             scene.paintMetrics.pathsRasterizedOnCPU += 1
@@ -148,13 +161,7 @@ public enum ScenePainter {
                 scene.glyphAtlas = NativeGlyphAtlas.shared.snapshotIfUsedInCurrentFrame()
             }
             if usedPixelGlyphs {
-                let atlas = PixelFontAtlas.shared.surface
-                scene.pixelGlyphAtlas = GlyphAtlasSnapshot(
-                    width: atlas.width,
-                    height: atlas.height,
-                    pixels: atlas.pixels,
-                    dirtyRegion: GlyphAtlasRegion(x: 0, y: 0, width: atlas.width, height: atlas.height)
-                )
+                scene.pixelGlyphAtlas = pixelGlyphAtlasSnapshot()
             }
 
             deferredDraws = attemptDeferredDraws
@@ -306,6 +313,10 @@ public enum ScenePainter {
             }
 
             let effectiveBlendMode: BlendMode = node.blendMode == .normal ? inheritedBlendMode : node.blendMode
+            // Needed before the border is emitted: a container's border is a
+            // ring drawn after children, so the pre-children fill has to know
+            // whether it would be redrawn.
+            let hasChildren = !node.children.isEmpty
 
             // The node's frame in its parent's local coordinate space.
             let nodeLocalFrame = Rect(
@@ -334,17 +345,31 @@ public enum ScenePainter {
             }
             let effectiveTransform = centeredTransform.concatenating(inheritedTransform)
 
-            guard paintFrame.size.width > 0, paintFrame.size.height > 0 else {
-                if !skipCacheUpdates {
-                    node.cachedSceneKey = nil
-                    node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
-                }
-                node.markSubtreeRendered()
-                continue
-            }
+            // A degenerate frame paints none of the node's own decoration, but
+            // it is not a reason to drop the subtree: a collapsed row can still
+            // carry an offset badge, and `.frame(height: 0)` with an overlay
+            // child is legal. Own decoration is gated on this flag; children are
+            // visited either way (a `clipsToBounds` node still collapses its
+            // clip to nothing below, which prunes them for the right reason).
+            let hasPaintableExtent = paintFrame.size.width > 0 && paintFrame.size.height > 0
 
-            // Occlusion culling against inherited clip.
-            if !clipAllowsDrawing(clip: inheritedClip, rect: paintFrame) {
+            // Occlusion culling against the inherited clip. The footprint is the
+            // node's frame unioned with the decoration that reaches outside it —
+            // a shadow or focus/outline ring on a card scrolled one pixel past
+            // the clip edge is still visible, and culling on `paintFrame` alone
+            // made it pop.
+            let ownShadowRect: Rect? =
+                node.shadowColor.alpha > 0
+                ? paintFrame
+                    .outset(by: max(0, node.shadowSpread))
+                    .offsetBy(dx: node.shadowOffset.x, dy: node.shadowOffset.y)
+                : nil
+            let ownOutlineRect: Rect? =
+                node.outlineColor.alpha > 0 && node.outlineWidth > 0
+                ? paintFrame.outset(by: node.outlineWidth)
+                : nil
+            let cullBounds = union(paintFrame, ownShadowRect, ownOutlineRect)
+            if hasPaintableExtent, !clipAllowsDrawing(clip: inheritedClip, rect: cullBounds) {
                 if !skipCacheUpdates {
                     node.cachedSceneKey = nil
                     node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
@@ -449,11 +474,13 @@ public enum ScenePainter {
                 continue
             }
 
-            if let hoverShadow = node.hoverEffectShadowCommand(
-                for: paintFrame,
-                inheritedClip: inheritedClip,
-                opacity: opacity
-            ) {
+            if hasPaintableExtent,
+                let hoverShadow = node.hoverEffectShadowCommand(
+                    for: paintFrame,
+                    inheritedClip: inheritedClip,
+                    opacity: opacity
+                )
+            {
                 scene.addQuad(
                     quad(for: hoverShadow, surfaceSize: surfaceSize, displayScale: displayScale),
                     toLayer: layerIndex
@@ -462,12 +489,7 @@ public enum ScenePainter {
 
             // Shadow
             let effectiveShadowColor = node.shadowColor.multipliedAlpha(by: opacity)
-            if effectiveShadowColor.alpha > 0 {
-                let shadowRect =
-                    paintFrame
-                    .outset(by: max(0, node.shadowSpread))
-                    .offsetBy(dx: node.shadowOffset.x, dy: node.shadowOffset.y)
-
+            if hasPaintableExtent, effectiveShadowColor.alpha > 0, let shadowRect = ownShadowRect {
                 if clipAllowsDrawing(clip: inheritedClip, rect: shadowRect) {
                     let scaledShadowRect = scaleRect(shadowRect, by: displayScale)
                     let shadowClip = clipRectFloats(inheritedClip, surfaceSize: surfaceSize, displayScale: displayScale)
@@ -495,11 +517,13 @@ public enum ScenePainter {
                 }
             }
 
-            if let focusEffect = node.focusEffectCommand(
-                for: paintFrame,
-                inheritedClip: inheritedClip,
-                opacity: opacity
-            ) {
+            if hasPaintableExtent,
+                let focusEffect = node.focusEffectCommand(
+                    for: paintFrame,
+                    inheritedClip: inheritedClip,
+                    opacity: opacity
+                )
+            {
                 scene.addQuad(
                     quad(for: focusEffect, surfaceSize: surfaceSize, displayScale: displayScale),
                     toLayer: layerIndex
@@ -507,8 +531,7 @@ public enum ScenePainter {
             }
 
             // Outline (drawn outside the border)
-            if node.outlineColor.alpha > 0, node.outlineWidth > 0 {
-                let outlineRect = paintFrame.outset(by: node.outlineWidth)
+            if hasPaintableExtent, let outlineRect = ownOutlineRect {
                 if clipAllowsDrawing(clip: inheritedClip, rect: outlineRect) {
                     scene.addQuad(
                         solidQuad(
@@ -526,8 +549,16 @@ public enum ScenePainter {
 
             // Border (full rect drawn under the fill area; for leaf nodes the
             // inset fill leaves the border ring visible).
+            //
+            // A container re-draws the same border as a ring *after* its
+            // children (`finishPaintNode`), so emitting it here as well blended
+            // a translucent border twice: `.border(Color.white.opacity(0.10))`
+            // landed at 0.19 on a container and 0.10 on a leaf. The ring covers
+            // exactly the pixels this fill would leave visible, so containers
+            // emit the border once, after children.
             let borderColor = node.borderGradient?.startColor ?? node.borderColor
-            if borderColor.alpha > 0, node.borderWidth > 0,
+            if hasPaintableExtent, !hasChildren,
+                borderColor.alpha > 0, node.borderWidth > 0,
                 node.backgroundPath == nil,
                 clipAllowsDrawing(clip: effectiveClip, rect: paintFrame)
             {
@@ -645,7 +676,7 @@ public enum ScenePainter {
                             bounds: pathBounds,
                             fillColor: bg,
                             clipBounds: effectiveClip
-                        ), into: &scene, layerIndex: layerIndex)
+                        ), into: &scene, layerIndex: layerIndex, displayScale: displayScale)
                 }
                 let effectiveStrokeColor = node.borderColor.multipliedAlpha(by: opacity)
                 if effectiveStrokeColor.alpha > 0, node.borderWidth > 0 {
@@ -667,7 +698,7 @@ public enum ScenePainter {
                             strokeColor: effectiveStrokeColor,
                             lineWidth: node.borderWidth,
                             clipBounds: effectiveClip
-                        ), into: &scene, layerIndex: layerIndex)
+                        ), into: &scene, layerIndex: layerIndex, displayScale: displayScale)
                 }
             }
 
@@ -809,17 +840,24 @@ public enum ScenePainter {
                 sortedChildren = node.children
             }
 
-            if (node.drawingGroup != nil || node.isCompositingGroup) && !isInsideDrawingGroup && !sortedChildren.isEmpty
+            let isCompositingGroup = node.drawingGroup != nil || node.isCompositingGroup
+            if isCompositingGroup, !isInsideDrawingGroup, hasPaintableExtent,
+                !sortedChildren.isEmpty,
+                let buffer = compositingGroupBuffer(
+                    paintFrame: paintFrame, clip: effectiveClip, displayScale: displayScale)
             {
                 // Compositing group: render children into an offscreen buffer so
                 // overlapping content is blended together before ancestor opacity
-                // or blend modes are applied.
-                let subShift = Transform2D.translation(x: -paintFrame.origin.x, y: -paintFrame.origin.y)
+                // or blend modes are applied. `buffer.frame` is the group's frame
+                // clamped to the effective clip — pixels outside it could not
+                // survive the clip anyway, and sizing from the raw frame turned
+                // `.drawingGroup()` on tall scroll content into a hundreds-of-MB
+                // allocation per frame. When the buffer cannot be sized at all
+                // (non-finite frame, or past the area budget) `compositingGroupBuffer`
+                // returns nil and the group falls back to inline painting.
+                let subShift = Transform2D.translation(x: -buffer.frame.origin.x, y: -buffer.frame.origin.y)
                 let subInheritedTransform = subShift.concatenating(inheritedTransform)
-
-                let subWidth = max(1, Int((paintFrame.size.width * displayScale).rounded(.up)))
-                let subHeight = max(1, Int((paintFrame.size.height * displayScale).rounded(.up)))
-                let subSize = IntSize(width: Int32(subWidth), height: Int32(subHeight))
+                let subSize = buffer.size
 
                 var subScene = GPUIScene(clearColor: .clear)
                 var subDeferred: [DeferredDrawState] = []
@@ -858,10 +896,29 @@ public enum ScenePainter {
                 }
 
                 subScene.finish()
+                // The sub-scene is rasterized on the CPU right here, and
+                // `RasterTarget.drawGlyph` returns immediately when its atlas is
+                // nil — which is why every piece of text inside `.drawingGroup()`
+                // used to vanish. The peek below deliberately does *not* consume
+                // the atlas dirty region: the frame has a single consumer at the
+                // end of `paint`, and letting the sub-scene call
+                // `snapshotIfUsedInCurrentFrame()` would hand the outer scene an
+                // empty dirty region for glyphs it still has to upload.
+                if subNative {
+                    subScene.glyphAtlas = NativeGlyphAtlas.shared.currentSnapshot()
+                }
+                if subPixel {
+                    subScene.pixelGlyphAtlas = pixelGlyphAtlasSnapshot()
+                }
+                // Glyph usage inside the group is glyph usage for the frame: the
+                // atlas-recovery retry and the outer snapshot both key off it.
+                usedNativeGlyphs = usedNativeGlyphs || subNative
+                usedPixelGlyphs = usedPixelGlyphs || subPixel
+
                 let bitmap = GPUIRawSceneRasterizer.rasterize(subScene, size: subSize)
 
                 let textureID = scene.registerImageResource(bitmap)
-                let scaledFrame = scaleRect(paintFrame, by: displayScale)
+                let scaledFrame = scaleRect(buffer.frame, by: displayScale)
                 let clipR = clipRectFloats(effectiveClip, surfaceSize: surfaceSize, displayScale: displayScale)
                 let imageOpacity = primitiveOpacity * Float(node.opacity)
                 scene.addImage(
@@ -884,7 +941,7 @@ public enum ScenePainter {
                             node: node,
                             startPaintRecord: startPaintRecord,
                             cacheKey: cacheKey,
-                            hasChildren: !sortedChildren.isEmpty,
+                            hasChildren: hasChildren,
                             borderColor: borderColor,
                             paintFrame: paintFrame,
                             effectiveClip: effectiveClip,
@@ -929,7 +986,7 @@ public enum ScenePainter {
                     node: node,
                     startPaintRecord: startPaintRecord,
                     cacheKey: cacheKey,
-                    hasChildren: !sortedChildren.isEmpty,
+                    hasChildren: hasChildren,
                     borderColor: borderColor,
                     paintFrame: paintFrame,
                     effectiveClip: effectiveClip,
@@ -1029,7 +1086,102 @@ public enum ScenePainter {
         node.markSubtreeRendered()
     }
 
+    // MARK: - Compositing groups
+
+    /// The offscreen buffer a compositing group will rasterize into.
+    private struct CompositingGroupBuffer {
+        /// The group's frame clamped to the effective clip, in logical points.
+        /// The sub-scene is shifted by this origin and the composited image is
+        /// placed here, so the two always agree.
+        let frame: Rect
+        /// Buffer extent in device pixels.
+        let size: IntSize
+    }
+
+    /// Largest offscreen compositing buffer, in device pixels. A 4K window is
+    /// ~8.3 M pixels, so this leaves generous headroom while keeping a single
+    /// group's allocation under 64 MB — past it inline painting is both cheaper
+    /// and more correct than a buffer the machine cannot afford every frame.
+    private static let maxCompositingGroupPixels = 16_777_216
+
+    /// Sizes the offscreen buffer for a compositing group, or returns nil when
+    /// the group must be painted inline instead.
+    ///
+    /// Three things used to be missing here and each was reachable from app
+    /// code: the frame was not clamped to the clip (so `.drawingGroup()` on tall
+    /// scroll content allocated the *content* size every frame), the
+    /// `Double → Int → Int32` conversions trapped on a non-finite or huge frame
+    /// (`maxWidth: .infinity` resolving badly is a process kill, not a glitch),
+    /// and there was no upper bound at all.
+    private static func compositingGroupBuffer(
+        paintFrame: Rect,
+        clip: Rect?,
+        displayScale: Double
+    ) -> CompositingGroupBuffer? {
+        guard paintFrame.origin.x.isFinite, paintFrame.origin.y.isFinite,
+            paintFrame.size.width.isFinite, paintFrame.size.height.isFinite,
+            displayScale.isFinite, displayScale > 0
+        else {
+            return nil
+        }
+
+        // Only the clipped region can contribute pixels; anything outside it is
+        // discarded by the image primitive's own clip either way.
+        let frame: Rect
+        if let clip {
+            guard let visible = paintFrame.intersected(with: clip) else { return nil }
+            frame = visible
+        } else {
+            frame = paintFrame
+        }
+        guard frame.size.width > 0, frame.size.height > 0 else { return nil }
+
+        let width = min(
+            max(1, GPUISceneValue.int((frame.size.width * displayScale).rounded(.up))),
+            GPUISceneLimits.maxSurfaceDimension
+        )
+        let height = min(
+            max(1, GPUISceneValue.int((frame.size.height * displayScale).rounded(.up))),
+            GPUISceneLimits.maxSurfaceDimension
+        )
+        guard width * height <= maxCompositingGroupPixels else { return nil }
+
+        return CompositingGroupBuffer(
+            frame: frame,
+            size: IntSize(width: Int32(width), height: Int32(height))
+        )
+    }
+
+    /// Snapshot of the shared pixel-font atlas. The pixel atlas is a static
+    /// surface, so every consumer in a frame can take the same full-surface
+    /// snapshot without any dirty-region bookkeeping.
+    private static func pixelGlyphAtlasSnapshot() -> GlyphAtlasSnapshot {
+        let atlas = PixelFontAtlas.shared.surface
+        return GlyphAtlasSnapshot(
+            width: atlas.width,
+            height: atlas.height,
+            pixels: atlas.pixels,
+            dirtyRegion: GlyphAtlasRegion(x: 0, y: 0, width: atlas.width, height: atlas.height)
+        )
+    }
+
     // MARK: - Helpers
+
+    /// Bounding rect covering `rect` and any non-nil additional rects.
+    private static func union(_ rect: Rect, _ others: Rect?...) -> Rect {
+        var minX = rect.minX
+        var minY = rect.minY
+        var maxX = rect.maxX
+        var maxY = rect.maxY
+        for other in others {
+            guard let other else { continue }
+            minX = min(minX, other.minX)
+            minY = min(minY, other.minY)
+            maxX = max(maxX, other.maxX)
+            maxY = max(maxY, other.maxY)
+        }
+        return Rect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
 
     /// Builds a solid-color QuadPrimitive (start color == end color, no gradient).
     private static func solidQuad(
@@ -1197,7 +1349,7 @@ public enum ScenePainter {
                         bounds: bounds,
                         fillColor: effectiveColor,
                         clipBounds: currentClip
-                    ), into: &scene, layerIndex: layerIndex)
+                    ), into: &scene, layerIndex: layerIndex, displayScale: displayScale)
 
             case .strokePath(let path, let color, let style):
                 let effectiveColor = color.multipliedAlpha(by: opacity)
@@ -1217,7 +1369,7 @@ public enum ScenePainter {
                         strokeColor: effectiveColor,
                         lineWidth: style.lineWidth,
                         clipBounds: currentClip
-                    ), into: &scene, layerIndex: layerIndex)
+                    ), into: &scene, layerIndex: layerIndex, displayScale: displayScale)
 
             case .fillRect(let rect, let color):
                 let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
@@ -1270,7 +1422,7 @@ public enum ScenePainter {
                         strokeColor: effectiveColor,
                         lineWidth: lineWidth,
                         clipBounds: currentClip
-                    ), into: &scene, layerIndex: layerIndex)
+                    ), into: &scene, layerIndex: layerIndex, displayScale: displayScale)
 
             case .drawText(let text, let rect, let style):
                 let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)

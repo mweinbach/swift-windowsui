@@ -8,6 +8,15 @@ struct BorderSegment: Equatable, Sendable {
 }
 
 enum BorderSegments {
+    /// Largest number of dash-pattern steps one border walk may take.
+    ///
+    /// The walk advances by the current pattern entry, so a pattern finer than
+    /// the perimeter can resolve — `StrokeStyle(dashPattern: [0.001, 0.001])`
+    /// on a 4 000 pt perimeter — used to emit hundreds of thousands of
+    /// segments per border per frame. The step floor below keeps the walk
+    /// covering the whole perimeter while degrading dash granularity rather
+    /// than frame time.
+    private static let maxDashSteps = 4_096
     /// Generates solid border-ring segments (top/bottom/left/right edges and
     /// four corner arcs) so the border can be drawn as thin quads rather than
     /// a full-rect fill.  This keeps the border visible when it must be drawn
@@ -251,9 +260,17 @@ enum BorderSegments {
         let capExtension = lineCap == .butt ? 0 : segmentWidth * 0.5
         let capRadius = lineCap == .round ? segmentWidth * 0.5 : 0
 
+        // Every step advances at least this far, so the walk always terminates
+        // within `maxDashSteps` regardless of how fine the pattern is. For any
+        // pattern coarser than perimeter/4096 (i.e. every real one) the floor
+        // is below the pattern entries and the walk is unchanged.
+        let minimumStep = max(perimeter / Double(maxDashSteps), 0.01)
+
         var distance = 0.0
         var segments: [BorderSegment] = []
-        while distance < perimeter {
+        var steps = 0
+        while distance < perimeter, steps < maxDashSteps {
+            steps += 1
             let remainingPatternLength = dashPattern[patternIndex] - patternOffset
             let length = min(remainingPatternLength, perimeter - distance)
             if patternIndex.isMultiple(of: 2), length > 0 {
@@ -269,7 +286,7 @@ enum BorderSegments {
                 )
             }
 
-            distance += max(length, 0.01)
+            distance += max(length, minimumStep)
             patternIndex = (patternIndex + 1) % dashPattern.count
             patternOffset = 0
         }

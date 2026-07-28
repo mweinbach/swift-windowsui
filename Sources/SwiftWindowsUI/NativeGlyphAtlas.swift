@@ -50,7 +50,17 @@ final class NativeGlyphAtlas {
         usedInCurrentFrame && cache.count > 0
     }
 
-    func snapshotIfUsedInCurrentFrame() -> GlyphAtlasSnapshot? {
+    /// Snapshot of the atlas as it stands right now, leaving the dirty region
+    /// intact.
+    ///
+    /// A frame can have more than one reader: a compositing group rasterizes
+    /// its sub-scene on the CPU *during* the traversal, long before the outer
+    /// scene is finished. The dirty region, though, has exactly one consumer —
+    /// the outer scene, which is what a GPU backend uploads from. If an
+    /// intermediate reader called `snapshotIfUsedInCurrentFrame()` it would
+    /// mark the atlas clean and the outer scene would ship an empty dirty
+    /// region for glyphs that were never uploaded.
+    func currentSnapshot() -> GlyphAtlasSnapshot? {
         guard wasUsedInCurrentFrame else {
             return nil
         }
@@ -63,12 +73,20 @@ final class NativeGlyphAtlas {
             atlas.isDirty
             ? atlas.dirtyRegion
             : GlyphAtlasRegion(x: 0, y: 0, width: 0, height: 0)
-        let snapshot = GlyphAtlasSnapshot(
+        return GlyphAtlasSnapshot(
             width: atlas.width,
             height: atlas.height,
             pixels: atlas.pixels,
             dirtyRegion: dirtyRegion
         )
+    }
+
+    /// `currentSnapshot()` plus the frame's dirty-region bookkeeping. Called
+    /// once per painted frame, by the frame's single owner.
+    func snapshotIfUsedInCurrentFrame() -> GlyphAtlasSnapshot? {
+        guard let snapshot = currentSnapshot() else {
+            return nil
+        }
         atlas.markClean()
         return snapshot
     }

@@ -136,6 +136,67 @@ of its callers.
 **Tests:** `SceneValueSanitationTests`, `SceneStructuralValidationTests`,
 `MalformedInputResilienceTests`.
 
+## 2b. Painter device space, cull footprint, compositing groups
+
+The painter is where logical points become device pixels. Everything it
+hands a backend is already multiplied by `displayScale`:
+
+- Quads, glyphs, images and shadows go through `scaleRect(_:by:)` at the
+  point of emission.
+- **Paths go through `PathPrimitive.scaled(by:)` inside
+  `ScenePainter.emit`** — the single lowering point for path geometry, so
+  elements, `bounds`, `clipBounds` and `lineWidth` are all converted
+  exactly once, *before* tessellation, and the promoted quads and the
+  residual CPU path land in the same space. Paths were the one family
+  that used to reach the backends unscaled, so on a 150 % display every
+  `Shape` background, `Canvas` drawing and vector `SymbolIcon` rendered at
+  `1/1.5` size anchored toward the window origin while its container
+  rendered correctly.
+
+**Culling** is per node, against the inherited clip, using the footprint
+the node's decoration actually reaches:
+`paintFrame ∪ shadowRect ∪ outlineRect`. Culling on `paintFrame` alone
+dropped the shadow of a card scrolled one pixel past a clip edge, which
+read as shadows popping at every scroll boundary. A **degenerate** frame
+(zero width or height) suppresses only the node's *own* decoration — the
+subtree is still visited, because a collapsed row can legitimately carry
+an offset badge or an overlay child.
+
+**Borders** are emitted exactly once. A node with children draws its
+border as a ring of edge/arc segments *after* its children (so child
+content cannot cover it); a leaf draws the historic full-rect fill under
+its inset background. Doing both — which is what containers used to do —
+blended a translucent border twice, so
+`.border(Color.white.opacity(0.10))` composited at 0.19 on a container
+and 0.10 on a leaf.
+
+**Compositing groups** (`.drawingGroup()`, `.compositingGroup()`)
+rasterize their children into an offscreen `BitmapSurface` and composite
+it as one `ImagePrimitive`. `compositingGroupBuffer` decides whether that
+is possible at all:
+
+- the group's frame is **clamped to the effective clip** before sizing —
+  pixels outside it could not survive the clip anyway, and sizing from the
+  raw frame made `.drawingGroup()` on tall scroll content a
+  hundreds-of-MB allocation every frame;
+- the frame is checked for finiteness and the buffer for an area budget
+  (`maxCompositingGroupPixels`), with saturating conversions throughout —
+  `Int(_: Double)` on an infinite frame is a process kill, not a glitch;
+- when the buffer cannot be sized, the group **falls back to inline
+  painting** rather than dropping its children.
+
+The sub-scene carries the glyph atlases. `RasterTarget.drawGlyph` returns
+immediately on a nil atlas, so without them every piece of text inside a
+`drawingGroup` silently disappeared. The sub-scene reads the atlas via
+`NativeGlyphAtlas.currentSnapshot()`, which deliberately does **not** mark
+the atlas clean: a frame has many readers but exactly one consumer of the
+dirty region (the outer scene, at the end of `paint`), and consuming it
+mid-traversal would hand the GPU backend an empty dirty region for glyphs
+it still had to upload.
+
+**Tests:** `PainterDeviceSpaceTests`, `ScenePainterTests`,
+`PathTessellationBudgetTests`.
+
 ## 3. Text: DirectWrite + native glyph atlas
 
 Text rendering is the most complex part of the pipeline.
@@ -200,6 +261,18 @@ bypassing CPU rasterization and the per-frame texture upload entirely.
 5. Self-intersecting (non-simple) polygons still fall through to CPU
    rasterization — ear-clipping can't produce a valid triangulation
    without the cleaner topology of a simple polygon.
+
+Every fill lane is cost-bounded, because the row and vertex counts come
+from app-supplied coordinates. The scanline range is intersected with the
+path's `clipBounds` (rows the clip cannot show are not worth a quad), the
+per-triangle row count and the per-path quad count are capped, and the
+ear clipper — O(n³) in vertices, fed by curve subdivision — refuses
+polygons past a vertex cap. Past any budget the whole path falls back to
+CPU rasterization, which is bounded by the surface instead. A single
+outlier vertex at `y = 2_000_000` used to emit ~2 M `QuadPrimitive`s per
+frame that the clip then discarded, and a finite-but-huge coordinate
+(`1e300`) trapped at `Int(_:)`; the row count now saturates via
+`GPUISceneValue.int` (`PathTessellationBudgetTests`).
 
 Curves (`quadraticCurveTo`, `cubicCurveTo`, `arc`) inside stroked paths
 are adaptively subdivided into 16 line segments first. Each segment

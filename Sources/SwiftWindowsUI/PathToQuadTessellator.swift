@@ -35,6 +35,25 @@ enum PathToQuadTessellator {
     /// the axis-aligned check anyway.
     private static let curveSubdivisions = 16
 
+    /// Largest number of scanline rows a single triangle may emit. The strip
+    /// fill produces one quad per row, so an outlier vertex at `y = 2_000_000`
+    /// used to cost ~2 M `QuadPrimitive`s (≈288 MB) and 2 M bounds-tree inserts
+    /// per frame — all of them discarded by the clip. Past the budget the path
+    /// falls back to CPU rasterization, which is bounded by the surface.
+    private static let maxScanlineRows = 8_192
+
+    /// Largest number of quads one path may tessellate into across all of its
+    /// triangles. Bounds fan and ear-clipped fills, where no single triangle
+    /// need be pathological for the total to be.
+    private static let maxTessellatedQuads = 65_536
+
+    /// Largest polygon the ear clipper will attempt. Ear clipping is O(n³) in
+    /// vertices, and `sampleClosedFillBoundary` multiplies every curve by
+    /// `curveSubdivisions`, so a 300-segment concave area-chart path arrives
+    /// with ~4 800 vertices — ~10¹¹ containment tests. Bigger polygons go to
+    /// the CPU rasterizer, which is linear in area.
+    private static let maxEarClipVertices = 256
+
     /// Mixed-emission result. `quads` cover the axis-aligned portions
     /// of the input path (rendered purely on the GPU); `residualPath`,
     /// when non-nil, contains the diagonal/curved fragments that still
@@ -140,8 +159,12 @@ enum PathToQuadTessellator {
         let area2 = (v1.x - v0.x) * (v2.y - v0.y) - (v2.x - v0.x) * (v1.y - v0.y)
         guard abs(area2) > 0.001 else { return nil }
 
-        let quads = scanlineFillTriangle(
-            v0: v0, v1: v1, v2: v2, color: path.fillColor, clip: path.clipBounds)
+        guard
+            let quads = scanlineFillTriangle(
+                v0: v0, v1: v1, v2: v2, color: path.fillColor, clip: path.clipBounds)
+        else {
+            return nil
+        }
         return quads.isEmpty ? nil : quads
     }
 
@@ -163,9 +186,14 @@ enum PathToQuadTessellator {
         for i in 1..<(polygonVertices.count - 1) {
             let v1 = polygonVertices[i]
             let v2 = polygonVertices[i + 1]
-            quads.append(
-                contentsOf: scanlineFillTriangle(
-                    v0: v0, v1: v1, v2: v2, color: path.fillColor, clip: path.clipBounds))
+            guard
+                let strip = scanlineFillTriangle(
+                    v0: v0, v1: v1, v2: v2, color: path.fillColor, clip: path.clipBounds),
+                quads.count + strip.count <= maxTessellatedQuads
+            else {
+                return nil
+            }
+            quads.append(contentsOf: strip)
         }
         return quads.isEmpty ? nil : quads
     }
@@ -183,7 +211,7 @@ enum PathToQuadTessellator {
         guard let raw = sampleClosedFillBoundary(elements: path.elements) else {
             return nil
         }
-        guard raw.count >= 4 else { return nil }
+        guard raw.count >= 4, raw.count <= maxEarClipVertices else { return nil }
 
         // Polygon winding sign — used to identify "convex" (interior)
         // vertices regardless of overall winding direction.
@@ -227,10 +255,15 @@ enum PathToQuadTessellator {
                 if containsOther { continue }
 
                 // Valid ear. Emit and remove.
-                quads.append(
-                    contentsOf: scanlineFillTriangle(
+                guard
+                    let strip = scanlineFillTriangle(
                         v0: prev, v1: curr, v2: next,
-                        color: path.fillColor, clip: path.clipBounds))
+                        color: path.fillColor, clip: path.clipBounds),
+                    quads.count + strip.count <= maxTessellatedQuads
+                else {
+                    return nil
+                }
+                quads.append(contentsOf: strip)
                 indices.remove(at: i)
                 clipped = true
                 break
@@ -242,10 +275,15 @@ enum PathToQuadTessellator {
         }
         // Final triangle.
         if indices.count == 3 {
-            quads.append(
-                contentsOf: scanlineFillTriangle(
+            guard
+                let strip = scanlineFillTriangle(
                     v0: raw[indices[0]], v1: raw[indices[1]], v2: raw[indices[2]],
-                    color: path.fillColor, clip: path.clipBounds))
+                    color: path.fillColor, clip: path.clipBounds),
+                quads.count + strip.count <= maxTessellatedQuads
+            else {
+                return nil
+            }
+            quads.append(contentsOf: strip)
         }
         return quads.isEmpty ? nil : quads
     }
@@ -391,16 +429,34 @@ enum PathToQuadTessellator {
     /// Produces axis-aligned scanline strip quads covering the
     /// triangle (v0, v1, v2). Shared by triangleFill and convex-polygon
     /// fan triangulation.
+    ///
+    /// Returns an empty array for a degenerate (zero-area, or entirely clipped
+    /// out) triangle, and `nil` when the triangle exceeds the row budget — in
+    /// which case the caller abandons GPU promotion for the whole path and
+    /// falls back to CPU rasterization.
     private static func scanlineFillTriangle(
         v0: Point, v1: Point, v2: Point, color: Color, clip: Rect?
-    ) -> [QuadPrimitive] {
+    ) -> [QuadPrimitive]? {
         let area2 = (v1.x - v0.x) * (v2.y - v0.y) - (v2.x - v0.x) * (v1.y - v0.y)
         if abs(area2) < 0.001 { return [] }
-        let minY = floor(min(v0.y, v1.y, v2.y))
-        let maxY = ceil(max(v0.y, v1.y, v2.y))
+        var minY = floor(min(v0.y, v1.y, v2.y))
+        var maxY = ceil(max(v0.y, v1.y, v2.y))
+        // Rows outside the clip cannot show a pixel, so they are not worth a
+        // quad. Without this a chart with one outlier vertex emitted millions
+        // of strips per frame that the clip then discarded.
+        if let clip, clip.size.width > 0, clip.size.height > 0 {
+            minY = max(minY, floor(clip.minY))
+            maxY = min(maxY, ceil(clip.maxY))
+        }
+        guard maxY > minY else { return [] }
+        // Saturating rather than trapping: `Int(1e300)` is a process kill, and
+        // a finite-but-huge coordinate is easy to produce from app arithmetic.
+        let rowCount = GPUISceneValue.int(maxY - minY)
+        guard rowCount > 0, rowCount <= maxScanlineRows else { return nil }
+
         let edges = [(v0, v1), (v1, v2), (v2, v0)]
         var quads: [QuadPrimitive] = []
-        quads.reserveCapacity(Int(maxY - minY) + 1)
+        quads.reserveCapacity(rowCount + 1)
         var y = minY
         while y < maxY {
             let scanY = y + 0.5

@@ -557,4 +557,51 @@ public struct PathPrimitive: Equatable, Sendable {
             clipBounds: translatedClip
         )
     }
+
+    /// Returns a new path with every coordinate — elements, bounds, clip
+    /// bounds and line width — multiplied by `factor`.
+    ///
+    /// Paths are the one primitive family that used to reach a backend in
+    /// *logical* points: quads, glyphs, images and shadows are all
+    /// converted with the painter's `scaleRect(_:by: displayScale)` while
+    /// `addPath` received the geometry unscaled, so on a 150 % display
+    /// every `Shape` background, `Canvas` drawing and vector icon rendered
+    /// at 1/1.5 size anchored toward the window origin. The conversion
+    /// belongs on the primitive (GPUI does the same with `Path::scale`)
+    /// so there is exactly one place left to forget it.
+    public func scaled(by factor: Double) -> PathPrimitive {
+        guard factor != 1 else { return self }
+
+        func scale(_ point: Point) -> Point {
+            Point(x: point.x * factor, y: point.y * factor)
+        }
+
+        let scaledElements = elements.map { element -> PathElement in
+            switch element {
+            case .moveTo(let p):
+                return .moveTo(scale(p))
+            case .lineTo(let p):
+                return .lineTo(scale(p))
+            case .quadraticCurveTo(let c, let e):
+                return .quadraticCurveTo(control: scale(c), end: scale(e))
+            case .cubicCurveTo(let c1, let c2, let e):
+                return .cubicCurveTo(control1: scale(c1), control2: scale(c2), end: scale(e))
+            case .arc(let c, let r, let s, let e, let cw):
+                // A uniform scale moves the centre and grows the radius;
+                // the sweep angles are scale-invariant.
+                return .arc(center: scale(c), radius: r * factor, startAngle: s, endAngle: e, clockwise: cw)
+            case .close:
+                return .close
+            }
+        }
+
+        return PathPrimitive(
+            elements: scaledElements,
+            bounds: bounds.scaled(by: factor),
+            fillColor: fillColor,
+            strokeColor: strokeColor,
+            lineWidth: lineWidth * factor,
+            clipBounds: clipBounds.map { $0.scaled(by: factor) }
+        )
+    }
 }

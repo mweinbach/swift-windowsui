@@ -58,6 +58,9 @@ final class FakeRenderBackend: RenderBackend {
 
     var backendDisplayName: String { "FAKE FRAME" }
     var backendStatusDescription: String { "Fake Frame Backend" }
+    /// Settable so a test can stand in for a backend that just rebuilt its
+    /// device (`needsImmediateRepaint`) or found the window occluded.
+    var presentationState = PresentationState()
 
     func attach(to surface: SurfaceDescriptor) throws {
         if attachShouldFail {
@@ -127,6 +130,9 @@ final class FakeBatchRenderBackend: BatchRenderBackend {
     }
 
     var backendDisplayName: String { "FAKE BATCH" }
+    /// Settable so a test can stand in for a backend that just rebuilt its
+    /// device (`needsImmediateRepaint`) or found the window occluded.
+    var presentationState = PresentationState()
 
     func attach(to surface: SurfaceDescriptor) throws {
         if attachShouldFail {

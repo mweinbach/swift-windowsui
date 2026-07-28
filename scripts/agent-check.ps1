@@ -117,6 +117,18 @@ if ($Full) {
     Invoke-Step "RenderBackendLifetimeTests" {
         & $testScript -Filter "RenderBackendLifetimeTests"
     }
+    # Device loss: HRESULT classification, the bounded rebuild, generation
+    # tokens keying device-owned caches, and the typed failure the host's
+    # recovery policy switches on.
+    Invoke-Step "DeviceLostPolicyTests" {
+        & $testScript -Filter "DeviceLostPolicyTests"
+    }
+    Invoke-Step "DeviceLossRecoveryTests" {
+        & $testScript -Filter "DeviceLossRecoveryTests"
+    }
+    Invoke-Step "PresentationFailurePolicyTests" {
+        & $testScript -Filter "PresentationFailurePolicyTests"
+    }
     Invoke-Step "MalformedInputResilienceTests" {
         & $testScript -Filter "MalformedInputResilienceTests"
     }

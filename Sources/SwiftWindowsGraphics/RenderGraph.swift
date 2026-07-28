@@ -83,6 +83,11 @@ public protocol RenderBackend: AnyObject {
     var backendDisplayName: String { get }
     var backendStatusDescription: String { get }
 
+    /// What the last render left the presentation path in — occluded, or
+    /// owing the screen a repaint after a device rebuild. Backends that
+    /// cannot lose a device inherit the neutral value.
+    var presentationState: PresentationState { get }
+
     func attach(to surface: SurfaceDescriptor) throws
     func resize(to size: IntSize) throws
     func render(frame: RenderFrame) throws
@@ -103,6 +108,8 @@ extension RenderBackend {
     public var backendDisplayName: String { "2D RENDERER" }
 
     public var backendStatusDescription: String { "\(backendDisplayName) READY" }
+
+    public var presentationState: PresentationState { PresentationState() }
 
     /// Backends that own no platform resources (software rasterizers, test
     /// fakes) inherit a no-op teardown.

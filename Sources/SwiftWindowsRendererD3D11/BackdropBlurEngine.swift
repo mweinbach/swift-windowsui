@@ -47,7 +47,8 @@ import WinSDK.DirectX
 /// blend/rasterizer state and a 1-instance quad buffer) so headless
 /// tests can drive it against a WARP device without an HWND or swap
 /// chain. `D3D11BatchRenderer` owns one instance and recreates it
-/// whenever the underlying `ID3D11Device` changes (device reattach).
+/// whenever its device generation changes (re-attach, device-loss
+/// rebuild).
 @MainActor
 final class D3D11BackdropBlurEngine {
     /// Kernel radius cap. The blur cbuffer holds 132 weights, so radii
@@ -59,6 +60,10 @@ final class D3D11BackdropBlurEngine {
     private static let blurParamsFloatCount = 140
 
     private var device: UnsafeMutablePointer<ID3D11Device>?
+
+    /// The owning renderer's device generation these resources belong to.
+    /// `0` means "not keyed to any generation", which never matches.
+    private var deviceGeneration: UInt64 = 0
 
     private var blurVS: UnsafeMutablePointer<ID3D11VertexShader>?
     private var blurPS: UnsafeMutablePointer<ID3D11PixelShader>?
@@ -88,16 +93,29 @@ final class D3D11BackdropBlurEngine {
 
     init() {}
 
-    /// True when this engine's resources belong to `device`.
-    func matchesDevice(_ device: UnsafeMutablePointer<ID3D11Device>?) -> Bool {
-        self.device == device && device != nil
+    /// True when this engine's resources belong to the caller's current
+    /// device.
+    ///
+    /// Keyed on the renderer's monotonic device generation, not on the raw
+    /// pointer: after a device-loss rebuild the allocator is free to hand
+    /// the new `ID3D11Device` the address the removed one just released, and
+    /// pointer equality would then report a match for resources created on a
+    /// device that no longer exists.
+    func matches(deviceGeneration generation: UInt64) -> Bool {
+        generation != 0 && deviceGeneration == generation
     }
 
     /// Creates every device-dependent resource. Releases any resources
     /// from a previous device first.
-    func attach(device: UnsafeMutablePointer<ID3D11Device>) throws {
+    ///
+    /// `generation` is the owning renderer's device generation; pass `0`
+    /// (the default) when attaching directly to a device the renderer does
+    /// not track, which leaves the engine permanently unmatched so callers
+    /// cannot accidentally reuse it across devices.
+    func attach(device: UnsafeMutablePointer<ID3D11Device>, generation: UInt64 = 0) throws {
         detach()
         self.device = device
+        self.deviceGeneration = generation
 
         blurVS = try Self.compileVertexShader(device: device, source: batchBackdropBlurShaderSource, label: "blur")
         blurPS = try Self.compilePixelShader(device: device, source: batchBackdropBlurShaderSource, label: "blur")
@@ -172,6 +190,7 @@ final class D3D11BackdropBlurEngine {
         releaseCOM(&blurPS)
         releaseCOM(&blurVS)
         device = nil
+        deviceGeneration = 0
     }
 
     // No deinit-based release: COM teardown must happen on the main

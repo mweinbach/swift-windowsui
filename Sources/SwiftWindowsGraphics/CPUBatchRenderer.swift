@@ -24,6 +24,12 @@ import SwiftWindowsCore
 public final class CPUBatchRenderer: BatchRenderBackend, RenderBackend {
     public var backendDisplayName: String { "CPU REFERENCE" }
 
+    /// A software rasterizer owns no device and presents to no swap chain,
+    /// so it is never occluded and never owes a repaint. Stated explicitly
+    /// because conforming to both backend protocols would otherwise inherit
+    /// two identical defaults and satisfy neither.
+    public var presentationState: PresentationState { PresentationState() }
+
     /// The most recently rendered frame, available after a successful
     /// ``render(scene:)`` call.  Tests and visual tooling read this to
     /// compare against GPU output.

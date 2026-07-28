@@ -355,6 +355,37 @@ Assert-NotContains `
     "SwiftWindowsRendererD3D11" `
     "WinSwiftUI/WindowCoordinator.swift must not reference the D3D11 backend; factories are injected via RenderBackendFactory."
 
+function Assert-SinglePresentCallSite {
+    param(
+        [string] $RelativePath,
+        [string] $Message
+    )
+
+    $fullPath = Get-RepoPath $RelativePath
+    if (-not (Test-Path -LiteralPath $fullPath)) {
+        Add-Failure "$RelativePath is missing; cannot verify its presentation contract."
+        return
+    }
+
+    $content = Get-Content -LiteralPath $fullPath -Raw
+    $matchCount = ([regex]::Matches($content, "\.Present\(")).Count
+    if ($matchCount -ne 1) {
+        Add-Failure "$RelativePath has $matchCount Present call sites (expected 1). $Message"
+    }
+}
+
+# A renderer with two Present call sites can present the same frame twice —
+# which is exactly what happened when the Direct2D branch presented inside its
+# own `do` block and then fell through to the D3D11 path on any error,
+# including an error the Present itself raised. One call site per swap-chain
+# owner keeps present-result classification and frame pacing honest.
+Assert-SinglePresentCallSite `
+    "Sources/SwiftWindowsRendererD3D11/D3D11Renderer.swift" `
+    "Both draw paths must end at the single presentFrame(swapChain:) helper so a present error cannot be attributed to Direct2D and cannot double-present a frame."
+Assert-SinglePresentCallSite `
+    "Sources/SwiftWindowsRendererD3D11/D3D11BatchRenderer.swift" `
+    "The batch backend must present only from presentFrame(), where the HRESULT is classified by DeviceLostPolicy."
+
 if ($failures.Count -gt 0) {
     Write-Host "Contract checks failed:" -ForegroundColor Red
     foreach ($failure in $failures) {

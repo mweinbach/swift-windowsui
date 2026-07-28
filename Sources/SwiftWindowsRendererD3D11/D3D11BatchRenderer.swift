@@ -38,6 +38,18 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     private var swapChain: UnsafeMutablePointer<IDXGISwapChain1>?
     private var renderTargetView: UnsafeMutablePointer<ID3D11RenderTargetView>?
 
+    /// Process-wide source of device generations. Every `ID3D11Device` this
+    /// module creates gets a number no other device ever had.
+    private static var nextDeviceGeneration: UInt64 = 1
+
+    /// Identity token for the device currently held, or `0` when detached.
+    ///
+    /// Device-owned caches key on this rather than on the device pointer:
+    /// after a device-loss rebuild the allocator may reuse the removed
+    /// device's address, and pointer equality would then claim resources
+    /// built for a dead device still belong to the live one.
+    private(set) var deviceGeneration: UInt64 = 0
+
     // MARK: - Render Target
 
     /// Where a frame lands. `.swapChain` is the shipping windowed path;
@@ -54,6 +66,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
     private var renderTargetKind: RenderTargetKind = .swapChain
     private var offscreenTexture: UnsafeMutablePointer<ID3D11Texture2D>?
+    /// Driver preference the current offscreen attach was made with, so a
+    /// device-loss rebuild recreates the same kind of device.
+    private var offscreenDriver: OffscreenDriver = .hardwareFirst
 
     /// Which D3D11 driver an offscreen attach creates its device with.
     public enum OffscreenDriver: Equatable, Sendable {
@@ -172,6 +187,27 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     private var surface: SurfaceDescriptor?
     private var targetPixelSize: IntSize = .zero
     private var hwnd: HWND?
+
+    // MARK: - Device Loss
+
+    public private(set) var presentationState = PresentationState()
+
+    /// Consecutive device rebuilds without an intervening present that
+    /// reached the screen. Only a clean present clears it, so it bounds a
+    /// device-loss storm rather than a session.
+    private var deviceLostRecoveryAttempts = 0
+
+    /// Set by a successful rebuild so the next `render` returns without
+    /// drawing. GPUI does the same: presenting immediately after recreating
+    /// a device tends to produce a blank frame.
+    private var skipNextFrameAfterDeviceLoss = false
+
+    /// Test seam for the recovery wait. Production blocks the main actor for
+    /// a beat, which is what the driver needs and what GPUI does; tests
+    /// substitute a no-op so a recovery suite does not sleep for seconds.
+    internal var deviceLostBackoffHandler: (Double) -> Void = { seconds in
+        Thread.sleep(forTimeInterval: seconds)
+    }
 
     // MARK: - Init
 
@@ -396,7 +432,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                     operation: "Resolve glyph atlas resources",
                     hresult: batchHresultInvalidArgument,
                     details:
-                        "Scene contains glyph primitives but no native glyph atlas snapshot or cached upload is available."
+                        "Scene contains glyph primitives but no native glyph atlas snapshot or cached upload is available.",
+                    failureKind: .sceneContent
                 )
             }
         } else {
@@ -414,7 +451,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                     operation: "Resolve pixel glyph atlas resources",
                     hresult: batchHresultInvalidArgument,
                     details:
-                        "Scene contains pixel glyph primitives but no pixel glyph atlas snapshot or cached upload is available."
+                        "Scene contains pixel glyph primitives but no pixel glyph atlas snapshot or cached upload is available.",
+                    failureKind: .sceneContent
                 )
             }
         } else {
@@ -435,7 +473,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             throw BatchRendererError(
                 operation: "Resolve image resources",
                 hresult: batchHresultInvalidArgument,
-                details: "Scene contains image primitives without valid bound resources for texture IDs: \(joinedIDs)."
+                details: "Scene contains image primitives without valid bound resources for texture IDs: \(joinedIDs).",
+                failureKind: .sceneContent
             )
         }
 
@@ -498,6 +537,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         // swap chain would leave a second flip-model chain on this HWND —
         // the two wedges this teardown exists to prevent.
         detach()
+        // An externally requested attach is a fresh start: the device-loss
+        // budget measures one storm, and this is not a continuation of it.
+        deviceLostRecoveryAttempts = 0
 
         self.surface = surface
         self.targetPixelSize = surface.pixelSize
@@ -525,9 +567,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         // swap chain left over from a previous windowed attach cannot keep
         // pinning an HWND this renderer no longer draws to.
         detach()
+        deviceLostRecoveryAttempts = 0
 
         self.targetPixelSize = size
         renderTargetKind = .offscreen
+        offscreenDriver = driver
 
         try createDeviceIfNeeded(driverTypes: driver.driverTypes)
         try createPipelineIfNeeded()
@@ -598,12 +642,20 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         releaseCOM(&dxgiFactory)
         releaseCOM(&deviceContext)
         releaseCOM(&device)
+        // No device, no generation: every device-keyed cache is now stale by
+        // construction rather than by comparison against a freed address.
+        deviceGeneration = 0
 
         renderTargetKind = .swapChain
         surface = nil
         hwnd = nil
         targetPixelSize = .zero
+        skipNextFrameAfterDeviceLoss = false
+        presentationState = PresentationState()
         isAttached = false
+        // `deviceLostRecoveryAttempts` deliberately survives: detach is a
+        // *step* of device-loss recovery, and resetting the budget here
+        // would make the bounded retry unbounded.
     }
 
     deinit {
@@ -661,6 +713,15 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
     public func render(scene: GPUIScene) throws {
         guard isAttached, hasRenderTarget else {
+            return
+        }
+
+        // One frame is skipped after a device rebuild: a present issued
+        // immediately after recreating the device tends to come back blank.
+        // `needsImmediateRepaint` stays set, so the host schedules the frame
+        // that actually lands.
+        if skipNextFrameAfterDeviceLoss {
+            skipNextFrameAfterDeviceLoss = false
             return
         }
 
@@ -843,12 +904,124 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                 return
             }
             let hr = swapChain.pointee.lpVtbl.pointee.Present(swapChain, 1, 0)
-            if hr < 0 {
-                throw BatchRendererError(operation: "IDXGISwapChain1.Present", hresult: hr)
-            }
+            try handlePresentResult(hr)
         case .offscreen:
             deviceContext?.pointee.lpVtbl.pointee.Flush(deviceContext)
+            // An offscreen target has no swap chain to fail, but a removed
+            // device still shows up here, and the readback that follows
+            // would otherwise return whatever the staging copy left behind.
+            let removalReason = DeviceLostPolicy.removedReason(of: device)
+            if DeviceLostPolicy.isDeviceLost(removalReason) {
+                try recoverFromDeviceLoss(hresult: removalReason, operation: "ID3D11DeviceContext.Flush")
+            } else {
+                noteCleanPresent()
+            }
         }
+    }
+
+    /// Turns a `Present` HRESULT into a decision instead of a sign test.
+    private func handlePresentResult(_ hr: HRESULT) throws {
+        switch DeviceLostPolicy.outcome(forPresent: hr) {
+        case .presented:
+            noteCleanPresent()
+        case .occluded:
+            // Not a failure and not device loss, but not vsync-paced
+            // either — the host throttles on this rather than spinning.
+            deviceLostRecoveryAttempts = 0
+            presentationState = PresentationState(isOccluded: true, needsImmediateRepaint: false)
+        case .deviceLost:
+            try recoverFromDeviceLoss(hresult: hr, operation: "IDXGISwapChain1.Present")
+        case .failed:
+            throw BatchRendererError(operation: "IDXGISwapChain1.Present", hresult: hr)
+        }
+    }
+
+    private func noteCleanPresent() {
+        deviceLostRecoveryAttempts = 0
+        presentationState = PresentationState()
+    }
+
+    /// Rebuilds the device after it was removed, reset or hung.
+    ///
+    /// GPUI's shape: unbind the render targets, `ClearState`, `Flush`,
+    /// release every device object (all of which `detach()` already does in
+    /// that order), wait a beat, recreate, then skip one frame. Bounded by
+    /// ``DeviceLostPolicy/maxRecoveryAttempts`` consecutive attempts without
+    /// an intervening clean present; past that the failure is the host's,
+    /// typed `.deviceLost`, and this renderer is left detached so the host's
+    /// downgrade does not inherit a half-built device.
+    private func recoverFromDeviceLoss(hresult: HRESULT, operation: String) throws {
+        deviceLostRecoveryAttempts += 1
+        let attempt = deviceLostRecoveryAttempts
+        let removalReason = DeviceLostPolicy.removedReason(of: device)
+        renderLog(
+            "[D3D11BatchRenderer] Device lost during \(operation) "
+                + "(attempt \(attempt)/\(DeviceLostPolicy.maxRecoveryAttempts)). "
+                + "HRESULT \(DeviceLostPolicy.describe(hresult)), "
+                + "GetDeviceRemovedReason \(DeviceLostPolicy.describe(removalReason))."
+        )
+
+        guard attempt <= DeviceLostPolicy.maxRecoveryAttempts else {
+            detach()
+            throw BatchRendererError(
+                operation: operation,
+                hresult: hresult,
+                details:
+                    "Device rebuild failed \(DeviceLostPolicy.maxRecoveryAttempts) times in a row; "
+                    + "the adapter is not coming back on its own.",
+                failureKind: .deviceLost
+            )
+        }
+
+        let kind = renderTargetKind
+        let previousSurface = surface
+        let previousSize = targetPixelSize
+        let previousDriver = offscreenDriver
+
+        detach()
+        deviceLostRecoveryAttempts = attempt
+        deviceLostBackoffHandler(DeviceLostPolicy.backoffSeconds(forAttempt: attempt))
+
+        do {
+            switch kind {
+            case .swapChain:
+                guard let previousSurface else {
+                    throw BatchRendererError(
+                        operation: operation,
+                        hresult: hresult,
+                        details: "No surface descriptor survived teardown, so the swap chain cannot be rebuilt.",
+                        failureKind: .deviceLost
+                    )
+                }
+                try attach(to: previousSurface)
+                if previousSize != previousSurface.pixelSize {
+                    try resize(to: previousSize)
+                }
+            case .offscreen:
+                try attachOffscreen(size: previousSize, driver: previousDriver)
+            }
+        } catch {
+            detach()
+            deviceLostRecoveryAttempts = attempt
+            throw BatchRendererError(
+                operation: operation,
+                hresult: hresult,
+                details: "Device rebuild after device loss failed: \(error)",
+                failureKind: .deviceLost
+            )
+        }
+
+        // `attach` cleared the budget as an external attach would; this one
+        // is a recovery step, so put the storm count back.
+        deviceLostRecoveryAttempts = attempt
+        skipNextFrameAfterDeviceLoss = true
+        presentationState = PresentationState(isOccluded: false, needsImmediateRepaint: true)
+    }
+
+    /// Forces the device-loss path as if `Present` had returned
+    /// `DXGI_ERROR_DEVICE_REMOVED`, so recovery is testable without a TDR.
+    internal func simulateDeviceLossForTesting() throws {
+        try recoverFromDeviceLoss(hresult: DeviceLostPolicy.deviceRemoved, operation: "SimulatedDeviceLoss")
     }
 
     /// The texture the current frame is drawing into, returned with a
@@ -1076,6 +1249,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                     releaseCOM(&deviceContext)
                     device = createdDevice
                     deviceContext = createdContext
+                    deviceGeneration = Self.nextDeviceGeneration
+                    Self.nextDeviceGeneration &+= 1
                     return
                 }
 
@@ -1568,10 +1743,12 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             let textureHR = makeCOM(into: &texture) { newTexture in
                 device.pointee.lpVtbl.pointee.CreateTexture2D(device, &textureDesc, nil, &newTexture)
             }
-            try throwIfFailed(textureHR, operation: "ID3D11Device.CreateTexture2D(glyph atlas)")
+            try throwIfFailed(
+                textureHR, operation: "ID3D11Device.CreateTexture2D(glyph atlas)", failureKind: .sceneContent)
 
             guard let texture else {
-                throw BatchRendererError(operation: "CreateTexture2D(glyph atlas)", hresult: batchHresultHandle)
+                throw BatchRendererError(
+                    operation: "CreateTexture2D(glyph atlas)", hresult: batchHresultHandle, failureKind: .sceneContent)
             }
 
             var srvDesc = D3D11_SHADER_RESOURCE_VIEW_DESC()
@@ -1645,7 +1822,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             throw BatchRendererError(
                 operation: "Resolve image resource",
                 hresult: batchHresultInvalidArgument,
-                details: "No bound bitmap exists for texture ID \(textureID)."
+                details: "No bound bitmap exists for texture ID \(textureID).",
+                failureKind: .sceneContent
             )
         }
 
@@ -1702,10 +1880,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             subresource.SysMemSlicePitch = UINT(bitmap.bytesPerRow * bitmap.height)
             return device.pointee.lpVtbl.pointee.CreateTexture2D(device, &textureDescriptor, &subresource, &texture)
         }
-        try throwIfFailed(textureHR, operation: "ID3D11Device.CreateTexture2D(image)")
+        try throwIfFailed(textureHR, operation: "ID3D11Device.CreateTexture2D(image)", failureKind: .sceneContent)
 
         guard let texture else {
-            throw BatchRendererError(operation: "CreateTexture2D(image)", hresult: batchHresultHandle)
+            throw BatchRendererError(
+                operation: "CreateTexture2D(image)", hresult: batchHresultHandle, failureKind: .sceneContent)
         }
 
         var srvDesc = D3D11_SHADER_RESOURCE_VIEW_DESC()
@@ -1720,7 +1899,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         let resource = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
         let srvHR = device.pointee.lpVtbl.pointee.CreateShaderResourceView(device, resource, &srvDesc, &srv)
         do {
-            try throwIfFailed(srvHR, operation: "ID3D11Device.CreateShaderResourceView(image)")
+            try throwIfFailed(
+                srvHR, operation: "ID3D11Device.CreateShaderResourceView(image)", failureKind: .sceneContent)
         } catch {
             var releasableTexture: UnsafeMutablePointer<ID3D11Texture2D>? = texture
             releaseCOM(&releasableTexture)
@@ -1730,7 +1910,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         guard let srv else {
             var releasableTexture: UnsafeMutablePointer<ID3D11Texture2D>? = texture
             releaseCOM(&releasableTexture)
-            throw BatchRendererError(operation: "CreateShaderResourceView(image)", hresult: batchHresultHandle)
+            throw BatchRendererError(
+                operation: "CreateShaderResourceView(image)", hresult: batchHresultHandle,
+                failureKind: .sceneContent)
         }
 
         return (texture, srv)
@@ -2004,12 +2186,12 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     private func ensureBlurEngine(
         device: UnsafeMutablePointer<ID3D11Device>
     ) throws -> D3D11BackdropBlurEngine {
-        if let blurEngine, blurEngine.matchesDevice(device) {
+        if let blurEngine, blurEngine.matches(deviceGeneration: deviceGeneration) {
             return blurEngine
         }
         blurEngine?.detach()
         let engine = D3D11BackdropBlurEngine()
-        try engine.attach(device: device)
+        try engine.attach(device: device, generation: deviceGeneration)
         blurEngine = engine
         return engine
     }
@@ -2045,22 +2227,42 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
     // MARK: - Helpers
 
-    private func throwIfFailed(_ hr: HRESULT, operation: String) throws {
+    private func throwIfFailed(
+        _ hr: HRESULT,
+        operation: String,
+        failureKind: PresentationFailureKind? = nil
+    ) throws {
         if hr < 0 {
-            throw BatchRendererError(operation: operation, hresult: hr)
+            throw BatchRendererError(operation: operation, hresult: hr, failureKind: failureKind)
         }
     }
 
 }
-public struct BatchRendererError: Error, CustomStringConvertible, Sendable {
+public struct BatchRendererError: Error, ClassifiedPresentationFailure, CustomStringConvertible, Sendable {
     public let operation: String
     public let hresult: HRESULT
     public let details: String?
+    /// How the host's recovery policy should read this failure. Defaults to
+    /// the HRESULT's classification; sites whose failure depends on *what*
+    /// is being drawn rather than on the HRESULT pass `.sceneContent`.
+    public let presentationFailureKind: PresentationFailureKind
 
-    public init(operation: String, hresult: HRESULT, details: String? = nil) {
+    public init(
+        operation: String,
+        hresult: HRESULT,
+        details: String? = nil,
+        failureKind: PresentationFailureKind? = nil
+    ) {
         self.operation = operation
         self.hresult = hresult
         self.details = details
+        // A lost device outranks whatever the call site believed it was
+        // doing: an atlas upload that fails with DEVICE_REMOVED is device
+        // loss, not bad scene content.
+        self.presentationFailureKind =
+            DeviceLostPolicy.isDeviceLost(hresult)
+            ? .deviceLost
+            : (failureKind ?? DeviceLostPolicy.failureKind(for: hresult))
     }
 
     public var description: String {

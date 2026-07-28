@@ -219,6 +219,73 @@ actor, which a nonisolated `deinit` cannot reach.
   `testBatchRecoveryDetachesFrameBackendBeforeReattachingBatch` — the host
   really calls it, in the right order.
 
+## 4c. Device loss: classification, rebuild, generation tokens
+
+Device loss is **not** a backend being bad, so it is not handled by the
+backend-selection policy in §5. A removed adapter is gone for every backend
+in the process; switching presenters would only create the next device on
+the same dead adapter. Both D3D11 renderers rebuild their own device in
+place instead.
+
+`DeviceLostPolicy` (`Sources/SwiftWindowsRendererD3D11/DeviceLostPolicy.swift`)
+is the shared, GPU-free classifier. Every decision the recovery path makes
+is a function from an HRESULT and an attempt number to a value there:
+
+| HRESULT | `PresentOutcome` | Meaning |
+|---|---|---|
+| `S_OK` and other success codes | `.presented` | the frame reached the screen |
+| `DXGI_STATUS_OCCLUDED` (positive) | `.occluded` | window invisible; flip-model `Present` stops blocking on vsync, so the frame loop must throttle rather than spin |
+| `DEVICE_REMOVED`, `DEVICE_RESET`, `DEVICE_HUNG`, `DRIVER_INTERNAL_ERROR` | `.deviceLost` | rebuild the device |
+| any other negative | `.failed` | a real failure that is not device loss |
+
+Both renderers present from exactly one call site (`presentFrame`, pinned by
+`check-contracts.ps1`) and classify its HRESULT there. On `.deviceLost` they
+follow GPUI's shape: `OMSetRenderTargets(nil)` → `ClearState` → `Flush` →
+release every device object (all of which `detach()` already does, §4b) →
+wait ~0.35 s and up → recreate → skip one frame. The wait matters: GPUI's
+comment is "if we don't wait, the final drawing result will be blank".
+
+The rebuild is bounded by `DeviceLostPolicy.maxRecoveryAttempts` (3)
+**consecutive** attempts, where "consecutive" means without an intervening
+present that reached the screen — so the budget bounds a device-loss storm,
+not a session. Past it the renderer detaches itself and the failure reaches
+the host typed `.deviceLost`, at which point the §5 policy applies.
+
+Because the rebuilt frame is deliberately skipped, the backend reports
+`presentationState.needsImmediateRepaint`; `renderCurrentFrame` folds that
+into `pendingPresentation` so a static tree still repaints. (It does *not*
+call `window.invalidate()` — that runs inside `WM_PAINT`'s
+BeginPaint/EndPaint pair, where re-dirtying the region spins.)
+
+**Device generations.** Every `ID3D11Device` this module creates gets a
+monotonic `deviceGeneration`, and device-owned caches key on it rather than
+on the device pointer. After a rebuild the allocator is free to hand the new
+device the address the removed one just released, so pointer equality would
+report a match for resources built on a device that no longer exists. The
+backdrop-blur engine is the first cache keyed this way
+(`matches(deviceGeneration:)`); any future device-owned cache should be too.
+
+**Typed failures.** `PresentationFailureKind`
+(`SwiftWindowsGraphics/PresentationFailure.swift`, renderer-neutral) is what
+crosses the backend boundary: `.deviceLost`, `.transient`, `.sceneContent`,
+`.permanent`. `D3D11RendererError` and `BatchRendererError` classify
+themselves from their HRESULT, with per-scene sites (image upload, glyph
+atlas, unresolved scene resources) declaring `.sceneContent` explicitly and
+device loss outranking any such claim. An error that classifies nothing is
+read as `.transient`, the historical retry-with-backoff behaviour.
+
+**Invariants**
+- `DeviceLostPolicyTests` — the classifier, the failure-kind mapping, the
+  bounded monotonic backoff, and that each error type classifies itself.
+- `DeviceLossRecoveryTests` — a forced loss produces a *new* device
+  generation with the render target rebuilt at the same size and pixels that
+  still match; the retry budget is bounded and surfaces `.deviceLost`; a
+  clean present refunds it; the blur engine is keyed on generation, not
+  address, and is rebuilt across a loss.
+- `PresentationFailurePolicyTests` — the kind reaches
+  `RendererHealthSnapshot`, a `.permanent` failure schedules no recovery,
+  and a backend owing a repaint keeps the frame loop alive.
+
 ## 5. Backend dispatch + fallback chain
 
 `WinSwiftUIWindowHost` picks the rendering backend:
@@ -371,9 +438,15 @@ presenting, backoff doubles, next attempt scheduled. Locked in by
 `WinSwiftUIWindowHostTests.testRecoveryPolicyDisabledKeepsOneWayPinBehaviour`
 and `…testRecoveryPolicyEnabledRestoresBatchBackendAfterTransientFailure`.
 
+Recovery is skipped entirely when the last failure classified as
+`.permanent` (see §4c): a capability this machine does not have cannot
+become available later, and retrying costs a full scene build plus a
+visible backend switch every backoff window.
+
 The pipeline state is observable from app code via
 `WinSwiftUIWindowHost.rendererHealthSnapshot` (active backend, recovery
-countdown, last selection reason, etc.).
+countdown, last selection reason, `lastPresentationFailureKind`,
+`isPresentationOccluded`, etc.).
 
 ## Materials (`.regularMaterial`, `.thinMaterial`, etc.)
 

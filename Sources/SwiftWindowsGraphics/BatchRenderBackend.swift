@@ -12,6 +12,11 @@ public protocol BatchRenderBackend: AnyObject {
     /// Human-readable name shown in debug overlays.
     var backendDisplayName: String { get }
 
+    /// What the last render left the presentation path in — occluded, or
+    /// owing the screen a repaint after a device rebuild. Backends that
+    /// cannot lose a device inherit the neutral value.
+    var presentationState: PresentationState { get }
+
     /// Attach to a platform window surface.
     func attach(to surface: SurfaceDescriptor) throws
 
@@ -38,6 +43,8 @@ public protocol BatchRenderBackend: AnyObject {
 }
 
 extension BatchRenderBackend {
+    public var presentationState: PresentationState { PresentationState() }
+
     public func bindResources(for scene: GPUIScene) {}
 
     /// Backends that own no platform resources (software rasterizers, test

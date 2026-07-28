@@ -40,6 +40,16 @@ public struct RendererHealthSnapshot: Equatable, Sendable {
     /// tessellator's GPU fast lane vs falling through to CPU
     /// rasterization.
     public var lastScenePaintMetrics: ScenePaintMetrics
+    /// How the backend classified the failure behind the most recent
+    /// downgrade — device loss, a transient glitch, this particular scene,
+    /// or a capability this machine does not have. `nil` when no backend has
+    /// failed this session. This is the field that distinguishes "the GPU
+    /// went away" from "one image will not upload", which the selection
+    /// reason's free-text detail cannot.
+    public var lastPresentationFailureKind: PresentationFailureKind?
+    /// The active backend's last present found the window fully occluded, so
+    /// further frames are invisible work.
+    public var isPresentationOccluded: Bool
 
     public init(
         activeBackend: PresentationBackendKind,
@@ -50,7 +60,9 @@ public struct RendererHealthSnapshot: Equatable, Sendable {
         nextBatchRecoveryInSeconds: Double?,
         lastBackendSelectionReason: PresentationSelectionReason?,
         activeBackendDisplayName: String?,
-        lastScenePaintMetrics: ScenePaintMetrics = ScenePaintMetrics()
+        lastScenePaintMetrics: ScenePaintMetrics = ScenePaintMetrics(),
+        lastPresentationFailureKind: PresentationFailureKind? = nil,
+        isPresentationOccluded: Bool = false
     ) {
         self.activeBackend = activeBackend
         self.displayScale = displayScale
@@ -61,5 +73,7 @@ public struct RendererHealthSnapshot: Equatable, Sendable {
         self.lastBackendSelectionReason = lastBackendSelectionReason
         self.activeBackendDisplayName = activeBackendDisplayName
         self.lastScenePaintMetrics = lastScenePaintMetrics
+        self.lastPresentationFailureKind = lastPresentationFailureKind
+        self.isPresentationOccluded = isPresentationOccluded
     }
 }

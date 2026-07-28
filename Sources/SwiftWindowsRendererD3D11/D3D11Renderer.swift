@@ -17,15 +17,29 @@ public struct D3D11RendererConfiguration: Equatable, Sendable {
     }
 }
 
-public struct D3D11RendererError: Error, CustomStringConvertible, Sendable {
+public struct D3D11RendererError: Error, ClassifiedPresentationFailure, CustomStringConvertible, Sendable {
     public let operation: String
     public let hresult: HRESULT
     public let details: String?
+    /// How the host's recovery policy should read this failure. Defaults to
+    /// the HRESULT's classification.
+    public let presentationFailureKind: PresentationFailureKind
 
-    public init(operation: String, hresult: HRESULT, details: String? = nil) {
+    public init(
+        operation: String,
+        hresult: HRESULT,
+        details: String? = nil,
+        failureKind: PresentationFailureKind? = nil
+    ) {
         self.operation = operation
         self.hresult = hresult
         self.details = details
+        // A lost device outranks whatever the call site believed it was
+        // doing.
+        self.presentationFailureKind =
+            DeviceLostPolicy.isDeviceLost(hresult)
+            ? .deviceLost
+            : (failureKind ?? DeviceLostPolicy.failureKind(for: hresult))
     }
 
     public var description: String {
@@ -119,8 +133,35 @@ public final class D3D11Renderer: RenderBackend {
     private var direct2DTargetBitmap: UnsafeMutableRawPointer?
     private var didAttemptDirect2DSetup = false
     private var tearingSupported = false
-    private var consecutiveDeviceLostCount = 0
-    private static let maxDeviceLostRecoveryAttempts = 3
+
+    // MARK: - Device Loss
+
+    public private(set) var presentationState = PresentationState()
+
+    /// Process-wide source of device generations, so no two `ID3D11Device`s
+    /// this module creates ever share an identity token even when the
+    /// allocator reuses an address.
+    private static var nextDeviceGeneration: UInt64 = 1
+
+    /// Identity token for the device currently held, or `0` when detached.
+    private(set) var deviceGeneration: UInt64 = 0
+
+    /// Consecutive device rebuilds without an intervening present that
+    /// reached the screen. Only a clean present (or a fresh external
+    /// `attach`) clears it, so it bounds a device-loss storm, not a session.
+    private var deviceLostRecoveryAttempts = 0
+
+    /// Set by a successful rebuild so the next `render` returns without
+    /// drawing — the first present after recreating a device tends to come
+    /// back blank.
+    private var skipNextFrameAfterDeviceLoss = false
+
+    /// Test seam for the recovery wait; production blocks the main actor for
+    /// a beat, which is what the driver needs.
+    internal var deviceLostBackoffHandler: (Double) -> Void = { seconds in
+        Thread.sleep(forTimeInterval: seconds)
+    }
+
     /// Keys already logged for soft-skipped unsupported frame commands (`backend|name`).
     /// Keeps stderr informative without flooding every animated frame.
     private var loggedUnsupportedCommandKeys: Set<String> = []
@@ -166,6 +207,9 @@ public final class D3D11Renderer: RenderBackend {
         // flip-model swap chain on the same HWND would make DXGI reject the
         // new one — the wedge `detach()` exists to prevent.
         detach()
+        // An externally requested attach is a fresh start: the device-loss
+        // budget measures one storm, and this is not a continuation of it.
+        deviceLostRecoveryAttempts = 0
 
         self.surface = surface
         self.hwnd = hwnd
@@ -227,13 +271,20 @@ public final class D3D11Renderer: RenderBackend {
         releaseCOM(&dxgiFactory)
         releaseCOM(&deviceContext)
         releaseCOM(&device)
+        // No device, no generation: every device-keyed resource is now stale
+        // by construction rather than by comparison against a freed address.
+        deviceGeneration = 0
 
         surface = nil
         hwnd = nil
         tearingSupported = false
         didAttemptDirect2DSetup = false
-        consecutiveDeviceLostCount = 0
+        skipNextFrameAfterDeviceLoss = false
+        presentationState = PresentationState()
         isAttached = false
+        // `deviceLostRecoveryAttempts` deliberately survives: detach is a
+        // *step* of device-loss recovery, and resetting the budget here
+        // would make the bounded retry unbounded.
     }
 
     deinit {
@@ -292,6 +343,15 @@ public final class D3D11Renderer: RenderBackend {
             return
         }
 
+        // One frame is skipped after a device rebuild: a present issued
+        // immediately after recreating the device tends to come back blank.
+        // `needsImmediateRepaint` stays set, so the host schedules the frame
+        // that actually lands.
+        if skipNextFrameAfterDeviceLoss {
+            skipNextFrameAfterDeviceLoss = false
+            return
+        }
+
         let clearColor = frame.clearColor == .clear ? configuration.fallbackClearColor : frame.clearColor
         let scaleFactor = currentScaleFactor()
 
@@ -303,6 +363,14 @@ public final class D3D11Renderer: RenderBackend {
         // commands pass through unchanged.
         let frame = FramePathDegradation.degradingPathsToBitmaps(in: frame, scaleFactor: scaleFactor)
 
+        // Present sits *outside* this block on purpose. It used to be the
+        // last statement inside the Direct2D `do`, so a present error — a
+        // device reset, a mode change, an out-of-memory — was attributed to
+        // Direct2D, permanently demoted it for the session, and then fell
+        // through to re-draw and present the same frame a second time.
+        // Drawing failures demote Direct2D; presentation failures belong to
+        // the swap chain and are classified by `handlePresentResult`.
+        var didDrawFrame = false
         if
             isDirect2DEnabled,
             let direct2DDeviceContext,
@@ -316,15 +384,7 @@ public final class D3D11Renderer: RenderBackend {
                     deviceContext: direct2DDeviceContext,
                     targetBitmap: direct2DTargetBitmap
                 )
-
-                let syncInterval: UINT = vsyncEnabled ? 1 : 0
-                var presentFlags: UINT = 0
-                if !vsyncEnabled && tearingSupported {
-                    presentFlags |= DXGI_PRESENT_ALLOW_TEARING
-                }
-                let hr = swapChain.pointee.lpVtbl.pointee.Present(swapChain, syncInterval, presentFlags)
-                try handlePresentResult(hr)
-                return
+                didDrawFrame = true
             } catch {
                 // Real Direct2D device/draw failures demote for the session.
                 // Unsupported path/blur/text commands soft-skip inside renderWithDirect2D
@@ -335,6 +395,11 @@ public final class D3D11Renderer: RenderBackend {
                 releaseDirect2DTarget()
                 isDirect2DEnabled = false
             }
+        }
+
+        if didDrawFrame {
+            try presentFrame(swapChain: swapChain)
+            return
         }
 
         guard
@@ -476,6 +541,13 @@ public final class D3D11Renderer: RenderBackend {
             skippedCount: skippedUnsupportedCount
         )
 
+        try presentFrame(swapChain: swapChain)
+    }
+
+    /// The one place this renderer presents. Both draw paths end here, so a
+    /// frame can never be presented twice and a present HRESULT is always
+    /// classified the same way.
+    private func presentFrame(swapChain: UnsafeMutablePointer<IDXGISwapChain1>) throws {
         let syncInterval: UINT = vsyncEnabled ? 1 : 0
         var presentFlags: UINT = 0
         if !vsyncEnabled && tearingSupported {
@@ -524,6 +596,8 @@ public final class D3D11Renderer: RenderBackend {
                 releaseCOM(&self.deviceContext)
                 self.device = createdDevice
                 self.deviceContext = createdContext
+                self.deviceGeneration = Self.nextDeviceGeneration
+                Self.nextDeviceGeneration &+= 1
             } else {
                 releaseCOM(&createdContext)
                 releaseCOM(&createdDevice)
@@ -1412,32 +1486,99 @@ public final class D3D11Renderer: RenderBackend {
         }
     }
 
-    /// Handles Present HRESULT, including device-lost recovery with a
-    /// consecutive failure limit.
+    /// Turns a Present HRESULT into a decision instead of a sign test.
+    ///
+    /// This used to recognise device loss, log it, and return *success* —
+    /// telling the caller a frame reached the screen when nothing had been
+    /// recreated — then throw forever once a counter ran out. Now the
+    /// classification is shared with the batch renderer and device loss
+    /// actually rebuilds the device.
     private func handlePresentResult(_ hr: HRESULT) throws {
-        if hr >= 0 {
-            consecutiveDeviceLostCount = 0
-            return
+        switch DeviceLostPolicy.outcome(forPresent: hr) {
+        case .presented:
+            deviceLostRecoveryAttempts = 0
+            presentationState = PresentationState()
+        case .occluded:
+            // Not a failure and not device loss, but not vsync-paced
+            // either — the host throttles on this rather than spinning.
+            deviceLostRecoveryAttempts = 0
+            presentationState = PresentationState(isOccluded: true, needsImmediateRepaint: false)
+        case .deviceLost:
+            try recoverFromDeviceLoss(hresult: hr, operation: "IDXGISwapChain1.Present")
+        case .failed:
+            throw D3D11RendererError(operation: "IDXGISwapChain1.Present", hresult: hr)
         }
+    }
 
-        let isDeviceLost = hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET
-        if isDeviceLost {
-            consecutiveDeviceLostCount += 1
-            if consecutiveDeviceLostCount > Self.maxDeviceLostRecoveryAttempts {
-                throw D3D11RendererError(
-                    operation: "IDXGISwapChain1.Present",
-                    hresult: hr,
-                    details: "Device lost recovery failed after \(Self.maxDeviceLostRecoveryAttempts) consecutive attempts."
-                )
-            }
-            renderLog(
-                "[D3D11Renderer] Device lost detected (attempt \(consecutiveDeviceLostCount)/\(Self.maxDeviceLostRecoveryAttempts)). "
-                    + "HRESULT 0x\(String(UInt32(bitPattern: hr), radix: 16, uppercase: true))."
+    /// Rebuilds the device after it was removed, reset or hung.
+    ///
+    /// GPUI's shape: unbind the render targets, `ClearState`, `Flush`,
+    /// release every device object (all of which `detach()` already does in
+    /// that order), wait a beat, recreate, then skip one frame. Bounded by
+    /// ``DeviceLostPolicy/maxRecoveryAttempts`` consecutive attempts without
+    /// an intervening clean present; past that the failure reaches the host
+    /// typed `.deviceLost`, with this renderer left detached.
+    private func recoverFromDeviceLoss(hresult: HRESULT, operation: String) throws {
+        deviceLostRecoveryAttempts += 1
+        let attempt = deviceLostRecoveryAttempts
+        let removalReason = DeviceLostPolicy.removedReason(of: device)
+        renderLog(
+            "[D3D11Renderer] Device lost during \(operation) "
+                + "(attempt \(attempt)/\(DeviceLostPolicy.maxRecoveryAttempts)). "
+                + "HRESULT \(DeviceLostPolicy.describe(hresult)), "
+                + "GetDeviceRemovedReason \(DeviceLostPolicy.describe(removalReason))."
+        )
+
+        guard attempt <= DeviceLostPolicy.maxRecoveryAttempts else {
+            detach()
+            throw D3D11RendererError(
+                operation: operation,
+                hresult: hresult,
+                details:
+                    "Device rebuild failed \(DeviceLostPolicy.maxRecoveryAttempts) times in a row; "
+                    + "the adapter is not coming back on its own.",
+                failureKind: .deviceLost
             )
-            return
         }
 
-        throw D3D11RendererError(operation: "IDXGISwapChain1.Present", hresult: hr)
+        guard let previousSurface = surface else {
+            detach()
+            throw D3D11RendererError(
+                operation: operation,
+                hresult: hresult,
+                details: "No surface descriptor is available, so the swap chain cannot be rebuilt.",
+                failureKind: .deviceLost
+            )
+        }
+
+        detach()
+        deviceLostRecoveryAttempts = attempt
+        deviceLostBackoffHandler(DeviceLostPolicy.backoffSeconds(forAttempt: attempt))
+
+        do {
+            try attach(to: previousSurface)
+        } catch {
+            detach()
+            deviceLostRecoveryAttempts = attempt
+            throw D3D11RendererError(
+                operation: operation,
+                hresult: hresult,
+                details: "Device rebuild after device loss failed: \(error)",
+                failureKind: .deviceLost
+            )
+        }
+
+        // `attach` cleared the budget as an external attach would; this one
+        // is a recovery step, so put the storm count back.
+        deviceLostRecoveryAttempts = attempt
+        skipNextFrameAfterDeviceLoss = true
+        presentationState = PresentationState(isOccluded: false, needsImmediateRepaint: true)
+    }
+
+    /// Forces the device-loss path as if `Present` had returned
+    /// `DXGI_ERROR_DEVICE_REMOVED`, so recovery is testable without a TDR.
+    internal func simulateDeviceLossForTesting() throws {
+        try recoverFromDeviceLoss(hresult: DeviceLostPolicy.deviceRemoved, operation: "SimulatedDeviceLoss")
     }
 
     private func releaseDirect2DTarget() {
@@ -1727,8 +1868,9 @@ func shaderCompilerDetails(from errorBlob: UnsafeMutablePointer<ID3DBlob>?) -> S
 }
 
 private let hresultInvalidArgument: HRESULT = HRESULT(bitPattern: 0x80070057)
-private let DXGI_ERROR_DEVICE_REMOVED: HRESULT = HRESULT(bitPattern: 0x887A0005)
-private let DXGI_ERROR_DEVICE_RESET: HRESULT = HRESULT(bitPattern: 0x887A0007)
+// Device-lost HRESULTs now live in `DeviceLostPolicy`, so both swap-chain
+// owners classify the same values the same way instead of keeping private
+// (and divergent) copies.
 
 // DXGI constants that may not be exposed by the Swift WinSDK overlay.
 private let DXGI_PRESENT_ALLOW_TEARING: UINT = 0x0000_0200
@@ -1743,7 +1885,8 @@ private let logicalDpi: Double = 96
 
 /// Lightweight render-subsystem logger that writes to standard error so
 /// diagnostic output does not interfere with structured program output.
-private func renderLog(_ message: String) {
+/// Module-internal: both swap-chain owners report device loss through it.
+internal func renderLog(_ message: String) {
     var stderr = _StderrStream()
     print(message, to: &stderr)
 }

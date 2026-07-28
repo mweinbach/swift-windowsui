@@ -1659,6 +1659,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// Current backoff interval; doubles on each failed attempt, capped at
     /// `recoveryPolicy.maxRetryInterval`.
     private var currentBatchRecoveryInterval: Double = 0
+    /// How the backend classified the most recent presentation failure. The
+    /// recovery policy reads this instead of pattern-matching free text: a
+    /// `.permanent` failure is never worth retrying, and a `.sceneContent`
+    /// failure will reproduce on the same scene no matter how long we wait.
+    private(set) var lastPresentationFailureKind: PresentationFailureKind?
     /// Test seam: lets unit tests inject a fake wall clock without touching
     /// `Win32Window.currentTimestampSeconds`.
     var recoveryClock: @MainActor () -> Double = { Win32Window.currentTimestampSeconds() }
@@ -2204,8 +2209,21 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             nextBatchRecoveryInSeconds: nextRecoveryInSeconds,
             lastBackendSelectionReason: currentPresentationSelection?.reason,
             activeBackendDisplayName: activeBackendName,
-            lastScenePaintMetrics: runtime.lastScenePaintMetrics
+            lastScenePaintMetrics: runtime.lastScenePaintMetrics,
+            lastPresentationFailureKind: lastPresentationFailureKind,
+            isPresentationOccluded: activePresentationState.isOccluded
         )
+    }
+
+    /// The active backend's post-render presentation state. Backends that
+    /// cannot lose a device report the neutral value.
+    private var activePresentationState: PresentationState {
+        switch activeBackend {
+        case .scene:
+            return batchRenderer?.presentationState ?? PresentationState()
+        case .frame:
+            return renderer.presentationState
+        }
     }
 
     /// Schedule a batched reload.  Multiple rapid @Published changes within
@@ -2322,6 +2340,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             do {
                 try fallbackToFrameRenderer(
                     becauseOf: .batchRenderFailure(String(describing: error)),
+                    failureKind: PresentationFailureKind.classifying(error),
                     in: window
                 )
                 try renderer.render(frame: runtime.renderFrame(at: timestamp ?? 0))
@@ -2331,7 +2350,15 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             }
         }
 
-        pendingPresentation = runtime.isDirty || runtime.hasActiveAnimations || inputRateTracker.isHighRate
+        // A backend that just rebuilt its device deliberately skipped a
+        // frame, so the pixels on screen are stale even though nothing is
+        // dirty. Ask for one more frame rather than waiting for the next
+        // user interaction. Set through `pendingPresentation` — not
+        // `window.invalidate()` — because this runs inside `WM_PAINT`'s
+        // BeginPaint/EndPaint pair, where re-dirtying the region would spin.
+        let owesRepaint = activePresentationState.needsImmediateRepaint
+        pendingPresentation =
+            runtime.isDirty || runtime.hasActiveAnimations || inputRateTracker.isHighRate || owesRepaint
         syncAnimationDriver(for: window)
         return true
     }
@@ -2406,8 +2433,19 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     // | Batch `resize` throws                    | Downgrade at the new size; reason `.batchResizeFailure`.       |
     // | After any downgrade, `.standard` policy  | Retry batch attach with exponential backoff (5s → 60s cap);    |
     // |                                          | success restores scene with reason `.batchBackendRecovered`.   |
+    // | Downgrade classified `.permanent`        | No recovery is scheduled: the machine cannot do it.            |
     // | After any downgrade, `.disabled` policy  | One-way pin: batch is never invoked again this session.        |
     // | Frame backend itself throws              | Log via `report`; the host session stays alive (no crash).     |
+    //
+    // Device loss is *not* in that table, and deliberately so: it is not a
+    // backend being bad, it is a device being gone, and switching backends
+    // would only create the next device on the same dead adapter. Both D3D11
+    // renderers rebuild their own device in place (see `DeviceLostPolicy`)
+    // and only surface a failure here once bounded recovery is exhausted —
+    // at which point it arrives typed `.deviceLost` in
+    // `RendererHealthSnapshot.lastPresentationFailureKind`. A backend that
+    // rebuilt its device reports `needsImmediateRepaint`, and the frame loop
+    // schedules the frame it skipped.
     //
     // Every transition in that table releases the outgoing backend before
     // the incoming one attaches (`detach()`, see docs/GPURenderingPipeline.md
@@ -2457,6 +2495,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                 batchRenderer.detach()
                 try renderer.attach(to: surface)
                 activeBackend = .frame
+                lastPresentationFailureKind = PresentationFailureKind.classifying(error)
                 updatePresentationSelection(reason: .batchAttachFailure(String(describing: error)))
                 return
             }
@@ -2475,6 +2514,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             } catch {
                 try fallbackToFrameRenderer(
                     becauseOf: .batchResizeFailure(String(describing: error)),
+                    failureKind: PresentationFailureKind.classifying(error),
                     in: window
                 )
             }
@@ -2485,8 +2525,10 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     private func fallbackToFrameRenderer(
         becauseOf reason: PresentationSelectionReason,
+        failureKind: PresentationFailureKind? = nil,
         in window: Win32Window
     ) throws {
+        lastPresentationFailureKind = failureKind
         if let detail = reason.detail {
             report("Batch renderer failed; switching to frame renderer. \(detail)")
         } else {
@@ -2519,8 +2561,13 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// After a downgrade, if the recovery policy is enabled, set the next
     /// attempt timestamp. Resets backoff so the first retry happens after
     /// `initialRetryInterval`.
+    ///
+    /// A `.permanent` failure — no adapter, a missing feature level, an
+    /// unsupported format — schedules nothing: retrying it every 5s for the
+    /// rest of the session costs a full scene build and a visible backend
+    /// switch per attempt and can never succeed.
     private func scheduleBatchBackendRecoveryIfNeeded() {
-        guard recoveryPolicy.isEnabled, batchRenderer != nil else {
+        guard recoveryPolicy.isEnabled, batchRenderer != nil, lastPresentationFailureKind != .permanent else {
             nextBatchRecoveryAttemptAt = nil
             return
         }
@@ -2559,9 +2606,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             activeBackend = .scene
             nextBatchRecoveryAttemptAt = nil
             currentBatchRecoveryInterval = recoveryPolicy.initialRetryInterval
+            lastPresentationFailureKind = nil
             report("Batch renderer recovered after fallback.")
             updatePresentationSelection(reason: .batchBackendRecovered)
         } catch {
+            lastPresentationFailureKind = PresentationFailureKind.classifying(error)
             // Recovery failed with the frame backend already released: put
             // it back so the window keeps presenting instead of freezing on
             // its last frame until the next attempt.
@@ -2578,6 +2627,13 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     private func extendBatchRecoveryBackoff(now: Double) {
+        // A permanent capability failure never becomes possible later; stop
+        // scheduling instead of burning a scene build every backoff window.
+        if lastPresentationFailureKind == .permanent {
+            nextBatchRecoveryAttemptAt = nil
+            return
+        }
+
         let nextInterval = min(
             currentBatchRecoveryInterval * recoveryPolicy.backoffMultiplier,
             recoveryPolicy.maxRetryInterval

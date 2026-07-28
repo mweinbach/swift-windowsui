@@ -29,7 +29,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
 
 - `check-contracts.ps1` fails fast on architecture regressions that generic lint cannot see.
 - `lint.ps1` runs `check-contracts.ps1` and then toolchain `swift-format lint --strict` against changed Swift files. Use `-Path <file>` when the checkout already has unrelated dirty Swift files, and use `-AllSwift` before broad cleanup branches or CI-style validation.
-- `agent-check.ps1 -Quick` runs contract checks, focused scene/renderer/runtime tests (including the two WARP suites, `D3D11BatchRendererRenderTests` and `CrossBackendPixelParityTests`), and the demo executable build serially. Add `-GalleryCompare` to also run the gallery regression gate.
+- `agent-check.ps1 -Quick` runs contract checks, focused scene/renderer/runtime tests (including the two WARP suites, `D3D11BatchRendererRenderTests` and `CrossBackendPixelParityTests`, and the device-loss suites `DeviceLostPolicyTests` / `DeviceLossRecoveryTests` / `PresentationFailurePolicyTests`), and the demo executable build serially. Add `-GalleryCompare` to also run the gallery regression gate.
 - `agent-check.ps1 -Full` runs full tests, builds the demo, regenerates scene plus frame fallback screenshots, and runs the gallery regression gate.
 - Do not run multiple SwiftPM test/build commands against this checkout in parallel; they share `.build/build.db`.
 - Do not leave root-level logs or screenshots behind. Generated screenshots belong under `artifacts/`, and temporary logs should be deleted before handoff.
@@ -85,6 +85,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   window close and on both directions of a presenter switch, always before
   the incoming backend claims the HWND. Attaches its own WARP renderer
   rather than the shared `WARPBatchRenderer`, since it destroys the device.
+- `DeviceLostPolicyTests` — the HRESULT classifier and retry schedule, with
+  no GPU involved: device-lost codes, `DXGI_STATUS_OCCLUDED` as throttle
+  rather than clean present, permanent vs transient, bounded monotonic
+  backoff, and each backend error type classifying itself for the host.
+- `DeviceLossRecoveryTests` — the rebuild itself, driven through
+  `simulateDeviceLossForTesting()` on an offscreen WARP renderer: a new
+  device generation, the target rebuilt at the same size with matching
+  pixels, a bounded budget that surfaces a typed `.deviceLost` failure, a
+  clean present refunding it, and the backdrop-blur engine keyed on
+  generation rather than device address. Attaches its own renderer and stubs
+  the recovery wait, so the suite does not sleep.
+- `PresentationFailurePolicyTests` — the host half: the failure kind reaches
+  `RendererHealthSnapshot`, a `.permanent` failure schedules no recovery, an
+  unclassified error keeps the historical transient behaviour, and a backend
+  reporting `needsImmediateRepaint` keeps the frame loop alive.
 
 Test runs never write images into the source tree: `check-contracts.ps1`
 fails if a `ReferenceImages` directory appears under `Tests/`. Reviewed

@@ -87,6 +87,26 @@ function Assert-NoMatchesInRoots {
     }
 }
 
+function Assert-NoTestBaselineImageDirectories {
+    # Test runs must never write generated images into the source tree. A
+    # self-healing reference-image harness used to do exactly that (recording
+    # whatever the renderer produced as the baseline on first run); reviewed
+    # baselines live in scripts/gallery-compare.ps1 and the golden-hash
+    # suites, and everything generated belongs under artifacts/ or the OS
+    # temp directory.
+    $testsPath = Get-RepoPath "Tests"
+    if (-not (Test-Path -LiteralPath $testsPath)) {
+        return
+    }
+
+    $baselineDirectories = Get-ChildItem -LiteralPath $testsPath -Recurse -Directory -Force |
+        Where-Object { $_.Name -eq "ReferenceImages" }
+
+    foreach ($directory in $baselineDirectories) {
+        Add-Failure "Remove generated baseline directory $($directory.FullName); test output belongs under artifacts/ or the OS temp directory, and baselines must be reviewed, not self-healed."
+    }
+}
+
 function Assert-NoRootScratchFiles {
     $scratchPatterns = @(
         ".*\.log$",
@@ -181,6 +201,7 @@ Assert-NoMatchesInRoots `
     $desktopCapturePattern `
     "Desktop capture is not an acceptable screenshot validation path."
 Assert-NoRootScratchFiles
+Assert-NoTestBaselineImageDirectories
 
 # MARK: Phase 8 — target dependency direction
 #

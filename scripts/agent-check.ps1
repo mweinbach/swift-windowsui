@@ -103,6 +103,18 @@ if ($Full) {
     Invoke-Step "D3D11BatchRendererTests" {
         & $testScript -Filter "D3D11BatchRendererTests"
     }
+    # The GPU frame path and cross-backend pixel parity: these run the real
+    # D3D11 batch renderer offscreen on WARP, so they observe what the CPU
+    # rasterizer (which every screenshot goes through) cannot.
+    Invoke-Step "D3D11BatchRendererRenderTests" {
+        & $testScript -Filter "D3D11BatchRendererRenderTests"
+    }
+    Invoke-Step "CrossBackendPixelParityTests" {
+        & $testScript -Filter "CrossBackendPixelParityTests"
+    }
+    Invoke-Step "MalformedInputResilienceTests" {
+        & $testScript -Filter "MalformedInputResilienceTests"
+    }
     Invoke-Step "RetainedViewRuntimeTests" {
         & $testScript -Filter "RetainedViewRuntimeTests"
     }

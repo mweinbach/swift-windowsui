@@ -118,137 +118,18 @@ func assertAllPixels(
 }
 
 // MARK: - Reference Images
-
-@MainActor
-func referenceImageURL(name: String) -> URL {
-    let dir = URL(fileURLWithPath: #file)
-        .deletingLastPathComponent()
-        .appendingPathComponent("ReferenceImages")
-    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    return dir.appendingPathComponent("\(name).bmp")
-}
-
-@MainActor
-func saveReferenceImage(_ bitmap: BitmapSurface, name: String) throws {
-    let url = referenceImageURL(name: name)
-    try writeBGRA32BMP(bitmap, to: url)
-}
-
-@MainActor
-func loadReferenceImage(name: String) -> BitmapSurface? {
-    let url = referenceImageURL(name: name)
-    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-    guard let data = try? Data(contentsOf: url) else { return nil }
-    guard data.count >= 54 else { return nil }
-
-    let width = Int32(littleEndian: data.withUnsafeBytes { $0.load(fromByteOffset: 18, as: Int32.self) })
-    let height = Int32(littleEndian: data.withUnsafeBytes { $0.load(fromByteOffset: 22, as: Int32.self) })
-    let rowBytes = Int(width) * 4
-    let pixelOffset = Int(data.withUnsafeBytes { $0.load(fromByteOffset: 10, as: UInt32.self) })
-    let expectedSize = rowBytes * Int(height)
-
-    guard data.count >= pixelOffset + expectedSize else { return nil }
-    var pixels = Data()
-    pixels.reserveCapacity(expectedSize)
-    for row in stride(from: Int(height) - 1, through: 0, by: -1) {
-        let srcOffset = pixelOffset + row * rowBytes
-        pixels.append(data[srcOffset..<(srcOffset + rowBytes)])
-    }
-    return BitmapSurface(width: width, height: height, bytesPerRow: Int32(rowBytes), pixels: pixels)
-}
-
-@MainActor
-func compareToReference(
-    _ bitmap: BitmapSurface,
-    name: String,
-    tolerance: Float = 2 / 255,
-    recordMissingReference: Bool = true,
-) {
-    if let reference = loadReferenceImage(name: name) {
-        let w = min(Int(bitmap.width), Int(reference.width))
-        let h = min(Int(bitmap.height), Int(reference.height))
-        for y in 0..<h {
-            for x in 0..<w {
-                guard let actual = bitmap.colorAt(x: x, y: y),
-                    let expected = reference.colorAt(x: x, y: y)
-                else { continue }
-                let dr = abs(actual.red - expected.red)
-                let dg = abs(actual.green - expected.green)
-                let db = abs(actual.blue - expected.blue)
-                let da = abs(actual.alpha - expected.alpha)
-                #expect(
-                    dr <= tolerance && dg <= tolerance && db <= tolerance && da <= tolerance,
-                    "Pixel (\(x), \(y)) differs from reference \(name)")
-            }
-        }
-    } else if recordMissingReference {
-        try? saveReferenceImage(bitmap, name: name)
-        Issue.record("Recorded new reference image: \(name).bmp")
-    } else {
-        Issue.record("Missing reference image: \(name).bmp")
-    }
-}
-
-// MARK: - BMP I/O (copied from snapshot tool for test reuse)
-
-private func writeBGRA32BMP(_ bitmap: BitmapSurface, to url: URL) throws {
-    let width = max(1, Int(bitmap.width))
-    let height = max(1, Int(bitmap.height))
-    let bytesPerPixel = 4
-    let rowBytes = width * bytesPerPixel
-    let sourceBytesPerRow = max(rowBytes, Int(bitmap.bytesPerRow))
-    let pixelDataSize = rowBytes * height
-    let fileHeaderSize = 14
-    let dibHeaderSize = 40
-    let pixelOffset = fileHeaderSize + dibHeaderSize
-    let fileSize = pixelOffset + pixelDataSize
-
-    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-
-    var data = Data()
-    data.reserveCapacity(fileSize)
-    data.append(contentsOf: [0x42, 0x4d])
-    data.appendUInt32LE(UInt32(fileSize))
-    data.appendUInt16LE(0)
-    data.appendUInt16LE(0)
-    data.appendUInt32LE(UInt32(pixelOffset))
-    data.appendUInt32LE(UInt32(dibHeaderSize))
-    data.appendInt32LE(Int32(width))
-    data.appendInt32LE(Int32(height))
-    data.appendUInt16LE(1)
-    data.appendUInt16LE(32)
-    data.appendUInt32LE(0)
-    data.appendUInt32LE(UInt32(pixelDataSize))
-    data.appendInt32LE(2835)
-    data.appendInt32LE(2835)
-    data.appendUInt32LE(0)
-    data.appendUInt32LE(0)
-
-    for row in stride(from: height - 1, through: 0, by: -1) {
-        let offset = row * sourceBytesPerRow
-        let end = offset + rowBytes
-        if end <= bitmap.pixels.count {
-            data.append(bitmap.pixels[offset..<end])
-        } else {
-            data.append(contentsOf: Array(repeating: 0, count: rowBytes))
-        }
-    }
-    try data.write(to: url, options: .atomic)
-}
-
-extension Data {
-    fileprivate mutating func appendUInt16LE(_ value: UInt16) {
-        append(contentsOf: [UInt8(value & 0xff), UInt8((value >> 8) & 0xff)])
-    }
-    fileprivate mutating func appendUInt32LE(_ value: UInt32) {
-        append(contentsOf: [
-            UInt8(value & 0xff),
-            UInt8((value >> 8) & 0xff),
-            UInt8((value >> 16) & 0xff),
-            UInt8((value >> 24) & 0xff),
-        ])
-    }
-    fileprivate mutating func appendInt32LE(_ value: Int32) {
-        appendUInt32LE(UInt32(bitPattern: value))
-    }
-}
+//
+// Deliberately absent. A reference-image harness used to live here —
+// `referenceImageURL` / `saveReferenceImage` / `loadReferenceImage` /
+// `compareToReference` — with no call sites, and `compareToReference`
+// self-healed: on a first run with no baseline it *wrote* the render it
+// had just produced into `Tests/SwiftWindowsCoreLogicTests/ReferenceImages/`
+// and recorded a pass-with-note. That makes whatever the renderer happened
+// to do the baseline, which is the opposite of a reviewed baseline, and it
+// wrote generated output into the source tree (AGENTS.md: generated output
+// belongs under `artifacts/` or the OS temp directory).
+//
+// The reviewed-baseline discipline lives in `scripts/gallery-compare.ps1`
+// and the golden-hash suites; cross-backend pixel agreement lives in
+// `CrossBackendPixelParityTests`. `scripts/check-contracts.ps1` fails the
+// build if a `ReferenceImages` directory reappears under `Tests/`.

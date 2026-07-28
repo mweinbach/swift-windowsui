@@ -208,10 +208,36 @@ the batch backend again — pass `recoveryPolicy: .disabled`.
 4. Images use a long-lived `imageResources` table keyed by `textureID`;
    shadows, quads, glyphs, and pixelGlyphs use structured buffers per
    primitive type.
-5. After the layers are drawn, present the swap chain.
+5. After the layers are drawn, present the frame.
 
-The renderer is `@MainActor` and assumes the same DXGI swap chain it
-attached to.
+The renderer is `@MainActor`.
+
+### 6a. Render targets: swap chain or offscreen
+
+`render(scene:)` is target-agnostic. Two targets exist:
+
+| Target | Attached by | Back buffer | Present |
+|---|---|---|---|
+| swap chain | `attach(to:)` (needs an HWND) | `IDXGISwapChain1.GetBuffer(0)` | `Present(1, 0)` |
+| offscreen | `attachOffscreen(size:driver:)` | the offscreen texture itself | `Flush` |
+
+Everything downstream of the target — device, pipeline, instance buffers,
+atlases, the backdrop-blur engine, the whole frame path — is identical for
+both; the offscreen texture uses the same `B8G8R8A8_UNORM` format the swap
+chain does, so what a readback shows is what a window would have shown.
+`readOffscreenPixels()` returns a `BitmapSurface` (BGRA, the byte order
+`GPUIRawSceneRasterizer` produces).
+
+The offscreen path is what makes the GPU backend testable: before it
+existed, `attach` required an HWND, so `resize`, `render` and `Present` had
+zero execution coverage and every GPU-only defect could only be found by
+reading the shader source. `attachOffscreen(size:driver: .warpFirst)`
+creates the device on WARP, which ships with every Windows install and
+rasterizes deterministically across machines — the requirement for pixel
+assertions. `D3D11BatchRendererRenderTests` drives attach/resize/render/
+present headlessly (including a 64→1920→1→4096 resize storm and zero-size
+frames); `CrossBackendPixelParityTests` renders canonical scenes through
+both this backend and the CPU rasterizer and asserts they agree.
 
 ## 7. Render: CPU fallback
 
@@ -220,6 +246,26 @@ which produces a `BitmapSurface`. The host then `BitBlt`s the bitmap to
 the HWND. Determinism is locked in by
 `VisualGoldenSnapshotTests.testRasterizedShapesProduceConsistentPixelsAcrossRepeatedRenders`
 which compares the raw `pixels: Data` byte-for-byte across two renders.
+
+The same rasterizer produces every screenshot, gallery baseline and
+macOS-parity render, so "the CPU rasterizer is a faithful reference for the
+GPU" is load-bearing for the whole verification workflow.
+`CrossBackendPixelParityTests` is what holds it up: each canonical scene
+renders through the D3D11 batch renderer (offscreen on WARP) and through
+the rasterizer, and must agree within 4 per channel over at least 99.5 % of
+pixels — the tolerance shape `scripts/gallery-compare.ps1` uses.
+
+Scenes the two backends genuinely disagree on stay **in the suite but
+skipped**, each `XCTSkip` naming the workstream that will make it pass and
+carrying the measured match ratio so progress is visible before the gate
+flips. Today: images and CPU-rasterized path textures (the batch renderer
+uploads BGRA `BitmapSurface` bytes as `R8G8B8A8_UNORM`, so red and blue are
+swapped), shadows (different inflation, falloff and alpha), materials
+(blur-then-tint offscreen vs tint-then-blur in place), and everything with a
+rounded corner, a rotation or a non-integer edge (the shader's ramp width is
+`max(fwidth(distance), 0.75)`, up to 1.41 px along a corner arc, while
+`roundedRectCoverage` always ramps over exactly 1 px, and square quads take
+a binary-coverage short-circuit with no antialiasing at all).
 
 ## 8. Stress / robustness invariants
 

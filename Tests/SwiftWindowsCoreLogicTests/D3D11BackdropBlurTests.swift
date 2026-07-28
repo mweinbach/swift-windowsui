@@ -24,163 +24,15 @@ final class D3D11BackdropBlurTests: XCTestCase {
 
     // MARK: - Harness
 
-    /// Owns a headless D3D11 device + context and releases them
-    /// explicitly (COM teardown stays on the main actor).
-    private final class HeadlessDevice {
-        var device: UnsafeMutablePointer<ID3D11Device>?
-        var context: UnsafeMutablePointer<ID3D11DeviceContext>?
+    // The headless WARP device, the offscreen render target and the staging
+    // readback live in WARPRenderHarness.swift, shared with every other
+    // GPU-backed suite in this target.
 
-        func release() {
-            if let context {
-                let unknown = UnsafeMutableRawPointer(context).assumingMemoryBound(to: IUnknown.self)
-                _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
-                self.context = nil
-            }
-            if let device {
-                let unknown = UnsafeMutableRawPointer(device).assumingMemoryBound(to: IUnknown.self)
-                _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
-                self.device = nil
-            }
-        }
-    }
-
-    private func makeHeadlessDevice() throws -> HeadlessDevice {
-        let result = HeadlessDevice()
-        var featureLevel = D3D_FEATURE_LEVEL(0)
-        var featureLevels: [D3D_FEATURE_LEVEL] = [D3D_FEATURE_LEVEL_11_0]
-        let flags = UINT(bitPattern: D3D11_CREATE_DEVICE_BGRA_SUPPORT.rawValue)
-
-        for driverType in [D3D_DRIVER_TYPE_WARP, D3D_DRIVER_TYPE_HARDWARE] {
-            let hr = featureLevels.withUnsafeBufferPointer { buffer in
-                D3D11CreateDevice(
-                    nil,
-                    driverType,
-                    nil,
-                    flags,
-                    buffer.baseAddress,
-                    UINT(buffer.count),
-                    UINT(D3D11_SDK_VERSION),
-                    &result.device,
-                    &featureLevel,
-                    &result.context
-                )
-            }
-            if hr >= 0, result.device != nil, result.context != nil {
-                return result
-            }
-        }
-
-        throw XCTSkip("No D3D11 device (WARP or hardware) is available on this machine")
-    }
-
-    /// An offscreen render target standing in for the swap-chain
-    /// backbuffer (same B8G8R8A8 format), pre-filled with caller pixels.
-    private struct OffscreenTarget {
-        var texture: UnsafeMutablePointer<ID3D11Texture2D>?
-        var rtv: UnsafeMutablePointer<ID3D11RenderTargetView>?
-        let width: Int
-        let height: Int
-
-        func release() {
-            if let rtv {
-                let unknown = UnsafeMutableRawPointer(rtv).assumingMemoryBound(to: IUnknown.self)
-                _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
-            }
-            if let texture {
-                let unknown = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: IUnknown.self)
-                _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
-            }
-        }
-    }
-
-    private func makeOffscreenTarget(
-        device: HeadlessDevice,
-        width: Int,
-        height: Int,
-        pixels: [UInt8]
-    ) throws -> OffscreenTarget {
-        guard let d3dDevice = device.device, let context = device.context else {
-            throw XCTSkip("Headless device unavailable")
-        }
-        XCTAssertEqual(pixels.count, width * height * 4, "BGRA pixel buffer size mismatch")
-
-        var descriptor = D3D11_TEXTURE2D_DESC()
-        descriptor.Width = UINT(width)
-        descriptor.Height = UINT(height)
-        descriptor.MipLevels = 1
-        descriptor.ArraySize = 1
-        descriptor.Format = DXGI_FORMAT_B8G8R8A8_UNORM
-        descriptor.SampleDesc = DXGI_SAMPLE_DESC(Count: 1, Quality: 0)
-        descriptor.Usage = D3D11_USAGE_DEFAULT
-        descriptor.BindFlags = UINT(D3D11_BIND_RENDER_TARGET.rawValue)
-
-        var target = OffscreenTarget(texture: nil, rtv: nil, width: width, height: height)
-        let textureHR = d3dDevice.pointee.lpVtbl.pointee.CreateTexture2D(d3dDevice, &descriptor, nil, &target.texture)
-        XCTAssertGreaterThanOrEqual(
-            textureHR, 0, "CreateTexture2D failed: 0x\(String(UInt32(bitPattern: textureHR), radix: 16))")
-        let texture = try XCTUnwrap(target.texture)
-
-        pixels.withUnsafeBytes { bytes in
-            guard let baseAddress = bytes.baseAddress else { return }
-            let resource = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
-            context.pointee.lpVtbl.pointee.UpdateSubresource(
-                context, resource, 0, nil, baseAddress, UINT(width * 4), 0)
-        }
-
-        let resource = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
-        let rtvHR = d3dDevice.pointee.lpVtbl.pointee.CreateRenderTargetView(d3dDevice, resource, nil, &target.rtv)
-        XCTAssertGreaterThanOrEqual(rtvHR, 0, "CreateRenderTargetView failed")
-        _ = try XCTUnwrap(target.rtv)
-        return target
-    }
-
-    /// Reads the target's pixels back through a staging texture.
-    private func readPixels(
-        device: HeadlessDevice,
-        target: OffscreenTarget
-    ) throws -> [UInt8] {
-        guard let d3dDevice = device.device, let context = device.context, let texture = target.texture else {
-            throw XCTSkip("Headless device unavailable")
-        }
-
-        var descriptor = D3D11_TEXTURE2D_DESC()
-        descriptor.Width = UINT(target.width)
-        descriptor.Height = UINT(target.height)
-        descriptor.MipLevels = 1
-        descriptor.ArraySize = 1
-        descriptor.Format = DXGI_FORMAT_B8G8R8A8_UNORM
-        descriptor.SampleDesc = DXGI_SAMPLE_DESC(Count: 1, Quality: 0)
-        descriptor.Usage = D3D11_USAGE_STAGING
-        descriptor.BindFlags = 0
-        descriptor.CPUAccessFlags = UINT(D3D11_CPU_ACCESS_READ.rawValue)
-
-        var staging: UnsafeMutablePointer<ID3D11Texture2D>?
-        let createHR = d3dDevice.pointee.lpVtbl.pointee.CreateTexture2D(d3dDevice, &descriptor, nil, &staging)
-        XCTAssertGreaterThanOrEqual(createHR, 0, "CreateTexture2D(staging) failed")
-        let stagingTexture = try XCTUnwrap(staging)
-        defer {
-            let unknown = UnsafeMutableRawPointer(stagingTexture).assumingMemoryBound(to: IUnknown.self)
-            _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
-        }
-
-        let dstResource = UnsafeMutableRawPointer(stagingTexture).assumingMemoryBound(to: ID3D11Resource.self)
-        let srcResource = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
-        context.pointee.lpVtbl.pointee.CopyResource(context, dstResource, srcResource)
-
-        var mapped = D3D11_MAPPED_SUBRESOURCE()
-        let mapHR = context.pointee.lpVtbl.pointee.Map(context, dstResource, 0, D3D11_MAP_READ, 0, &mapped)
-        XCTAssertGreaterThanOrEqual(mapHR, 0, "Map(staging) failed")
-        let pData = try XCTUnwrap(mapped.pData)
-        var pixels = [UInt8](repeating: 0, count: target.width * target.height * 4)
-        for row in 0..<target.height {
-            let sourceRow = pData.advanced(by: row * Int(mapped.RowPitch))
-            let destination = row * target.width * 4
-            pixels.withUnsafeMutableBufferPointer { buffer in
-                memcpy(buffer.baseAddress!.advanced(by: destination), sourceRow, target.width * 4)
-            }
-        }
-        context.pointee.lpVtbl.pointee.Unmap(context, dstResource, 0)
-        return pixels
+    private func makeEngine(device: WARPDevice) throws -> D3D11BackdropBlurEngine {
+        let d3dDevice = try XCTUnwrap(device.device)
+        let engine = D3D11BackdropBlurEngine()
+        try engine.attach(device: d3dDevice)
+        return engine
     }
 
     // MARK: - Pixel Fixtures
@@ -217,13 +69,6 @@ final class D3D11BackdropBlurTests: XCTestCase {
             pixels[index + 3] = 255
         }
         return pixels
-    }
-
-    private func makeEngine(device: HeadlessDevice) throws -> D3D11BackdropBlurEngine {
-        let d3dDevice = try XCTUnwrap(device.device)
-        let engine = D3D11BackdropBlurEngine()
-        try engine.attach(device: d3dDevice)
-        return engine
     }
 
     // MARK: - Splitter (pure)
@@ -292,12 +137,12 @@ final class D3D11BackdropBlurTests: XCTestCase {
     // MARK: - GPU-level behaviour
 
     func testBlurredBackdropDiffersFromUnblurredSource() async throws {
-        let device = try makeHeadlessDevice()
+        let device = try makeWARPDevice()
         defer { device.release() }
         let width = 64
         let height = 64
         let source = makeStripes(width: width, height: height)
-        let target = try makeOffscreenTarget(device: device, width: width, height: height, pixels: source)
+        let target = try makeWARPOffscreenTarget(device: device, width: width, height: height, pixels: source)
         defer { target.release() }
 
         let engine = try makeEngine(device: device)
@@ -318,7 +163,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
             quad: quad
         )
 
-        let result = try readPixels(device: device, target: target)
+        let result = try readWARPPixels(device: device, target: target)
 
         // Centre of the material: 1px stripes blurred to their mean
         // (~127.5), then white tint α=0.4 over it → ~178.5 per channel.
@@ -345,13 +190,13 @@ final class D3D11BackdropBlurTests: XCTestCase {
     }
 
     func testTintCompositeMatchesSourceOverMath() async throws {
-        let device = try makeHeadlessDevice()
+        let device = try makeWARPDevice()
         defer { device.release() }
         let width = 32
         let height = 32
         // Solid blue backdrop: blur is an identity on constant input, so
         // the readback isolates the tint composite exactly.
-        let target = try makeOffscreenTarget(
+        let target = try makeWARPOffscreenTarget(
             device: device, width: width, height: height,
             pixels: makeSolid(width: width, height: height, b: 255, g: 0, r: 0))
         defer { target.release() }
@@ -374,7 +219,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
             quad: quad
         )
 
-        let result = try readPixels(device: device, target: target)
+        let result = try readWARPPixels(device: device, target: target)
         let centre = pixel(result, width, 16, 16)
         // red α=0.5 over blue → (r≈127.5, g=0, b≈127.5)
         XCTAssertEqual(Double(centre.r), 127.5, accuracy: 6, "Tint red channel")
@@ -383,12 +228,12 @@ final class D3D11BackdropBlurTests: XCTestCase {
     }
 
     func testRadiusZeroSkipsTheWholeBlurPath() async throws {
-        let device = try makeHeadlessDevice()
+        let device = try makeWARPDevice()
         defer { device.release() }
         let width = 32
         let height = 32
         let source = makeStripes(width: width, height: height)
-        let target = try makeOffscreenTarget(device: device, width: width, height: height, pixels: source)
+        let target = try makeWARPOffscreenTarget(device: device, width: width, height: height, pixels: source)
         defer { target.release() }
 
         let engine = try makeEngine(device: device)
@@ -409,18 +254,18 @@ final class D3D11BackdropBlurTests: XCTestCase {
             quad: quad
         )
 
-        let result = try readPixels(device: device, target: target)
+        let result = try readWARPPixels(device: device, target: target)
         XCTAssertEqual(
             result, source,
             "blurRadius 0 must skip the blur path entirely and leave the target untouched")
     }
 
     func testNestedMaterialsBlurTheCompositedBackdrop() async throws {
-        let device = try makeHeadlessDevice()
+        let device = try makeWARPDevice()
         defer { device.release() }
         let width = 64
         let height = 64
-        let target = try makeOffscreenTarget(
+        let target = try makeWARPOffscreenTarget(
             device: device, width: width, height: height, pixels: makeStripes(width: width, height: height))
         defer { target.release() }
 
@@ -455,7 +300,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
             deviceContext: context, backBuffer: backBuffer, backBufferRTV: rtv,
             surfaceWidth: width, surfaceHeight: height, quad: materialB)
 
-        let result = try readPixels(device: device, target: target)
+        let result = try readWARPPixels(device: device, target: target)
 
         // A-only area (x=8): red over blurred gray ≈ (191, 64, 64).
         let aOnly = pixel(result, width, 8, 32)
@@ -482,7 +327,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
     }
 
     func testEngineDetachAndReattachProducesIdenticalPixels() async throws {
-        let device = try makeHeadlessDevice()
+        let device = try makeWARPDevice()
         defer { device.release() }
         let width = 48
         let height = 48
@@ -494,7 +339,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
         )
 
         func renderOnce(engine: D3D11BackdropBlurEngine) async throws -> [UInt8] {
-            let target = try makeOffscreenTarget(
+            let target = try makeWARPOffscreenTarget(
                 device: device, width: width, height: height, pixels: makeStripes(width: width, height: height))
             defer { target.release() }
             try engine.drawBlurredQuad(
@@ -505,7 +350,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
                 surfaceHeight: height,
                 quad: quad
             )
-            return try readPixels(device: device, target: target)
+            return try readWARPPixels(device: device, target: target)
         }
 
         let engine = try makeEngine(device: device)
@@ -521,7 +366,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
     }
 
     func testPingPongTargetsGrowToFitLargerRegions() async throws {
-        let device = try makeHeadlessDevice()
+        let device = try makeWARPDevice()
         defer { device.release() }
         let engine = try makeEngine(device: device)
         defer { engine.detach() }
@@ -529,7 +374,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
 
         let width = 96
         let height = 96
-        let target = try makeOffscreenTarget(
+        let target = try makeWARPOffscreenTarget(
             device: device, width: width, height: height, pixels: makeStripes(width: width, height: height))
         defer { target.release() }
         let backBuffer = try XCTUnwrap(target.texture)
@@ -558,7 +403,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
 
         // Both draws landed: the small panel and the large panel areas
         // must both differ from the pristine stripes.
-        let result = try readPixels(device: device, target: target)
+        let result = try readWARPPixels(device: device, target: target)
         let inSmall = pixel(result, width, 12, 12)
         XCTAssertNotEqual(inSmall.r, 0)
         XCTAssertNotEqual(inSmall.r, 255)
@@ -573,7 +418,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
     /// path and writes the readback to a PNG for human inspection. The
     /// PNG path is printed to the test log.
     func testMaterialSceneVisualDump() async throws {
-        let device = try makeHeadlessDevice()
+        let device = try makeWARPDevice()
         defer { device.release() }
         let width = 256
         let height = 256
@@ -604,7 +449,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
             }
         }
 
-        let target = try makeOffscreenTarget(device: device, width: width, height: height, pixels: pixels)
+        let target = try makeWARPOffscreenTarget(device: device, width: width, height: height, pixels: pixels)
         defer { target.release() }
         let engine = try makeEngine(device: device)
         defer { engine.detach() }
@@ -634,7 +479,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
                 endR: 0, endG: 0, endB: 0, endA: 0.58,
                 blurRadius: 30))
 
-        let result = try readPixels(device: device, target: target)
+        let result = try readWARPPixels(device: device, target: target)
         let bitmap = BitmapSurface(
             width: Int32(width), height: Int32(height), bytesPerRow: Int32(width * 4), pixels: Data(result))
         let directory = FileManager.default.temporaryDirectory

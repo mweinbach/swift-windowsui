@@ -27,52 +27,8 @@ final class D3D11GlyphShaderPixelTests: XCTestCase {
 
     // MARK: - Harness
 
-    private final class HeadlessDevice {
-        var device: UnsafeMutablePointer<ID3D11Device>?
-        var context: UnsafeMutablePointer<ID3D11DeviceContext>?
-
-        func release() {
-            if let context {
-                let unknown = UnsafeMutableRawPointer(context).assumingMemoryBound(to: IUnknown.self)
-                _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
-                self.context = nil
-            }
-            if let device {
-                let unknown = UnsafeMutableRawPointer(device).assumingMemoryBound(to: IUnknown.self)
-                _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
-                self.device = nil
-            }
-        }
-    }
-
-    private func makeHeadlessDevice() throws -> HeadlessDevice {
-        let result = HeadlessDevice()
-        var featureLevel = D3D_FEATURE_LEVEL(0)
-        var featureLevels: [D3D_FEATURE_LEVEL] = [D3D_FEATURE_LEVEL_11_0]
-        let flags = UINT(bitPattern: D3D11_CREATE_DEVICE_BGRA_SUPPORT.rawValue)
-
-        for driverType in [D3D_DRIVER_TYPE_WARP, D3D_DRIVER_TYPE_HARDWARE] {
-            let hr = featureLevels.withUnsafeBufferPointer { buffer in
-                D3D11CreateDevice(
-                    nil,
-                    driverType,
-                    nil,
-                    flags,
-                    buffer.baseAddress,
-                    UINT(buffer.count),
-                    UINT(D3D11_SDK_VERSION),
-                    &result.device,
-                    &featureLevel,
-                    &result.context
-                )
-            }
-            if hr >= 0, result.device != nil, result.context != nil {
-                return result
-            }
-        }
-
-        throw XCTSkip("No D3D11 device (WARP or hardware) is available on this machine")
-    }
+    // The headless WARP device lives in WARPRenderHarness.swift, shared with
+    // every other GPU-backed suite in this target.
 
     /// All GPU objects needed to draw glyph quads the way the batch renderer
     /// does, plus the offscreen target they draw into.
@@ -138,7 +94,7 @@ final class D3D11GlyphShaderPixelTests: XCTestCase {
         return pixels
     }
 
-    private func makeHarness(device: HeadlessDevice, width: Int, height: Int) throws -> GlyphDrawHarness {
+    private func makeHarness(device: WARPDevice, width: Int, height: Int) throws -> GlyphDrawHarness {
         guard let d3dDevice = device.device, let context = device.context else {
             throw XCTSkip("Headless device unavailable")
         }
@@ -315,7 +271,7 @@ final class D3D11GlyphShaderPixelTests: XCTestCase {
     /// Draws one glyph quad over an opaque-black target and reads the pixels
     /// back (BGRA).
     private func drawAndReadBack(
-        device: HeadlessDevice,
+        device: WARPDevice,
         harness: GlyphDrawHarness,
         glyph: GlyphPrimitive
     ) throws -> [UInt8] {
@@ -439,7 +395,7 @@ final class D3D11GlyphShaderPixelTests: XCTestCase {
     /// pixel maps to a texel centre, so ink covers precisely the entry's
     /// columns and not one pixel more.
     func testIntegerAlignedUnstretchedGlyphQuadSamplesAtlasOneToOne() async throws {
-        let device = try makeHeadlessDevice()
+        let device = try makeWARPDevice()
         defer { device.release() }
         let harness = try makeHarness(device: device, width: 64, height: 32)
         defer { harness.release() }
@@ -462,7 +418,7 @@ final class D3D11GlyphShaderPixelTests: XCTestCase {
     /// linear filtering bleeds ink into the extra pixel column. Emission must
     /// keep `screenW == entryWidth`.
     func testStretchedGlyphQuadBleedsInkIntoExtraColumn() async throws {
-        let device = try makeHeadlessDevice()
+        let device = try makeWARPDevice()
         defer { device.release() }
         let harness = try makeHarness(device: device, width: 64, height: 32)
         defer { harness.release() }
@@ -482,7 +438,7 @@ final class D3D11GlyphShaderPixelTests: XCTestCase {
     /// with the origin shifted +0.5px, each destination pixel samples
     /// halfway between adjacent atlas texels.
     func testFractionalOriginGlyphQuadFiltersEdgesAndShiftsCentroid() async throws {
-        let device = try makeHeadlessDevice()
+        let device = try makeWARPDevice()
         defer { device.release() }
         let harness = try makeHarness(device: device, width: 64, height: 32)
         defer { harness.release() }
@@ -521,7 +477,7 @@ final class D3D11GlyphShaderPixelTests: XCTestCase {
     /// produce the same ink row — any divergence here is a backend bug, not
     /// a scene bug.
     func testCPURasterizerMatchesD3D11ForIntegerSnappedGlyphQuad() async throws {
-        let device = try makeHeadlessDevice()
+        let device = try makeWARPDevice()
         defer { device.release() }
         let harness = try makeHarness(device: device, width: 64, height: 32)
         defer { harness.release() }

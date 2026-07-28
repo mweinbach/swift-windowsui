@@ -29,7 +29,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
 
 - `check-contracts.ps1` fails fast on architecture regressions that generic lint cannot see.
 - `lint.ps1` runs `check-contracts.ps1` and then toolchain `swift-format lint --strict` against changed Swift files. Use `-Path <file>` when the checkout already has unrelated dirty Swift files, and use `-AllSwift` before broad cleanup branches or CI-style validation.
-- `agent-check.ps1 -Quick` runs contract checks, focused scene/renderer/runtime tests, and the demo executable build serially. Add `-GalleryCompare` to also run the gallery regression gate.
+- `agent-check.ps1 -Quick` runs contract checks, focused scene/renderer/runtime tests (including the two WARP suites, `D3D11BatchRendererRenderTests` and `CrossBackendPixelParityTests`), and the demo executable build serially. Add `-GalleryCompare` to also run the gallery regression gate.
 - `agent-check.ps1 -Full` runs full tests, builds the demo, regenerates scene plus frame fallback screenshots, and runs the gallery regression gate.
 - Do not run multiple SwiftPM test/build commands against this checkout in parallel; they share `.build/build.db`.
 - Do not leave root-level logs or screenshots behind. Generated screenshots belong under `artifacts/`, and temporary logs should be deleted before handoff.
@@ -43,6 +43,45 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter GPU
 ```
 
 On Swift for Windows, filtering the very large `WinSwiftUITests` XCTest class can fail in the runner with Windows error 206 (`NSCocoaErrorDomain Code=258`). Use full `swift test` for that coverage, or filter narrower XCTest classes such as `WindowGroupInitTests`, `CommandsAndSceneTests`, or `ClipboardButtonTests`.
+
+## GPU Tests (WARP)
+
+Every test that touches real D3D11 goes through the one harness in
+`Tests/SwiftWindowsCoreLogicTests/WARPRenderHarness.swift`. It creates the
+device WARP-first (the software rasterizer ships with every Windows install
+and rasterizes deterministically across machines) and falls back to
+hardware; when neither exists the helpers throw `XCTSkip`, so a machine
+without D3D11 reports skipped GPU tests rather than failures.
+
+Two levels:
+
+- `makeWARPDevice()` plus `makeWARPOffscreenTarget(...)` / `readWARPPixels(...)`
+  drive a single component against a bare `ID3D11Device` —
+  `D3D11BackdropBlurTests`, `D3D11GlyphShaderPixelTests`.
+- `WARPBatchRenderer.render(_:size:)` drives the real `D3D11BatchRenderer`
+  frame path with no HWND, via `attachOffscreen(size:driver:)`, and reads
+  the frame back. It caches one attached renderer for the whole test process
+  (attaching compiles a dozen shaders), so scenes that bind images must use
+  distinct texture IDs.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "CrossBackendPixelParityTests|D3D11BatchRendererRenderTests"
+```
+
+- `D3D11BatchRendererRenderTests` — execution coverage for attach / resize /
+  render / present: a 64→1920→1→4096 resize storm, zero-size and negative
+  frames, repeated-frame stability, clear colour, and the typed error a
+  glyph scene with no atlas must produce.
+- `CrossBackendPixelParityTests` — canonical scenes rendered through both
+  the D3D11 batch backend and `GPUIRawSceneRasterizer`, asserting at most 4
+  per channel over at least 99.5 % of pixels. Scenes the backends genuinely
+  disagree on are present but `XCTSkip`ped with the workstream that will
+  unskip them and the measured match ratio; see
+  `docs/GPURenderingPipeline.md` § 7 for the current divergence list.
+
+Test runs never write images into the source tree: `check-contracts.ps1`
+fails if a `ReferenceImages` directory appears under `Tests/`. Reviewed
+baselines live in the gallery gate and the golden-hash suites.
 
 Visual checks:
 

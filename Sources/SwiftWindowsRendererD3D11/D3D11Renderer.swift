@@ -1175,15 +1175,25 @@ public final class D3D11Renderer: RenderBackend {
             return
         }
 
+        // `SWU_D2DDrawBitmapBGRA` creates a `D2D1_ALPHA_MODE_PREMULTIPLIED`
+        // bitmap (Direct2D bitmaps support only PREMULTIPLIED and IGNORE),
+        // so the bytes must be premultiplied and must actually be there.
+        do {
+            try command.bitmap.validate()
+        } catch {
+            throw D3D11RendererError(operation: "Draw Direct2D bitmap: \(error)", hresult: hresultHandle)
+        }
+        let bitmap = command.bitmap.premultipliedAlpha()
+
         let dpi = Float(max(scaleFactor, 1.0) * logicalDpi)
         let hr = try withDirect2DClip(command.clipRect, deviceContext: deviceContext) {
-            command.bitmap.pixels.withUnsafeBytes { pixels in
+            bitmap.pixels.withUnsafeBytes { pixels in
                 SWU_D2DDrawBitmapBGRA(
                     deviceContext,
                     pixels.baseAddress,
-                    command.bitmap.width,
-                    command.bitmap.height,
-                    command.bitmap.bytesPerRow,
+                    bitmap.width,
+                    bitmap.height,
+                    bitmap.bytesPerRow,
                     dpi,
                     dpi,
                     Float(alignedRect.minX),
@@ -1360,9 +1370,22 @@ public final class D3D11Renderer: RenderBackend {
             throw D3D11RendererError(operation: "Create text texture", hresult: hresultHandle)
         }
 
+        // Reject a surface whose buffer is shorter than its geometry before
+        // handing the pointer to D3D — otherwise this is a heap over-read.
+        do {
+            try bitmap.validate()
+        } catch {
+            throw D3D11RendererError(operation: "Create text texture: \(error)", hresult: hresultHandle)
+        }
+
+        // The pixel shader multiplies the sample by opacity and returns it
+        // straight into a ONE/INV_SRC_ALPHA blend state, i.e. it treats the
+        // texel as premultiplied — so normalize the upload to match.
+        let upload = bitmap.premultipliedAlpha()
+
         var textureDescriptor = D3D11_TEXTURE2D_DESC()
-        textureDescriptor.Width = UINT(bitmap.width)
-        textureDescriptor.Height = UINT(bitmap.height)
+        textureDescriptor.Width = UINT(upload.width)
+        textureDescriptor.Height = UINT(upload.height)
         textureDescriptor.MipLevels = 1
         textureDescriptor.ArraySize = 1
         textureDescriptor.Format = DXGI_FORMAT_B8G8R8A8_UNORM
@@ -1371,11 +1394,11 @@ public final class D3D11Renderer: RenderBackend {
         textureDescriptor.BindFlags = UINT(D3D11_BIND_SHADER_RESOURCE.rawValue)
 
         var texture: UnsafeMutablePointer<ID3D11Texture2D>?
-        let textureHR = bitmap.pixels.withUnsafeBytes { pixels in
+        let textureHR = upload.pixels.withUnsafeBytes { pixels in
             var subresource = D3D11_SUBRESOURCE_DATA()
             subresource.pSysMem = pixels.baseAddress
-            subresource.SysMemPitch = UINT(bitmap.bytesPerRow)
-            subresource.SysMemSlicePitch = UINT(bitmap.bytesPerRow * bitmap.height)
+            subresource.SysMemPitch = UINT(upload.bytesPerRow)
+            subresource.SysMemSlicePitch = UINT(upload.describedByteCount)
             return device.pointee.lpVtbl.pointee.CreateTexture2D(device, &textureDescriptor, &subresource, &texture)
         }
         try throwIfFailed(textureHR, operation: "ID3D11Device.CreateTexture2D")
@@ -2018,8 +2041,10 @@ SamplerState textSampler : register(s0);
 
 float4 psMain(VSOutput input) : SV_Target
 {
+    // The texture is uploaded premultiplied (see createShaderResourceView),
+    // which is what the ONE / INV_SRC_ALPHA blend state expects; scaling a
+    // premultiplied colour by opacity keeps it premultiplied.
     float4 sampleColor = textTexture.Sample(textSampler, input.uv);
-    sampleColor *= opacity;
-    return sampleColor;
+    return sampleColor * opacity;
 }
 """#

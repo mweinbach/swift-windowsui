@@ -29,7 +29,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
 
 - `check-contracts.ps1` fails fast on architecture regressions that generic lint cannot see.
 - `lint.ps1` runs `check-contracts.ps1` and then toolchain `swift-format lint --strict` against changed Swift files. Use `-Path <file>` when the checkout already has unrelated dirty Swift files, and use `-AllSwift` before broad cleanup branches or CI-style validation.
-- `agent-check.ps1 -Quick` runs contract checks, focused scene/renderer/runtime tests (including the two WARP suites, `D3D11BatchRendererRenderTests` and `CrossBackendPixelParityTests`, and the device-loss suites `DeviceLostPolicyTests` / `DeviceLossRecoveryTests` / `PresentationFailurePolicyTests`), and the demo executable build serially. Add `-GalleryCompare` to also run the gallery regression gate.
+- `agent-check.ps1 -Quick` runs contract checks, focused scene/renderer/runtime tests (including the two WARP suites, `D3D11BatchRendererRenderTests` and `CrossBackendPixelParityTests`, the pixel-format contract `PixelFormatContractTests`, and the device-loss suites `DeviceLostPolicyTests` / `DeviceLossRecoveryTests` / `PresentationFailurePolicyTests`), and the demo executable build serially. Add `-GalleryCompare` to also run the gallery regression gate.
 - `agent-check.ps1 -Full` runs full tests, builds the demo, regenerates scene plus frame fallback screenshots, and runs the gallery regression gate.
 - Do not run multiple SwiftPM test/build commands against this checkout in parallel; they share `.build/build.db`.
 - Do not leave root-level logs or screenshots behind. Generated screenshots belong under `artifacts/`, and temporary logs should be deleted before handoff.
@@ -78,6 +78,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   disagree on are present but `XCTSkip`ped with the workstream that will
   unskip them and the measured match ratio; see
   `docs/GPURenderingPipeline.md` § 7 for the current divergence list.
+- `PixelFormatContractTests` — the `BitmapSurface` format contract: the
+  named default (BGRA, straight), the straight ↔ premultiplied conversions
+  and their opaque fast path, the validation that rejects a truncated or
+  under-strided surface before it reaches `CreateTexture2D`, and WARP
+  readbacks proving red stays red, a half-transparent image composites to
+  mid-gray, and an already-premultiplied surface is not multiplied twice —
+  each cross-checked against `GPUIRawSceneRasterizer`.
 - `RenderBackendLifetimeTests` — GPU resource lifetime: `detach()` empties
   every stored COM pointer, the image map and the path cache; attach →
   detach → attach round-trips draw the identical frame on a fresh device;

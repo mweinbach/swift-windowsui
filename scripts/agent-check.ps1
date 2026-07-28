@@ -112,6 +112,12 @@ if ($Full) {
     Invoke-Step "CrossBackendPixelParityTests" {
         & $testScript -Filter "CrossBackendPixelParityTests"
     }
+    # The pixel-format contract: BGRA channel order, the straight vs
+    # premultiplied alpha convention each producer declares, and the
+    # validation that stops a short buffer reaching CreateTexture2D.
+    Invoke-Step "PixelFormatContractTests" {
+        & $testScript -Filter "PixelFormatContractTests"
+    }
     # GPU resource lifetime: detach() releases what attach() acquired, and
     # the host calls it on window close and on every presenter switch.
     Invoke-Step "RenderBackendLifetimeTests" {

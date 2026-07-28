@@ -393,10 +393,15 @@ enum GDIRasterTextRenderer {
             width: pixelWidth,
             height: pixelHeight,
             bytesPerRow: bytesPerRow,
-            pixels: Data(bytes)
+            pixels: Data(bytes),
+            format: .bgra8Premultiplied
         )
     }
 
+    /// Converts GDI's white-on-black coverage into tinted, **premultiplied**
+    /// BGRA: the colour channels come out scaled by coverage. Surfaces that
+    /// have been through this must be tagged `.bgra8Premultiplied` so the
+    /// GPU and CPU consumers do not re-multiply them.
     static func tint(pixelBytes: inout [UInt8], style: PixelTextStyle) {
         let red = max(0, min(255, Int(style.color.red * 255)))
         let green = max(0, min(255, Int(style.color.green * 255)))

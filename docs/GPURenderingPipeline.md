@@ -169,6 +169,68 @@ into a `BitmapSurface` and reused across frames:
 - Fresh renderer reports empty cache and zero hit/miss counters
   (`testFreshRendererHasEmptyPathCache`).
 
+## 4a. Pixel format and alpha convention
+
+Every image, every icon and every CPU-rasterized path reaches the GPU as a
+`BitmapSurface`. The surface therefore names its own format rather than
+leaving each consumer to guess:
+
+```swift
+BitmapPixelFormat(channelOrder: .bgra, alphaMode: .straight | .premultiplied)
+```
+
+Channel order is BGRA throughout — that is what GDI DIBs, WIC's
+`32bppBGRA`, Direct2D and the swap chain's `B8G8R8A8_UNORM` all use — so the
+only live variable is the alpha convention, and the producers genuinely
+disagree:
+
+| Producer | Alpha mode |
+|---|---|
+| `GPUIRawSceneRasterizer` (`RasterTarget.blend` divides by output alpha) | straight |
+| `ImageLoader` (WIC `GUID_WICPixelFormat32bppBGRA`) | straight |
+| `PixelFontAtlas` (binary coverage) | straight |
+| DirectWrite / GDI text (`GDIRasterTextRenderer.tint` scales RGB by coverage) | **premultiplied** |
+| `D3D11BatchRenderer.readOffscreenPixels` (output of a premultiplied blend) | **premultiplied** |
+
+The rules that follow from that:
+
+1. **Premultiplied is the upload convention.** Every GPU texture and every
+   Direct2D bitmap is normalized with `premultipliedAlpha()` at the upload
+   site. That is what the `ONE` / `INV_SRC_ALPHA` blend state requires, and
+   the only convention under which the bilinear sampler is correct — a
+   straight-alpha texture bleeds the RGB of transparent texels into every
+   antialiased edge. The image and text pixel shaders therefore return
+   `sample * opacity` and premultiply nothing themselves.
+2. **Straight is the CPU convention.** `RasterTarget.blend` composites in
+   straight alpha, so `drawImage` divides premultiplied sources out per
+   texel — the exact mirror of rule 1, which is what keeps the two backends
+   pixel-identical on image and path scenes.
+3. **Straight is the interchange convention.** `pixelColor`, `writePNG` and
+   `writeBMP` all report/emit straight alpha regardless of how the bytes are
+   stored, because PNG colour type 6 is straight and BMP viewers drop the
+   channel.
+4. **Every upload validates first.** `BitmapSurface.validate()` rejects
+   non-positive dimensions, a stride below `width * 4`, and a buffer shorter
+   than `bytesPerRow * height`, throwing `BitmapSurfaceError` instead of
+   handing a short buffer to `CreateTexture2D` / `CreateBitmap`. The glyph
+   atlas upload carries the same check.
+
+The glyph atlas texture is the one deliberate exception: it stays
+`R8G8B8A8_UNORM` because the glyph shader samples only `.a`, which is byte 3
+in either channel order.
+
+**Invariants** (`PixelFormatContractTests`, `CrossBackendPixelParityTests`)
+- A 1×1 surface holding `[0, 0, 255, 255]` — pure red in BGRA — reads back
+  red, not blue (`testPureRedImageReadsBackRed`).
+- Half-transparent white over black composites to ~128 per channel on both
+  backends (`testHalfTransparentWhiteCompositesToMidGray`).
+- A surface already tagged premultiplied is not multiplied twice
+  (`testPremultipliedSurfaceIsNotMultipliedTwice`).
+- A truncated surface is rejected by the upload rather than read
+  (`testMalformedSurfaceIsRejectedByTheUploadRatherThanRead`).
+- The `image`, `translucent image`, `scaled image` and `path texture` parity
+  scenes hold GPU and CPU output within ±4 over ≥ 99.5 % of pixels.
+
 ## 4b. Resource lifetime: `attach` / `detach`
 
 Both backend protocols (`RenderBackend`, `BatchRenderBackend`) declare
@@ -375,14 +437,21 @@ pixels — the tolerance shape `scripts/gallery-compare.ps1` uses.
 Scenes the two backends genuinely disagree on stay **in the suite but
 skipped**, each `XCTSkip` naming the workstream that will make it pass and
 carrying the measured match ratio so progress is visible before the gate
-flips. Today: images and CPU-rasterized path textures (the batch renderer
-uploads BGRA `BitmapSurface` bytes as `R8G8B8A8_UNORM`, so red and blue are
-swapped), shadows (different inflation, falloff and alpha), materials
+flips. Today: shadows (different inflation, falloff and alpha), materials
 (blur-then-tint offscreen vs tint-then-blur in place), and everything with a
 rounded corner, a rotation or a non-integer edge (the shader's ramp width is
 `max(fwidth(distance), 0.75)`, up to 1.41 px along a corner arc, while
 `roundedRectCoverage` always ramps over exactly 1 px, and square quads take
 a binary-coverage short-circuit with no antialiasing at all).
+
+Images and CPU-rasterized path textures used to be on that list — the batch
+renderer uploaded BGRA `BitmapSurface` bytes as `R8G8B8A8_UNORM` and blended
+straight alpha through a premultiplied blend state, so every image and every
+path fill rendered with red and blue swapped and an over-bright edge. They
+now agree, because the pixel format is part of the surface (§ 4a). The
+residual sampling difference — linear on the GPU, nearest on the CPU — is
+still real; the `scaled image` scene keeps its gradient gentle enough to
+stay inside the tolerance rather than pretending the filters match.
 
 ## 8. Stress / robustness invariants
 

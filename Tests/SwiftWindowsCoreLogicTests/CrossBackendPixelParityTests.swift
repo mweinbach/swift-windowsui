@@ -203,34 +203,87 @@ final class CrossBackendPixelParityTests: XCTestCase {
         )
     }
 
-    private static func imageScene() -> ParityScene {
-        // A deliberately asymmetric RGB fixture: a channel swap is invisible
-        // in a gray or single-channel image.
+    /// A deliberately asymmetric RGB fixture: a channel swap is invisible in
+    /// a gray or single-channel image, and a straight/premultiplied mix-up
+    /// is invisible in a fully opaque one.
+    private static func imageFixture(size: Int, alpha: UInt8, step: Int = 4) -> BitmapSurface {
         var pixels = Data()
-        for y in 0..<32 {
-            for x in 0..<32 {
-                pixels.append(UInt8(8 * (x % 32)))  // B
-                pixels.append(UInt8(4 * (y % 32) + 60))  // G
+        for y in 0..<size {
+            for x in 0..<size {
+                pixels.append(UInt8(min(255, step * x)))  // B
+                pixels.append(UInt8(min(255, step * y + 60)))  // G
                 pixels.append(200)  // R
-                pixels.append(255)  // A
+                pixels.append(alpha)  // A
             }
         }
-        let bitmap = BitmapSurface(width: 32, height: 32, bytesPerRow: 32 * 4, pixels: pixels)
+        return BitmapSurface(
+            width: Int32(size), height: Int32(size), bytesPerRow: Int32(size * 4), pixels: pixels)
+    }
 
+    /// An image drawn at its native size: the pixel-format contract with no
+    /// resampling in the way.
+    private static func imageScene() -> ParityScene {
+        let bitmap = imageFixture(size: 64, alpha: 255)
         return ParityScene(
             name: "image",
             size: surface,
-            knownDivergence:
-                "WS-03 (pixel-format contract): BitmapSurface is BGRA but createImageTextureResource uploads "
-                + "it as R8G8B8A8_UNORM, so every image renders with red and blue swapped on the GPU.",
             scene: makeScene { scene in
                 scene.bindImageResource(bitmap, for: 7)
+                scene.addImage(
+                    ImagePrimitive(
+                        screenX: 32, screenY: 32, screenW: 64, screenH: 64,
+                        uvX: 0, uvY: 0, uvW: 1, uvH: 1,
+                        opacity: 1,
+                        textureID: 7
+                    )
+                )
+            }
+        )
+    }
+
+    /// The same fixture at 40 % alpha: this is the scene that separates
+    /// straight-alpha from premultiplied compositing, since an opaque image
+    /// composites identically under either convention.
+    private static func translucentImageScene() -> ParityScene {
+        let bitmap = imageFixture(size: 64, alpha: 102)
+        return ParityScene(
+            name: "translucent image",
+            size: surface,
+            scene: makeScene { scene in
+                scene.bindImageResource(bitmap, for: 8)
+                scene.addImage(
+                    ImagePrimitive(
+                        screenX: 32, screenY: 32, screenW: 64, screenH: 64,
+                        uvX: 0, uvY: 0, uvW: 1, uvH: 1,
+                        opacity: 0.75,
+                        textureID: 8
+                    )
+                )
+            }
+        )
+    }
+
+    /// The same image stretched 3×, which is what every icon draw does.
+    ///
+    /// The backends resample differently — the GPU samples through a
+    /// `MIN_MAG_MIP_LINEAR` sampler, `RasterTarget.drawImage` picks the
+    /// nearest texel — so the fixture uses a gentle per-texel gradient that
+    /// keeps the two filters inside the tolerance. Making them agree on a
+    /// high-contrast image is WS-08's job; this scene's job is to prove the
+    /// channel order and alpha convention survive magnification.
+    private static func scaledImageScene() -> ParityScene {
+        let bitmap = imageFixture(size: 32, alpha: 255, step: 2)
+        return ParityScene(
+            name: "scaled image",
+            size: surface,
+            scene: makeScene { scene in
+                scene.bindImageResource(bitmap, for: 9)
                 scene.addImage(
                     ImagePrimitive(
                         screenX: 16, screenY: 16, screenW: 96, screenH: 96,
                         uvX: 0, uvY: 0, uvW: 1, uvH: 1,
                         opacity: 1,
-                        textureID: 7
+                        textureID: 9
                     )
                 )
             }
@@ -276,9 +329,6 @@ final class CrossBackendPixelParityTests: XCTestCase {
         ParityScene(
             name: "path texture",
             size: surface,
-            knownDivergence:
-                "WS-03 (pixel-format contract): the batch renderer uploads the CPU-rasterized path bitmap "
-                + "through the same R8G8B8A8 image path, so path fills come out with red and blue swapped.",
             scene: makeScene { scene in
                 scene.addPath(
                     PathPrimitive(
@@ -489,6 +539,10 @@ final class CrossBackendPixelParityTests: XCTestCase {
     func testShadowParity() async throws { try assertParity(Self.shadowScene()) }
 
     func testImageParity() async throws { try assertParity(Self.imageScene()) }
+
+    func testTranslucentImageParity() async throws { try assertParity(Self.translucentImageScene()) }
+
+    func testScaledImageParity() async throws { try assertParity(Self.scaledImageScene()) }
 
     func testPathTextureParity() async throws { try assertParity(Self.pathTextureScene()) }
 

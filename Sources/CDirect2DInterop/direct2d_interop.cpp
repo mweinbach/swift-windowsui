@@ -354,7 +354,13 @@ extern "C" HRESULT SWU_D2DDrawBitmapBGRA(
     D2D1_SIZE_U bitmap_size{};
     HRESULT hr = S_OK;
 
-    if (context == nullptr || pixels == nullptr || width <= 0 || height <= 0 || bytes_per_row <= 0) {
+    // `pixels` must be premultiplied BGRA covering bytes_per_row * height
+    // bytes: Direct2D bitmaps support only PREMULTIPLIED and IGNORE alpha
+    // modes, so the Swift caller normalizes the surface before calling.
+    // A stride narrower than one row would make CreateBitmap read past the
+    // buffer, so reject it here as well as on the Swift side.
+    if (context == nullptr || pixels == nullptr || width <= 0 || height <= 0 || bytes_per_row <= 0 ||
+        bytes_per_row / 4 < width) {
         return E_INVALIDARG;
     }
 

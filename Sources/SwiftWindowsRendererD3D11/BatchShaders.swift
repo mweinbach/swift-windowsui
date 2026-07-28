@@ -535,9 +535,14 @@ float4 psMain(VSOutput input) : SV_Target
         }
     }
 
+    // Image textures are uploaded premultiplied (BGRA8, see
+    // `BitmapSurface.format` and `createImageTextureResource`). That is what
+    // the ONE / INV_SRC_ALPHA blend state requires and what makes the
+    // bilinear sampler correct at transparent edges. Scaling a
+    // premultiplied colour by opacity scales RGB and A together, so the
+    // result stays premultiplied.
     float4 sampleColor = imageTexture.Sample(imageSampler, input.uv);
-    sampleColor *= input.opacity;
-    return sampleColor;
+    return sampleColor * input.opacity;
 }
 """#
 

@@ -392,6 +392,11 @@ private struct RasterTarget {
         let sourceWidth = max(1, Int(bitmap.width))
         let sourceHeight = max(1, Int(bitmap.height))
         let bytesPerRow = max(sourceWidth * 4, Int(bitmap.bytesPerRow))
+        // `blend` works in straight alpha, so premultiplied sources (the
+        // DirectWrite/GDI text path, and anything read back from the GPU)
+        // are divided out per texel. The GPU does the mirror of this by
+        // normalizing every upload to premultiplied instead.
+        let isPremultiplied = bitmap.format.alphaMode == .premultiplied
         for y in bounds.y0..<bounds.y1 {
             for x in bounds.x0..<bounds.x1 {
                 let tx = clamp((Double(x) + 0.5 - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1)
@@ -407,12 +412,14 @@ private struct RasterTarget {
                     continue
                 }
 
+                let sourceAlpha = Float(bitmap.pixels[offset + 3]) / 255
+                let divisor = isPremultiplied && sourceAlpha > 0 ? sourceAlpha : 1
                 blend(
                     RasterColor(
-                        red: Float(bitmap.pixels[offset + 2]) / 255,
-                        green: Float(bitmap.pixels[offset + 1]) / 255,
-                        blue: Float(bitmap.pixels[offset]) / 255,
-                        alpha: Float(bitmap.pixels[offset + 3]) / 255 * image.opacity
+                        red: Float(bitmap.pixels[offset + 2]) / 255 / divisor,
+                        green: Float(bitmap.pixels[offset + 1]) / 255 / divisor,
+                        blue: Float(bitmap.pixels[offset]) / 255 / divisor,
+                        alpha: sourceAlpha * image.opacity
                     ),
                     x: x,
                     y: y
@@ -551,7 +558,15 @@ private struct RasterTarget {
     }
 
     func bitmapSurface() -> BitmapSurface {
-        BitmapSurface(width: Int32(width), height: Int32(height), bytesPerRow: Int32(width * 4), pixels: Data(pixels))
+        // `blend` un-premultiplies before storing (it divides by
+        // `outputAlpha`), so the rasterizer's output is straight alpha.
+        BitmapSurface(
+            width: Int32(width),
+            height: Int32(height),
+            bytesPerRow: Int32(width * 4),
+            pixels: Data(pixels),
+            format: .bgra8Straight
+        )
     }
 
     private mutating func writeOpaque(_ color: RasterColor, x: Int, y: Int) {

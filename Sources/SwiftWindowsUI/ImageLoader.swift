@@ -35,7 +35,10 @@ public enum ImageLoader {
 
         let byteCount = Int(bytesPerRow * height)
         let data = Data(bytes: pixels, count: byteCount)
-        let surface = BitmapSurface(width: width, height: height, bytesPerRow: bytesPerRow, pixels: data)
+        // WIC converts to `GUID_WICPixelFormat32bppBGRA`, which is straight
+        // (non-premultiplied) alpha — `32bppPBGRA` would be the other one.
+        let surface = BitmapSurface(
+            width: width, height: height, bytesPerRow: bytesPerRow, pixels: data, format: .bgra8Straight)
         cache[path] = surface
         return surface
     }

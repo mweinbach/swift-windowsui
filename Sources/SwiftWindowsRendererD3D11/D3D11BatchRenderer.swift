@@ -1094,6 +1094,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// Reads the offscreen target back into a `BitmapSurface` — BGRA, the
     /// same byte order `GPUIRawSceneRasterizer` produces — so a rendered
     /// frame can be compared against the CPU reference pixel by pixel.
+    ///
+    /// The result is tagged premultiplied: it is the output of a
+    /// premultiplied blend state. With the usual opaque clear colour the
+    /// two conventions coincide byte for byte, which is why parity scenes
+    /// clear to alpha 1.
     public func readOffscreenPixels() throws -> BitmapSurface {
         guard renderTargetKind == .offscreen, let offscreenTexture else {
             throw BatchRendererError(
@@ -1155,7 +1160,12 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
 
         return BitmapSurface(
-            width: Int32(width), height: Int32(height), bytesPerRow: Int32(bytesPerRow), pixels: pixels)
+            width: Int32(width),
+            height: Int32(height),
+            bytesPerRow: Int32(bytesPerRow),
+            pixels: pixels,
+            format: .bgra8Premultiplied
+        )
     }
 
     // MARK: - Static Shader Validation (for testing)
@@ -1726,6 +1736,21 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             return
         }
 
+        // `UpdateSubresource` below reads `width * height * 4` bytes out of
+        // the snapshot; a short buffer is a heap over-read, so a malformed
+        // atlas is rejected rather than uploaded.
+        let requiredBytes = Int(snapshot.width) * Int(snapshot.height) * 4
+        guard snapshot.width > 0, snapshot.height > 0, snapshot.pixels.count >= requiredBytes else {
+            throw BatchRendererError(
+                operation: "Upload glyph atlas",
+                hresult: batchHresultInvalidArgument,
+                details:
+                    "Glyph atlas is \(snapshot.width)×\(snapshot.height) but holds \(snapshot.pixels.count) bytes "
+                    + "(needs \(requiredBytes)).",
+                failureKind: .sceneContent
+            )
+        }
+
         if texture == nil || size.width != snapshot.width || size.height != snapshot.height {
             releaseCOM(&srv)
             releaseCOM(&texture)
@@ -1735,6 +1760,10 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             textureDesc.Height = UINT(snapshot.height)
             textureDesc.MipLevels = 1
             textureDesc.ArraySize = 1
+            // The atlas bytes are BGRA like every other surface here, but
+            // the glyph shader reads only `.a` — which sits at byte 3 in
+            // either order — so the declared channel order is immaterial.
+            // Kept as RGBA to avoid re-specifying a format nothing reads.
             textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM
             textureDesc.SampleDesc = DXGI_SAMPLE_DESC(Count: 1, Quality: 0)
             textureDesc.Usage = D3D11_USAGE_DEFAULT
@@ -1858,26 +1887,46 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             )
         }
 
+        // A surface whose buffer is shorter than `bytesPerRow * height`
+        // would make `CreateTexture2D` read off the end of the heap, so the
+        // geometry is checked before the pointer is handed to D3D.
+        do {
+            try bitmap.validate()
+        } catch {
+            throw BatchRendererError(
+                operation: "Create image texture",
+                hresult: batchHresultInvalidArgument,
+                details: String(describing: error),
+                failureKind: .sceneContent
+            )
+        }
+
+        // `BitmapSurface` is BGRA — matching `B8G8R8A8_UNORM`, the swap
+        // chain format and the legacy renderer — and every GPU upload is
+        // normalized to premultiplied alpha, which is what the
+        // ONE/INV_SRC_ALPHA blend state and the bilinear sampler both need.
+        let upload = bitmap.premultipliedAlpha()
+
         var textureDescriptor = D3D11_TEXTURE2D_DESC()
-        textureDescriptor.Width = UINT(bitmap.width)
-        textureDescriptor.Height = UINT(bitmap.height)
+        textureDescriptor.Width = UINT(upload.width)
+        textureDescriptor.Height = UINT(upload.height)
         textureDescriptor.MipLevels = 1
         textureDescriptor.ArraySize = 1
-        textureDescriptor.Format = DXGI_FORMAT_R8G8B8A8_UNORM
+        textureDescriptor.Format = DXGI_FORMAT_B8G8R8A8_UNORM
         textureDescriptor.SampleDesc = DXGI_SAMPLE_DESC(Count: 1, Quality: 0)
         textureDescriptor.Usage = D3D11_USAGE_DEFAULT
         textureDescriptor.BindFlags = UINT(D3D11_BIND_SHADER_RESOURCE.rawValue)
 
         var texture: UnsafeMutablePointer<ID3D11Texture2D>?
-        let textureHR = bitmap.pixels.withUnsafeBytes { pixels in
+        let textureHR = upload.pixels.withUnsafeBytes { pixels in
             guard let baseAddress = pixels.baseAddress else {
                 return HRESULT(bitPattern: 0x8000_4005)
             }
 
             var subresource = D3D11_SUBRESOURCE_DATA()
             subresource.pSysMem = baseAddress
-            subresource.SysMemPitch = UINT(bitmap.bytesPerRow)
-            subresource.SysMemSlicePitch = UINT(bitmap.bytesPerRow * bitmap.height)
+            subresource.SysMemPitch = UINT(upload.bytesPerRow)
+            subresource.SysMemSlicePitch = UINT(upload.describedByteCount)
             return device.pointee.lpVtbl.pointee.CreateTexture2D(device, &textureDescriptor, &subresource, &texture)
         }
         try throwIfFailed(textureHR, operation: "ID3D11Device.CreateTexture2D(image)", failureKind: .sceneContent)

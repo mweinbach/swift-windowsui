@@ -403,6 +403,8 @@ private final class DirectWriteSystem {
         var pixels = [UInt8](cropped.surface.pixels)
         GDIRasterTextRenderer.tint(pixelBytes: &pixels, style: glyphStyle)
         cropped.surface.pixels = Data(pixels)
+        // `tint` scales the colour channels by coverage.
+        cropped.surface.format = .bgra8Premultiplied
 
         let advance = measureSingleLine(text, format: format) ?? bounds.width
         return NativeGlyphBitmap(
@@ -565,6 +567,8 @@ private final class DirectWriteSystem {
         var pixels = [UInt8](surface.pixels)
         GDIRasterTextRenderer.tint(pixelBytes: &pixels, style: style)
         surface.pixels = Data(pixels)
+        // `tint` scales the colour channels by coverage.
+        surface.format = .bgra8Premultiplied
         return surface
     }
 
@@ -712,6 +716,8 @@ private final class DirectWriteSystem {
         var pixels = [UInt8](cropped.surface.pixels)
         GDIRasterTextRenderer.tint(pixelBytes: &pixels, style: PixelTextStyle(color: .white))
         cropped.surface.pixels = Data(pixels)
+        // `tint` scales the colour channels by coverage.
+        cropped.surface.format = .bgra8Premultiplied
 
         return NativeGlyphBitmap(
             surface: cropped.surface,
@@ -1338,7 +1344,8 @@ private final class DirectWriteSystem {
                 width: Int32(croppedWidth),
                 height: Int32(croppedHeight),
                 bytesPerRow: Int32(croppedWidth * 4),
-                pixels: Data(cropped)
+                pixels: Data(cropped),
+                format: surface.format
             ),
             bearingX: Float(minX) - Float(paddingPixels),
             bearingY: Float(minY) - Float(paddingPixels)

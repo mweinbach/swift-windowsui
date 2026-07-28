@@ -511,35 +511,209 @@ public struct FillRectCommand: Equatable, Sendable {
         self.blendMode = blendMode
     }
 }
+/// The channel order and alpha convention of a `BitmapSurface`'s bytes.
+///
+/// Before this type existed the convention was folklore, and the producers
+/// disagreed: the CPU rasterizer stores straight alpha while the
+/// DirectWrite/GDI text path stores premultiplied alpha. Every consumer
+/// picked one and was therefore wrong about half its inputs. Carrying the
+/// format in the surface makes each consumer convert instead of assume.
+public struct BitmapPixelFormat: Equatable, Sendable, CustomStringConvertible {
+    /// Byte order within a 32-bit pixel. Only BGRA exists today — it is
+    /// what GDI DIBs, WIC's `32bppBGRA`, Direct2D and the swap chain's
+    /// `B8G8R8A8_UNORM` all use — but naming it keeps the assumption
+    /// checkable.
+    public enum ChannelOrder: Equatable, Sendable {
+        /// Byte 0 = blue, 1 = green, 2 = red, 3 = alpha.
+        case bgra
+    }
+
+    /// Whether the colour channels have already been scaled by alpha.
+    public enum AlphaMode: Equatable, Sendable {
+        /// Colour channels are independent of alpha (`rgb`, `a`).
+        case straight
+        /// Colour channels are already scaled by alpha (`rgb * a`, `a`).
+        /// This is what a `ONE`/`INV_SRC_ALPHA` blend state and Direct2D
+        /// bitmaps require, and the only convention that survives bilinear
+        /// filtering without bleeding transparent texels into edges.
+        case premultiplied
+    }
+
+    public var channelOrder: ChannelOrder
+    public var alphaMode: AlphaMode
+
+    public init(channelOrder: ChannelOrder = .bgra, alphaMode: AlphaMode) {
+        self.channelOrder = channelOrder
+        self.alphaMode = alphaMode
+    }
+
+    /// The default: what `GPUIRawSceneRasterizer`, WIC image loading and
+    /// `BitmapSurface.writePNG` all produce and expect.
+    public static let bgra8Straight = BitmapPixelFormat(channelOrder: .bgra, alphaMode: .straight)
+    /// What the DirectWrite/GDI text path produces (`GDIRasterTextRenderer.tint`
+    /// scales the colour channels by coverage) and what every GPU/Direct2D
+    /// upload in this stack is normalized to.
+    public static let bgra8Premultiplied = BitmapPixelFormat(channelOrder: .bgra, alphaMode: .premultiplied)
+
+    public var description: String {
+        switch alphaMode {
+        case .straight: return "BGRA8/straight"
+        case .premultiplied: return "BGRA8/premultiplied"
+        }
+    }
+}
+
+/// Why a `BitmapSurface` cannot be handed to a texture upload.
+///
+/// Every GPU and Direct2D upload reads `bytesPerRow * height` bytes out of
+/// `pixels`; a surface that does not carry that many is a heap over-read,
+/// so the uploads validate first and throw one of these instead.
+public enum BitmapSurfaceError: Error, Equatable, CustomStringConvertible {
+    case nonPositiveDimensions(width: Int32, height: Int32)
+    case bytesPerRowTooSmall(bytesPerRow: Int32, minimum: Int32)
+    case pixelBufferTooSmall(available: Int, required: Int)
+
+    public var description: String {
+        switch self {
+        case .nonPositiveDimensions(let width, let height):
+            return "Bitmap surface has non-positive dimensions (\(width)×\(height))."
+        case .bytesPerRowTooSmall(let bytesPerRow, let minimum):
+            return "Bitmap surface stride \(bytesPerRow) is below the \(minimum) bytes one row needs."
+        case .pixelBufferTooSmall(let available, let required):
+            return "Bitmap surface holds \(available) bytes but describes \(required)."
+        }
+    }
+}
+
 public struct BitmapSurface: Equatable, Sendable {
     public var width: Int32
     public var height: Int32
     public var bytesPerRow: Int32
     public var pixels: Data
+    /// Channel order and alpha convention of `pixels`. Defaults to the
+    /// straight-alpha BGRA the CPU rasterizer produces; producers that
+    /// store premultiplied bytes must say so.
+    public var format: BitmapPixelFormat
 
-    public init(width: Int32, height: Int32, bytesPerRow: Int32, pixels: Data) {
+    public init(
+        width: Int32,
+        height: Int32,
+        bytesPerRow: Int32,
+        pixels: Data,
+        format: BitmapPixelFormat = .bgra8Straight
+    ) {
         self.width = width
         self.height = height
         self.bytesPerRow = bytesPerRow
         self.pixels = pixels
+        self.format = format
     }
 
-    /// Reads the BGRA color at the given pixel coordinates (top-left origin).
+    /// Number of bytes an upload will read out of `pixels`.
+    public var describedByteCount: Int {
+        Int(bytesPerRow) * Int(height)
+    }
+
+    /// Throws when the surface's geometry does not match its buffer, i.e.
+    /// when reading it as a texture would run off the end of `pixels`.
+    /// Called before every GPU and Direct2D upload.
+    public func validate() throws {
+        guard width > 0, height > 0 else {
+            throw BitmapSurfaceError.nonPositiveDimensions(width: width, height: height)
+        }
+        let minimumStride = width.multipliedReportingOverflow(by: 4)
+        guard !minimumStride.overflow, bytesPerRow >= minimumStride.partialValue else {
+            throw BitmapSurfaceError.bytesPerRowTooSmall(
+                bytesPerRow: bytesPerRow, minimum: minimumStride.overflow ? Int32.max : minimumStride.partialValue)
+        }
+        let required = describedByteCount
+        guard pixels.count >= required else {
+            throw BitmapSurfaceError.pixelBufferTooSmall(available: pixels.count, required: required)
+        }
+    }
+
+    /// The same image with premultiplied colour channels — the convention
+    /// every GPU texture and Direct2D bitmap in this stack is uploaded in.
+    /// Returns `self` untouched when the bytes are already premultiplied or
+    /// when every pixel is opaque (the two conventions coincide there), so
+    /// the common opaque upload copies nothing.
+    public func premultipliedAlpha() -> BitmapSurface {
+        converted(to: .premultiplied)
+    }
+
+    /// The same image with straight (non-premultiplied) colour channels —
+    /// what `pixelColor`, `writePNG` and the CPU rasterizer's compositing
+    /// expect. Returns `self` untouched when already straight or opaque.
+    public func straightAlpha() -> BitmapSurface {
+        converted(to: .straight)
+    }
+
+    private func converted(to alphaMode: BitmapPixelFormat.AlphaMode) -> BitmapSurface {
+        guard format.alphaMode != alphaMode else { return self }
+
+        let rowStride = Int(bytesPerRow)
+        let pixelCount = Int(width)
+        var converted = [UInt8](pixels)
+        var changed = false
+        for y in 0..<Int(height) {
+            let rowStart = y * rowStride
+            for x in 0..<pixelCount {
+                let offset = rowStart + x * 4
+                guard offset + 3 < converted.count else { continue }
+                let alpha = Int(converted[offset + 3])
+                guard alpha < 255 else { continue }
+                changed = true
+                if alpha == 0 {
+                    converted[offset] = 0
+                    converted[offset + 1] = 0
+                    converted[offset + 2] = 0
+                    continue
+                }
+                for channel in 0..<3 {
+                    let value = Int(converted[offset + channel])
+                    let scaled =
+                        alphaMode == .premultiplied
+                        ? (value * alpha + 127) / 255
+                        : min(255, (value * 255 + alpha / 2) / alpha)
+                    converted[offset + channel] = UInt8(scaled)
+                }
+            }
+        }
+
+        var result = self
+        result.format.alphaMode = alphaMode
+        if changed {
+            result.pixels = Data(converted)
+        }
+        return result
+    }
+
+    /// Reads the straight-alpha BGRA color at the given pixel coordinates
+    /// (top-left origin), un-premultiplying when the surface stores
+    /// premultiplied bytes.
     public func pixelColor(atX x: Int, y: Int) -> Color? {
         guard x >= 0, x < Int(width), y >= 0, y < Int(height) else { return nil }
         let offset = y * Int(bytesPerRow) + x * 4
         guard offset + 3 < pixels.count else { return nil }
+        let alpha = Float(pixels[offset + 3]) / 255
+        let divisor = format.alphaMode == .premultiplied && alpha > 0 ? alpha : 1
         return Color(
-            red: Float(pixels[offset + 2]) / 255,
-            green: Float(pixels[offset + 1]) / 255,
-            blue: Float(pixels[offset]) / 255,
-            alpha: Float(pixels[offset + 3]) / 255
+            red: min(1, Float(pixels[offset + 2]) / 255 / divisor),
+            green: min(1, Float(pixels[offset + 1]) / 255 / divisor),
+            blue: min(1, Float(pixels[offset]) / 255 / divisor),
+            alpha: alpha
         )
     }
 
     /// Writes the bitmap as an uncompressed 32-bit BGRA BMP file to `url`.
-    /// The alpha channel is preserved; most viewers ignore it.
+    /// The alpha channel is preserved; most viewers ignore it, so the
+    /// pixels are written straight-alpha — a premultiplied surface would
+    /// otherwise look darkened in every viewer that drops the channel.
     public func writeBMP(to url: URL) throws {
+        let source = straightAlpha()
+        let width = source.width
+        let height = source.height
+        let bytesPerRow = source.bytesPerRow
         let fileHeaderSize = 14
         let dibHeaderSize = 40
         let pixelDataSize = Int(bytesPerRow) * Int(height)
@@ -566,7 +740,7 @@ public struct BitmapSurface: Equatable, Sendable {
         data.append(contentsOf: withUnsafeBytes(of: Int32(0)) { Array($0) })  // important colors
 
         // Pixel array
-        data.append(pixels)
+        data.append(source.pixels)
         try data.write(to: url)
     }
 }

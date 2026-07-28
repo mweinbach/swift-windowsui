@@ -7,10 +7,15 @@ extension BitmapSurface {
     /// Writes the bitmap as a PNG file.
     /// Uses uncompressed DEFLATE blocks so no zlib dependency is required.
     /// File size is large but fully standard-compliant.
+    ///
+    /// PNG's colour type 6 is straight (non-premultiplied) RGBA, so a
+    /// premultiplied surface is converted before the channel swizzle.
     public func writePNG(to url: URL) throws {
-        let width = Int(self.width)
-        let height = Int(self.height)
-        let srcRowBytes = Int(bytesPerRow)
+        let source = straightAlpha()
+        let pixels = source.pixels
+        let width = Int(source.width)
+        let height = Int(source.height)
+        let srcRowBytes = Int(source.bytesPerRow)
         let dstRowSize = 1 + width * 4  // filter byte + RGBA
 
         // Build raw scanline data: filter byte 0 + RGBA pixels per row

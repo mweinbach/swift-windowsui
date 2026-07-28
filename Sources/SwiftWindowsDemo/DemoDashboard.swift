@@ -869,7 +869,7 @@ struct DemoPillButton: View {
         Button(action: perform) {
             DemoTintedSurface(
                 cornerRadius: 20,
-                contentPadding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
+                contentPadding: EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14),
                 colors: colors,
                 stroke: DemoTheme.surfaceStrokeStrong,
                 shadowColor: DemoTheme.shadow

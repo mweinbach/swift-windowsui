@@ -179,6 +179,23 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     // a dead device.
     private var blurEngine: D3D11BackdropBlurEngine?
 
+    /// Set when a blurred quad failed for a reason that is not device loss
+    /// — most plausibly a mid-frame ping-pong texture allocation under
+    /// memory pressure, which is the largest allocation the renderer makes
+    /// and the one most likely to fail on a 4K surface. Material quads then
+    /// take the plain quad path (edge-softening instead of a real frost)
+    /// until the surface size changes, so a failing effect costs frostiness
+    /// rather than every subsequent frame's `Present`.
+    private var blurDegraded = false
+
+    /// True once a blur failure has downgraded materials to the plain path.
+    internal var blurDegradedForTesting: Bool { blurDegraded }
+
+    /// Test seam: forces every blurred quad to fail the way an
+    /// out-of-memory ping-pong allocation would, so the containment path
+    /// is reachable without exhausting video memory.
+    internal var failBlurredQuadsForTesting = false
+
     // MARK: - Surface State
 
     /// The window surface this renderer is attached to, or nil when it is
@@ -650,6 +667,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         surface = nil
         hwnd = nil
         targetPixelSize = .zero
+        blurDegraded = false
         skipNextFrameAfterDeviceLoss = false
         presentationState = PresentationState()
         isAttached = false
@@ -675,6 +693,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     public func resize(to size: IntSize) throws {
         surface?.pixelSize = size
         targetPixelSize = size
+        // A new surface size means new ping-pong allocations, so the
+        // condition that degraded the blur may no longer hold: give the
+        // real effect another chance rather than staying plain for the rest
+        // of the session.
+        blurDegraded = false
 
         guard isAttached else {
             return
@@ -739,12 +762,15 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             return
         }
 
+        // `blendState` / `rasterizerState` / `frameUniformBuffer` are read
+        // by `bindFramePipelineState`; they are checked here so a partially
+        // created pipeline never reaches a draw.
         guard
             let renderTargetView,
             let deviceContext,
-            let blendState,
-            let rasterizerState,
-            let frameUniformBuffer
+            blendState != nil,
+            rasterizerState != nil,
+            frameUniformBuffer != nil
         else {
             return
         }
@@ -753,28 +779,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         finishedScene.finish()
         let renderPlan = try Self.makeRenderPlan(for: finishedScene, cachedResources: cachedResourcesForTesting)
 
-        var targetView: UnsafeMutablePointer<ID3D11RenderTargetView>? = renderTargetView
-        deviceContext.pointee.lpVtbl.pointee.OMSetRenderTargets(deviceContext, 1, &targetView, nil)
-
-        var viewport = D3D11_VIEWPORT(
-            TopLeftX: 0,
-            TopLeftY: 0,
-            Width: FLOAT(surfacePixelSize.width),
-            Height: FLOAT(surfacePixelSize.height),
-            MinDepth: 0,
-            MaxDepth: 1
-        )
-        deviceContext.pointee.lpVtbl.pointee.RSSetViewports(deviceContext, 1, &viewport)
-        deviceContext.pointee.lpVtbl.pointee.RSSetState(deviceContext, rasterizerState)
-        deviceContext.pointee.lpVtbl.pointee.IASetInputLayout(deviceContext, nil)
-        deviceContext.pointee.lpVtbl.pointee.IASetPrimitiveTopology(
-            deviceContext, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST)
-
-        let blendFactor: [FLOAT] = [0, 0, 0, 0]
-        blendFactor.withUnsafeBufferPointer { buffer in
-            deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(
-                deviceContext, blendState, buffer.baseAddress, UINT.max)
-        }
+        bindFramePipelineState(deviceContext: deviceContext, surfaceSize: surfacePixelSize)
 
         let cc = finishedScene.clearColor
         let clearValues: [FLOAT] = [cc.red, cc.green, cc.blue, cc.alpha]
@@ -800,9 +805,6 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                 size: &pixelGlyphAtlasSize
             )
         }
-
-        var cbuf: UnsafeMutablePointer<ID3D11Buffer>? = frameUniformBuffer
-        deviceContext.pointee.lpVtbl.pointee.VSSetConstantBuffers(deviceContext, 0, 1, &cbuf)
 
         for step in renderPlan.steps {
             switch step {
@@ -840,7 +842,12 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                             deviceContext: deviceContext
                         )
                     case .blurred(let index):
-                        try renderBlurredMaterialQuad(layer.quads[index], deviceContext: deviceContext)
+                        try renderMaterialQuad(
+                            layer.quads,
+                            index: index,
+                            deviceContext: deviceContext,
+                            surfaceSize: surfacePixelSize
+                        )
                     }
                 }
             case .glyphs(let layerIndex, let range, _):
@@ -879,6 +886,50 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
 
         try presentFrame()
+    }
+
+    /// Binds every piece of pipeline state the batched draws assume: the
+    /// frame's render target, the full-surface viewport, the rasterizer and
+    /// input-assembler state, the premultiplied source-over blend state and
+    /// the frame-uniform buffer at VS `b0`.
+    ///
+    /// Called once before the step loop and again after every blurred quad.
+    /// The backdrop blur engine replaces all five while it works — its own
+    /// ping-pong render targets, region-sized viewports, a null blend state
+    /// for the blur passes, and its own byte-identical frame-uniform buffer
+    /// — and cannot restore them, because only this type knows what they
+    /// were. Re-binding here makes that a real invariant instead of a prose
+    /// post-condition that happens to hold while the two frame-uniform
+    /// layouts stay identical.
+    private func bindFramePipelineState(
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
+        surfaceSize: IntSize
+    ) {
+        var targetView: UnsafeMutablePointer<ID3D11RenderTargetView>? = renderTargetView
+        deviceContext.pointee.lpVtbl.pointee.OMSetRenderTargets(deviceContext, 1, &targetView, nil)
+
+        var viewport = D3D11_VIEWPORT(
+            TopLeftX: 0,
+            TopLeftY: 0,
+            Width: FLOAT(surfaceSize.width),
+            Height: FLOAT(surfaceSize.height),
+            MinDepth: 0,
+            MaxDepth: 1
+        )
+        deviceContext.pointee.lpVtbl.pointee.RSSetViewports(deviceContext, 1, &viewport)
+        deviceContext.pointee.lpVtbl.pointee.RSSetState(deviceContext, rasterizerState)
+        deviceContext.pointee.lpVtbl.pointee.IASetInputLayout(deviceContext, nil)
+        deviceContext.pointee.lpVtbl.pointee.IASetPrimitiveTopology(
+            deviceContext, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST)
+
+        let blendFactor: [FLOAT] = [0, 0, 0, 0]
+        blendFactor.withUnsafeBufferPointer { buffer in
+            deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(
+                deviceContext, blendState, buffer.baseAddress, UINT.max)
+        }
+
+        var cbuf: UnsafeMutablePointer<ID3D11Buffer>? = frameUniformBuffer
+        deviceContext.pointee.lpVtbl.pointee.VSSetConstantBuffers(deviceContext, 0, 1, &cbuf)
     }
 
     // MARK: - Render Target Plumbing
@@ -2250,11 +2301,26 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// composite the quad's tint over the blurred result.
     private func renderBlurredMaterialQuad(
         _ quad: QuadPrimitive,
-        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
+        surfaceSize: IntSize
     ) throws {
         guard let device, let renderTargetView, hasRenderTarget else {
             return
         }
+
+        if failBlurredQuadsForTesting {
+            throw BatchRendererError(
+                operation: "Draw blurred material quad",
+                hresult: batchHresultOutOfMemory,
+                details: "Injected blur failure (test seam).")
+        }
+
+        // Whatever happens below — success, a mid-pass throw, an early
+        // return — the engine leaves its own targets, viewport, blend and
+        // constant buffers bound. Put the frame's state back before the
+        // batch loop draws anything else, including the fallback quad the
+        // caller falls through to on failure.
+        defer { bindFramePipelineState(deviceContext: deviceContext, surfaceSize: surfaceSize) }
 
         let engine = try ensureBlurEngine(device: device)
 
@@ -2268,9 +2334,59 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             deviceContext: deviceContext,
             backBuffer: backBuffer,
             backBufferRTV: renderTargetView,
-            surfaceWidth: Int(targetPixelSize.width),
-            surfaceHeight: Int(targetPixelSize.height),
+            surfaceWidth: Int(surfaceSize.width),
+            surfaceHeight: Int(surfaceSize.height),
             quad: quad
+        )
+    }
+
+    /// Draws one Material quad, preferring the real backdrop blur and
+    /// degrading to the plain quad path when the blur cannot run.
+    ///
+    /// The blur's ping-pong pair is the largest allocation the renderer
+    /// makes — up to two full-surface textures, created lazily mid-frame —
+    /// so it is the one most likely to fail under memory pressure. Letting
+    /// that failure escape would abort the frame *before* `Present`, and
+    /// the next frame would retry the identical allocation: a permanent
+    /// visual wedge in exchange for an effect the plain shader can
+    /// approximate with edge softening. So the failure is contained here,
+    /// logged once, and remembered until the surface size changes (which is
+    /// what changes the allocation).
+    ///
+    /// Device loss is deliberately not contained: it is not a blur problem,
+    /// and `render` has a real recovery path for it.
+    private func renderMaterialQuad(
+        _ quads: [QuadPrimitive],
+        index: Int,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
+        surfaceSize: IntSize
+    ) throws {
+        if !blurDegraded {
+            do {
+                try renderBlurredMaterialQuad(
+                    quads[index], deviceContext: deviceContext, surfaceSize: surfaceSize)
+                return
+            } catch {
+                if PresentationFailureKind.classifying(error) == .deviceLost {
+                    throw error
+                }
+                blurDegraded = true
+                FileHandle.standardError.write(
+                    Data(
+                        ("[SwiftWindowsUI] Backdrop blur failed; material quads fall back to the plain "
+                            + "edge-softening path until the surface is resized: \(error)\n").utf8))
+            }
+        }
+
+        try renderBatch(
+            quads,
+            range: index..<(index + 1),
+            capacity: &quadInstanceCapacity,
+            buffer: &quadInstanceBuffer,
+            srv: &quadInstanceSRV,
+            vs: quadVS, ps: quadPS,
+            label: "quad",
+            deviceContext: deviceContext
         )
     }
 
@@ -2326,3 +2442,4 @@ public struct BatchRendererError: Error, ClassifiedPresentationFailure, CustomSt
 }
 private let batchHresultHandle: HRESULT = HRESULT(bitPattern: 0x8007_0006)
 private let batchHresultInvalidArgument: HRESULT = HRESULT(bitPattern: 0x8007_0057)
+private let batchHresultOutOfMemory: HRESULT = HRESULT(bitPattern: 0x8007_000E)

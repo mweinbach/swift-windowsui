@@ -539,13 +539,51 @@ produces the actual blurred backdrop in-place. Tested by
 `MaterialBackdropBlurTests`.
 
 **Backend parity:** the D3D11 batch renderer now performs true backdrop
-blur for material quads: each blur quad (axis-aligned, radius ≥ 1) splits
-the quad batch in presentation order, copies its backbuffer region,
-applies a two-pass separable Gaussian with the same kernel weights as the
-CPU rasterizer, and composites the tint over the blurred backdrop —
-nested materials blur the already-composited material beneath. Rotated
-blur quads deliberately stay on the old edge-softening path. Locked by
+blur for material quads: each blur quad (radius ≥ 1) splits the quad
+batch in presentation order, copies its backbuffer region, applies a
+two-pass separable Gaussian with the same kernel weights as the CPU
+rasterizer, and composites the tint over the blurred backdrop — nested
+materials blur the already-composited material beneath. Rotated blur
+quads take the same path over the axis-aligned bounding box of their
+rotated footprint (the window the CPU rasterizer also blurs). Locked by
 `D3D11BackdropBlurTests` (WARP-device pixel tests).
+
+**Region safety.** Four rules bound what a blurred quad may touch, all
+pinned by `BackdropBlurRegionSafetyTests`:
+
+- **Every tap is clamped to the region, not to the texture.** The
+  ping-pong targets are grow-only and only the current region is copied
+  into them, so every texel past the region still holds the previous
+  material's blurred output. The region's half-texel inset rides in the
+  previously unused `blurUVScale.zw`, and the blur shader clamps each tap
+  to `[zw, xy - zw]`. Without it a small material drawn after a larger one
+  pulls up to `radius` pixels of the previous panel into its right and
+  bottom edges — deterministic, order-dependent corruption.
+- **The copy box is bounded by the backbuffer's own `GetDesc`,** not by
+  the caller's surface size: `resize` writes the new pixel size before
+  `ResizeBuffers` and never rolls it back, so a failed resize would
+  otherwise hand `CopySubresourceRegion` a source box past the end of a
+  smaller buffer — undefined behaviour with no HRESULT to check.
+- **The region is intersected with the quad's clip rect** (`clipWidth ==
+  clipHeight == 0` still means unclipped), matching the CPU rasterizer,
+  which blurs the clipped bounds. A tall material in a short scroll clip
+  therefore no longer blurs — or grows the ping-pong pair to — its full
+  unclipped height.
+- **A blur failure costs the frost, not the frame.** The ping-pong pair
+  is the renderer's largest allocation and is made lazily mid-frame, so it
+  is the one most likely to fail under memory pressure. `render` contains
+  any non-device-lost blur failure, draws the material through the plain
+  edge-softening quad path instead, and latches `blurDegraded` until the
+  next `resize` (which is what changes the allocation). Device loss is
+  deliberately not contained — it has its own recovery path.
+
+The blur engine replaces the caller's render target, viewport, rasterizer
+state, blend state, shaders and VS `b0` and cannot restore them, so
+`D3D11BatchRenderer.bindFramePipelineState` re-binds the frame's state
+after every blurred quad (and once before the step loop). That makes the
+batch loop's state contract an invariant rather than a prose
+post-condition that happens to hold while the two frame-uniform layouts
+stay byte-identical.
 
 ## Per-corner radii
 

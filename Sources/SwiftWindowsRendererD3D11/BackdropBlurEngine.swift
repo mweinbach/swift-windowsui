@@ -200,13 +200,22 @@ final class D3D11BackdropBlurEngine {
     // MARK: - Blur + Composite
 
     /// Pixel-space backdrop region blurred for `quad`, clamped to the
-    /// surface. Axis-aligned quads blur their own rect. Rotated quads
-    /// blur the axis-aligned bounding box of the rotated footprint — the
-    /// same window the CPU rasterizer blurs (its scan bounds for rotated
-    /// blur quads). This is a deliberate approximation: the backdrop
-    /// region mapping stays axis-aligned, and the composite draw only
-    /// samples the blurred backdrop where the rotated quad's coverage is
-    /// non-zero, so the blur is only visible under the quad itself.
+    /// surface and to the quad's clip rect. Axis-aligned quads blur their
+    /// own rect. Rotated quads blur the axis-aligned bounding box of the
+    /// rotated footprint — the same window the CPU rasterizer blurs (its
+    /// scan bounds for rotated blur quads). This is a deliberate
+    /// approximation: the backdrop region mapping stays axis-aligned, and
+    /// the composite draw only samples the blurred backdrop where the
+    /// rotated quad's coverage is non-zero, so the blur is only visible
+    /// under the quad itself.
+    ///
+    /// The clip intersection matters for more than fill rate: the CPU
+    /// rasterizer blurs the *clipped* bounds, so blurring the unclipped
+    /// rect here would diverge at the clip boundary — and a tall material
+    /// in a short scroll clip would grow the ping-pong targets to its full
+    /// height to produce pixels the composite shader then discards.
+    /// `clipWidth == clipHeight == 0` is the contract's "unclipped"
+    /// sentinel (the same test both quad pixel shaders make).
     static func blurRegion(
         for quad: QuadPrimitive,
         surfaceWidth: Int,
@@ -243,10 +252,18 @@ final class D3D11BackdropBlurEngine {
             maxX = rotatedMaxX
             maxY = rotatedMaxY
         }
+        if quad.clipWidth > 0, quad.clipHeight > 0 {
+            minX = max(minX, Double(quad.clipX))
+            minY = max(minY, Double(quad.clipY))
+            maxX = min(maxX, Double(quad.clipX + quad.clipWidth))
+            maxY = min(maxY, Double(quad.clipY + quad.clipHeight))
+        }
         let x0 = max(0, min(Int(floor(minX)), surfaceW))
         let y0 = max(0, min(Int(floor(minY)), surfaceH))
-        let x1 = max(0, min(Int(ceil(maxX)), surfaceW))
-        let y1 = max(0, min(Int(ceil(maxY)), surfaceH))
+        // `max(x0, …)`: a clip that misses the quad entirely leaves
+        // maxX < minX, and callers read the result as a half-open range.
+        let x1 = max(x0, min(Int(ceil(maxX)), surfaceW))
+        let y1 = max(y0, min(Int(ceil(maxY)), surfaceH))
         return (x0, y0, x1, y1)
     }
 
@@ -260,8 +277,11 @@ final class D3D11BackdropBlurEngine {
     /// tests pin the no-op behaviour for direct callers.
     ///
     /// Post-condition: the OM render target is `backBufferRTV` with a
-    /// full-surface viewport, so the caller's batch loop can continue
-    /// drawing without re-establishing its render target.
+    /// full-surface viewport. The engine also replaces the caller's
+    /// rasterizer state, blend state, shaders, VS `b0` and PS `b0`/`b1`
+    /// and does *not* put them back — `D3D11BatchRenderer` re-binds its
+    /// frame pipeline state after every blurred quad instead, which is
+    /// the only place that knows what the caller's state was.
     func drawBlurredQuad(
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
         backBuffer: UnsafeMutablePointer<ID3D11Texture2D>,
@@ -276,8 +296,23 @@ final class D3D11BackdropBlurEngine {
 
         let surfaceW = max(surfaceWidth, 1)
         let surfaceH = max(surfaceHeight, 1)
+        // The copy box is bounded by what the backbuffer actually is, not
+        // by what the caller believes the surface to be: `resize` writes
+        // the new pixel size before `ResizeBuffers` and never rolls it
+        // back, so a failed resize leaves the renderer asking for a region
+        // past the end of a smaller swap-chain buffer.
+        // `CopySubresourceRegion` returns void and an out-of-bounds source
+        // box is undefined behaviour — the call is typically dropped,
+        // leaving the ping-pong target holding the previous material's
+        // pixels over the whole panel.
+        var backBufferDesc = D3D11_TEXTURE2D_DESC()
+        backBuffer.pointee.lpVtbl.pointee.GetDesc(backBuffer, &backBufferDesc)
+        let copyW = min(surfaceW, Int(backBufferDesc.Width))
+        let copyH = min(surfaceH, Int(backBufferDesc.Height))
+        guard copyW > 0, copyH > 0 else { return }
+
         let (x0, y0, x1, y1) = Self.blurRegion(
-            for: quad, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+            for: quad, surfaceWidth: copyW, surfaceHeight: copyH)
         let regionW = x1 - x0
         let regionH = y1 - y0
         guard regionW > 0, regionH > 0 else { return }
@@ -325,15 +360,25 @@ final class D3D11BackdropBlurEngine {
 
         let kernel = gaussianBlurKernel(radius: radius)
 
+        // Both passes read the same sub-rectangle of the grow-only
+        // ping-pong textures, so they share the region/texture UV scale
+        // and the half-texel inset that bounds every tap to it.
+        let uvScale = (
+            x: Float(regionW) / Float(textureCapacity.width),
+            y: Float(regionH) / Float(textureCapacity.height)
+        )
+        let uvClampInset = (
+            x: 0.5 / Float(textureCapacity.width),
+            y: 0.5 / Float(textureCapacity.height)
+        )
+
         // 2a. Horizontal pass: A -> B.
         try uploadBlurParams(
             deviceContext: deviceContext,
             buffer: blurParamsBuffer,
             direction: (1 / Float(textureCapacity.width), 0),
-            uvScale: (
-                Float(regionW) / Float(textureCapacity.width),
-                Float(regionH) / Float(textureCapacity.height)
-            ),
+            uvScale: uvScale,
+            uvClampInset: uvClampInset,
             radius: radius,
             kernel: kernel
         )
@@ -353,10 +398,8 @@ final class D3D11BackdropBlurEngine {
             deviceContext: deviceContext,
             buffer: blurParamsBuffer,
             direction: (0, 1 / Float(textureCapacity.height)),
-            uvScale: (
-                Float(regionW) / Float(textureCapacity.width),
-                Float(regionH) / Float(textureCapacity.height)
-            ),
+            uvScale: uvScale,
+            uvClampInset: uvClampInset,
             radius: radius,
             kernel: kernel
         )
@@ -553,6 +596,7 @@ final class D3D11BackdropBlurEngine {
         buffer: UnsafeMutablePointer<ID3D11Buffer>,
         direction: (x: Float, y: Float),
         uvScale: (x: Float, y: Float),
+        uvClampInset: (x: Float, y: Float),
         radius: Int,
         kernel: [Float]
     ) throws {
@@ -562,6 +606,12 @@ final class D3D11BackdropBlurEngine {
         params[2] = Float(radius)
         params[4] = uvScale.x
         params[5] = uvScale.y
+        // Half-texel inset: the shader clamps every tap to
+        // [inset, uvScale - inset], the region's outermost texel centres,
+        // so taps never reach the stale texels a larger previous region
+        // left in the grow-only targets.
+        params[6] = uvClampInset.x
+        params[7] = uvClampInset.y
         // Symmetric kernel: entry i serves taps ±i, entry 0 the centre.
         for i in 0...radius {
             params[8 + i] = kernel[radius + i]

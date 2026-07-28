@@ -397,8 +397,8 @@ float4 psMain(VSOutput input) : SV_Target
 // radius / 2), uploaded by the engine into the cbuffer below, so both
 // backends share the exact kernel shape. Edge handling differs slightly:
 // the CPU pass re-normalizes the truncated kernel at bounds edges while
-// the GPU sampler clamps (edge-texel duplication) — visually equivalent
-// for the soft materials these passes serve.
+// the GPU clamps to the region's edge texels (edge-texel duplication) —
+// visually equivalent for the soft materials these passes serve.
 
 let batchBackdropBlurShaderSource = #"""
 cbuffer BlurParams : register(b0)
@@ -408,7 +408,9 @@ cbuffer BlurParams : register(b0)
     float4 blurDirection;
     // xy = region/texture UV scale (the ping-pong targets are grow-only,
     // so the region being blurred may be smaller than the texture),
-    // zw = unused.
+    // zw = the region's half-texel inset (0.5/textureWidth,
+    // 0.5/textureHeight) — the lower clamp bound for every tap, with
+    // xy - zw as the upper one.
     float4 blurUVScale;
     // Symmetric Gaussian weights; blurWeights[0] is the centre tap and
     // taps ±i both use entry i. 33 float4s = 132 floats, so radii up to
@@ -444,13 +446,23 @@ float4 psMain(VSOutput input) : SV_Target
 {
     int radius = (int)blurDirection.z;
     float2 uv = input.uv * blurUVScale.xy;
-    float4 sum = blurSource.Sample(blurSampler, uv) * blurWeightAt(0);
+    // The ping-pong targets are grow-only and only the region's own
+    // rectangle is copied into them, so every texel beyond the region
+    // still holds whatever the previous (larger) material left there.
+    // The sampler's CLAMP address mode stops at the TEXTURE edge, which
+    // is the region edge only when the two happen to coincide — clamp
+    // each tap to the region's outermost texel centres so a small
+    // material drawn after a large one cannot pull stale content into
+    // its right and bottom edges.
+    float2 uvMin = blurUVScale.zw;
+    float2 uvMax = max(blurUVScale.xy - blurUVScale.zw, uvMin);
+    float4 sum = blurSource.Sample(blurSampler, clamp(uv, uvMin, uvMax)) * blurWeightAt(0);
     for (int i = 1; i <= radius; i++)
     {
         float weight = blurWeightAt(i);
         float2 offset = blurDirection.xy * (float)i;
-        sum += blurSource.Sample(blurSampler, uv + offset) * weight;
-        sum += blurSource.Sample(blurSampler, uv - offset) * weight;
+        sum += blurSource.Sample(blurSampler, clamp(uv + offset, uvMin, uvMax)) * weight;
+        sum += blurSource.Sample(blurSampler, clamp(uv - offset, uvMin, uvMax)) * weight;
     }
     return sum;
 }

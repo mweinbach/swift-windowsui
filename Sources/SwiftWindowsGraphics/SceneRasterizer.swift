@@ -453,10 +453,10 @@ private struct RasterTarget {
                 }
                 let inv = weight > 0 ? 1 / weight : 0
                 let tempOffset = ((y - bounds.y0) * w + (x - bounds.x0)) * 4
-                temp[tempOffset] = byte(sumB * inv)
-                temp[tempOffset + 1] = byte(sumG * inv)
-                temp[tempOffset + 2] = byte(sumR * inv)
-                temp[tempOffset + 3] = byte(sumA * inv)
+                temp[tempOffset] = byte(sumB * inv / 255)
+                temp[tempOffset + 1] = byte(sumG * inv / 255)
+                temp[tempOffset + 2] = byte(sumR * inv / 255)
+                temp[tempOffset + 3] = byte(sumA * inv / 255)
             }
         }
 
@@ -482,10 +482,10 @@ private struct RasterTarget {
                 }
                 let inv = weight > 0 ? 1 / weight : 0
                 let offset = pixelOffset(x: x, y: y)
-                pixels[offset] = byte(sumB * inv)
-                pixels[offset + 1] = byte(sumG * inv)
-                pixels[offset + 2] = byte(sumR * inv)
-                pixels[offset + 3] = byte(sumA * inv)
+                pixels[offset] = byte(sumB * inv / 255)
+                pixels[offset + 1] = byte(sumG * inv / 255)
+                pixels[offset + 2] = byte(sumR * inv / 255)
+                pixels[offset + 3] = byte(sumA * inv / 255)
             }
         }
     }

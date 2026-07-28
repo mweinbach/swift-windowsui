@@ -1145,6 +1145,11 @@ struct DeferredSubtreePayload {
     var parentOrigin: Point
     var inheritedClip: Rect?
     var inheritedClipCornerRadius: Double = 0
+    /// Per-corner clip radii inherited from clipping ancestors, mirroring
+    /// what ScenePainter threads through its main traversal. Without it
+    /// deferred content (overlays, deferred caches) falls back to the
+    /// uniform `inheritedClipCornerRadius`.
+    var inheritedClipCornerRadii: RetainedCornerRadii?
     var inheritedOpacity: Float
     var inheritedInverseTransform: Transform2D?
     var inheritedTransform: Transform2D = .identity
@@ -3369,6 +3374,20 @@ public final class ViewNode {
             let availableChildMainExtent = max(0, availableMainExtent - spacingTotal)
             let allowsOverflowAlongMainAxis = scrollAxis == stackScrollAxis(for: stackLayout.axis)
 
+            // Shrink floors keep text-bearing content readable under
+            // pressure: a squeezed stack compresses padding, spacers, and
+            // flexible siblings before it crushes a label below its
+            // measured main-axis size (see stackShrinkFloorMainExtent).
+            // Computed only when a squeeze actually occurs.
+            var shrinkFloors: [Double] = []
+            if !allowsOverflowAlongMainAxis,
+                desiredMainSizes.reduce(0, +) > availableChildMainExtent
+            {
+                shrinkFloors = visibleChildren.map {
+                    $0.stackShrinkFloorMainExtent(along: stackLayout.axis, constraints: childConstraints)
+                }
+            }
+
             // Allocate main sizes with flex support
             var allocatedMainSizes: [Double]
             if allowsOverflowAlongMainAxis {
@@ -3377,7 +3396,8 @@ public final class ViewNode {
                 allocatedMainSizes = allocateMainSizes(
                     desiredSizes: desiredMainSizes,
                     children: visibleChildren,
-                    availableExtent: availableChildMainExtent
+                    availableExtent: availableChildMainExtent,
+                    shrinkFloors: shrinkFloors
                 )
             }
 
@@ -3404,7 +3424,9 @@ public final class ViewNode {
                         }
                     }
                 } else if remaining < 0 {
-                    // Shrink items with flexShrink > 0
+                    // Shrink items with flexShrink > 0, still honoring the
+                    // shrink floors so text is never crushed below its
+                    // measured main-axis size.
                     let deficit = -remaining
                     let totalShrink = visibleChildren.reduce(0.0) { $0 + $1.flexItem.shrink }
                     if totalShrink > 0 {
@@ -3418,7 +3440,8 @@ public final class ViewNode {
                                 share = deficit * (child.flexItem.shrink / totalShrink)
                                 leftover -= share
                             }
-                            allocatedMainSizes[i] = max(0, allocatedMainSizes[i] - share)
+                            allocatedMainSizes[i] = max(
+                                shrinkFloors.isEmpty ? 0 : shrinkFloors[i], allocatedMainSizes[i] - share)
                         }
                     }
                 }
@@ -3715,6 +3738,8 @@ public final class ViewNode {
         inheritedBlurRadius: Double = 0,
         inheritedBlurOpaque: Bool = false,
         inheritedBlendMode: BlendMode = .normal,
+        inheritedClipCornerRadius: Double = 0,
+        inheritedClipCornerRadii: RetainedCornerRadii? = nil,
         previousState: RuntimePrepaintState? = nil,
         displayScale: Double = 1,
         replayCount: inout Int
@@ -3748,6 +3773,8 @@ public final class ViewNode {
         }
 
         var effectiveClip = inheritedClip
+        var effectiveClipCornerRadius = inheritedClipCornerRadius
+        var effectiveClipCornerRadii = inheritedClipCornerRadii
         if clipsToBounds {
             if let inheritedClip {
                 guard let clippedRect = inheritedClip.intersected(with: absoluteFrame) else {
@@ -3759,6 +3786,15 @@ public final class ViewNode {
                 effectiveClip = clippedRect
             } else {
                 effectiveClip = absoluteFrame
+            }
+            // Mirror ScenePainter's clip-radius propagation so deferred
+            // subtrees inherit the same corner rounding as inline content.
+            if let cornerRadii, cornerRadii.hasPositiveRadius {
+                effectiveClipCornerRadius = cornerRadii.maxRadius
+                effectiveClipCornerRadii = cornerRadii
+            } else if cornerRadius > 0 {
+                effectiveClipCornerRadius = cornerRadius
+                effectiveClipCornerRadii = nil
             }
         }
 
@@ -3979,6 +4015,8 @@ public final class ViewNode {
                             node: child,
                             parentOrigin: childOrigin,
                             inheritedClip: effectiveClip,
+                            inheritedClipCornerRadius: effectiveClipCornerRadius,
+                            inheritedClipCornerRadii: effectiveClipCornerRadii,
                             inheritedOpacity: effectiveOpacity,
                             inheritedInverseTransform: nodeInverseTransform,
                             inheritedTransform: effectiveTransform,
@@ -4005,6 +4043,8 @@ public final class ViewNode {
                 inheritedBlurRadius: effectiveBlurRadius,
                 inheritedBlurOpaque: effectiveBlurOpaque,
                 inheritedBlendMode: effectiveBlendMode,
+                inheritedClipCornerRadius: effectiveClipCornerRadius,
+                inheritedClipCornerRadii: effectiveClipCornerRadii,
                 previousState: previousState,
                 displayScale: displayScale,
                 replayCount: &replayCount
@@ -4995,13 +5035,19 @@ public final class ViewNode {
     private func allocateMainSizes(
         desiredSizes: [Double],
         children: [ViewNode],
-        availableExtent: Double
+        availableExtent: Double,
+        shrinkFloors: [Double]
     ) -> [Double] {
         var allocatedSizes = desiredSizes
         let desiredExtent = desiredSizes.reduce(0, +)
 
         if desiredExtent > availableExtent {
-            shrinkMainSizes(&allocatedSizes, children: children, deficit: desiredExtent - availableExtent)
+            shrinkMainSizes(
+                &allocatedSizes,
+                children: children,
+                floors: shrinkFloors,
+                deficit: desiredExtent - availableExtent
+            )
         } else if desiredExtent < availableExtent {
             growMainSizes(&allocatedSizes, children: children, extraExtent: availableExtent - desiredExtent)
         }
@@ -5036,18 +5082,25 @@ public final class ViewNode {
         }
     }
 
-    private func shrinkMainSizes(_ sizes: inout [Double], children: [ViewNode], deficit: Double) {
+    private func shrinkMainSizes(
+        _ sizes: inout [Double],
+        children: [ViewNode],
+        floors: [Double],
+        deficit: Double
+    ) {
         var remainingDeficit = deficit
         let priorities = Array(Set(children.map(\.layoutPriority))).sorted()
 
         for priority in priorities where remainingDeficit > 0 {
-            let indices = children.indices.filter { children[$0].layoutPriority == priority && sizes[$0] > 0 }
+            let indices = children.indices.filter {
+                children[$0].layoutPriority == priority && sizes[$0] > floors[$0]
+            }
             guard !indices.isEmpty else {
                 continue
             }
 
             let shrinkCapacity = indices.reduce(0.0) { partialResult, index in
-                partialResult + sizes[index]
+                partialResult + sizes[index] - floors[index]
             }
             guard shrinkCapacity > 0 else {
                 continue
@@ -5057,20 +5110,75 @@ public final class ViewNode {
             var remainingReduction = targetReduction
 
             for (offset, index) in indices.enumerated() {
+                let capacity = sizes[index] - floors[index]
                 let reduction: Double
                 if offset == indices.count - 1 {
                     reduction = remainingReduction
                 } else {
-                    reduction = targetReduction * (sizes[index] / shrinkCapacity)
+                    reduction = targetReduction * (capacity / shrinkCapacity)
                     remainingReduction -= reduction
                 }
 
-                let appliedReduction = min(sizes[index], reduction)
+                let appliedReduction = min(capacity, reduction)
                 sizes[index] -= appliedReduction
             }
 
             remainingDeficit -= targetReduction
         }
+    }
+
+    /// Minimum main-axis extent a stack shrink pass may leave this node
+    /// with. Leaf content that measures as text (or an icon/glyph bitmap)
+    /// pins the floor at its measured extent, and a stack carrying such
+    /// content pins at the combination of its children's floors — sum
+    /// plus spacing along its own axis, max across it — so squeezing a
+    /// labeled container compresses its padding and flexible siblings
+    /// (and ultimately overflows) instead of crushing text below its
+    /// measured size. Nodes without text content keep a zero floor, which
+    /// preserves the previous shrink behavior for them.
+    fileprivate func stackShrinkFloorMainExtent(
+        along axis: StackAxis,
+        constraints: LayoutConstraints
+    ) -> Double {
+        if let text, !text.isEmpty {
+            let measured = sizeThatFits(in: constraints)
+            return axis == .vertical ? measured.height : measured.width
+        }
+
+        if bitmapSurface != nil {
+            let measured = sizeThatFits(in: constraints)
+            return axis == .vertical ? measured.height : measured.width
+        }
+
+        guard case .stack(let stackLayout) = layoutMode else {
+            return 0
+        }
+
+        let contentConstraints = insetConstraints(
+            applyingLayoutConstraints(to: constraints), by: stackLayout.padding)
+        let childConstraints = stackChildConstraints(for: contentConstraints, axis: stackLayout.axis)
+        let visibleChildren = children.filter { !$0.isHidden }
+        let childFloors = visibleChildren.map {
+            $0.stackShrinkFloorMainExtent(along: axis, constraints: childConstraints)
+        }
+
+        let combinedFloor: Double
+        if stackLayout.axis == axis {
+            combinedFloor =
+                childFloors.reduce(0, +)
+                + stackLayoutSpacingTotal(count: visibleChildren.count, spacing: stackLayout.spacing)
+        } else {
+            combinedFloor = childFloors.max() ?? 0
+        }
+
+        // An explicit main-axis dimension caps the floor: the author asked
+        // for a fixed size, so shrink resistance never exceeds it.
+        let explicitMainExtent = axis == .vertical ? explicitHeight : explicitWidth
+        if let explicitMainExtent {
+            return min(combinedFloor, explicitMainExtent)
+        }
+
+        return combinedFloor
     }
 
     fileprivate var isScrollable: Bool {
@@ -7134,6 +7242,8 @@ public final class RetainedViewRuntime {
                     inheritedBlurRadius: payload.inheritedBlurRadius,
                     inheritedBlurOpaque: payload.inheritedBlurOpaque,
                     inheritedBlendMode: payload.inheritedBlendMode,
+                    inheritedClipCornerRadius: payload.inheritedClipCornerRadius,
+                    inheritedClipCornerRadii: payload.inheritedClipCornerRadii,
                     previousState: previousState,
                     displayScale: displayScale,
                     replayCount: &replayCount

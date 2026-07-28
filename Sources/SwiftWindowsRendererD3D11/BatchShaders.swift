@@ -256,12 +256,13 @@ float4 psMain(VSOutput input) : SV_Target
     // NOTE (fallback only): on this plain batched path blurRadius merely
     // widens the quad's edge falloff. Material quads never reach this
     // shader — D3D11BatchRenderer.splitQuadRangeForBackdropBlur routes
-    // every axis-aligned quad with blurRadius >= 1 through
+    // every quad with blurRadius >= 1 through
     // D3D11BackdropBlurEngine, which blurs the real backdrop (separable
     // Gaussian over the scene-so-far, matching the CPU rasterizer) and
-    // composites via batchMaterialQuadShaderSource. The edge-softening
-    // below remains for the two shapes the engine declines: rotated blur
-    // quads (the backdrop region mapping is axis-aligned) and sub-pixel
+    // composites via batchMaterialQuadShaderSource. Rotated blur quads
+    // blur the axis-aligned bounding box of the rotated footprint (the
+    // same window the CPU rasterizer blurs), so they take the engine
+    // path too. The edge-softening below remains only for sub-pixel
     // radii that truncate to zero.
     float blur = max(input.blurRadius, 0.0);
     float edgeSoftness = aa + blur * 2.0;

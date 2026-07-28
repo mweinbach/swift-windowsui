@@ -164,9 +164,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// Splits a quad range into normal runs and individual blurred quads,
     /// preserving presentation order. A quad takes the blurred path when
     /// its blurRadius truncates to ≥ 1 (same predicate as the CPU
-    /// rasterizer's `Int(quad.blurRadius) > 0`); rotated blur quads stay
-    /// on the normal path because the backdrop region mapping is
-    /// axis-aligned — they keep the historic edge-softening fallback.
+    /// rasterizer's `Int(quad.blurRadius) > 0`). Rotated blur quads take
+    /// the blurred path too: the engine blurs the axis-aligned bounding
+    /// box of the rotated footprint (the same window the CPU rasterizer
+    /// blurs), so both backends produce a real backdrop blur instead of
+    /// the historic edge-softening fallback.
     static func splitQuadRangeForBackdropBlur(
         _ quads: [QuadPrimitive],
         range: Range<Int>
@@ -176,7 +178,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         for index in range {
             guard quads.indices.contains(index) else { continue }
             let quad = quads[index]
-            let isBlurred = Int(quad.blurRadius) > 0 && quad.rotationRadians == 0
+            let isBlurred = Int(quad.blurRadius) > 0
             if isBlurred {
                 if runStart < index {
                     segments.append(.normal(range: runStart..<index))

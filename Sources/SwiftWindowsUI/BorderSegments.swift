@@ -44,12 +44,7 @@ enum BorderSegments {
             to: perimeter,
             frame: frame,
             width: segmentWidth,
-            cornerRadius: r,
-            topLength: topLength,
-            rightLength: rightLength,
-            bottomLength: bottomLength,
-            leftLength: leftLength,
-            arcLength: arcLength,
+            cornerRadii: RetainedCornerRadii(uniform: r),
             capExtension: 0,
             capRadius: 0,
             into: &segments
@@ -162,12 +157,80 @@ enum BorderSegments {
             return []
         }
 
-        let topLength = max(0, frame.size.width - 2 * r)
-        let rightLength = max(0, frame.size.height - 2 * r)
-        let bottomLength = max(0, frame.size.width - 2 * r)
-        let leftLength = max(0, frame.size.height - 2 * r)
-        let arcLength = Double.pi * r / 2
-        let perimeter = topLength + rightLength + bottomLength + leftLength + 4 * arcLength
+        return dashedSegments(
+            frame: frame,
+            segmentWidth: segmentWidth,
+            cornerRadii: RetainedCornerRadii(uniform: r),
+            dashPattern: dashPattern,
+            dashOffset: strokeStyle.dashOffset,
+            lineCap: strokeStyle.lineCap
+        )
+    }
+
+    /// Per-corner variant of ``dashedSegments(frame:width:cornerRadius:strokeStyle:)``.
+    /// Edge spans shrink by the radii of the corners they join, and
+    /// zero-radius corners contribute no arc region, so dashed borders no
+    /// longer paint arcs at deliberately square corners. With four equal
+    /// radii this produces the same segments as the uniform variant (both
+    /// share the same walk below).
+    static func dashedSegments(
+        frame: Rect,
+        width: Double,
+        cornerRadii: RetainedCornerRadii,
+        strokeStyle: StrokeStyle?
+    ) -> [BorderSegment]? {
+        guard width > 0, frame.size.width > 0, frame.size.height > 0 else {
+            return nil
+        }
+        guard let strokeStyle else {
+            return nil
+        }
+
+        let dashPattern = normalizedDashPattern(strokeStyle.dashPattern)
+        guard !dashPattern.isEmpty else {
+            return nil
+        }
+
+        let radiusCap = min(frame.size.width, frame.size.height) * 0.5
+        let clampedRadii = RetainedCornerRadii(
+            topLeft: max(0, min(cornerRadii.topLeft, radiusCap)),
+            topRight: max(0, min(cornerRadii.topRight, radiusCap)),
+            bottomRight: max(0, min(cornerRadii.bottomRight, radiusCap)),
+            bottomLeft: max(0, min(cornerRadii.bottomLeft, radiusCap))
+        )
+        let segmentWidth = min(width, frame.size.width * 0.5, frame.size.height * 0.5)
+        guard segmentWidth > 0 else {
+            return []
+        }
+
+        return dashedSegments(
+            frame: frame,
+            segmentWidth: segmentWidth,
+            cornerRadii: clampedRadii,
+            dashPattern: dashPattern,
+            dashOffset: strokeStyle.dashOffset,
+            lineCap: strokeStyle.lineCap
+        )
+    }
+
+    /// Shared dash walk behind both public ``dashedSegments`` overloads.
+    private static func dashedSegments(
+        frame: Rect,
+        segmentWidth: Double,
+        cornerRadii: RetainedCornerRadii,
+        dashPattern: [Double],
+        dashOffset: Double,
+        lineCap: StrokeStyle.LineCap
+    ) -> [BorderSegment]? {
+        let topLength = max(0, frame.size.width - cornerRadii.topLeft - cornerRadii.topRight)
+        let rightLength = max(0, frame.size.height - cornerRadii.topRight - cornerRadii.bottomRight)
+        let bottomLength = max(0, frame.size.width - cornerRadii.bottomLeft - cornerRadii.bottomRight)
+        let leftLength = max(0, frame.size.height - cornerRadii.topLeft - cornerRadii.bottomLeft)
+        let arcLength =
+            Double.pi
+            * (cornerRadii.topLeft + cornerRadii.topRight + cornerRadii.bottomRight + cornerRadii.bottomLeft)
+            / 2
+        let perimeter = topLength + rightLength + bottomLength + leftLength + arcLength
 
         guard perimeter > 0 else {
             return []
@@ -179,14 +242,14 @@ enum BorderSegments {
         }
 
         var patternIndex = 0
-        var patternOffset = positiveRemainder(strokeStyle.dashOffset, by: patternLength)
+        var patternOffset = positiveRemainder(dashOffset, by: patternLength)
         while patternOffset >= dashPattern[patternIndex] {
             patternOffset -= dashPattern[patternIndex]
             patternIndex = (patternIndex + 1) % dashPattern.count
         }
 
-        let capExtension = strokeStyle.lineCap == .butt ? 0 : segmentWidth * 0.5
-        let capRadius = strokeStyle.lineCap == .round ? segmentWidth * 0.5 : 0
+        let capExtension = lineCap == .butt ? 0 : segmentWidth * 0.5
+        let capRadius = lineCap == .round ? segmentWidth * 0.5 : 0
 
         var distance = 0.0
         var segments: [BorderSegment] = []
@@ -199,12 +262,7 @@ enum BorderSegments {
                     to: distance + length,
                     frame: frame,
                     width: segmentWidth,
-                    cornerRadius: r,
-                    topLength: topLength,
-                    rightLength: rightLength,
-                    bottomLength: bottomLength,
-                    leftLength: leftLength,
-                    arcLength: arcLength,
+                    cornerRadii: cornerRadii,
                     capExtension: capExtension,
                     capRadius: capRadius,
                     into: &segments
@@ -221,30 +279,40 @@ enum BorderSegments {
 
     // MARK: - Dash segment decomposition
 
+    /// Walks the perimeter region list for a dash sub-range. Perimeter
+    /// order matches the historic uniform walk: top edge, top-right arc,
+    /// right edge, bottom-right arc, bottom edge, bottom-left arc, left
+    /// edge, top-left arc. Edge spans shrink by the radii of the corners
+    /// they join; a zero-radius corner contributes a zero-length arc
+    /// region, so square corners get no arc geometry.
     private static func appendDashSegment(
         from start: Double,
         to end: Double,
         frame: Rect,
         width: Double,
-        cornerRadius: Double,
-        topLength: Double,
-        rightLength: Double,
-        bottomLength: Double,
-        leftLength: Double,
-        arcLength: Double,
+        cornerRadii: RetainedCornerRadii,
         capExtension: Double,
         capRadius: Double,
         into segments: inout [BorderSegment]
     ) {
+        let topLength = max(0, frame.size.width - cornerRadii.topLeft - cornerRadii.topRight)
+        let rightLength = max(0, frame.size.height - cornerRadii.topRight - cornerRadii.bottomRight)
+        let bottomLength = max(0, frame.size.width - cornerRadii.bottomLeft - cornerRadii.bottomRight)
+        let leftLength = max(0, frame.size.height - cornerRadii.topLeft - cornerRadii.bottomLeft)
+        let topRightArcLength = Double.pi * cornerRadii.topRight / 2
+        let bottomRightArcLength = Double.pi * cornerRadii.bottomRight / 2
+        let bottomLeftArcLength = Double.pi * cornerRadii.bottomLeft / 2
+        let topLeftArcLength = Double.pi * cornerRadii.topLeft / 2
+
         let perimeterRegions = [
             (length: topLength, kind: PerimeterRegionKind.topEdge),
-            (length: arcLength, kind: PerimeterRegionKind.topRightArc),
+            (length: topRightArcLength, kind: PerimeterRegionKind.topRightArc),
             (length: rightLength, kind: PerimeterRegionKind.rightEdge),
-            (length: arcLength, kind: PerimeterRegionKind.bottomRightArc),
+            (length: bottomRightArcLength, kind: PerimeterRegionKind.bottomRightArc),
             (length: bottomLength, kind: PerimeterRegionKind.bottomEdge),
-            (length: arcLength, kind: PerimeterRegionKind.bottomLeftArc),
+            (length: bottomLeftArcLength, kind: PerimeterRegionKind.bottomLeftArc),
             (length: leftLength, kind: PerimeterRegionKind.leftEdge),
-            (length: arcLength, kind: PerimeterRegionKind.topLeftArc),
+            (length: topLeftArcLength, kind: PerimeterRegionKind.topLeftArc),
         ]
 
         var current = start
@@ -271,7 +339,7 @@ enum BorderSegments {
                     to: regionStart + localEnd,
                     edgeStart: 0,
                     edgeEnd: topLength,
-                    xOrigin: frame.origin.x + cornerRadius,
+                    xOrigin: frame.origin.x + cornerRadii.topLeft,
                     y: frame.origin.y,
                     leftToRight: true,
                     width: width,
@@ -286,8 +354,8 @@ enum BorderSegments {
                     to: localEnd,
                     frame: frame,
                     width: width,
-                    cornerRadius: cornerRadius,
-                    arcLength: arcLength,
+                    cornerRadius: cornerRadii.topRight,
+                    arcLength: topRightArcLength,
                     capExtension: capExtension,
                     into: &segments
                 )
@@ -295,10 +363,10 @@ enum BorderSegments {
                 appendVerticalEdge(
                     from: regionStart + localStart,
                     to: regionStart + localEnd,
-                    edgeStart: topLength + arcLength,
-                    edgeEnd: topLength + arcLength + rightLength,
+                    edgeStart: topLength + topRightArcLength,
+                    edgeEnd: topLength + topRightArcLength + rightLength,
                     x: frame.maxX - width,
-                    yOrigin: frame.origin.y + cornerRadius,
+                    yOrigin: frame.origin.y + cornerRadii.topRight,
                     topToBottom: true,
                     width: width,
                     capExtension: capExtension,
@@ -312,8 +380,8 @@ enum BorderSegments {
                     to: localEnd,
                     frame: frame,
                     width: width,
-                    cornerRadius: cornerRadius,
-                    arcLength: arcLength,
+                    cornerRadius: cornerRadii.bottomRight,
+                    arcLength: bottomRightArcLength,
                     capExtension: capExtension,
                     into: &segments
                 )
@@ -321,9 +389,9 @@ enum BorderSegments {
                 appendHorizontalEdge(
                     from: regionStart + localStart,
                     to: regionStart + localEnd,
-                    edgeStart: topLength + arcLength + rightLength + arcLength,
-                    edgeEnd: topLength + arcLength + rightLength + arcLength + bottomLength,
-                    xOrigin: frame.origin.x + cornerRadius,
+                    edgeStart: topLength + topRightArcLength + rightLength + bottomRightArcLength,
+                    edgeEnd: topLength + topRightArcLength + rightLength + bottomRightArcLength + bottomLength,
+                    xOrigin: frame.origin.x + cornerRadii.bottomLeft,
                     y: frame.maxY - width,
                     leftToRight: false,
                     width: width,
@@ -338,8 +406,8 @@ enum BorderSegments {
                     to: localEnd,
                     frame: frame,
                     width: width,
-                    cornerRadius: cornerRadius,
-                    arcLength: arcLength,
+                    cornerRadius: cornerRadii.bottomLeft,
+                    arcLength: bottomLeftArcLength,
                     capExtension: capExtension,
                     into: &segments
                 )
@@ -347,10 +415,12 @@ enum BorderSegments {
                 appendVerticalEdge(
                     from: regionStart + localStart,
                     to: regionStart + localEnd,
-                    edgeStart: topLength + arcLength + rightLength + arcLength + bottomLength + arcLength,
-                    edgeEnd: topLength + arcLength + rightLength + arcLength + bottomLength + arcLength + leftLength,
+                    edgeStart: topLength + topRightArcLength + rightLength + bottomRightArcLength + bottomLength
+                        + bottomLeftArcLength,
+                    edgeEnd: topLength + topRightArcLength + rightLength + bottomRightArcLength + bottomLength
+                        + bottomLeftArcLength + leftLength,
                     x: frame.origin.x,
-                    yOrigin: frame.origin.y + cornerRadius,
+                    yOrigin: frame.origin.y + cornerRadii.topLeft,
                     topToBottom: false,
                     width: width,
                     capExtension: capExtension,
@@ -364,8 +434,8 @@ enum BorderSegments {
                     to: localEnd,
                     frame: frame,
                     width: width,
-                    cornerRadius: cornerRadius,
-                    arcLength: arcLength,
+                    cornerRadius: cornerRadii.topLeft,
+                    arcLength: topLeftArcLength,
                     capExtension: capExtension,
                     into: &segments
                 )

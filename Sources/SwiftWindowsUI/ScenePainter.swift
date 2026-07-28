@@ -531,12 +531,25 @@ public enum ScenePainter {
                 node.backgroundPath == nil,
                 clipAllowsDrawing(clip: effectiveClip, rect: paintFrame)
             {
-                if let borderSegments = BorderSegments.dashedSegments(
-                    frame: paintFrame,
-                    width: node.borderWidth,
-                    cornerRadius: node.cornerRadii?.maxRadius ?? node.cornerRadius,
-                    strokeStyle: node.borderStrokeStyle
-                ) {
+                let dashedBorderSegments: [BorderSegment]?
+                if let cornerRadii = node.cornerRadii, cornerRadii.hasPositiveRadius {
+                    // Per-corner dash walk: square corners get no arc
+                    // segments (matches the solid overlay treatment).
+                    dashedBorderSegments = BorderSegments.dashedSegments(
+                        frame: paintFrame,
+                        width: node.borderWidth,
+                        cornerRadii: cornerRadii,
+                        strokeStyle: node.borderStrokeStyle
+                    )
+                } else {
+                    dashedBorderSegments = BorderSegments.dashedSegments(
+                        frame: paintFrame,
+                        width: node.borderWidth,
+                        cornerRadius: node.cornerRadius,
+                        strokeStyle: node.borderStrokeStyle
+                    )
+                }
+                if let borderSegments = dashedBorderSegments {
                     for segment in borderSegments where clipAllowsDrawing(clip: effectiveClip, rect: segment.rect) {
                         scene.addQuad(
                             fillQuad(
@@ -953,12 +966,23 @@ public enum ScenePainter {
             clipAllowsDrawing(clip: state.effectiveClip, rect: state.paintFrame)
         {
             let segments: [BorderSegment]
-            if let dashed = BorderSegments.dashedSegments(
-                frame: state.paintFrame,
-                width: node.borderWidth,
-                cornerRadius: node.cornerRadii?.maxRadius ?? node.cornerRadius,
-                strokeStyle: node.borderStrokeStyle
-            ) {
+            let dashedSegments: [BorderSegment]?
+            if let cornerRadii = node.cornerRadii, cornerRadii.hasPositiveRadius {
+                dashedSegments = BorderSegments.dashedSegments(
+                    frame: state.paintFrame,
+                    width: node.borderWidth,
+                    cornerRadii: cornerRadii,
+                    strokeStyle: node.borderStrokeStyle
+                )
+            } else {
+                dashedSegments = BorderSegments.dashedSegments(
+                    frame: state.paintFrame,
+                    width: node.borderWidth,
+                    cornerRadius: node.cornerRadius,
+                    strokeStyle: node.borderStrokeStyle
+                )
+            }
+            if let dashed = dashedSegments {
                 segments = dashed
             } else if let cornerRadii = node.cornerRadii, cornerRadii.hasPositiveRadius {
                 // Per-corner ring: square corners get no arc segments, so
@@ -1480,6 +1504,8 @@ public enum ScenePainter {
                     deferredDraws: &deferredDraws,
                     parentOrigin: payload.parentOrigin,
                     inheritedClip: payload.inheritedClip,
+                    inheritedClipCornerRadius: payload.inheritedClipCornerRadius,
+                    inheritedClipCornerRadii: payload.inheritedClipCornerRadii,
                     layerIndex: 0,
                     surfaceSize: surfaceSize,
                     displayScale: displayScale,

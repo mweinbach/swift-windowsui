@@ -250,20 +250,20 @@ final class D3D11BackdropBlurTests: XCTestCase {
             "Blur quads must break the batch into order-preserving segments")
     }
 
-    func testSplitterKeepsRadiusZeroAndRotatedBlurQuadsInNormalRuns() async {
+    func testSplitterKeepsRadiusZeroBlurQuadsInNormalRunsAndRoutesRotated() async {
         let quads = [
             QuadPrimitive(x: 0, y: 0, width: 10, height: 10, blurRadius: 0),
             // Sub-pixel blur truncates to 0, same as the CPU rasterizer.
             QuadPrimitive(x: 0, y: 0, width: 10, height: 10, blurRadius: 0.9),
-            // Rotated blur quads keep the historic fallback (the backdrop
-            // region mapping is axis-aligned).
+            // Rotated blur quads ride the blur path over their rotated AABB,
+            // matching the CPU rasterizer.
             QuadPrimitive(x: 0, y: 0, width: 10, height: 10, blurRadius: 22, rotationRadians: 0.5),
         ]
         let segments = D3D11BatchRenderer.splitQuadRangeForBackdropBlur(quads, range: 0..<3)
         XCTAssertEqual(
             segments,
-            [.normal(range: 0..<3)],
-            "Radius-0 / sub-pixel / rotated blur quads must stay on the plain batched path")
+            [.normal(range: 0..<2), .blurred(index: 2)],
+            "Radius-0 / sub-pixel blur quads stay batched; rotated blur quads route to the blur path")
     }
 
     // MARK: - Shader contracts

@@ -180,6 +180,57 @@ final class D3D11BackdropBlurEngine {
 
     // MARK: - Blur + Composite
 
+    /// Pixel-space backdrop region blurred for `quad`, clamped to the
+    /// surface. Axis-aligned quads blur their own rect. Rotated quads
+    /// blur the axis-aligned bounding box of the rotated footprint — the
+    /// same window the CPU rasterizer blurs (its scan bounds for rotated
+    /// blur quads). This is a deliberate approximation: the backdrop
+    /// region mapping stays axis-aligned, and the composite draw only
+    /// samples the blurred backdrop where the rotated quad's coverage is
+    /// non-zero, so the blur is only visible under the quad itself.
+    static func blurRegion(
+        for quad: QuadPrimitive,
+        surfaceWidth: Int,
+        surfaceHeight: Int
+    ) -> (x0: Int, y0: Int, x1: Int, y1: Int) {
+        let surfaceW = max(surfaceWidth, 1)
+        let surfaceH = max(surfaceHeight, 1)
+        var minX = Double(quad.x)
+        var minY = Double(quad.y)
+        var maxX = Double(quad.x + quad.width)
+        var maxY = Double(quad.y + quad.height)
+        if quad.rotationRadians != 0 {
+            let rotation = Double(quad.rotationRadians)
+            let centreX = Double(quad.x) + Double(quad.width) * 0.5
+            let centreY = Double(quad.y) + Double(quad.height) * 0.5
+            let halfW = Double(quad.width) * 0.5
+            let halfH = Double(quad.height) * 0.5
+            let cosR = cos(rotation)
+            let sinR = sin(rotation)
+            var rotatedMinX = Double.infinity
+            var rotatedMinY = Double.infinity
+            var rotatedMaxX = -Double.infinity
+            var rotatedMaxY = -Double.infinity
+            for (dx, dy) in [(-halfW, -halfH), (halfW, -halfH), (halfW, halfH), (-halfW, halfH)] {
+                let cornerX = centreX + dx * cosR - dy * sinR
+                let cornerY = centreY + dx * sinR + dy * cosR
+                rotatedMinX = min(rotatedMinX, cornerX)
+                rotatedMinY = min(rotatedMinY, cornerY)
+                rotatedMaxX = max(rotatedMaxX, cornerX)
+                rotatedMaxY = max(rotatedMaxY, cornerY)
+            }
+            minX = rotatedMinX
+            minY = rotatedMinY
+            maxX = rotatedMaxX
+            maxY = rotatedMaxY
+        }
+        let x0 = max(0, min(Int(floor(minX)), surfaceW))
+        let y0 = max(0, min(Int(floor(minY)), surfaceH))
+        let x1 = max(0, min(Int(ceil(maxX)), surfaceW))
+        let y1 = max(0, min(Int(ceil(maxY)), surfaceH))
+        return (x0, y0, x1, y1)
+    }
+
     /// Blurs the region of `backBuffer` under `quad`'s rect and draws
     /// the quad's tint composited over the blurred backdrop into
     /// `backBufferRTV`.
@@ -206,10 +257,8 @@ final class D3D11BackdropBlurEngine {
 
         let surfaceW = max(surfaceWidth, 1)
         let surfaceH = max(surfaceHeight, 1)
-        let x0 = max(0, min(Int(floor(Double(quad.x))), surfaceW))
-        let y0 = max(0, min(Int(floor(Double(quad.y))), surfaceH))
-        let x1 = max(0, min(Int(ceil(Double(quad.x + quad.width))), surfaceW))
-        let y1 = max(0, min(Int(ceil(Double(quad.y + quad.height))), surfaceH))
+        let (x0, y0, x1, y1) = Self.blurRegion(
+            for: quad, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
         let regionW = x1 - x0
         let regionH = y1 - y0
         guard regionW > 0, regionH > 0 else { return }

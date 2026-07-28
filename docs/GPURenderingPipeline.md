@@ -420,6 +420,94 @@ read as `.transient`, the historical retry-with-backoff behaviour.
   `RendererHealthSnapshot`, a `.permanent` failure schedules no recovery,
   and a backend owing a repaint keeps the frame loop alive.
 
+## 4d. Host lifecycle: window ownership, presenter attach, frame timer
+
+Everything above assumes a window that is alive and a presenter that is
+attached. Three host-level rules keep that assumption true, and each replaced
+a way the session could wedge.
+
+**Window ownership.** `Win32Window.create()` installs a *retained* self
+reference in `GWLP_USERDATA`, and an explicit `WM_NCDESTROY` case — the last
+message any window receives — calls `DefWindowProcW`, zeroes `GWLP_USERDATA`,
+forgets the `HWND` and releases that reference (from `windowProc`, after the
+handler frame has returned, so the deallocation never runs on a frame that is
+still executing a method on the window). Closing a window drops the
+coordinator's last strong reference from *inside* `windowWillClose`, so an
+unretained back pointer left `WM_NCDESTROY` resolving freed memory on every
+close. For the same reason `WinSwiftUIWindowCoordinator` keeps the closed host
+alive past the callback that closed it: window bookkeeping and the
+last-window-quit policy stay immediate, only the release is deferred to the
+next open, close, or main-actor turn.
+
+**Presenter attach.** A window with no attached backend never invalidates
+itself. `renderCurrentFrame`'s not-ready branch runs inside `WM_PAINT`'s
+BeginPaint/EndPaint pair, where `InvalidateRect` re-dirties the region
+`BeginPaint` just validated — a self-feeding repaint loop that pegged a core
+behind a blank window for the life of the process on any machine where device
+creation failed. Instead:
+
+- the attach is retried a bounded number of times (5) with exponential
+  backoff (0.5s → 8s), driven by the frame timer at a coarse 250 ms cadence
+  because nothing is being painted;
+- a successful retry runs the same `activatePresenter` path the startup attach
+  does, so a recovered window is in the state a never-failed window is in;
+- past the budget the host enters a terminal state: `activeBackend = .frame`,
+  `isRendererReady = false`, selection reason `.presenterUnavailable`, the
+  timer off, and `RendererHealthSnapshot.isPresenterUnavailable == true`. A
+  blank window that reports why is recoverable by the app; one that spins is
+  indistinguishable from a hang.
+
+The same path owns the double-failure case: when `render(scene:)` throws *and*
+the frame backend cannot attach to take over, the host pins `.frame`, leaves
+the ready state and hands recovery to the bounded retry, rather than leaving
+the dead scene backend selected and rebuilding it every tick. `report` is rate
+limited per distinct failure signature (first occurrence, then every 100th,
+bounded at 16 signatures, cleared on a real recovery) because it is
+synchronous console I/O on the UI thread.
+
+Before any window exists, `RenderBackendFactoryResolution.presentableFactory`
+asks the app's factory `probeAvailability()`. `D3D11RenderBackendFactory`
+answers with a device-free `D3D11CreateDevice` capability query — hardware,
+then WARP — and both D3D11 renderers now retry device creation on
+`D3D_DRIVER_TYPE_WARP` too, so a machine with no usable hardware adapter gets
+a slow window instead of no window. `.unavailable` drops the composition root
+to `CPURenderBackendFactory` with a report; `.degraded` (WARP) keeps the
+factory and logs why.
+
+**Frame timer.** Three bounds on the animation timer:
+
+- The timer-queue callback fires on a pool thread and posts `WM_TIMER`, which
+  Windows does *not* coalesce the way it does `SetTimer`'s synthesized ticks.
+  A `Win32AnimationTimerGate` (`Atomic<Bool>`) admits one un-consumed post at
+  a time — the `WM_TIMER` handler releases it before running the frame — so a
+  frame slower than the timer period cannot grow the queue one message per
+  tick. A refused `PostMessageW` releases the gate rather than wedging it.
+- `CreateTimerQueueTimer` failure falls back to `SetTimer` and marks the
+  high-resolution path unavailable. Previously the window recorded a running
+  timer that did not exist, which stopped all animation and pending
+  presentation permanently and silently.
+- The requested cadence is kept separately from the installed one, so exiting
+  a size/move or menu loop restarts the timer at the interval the host asked
+  for. Reading it back from the just-stopped timer restarted it at `max(1, 0)`
+  — a 1000 Hz frame timer.
+
+`WM_SIZE` with `SIZE_MINIMIZED`, and any empty client rect reaching
+`didResizeTo`, return early: a minimize used to rebuild the whole component
+tree at 0×0, resize the swap chain to zero and raise a UIA structure change,
+then do it again on restore.
+
+**Invariants**
+- `Win32WindowLifecycleTests` — a destroyed window forgets its handle and
+  balances its self reference exactly once (a real HWND, skipped where one
+  cannot be created); the timer plan rules; the post gate.
+- `HostPresenterWedgeTests` — repeated paints with no presenter never
+  invalidate and never log; the bounded retry ends in the observable terminal
+  state; a healed backend is picked up and presents; a double fallback failure
+  stops rebuilding the dead path and rate-limits its reports; an empty client
+  rect changes nothing; a closed host outlives its close callback.
+- `RenderBackendAvailabilityTests` — the probe contract and the composition
+  root's substitution.
+
 ## 5. Backend dispatch + fallback chain
 
 `WinSwiftUIWindowHost` picks the rendering backend:

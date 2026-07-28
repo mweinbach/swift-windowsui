@@ -6,6 +6,7 @@ import Foundation
 /// factory used by the demo app and by ``WinSwiftUI.App`` when no other
 /// factory is injected.
 import SwiftWindowsGraphics
+import WinSDK
 
 // MARK: - Legacy Default Factory (deprecated, use D3D11RenderBackendFactory)
 
@@ -25,6 +26,70 @@ public struct D3D11RenderBackendFactory: RenderBackendFactory {
     /// keeps the frame renderer attached as an explicit debug/fallback path.
     public func makeBatchRenderBackend() -> (any BatchRenderBackend)? {
         D3D11BatchRenderer()
+    }
+
+    /// Asks D3D11 whether a device *could* be created, without creating one:
+    /// passing `nil` for the device out-param is the documented capability
+    /// query. Hardware first, then WARP — the same order the renderers
+    /// themselves use — so the answer matches what `attach` will do.
+    public func probeAvailability() -> RenderBackendAvailability {
+        if Self.canCreateDevice(driverType: D3D_DRIVER_TYPE_HARDWARE) {
+            return .available
+        }
+
+        if Self.canCreateDevice(driverType: D3D_DRIVER_TYPE_WARP) {
+            return .degraded(
+                reason: "No D3D11 hardware adapter is usable; presentation would run on the WARP software rasterizer."
+            )
+        }
+
+        return .unavailable(reason: "D3D11CreateDevice failed for both the hardware adapter and WARP.")
+    }
+
+    private static func canCreateDevice(driverType: D3D_DRIVER_TYPE) -> Bool {
+        let flags = UINT(bitPattern: D3D11_CREATE_DEVICE_BGRA_SUPPORT.rawValue)
+        var featureLevels: [D3D_FEATURE_LEVEL] = [D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0]
+        let hr = featureLevels.withUnsafeMutableBufferPointer { buffer in
+            D3D11CreateDevice(
+                nil,
+                driverType,
+                nil,
+                flags,
+                buffer.baseAddress,
+                UINT(buffer.count),
+                UINT(D3D11_SDK_VERSION),
+                nil,
+                nil,
+                nil
+            )
+        }
+
+        if hr >= 0 {
+            return true
+        }
+
+        // A pre-11_1 driver rejects the whole call rather than negotiating
+        // down, exactly as in `createDeviceIfNeeded`.
+        guard hr == HRESULT(bitPattern: 0x8007_0057) else {
+            return false
+        }
+
+        var legacyLevels: [D3D_FEATURE_LEVEL] = [D3D_FEATURE_LEVEL_11_0]
+        let legacyHR = legacyLevels.withUnsafeMutableBufferPointer { buffer in
+            D3D11CreateDevice(
+                nil,
+                driverType,
+                nil,
+                flags,
+                buffer.baseAddress,
+                UINT(buffer.count),
+                UINT(D3D11_SDK_VERSION),
+                nil,
+                nil,
+                nil
+            )
+        }
+        return legacyHR >= 0
     }
 }
 @MainActor

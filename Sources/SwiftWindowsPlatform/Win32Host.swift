@@ -1,13 +1,55 @@
 import SwiftWindowsCore
+import Synchronization
 import WinSDK
+
+/// Callback context for the high-resolution animation timer.
+///
+/// `CreateTimerQueueTimer` fires on an arbitrary thread-pool thread while the
+/// window consumes on the UI thread, and posted `WM_TIMER` messages are *not*
+/// coalesced the way `SetTimer`'s synthesized ones are. Without a gate a
+/// frame that takes longer than the timer period grows the message queue one
+/// message per tick, and the app then works through a long tail of stale
+/// ticks. The gate keeps at most one un-consumed post outstanding: the
+/// callback claims it, the `WM_TIMER` handler releases it.
+final class Win32AnimationTimerGate: Sendable {
+    let windowHandleValue: UInt
+    let isPostOutstanding = Atomic<Bool>(false)
+
+    init(windowHandleValue: UInt) {
+        self.windowHandleValue = windowHandleValue
+    }
+
+    /// Marks the outstanding post as consumed. Called from the UI thread when
+    /// the window dequeues the `WM_TIMER` the callback posted.
+    func consumePost() {
+        isPostOutstanding.store(false, ordering: .releasing)
+    }
+}
 
 private func win32HighResolutionTimerCallback(_ param: UnsafeMutableRawPointer?, _: UInt8) {
     guard let param else {
         return
     }
 
-    let hwndValue = HWND(bitPattern: Int(bitPattern: param))
-    PostMessageW(hwndValue, UINT(WM_TIMER), WPARAM(1), 0)
+    let gate = Unmanaged<Win32AnimationTimerGate>.fromOpaque(param).takeUnretainedValue()
+    let (claimed, _) = gate.isPostOutstanding.compareExchange(
+        expected: false,
+        desired: true,
+        ordering: .acquiringAndReleasing
+    )
+    guard claimed else {
+        // The previous tick is still queued; skipping this one is what bounds
+        // the queue. The next tick after the UI thread catches up posts again.
+        return
+    }
+
+    let hwndValue = HWND(bitPattern: Int(bitPattern: gate.windowHandleValue))
+    if !PostMessageW(hwndValue, UINT(WM_TIMER), WPARAM(1), 0) {
+        // The queue refused the message (full, or the window is gone). Release
+        // the gate so the next tick is not suppressed by a post that never
+        // arrived.
+        gate.consumePost()
+    }
 }
 @MainActor
 public protocol WindowDelegate: AnyObject {
@@ -147,8 +189,23 @@ public final class Win32Window {
     // High-resolution timer support
     public var useHighResolutionTimer: Bool = false
     private var highResTimerHandle: HANDLE?
+    private var highResTimerGate: Win32AnimationTimerGate?
     private var animationTimerIntervalMilliseconds: UINT = 0
     private var animationTimerUsesHighResolution = false
+    /// The interval the *caller* asked for, kept separately from the interval
+    /// of the timer that is currently installed. `stopCurrentAnimationTimer`
+    /// zeroes the installed interval, so a restart that read it back — which
+    /// is what `refreshAnimationTimerIfNeeded` used to do — resurrected the
+    /// timer at `max(1, 0) == 1` ms after every size/move and menu loop.
+    private var requestedAnimationTimerIntervalMilliseconds: UINT = 16
+    /// Sticky once `CreateTimerQueueTimer` has failed: the thread pool is not
+    /// going to become available mid-session, and a per-frame retry would
+    /// trade a silent freeze for a silent stall. The coalescing `SetTimer`
+    /// path drives frames from then on.
+    private var isHighResolutionTimerUnavailable = false
+    /// Whether this window still owns the `+1` its `GWLP_USERDATA` self
+    /// reference took at creation. Released exactly once, in `WM_NCDESTROY`.
+    private var ownsRetainedSelfReference = false
     internal var testScaleFactorOverride: Double?
     internal var testMonitorRefreshRateOverride: UINT? {
         didSet {
@@ -223,7 +280,15 @@ public final class Win32Window {
             throw Self.lastError(for: "GetModuleHandleW")
         }
 
-        let rawSelf = Unmanaged.passUnretained(self).toOpaque()
+        // The window owns a strong reference to itself for as long as the
+        // HWND exists. `WM_NCDESTROY` — the last message any window receives —
+        // zeroes `GWLP_USERDATA` and releases it. Without that `+1`, closing a
+        // window that the delegate chain also drops (the coordinator removes
+        // its last strong reference from inside `windowWillClose`) frees the
+        // object during `WM_DESTROY`, and the `WM_NCDESTROY` that Windows
+        // sends immediately afterwards resolves freed memory.
+        let rawSelf = Unmanaged.passRetained(self).toOpaque()
+        ownsRetainedSelfReference = true
         let style: DWORD
         switch titleBarVisibility.kind {
         case .hidden:
@@ -233,29 +298,40 @@ public final class Win32Window {
             style = DWORD(UInt32(bitPattern: Int32(WS_OVERLAPPEDWINDOW)))
         }
 
-        let createdWindow: HWND? = try Self.className.withWideChars { className in
-            try title.withWideChars { title in
-                let window = CreateWindowExW(
-                    0,
-                    className,
-                    title,
-                    style,
-                    CW_USEDEFAULT,
-                    CW_USEDEFAULT,
-                    Int32(clientSize.width),
-                    Int32(clientSize.height),
-                    nil,
-                    nil,
-                    instance,
-                    rawSelf
-                )
+        let createdWindow: HWND?
+        do {
+            createdWindow = try Self.className.withWideChars { className in
+                try title.withWideChars { title in
+                    let window = CreateWindowExW(
+                        0,
+                        className,
+                        title,
+                        style,
+                        CW_USEDEFAULT,
+                        CW_USEDEFAULT,
+                        Int32(clientSize.width),
+                        Int32(clientSize.height),
+                        nil,
+                        nil,
+                        instance,
+                        rawSelf
+                    )
 
-                guard let window else {
-                    throw Self.lastError(for: "CreateWindowExW")
+                    guard let window else {
+                        throw Self.lastError(for: "CreateWindowExW")
+                    }
+
+                    return window
                 }
-
-                return window
             }
+        } catch {
+            // Creation failed. When it failed *after* `WM_NCCREATE`, Windows
+            // has already delivered `WM_NCDESTROY` and the self reference is
+            // gone; when it failed before, nothing else will ever release it.
+            // The flag distinguishes the two, so the `+1` is balanced exactly
+            // once on every path.
+            releaseRetainedSelfReferenceIfNeeded()
+            throw error
         }
 
         hwnd = createdWindow
@@ -288,11 +364,41 @@ public final class Win32Window {
     }
 
     public func invalidate() {
+        invalidateRequestCount &+= 1
         guard let hwnd else {
             return
         }
 
         InvalidateRect(hwnd, nil, false)
+    }
+
+    /// Number of `invalidate()` calls this window has received. Internal so
+    /// headless host tests can prove a failure path does not turn into a
+    /// self-feeding repaint loop (an `InvalidateRect` issued from inside
+    /// `WM_PAINT` re-dirties the region `BeginPaint` just validated).
+    internal private(set) var invalidateRequestCount = 0
+
+    /// Balances the `+1` `create()` took, exactly once. Returns `true` when
+    /// this call is the one that consumed the ownership, so the caller can
+    /// perform the release. Split from the release itself because the
+    /// `WM_NCDESTROY` release must happen *outside* any method running on
+    /// `self`.
+    private func consumeRetainedSelfReferenceOwnership() -> Bool {
+        guard ownsRetainedSelfReference else {
+            return false
+        }
+        ownsRetainedSelfReference = false
+        return true
+    }
+
+    /// Release path for window creation failures, where no `WM_NCDESTROY`
+    /// will arrive to do it. Safe to call on `self` because `create()`'s
+    /// caller necessarily holds its own strong reference.
+    private func releaseRetainedSelfReferenceIfNeeded() {
+        guard consumeRetainedSelfReferenceOwnership() else {
+            return
+        }
+        Unmanaged.passUnretained(self).release()
     }
 
     public func requestClose() {
@@ -305,6 +411,13 @@ public final class Win32Window {
     }
 
     public func setAnimationTimerEnabled(_ enabled: Bool, intervalMilliseconds: UINT = 16) {
+        if enabled {
+            // Recorded before the window check so the requested cadence
+            // survives a stop/start cycle (and so tests can drive the plan
+            // without an HWND). The *installed* interval is separate state.
+            requestedAnimationTimerIntervalMilliseconds = max(1, intervalMilliseconds)
+        }
+
         guard hwnd != nil else {
             return
         }
@@ -450,36 +563,45 @@ public final class Win32Window {
 
     // MARK: - High-resolution timer
 
-    private func startHighResolutionTimer(intervalMilliseconds: UINT) {
+    private func startHighResolutionTimer(intervalMilliseconds: UINT) -> Bool {
         guard let hwnd else {
-            return
+            return false
         }
 
         var timerHandle: HANDLE?
-        let windowValue = UInt(bitPattern: hwnd)
+        let gate = Win32AnimationTimerGate(windowHandleValue: UInt(bitPattern: hwnd))
 
+        // The gate is retained by the property for as long as the timer can
+        // fire; `stopHighResolutionTimer` drops it only after
+        // `DeleteTimerQueueTimer` has waited for the last callback.
         let created = CreateTimerQueueTimer(
             &timerHandle,
             nil,
             win32HighResolutionTimerCallback,
-            UnsafeMutableRawPointer(bitPattern: windowValue),
+            Unmanaged.passUnretained(gate).toOpaque(),
             DWORD(intervalMilliseconds),
             DWORD(intervalMilliseconds),
             DWORD(WT_EXECUTEDEFAULT)
         )
 
-        if created {
-            highResTimerHandle = timerHandle
+        guard created else {
+            return false
         }
+
+        highResTimerGate = gate
+        highResTimerHandle = timerHandle
+        return true
     }
 
     private func stopHighResolutionTimer() {
         guard let timerHandle = highResTimerHandle else {
+            highResTimerGate = nil
             return
         }
 
         DeleteTimerQueueTimer(nil, timerHandle, INVALID_HANDLE_VALUE)
         highResTimerHandle = nil
+        highResTimerGate = nil
     }
 
     private func startAnimationTimer(using configuration: AnimationTimerConfiguration) {
@@ -487,14 +609,22 @@ public final class Win32Window {
             return
         }
 
-        if configuration.useHighResolution {
-            startHighResolutionTimer(intervalMilliseconds: configuration.intervalMilliseconds)
-        } else {
+        var usesHighResolution = configuration.useHighResolution
+        if usesHighResolution, !startHighResolutionTimer(intervalMilliseconds: configuration.intervalMilliseconds) {
+            // Thread-pool exhaustion or handle pressure. Reporting a "running"
+            // timer that does not exist stops animation and pending
+            // presentation permanently and silently, so fall back to the
+            // coalescing `SetTimer` path instead.
+            isHighResolutionTimerUnavailable = true
+            usesHighResolution = false
+        }
+
+        if !usesHighResolution {
             SetTimer(hwnd, Self.animationTimerIdentifier, configuration.intervalMilliseconds, nil)
         }
 
         animationTimerIntervalMilliseconds = configuration.intervalMilliseconds
-        animationTimerUsesHighResolution = configuration.useHighResolution
+        animationTimerUsesHighResolution = usesHighResolution
     }
 
     private func stopCurrentAnimationTimer() {
@@ -517,12 +647,36 @@ public final class Win32Window {
             return
         }
 
+        // Restart from what the caller asked for, not from the interval of the
+        // timer we are about to stop: `stopCurrentAnimationTimer` zeroes that
+        // field, and `max(1, 0)` is a 1 ms (1000 Hz) frame timer.
         stopCurrentAnimationTimer()
-        startAnimationTimer(using: animationTimerConfiguration(requestedInterval: animationTimerIntervalMilliseconds))
+        startAnimationTimer(
+            using: animationTimerConfiguration(requestedInterval: requestedAnimationTimerIntervalMilliseconds)
+        )
     }
 
     private func animationTimerConfiguration(requestedInterval: UINT) -> AnimationTimerConfiguration {
-        if isInSizeMove || isInMenuLoop {
+        Self.animationTimerConfiguration(
+            requestedInterval: requestedInterval,
+            isInModalLoop: isInSizeMove || isInMenuLoop,
+            prefersHighResolution: useHighResolutionTimer,
+            isHighResolutionAvailable: !isHighResolutionTimerUnavailable
+        )
+    }
+
+    /// Pure resolution of the animation timer plan. Modal size/move and menu
+    /// loops run their own message pump, where only the coalescing `SetTimer`
+    /// path is delivered, and a window whose timer-queue timer could not be
+    /// created falls back to the same path. Static so headless tests can pin
+    /// the rules without an HWND.
+    internal static func animationTimerConfiguration(
+        requestedInterval: UINT,
+        isInModalLoop: Bool,
+        prefersHighResolution: Bool,
+        isHighResolutionAvailable: Bool
+    ) -> AnimationTimerConfiguration {
+        if isInModalLoop {
             return AnimationTimerConfiguration(
                 intervalMilliseconds: UINT(max(1, USER_TIMER_MINIMUM)),
                 useHighResolution: false
@@ -531,8 +685,29 @@ public final class Win32Window {
 
         return AnimationTimerConfiguration(
             intervalMilliseconds: max(1, requestedInterval),
-            useHighResolution: useHighResolutionTimer
+            useHighResolution: prefersHighResolution && isHighResolutionAvailable
         )
+    }
+
+    /// The plan the window would install right now, given the cadence its
+    /// delegate last requested and the modal-loop state the wndproc tracks.
+    /// Internal so headless tests can drive enter/exit size-move transitions
+    /// without a real HWND.
+    internal var currentAnimationTimerConfiguration: AnimationTimerConfiguration {
+        animationTimerConfiguration(requestedInterval: requestedAnimationTimerIntervalMilliseconds)
+    }
+
+    /// Headless seam for the modal-loop transitions `WM_ENTER/EXITSIZEMOVE`
+    /// and `WM_ENTER/EXITMENULOOP` drive.
+    internal func setModalLoopStateForTesting(isInSizeMove: Bool = false, isInMenuLoop: Bool = false) {
+        self.isInSizeMove = isInSizeMove
+        self.isInMenuLoop = isInMenuLoop
+        refreshAnimationTimerIfNeeded()
+    }
+
+    /// Headless seam standing in for a `CreateTimerQueueTimer` failure.
+    internal func markHighResolutionTimerUnavailableForTesting() {
+        isHighResolutionTimerUnavailable = true
     }
 
     // MARK: - Message handling
@@ -551,6 +726,15 @@ public final class Win32Window {
             return DefWindowProcW(hwnd, message, wParam, lParam)
 
         case UINT(WM_SIZE):
+            // A minimized window has a 0×0 client rect. Forwarding that
+            // rebuilds the whole component tree at zero size (and raises a UIA
+            // structure change to any attached screen reader) on every
+            // minimize, then again on restore, for a size nothing is painted
+            // at. The restore delivers its own WM_SIZE with the real rect.
+            if Int(truncatingIfNeeded: wParam) == Int(SIZE_MINIMIZED) {
+                return 0
+            }
+
             updateCachedClientSize()
             delegate?.window(self, didResizeTo: clientSize)
             return 0
@@ -582,6 +766,10 @@ public final class Win32Window {
 
         case UINT(WM_TIMER):
             if UInt(truncatingIfNeeded: wParam) == Self.animationTimerIdentifier {
+                // Release the post gate before the frame runs: a long frame may
+                // then queue exactly one further tick, which is the intended
+                // one-deep pipeline rather than an unbounded backlog.
+                highResTimerGate?.consumePost()
                 delegate?.window(self, animationFrameAt: Self.currentTimestampSeconds())
                 return 0
             }
@@ -790,6 +978,22 @@ public final class Win32Window {
                 PostQuitMessage(0)
             }
             return 0
+
+        case UINT(WM_NCDESTROY):
+            // Last message this HWND will ever receive. Drop the OS-side back
+            // pointer before the handle dies so no later message can resolve
+            // it, stop any timer that outlived WM_DESTROY (the stop path is
+            // guarded on a live handle), and forget the handle so the public
+            // API stops calling into a destroyed window. The matching release
+            // of the self reference happens in `windowProc`, after this frame
+            // has returned.
+            let result = DefWindowProcW(hwnd, message, wParam, lParam)
+            setAnimationTimerEnabled(false)
+            if let hwnd {
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0)
+            }
+            self.hwnd = nil
+            return result
 
         case UINT(WM_DROPFILES):
             if let payload = FileDropManager.payload(forDropHandle: UInt(wParam)) {
@@ -1059,7 +1263,7 @@ public final class Win32Window {
     private static let animationTimerIdentifier: UINT_PTR = 1
     private static let wheelPageScrollValue = UINT.max
 
-    private struct AnimationTimerConfiguration {
+    internal struct AnimationTimerConfiguration: Equatable {
         var intervalMilliseconds: UINT
         var useHighResolution: Bool
     }
@@ -1092,8 +1296,21 @@ public final class Win32Window {
 
         let rawValue = GetWindowLongPtrW(hwnd, GWLP_USERDATA)
         if let rawSelf = UnsafeMutableRawPointer(bitPattern: Int(rawValue)) {
-            let window = Unmanaged<Win32Window>.fromOpaque(rawSelf).takeUnretainedValue()
-            return window.handleMessage(hwnd: hwnd, message: message, wParam: wParam, lParam: lParam)
+            let unmanaged = Unmanaged<Win32Window>.fromOpaque(rawSelf)
+            let result = unmanaged.takeUnretainedValue()
+                .handleMessage(hwnd: hwnd, message: message, wParam: wParam, lParam: lParam)
+
+            // Balance `create()`'s `passRetained` here rather than inside the
+            // handler, so the deallocation — which can run the delegate chain's
+            // teardown — never happens on a frame that is still executing a
+            // method on the window.
+            if message == UINT(WM_NCDESTROY),
+                unmanaged.takeUnretainedValue().consumeRetainedSelfReferenceOwnership()
+            {
+                unmanaged.release()
+            }
+
+            return result
         }
 
         return DefWindowProcW(hwnd, message, wParam, lParam)

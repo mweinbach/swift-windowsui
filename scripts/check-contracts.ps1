@@ -386,6 +386,36 @@ Assert-SinglePresentCallSite `
     "Sources/SwiftWindowsRendererD3D11/D3D11BatchRenderer.swift" `
     "The batch backend must present only from presentFrame(), where the HRESULT is classified by DeviceLostPolicy."
 
+function Assert-SwapChainWindowAssociation {
+    param(
+        [string] $RelativePath
+    )
+
+    $fullPath = Get-RepoPath $RelativePath
+    if (-not (Test-Path -LiteralPath $fullPath)) {
+        Add-Failure "$RelativePath is missing; cannot verify its swap-chain window association."
+        return
+    }
+
+    $content = Get-Content -LiteralPath $fullPath -Raw
+    $swapChainCount = ([regex]::Matches($content, "CreateSwapChainForHwnd\(")).Count
+    $associationCount = ([regex]::Matches($content, "MakeWindowAssociation\(")).Count
+    if ($swapChainCount -eq 0) {
+        return
+    }
+
+    if ($associationCount -lt $swapChainCount) {
+        Add-Failure "$RelativePath creates $swapChainCount HWND swap chain(s) but calls MakeWindowAssociation $associationCount time(s); DXGI keeps its default Alt+Enter / Print Screen hooks on any window that is missed."
+    }
+}
+
+# DXGI installs its own window hooks the moment a swap chain is bound to an
+# HWND: Alt+Enter becomes a fullscreen mode switch and Print Screen becomes a
+# DXGI capture, neither of which this stack implements. Every swap-chain owner
+# must opt out for the window it just claimed.
+Assert-SwapChainWindowAssociation "Sources/SwiftWindowsRendererD3D11/D3D11Renderer.swift"
+Assert-SwapChainWindowAssociation "Sources/SwiftWindowsRendererD3D11/D3D11BatchRenderer.swift"
+
 if ($failures.Count -gt 0) {
     Write-Host "Contract checks failed:" -ForegroundColor Red
     foreach ($failure in $failures) {

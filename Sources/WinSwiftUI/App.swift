@@ -57,7 +57,7 @@ extension App {
 
     public static func main() {
         let app = Self.init()
-        let factory = Self.renderBackendFactory()
+        let factory = RenderBackendFactoryResolution.presentableFactory(Self.renderBackendFactory())
 
         do {
             let coordinator = WinSwiftUIWindowCoordinator(
@@ -1650,6 +1650,51 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private var activeBackend: PresentationBackend = .frame
     private var surfaceDescriptor: SurfaceDescriptor?
 
+    // MARK: Presenter attach retry (no-presenter wedge)
+    //
+    // A window with no attached backend used to re-`InvalidateRect` itself
+    // from the not-ready branch of the render path. That branch runs inside
+    // `WM_PAINT`'s BeginPaint/EndPaint pair, so the invalidation re-dirtied
+    // the region `BeginPaint` had just validated: one core at 100 % behind a
+    // blank window for the life of the process, on any machine where device
+    // creation fails for both backends. The replacement is a bounded retry on
+    // the frame timer's own coarse cadence, followed by a terminal state that
+    // stops asking for frames and is visible in `RendererHealthSnapshot`.
+
+    /// Attach attempts made since the last successful attach.
+    private var presenterAttachAttemptCount = 0
+    /// Wall-clock timestamp of the next attach retry, `nil` when none is
+    /// scheduled (a presenter is attached, or the terminal state was reached).
+    private var nextPresenterAttachAttemptAt: Double?
+    /// Terminal state: no backend could be attached within the retry budget.
+    /// The host stops driving frames; the window keeps servicing input and
+    /// resizes so the app is closable and can still recover on an explicit
+    /// re-attach.
+    private(set) var isPresenterUnavailable = false
+    /// Detail of the most recent attach failure, carried into the selection
+    /// reason so the terminal state is actionable rather than silent.
+    private var lastPresenterAttachFailureDetail = "No render backend attached."
+
+    /// Recurrence counts per distinct failure signature, used to rate-limit
+    /// `report`. Bounded by `maximumTrackedFailureSignatures`.
+    private var reportedFailureCounts: [String: Int] = [:]
+    private var didReportFailureSignatureOverflow = false
+
+    /// Number of lines this host has actually emitted through `report`.
+    /// Exposed so tests can prove a per-frame failure logs O(1), not O(frames).
+    private(set) var emittedReportCount = 0
+
+    private static let maximumTrackedFailureSignatures = 16
+    private static let repeatedFailureReportInterval = 100
+
+    private static let maximumPresenterAttachAttempts = 5
+    private static let initialPresenterAttachRetryInterval: Double = 0.5
+    private static let maximumPresenterAttachRetryInterval: Double = 8.0
+    /// Retry cadence for the frame timer while no presenter is attached.
+    /// Deliberately far coarser than the frame interval: nothing is being
+    /// painted, and the only work per tick is a clock comparison.
+    private static let presenterAttachRetryIntervalMilliseconds: UInt32 = 250
+
     /// Configured at init. When `isEnabled`, the host periodically tries to
     /// re-attach the batch backend after a downgrade.
     private let recoveryPolicy: BatchBackendRecoveryPolicy
@@ -1836,18 +1881,12 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     func windowDidCreate(_ window: Win32Window) {
         do {
             guard let surface = surfaceDescriptorProvider(window) else {
+                recordPresenterAttachFailure("Missing surface descriptor.", in: window)
                 completeStartupProbeIfNeeded(in: window, success: false, errorMessage: "Missing surface descriptor.")
                 return
             }
 
-            surfaceDescriptor = surface
-            try attachPreferredRenderer(to: surface)
-            isRendererReady = true
-            runtime.displayScale = surface.scaleFactor
-            NativeTextRenderer.defaultIconDisplayScale = surface.scaleFactor
-            runtime.setRootSize(logicalSize(for: surface))
-            componentHost.reload()
-            uiaBridge?.raiseStructureChanged()
+            try activatePresenter(with: surface)
             let didRender = renderCurrentFrame(in: window)
             completeStartupProbeIfNeeded(
                 in: window,
@@ -1855,12 +1894,109 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                 errorMessage: didRender ? nil : "Initial startup render did not complete."
             )
         } catch {
+            recordPresenterAttachFailure(String(describing: error), in: window)
             completeStartupProbeIfNeeded(in: window, success: false, errorMessage: String(describing: error))
             report(error)
         }
     }
 
+    /// Binds a surface to a backend and brings the window's runtime state up
+    /// to match it. Shared by the startup attach and by the bounded retry, so
+    /// a window that recovers a presenter is in exactly the state a window
+    /// that never lost one is.
+    private func activatePresenter(with surface: SurfaceDescriptor) throws {
+        surfaceDescriptor = surface
+        try attachPreferredRenderer(to: surface)
+        isRendererReady = true
+        isPresenterUnavailable = false
+        presenterAttachAttemptCount = 0
+        nextPresenterAttachAttemptAt = nil
+        runtime.displayScale = surface.scaleFactor
+        NativeTextRenderer.defaultIconDisplayScale = surface.scaleFactor
+        runtime.setRootSize(logicalSize(for: surface))
+        componentHost.reload()
+        uiaBridge?.raiseStructureChanged()
+    }
+
+    /// Records that the window currently has no presenter and either schedules
+    /// the next bounded retry or enters the terminal state.
+    private func recordPresenterAttachFailure(_ detail: String, in window: Win32Window) {
+        isRendererReady = false
+        lastPresenterAttachFailureDetail = detail
+        reportRepeating("No render backend is attached. \(detail)", signature: "presenter-attach-failure")
+
+        guard presenterAttachAttemptCount < Self.maximumPresenterAttachAttempts else {
+            enterPresenterUnavailableState(in: window)
+            return
+        }
+
+        let backoff = min(
+            Self.initialPresenterAttachRetryInterval * pow(2, Double(presenterAttachAttemptCount)),
+            Self.maximumPresenterAttachRetryInterval
+        )
+        nextPresenterAttachAttemptAt = recoveryClock() + backoff
+        syncAnimationDriver(for: window)
+    }
+
+    /// Terminal no-presenter state: stop requesting frames entirely and make
+    /// the reason observable. Anything else burns a core drawing nothing.
+    private func enterPresenterUnavailableState(in window: Win32Window) {
+        isPresenterUnavailable = true
+        isRendererReady = false
+        nextPresenterAttachAttemptAt = nil
+        pendingPresentation = false
+        activeBackend = .frame
+        updatePresentationSelection(reason: .presenterUnavailable(lastPresenterAttachFailureDetail))
+        report(
+            "No render backend could be attached after \(presenterAttachAttemptCount) attempts. "
+                + "The window will stop requesting frames; see RendererHealthSnapshot.isPresenterUnavailable. "
+                + lastPresenterAttachFailureDetail
+        )
+        syncAnimationDriver(for: window)
+    }
+
+    /// Retries the attach when the backoff has elapsed. Returns `true` when a
+    /// presenter is attached and this frame may proceed.
+    @discardableResult
+    private func attemptPresenterAttachRetryIfDue(in window: Win32Window) -> Bool {
+        guard !isRendererReady,
+            !isPresenterUnavailable,
+            let dueAt = nextPresenterAttachAttemptAt,
+            recoveryClock() >= dueAt
+        else {
+            return false
+        }
+
+        nextPresenterAttachAttemptAt = nil
+        presenterAttachAttemptCount += 1
+        let attempt = presenterAttachAttemptCount
+
+        guard let surface = surfaceDescriptorProvider(window) else {
+            recordPresenterAttachFailure("Missing surface descriptor.", in: window)
+            return false
+        }
+
+        do {
+            try activatePresenter(with: surface)
+            resetFailureReporting()
+            report("Render backend attached after \(attempt) retry attempt(s).")
+            return true
+        } catch {
+            recordPresenterAttachFailure(String(describing: error), in: window)
+            return false
+        }
+    }
+
     func window(_ window: Win32Window, didResizeTo size: IntSize) {
+        // An empty client rect is not a layout. Minimizing used to rebuild the
+        // whole component tree at 0×0 — through collapsed-frame layout, a UIA
+        // structure change and a renderer resize — and then do it all again on
+        // restore. The wndproc filters `SIZE_MINIMIZED`; this is the backstop
+        // for every other source of an empty rect.
+        guard size.width > 0, size.height > 0 else {
+            return
+        }
+
         do {
             let scaleFactor = window.scaleFactor
             runtime.displayScale = scaleFactor
@@ -1963,6 +2099,18 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, animationFrameAt timestamp: Double) {
+        guard isRendererReady else {
+            // While no presenter is attached the timer runs only to drive the
+            // bounded attach retry: there is nothing to tick and nothing to
+            // paint until a backend owns the swap chain.
+            if attemptPresenterAttachRetryIfDue(in: window) {
+                _ = renderCurrentFrame(in: window, timestamp: timestamp)
+            } else {
+                syncAnimationDriver(for: window)
+            }
+            return
+        }
+
         let didAdvanceAnimations = runtime.tickAnimations(at: timestamp)
         if didAdvanceAnimations || runtime.isDirty || pendingPresentation {
             _ = renderCurrentFrame(in: window, timestamp: timestamp)
@@ -2211,8 +2359,17 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             activeBackendDisplayName: activeBackendName,
             lastScenePaintMetrics: runtime.lastScenePaintMetrics,
             lastPresentationFailureKind: lastPresentationFailureKind,
-            isPresentationOccluded: activePresentationState.isOccluded
+            isPresentationOccluded: activePresentationState.isOccluded,
+            isPresenterUnavailable: isPresenterUnavailable,
+            nextPresenterAttachInSeconds: nextPresenterAttachInSeconds
         )
+    }
+
+    /// Seconds until the next bounded presenter attach retry, `nil` when a
+    /// presenter is attached or the terminal state was reached.
+    private var nextPresenterAttachInSeconds: Double? {
+        guard let dueAt = nextPresenterAttachAttemptAt else { return nil }
+        return max(0, dueAt - recoveryClock())
     }
 
     /// The active backend's post-render presentation state. Backends that
@@ -2305,11 +2462,15 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     @discardableResult
     private func renderCurrentFrame(in window: Win32Window, timestamp: Double? = nil) -> Bool {
-        guard isRendererReady else {
-            if runtime.isDirty || pendingPresentation {
-                window.invalidate()
+        if !isRendererReady {
+            // Never invalidate from here: this runs inside `WM_PAINT`'s
+            // BeginPaint/EndPaint pair, where `InvalidateRect` re-dirties the
+            // region `BeginPaint` just validated and the window spins forever.
+            // The attach retry is clock-gated and bounded, so an unpaintable
+            // window costs a comparison per paint request, not a core.
+            guard attemptPresenterAttachRetryIfDue(in: window) else {
+                return false
             }
-            return false
         }
 
         // Opportunistic recovery: if we previously downgraded and the
@@ -2333,19 +2494,37 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             }
         } catch {
             guard activeBackend == .scene else {
-                report(error)
+                // Frame-path render failure: policy is to keep the session
+                // alive and log — rate-limited, because a deterministic
+                // failure repeats at frame rate and `report` is synchronous
+                // console I/O on the UI thread.
+                reportRepeating(String(describing: error), signature: "frame-render-failure")
                 return false
             }
 
+            var didAttachFrameBackend = false
             do {
                 try fallbackToFrameRenderer(
                     becauseOf: .batchRenderFailure(String(describing: error)),
                     failureKind: PresentationFailureKind.classifying(error),
                     in: window
                 )
+                didAttachFrameBackend = true
                 try renderer.render(frame: runtime.renderFrame(at: timestamp ?? 0))
             } catch {
-                report(error)
+                guard didAttachFrameBackend else {
+                    // Both presenters are gone. Leaving `activeBackend` on
+                    // `.scene` here is what made every following tick rebuild
+                    // the scene, fail, fail the fallback and print twice — at
+                    // frame rate, for the rest of the session. Pin to frame,
+                    // drop out of the ready state and let the bounded attach
+                    // retry own recovery from here.
+                    activeBackend = .frame
+                    recordPresenterAttachFailure(String(describing: error), in: window)
+                    return false
+                }
+
+                reportRepeating(String(describing: error), signature: "frame-render-failure")
                 return false
             }
         }
@@ -2367,6 +2546,26 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         let refreshRate = max(Int(window.monitorRefreshRate), 1)
         runtime.minimumFrameInterval = 1.0 / Double(refreshRate)
         window.useHighResolutionTimer = true
+
+        // Without a presenter there is nothing to animate and nothing to
+        // present, so the timer's only remaining job is the bounded attach
+        // retry — at its own coarse cadence. In the terminal state it has no
+        // job at all and stops.
+        if !isRendererReady, isPresenterUnavailable || nextPresenterAttachAttemptAt != nil {
+            let shouldRetry = !isPresenterUnavailable
+            let retryInterval = Self.presenterAttachRetryIntervalMilliseconds
+            window.setAnimationTimerEnabled(shouldRetry, intervalMilliseconds: retryInterval)
+            let retryState = TimerState(
+                isEnabled: shouldRetry,
+                intervalMilliseconds: retryInterval,
+                usesHighResolution: true,
+                refreshRate: UInt32(refreshRate)
+            )
+            currentTimerState = retryState
+            onTimerStateChanged?(retryState)
+            return
+        }
+
         let intervalMilliseconds = UInt32(max(1, Int((1000.0 / Double(refreshRate)).rounded())))
         let shouldDriveFrames =
             runtime.hasActiveAnimations || runtime.isDirty || pendingPresentation || inputRateTracker.isHighRate
@@ -2435,7 +2634,17 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     // |                                          | success restores scene with reason `.batchBackendRecovered`.   |
     // | Downgrade classified `.permanent`        | No recovery is scheduled: the machine cannot do it.            |
     // | After any downgrade, `.disabled` policy  | One-way pin: batch is never invoked again this session.        |
-    // | Frame backend itself throws              | Log via `report`; the host session stays alive (no crash).     |
+    // | Frame backend itself throws              | Log (rate-limited); the host session stays alive (no crash).   |
+    // | Neither backend can attach               | Bounded attach retry (5 × 0.5s→8s) on a 250 ms timer, then a  |
+    // |                                          | terminal `.presenterUnavailable` state that stops requesting   |
+    // |                                          | frames; observable as                                          |
+    // |                                          | `RendererHealthSnapshot.isPresenterUnavailable`.               |
+    //
+    // A window with no presenter never invalidates itself: the not-ready
+    // branch of `renderCurrentFrame` runs inside `WM_PAINT`'s
+    // BeginPaint/EndPaint pair, so `InvalidateRect` there re-dirties the region
+    // `BeginPaint` just validated and the window spins at 100 % CPU showing
+    // nothing. See docs/GPURenderingPipeline.md § 4d.
     //
     // Device loss is *not* in that table, and deliberately so: it is not a
     // backend being bad, it is a device being gone, and switching backends
@@ -2487,7 +2696,10 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                 updatePresentationSelection(reason: .defaultScene)
                 return
             } catch {
-                report("Batch renderer attach failed; falling back to frame renderer. \(error)")
+                reportRepeating(
+                    "Batch renderer attach failed; falling back to frame renderer. \(error)",
+                    signature: "batch-attach-failure"
+                )
                 // A partially-attached batch backend may already own a swap
                 // chain for this HWND, and flip-model presentation is
                 // exclusive per window: release it before the frame backend
@@ -2529,10 +2741,19 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         in window: Win32Window
     ) throws {
         lastPresentationFailureKind = failureKind
+        // Rate-limited: a deterministic scene failure downgrades on every
+        // frame it is retried on, and this used to be one synchronous console
+        // write per attempt on the UI thread.
         if let detail = reason.detail {
-            report("Batch renderer failed; switching to frame renderer. \(detail)")
+            reportRepeating(
+                "Batch renderer failed; switching to frame renderer. \(detail)",
+                signature: "batch-downgrade-\(reason.probeCode)"
+            )
         } else {
-            report("Batch renderer failed; switching to frame renderer.")
+            reportRepeating(
+                "Batch renderer failed; switching to frame renderer.",
+                signature: "batch-downgrade-\(reason.probeCode)"
+            )
         }
 
         let surface = surfaceDescriptor ?? surfaceDescriptorProvider(window)
@@ -2607,6 +2828,9 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             nextBatchRecoveryAttemptAt = nil
             currentBatchRecoveryInterval = recoveryPolicy.initialRetryInterval
             lastPresentationFailureKind = nil
+            // A real recovery makes the suppressed failures history: the next
+            // occurrence of any of them deserves a line again.
+            resetFailureReporting()
             report("Batch renderer recovered after fallback.")
             updatePresentationSelection(reason: .batchBackendRecovered)
         } catch {
@@ -2690,11 +2914,48 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     private func report(_ error: Error) {
-        print("[WinSwiftUI] \(error)")
+        report(String(describing: error))
     }
 
     private func report(_ message: String) {
+        emittedReportCount += 1
         print("[WinSwiftUI] \(message)")
+    }
+
+    /// Reports a failure that can recur every frame. `report` is synchronous
+    /// console I/O on the UI thread, so a deterministic presentation failure
+    /// used to add two `print`s per frame to a window that was already frozen.
+    /// Each distinct signature is reported once and then only every
+    /// `repeatedFailureReportInterval` recurrences, with the running count.
+    private func reportRepeating(_ message: String, signature: String) {
+        if let previous = reportedFailureCounts[signature] {
+            let count = previous + 1
+            reportedFailureCounts[signature] = count
+            if count % Self.repeatedFailureReportInterval == 0 {
+                report("\(message) (repeated \(count) times)")
+            }
+            return
+        }
+
+        guard reportedFailureCounts.count < Self.maximumTrackedFailureSignatures else {
+            // Bounded: a pathological stream of distinct messages must not
+            // grow the table, and must not restore per-frame logging either.
+            if !didReportFailureSignatureOverflow {
+                didReportFailureSignatureOverflow = true
+                report("Further distinct presentation failures are being suppressed.")
+            }
+            return
+        }
+
+        reportedFailureCounts[signature] = 1
+        report(message)
+    }
+
+    /// Clears the throttle after a genuine recovery, so the next failure of a
+    /// previously-seen kind is reported again rather than silently counted.
+    private func resetFailureReporting() {
+        reportedFailureCounts.removeAll(keepingCapacity: true)
+        didReportFailureSignatureOverflow = false
     }
 }
 @MainActor

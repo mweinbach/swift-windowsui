@@ -1,6 +1,40 @@
 import Foundation
 
 import SwiftWindowsCore
+import SwiftWindowsGraphics
+
+/// Startup-time selection between render backend factories.
+///
+/// A factory is asked whether this machine can present with it *before* any
+/// window exists. Discovering it at `attach` instead leaves the window on
+/// screen with nothing in it and no presenter ever attached — the blank-window
+/// state `RendererHealthSnapshot.isPresenterUnavailable` reports, which a user
+/// cannot distinguish from a hang.
+@MainActor
+enum RenderBackendFactoryResolution {
+    static func presentableFactory(
+        _ factory: RenderBackendFactory,
+        fallback: RenderBackendFactory = CPURenderBackendFactory(),
+        report: (String) -> Void = { print("[WinSwiftUI] \($0)") }
+    ) -> RenderBackendFactory {
+        switch factory.probeAvailability() {
+        case .available:
+            return factory
+        case .degraded(let reason):
+            // Still presents. A slow window is the better answer here, and the
+            // reduced capability belongs in the log rather than in a silent
+            // switch to a different renderer.
+            report("\(factory.factoryName) is degraded: \(reason)")
+            return factory
+        case .unavailable(let reason):
+            report(
+                "\(factory.factoryName) is unavailable on this machine: \(reason) "
+                    + "Falling back to \(fallback.factoryName)."
+            )
+            return fallback
+        }
+    }
+}
 
 enum StartupPresentationMode: Equatable {
     case automatic
@@ -24,6 +58,9 @@ public enum PresentationSelectionReason: Equatable, Sendable {
     case batchResizeFailure(String)
     case batchRenderFailure(String)
     case batchBackendRecovered
+    /// Neither backend could be attached within the bounded retry budget: the
+    /// window has no presenter at all and has stopped requesting frames.
+    case presenterUnavailable(String)
 
     public var probeCode: String {
         switch self {
@@ -41,6 +78,8 @@ public enum PresentationSelectionReason: Equatable, Sendable {
             return "batch-render-failure"
         case .batchBackendRecovered:
             return "batch-backend-recovered"
+        case .presenterUnavailable:
+            return "presenter-unavailable"
         }
     }
 
@@ -48,7 +87,8 @@ public enum PresentationSelectionReason: Equatable, Sendable {
         switch self {
         case .batchAttachFailure(let detail),
             .batchResizeFailure(let detail),
-            .batchRenderFailure(let detail):
+            .batchRenderFailure(let detail),
+            .presenterUnavailable(let detail):
             return detail
         case .defaultScene,
             .frameDebugOverride,

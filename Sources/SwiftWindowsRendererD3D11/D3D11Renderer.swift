@@ -565,7 +565,7 @@ public final class D3D11Renderer: RenderBackend {
         let flags = UINT(bitPattern: D3D11_CREATE_DEVICE_BGRA_SUPPORT.rawValue)
         var featureLevel = D3D_FEATURE_LEVEL(0)
 
-        var featureLevels: [D3D_FEATURE_LEVEL] = [
+        let fullFeatureLevels: [D3D_FEATURE_LEVEL] = [
             D3D_FEATURE_LEVEL_11_1,
             D3D_FEATURE_LEVEL_11_0,
             D3D_FEATURE_LEVEL_10_1,
@@ -575,12 +575,13 @@ public final class D3D11Renderer: RenderBackend {
         // Create into locals and install only on success: a failed attempt
         // that still wrote an out-param would otherwise overwrite (and leak)
         // whatever the properties already held.
-        let createDevice: (UnsafePointer<D3D_FEATURE_LEVEL>?, UINT) -> HRESULT = { pointer, count in
+        let createDevice: (D3D_DRIVER_TYPE, UnsafePointer<D3D_FEATURE_LEVEL>?, UINT) -> HRESULT = {
+            driverType, pointer, count in
             var createdDevice: UnsafeMutablePointer<ID3D11Device>?
             var createdContext: UnsafeMutablePointer<ID3D11DeviceContext>?
             let hr = D3D11CreateDevice(
                 nil,
-                D3D_DRIVER_TYPE_HARDWARE,
+                driverType,
                 nil,
                 flags,
                 pointer,
@@ -605,19 +606,39 @@ public final class D3D11Renderer: RenderBackend {
             return hr
         }
 
-        let hr = featureLevels.withUnsafeBufferPointer { buffer in
-            createDevice(buffer.baseAddress, UINT(buffer.count))
+        // Hardware first, then WARP. A machine with no usable hardware adapter
+        // — a VM, a session that cannot reach the GPU, a driver mid-upgrade —
+        // can still present through the software rasterizer, which is a slow
+        // window rather than no window at all.
+        var lastHR: HRESULT = hresultInvalidArgument
+        for driverType in [D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP] {
+            var featureLevels = fullFeatureLevels
+            var hr = featureLevels.withUnsafeBufferPointer { buffer in
+                createDevice(driverType, buffer.baseAddress, UINT(buffer.count))
+            }
+
+            if hr == hresultInvalidArgument {
+                featureLevels.removeFirst()
+                hr = featureLevels.withUnsafeBufferPointer { buffer in
+                    createDevice(driverType, buffer.baseAddress, UINT(buffer.count))
+                }
+            }
+
+            if hr >= 0 {
+                if driverType == D3D_DRIVER_TYPE_WARP {
+                    renderLog(
+                        "[D3D11Renderer] No hardware adapter was usable; presenting through the WARP "
+                            + "software rasterizer."
+                    )
+                }
+                lastHR = hr
+                break
+            }
+
+            lastHR = hr
         }
 
-        if hr == hresultInvalidArgument {
-            featureLevels.removeFirst()
-            let fallbackHR = featureLevels.withUnsafeBufferPointer { buffer in
-                createDevice(buffer.baseAddress, UINT(buffer.count))
-            }
-            try throwIfFailed(fallbackHR, operation: "D3D11CreateDevice")
-        } else {
-            try throwIfFailed(hr, operation: "D3D11CreateDevice")
-        }
+        try throwIfFailed(lastHR, operation: "D3D11CreateDevice")
 
         // Validate that the actual feature level meets our minimum requirement.
         if featureLevel.rawValue < D3D_FEATURE_LEVEL_11_0.rawValue {
@@ -916,11 +937,22 @@ public final class D3D11Renderer: RenderBackend {
         }
         try throwIfFailed(hr, operation: "IDXGIFactory2.CreateSwapChainForHwnd")
 
-        let _ = dxgiFactory.pointee.lpVtbl.pointee.MakeWindowAssociation(
+        // DXGI's default window hooks turn Alt+Enter into a mode switch and
+        // Print Screen into a DXGI capture, neither of which this stack
+        // implements — an unchecked failure here leaves the app with borrowed
+        // key handling it never asked for, so the HRESULT is reported.
+        let associationHR = dxgiFactory.pointee.lpVtbl.pointee.MakeWindowAssociation(
             dxgiFactory,
             hwnd,
-            UINT(DXGI_MWA_NO_ALT_ENTER)
+            UINT(DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_PRINT_SCREEN)
         )
+        if associationHR < 0 {
+            renderLog(
+                "[D3D11Renderer] IDXGIFactory2.MakeWindowAssociation failed with "
+                    + "0x\(String(UInt32(bitPattern: associationHR), radix: 16)); "
+                    + "DXGI keeps its default Alt+Enter / Print Screen handling for this window."
+            )
+        }
     }
 
     private func createRenderTargetView() throws {

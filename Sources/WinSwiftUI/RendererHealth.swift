@@ -50,6 +50,15 @@ public struct RendererHealthSnapshot: Equatable, Sendable {
     /// The active backend's last present found the window fully occluded, so
     /// further frames are invisible work.
     public var isPresentationOccluded: Bool
+    /// No backend could be attached within the bounded retry budget: the
+    /// window has stopped requesting frames and is showing nothing. This is
+    /// the terminal state a machine with no usable graphics device reaches,
+    /// and it is deliberately observable — the alternative (a self-feeding
+    /// repaint loop behind a blank window) is indistinguishable from a hang.
+    public var isPresenterUnavailable: Bool
+    /// Seconds until the next presenter attach retry, or `nil` when a
+    /// presenter is attached or the retry budget is spent.
+    public var nextPresenterAttachInSeconds: Double?
 
     public init(
         activeBackend: PresentationBackendKind,
@@ -62,7 +71,9 @@ public struct RendererHealthSnapshot: Equatable, Sendable {
         activeBackendDisplayName: String?,
         lastScenePaintMetrics: ScenePaintMetrics = ScenePaintMetrics(),
         lastPresentationFailureKind: PresentationFailureKind? = nil,
-        isPresentationOccluded: Bool = false
+        isPresentationOccluded: Bool = false,
+        isPresenterUnavailable: Bool = false,
+        nextPresenterAttachInSeconds: Double? = nil
     ) {
         self.activeBackend = activeBackend
         self.displayScale = displayScale
@@ -75,5 +86,7 @@ public struct RendererHealthSnapshot: Equatable, Sendable {
         self.lastScenePaintMetrics = lastScenePaintMetrics
         self.lastPresentationFailureKind = lastPresentationFailureKind
         self.isPresentationOccluded = isPresentationOccluded
+        self.isPresenterUnavailable = isPresenterUnavailable
+        self.nextPresenterAttachInSeconds = nextPresenterAttachInSeconds
     }
 }

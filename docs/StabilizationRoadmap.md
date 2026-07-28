@@ -522,7 +522,8 @@ downgrade.
 | Batch `resize` throws | Downgrade at the new size; `.batchResizeFailure` |
 | After downgrade, `.standard` policy | Retry batch attach with exponential backoff (5s → 60s cap); success restores scene (`.batchBackendRecovered`) |
 | After downgrade, `.disabled` policy | One-way pin: batch never invoked again this session |
-| Frame backend itself throws | Log via `report`; host session stays alive |
+| Frame backend itself throws | Log (rate-limited per failure signature); host session stays alive |
+| Neither backend can attach | Bounded attach retry (5 attempts, 0.5s → 8s) on a 250 ms timer, then terminal `.presenterUnavailable`: the host stops requesting frames and `RendererHealthSnapshot.isPresenterUnavailable` reports it |
 
 Apps may force: `SWIFT_WINDOWSUI_FRAME_DEBUG=1` (pins frame from startup),
 `recoveryPolicy: .disabled`, and observability via `rendererHealthSnapshot`.

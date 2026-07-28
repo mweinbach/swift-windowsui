@@ -27,6 +27,58 @@ public protocol RenderBackendFactory {
     /// Create a batch/scene-path renderer, if supported.
     /// Returns `nil` when the factory does not support batch rendering.
     func makeBatchRenderBackend() -> (any BatchRenderBackend)?
+
+    /// Whether this machine can actually run the factory's backends, asked
+    /// *before* a window exists to attach one to.
+    ///
+    /// Without this, a machine where device creation fails — no hardware
+    /// adapter, a driver mid-upgrade, a session that cannot reach the GPU —
+    /// only discovers the problem at `attach`, by which point the window is
+    /// already on screen with nothing in it. A composition root that asks
+    /// first can pick a different factory instead.
+    func probeAvailability() -> RenderBackendAvailability
+}
+
+/// What a `RenderBackendFactory` reports about the machine it was asked on.
+public enum RenderBackendAvailability: Equatable, Sendable {
+    /// The factory's backends can be created as intended.
+    case available
+    /// The backends can be created, but only in a reduced configuration (a
+    /// software adapter, a lower feature level). Usable; callers may still
+    /// prefer another factory on performance grounds.
+    case degraded(reason: String)
+    /// No backend of this kind can be created on this machine right now.
+    case unavailable(reason: String)
+
+    /// Whether a window attached to this factory's backends can present at
+    /// all. `degraded` still can — slowly — and is preferred over a window
+    /// that shows nothing.
+    public var canPresent: Bool {
+        switch self {
+        case .available, .degraded:
+            return true
+        case .unavailable:
+            return false
+        }
+    }
+
+    /// Explanation for the reduced or missing capability, for diagnostics.
+    public var reason: String? {
+        switch self {
+        case .available:
+            return nil
+        case .degraded(let reason), .unavailable(let reason):
+            return reason
+        }
+    }
+}
+
+extension RenderBackendFactory {
+    /// Factories whose backends own no platform device — the CPU reference
+    /// path, test fakes — cannot fail this probe.
+    public func probeAvailability() -> RenderBackendAvailability {
+        .available
+    }
 }
 
 // MARK: - CPU Reference Factory

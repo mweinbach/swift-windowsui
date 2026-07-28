@@ -82,6 +82,17 @@ final class WinSwiftUIWindowCoordinator {
     private(set) var windows: [ManagedWindow] = []
     private var isTerminated = false
 
+    /// Hosts whose window has closed but whose deallocation is deferred.
+    ///
+    /// `windowDidClose` runs inside the wndproc frame that is handling
+    /// `WM_DESTROY`: dropping the last strong reference there deallocates the
+    /// host — and with it the runtime, the UIA bridge and both render
+    /// backends — while Windows is still delivering messages to the window
+    /// that owns them. The bookkeeping (and the last-window quit policy) stays
+    /// immediate; only the release is held over until the next close, the next
+    /// open, or the next main-actor turn, whichever comes first.
+    private var hostsPendingRelease: [WinSwiftUIWindowHost] = []
+
     var windowCount: Int {
         windows.count
     }
@@ -221,6 +232,7 @@ final class WinSwiftUIWindowCoordinator {
         presentedValue: AnyHashable?,
         isPrimary: Bool
     ) throws -> WinSwiftUIWindowHost {
+        releaseClosedHosts()
         let host = hostFactory(configuration, isPrimary)
         host.windowEnvironment = WindowSceneEnvironment(
             openWindow: OpenWindowAction(payloadHandler: { [weak self] payload in
@@ -248,10 +260,24 @@ final class WinSwiftUIWindowCoordinator {
     }
 
     private func windowDidClose(_ host: WinSwiftUIWindowHost) {
+        releaseClosedHosts()
         windows.removeAll { $0.host === host }
+        // Outlive the wndproc frame this is running inside. The message loop
+        // does not drain the main-actor executor, so the deferred task is a
+        // best-effort drain and not the only one: the next close or open
+        // releases it regardless.
+        hostsPendingRelease.append(host)
+        Task { @MainActor [weak self] in
+            self?.releaseClosedHosts()
+        }
+
         if windows.isEmpty, !isTerminated {
             isTerminated = true
             hooks.terminateMessageLoop()
         }
+    }
+
+    private func releaseClosedHosts() {
+        hostsPendingRelease.removeAll()
     }
 }

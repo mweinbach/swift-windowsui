@@ -581,7 +581,10 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         self.targetPixelSize = surface.pixelSize
         self.hwnd = hwnd
 
-        try createDeviceIfNeeded()
+        // Hardware first, then WARP: a machine with no usable hardware adapter
+        // can still present through the software rasterizer, and a slow window
+        // beats the blank one a hard failure here produces.
+        try createDeviceIfNeeded(driverTypes: [D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP])
         try createFactoryIfNeeded()
         try createPipelineIfNeeded()
         try createSwapChain(size: surface.pixelSize)
@@ -1395,6 +1398,22 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             )
         }
         try throwIfFailed(hr, operation: "IDXGIFactory2.CreateSwapChainForHwnd")
+
+        // Same contract as the frame backend: this stack handles its own
+        // keyboard input, so DXGI must not install its default Alt+Enter
+        // mode-switch and Print Screen hooks on the window it now presents to.
+        let associationHR = dxgiFactory.pointee.lpVtbl.pointee.MakeWindowAssociation(
+            dxgiFactory,
+            hwnd,
+            UINT(DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_PRINT_SCREEN)
+        )
+        if associationHR < 0 {
+            renderLog(
+                "[D3D11BatchRenderer] IDXGIFactory2.MakeWindowAssociation failed with "
+                    + "0x\(String(UInt32(bitPattern: associationHR), radix: 16)); "
+                    + "DXGI keeps its default Alt+Enter / Print Screen handling for this window."
+            )
+        }
     }
 
     private func createRenderTargetView() throws {

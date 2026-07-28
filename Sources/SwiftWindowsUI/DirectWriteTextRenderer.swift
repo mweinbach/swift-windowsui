@@ -30,8 +30,23 @@ enum DirectWriteTextRenderer {
         clipRect: Rect?,
         into commands: inout [RenderCommand]
     ) -> Bool {
-        guard let system = DirectWriteSystem.shared,
-            let bitmap = system.rasterize(text, in: rect.size, style: style, scaleFactor: scaleFactor)
+        guard let system = DirectWriteSystem.shared else {
+            return false
+        }
+
+        // A collapsed layout frame (height or width smaller than the text's
+        // natural extent) must not shrink the pre-rasterized bitmap: the
+        // scene painter draws text overflowing such frames from the frame
+        // origin, so the frame path rasterizes at least the measured size to
+        // keep the text readable.
+        let measured = system.measure(
+            text,
+            style: style,
+            scaleFactor: scaleFactor,
+            maxWidth: rect.size.width.isFinite ? rect.size.width : nil
+        )
+        let rasterSize = framePathTextRasterSize(frameSize: rect.size, measured: measured, style: style)
+        guard let bitmap = system.rasterize(text, in: rasterSize, style: style, scaleFactor: scaleFactor)
         else {
             return false
         }
@@ -39,7 +54,7 @@ enum DirectWriteTextRenderer {
         commands.append(
             .drawBitmap(
                 DrawBitmapCommand(
-                    rect: rect,
+                    rect: Rect(origin: rect.origin, size: rasterSize),
                     bitmap: bitmap,
                     opacity: 1.0,
                     clipRect: clipRect

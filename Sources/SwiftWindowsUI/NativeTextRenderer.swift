@@ -262,14 +262,23 @@ enum GDIRasterTextRenderer {
         clipRect: Rect?,
         into commands: inout [RenderCommand]
     ) -> Bool {
-        guard let bitmap = rasterize(text, in: rect.size, style: style, scaleFactor: scaleFactor) else {
+        // Match DirectWriteTextRenderer: a collapsed layout frame must not
+        // shrink the pre-rasterized text bitmap (see framePathTextRasterSize).
+        let measured = measure(
+            text,
+            style: style,
+            scaleFactor: scaleFactor,
+            maxWidth: rect.size.width.isFinite ? rect.size.width : nil
+        )
+        let rasterSize = framePathTextRasterSize(frameSize: rect.size, measured: measured, style: style)
+        guard let bitmap = rasterize(text, in: rasterSize, style: style, scaleFactor: scaleFactor) else {
             return false
         }
 
         commands.append(
             .drawBitmap(
                 DrawBitmapCommand(
-                    rect: rect,
+                    rect: Rect(origin: rect.origin, size: rasterSize),
                     bitmap: bitmap,
                     opacity: 1.0,
                     clipRect: clipRect
@@ -507,6 +516,36 @@ private func contentWidthLimit(for maxWidth: Double?, style: PixelTextStyle) -> 
     }
 
     return max(0, maxWidth - style.insets.leading - style.insets.trailing)
+}
+/// Expands a frame-path text node's draw size to at least the text's measured
+/// natural size. A collapsed layout frame (height or width smaller than the
+/// text's natural extent) must not shrink the pre-rasterized text bitmap into
+/// an unreadable sliver: the scene painter draws text overflowing such frames
+/// anchored at the frame origin, so frame-path text rasterizes at the measured
+/// size and draws from the same origin to match.
+///
+/// Per-side insets are capped at `max(frame, content)` on their axis before
+/// bounding the expansion: icon labels carry sentinel suppression insets of
+/// 1,000,000pt per side (`iconTextSuppressionInsets`), and taking the raw
+/// measured size literally would try to rasterize multi-million-pixel bitmaps
+/// (E_INVALIDARG at texture upload). A hard ceiling keeps every raster within
+/// backend texture limits.
+func framePathTextRasterSize(frameSize: Size, measured: Size?, style: PixelTextStyle) -> Size {
+    guard let measured else {
+        return frameSize
+    }
+
+    let maxRasterExtent = 4096.0
+    let contentWidth = max(0, measured.width - style.insets.leading - style.insets.trailing)
+    let contentHeight = max(0, measured.height - style.insets.top - style.insets.bottom)
+    let horizontalInsetCap = max(frameSize.width, contentWidth)
+    let verticalInsetCap = max(frameSize.height, contentHeight)
+    let horizontalInsets = min(style.insets.leading, horizontalInsetCap) + min(style.insets.trailing, horizontalInsetCap)
+    let verticalInsets = min(style.insets.top, verticalInsetCap) + min(style.insets.bottom, verticalInsetCap)
+    return Size(
+        width: max(frameSize.width, min(measured.width, horizontalInsets + contentWidth, maxRasterExtent)),
+        height: max(frameSize.height, min(measured.height, verticalInsets + contentHeight, maxRasterExtent))
+    )
 }
 private func measureRectWidth(maxWidth: Double?, style: PixelTextStyle, scaleFactor: Double) -> Int32 {
     let contentWidth = contentWidthLimit(for: maxWidth, style: style) ?? 4096

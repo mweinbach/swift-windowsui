@@ -258,12 +258,17 @@ final class D3D11BackdropBlurEngine {
             maxX = min(maxX, Double(quad.clipX + quad.clipWidth))
             maxY = min(maxY, Double(quad.clipY + quad.clipHeight))
         }
-        let x0 = max(0, min(Int(floor(minX)), surfaceW))
-        let y0 = max(0, min(Int(floor(minY)), surfaceH))
+        // Saturating conversions, and they happen *before* the clamp:
+        // `Int(floor(.nan))` traps, so a non-finite quad rect would kill
+        // the process on the way to being clamped into the surface.
+        // NaN converts to 0, which collapses the region and the caller
+        // no-ops.
+        let x0 = max(0, min(GPUISceneValue.int(floor(minX)), surfaceW))
+        let y0 = max(0, min(GPUISceneValue.int(floor(minY)), surfaceH))
         // `max(x0, …)`: a clip that misses the quad entirely leaves
         // maxX < minX, and callers read the result as a half-open range.
-        let x1 = max(x0, min(Int(ceil(maxX)), surfaceW))
-        let y1 = max(y0, min(Int(ceil(maxY)), surfaceH))
+        let x1 = max(x0, min(GPUISceneValue.int(ceil(maxX)), surfaceW))
+        let y1 = max(y0, min(GPUISceneValue.int(ceil(maxY)), surfaceH))
         return (x0, y0, x1, y1)
     }
 
@@ -290,8 +295,10 @@ final class D3D11BackdropBlurEngine {
         surfaceHeight: Int,
         quad: QuadPrimitive
     ) throws {
-        // Same truncation as the CPU rasterizer (Int(quad.blurRadius)).
-        let radius = min(Int(quad.blurRadius), Self.maxBlurRadius)
+        // Same truncation as the CPU rasterizer, and saturating for the
+        // same reason it is there: a non-finite radius must round to no
+        // blur, not trap.
+        let radius = min(GPUISceneValue.int(quad.blurRadius), Self.maxBlurRadius)
         guard radius > 0 else { return }
 
         let surfaceW = max(surfaceWidth, 1)

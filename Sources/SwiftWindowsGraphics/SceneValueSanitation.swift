@@ -1,0 +1,550 @@
+import Foundation
+import SwiftWindowsCore
+
+// MARK: - Limits
+
+/// Magnitude and structural limits the scene contract enforces at the
+/// `GPUIScene.add*` boundary.
+///
+/// Everything downstream of `add*` — both render backends, the CPU
+/// rasterizer, the path-texture cache — assumes primitive fields are
+/// finite and small enough that a `Float → Int` conversion is safe.
+/// Nothing upstream guarantees it: `.blur(radius: a / b)` with `b == 0`,
+/// a frame that collapses to NaN during layout, or an animation that
+/// interpolates through infinity all reach `add*` from ordinary app
+/// code. A Swift conversion trap is a *process kill*, not a thrown
+/// error, so it is the one failure class the host's fallback policy
+/// cannot degrade — hence sanitation here, once, where both backends
+/// inherit it.
+public enum GPUISceneLimits {
+    /// Largest absolute pixel coordinate (position, size, corner radius)
+    /// a primitive may carry. Far beyond any real surface, small enough
+    /// that every downstream `Int` conversion and area computation stays
+    /// in range.
+    public static let maxCoordinate: Float = 1_000_000
+
+    /// Largest post-process (backdrop) blur radius. Matches the D3D11
+    /// backdrop blur engine's own clamp, so clamping here makes the two
+    /// backends agree instead of diverging above the cap — and bounds the
+    /// CPU rasterizer's O(w·h·r) separable blur, which had no cap at all.
+    public static let maxBlurRadius: Float = 128
+
+    /// Largest shadow blur radius. Shadows only inflate a rect, so the
+    /// bound is looser than the backdrop-blur one.
+    public static let maxShadowBlurRadius: Float = 1024
+
+    /// Largest absolute texture-space coordinate (atlas UVs, image UVs).
+    /// Generous enough for tiling, tight enough that `uv * textureSize`
+    /// cannot overflow an `Int` conversion.
+    public static let maxTextureCoordinate: Float = 64
+
+    /// Largest number of path elements a single `PathPrimitive` may
+    /// carry. The scanline fill is O(segments) per row, so an unbounded
+    /// element list is an unbounded frame.
+    public static let maxPathElements = 65_536
+
+    /// Largest number of layers a scene may hold. `ensureLayer` grew the
+    /// array to whatever index it was handed, so one bad (or stale
+    /// replayed) index was an unbounded allocation loop.
+    public static let maxLayers = 256
+
+    /// Largest CPU-rasterizer surface dimension. Matches the D3D11
+    /// feature-level 11 maximum texture dimension; past it the backing
+    /// allocation is the failure, not the drawing.
+    public static let maxSurfaceDimension = 16_384
+
+    /// Largest number of flattening recursions a single curve may take.
+    /// The flatness test compares against NaN forever when a control
+    /// point is non-finite, so the depth cap — not the flatness test —
+    /// is what guarantees termination.
+    public static let maxCurveFlatteningDepth = 24
+
+    /// Largest number of line segments a single arc may flatten into.
+    public static let maxArcSegments = 4_096
+}
+
+// MARK: - Saturating conversions
+
+/// Conversions and clamps that saturate where Swift traps.
+///
+/// `Int(_: Float)` is a fatal error on NaN and on anything outside
+/// `Int`'s range. Every scene-derived conversion in the stack goes
+/// through `GPUISceneValue.int` instead, so a malformed scene renders
+/// wrong rather than killing the process.
+public enum GPUISceneValue {
+    /// Saturation bound for `int(_:)`. Every consumer is a pixel index, a
+    /// kernel radius or a byte offset, all far inside `Int32`.
+    public static let intBound = Int(Int32.max)
+
+    /// Truncating `Double → Int` that saturates instead of trapping.
+    /// NaN maps to 0; ±infinity and out-of-range magnitudes map to
+    /// ∓`intBound`.
+    @inline(__always)
+    public static func int(_ value: Double) -> Int {
+        guard value.isFinite else {
+            if value.isNaN { return 0 }
+            return value < 0 ? -intBound : intBound
+        }
+        if value >= Double(intBound) { return intBound }
+        if value <= Double(-intBound) { return -intBound }
+        return Int(value)
+    }
+
+    /// Truncating `Float → Int` that saturates instead of trapping.
+    @inline(__always)
+    public static func int(_ value: Float) -> Int {
+        int(Double(value))
+    }
+
+    /// Clamps `value` into `[-limit, limit]`, mapping NaN to 0. Finite
+    /// in-range values are returned bit-identical (including `-0.0`), so
+    /// sanitation never perturbs a well-formed scene.
+    @inline(__always)
+    public static func clamped(_ value: Float, to limit: Float) -> Float {
+        guard value.isFinite else {
+            if value.isNaN { return 0 }
+            return value < 0 ? -limit : limit
+        }
+        if value > limit { return limit }
+        if value < -limit { return -limit }
+        return value
+    }
+
+    /// Clamps `value` into `[lower, upper]`, mapping NaN to `lower`.
+    @inline(__always)
+    public static func clamped(_ value: Float, lower: Float, upper: Float) -> Float {
+        guard value.isFinite else {
+            if value.isNaN { return lower }
+            return value < 0 ? lower : upper
+        }
+        if value > upper { return upper }
+        if value < lower { return lower }
+        return value
+    }
+
+    /// Same as `clamped(_:to:)` for `Double` path geometry.
+    @inline(__always)
+    public static func clamped(_ value: Double, to limit: Double) -> Double {
+        guard value.isFinite else {
+            if value.isNaN { return 0 }
+            return value < 0 ? -limit : limit
+        }
+        if value > limit { return limit }
+        if value < -limit { return -limit }
+        return value
+    }
+}
+
+// MARK: - Primitive sanitation
+
+/// The scene contract's sanitation pass. Each entry point returns a
+/// primitive whose fields are finite and in range, or `nil` when the
+/// primitive cannot be placed at all (non-finite geometry, or a clip
+/// whose extent is unknowable — in which case dropping it is the only
+/// answer that cannot let content escape its clip).
+///
+/// Sanitation is an identity transform for well-formed primitives: every
+/// clamp returns finite in-range inputs unchanged, so accepted scenes
+/// stay byte-identical.
+public enum GPUISceneSanitizer {
+    private static let coordinateLimit = GPUISceneLimits.maxCoordinate
+
+    /// Clip fields are all-or-nothing: a non-finite clip extent means the
+    /// visible region is unknown, and rendering unclipped would paint the
+    /// subtree across the whole window.
+    @inline(__always)
+    private static func clipIsRepresentable(_ x: Float, _ y: Float, _ width: Float, _ height: Float) -> Bool {
+        x.isFinite && y.isFinite && width.isFinite && height.isFinite
+    }
+
+    public static func sanitized(_ quad: QuadPrimitive) -> QuadPrimitive? {
+        guard quad.x.isFinite, quad.y.isFinite, quad.width.isFinite, quad.height.isFinite else {
+            return nil
+        }
+        guard clipIsRepresentable(quad.clipX, quad.clipY, quad.clipWidth, quad.clipHeight) else {
+            return nil
+        }
+
+        var result = quad
+        result.x = GPUISceneValue.clamped(quad.x, to: coordinateLimit)
+        result.y = GPUISceneValue.clamped(quad.y, to: coordinateLimit)
+        result.width = GPUISceneValue.clamped(quad.width, to: coordinateLimit)
+        result.height = GPUISceneValue.clamped(quad.height, to: coordinateLimit)
+        result.cornerRadius = GPUISceneValue.clamped(quad.cornerRadius, lower: 0, upper: coordinateLimit)
+        result.cornerRadiusTopLeft = GPUISceneValue.clamped(quad.cornerRadiusTopLeft, lower: 0, upper: coordinateLimit)
+        result.cornerRadiusTopRight = GPUISceneValue.clamped(
+            quad.cornerRadiusTopRight, lower: 0, upper: coordinateLimit)
+        result.cornerRadiusBottomRight = GPUISceneValue.clamped(
+            quad.cornerRadiusBottomRight, lower: 0, upper: coordinateLimit)
+        result.cornerRadiusBottomLeft = GPUISceneValue.clamped(
+            quad.cornerRadiusBottomLeft, lower: 0, upper: coordinateLimit)
+        result.clipX = GPUISceneValue.clamped(quad.clipX, to: coordinateLimit)
+        result.clipY = GPUISceneValue.clamped(quad.clipY, to: coordinateLimit)
+        result.clipWidth = GPUISceneValue.clamped(quad.clipWidth, to: coordinateLimit)
+        result.clipHeight = GPUISceneValue.clamped(quad.clipHeight, to: coordinateLimit)
+        result.clipCornerRadius = GPUISceneValue.clamped(quad.clipCornerRadius, lower: 0, upper: coordinateLimit)
+        result.startR = GPUISceneValue.clamped(quad.startR, lower: 0, upper: 1)
+        result.startG = GPUISceneValue.clamped(quad.startG, lower: 0, upper: 1)
+        result.startB = GPUISceneValue.clamped(quad.startB, lower: 0, upper: 1)
+        result.startA = GPUISceneValue.clamped(quad.startA, lower: 0, upper: 1)
+        result.endR = GPUISceneValue.clamped(quad.endR, lower: 0, upper: 1)
+        result.endG = GPUISceneValue.clamped(quad.endG, lower: 0, upper: 1)
+        result.endB = GPUISceneValue.clamped(quad.endB, lower: 0, upper: 1)
+        result.endA = GPUISceneValue.clamped(quad.endA, lower: 0, upper: 1)
+        result.gradientAxis = GPUISceneValue.clamped(quad.gradientAxis, lower: 0, upper: 1)
+        // Both backends switch on the truncated value; an out-of-range
+        // selector falls back to "none"/"normal" rather than indexing
+        // past the end of the effect or blend table.
+        result.effectType = GPUISceneValue.clamped(quad.effectType, lower: 0, upper: 8)
+        result.blendMode = GPUISceneValue.clamped(quad.blendMode, lower: 0, upper: 4)
+        result.effectIntensity = GPUISceneValue.clamped(quad.effectIntensity, to: coordinateLimit)
+        result.effectParam1 = GPUISceneValue.clamped(quad.effectParam1, to: coordinateLimit)
+        result.effectParam2 = GPUISceneValue.clamped(quad.effectParam2, to: coordinateLimit)
+        result.effectParam3 = GPUISceneValue.clamped(quad.effectParam3, to: coordinateLimit)
+        result.effectParam4 = GPUISceneValue.clamped(quad.effectParam4, to: coordinateLimit)
+        result.blurRadius = GPUISceneValue.clamped(quad.blurRadius, lower: 0, upper: GPUISceneLimits.maxBlurRadius)
+        result.blurOpaque = GPUISceneValue.clamped(quad.blurOpaque, lower: 0, upper: 1)
+        // A non-finite rotation would make the rotated footprint (and so
+        // the blur region and the scan bounds) NaN; unrotated is the
+        // degradation both backends already handle.
+        result.rotationRadians = quad.rotationRadians.isFinite ? quad.rotationRadians : 0
+        return result
+    }
+
+    public static func sanitized(_ glyph: GlyphPrimitive) -> GlyphPrimitive? {
+        guard glyph.screenX.isFinite, glyph.screenY.isFinite, glyph.screenW.isFinite, glyph.screenH.isFinite else {
+            return nil
+        }
+        guard clipIsRepresentable(glyph.clipX, glyph.clipY, glyph.clipWidth, glyph.clipHeight) else {
+            return nil
+        }
+
+        var result = glyph
+        result.screenX = GPUISceneValue.clamped(glyph.screenX, to: coordinateLimit)
+        result.screenY = GPUISceneValue.clamped(glyph.screenY, to: coordinateLimit)
+        result.screenW = GPUISceneValue.clamped(glyph.screenW, to: coordinateLimit)
+        result.screenH = GPUISceneValue.clamped(glyph.screenH, to: coordinateLimit)
+        result.clipX = GPUISceneValue.clamped(glyph.clipX, to: coordinateLimit)
+        result.clipY = GPUISceneValue.clamped(glyph.clipY, to: coordinateLimit)
+        result.clipWidth = GPUISceneValue.clamped(glyph.clipWidth, to: coordinateLimit)
+        result.clipHeight = GPUISceneValue.clamped(glyph.clipHeight, to: coordinateLimit)
+        result.atlasU0 = GPUISceneValue.clamped(glyph.atlasU0, to: GPUISceneLimits.maxTextureCoordinate)
+        result.atlasV0 = GPUISceneValue.clamped(glyph.atlasV0, to: GPUISceneLimits.maxTextureCoordinate)
+        result.atlasU1 = GPUISceneValue.clamped(glyph.atlasU1, to: GPUISceneLimits.maxTextureCoordinate)
+        result.atlasV1 = GPUISceneValue.clamped(glyph.atlasV1, to: GPUISceneLimits.maxTextureCoordinate)
+        result.colorR = GPUISceneValue.clamped(glyph.colorR, lower: 0, upper: 1)
+        result.colorG = GPUISceneValue.clamped(glyph.colorG, lower: 0, upper: 1)
+        result.colorB = GPUISceneValue.clamped(glyph.colorB, lower: 0, upper: 1)
+        result.colorA = GPUISceneValue.clamped(glyph.colorA, lower: 0, upper: 1)
+        return result
+    }
+
+    public static func sanitized(_ image: ImagePrimitive) -> ImagePrimitive? {
+        guard image.screenX.isFinite, image.screenY.isFinite, image.screenW.isFinite, image.screenH.isFinite else {
+            return nil
+        }
+        guard clipIsRepresentable(image.clipX, image.clipY, image.clipWidth, image.clipHeight) else {
+            return nil
+        }
+
+        var result = image
+        result.screenX = GPUISceneValue.clamped(image.screenX, to: coordinateLimit)
+        result.screenY = GPUISceneValue.clamped(image.screenY, to: coordinateLimit)
+        result.screenW = GPUISceneValue.clamped(image.screenW, to: coordinateLimit)
+        result.screenH = GPUISceneValue.clamped(image.screenH, to: coordinateLimit)
+        result.clipX = GPUISceneValue.clamped(image.clipX, to: coordinateLimit)
+        result.clipY = GPUISceneValue.clamped(image.clipY, to: coordinateLimit)
+        result.clipWidth = GPUISceneValue.clamped(image.clipWidth, to: coordinateLimit)
+        result.clipHeight = GPUISceneValue.clamped(image.clipHeight, to: coordinateLimit)
+        result.uvX = GPUISceneValue.clamped(image.uvX, to: GPUISceneLimits.maxTextureCoordinate)
+        result.uvY = GPUISceneValue.clamped(image.uvY, to: GPUISceneLimits.maxTextureCoordinate)
+        result.uvW = GPUISceneValue.clamped(image.uvW, to: GPUISceneLimits.maxTextureCoordinate)
+        result.uvH = GPUISceneValue.clamped(image.uvH, to: GPUISceneLimits.maxTextureCoordinate)
+        result.opacity = GPUISceneValue.clamped(image.opacity, lower: 0, upper: 1)
+        return result
+    }
+
+    public static func sanitized(_ shadow: ShadowPrimitive) -> ShadowPrimitive? {
+        guard shadow.x.isFinite, shadow.y.isFinite, shadow.width.isFinite, shadow.height.isFinite else {
+            return nil
+        }
+        guard shadow.offsetX.isFinite, shadow.offsetY.isFinite else {
+            return nil
+        }
+        guard clipIsRepresentable(shadow.clipX, shadow.clipY, shadow.clipWidth, shadow.clipHeight) else {
+            return nil
+        }
+
+        var result = shadow
+        result.x = GPUISceneValue.clamped(shadow.x, to: coordinateLimit)
+        result.y = GPUISceneValue.clamped(shadow.y, to: coordinateLimit)
+        result.width = GPUISceneValue.clamped(shadow.width, to: coordinateLimit)
+        result.height = GPUISceneValue.clamped(shadow.height, to: coordinateLimit)
+        result.offsetX = GPUISceneValue.clamped(shadow.offsetX, to: coordinateLimit)
+        result.offsetY = GPUISceneValue.clamped(shadow.offsetY, to: coordinateLimit)
+        result.cornerRadius = GPUISceneValue.clamped(shadow.cornerRadius, lower: 0, upper: coordinateLimit)
+        result.blurRadius = GPUISceneValue.clamped(
+            shadow.blurRadius, lower: 0, upper: GPUISceneLimits.maxShadowBlurRadius)
+        result.clipX = GPUISceneValue.clamped(shadow.clipX, to: coordinateLimit)
+        result.clipY = GPUISceneValue.clamped(shadow.clipY, to: coordinateLimit)
+        result.clipWidth = GPUISceneValue.clamped(shadow.clipWidth, to: coordinateLimit)
+        result.clipHeight = GPUISceneValue.clamped(shadow.clipHeight, to: coordinateLimit)
+        result.colorR = GPUISceneValue.clamped(shadow.colorR, lower: 0, upper: 1)
+        result.colorG = GPUISceneValue.clamped(shadow.colorG, lower: 0, upper: 1)
+        result.colorB = GPUISceneValue.clamped(shadow.colorB, lower: 0, upper: 1)
+        result.colorA = GPUISceneValue.clamped(shadow.colorA, lower: 0, upper: 1)
+        return result
+    }
+
+    public static func sanitized(_ path: PathPrimitive) -> PathPrimitive? {
+        guard path.bounds.origin.x.isFinite, path.bounds.origin.y.isFinite,
+            path.bounds.size.width.isFinite, path.bounds.size.height.isFinite
+        else {
+            return nil
+        }
+        if let clip = path.clipBounds {
+            guard clip.origin.x.isFinite, clip.origin.y.isFinite,
+                clip.size.width.isFinite, clip.size.height.isFinite
+            else {
+                return nil
+            }
+        }
+        guard path.elements.count <= GPUISceneLimits.maxPathElements else {
+            return nil
+        }
+
+        var result = path
+        result.bounds = clampedRect(path.bounds)
+        result.clipBounds = path.clipBounds.map(clampedRect)
+        result.lineWidth = GPUISceneValue.clamped(
+            path.lineWidth.isFinite ? max(0, path.lineWidth) : 0, to: Double(coordinateLimit))
+        result.elements = clampedElements(path.elements)
+        return result
+    }
+
+    private static func clampedRect(_ rect: Rect) -> Rect {
+        let limit = Double(coordinateLimit)
+        return Rect(
+            x: GPUISceneValue.clamped(rect.origin.x, to: limit),
+            y: GPUISceneValue.clamped(rect.origin.y, to: limit),
+            width: GPUISceneValue.clamped(rect.size.width, to: limit),
+            height: GPUISceneValue.clamped(rect.size.height, to: limit)
+        )
+    }
+
+    /// Element coordinates are clamped rather than rejected: a single bad
+    /// control point in a long chart path should degrade that vertex, not
+    /// erase the series. `bounds` already decides where the path is
+    /// allowed to paint, so a clamped vertex cannot draw outside it.
+    private static func clampedElements(_ elements: [PathElement]) -> [PathElement] {
+        let limit = Double(coordinateLimit)
+        guard elements.contains(where: { !elementIsRepresentable($0, limit: limit) }) else {
+            return elements
+        }
+
+        return elements.map { element in
+            switch element {
+            case .moveTo(let point):
+                return .moveTo(clampedPoint(point, limit: limit))
+            case .lineTo(let point):
+                return .lineTo(clampedPoint(point, limit: limit))
+            case .quadraticCurveTo(let control, let end):
+                return .quadraticCurveTo(
+                    control: clampedPoint(control, limit: limit),
+                    end: clampedPoint(end, limit: limit)
+                )
+            case .cubicCurveTo(let control1, let control2, let end):
+                return .cubicCurveTo(
+                    control1: clampedPoint(control1, limit: limit),
+                    control2: clampedPoint(control2, limit: limit),
+                    end: clampedPoint(end, limit: limit)
+                )
+            case .arc(let center, let radius, let startAngle, let endAngle, let clockwise):
+                return .arc(
+                    center: clampedPoint(center, limit: limit),
+                    radius: GPUISceneValue.clamped(radius.isFinite ? max(0, radius) : 0, to: limit),
+                    startAngle: GPUISceneValue.clamped(startAngle, to: .pi * 1_024),
+                    endAngle: GPUISceneValue.clamped(endAngle, to: .pi * 1_024),
+                    clockwise: clockwise
+                )
+            case .close:
+                return .close
+            }
+        }
+    }
+
+    private static func elementIsRepresentable(_ element: PathElement, limit: Double) -> Bool {
+        @inline(__always)
+        func ok(_ value: Double) -> Bool { value.isFinite && value >= -limit && value <= limit }
+        @inline(__always)
+        func ok(_ point: Point) -> Bool { ok(point.x) && ok(point.y) }
+
+        switch element {
+        case .moveTo(let point), .lineTo(let point):
+            return ok(point)
+        case .quadraticCurveTo(let control, let end):
+            return ok(control) && ok(end)
+        case .cubicCurveTo(let control1, let control2, let end):
+            return ok(control1) && ok(control2) && ok(end)
+        case .arc(let center, let radius, let startAngle, let endAngle, _):
+            return ok(center) && radius >= 0 && ok(radius) && startAngle.isFinite && endAngle.isFinite
+                && abs(startAngle) <= .pi * 1_024 && abs(endAngle) <= .pi * 1_024
+        case .close:
+            return true
+        }
+    }
+
+    private static func clampedPoint(_ point: Point, limit: Double) -> Point {
+        Point(
+            x: GPUISceneValue.clamped(point.x, to: limit),
+            y: GPUISceneValue.clamped(point.y, to: limit)
+        )
+    }
+}
+
+// MARK: - Structural validation
+
+/// A structural violation of the scene contract found by
+/// `GPUIScene.validate()`.
+///
+/// Field-level sanitation happens at `add*`; this covers what direct
+/// mutation of the scene's `public var` surface (or a hand-built
+/// `GPUILayer`) can still break — the invariants a backend indexes
+/// against and would otherwise *trap* on.
+public struct SceneDefect: Equatable, Sendable, CustomStringConvertible {
+    public enum Kind: Equatable, Sendable {
+        /// The scene holds more layers than the contract allows.
+        case layerCountExceedsLimit(count: Int, limit: Int)
+        /// A paint operation names a range that is not inside its family
+        /// array — the shape `makeRenderPlan` used to index unchecked.
+        case paintOperationOutOfRange(
+            layerIndex: Int,
+            operationIndex: Int,
+            kind: GPUIPaintPrimitiveKind,
+            startIndex: Int,
+            count: Int,
+            familyCount: Int
+        )
+        /// A glyph atlas snapshot's declared size does not match (or
+        /// overruns) its pixel buffer.
+        case glyphAtlasBufferMismatch(width: Int32, height: Int32, byteCount: Int, requiredByteCount: Int)
+    }
+
+    public var kind: Kind
+
+    public init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public var description: String {
+        switch kind {
+        case .layerCountExceedsLimit(let count, let limit):
+            return "Scene holds \(count) layers, above the contract limit of \(limit)."
+        case .paintOperationOutOfRange(
+            let layerIndex, let operationIndex, let kind, let startIndex, let count, let familyCount):
+            return
+                "Layer \(layerIndex) paint operation \(operationIndex) (\(kind)) covers "
+                + "\(startIndex)..<\(startIndex + count) of a \(familyCount)-element family."
+        case .glyphAtlasBufferMismatch(let width, let height, let byteCount, let requiredByteCount):
+            return "Glyph atlas is \(width)×\(height) but holds \(byteCount) bytes (needs \(requiredByteCount))."
+        }
+    }
+}
+
+extension GlyphAtlasSnapshot {
+    /// Byte count `width × height × 4` requires, or `nil` when the
+    /// declared dimensions are themselves invalid.
+    var requiredByteCount: Int? {
+        guard width > 0, height > 0 else { return nil }
+        return Int(width) * Int(height) * 4
+    }
+
+    /// The dirty region clamped into the atlas rect, or `nil` when there
+    /// is no usable sub-region and the consumer should upload (or read)
+    /// the whole atlas.
+    ///
+    /// The raw `dirtyRegion` is producer-supplied and unvalidated: a
+    /// negative origin traps at `UINT(_:)` on the D3D11 upload path and a
+    /// region past the atlas edge is a heap over-read. Consumers use this
+    /// instead of the stored property.
+    public var clampedDirtyRegion: GlyphAtlasRegion? {
+        guard let region = dirtyRegion, width > 0, height > 0 else { return nil }
+        let x0 = max(0, min(region.x, width))
+        let y0 = max(0, min(region.y, height))
+        let x1 = max(x0, min(region.x &+ max(0, region.width), width))
+        let y1 = max(y0, min(region.y &+ max(0, region.height), height))
+        guard x1 > x0, y1 > y0 else { return nil }
+        return GlyphAtlasRegion(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
+    }
+
+    var structuralDefect: SceneDefect? {
+        guard let requiredByteCount else {
+            return SceneDefect(
+                kind: .glyphAtlasBufferMismatch(
+                    width: width, height: height, byteCount: pixels.count, requiredByteCount: 0))
+        }
+        guard pixels.count >= requiredByteCount else {
+            return SceneDefect(
+                kind: .glyphAtlasBufferMismatch(
+                    width: width, height: height, byteCount: pixels.count, requiredByteCount: requiredByteCount))
+        }
+        return nil
+    }
+}
+
+extension GPUIScene {
+    /// Structural defects a backend would otherwise trap on.
+    ///
+    /// Cheap by construction — O(layers + paint operations), no
+    /// allocation until something is actually wrong — so backends call it
+    /// on every frame rather than only in debug builds. A trap cannot be
+    /// downgraded by the host's fallback policy; a thrown
+    /// `sceneContent` failure can.
+    public func validate() -> [SceneDefect] {
+        var defects: [SceneDefect] = []
+
+        if layers.count > GPUISceneLimits.maxLayers {
+            defects.append(
+                SceneDefect(kind: .layerCountExceedsLimit(count: layers.count, limit: GPUISceneLimits.maxLayers)))
+        }
+
+        for (layerIndex, layer) in layers.enumerated() {
+            for (operationIndex, operation) in layer.paintOperations.enumerated() {
+                let familyCount: Int
+                switch operation.kind {
+                case .shadow: familyCount = layer.shadows.count
+                case .quad: familyCount = layer.quads.count
+                case .glyph: familyCount = layer.glyphs.count
+                case .pixelGlyph: familyCount = layer.pixelGlyphs.count
+                case .image: familyCount = layer.images.count
+                case .path: familyCount = layer.paths.count
+                }
+
+                guard operation.count >= 0, operation.startIndex >= 0,
+                    operation.startIndex <= familyCount - operation.count
+                else {
+                    defects.append(
+                        SceneDefect(
+                            kind: .paintOperationOutOfRange(
+                                layerIndex: layerIndex,
+                                operationIndex: operationIndex,
+                                kind: operation.kind,
+                                startIndex: operation.startIndex,
+                                count: operation.count,
+                                familyCount: familyCount
+                            )))
+                    continue
+                }
+            }
+        }
+
+        if let defect = glyphAtlas?.structuralDefect {
+            defects.append(defect)
+        }
+        if let defect = pixelGlyphAtlas?.structuralDefect {
+            defects.append(defect)
+        }
+
+        return defects
+    }
+}

@@ -41,10 +41,18 @@ private func rotatedCorner(_ dx: Double, _ dy: Double, cosR: Double, sinR: Doubl
 
 public enum GPUIRawSceneRasterizer {
     public static func rasterize(_ scene: GPUIScene, size: IntSize) -> BitmapSurface {
-        let width = max(1, Int(size.width))
-        let height = max(1, Int(size.height))
+        // Clamped at both ends: the backing buffer is `width * height * 4`
+        // bytes and `bitmapSurface()` reports the stride as an `Int32`, so
+        // an absurd surface size is an allocation failure or an overflow
+        // trap rather than a picture.
+        let width = min(max(1, Int(size.width)), GPUISceneLimits.maxSurfaceDimension)
+        let height = min(max(1, Int(size.height)), GPUISceneLimits.maxSurfaceDimension)
         var target = RasterTarget(width: width, height: height, clearColor: scene.clearColor)
-        let imageBindings = Dictionary(uniqueKeysWithValues: scene.imageResources.map { ($0.textureID, $0.bitmap) })
+        // `uniquingKeysWith:` rather than `uniqueKeysWithValues:`: duplicate
+        // texture IDs are a producer bug, not a reason to trap the process.
+        // Last binding wins, matching `bindImageResource`'s overwrite.
+        let imageBindings = Dictionary(
+            scene.imageResources.map { ($0.textureID, $0.bitmap) }, uniquingKeysWith: { _, latest in latest })
 
         if scene.paintRecords.isEmpty {
             rasterizeLayerOperations(in: scene, target: &target, imageBindings: imageBindings)
@@ -67,13 +75,21 @@ public enum GPUIRawSceneRasterizer {
 
     /// Rasterize a single path primitive to a bitmap sized to its masked bounds.
     /// Returns `nil` if the path has empty bounds.
+    ///
+    /// Public and reachable with an unsanitized primitive — the D3D11
+    /// path-texture cache calls it directly — so the size derivation
+    /// saturates and clamps rather than trusting `bounds`.
     public static func rasterizePath(_ path: PathPrimitive) -> BitmapSurface? {
-        guard let maskedBounds = path.contentMaskedBounds, !maskedBounds.isEmpty else {
+        guard let path = GPUISceneSanitizer.sanitized(path),
+            let maskedBounds = path.contentMaskedBounds, !maskedBounds.isEmpty
+        else {
             return nil
         }
 
-        let width = max(1, Int(maskedBounds.width.rounded(.up)))
-        let height = max(1, Int(maskedBounds.height.rounded(.up)))
+        let width = min(
+            max(1, GPUISceneValue.int(maskedBounds.width.rounded(.up))), GPUISceneLimits.maxSurfaceDimension)
+        let height = min(
+            max(1, GPUISceneValue.int(maskedBounds.height.rounded(.up))), GPUISceneLimits.maxSurfaceDimension)
         let offset = Point(x: -maskedBounds.origin.x, y: -maskedBounds.origin.y)
         let translated = path.translated(by: offset)
 
@@ -236,6 +252,10 @@ private struct RasterTarget {
         let effectParam3 = quad.effectParam3
         let effectParam4 = quad.effectParam4
         let clipRadius = max(0, Double(quad.clipCornerRadius))
+        // Loop-invariant, and the conversion saturates: `Int(_: Float)`
+        // traps on a non-finite selector, and this used to run once per
+        // pixel.
+        let mode = BlendMode(rawValue: GPUISceneValue.int(quad.blendMode)) ?? .normal
         for y in bounds.y0..<bounds.y1 {
             for x in bounds.x0..<bounds.x1 {
                 let pixelCenterX = Double(x) + 0.5
@@ -272,12 +292,15 @@ private struct RasterTarget {
                 color = applyRasterColorEffect(
                     color, effectType: effectType, intensity: effectIntensity, param1: effectParam1,
                     param2: effectParam2, param3: effectParam3, param4: effectParam4)
-                let mode = BlendMode(rawValue: Int(quad.blendMode)) ?? .normal
                 blend(color, x: x, y: y, mode: mode)
             }
         }
 
-        let blurRadius = Int(quad.blurRadius)
+        // Capped like the GPU's backdrop blur (`BackdropBlurEngine`
+        // clamps at 128): the separable blur below is O(w·h·r) and
+        // allocates a `2r+1` kernel, so an uncapped radius is an
+        // unbounded frame even before the conversion trap.
+        let blurRadius = min(GPUISceneValue.int(quad.blurRadius), Int(GPUISceneLimits.maxBlurRadius))
         if blurRadius > 0 {
             applyBoxBlur(to: bounds, radius: blurRadius)
             if quad.blurOpaque > 0.5 {
@@ -355,9 +378,11 @@ private struct RasterTarget {
                 let tx = clamp((Double(x) + 0.5 - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1)
                 let ty = clamp((Double(y) + 0.5 - rect.minY) / max(rect.size.height, 1), lower: 0, upper: 1)
                 let sourceX = clamp(
-                    Int(((u0 + (u1 - u0) * tx) * Double(atlasWidth)).rounded(.down)), lower: 0, upper: atlasWidth - 1)
+                    GPUISceneValue.int(((u0 + (u1 - u0) * tx) * Double(atlasWidth)).rounded(.down)),
+                    lower: 0, upper: atlasWidth - 1)
                 let sourceY = clamp(
-                    Int(((v0 + (v1 - v0) * ty) * Double(atlasHeight)).rounded(.down)), lower: 0, upper: atlasHeight - 1)
+                    GPUISceneValue.int(((v0 + (v1 - v0) * ty) * Double(atlasHeight)).rounded(.down)),
+                    lower: 0, upper: atlasHeight - 1)
                 let offset = (sourceY * atlasWidth + sourceX) * 4
                 guard offset + 3 < atlas.pixels.count else {
                     continue
@@ -402,10 +427,10 @@ private struct RasterTarget {
                 let tx = clamp((Double(x) + 0.5 - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1)
                 let ty = clamp((Double(y) + 0.5 - rect.minY) / max(rect.size.height, 1), lower: 0, upper: 1)
                 let sourceX = clamp(
-                    Int((Double(image.uvX) + Double(image.uvW) * tx) * Double(sourceWidth)), lower: 0,
+                    GPUISceneValue.int((Double(image.uvX) + Double(image.uvW) * tx) * Double(sourceWidth)), lower: 0,
                     upper: sourceWidth - 1)
                 let sourceY = clamp(
-                    Int((Double(image.uvY) + Double(image.uvH) * ty) * Double(sourceHeight)), lower: 0,
+                    GPUISceneValue.int((Double(image.uvY) + Double(image.uvH) * ty) * Double(sourceHeight)), lower: 0,
                     upper: sourceHeight - 1)
                 let offset = sourceY * bytesPerRow + sourceX * 4
                 guard offset + 3 < bitmap.pixels.count else {
@@ -514,8 +539,15 @@ private struct RasterTarget {
                 guard intersections.count >= 2 else { continue }
                 let sorted = intersections.sorted()
                 for i in stride(from: 0, to: sorted.count - 1, by: 2) {
-                    let x0 = max(bounds.x0, Int(sorted[i].rounded(.up)))
-                    let x1 = min(bounds.x1, Int(sorted[i + 1].rounded(.down)) + 1)
+                    // Intersections come from raw element coordinates, so
+                    // they are only as finite as the path is; the
+                    // conversion saturates instead of trapping and the
+                    // span is then clamped to the scan bounds.
+                    let x0 = max(bounds.x0, GPUISceneValue.int(sorted[i].rounded(.up)))
+                    // `max(x0, …)`: a span entirely to the right of the
+                    // scan window leaves x1 < x0, and `x0..<x1` is a trap,
+                    // not an empty range.
+                    let x1 = max(x0, min(bounds.x1, GPUISceneValue.int(sorted[i + 1].rounded(.down)) + 1))
                     for x in x0..<x1 {
                         blend(fillColor, x: x, y: y)
                     }
@@ -546,8 +578,8 @@ private struct RasterTarget {
                     guard intersections.count >= 2 else { continue }
                     let sorted = intersections.sorted()
                     for i in stride(from: 0, to: sorted.count - 1, by: 2) {
-                        let x0 = max(bounds.x0, Int(sorted[i].rounded(.up)))
-                        let x1 = min(bounds.x1, Int(sorted[i + 1].rounded(.down)) + 1)
+                        let x0 = max(bounds.x0, GPUISceneValue.int(sorted[i].rounded(.up)))
+                        let x1 = max(x0, min(bounds.x1, GPUISceneValue.int(sorted[i + 1].rounded(.down)) + 1))
                         for x in x0..<x1 {
                             blend(strokeColor, x: x, y: y)
                         }
@@ -910,29 +942,39 @@ private struct FlattenedPath {
         return xs
     }
 }
-private func flattenQuadratic(start: Point, control: Point, end: Point) -> [FlattenedSegment] {
+// The flatness tests below are `<=` comparisons, and every comparison
+// against NaN is false — so a single non-finite control point makes
+// subdivision permanent and the recursion is a stack overflow, not a
+// slow frame. `GPUISceneSanitizer` keeps non-finite coordinates out of
+// the scene; the depth cap is what makes termination a property of the
+// algorithm rather than of its callers.
+private func flattenQuadratic(start: Point, control: Point, end: Point, depth: Int = 0) -> [FlattenedSegment] {
     let flatness: Double = 0.25
     let dx = end.x - start.x
     let dy = end.y - start.y
     let d = abs((control.x - end.x) * dy - (control.y - end.y) * dx)
-    if d * d <= flatness * flatness * (dx * dx + dy * dy) {
+    if depth >= GPUISceneLimits.maxCurveFlatteningDepth || d * d <= flatness * flatness * (dx * dx + dy * dy) {
         return [FlattenedSegment(start: start, end: end)]
     }
     let m0 = Point(x: (start.x + control.x) * 0.5, y: (start.y + control.y) * 0.5)
     let m1 = Point(x: (control.x + end.x) * 0.5, y: (control.y + end.y) * 0.5)
     let mid = Point(x: (m0.x + m1.x) * 0.5, y: (m0.y + m1.y) * 0.5)
-    var left = flattenQuadratic(start: start, control: m0, end: mid)
-    let right = flattenQuadratic(start: mid, control: m1, end: end)
+    var left = flattenQuadratic(start: start, control: m0, end: mid, depth: depth + 1)
+    let right = flattenQuadratic(start: mid, control: m1, end: end, depth: depth + 1)
     left.append(contentsOf: right)
     return left
 }
-private func flattenCubic(start: Point, control1: Point, control2: Point, end: Point) -> [FlattenedSegment] {
+private func flattenCubic(start: Point, control1: Point, control2: Point, end: Point, depth: Int = 0)
+    -> [FlattenedSegment]
+{
     let flatness: Double = 0.25
     let dx = end.x - start.x
     let dy = end.y - start.y
     let d1 = abs((control1.x - end.x) * dy - (control1.y - end.y) * dx)
     let d2 = abs((control2.x - end.x) * dy - (control2.y - end.y) * dx)
-    if (d1 * d1 + d2 * d2) <= flatness * flatness * (dx * dx + dy * dy) {
+    if depth >= GPUISceneLimits.maxCurveFlatteningDepth
+        || (d1 * d1 + d2 * d2) <= flatness * flatness * (dx * dx + dy * dy)
+    {
         return [FlattenedSegment(start: start, end: end)]
     }
     let m0 = Point(x: (start.x + control1.x) * 0.5, y: (start.y + control1.y) * 0.5)
@@ -941,23 +983,40 @@ private func flattenCubic(start: Point, control1: Point, control2: Point, end: P
     let n0 = Point(x: (m0.x + m1.x) * 0.5, y: (m0.y + m1.y) * 0.5)
     let n1 = Point(x: (m1.x + m2.x) * 0.5, y: (m1.y + m2.y) * 0.5)
     let mid = Point(x: (n0.x + n1.x) * 0.5, y: (n0.y + n1.y) * 0.5)
-    var left = flattenCubic(start: start, control1: m0, control2: n0, end: mid)
-    let right = flattenCubic(start: mid, control1: n1, control2: m2, end: end)
+    var left = flattenCubic(start: start, control1: m0, control2: n0, end: mid, depth: depth + 1)
+    let right = flattenCubic(start: mid, control1: n1, control2: m2, end: end, depth: depth + 1)
     left.append(contentsOf: right)
     return left
 }
 private func flattenArc(center: Point, radius: Double, startAngle: Double, endAngle: Double, clockwise: Bool)
     -> [FlattenedSegment]
 {
+    // A non-finite angle makes both normalisation comparisons false-forever
+    // (clockwise) or true-forever (counter-clockwise), so the walk is
+    // bounded by turn count as well as by the comparison. One full turn per
+    // iteration means `maxArcSegments` turns is far more than any real arc.
+    guard radius.isFinite, startAngle.isFinite, endAngle.isFinite else {
+        return []
+    }
     // Only the end angle is normalized into the directed sweep range; start is fixed.
     var end = endAngle
+    var turns = 0
     if clockwise {
-        while end > startAngle { end -= 2 * .pi }
+        while end > startAngle, turns < GPUISceneLimits.maxArcSegments {
+            end -= 2 * .pi
+            turns += 1
+        }
     } else {
-        while end < startAngle { end += 2 * .pi }
+        while end < startAngle, turns < GPUISceneLimits.maxArcSegments {
+            end += 2 * .pi
+            turns += 1
+        }
     }
     let sweep = end - startAngle
-    let steps = max(4, Int(ceil(abs(sweep) * radius * 0.5)))
+    let steps = min(
+        max(4, GPUISceneValue.int(ceil(abs(sweep) * radius * 0.5))),
+        GPUISceneLimits.maxArcSegments
+    )
     var segs: [FlattenedSegment] = []
     let step = sweep / Double(steps)
     var prev = Point(x: center.x + radius * cos(startAngle), y: center.y + radius * sin(startAngle))

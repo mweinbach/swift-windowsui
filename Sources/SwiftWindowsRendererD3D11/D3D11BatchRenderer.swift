@@ -357,7 +357,10 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         for index in range {
             guard quads.indices.contains(index) else { continue }
             let quad = quads[index]
-            let isBlurred = Int(quad.blurRadius) > 0
+            // Saturating: this predicate runs for every quad in every
+            // scene before any culling, so a single NaN blur radius here
+            // is a process kill on the hottest path in the backend.
+            let isBlurred = GPUISceneValue.int(quad.blurRadius) > 0
             if isBlurred {
                 if runStart < index {
                     segments.append(.normal(range: runStart..<index))
@@ -435,6 +438,22 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         for scene: GPUIScene,
         cachedResources: CachedResources = CachedResources()
     ) throws -> RenderPlan {
+        // Structural validation runs unconditionally, not only in debug:
+        // the plan builder below turns every paint operation into a
+        // `Range` and indexes the family arrays with it, and both of
+        // those *trap* on a malformed layer. A trap is the one failure
+        // the host's fallback policy cannot downgrade; a thrown
+        // `.sceneContent` error it can. `validate()` is O(layers + paint
+        // operations) and allocates nothing when the scene is clean.
+        if let defect = scene.validate().first {
+            throw BatchRendererError(
+                operation: "Validate scene",
+                hresult: batchHresultInvalidArgument,
+                details: defect.description,
+                failureKind: .sceneContent
+            )
+        }
+
         let usesGlyphs = scene.layers.contains { !$0.glyphs.isEmpty }
         let usesPixelGlyphs = scene.layers.contains { !$0.pixelGlyphs.isEmpty }
 
@@ -1858,9 +1877,12 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                 return
             }
 
-            if let dirtyRegion = snapshot.dirtyRegion,
-                dirtyRegion.width > 0,
-                dirtyRegion.height > 0,
+            // `clampedDirtyRegion` — never the raw one: a negative origin
+            // traps at `UINT(_:)` two lines down (Swift does not wrap) and
+            // a region past the atlas edge makes `UpdateSubresource` read
+            // past the end of `pixels`. Clamping to nothing degrades to
+            // the full-atlas upload below, which is always in bounds.
+            if let dirtyRegion = snapshot.clampedDirtyRegion,
                 size.width == snapshot.width,
                 size.height == snapshot.height
             {

@@ -480,12 +480,29 @@ public struct PathPrimitive: Equatable, Sendable {
         }
     }
 
+    /// Same acceptance rule as the four float-clip families (see
+    /// `contentMaskedBounds(x:y:width:height:…)` in `GPUIScene.swift`): a
+    /// clip that misses the path entirely rejects it. This used to fall
+    /// back to the *unclipped* bounds, so a path outside its clip was
+    /// still accepted — it burned a paint operation, a cached path
+    /// texture and a draw call, and left "who decides visibility" as the
+    /// one question answered per family instead of by the contract.
     public var contentMaskedBounds: Rect? {
         guard !bounds.isEmpty else { return nil }
-        if let clip = clipBounds, !clip.isEmpty {
-            return bounds.intersected(with: clip) ?? bounds
-        }
-        return bounds
+        guard let clip = clipBounds else { return bounds }
+
+        // `clipBounds` is an optional Rect rather than four floats, but
+        // it carries the same in-band sentinel: collapsed in exactly one
+        // dimension is an explicitly empty clip, collapsed in both is
+        // "unclipped".
+        let collapsedWidth = clip.size.width <= 0
+        let collapsedHeight = clip.size.height <= 0
+        if collapsedWidth != collapsedHeight { return nil }
+        if collapsedWidth { return bounds }
+
+        guard let masked = bounds.intersected(with: clip) else { return nil }
+        guard masked.size.width > 0, masked.size.height > 0 else { return nil }
+        return masked
     }
 
     /// Returns a new path with all element coordinates and bounds offset by the given point.

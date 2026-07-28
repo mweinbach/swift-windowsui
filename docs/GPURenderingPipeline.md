@@ -68,6 +68,73 @@ consume this array so families always render in the declared order.
   `DynamicListStressTests`).
 - A scene that uses native glyphs always carries the corresponding
   glyph atlas snapshot (`testParitySceneEmitsNativeGlyphAtlas`).
+- Every primitive in a scene carries finite, in-range field values
+  (§2a).
+
+## 2a. Scene-contract value sanitation
+
+`Int(_: Float)` is a Swift **trap** — a process kill, not a thrown
+error — on NaN, on ±infinity and on out-of-`Int`-range magnitudes. Those
+conversions sit on the hottest paths in both backends
+(`splitQuadRangeForBackdropBlur` evaluates one per quad per scene before
+any culling), and non-finite values reach the scene from ordinary app
+code: `.blur(radius: a / b)` with `b == 0`, a frame that collapses to
+NaN during layout, an animation interpolating through infinity. A trap
+is the one failure class the fallback chain in §5 **cannot** degrade, so
+the contract rejects it at the boundary instead.
+
+`GPUIScene.add*` runs every primitive through `GPUISceneSanitizer`
+before it reaches a family array or `paintRecords`, so both backends and
+every replay inherit the guarantee:
+
+- Non-finite position, size or offset ⇒ the primitive is **dropped**
+  (there is nowhere to put it).
+- A non-finite clip extent ⇒ **dropped**. Treating an unknowable clip as
+  "unclipped" would paint the subtree across the whole window.
+- Every other field is **clamped**: coordinates and radii to
+  `GPUISceneLimits.maxCoordinate`, colours and opacity to `[0, 1]`,
+  atlas/image UVs to `maxTextureCoordinate`, `effectType` to `[0, 8]`,
+  `blendMode` to `[0, 4]`, backdrop `blurRadius` to `maxBlurRadius`
+  (128 — the same cap the D3D11 blur engine applies, so the two backends
+  agree above it instead of diverging), shadow `blurRadius` to
+  `maxShadowBlurRadius`.
+- `PathPrimitive` additionally caps its element count
+  (`maxPathElements`) and clamps element coordinates, arc radii and
+  angles.
+
+Sanitation is an *identity transform* for well-formed primitives —
+finite in-range values are returned bit-identical — so no accepted scene
+changes shape (`testWellFormedQuadIsStoredByteIdentically`).
+
+Structural bounds live alongside it:
+
+- `ensureLayer` returns `false` without allocating for a negative index
+  or one at/above `GPUISceneLimits.maxLayers`; it used to grow the array
+  to whatever index it was handed.
+- `GPUIScene.validate() -> [SceneDefect]` checks what direct mutation of
+  the scene's `public var` surface can still break — layer count, every
+  paint operation's range against its family array, and glyph-atlas
+  buffer size. `D3D11BatchRenderer.makeRenderPlan` calls it
+  unconditionally (it is O(layers + paint operations) and allocates
+  nothing on a clean scene) and throws a `.sceneContent`
+  `BatchRendererError` rather than trapping on a malformed layer.
+- `GlyphAtlasSnapshot.clampedDirtyRegion` is what consumers upload from:
+  the raw region is producer-supplied, and a negative origin traps at
+  `UINT(_:)` while an over-hanging region reads past the end of
+  `pixels`. Clamping to nothing degrades to the always-in-bounds
+  full-atlas upload.
+
+Downstream of the contract, every remaining `Float → Int` conversion
+uses `GPUISceneValue.int`, which saturates instead of trapping
+(`splitQuadRangeForBackdropBlur`, `D3D11BackdropBlurEngine.blurRegion`
+— which converts *before* clamping — the CPU rasterizer's blur radius,
+blend-mode selector, glyph and image UVs, and the path scanline spans).
+Curve flattening is depth-capped and the arc angle-normalisation loop is
+turn-capped, so termination is a property of the algorithm rather than
+of its callers.
+
+**Tests:** `SceneValueSanitationTests`, `SceneStructuralValidationTests`,
+`MalformedInputResilienceTests`.
 
 ## 3. Text: DirectWrite + native glyph atlas
 
@@ -162,6 +229,11 @@ into a `BitmapSurface` and reused across frames:
    device-bound SRVs are reused.
 
 **Invariants**
+- A path whose `clipBounds` misses its `bounds` entirely is dropped at
+  `addPath`, exactly like the four float-clip families
+  (`testPathOutsideItsClipIsDropped`). It used to fall back to its
+  *unclipped* bounds, so an invisible path still burned a paint
+  operation, a cached path texture and a draw call.
 - Translation-invariant cache key works
   (`testTranslatedPathsNormalizeToIdenticalKeys`).
 - Shape/color changes produce distinct keys
@@ -470,6 +542,10 @@ Beyond the per-step invariants:
   text uses DirectWrite throughout.
 - `DynamicListStressTests.testListGrowingFromHundredsToThousandsKeepsRenderingConsistent` —
   100/500/1000/2500/5000-item scaling consistency.
+- `SceneValueSanitationTests` / `SceneStructuralValidationTests` — NaN,
+  ±infinity and `1e30` in every primitive family, through
+  `splitQuadRangeForBackdropBlur`, `blurRegion`, `makeRenderPlan` and
+  `rasterize`: no trap, no hang, degenerate-but-sane output (§2a).
 
 ## Open work
 

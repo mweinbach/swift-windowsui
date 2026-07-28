@@ -462,19 +462,28 @@ public struct GPUIScene: Equatable, Sendable {
     }
 
     /// Ensures the scene contains a layer for the given index.
-    public mutating func ensureLayer(_ layerIndex: Int) {
-        guard layerIndex >= 0 else {
-            return
+    ///
+    /// Returns `false` — without allocating — for a negative index or one
+    /// at/above `GPUISceneLimits.maxLayers`. The growth loop used to
+    /// accept any non-negative index, so a single bad (or stale replayed)
+    /// layer index appended layers until the process ran out of memory.
+    @discardableResult
+    public mutating func ensureLayer(_ layerIndex: Int) -> Bool {
+        guard layerIndex >= 0, layerIndex < GPUISceneLimits.maxLayers else {
+            return false
         }
 
         while layers.count <= layerIndex {
             layers.append(GPUILayer())
         }
         isFinished = false
+        return true
     }
 
     public mutating func pushScopedLayer(_ bounds: Rect, toLayer layerIndex: Int) {
-        ensureLayer(layerIndex)
+        guard ensureLayer(layerIndex) else {
+            return
+        }
         if layers[layerIndex].pushScopedLayer(bounds) {
             paintRecords.append(.startLayer(layerIndex: layerIndex, bounds: bounds))
             isFinished = false
@@ -506,7 +515,9 @@ public struct GPUIScene: Equatable, Sendable {
     }
 
     public mutating func popScopedLayer(fromLayer layerIndex: Int) {
-        ensureLayer(layerIndex)
+        guard ensureLayer(layerIndex) else {
+            return
+        }
         if layers[layerIndex].popScopedLayer() {
             paintRecords.append(.endLayer(layerIndex: layerIndex))
             isFinished = false
@@ -535,8 +546,18 @@ public struct GPUIScene: Equatable, Sendable {
         addPixelGlyph(glyph, toLayer: layers.count - 1)
     }
 
+    // Every `add*` runs its primitive through `GPUISceneSanitizer` first,
+    // so the family arrays, `paintRecords` and every replay of them carry
+    // only finite, in-range values. Both backends and the CPU rasterizer
+    // read those arrays directly, so this is the one place the guarantee
+    // has to hold. Sanitation is an identity transform for well-formed
+    // primitives; a primitive whose geometry or clip cannot be
+    // represented is dropped exactly like a fully-clipped one.
+
     public mutating func addQuad(_ quad: QuadPrimitive, toLayer layerIndex: Int) {
-        ensureLayer(layerIndex)
+        guard let quad = GPUISceneSanitizer.sanitized(quad), ensureLayer(layerIndex) else {
+            return
+        }
         if layers[layerIndex].addQuad(quad) {
             paintRecords.append(.primitive(layerIndex: layerIndex, primitive: .quad(quad)))
             isFinished = false
@@ -544,7 +565,9 @@ public struct GPUIScene: Equatable, Sendable {
     }
 
     public mutating func addGlyph(_ glyph: GlyphPrimitive, toLayer layerIndex: Int) {
-        ensureLayer(layerIndex)
+        guard let glyph = GPUISceneSanitizer.sanitized(glyph), ensureLayer(layerIndex) else {
+            return
+        }
         if layers[layerIndex].addGlyph(glyph) {
             paintRecords.append(.primitive(layerIndex: layerIndex, primitive: .glyph(glyph)))
             isFinished = false
@@ -552,7 +575,9 @@ public struct GPUIScene: Equatable, Sendable {
     }
 
     public mutating func addImage(_ image: ImagePrimitive, toLayer layerIndex: Int) {
-        ensureLayer(layerIndex)
+        guard let image = GPUISceneSanitizer.sanitized(image), ensureLayer(layerIndex) else {
+            return
+        }
         if layers[layerIndex].addImage(image) {
             paintRecords.append(.primitive(layerIndex: layerIndex, primitive: .image(image)))
             isFinished = false
@@ -560,7 +585,9 @@ public struct GPUIScene: Equatable, Sendable {
     }
 
     public mutating func addShadow(_ shadow: ShadowPrimitive, toLayer layerIndex: Int) {
-        ensureLayer(layerIndex)
+        guard let shadow = GPUISceneSanitizer.sanitized(shadow), ensureLayer(layerIndex) else {
+            return
+        }
         if layers[layerIndex].addShadow(shadow) {
             paintRecords.append(.primitive(layerIndex: layerIndex, primitive: .shadow(shadow)))
             isFinished = false
@@ -568,7 +595,9 @@ public struct GPUIScene: Equatable, Sendable {
     }
 
     public mutating func addPixelGlyph(_ glyph: GlyphPrimitive, toLayer layerIndex: Int) {
-        ensureLayer(layerIndex)
+        guard let glyph = GPUISceneSanitizer.sanitized(glyph), ensureLayer(layerIndex) else {
+            return
+        }
         if layers[layerIndex].addPixelGlyph(glyph) {
             paintRecords.append(.primitive(layerIndex: layerIndex, primitive: .pixelGlyph(glyph)))
             isFinished = false
@@ -576,7 +605,9 @@ public struct GPUIScene: Equatable, Sendable {
     }
 
     public mutating func addPath(_ path: PathPrimitive, toLayer layerIndex: Int) {
-        ensureLayer(layerIndex)
+        guard let path = GPUISceneSanitizer.sanitized(path), ensureLayer(layerIndex) else {
+            return
+        }
         if layers[layerIndex].addPath(path) {
             paintRecords.append(.primitive(layerIndex: layerIndex, primitive: .path(path)))
             isFinished = false
@@ -744,112 +775,72 @@ public struct GPUIScene: Equatable, Sendable {
             && lhs.imageResources == rhs.imageResources
     }
 }
+/// The single acceptance rule every primitive family shares: a primitive
+/// is accepted only if it has positive extent and a non-empty
+/// intersection with its effective clip.
+///
+/// The four float-clip families (quad, glyph, image, shadow) encode "no
+/// clip" in band as `clipWidth == clipHeight == 0`, so a clip that
+/// collapses in exactly one dimension is an explicitly *empty* clip and
+/// rejects the primitive, while a clip that collapses in both is the
+/// unclipped sentinel. `PathPrimitive` carries an optional `Rect`
+/// instead and implements the same rule in `GPUIPrimitives.swift`.
+func contentMaskedBounds(
+    x: Float,
+    y: Float,
+    width: Float,
+    height: Float,
+    clipWidth: Float,
+    clipHeight: Float,
+    contentMask: GPUIContentMask
+) -> Rect? {
+    guard width > 0, height > 0 else {
+        return nil
+    }
+
+    let hasExplicitZeroDimensionClip = (clipWidth == 0 && clipHeight > 0) || (clipWidth > 0 && clipHeight == 0)
+    guard !hasExplicitZeroDimensionClip else {
+        return nil
+    }
+
+    let bounds = Rect(x: Double(x), y: Double(y), width: Double(width), height: Double(height))
+    guard let maskBounds = contentMask.bounds else {
+        return bounds
+    }
+    guard let masked = bounds.intersected(with: maskBounds) else {
+        return nil
+    }
+    // Reject if masked bounds are empty (zero width or height)
+    guard masked.size.width > 0, masked.size.height > 0 else {
+        return nil
+    }
+    return masked
+}
 extension QuadPrimitive {
     fileprivate var contentMaskedBounds: Rect? {
-        guard width > 0, height > 0 else {
-            return nil
-        }
-
-        let bounds = Rect(x: Double(x), y: Double(y), width: Double(width), height: Double(height))
-
-        // Check for zero-dimension effective clip: one dimension is 0, the other is > 0
-        // If both are 0, it means "no clip" (unclipped). If both are > 0, it's a normal clip.
-        let hasExplicitZeroDimensionClip = (clipWidth == 0 && clipHeight > 0) || (clipWidth > 0 && clipHeight == 0)
-        guard !hasExplicitZeroDimensionClip else {
-            return nil
-        }
-
-        guard let maskBounds = contentMask.bounds else {
-            return bounds
-        }
-        guard let masked = bounds.intersected(with: maskBounds) else {
-            return nil
-        }
-        // Reject if masked bounds are empty (zero width or height)
-        guard masked.size.width > 0, masked.size.height > 0 else {
-            return nil
-        }
-        return masked
+        SwiftWindowsGraphics.contentMaskedBounds(
+            x: x, y: y, width: width, height: height,
+            clipWidth: clipWidth, clipHeight: clipHeight, contentMask: contentMask)
     }
 }
 extension GlyphPrimitive {
     fileprivate var contentMaskedBounds: Rect? {
-        guard screenW > 0, screenH > 0 else {
-            return nil
-        }
-
-        let bounds = Rect(x: Double(screenX), y: Double(screenY), width: Double(screenW), height: Double(screenH))
-
-        // Check for zero-dimension effective clip: one dimension is 0, the other is > 0
-        let hasExplicitZeroDimensionClip = (clipWidth == 0 && clipHeight > 0) || (clipWidth > 0 && clipHeight == 0)
-        guard !hasExplicitZeroDimensionClip else {
-            return nil
-        }
-
-        guard let maskBounds = contentMask.bounds else {
-            return bounds
-        }
-        guard let masked = bounds.intersected(with: maskBounds) else {
-            return nil
-        }
-        // Reject if masked bounds are empty (zero width or height)
-        guard masked.size.width > 0, masked.size.height > 0 else {
-            return nil
-        }
-        return masked
+        SwiftWindowsGraphics.contentMaskedBounds(
+            x: screenX, y: screenY, width: screenW, height: screenH,
+            clipWidth: clipWidth, clipHeight: clipHeight, contentMask: contentMask)
     }
 }
 extension ImagePrimitive {
     fileprivate var contentMaskedBounds: Rect? {
-        guard screenW > 0, screenH > 0 else {
-            return nil
-        }
-
-        let bounds = Rect(x: Double(screenX), y: Double(screenY), width: Double(screenW), height: Double(screenH))
-
-        // Check for zero-dimension effective clip: one dimension is 0, the other is > 0
-        let hasExplicitZeroDimensionClip = (clipWidth == 0 && clipHeight > 0) || (clipWidth > 0 && clipHeight == 0)
-        guard !hasExplicitZeroDimensionClip else {
-            return nil
-        }
-
-        guard let maskBounds = contentMask.bounds else {
-            return bounds
-        }
-        guard let masked = bounds.intersected(with: maskBounds) else {
-            return nil
-        }
-        // Reject if masked bounds are empty (zero width or height)
-        guard masked.size.width > 0, masked.size.height > 0 else {
-            return nil
-        }
-        return masked
+        SwiftWindowsGraphics.contentMaskedBounds(
+            x: screenX, y: screenY, width: screenW, height: screenH,
+            clipWidth: clipWidth, clipHeight: clipHeight, contentMask: contentMask)
     }
 }
 extension ShadowPrimitive {
     fileprivate var contentMaskedBounds: Rect? {
-        guard width > 0, height > 0 else {
-            return nil
-        }
-
-        let bounds = Rect(x: Double(x), y: Double(y), width: Double(width), height: Double(height))
-
-        // Check for zero-dimension effective clip: one dimension is 0, the other is > 0
-        let hasExplicitZeroDimensionClip = (clipWidth == 0 && clipHeight > 0) || (clipWidth > 0 && clipHeight == 0)
-        guard !hasExplicitZeroDimensionClip else {
-            return nil
-        }
-
-        guard let maskBounds = contentMask.bounds else {
-            return bounds
-        }
-        guard let masked = bounds.intersected(with: maskBounds) else {
-            return nil
-        }
-        // Reject if masked bounds are empty (zero width or height)
-        guard masked.size.width > 0, masked.size.height > 0 else {
-            return nil
-        }
-        return masked
+        SwiftWindowsGraphics.contentMaskedBounds(
+            x: x, y: y, width: width, height: height,
+            clipWidth: clipWidth, clipHeight: clipHeight, contentMask: contentMask)
     }
 }

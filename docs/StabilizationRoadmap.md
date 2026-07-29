@@ -517,13 +517,14 @@ downgrade.
 | Trigger | Policy |
 | --- | --- |
 | Startup, batch available | Attach batch (scene) backend; reason `.defaultScene` |
-| Startup batch attach throws | Downgrade to frame immediately; `.batchAttachFailure` |
+| Startup batch attach throws | Downgrade to frame immediately; `.batchAttachFailure`, and schedule recovery like any other downgrade |
 | Batch `render(scene:)` throws mid-frame | Render that frame on frame backend, then pin to frame; `.batchRenderFailure` |
 | Batch `resize` throws | Downgrade at the new size; `.batchResizeFailure` |
 | After downgrade, `.standard` policy | Retry batch attach with exponential backoff (5s → 60s cap); success restores scene (`.batchBackendRecovered`) |
 | After downgrade, `.disabled` policy | One-way pin: batch never invoked again this session |
 | Frame backend itself throws | Log (rate-limited per failure signature); host session stays alive |
-| Neither backend can attach | Bounded attach retry (5 attempts, 0.5s → 8s) on a 250 ms timer, then terminal `.presenterUnavailable`: the host stops requesting frames and `RendererHealthSnapshot.isPresenterUnavailable` reports it |
+| Neither backend can attach | Bounded attach retry (5 attempts, 0.5s → 8s) on a 250 ms timer, then terminal `.presenterUnavailable`: the host stops requesting frames and `RendererHealthSnapshot.isPresenterUnavailable` reports it. A 0×0 client rect (minimized) defers an attempt instead of spending one |
+| Startup probe reports the GPU factory `.unavailable` | Substitute `SoftwareWindowRenderBackendFactory` (CPU raster + `StretchDIBits` blit), never `CPURenderBackendFactory`, which cannot present; a fallback that also cannot present is not substituted, so the row above applies. Recorded in `RendererHealthSnapshot.backendResolution` |
 
 Apps may force: `SWIFT_WINDOWSUI_FRAME_DEBUG=1` (pins frame from startup),
 `recoveryPolicy: .disabled`, and observability via `rendererHealthSnapshot`.
@@ -665,8 +666,9 @@ Coupling pressure:
       (`check-contracts.ps1` Phase 8 rules scan forbidden imports per target)
 - [x] App-facing import remains `import WinSwiftUI` on Windows
 - [x] Backend selection still defaults to scene/batch with frame fallback
-      (WinSwiftUI is renderer-neutral — default `CPURenderBackendFactory`;
-      the `swift-windowsui` composition root pins `D3D11RenderBackendFactory`)
+      (WinSwiftUI is renderer-neutral — its own default is the presenting
+      `SoftwareWindowRenderBackendFactory`; the `swift-windowsui` composition
+      root pins `D3D11RenderBackendFactory`)
 - [x] `swift test` and demo products build without circular targets
 - [x] No parallel retained-runtime rewrite
 

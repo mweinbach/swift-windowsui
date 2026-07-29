@@ -107,6 +107,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   `RendererHealthSnapshot`, a `.permanent` failure schedules no recovery, an
   unclassified error keeps the historical transient behaviour, and a backend
   reporting `needsImmediateRepaint` keeps the frame loop alive.
+- `SoftwarePresentationTests` — the GPU-less startup path end to end through
+  the host seams: the substituted software backend actually blits a frame
+  (right size, right clear-colour bytes, right client size) instead of
+  rasterizing into memory, `render` never returns without presenting, a failed
+  blit reaches the fallback policy and health rather than reading as a healthy
+  scene session, and `RendererHealthSnapshot.backendResolution` separates
+  healthy hardware from WARP from a substituted factory. Includes one real-HWND
+  `StretchDIBits` blit, skipped where a top-level window cannot be created.
 
 Test runs never write images into the source tree: `check-contracts.ps1`
 fails if a `ReferenceImages` directory appears under `Tests/`. Reviewed

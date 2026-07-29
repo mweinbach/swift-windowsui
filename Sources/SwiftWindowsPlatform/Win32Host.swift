@@ -147,6 +147,10 @@ public final class Win32Window {
 
     public let title: String
     public private(set) var clientSize: IntSize
+    /// Whether the last `WM_SIZE` reported the window minimized. `clientSize`
+    /// is 0×0 while this is true — the cache is not frozen at the pre-minimize
+    /// rect — so callers that need a paintable surface can tell the two apart.
+    public private(set) var isMinimized = false
     public let titleBarVisibility: WindowTitleBarVisibility
 
     private var hwnd: HWND?
@@ -726,16 +730,24 @@ public final class Win32Window {
             return DefWindowProcW(hwnd, message, wParam, lParam)
 
         case UINT(WM_SIZE):
-            // A minimized window has a 0×0 client rect. Forwarding that
-            // rebuilds the whole component tree at zero size (and raises a UIA
-            // structure change to any attached screen reader) on every
-            // minimize, then again on restore, for a size nothing is painted
-            // at. The restore delivers its own WM_SIZE with the real rect.
-            if Int(truncatingIfNeeded: wParam) == Int(SIZE_MINIMIZED) {
+            // The cache always mirrors the OS. Skipping it while minimized
+            // left `clientSize` reporting the pre-minimize rect, which
+            // `currentClientSize()` feeds to the host's surface descriptor —
+            // so a presenter attach that landed during a minimize built a
+            // swap chain for a size the window does not have.
+            isMinimized = Int(truncatingIfNeeded: wParam) == Int(SIZE_MINIMIZED)
+            updateCachedClientSize()
+
+            // Only the delegate callback is suppressed. A minimized window has
+            // a 0×0 client rect, and forwarding that rebuilds the whole
+            // component tree at zero size (and raises a UIA structure change
+            // to any attached screen reader) on every minimize, then again on
+            // restore, for a size nothing is painted at. The restore delivers
+            // its own WM_SIZE with the real rect.
+            if isMinimized {
                 return 0
             }
 
-            updateCachedClientSize()
             delegate?.window(self, didResizeTo: clientSize)
             return 0
 

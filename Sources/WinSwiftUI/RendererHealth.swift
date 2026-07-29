@@ -59,6 +59,16 @@ public struct RendererHealthSnapshot: Equatable, Sendable {
     /// Seconds until the next presenter attach retry, or `nil` when a
     /// presenter is attached or the retry budget is spent.
     public var nextPresenterAttachInSeconds: Double?
+    /// What the composition root's availability probe decided when it chose
+    /// the factory behind these backends: which factory the app asked for,
+    /// which one it got, and what the machine reported. `nil` for hosts built
+    /// without a composition root (tests, direct embedders).
+    ///
+    /// This is what separates "healthy hardware D3D11" from the two states
+    /// that otherwise look identical in this snapshot: a session substituted
+    /// onto the software presenter, and a window running on WARP because no
+    /// hardware adapter was usable (`availability == .degraded`).
+    public var backendResolution: RenderBackendResolution?
 
     public init(
         activeBackend: PresentationBackendKind,
@@ -73,7 +83,8 @@ public struct RendererHealthSnapshot: Equatable, Sendable {
         lastPresentationFailureKind: PresentationFailureKind? = nil,
         isPresentationOccluded: Bool = false,
         isPresenterUnavailable: Bool = false,
-        nextPresenterAttachInSeconds: Double? = nil
+        nextPresenterAttachInSeconds: Double? = nil,
+        backendResolution: RenderBackendResolution? = nil
     ) {
         self.activeBackend = activeBackend
         self.displayScale = displayScale
@@ -88,5 +99,6 @@ public struct RendererHealthSnapshot: Equatable, Sendable {
         self.isPresentationOccluded = isPresentationOccluded
         self.isPresenterUnavailable = isPresenterUnavailable
         self.nextPresenterAttachInSeconds = nextPresenterAttachInSeconds
+        self.backendResolution = backendResolution
     }
 }

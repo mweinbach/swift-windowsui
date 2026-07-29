@@ -99,10 +99,13 @@ final class WinSwiftUIWindowCoordinator {
 
     init(
         sceneConfigurations: [WindowGroupConfiguration],
-        // Backend-neutral default (portable CPU reference backend); `App.main()`
-        // always passes the app's `renderBackendFactory()` explicitly, so this
-        // default only serves direct coordinator users such as tests.
-        renderBackendFactory: RenderBackendFactory = CPURenderBackendFactory(),
+        // Default: the software presenter, not `CPURenderBackendFactory`.
+        // `App.main()` always passes the app's resolved factory explicitly, so
+        // this only serves direct coordinator users — and for them a backend
+        // that rasterizes into memory without ever blitting would open a real
+        // window that shows nothing while reporting itself healthy.
+        renderBackendFactory: RenderBackendFactory = SoftwareWindowRenderBackendFactory(),
+        backendResolution: RenderBackendResolution? = nil,
         hooks: WindowCoordinatorHooks = .win32,
         hostFactory: (@MainActor (WindowGroupConfiguration, Bool) -> WinSwiftUIWindowHost)? = nil,
         sceneStorageScopeProvider: (@MainActor () -> String)? = nil
@@ -119,7 +122,8 @@ final class WinSwiftUIWindowCoordinator {
                     batchRenderer: renderBackendFactory.makeBatchRenderBackend(),
                     // Only the primary window writes the startup probe;
                     // secondary windows must not overwrite it on open.
-                    startupProbeConfiguration: isPrimary ? .fromEnvironment() : nil
+                    startupProbeConfiguration: isPrimary ? .fromEnvironment() : nil,
+                    backendResolution: backendResolution
                 )
             }
         self.sceneStorageScopeProvider =

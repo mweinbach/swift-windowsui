@@ -3,6 +3,51 @@ import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 
+/// What the composition root learned about this machine's graphics stack when
+/// it resolved the app's `RenderBackendFactory`.
+///
+/// Carried into `RendererHealthSnapshot` so "this session was substituted onto
+/// the software presenter" and "this window is running on WARP" are
+/// distinguishable from a healthy hardware session. Without it the probe's
+/// answer only ever reached a log line.
+public struct RenderBackendResolution: Equatable, Sendable {
+    /// Name of the factory the app asked for.
+    public var requestedFactoryName: String
+    /// Name of the factory whose backends are actually attached.
+    public var resolvedFactoryName: String
+    /// What the requested factory reported about this machine.
+    public var availability: RenderBackendAvailability
+
+    public init(
+        requestedFactoryName: String,
+        resolvedFactoryName: String,
+        availability: RenderBackendAvailability
+    ) {
+        self.requestedFactoryName = requestedFactoryName
+        self.resolvedFactoryName = resolvedFactoryName
+        self.availability = availability
+    }
+
+    /// The composition root swapped the app's factory for a different one.
+    public var isSubstituted: Bool {
+        requestedFactoryName != resolvedFactoryName
+    }
+
+    /// Presentation is not running at full capability: either the requested
+    /// factory was substituted, or it reported `.degraded` — which for the
+    /// D3D11 factory is precisely "no usable hardware adapter; this window
+    /// presents through the WARP software rasterizer".
+    public var isDegradedPresentation: Bool {
+        if isSubstituted {
+            return true
+        }
+        if case .degraded = availability {
+            return true
+        }
+        return false
+    }
+}
+
 /// Startup-time selection between render backend factories.
 ///
 /// A factory is asked whether this machine can present with it *before* any
@@ -10,28 +55,60 @@ import SwiftWindowsGraphics
 /// screen with nothing in it and no presenter ever attached — the blank-window
 /// state `RendererHealthSnapshot.isPresenterUnavailable` reports, which a user
 /// cannot distinguish from a hang.
+///
+/// The substitute must be a factory whose backends actually present to an
+/// HWND. `CPURenderBackendFactory` is not one: its backends rasterize into
+/// `lastRenderedBitmap` and stop, so substituting it turned "no GPU" into a
+/// blank window that reported itself healthy — strictly worse than the
+/// observable `.presenterUnavailable` terminal state. The default fallback is
+/// `SoftwareWindowRenderBackendFactory`, which blits what it rasterizes; a
+/// fallback that reports it cannot present here is not substituted at all, so
+/// the bounded attach retry can reach its terminal state instead.
 @MainActor
 enum RenderBackendFactoryResolution {
-    static func presentableFactory(
+    /// Picks the factory to build backends from and records why, for health.
+    static func resolve(
         _ factory: RenderBackendFactory,
-        fallback: RenderBackendFactory = CPURenderBackendFactory(),
+        fallback: RenderBackendFactory = SoftwareWindowRenderBackendFactory(),
         report: (String) -> Void = { print("[WinSwiftUI] \($0)") }
-    ) -> RenderBackendFactory {
-        switch factory.probeAvailability() {
+    ) -> (factory: RenderBackendFactory, resolution: RenderBackendResolution) {
+        let availability = factory.probeAvailability()
+
+        func resolved(_ chosen: RenderBackendFactory) -> (RenderBackendFactory, RenderBackendResolution) {
+            (
+                chosen,
+                RenderBackendResolution(
+                    requestedFactoryName: factory.factoryName,
+                    resolvedFactoryName: chosen.factoryName,
+                    availability: availability
+                )
+            )
+        }
+
+        switch availability {
         case .available:
-            return factory
+            return resolved(factory)
         case .degraded(let reason):
             // Still presents. A slow window is the better answer here, and the
-            // reduced capability belongs in the log rather than in a silent
-            // switch to a different renderer.
+            // reduced capability belongs in the log and in the health snapshot
+            // rather than in a silent switch to a different renderer.
             report("\(factory.factoryName) is degraded: \(reason)")
-            return factory
+            return resolved(factory)
         case .unavailable(let reason):
+            guard fallback.probeAvailability().canPresent else {
+                report(
+                    "\(factory.factoryName) is unavailable on this machine: \(reason) "
+                        + "\(fallback.factoryName) cannot present here either; the window will report "
+                        + "RendererHealthSnapshot.isPresenterUnavailable rather than show nothing silently."
+                )
+                return resolved(factory)
+            }
+
             report(
                 "\(factory.factoryName) is unavailable on this machine: \(reason) "
                     + "Falling back to \(fallback.factoryName)."
             )
-            return fallback
+            return resolved(fallback)
         }
     }
 }

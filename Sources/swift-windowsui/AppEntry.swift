@@ -17,8 +17,8 @@ struct SwiftWindowsUIDemoApp: App {
         /// Composition root (Phase 8 modularization): the Windows product pins
         /// the D3D11 GPU backend here, at the executable that assembles the
         /// app. The `WinSwiftUI` facade itself is renderer-neutral — its
-        /// default `renderBackendFactory()` is the portable CPU reference
-        /// factory — so library consumers no longer link
+        /// default `renderBackendFactory()` is the software presenter that
+        /// ships with the facade — so library consumers no longer link
         /// `SwiftWindowsRendererD3D11` transitively.
         static func renderBackendFactory() -> RenderBackendFactory {
             D3D11RenderBackendFactory()

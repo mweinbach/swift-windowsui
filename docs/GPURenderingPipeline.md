@@ -620,14 +620,31 @@ limited per distinct failure signature (first occurrence, then every 100th,
 bounded at 16 signatures, cleared on a real recovery) because it is
 synchronous console I/O on the UI thread.
 
-Before any window exists, `RenderBackendFactoryResolution.presentableFactory`
-asks the app's factory `probeAvailability()`. `D3D11RenderBackendFactory`
-answers with a device-free `D3D11CreateDevice` capability query — hardware,
-then WARP — and both D3D11 renderers now retry device creation on
-`D3D_DRIVER_TYPE_WARP` too, so a machine with no usable hardware adapter gets
-a slow window instead of no window. `.unavailable` drops the composition root
-to `CPURenderBackendFactory` with a report; `.degraded` (WARP) keeps the
-factory and logs why.
+Before any window exists, `RenderBackendFactoryResolution.resolve` asks the
+app's factory `probeAvailability()`. `D3D11RenderBackendFactory` answers with
+a device-free `D3D11CreateDevice` capability query — hardware, then WARP — and
+both D3D11 renderers retry device creation on `D3D_DRIVER_TYPE_WARP` too, so a
+machine with no usable hardware adapter gets a slow window instead of no
+window. `.degraded` (WARP) keeps the factory and logs why.
+
+`.unavailable` substitutes `SoftwareWindowRenderBackendFactory`, **not**
+`CPURenderBackendFactory`. The distinction is the whole point: the CPU
+reference backend rasterizes into `lastRenderedBitmap` and stops, so
+substituting it made `attach` succeed, `isRendererReady` stay true and
+`isPresenterUnavailable` stay false in front of a window that never received a
+pixel — a blank window reporting itself healthy, strictly worse than the
+terminal state above. `SoftwareWindowRenderBackend` (in `WinSwiftUI`, because
+`SwiftWindowsGraphics` is platform-free by contract) wraps the same CPU
+rasterizer and blits each frame into the client area with `StretchDIBits`, so
+it either presents or throws. A fallback that reports it cannot present here
+either is not substituted at all, leaving the bounded attach retry to reach
+`.presenterUnavailable`.
+
+What the probe decided is carried into
+`RendererHealthSnapshot.backendResolution` (requested factory, resolved
+factory, availability), so "healthy hardware D3D11", "running on WARP"
+(`availability == .degraded`) and "substituted onto the software presenter"
+(`isSubstituted`) are distinguishable rather than identical in health.
 
 **Frame timer.** Three bounds on the animation timer:
 

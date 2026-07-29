@@ -178,9 +178,75 @@ final class Win32WindowLifecycleTests: XCTestCase {
         )
     }
 
+    // MARK: - Minimize
+
+    /// `WM_SIZE`/`SIZE_MINIMIZED` suppresses the delegate resize callback —
+    /// rebuilding the component tree at 0×0 is pointless work — but it used to
+    /// return before `updateCachedClientSize()` too, freezing `clientSize` at
+    /// the pre-minimize rect. `currentClientSize()` feeds the host's surface
+    /// descriptor, so a presenter attach that landed during a minimize built a
+    /// swap chain for a size the window does not have. The cache now always
+    /// mirrors the OS; only the callback is suppressed.
+    func testMinimizeKeepsTheCachedClientSizeInSyncWithTheOS() async throws {
+        let window = Win32Window(title: "WS-10 Minimize", clientSize: IntSize(width: 320, height: 200))
+        window.postsQuitMessageOnDestroy = false
+
+        do {
+            try window.create()
+        } catch {
+            throw XCTSkip("This environment cannot create a top-level window: \(error)")
+        }
+
+        let handle = try XCTUnwrap(window.nativeHandle?.rawPointer)
+        let hwnd = HWND(bitPattern: Int(bitPattern: handle))
+        defer { DestroyWindow(hwnd) }
+
+        let recorder = ResizeRecordingWindowDelegate()
+        window.delegate = recorder
+
+        ShowWindow(hwnd, SW_SHOWNOACTIVATE)
+        let restoredSize = window.currentClientSize()
+        try XCTSkipUnless(
+            restoredSize.width > 0 && restoredSize.height > 0,
+            "This environment did not give the window a client rect."
+        )
+        XCTAssertFalse(window.isMinimized)
+
+        let resizesBeforeMinimize = recorder.sizes.count
+        ShowWindow(hwnd, SW_MINIMIZE)
+
+        XCTAssertTrue(window.isMinimized, "A minimized window must say so rather than look like a normal one.")
+        XCTAssertEqual(
+            window.currentClientSize(),
+            IntSize(width: 0, height: 0),
+            "The cached client size must mirror the OS, not the pre-minimize rect."
+        )
+        XCTAssertEqual(
+            recorder.sizes.count,
+            resizesBeforeMinimize,
+            "Only the delegate resize callback is suppressed while minimized."
+        )
+
+        ShowWindow(hwnd, SW_RESTORE)
+        XCTAssertFalse(window.isMinimized)
+        XCTAssertEqual(window.currentClientSize(), restoredSize, "Restore delivers the real rect again.")
+        XCTAssertGreaterThan(recorder.sizes.count, resizesBeforeMinimize, "Restore is a real resize.")
+    }
+
     /// `autoreleasepool` is Darwin-only; this keeps the scoped-lifetime shape
     /// of the ownership test readable on Windows.
     private func autoreleasepoolCompatible(_ body: () throws -> Void) rethrows {
         try body()
+    }
+}
+
+/// Records only what the minimize test asserts on: the sizes the window
+/// forwarded to its delegate.
+@MainActor
+private final class ResizeRecordingWindowDelegate: WindowDelegate {
+    private(set) var sizes: [IntSize] = []
+
+    func window(_ window: Win32Window, didResizeTo size: IntSize) {
+        sizes.append(size)
     }
 }

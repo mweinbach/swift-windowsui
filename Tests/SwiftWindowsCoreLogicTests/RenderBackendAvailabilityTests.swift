@@ -44,41 +44,88 @@ final class RenderBackendAvailabilityTests: XCTestCase {
 
         var reports: [String] = []
         let factory = StubRenderBackendFactory(factoryName: "Stub GPU", availability: degraded)
-        let resolved = RenderBackendFactoryResolution.presentableFactory(
+        let resolved = RenderBackendFactoryResolution.resolve(
             factory,
             report: { reports.append($0) }
         )
 
-        XCTAssertEqual(resolved.factoryName, "Stub GPU", "Degraded must not silently downgrade the whole factory.")
+        XCTAssertEqual(
+            resolved.factory.factoryName, "Stub GPU", "Degraded must not silently downgrade the whole factory.")
         XCTAssertEqual(reports.count, 1, "The reduced capability belongs in the log.")
+        XCTAssertFalse(resolved.resolution.isSubstituted)
+        XCTAssertTrue(
+            resolved.resolution.isDegradedPresentation,
+            "A degraded probe — the windowed-WARP case for D3D11 — must be visible in health, not only in the log."
+        )
     }
 
-    func testUnavailableFactoriesFallBackToTheCPUFactory() async {
+    func testUnavailableFactoriesFallBackToAPresentingSoftwareFactory() async {
         var reports: [String] = []
         let factory = StubRenderBackendFactory(
             factoryName: "Stub GPU",
             availability: .unavailable(reason: "no adapter")
         )
-        let resolved = RenderBackendFactoryResolution.presentableFactory(
+        let resolved = RenderBackendFactoryResolution.resolve(
             factory,
             report: { reports.append($0) }
         )
 
-        XCTAssertEqual(resolved.factoryName, "CPU Reference")
+        XCTAssertEqual(resolved.factory.factoryName, SoftwareWindowRenderBackendFactory().factoryName)
+        XCTAssertNotEqual(
+            resolved.factory.factoryName,
+            CPURenderBackendFactory().factoryName,
+            "The CPU reference backend rasterizes into memory and never blits: substituting it produces a blank "
+                + "window that reports itself healthy."
+        )
         XCTAssertEqual(reports.count, 1)
         XCTAssertTrue(reports[0].contains("no adapter"))
+        XCTAssertTrue(resolved.resolution.isSubstituted)
+        XCTAssertTrue(resolved.resolution.isDegradedPresentation)
+        XCTAssertEqual(resolved.resolution.requestedFactoryName, "Stub GPU")
+        XCTAssertEqual(resolved.resolution.availability, .unavailable(reason: "no adapter"))
+    }
+
+    /// The substitution is only ever an improvement: a fallback that cannot
+    /// present here is not swapped in, so the bounded attach retry reaches the
+    /// observable `.presenterUnavailable` terminal state instead of a window
+    /// that shows nothing while reporting a healthy presenter.
+    func testAFallbackThatCannotPresentIsNeverSubstituted() async {
+        var reports: [String] = []
+        let factory = StubRenderBackendFactory(
+            factoryName: "Stub GPU",
+            availability: .unavailable(reason: "no adapter")
+        )
+        let fallback = StubRenderBackendFactory(
+            factoryName: "Stub Fallback",
+            availability: .unavailable(reason: "no presenter either")
+        )
+        let resolved = RenderBackendFactoryResolution.resolve(
+            factory,
+            fallback: fallback,
+            report: { reports.append($0) }
+        )
+
+        XCTAssertEqual(resolved.factory.factoryName, "Stub GPU")
+        XCTAssertFalse(resolved.resolution.isSubstituted)
+        XCTAssertEqual(reports.count, 1)
+        XCTAssertTrue(reports[0].contains("isPresenterUnavailable"))
     }
 
     func testAvailableFactoriesAreUsedUnchangedAndSilently() async {
         var reports: [String] = []
         let factory = StubRenderBackendFactory(factoryName: "Stub GPU", availability: .available)
-        let resolved = RenderBackendFactoryResolution.presentableFactory(
+        let resolved = RenderBackendFactoryResolution.resolve(
             factory,
             report: { reports.append($0) }
         )
 
-        XCTAssertEqual(resolved.factoryName, "Stub GPU")
+        XCTAssertEqual(resolved.factory.factoryName, "Stub GPU")
         XCTAssertTrue(reports.isEmpty)
+        XCTAssertFalse(resolved.resolution.isSubstituted)
+        XCTAssertFalse(
+            resolved.resolution.isDegradedPresentation,
+            "A healthy hardware session must be distinguishable from a substituted or WARP one."
+        )
     }
 
     /// The D3D11 probe must answer without creating a device, and on any

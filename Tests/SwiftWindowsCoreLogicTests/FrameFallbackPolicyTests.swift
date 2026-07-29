@@ -289,4 +289,85 @@ final class FrameFallbackPolicyTests: XCTestCase {
             frameRenderer.renderedFrames.count, 0,
             "Frame backend keeps presenting for the rest of the session")
     }
+
+    /// A *startup* batch attach failure is a downgrade like any other. The
+    /// policy table promises recovery after any downgrade, but the startup
+    /// path was the one branch that scheduled none — and
+    /// `nextBatchRecoveryAttemptAt` is set nowhere else, so a driver that was
+    /// mid-upgrade when the window opened pinned the app to the frame backend
+    /// for the whole session.
+    func testStartupBatchAttachFailureSchedulesRecoveryAndPromotesBackToScene() async {
+        let frameRenderer = FakeRenderBackend()
+        let batchRenderer = FakeBatchRenderBackend(attachShouldFail: true)
+        let surface = makeSurface()
+        let host = WinSwiftUIWindowHost(
+            configuration: WindowGroupConfiguration(
+                title: "Test",
+                size: surface.pixelSize,
+                clearColor: .black,
+                content: []
+            ),
+            renderer: frameRenderer,
+            batchRenderer: batchRenderer,
+            surfaceDescriptorProvider: { _ in surface },
+            startupProbeConfiguration: nil,
+            recoveryPolicy: BatchBackendRecoveryPolicy(
+                isEnabled: true, initialRetryInterval: 5, maxRetryInterval: 60, backoffMultiplier: 2)
+        )
+        let clock = FakeRecoveryClock(2_000.0)
+        host.recoveryClock = { clock.now }
+
+        let window = Win32Window(title: "Test", clientSize: surface.pixelSize)
+        host.windowDidCreate(window)
+
+        let downgraded = host.rendererHealthSnapshot
+        XCTAssertEqual(downgraded.activeBackend, .frame)
+        guard case .batchAttachFailure = downgraded.lastBackendSelectionReason else {
+            XCTFail(
+                "Startup downgrade reason should be batchAttachFailure, "
+                    + "got \(String(describing: downgraded.lastBackendSelectionReason))")
+            return
+        }
+        XCTAssertEqual(
+            downgraded.nextBatchRecoveryInSeconds ?? -1, 5.0, accuracy: 0.001,
+            "The startup downgrade must schedule the same 5s first retry the policy table promises")
+
+        // The driver finishes installing; the next due attempt promotes back.
+        batchRenderer.setAttachShouldFail(false)
+        clock.now += 6
+        host.window(window, didResizeTo: IntSize(width: 640, height: 480))
+        host.windowNeedsDisplay(window)
+
+        let recovered = host.rendererHealthSnapshot
+        XCTAssertEqual(recovered.activeBackend, .scene)
+        XCTAssertEqual(recovered.lastBackendSelectionReason, .batchBackendRecovered)
+        XCTAssertNil(recovered.nextBatchRecoveryInSeconds)
+        XCTAssertGreaterThan(batchRenderer.renderedScenes.count, 0, "The promoted backend must actually present")
+    }
+
+    /// `.disabled` still means a one-way pin, including from startup.
+    func testStartupBatchAttachFailureSchedulesNothingUnderTheDisabledPolicy() async {
+        let surface = makeSurface()
+        let batchRenderer = FakeBatchRenderBackend(attachShouldFail: true)
+        let host = WinSwiftUIWindowHost(
+            configuration: WindowGroupConfiguration(
+                title: "Test",
+                size: surface.pixelSize,
+                clearColor: .black,
+                content: []
+            ),
+            renderer: FakeRenderBackend(),
+            batchRenderer: batchRenderer,
+            surfaceDescriptorProvider: { _ in surface },
+            startupProbeConfiguration: nil,
+            recoveryPolicy: .disabled
+        )
+        let clock = FakeRecoveryClock(2_000.0)
+        host.recoveryClock = { clock.now }
+
+        host.windowDidCreate(Win32Window(title: "Test", clientSize: surface.pixelSize))
+
+        XCTAssertEqual(host.rendererHealthSnapshot.activeBackend, .frame)
+        XCTAssertNil(host.rendererHealthSnapshot.nextBatchRecoveryInSeconds)
+    }
 }

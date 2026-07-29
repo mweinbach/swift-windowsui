@@ -4,13 +4,14 @@ import XCTest
 
 /// Phase 8 modularization: the WinSwiftUI facade is renderer-neutral.
 ///
-/// `WinSwiftUI.App.renderBackendFactory()` defaults to the portable CPU
-/// reference factory from `SwiftWindowsGraphics`; the D3D11 GPU factory is
-/// injected by the app composition root (the `swift-windowsui` executable,
-/// see `AppEntry.swift`). These tests pin the seam: the default must never
-/// name a concrete GPU backend, and custom factory injection — the mechanism
-/// tests and non-D3D11 consumers rely on — must keep working without linking
-/// `SwiftWindowsRendererD3D11`.
+/// `WinSwiftUI.App.renderBackendFactory()` defaults to the software presenter
+/// that ships with the facade; the D3D11 GPU factory is injected by the app
+/// composition root (the `swift-windowsui` executable, see `AppEntry.swift`).
+/// These tests pin the seam: the default must never name a concrete GPU
+/// backend, it must be able to actually present (a default that only
+/// rasterizes into memory opens a blank window that reports itself healthy),
+/// and custom factory injection — the mechanism tests and non-D3D11 consumers
+/// rely on — must keep working without linking `SwiftWindowsRendererD3D11`.
 @MainActor
 final class BackendCompositionContractTests: XCTestCase {
 
@@ -41,21 +42,27 @@ final class BackendCompositionContractTests: XCTestCase {
     func testDefaultRenderBackendFactoryIsBackendNeutral() async {
         let factory = NeutralProbeApp.renderBackendFactory()
 
-        // The facade default is the portable CPU reference backend; pinning
-        // by name keeps the assertion free of any D3D11 symbol so this test
-        // target would compile even without SwiftWindowsRendererD3D11.
-        XCTAssertEqual(factory.factoryName, CPURenderBackendFactory().factoryName)
+        // The facade default is the software presenter; pinning by name keeps
+        // the assertion free of any D3D11 symbol so this test target would
+        // compile even without SwiftWindowsRendererD3D11.
+        XCTAssertEqual(factory.factoryName, SoftwareWindowRenderBackendFactory().factoryName)
     }
 
-    func testDefaultRenderBackendFactoryProducesWorkingCPUBackends() async {
+    func testDefaultRenderBackendFactoryCanActuallyPresent() async {
         let factory = NeutralProbeApp.renderBackendFactory()
 
-        let frameBackend = factory.makeRenderBackend()
-        let referenceName = CPURenderBackendFactory().makeRenderBackend().backendDisplayName
-        XCTAssertEqual(frameBackend.backendDisplayName, referenceName)
+        XCTAssertTrue(
+            factory.probeAvailability().canPresent,
+            "A default that cannot present opens a window that shows nothing while reporting itself healthy."
+        )
+        XCTAssertNotEqual(
+            factory.factoryName,
+            CPURenderBackendFactory().factoryName,
+            "The CPU reference backend rasterizes into memory and never blits to an HWND."
+        )
 
         // Scene/batch remains the default presentation shape even for the
-        // backend-neutral default: the CPU factory offers a batch backend.
+        // backend-neutral default.
         XCTAssertNotNil(factory.makeBatchRenderBackend())
     }
 

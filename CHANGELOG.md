@@ -65,6 +65,14 @@ settings-style apps on the Supported tier are the intended audience.
   `dismissWindow` routing for id- and value-based `WindowGroup`s;
   `supportsMultipleWindows` reports true for coordinator-managed hosts
   (`WindowCoordinatorTests`).
+- Software presentation fallback for machines with no usable GPU: a startup
+  availability probe that reports D3D11 `.unavailable` substitutes
+  `SoftwareWindowRenderBackendFactory`, which CPU-rasterizes each frame and
+  blits it into the window with `StretchDIBits` — a real, slow window instead
+  of a blank one. `RendererHealthSnapshot.backendResolution` reports which
+  factory the app asked for, which one it got, and what the machine said, so a
+  substituted or WARP session is distinguishable from healthy hardware
+  (`SoftwarePresentationTests`, `RenderBackendAvailabilityTests`).
 
 **Views, controls, and drawing**
 
@@ -177,6 +185,18 @@ Relative to the untagged prototype checkouts earlier on `main`:
   widths (`ControlGeometryTests`).
 - Menu, sheet, popover, alert, and context-menu overlays clamp to the
   canvas, dismiss via scrim/Escape, and restore focus.
+- A GPU-less machine no longer gets a blank window that reports itself
+  healthy: the startup fallback is a backend that actually blits, and a
+  fallback that cannot present is not substituted at all, so the bounded
+  attach retry reaches the observable `.presenterUnavailable` terminal state
+  (`SoftwarePresentationTests`).
+- A batch attach that fails at startup now schedules the same exponential
+  recovery every other downgrade does, instead of pinning the session to the
+  frame backend for its whole lifetime (`FrameFallbackPolicyTests`).
+- `Win32Window.clientSize` stays in sync with the OS while minimized (and
+  `isMinimized` reports the state) rather than freezing at the pre-minimize
+  rect, which could size a swap chain to a rect the window did not have
+  (`Win32WindowLifecycleTests`).
 
 ### Known limitations (0.1.0)
 

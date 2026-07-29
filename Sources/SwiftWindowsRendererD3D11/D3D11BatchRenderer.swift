@@ -1287,8 +1287,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     // MARK: - Device Creation
 
     /// Creates the device, trying each driver type in order. The windowed
-    /// attach passes hardware only (unchanged behaviour); the offscreen
-    /// attach chooses via `OffscreenDriver`.
+    /// attach passes `[HARDWARE, WARP]` — a machine with no usable hardware
+    /// adapter still presents, through the software rasterizer, rather than
+    /// showing a blank window. The offscreen attach chooses via
+    /// `OffscreenDriver`. The parameter default is hardware-only and applies
+    /// to neither.
     private func createDeviceIfNeeded(driverTypes: [D3D_DRIVER_TYPE] = [D3D_DRIVER_TYPE_HARDWARE]) throws {
         if device != nil && deviceContext != nil {
             return

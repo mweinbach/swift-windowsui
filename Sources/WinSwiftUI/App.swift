@@ -43,26 +43,31 @@ public protocol App {
 
     /// Override to inject a custom render backend factory.
     ///
-    /// The default is the portable ``CPURenderBackendFactory`` so the
-    /// WinSwiftUI facade stays renderer-neutral (Phase 8 modularization).
-    /// The Windows product pins the D3D11 GPU factory at its composition
-    /// root — the `swift-windowsui` executable overrides this requirement
-    /// with the concrete factory from the renderer backend target.
+    /// The default names no GPU backend, so the WinSwiftUI facade stays
+    /// renderer-neutral (Phase 8 modularization). The Windows product pins the
+    /// D3D11 GPU factory at its composition root — the `swift-windowsui`
+    /// executable overrides this requirement with the concrete factory from
+    /// the renderer backend target.
     static func renderBackendFactory() -> RenderBackendFactory
 }
 extension App {
+    /// The software presenter, not ``CPURenderBackendFactory``: an app that
+    /// never overrides this still opens a window that shows something. The CPU
+    /// reference backend rasterizes into `lastRenderedBitmap` and never blits,
+    /// so it is the snapshot and parity backend, never a window's presenter.
     public static func renderBackendFactory() -> RenderBackendFactory {
-        CPURenderBackendFactory()
+        SoftwareWindowRenderBackendFactory()
     }
 
     public static func main() {
         let app = Self.init()
-        let factory = RenderBackendFactoryResolution.presentableFactory(Self.renderBackendFactory())
+        let resolved = RenderBackendFactoryResolution.resolve(Self.renderBackendFactory())
 
         do {
             let coordinator = WinSwiftUIWindowCoordinator(
                 sceneConfigurations: [app.body.makeWindowConfiguration()],
-                renderBackendFactory: factory
+                renderBackendFactory: resolved.factory,
+                backendResolution: resolved.resolution
             )
             _ = try coordinator.run()
         } catch {
@@ -1637,6 +1642,10 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private let sceneRenderer: @MainActor (RetainedViewRuntime, Double) -> GPUIScene
     private let startupPresentationMode: StartupPresentationMode
     private let startupProbeConfiguration: StartupProbeConfiguration?
+    /// What the composition root's availability probe decided, or `nil` for
+    /// hosts built without one (tests, direct embedders). Read-only: the host
+    /// reports it, it never acts on it.
+    private let backendResolution: RenderBackendResolution?
     private let inputRateTracker = WindowInputRateTracker()
     private let undoManager = UndoManager()
 
@@ -1807,10 +1816,13 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     init(
         configuration: WindowGroupConfiguration,
-        // Backend-neutral defaults: the portable CPU reference backend. Real
-        // windows are always created by `WinSwiftUIWindowCoordinator`, which
-        // receives the app's `RenderBackendFactory` explicitly (D3D11 for the
-        // Windows product via its composition root).
+        // Headless defaults: the CPU reference backend, which rasterizes into
+        // memory and never blits. That is only acceptable because this type is
+        // internal and every real window is created by
+        // `WinSwiftUIWindowCoordinator`, which receives the app's resolved
+        // `RenderBackendFactory` explicitly (D3D11 for the Windows product via
+        // its composition root, the software presenter as the neutral
+        // fallback). Nothing user-facing can reach these defaults.
         renderer: any RenderBackend = CPURenderBackendFactory().makeRenderBackend(),
         batchRenderer: (any BatchRenderBackend)? = CPURenderBackendFactory().makeBatchRenderBackend(),
         surfaceDescriptorProvider: @escaping @MainActor (Win32Window) -> SurfaceDescriptor? = WinSwiftUIWindowHost
@@ -1818,8 +1830,10 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         sceneRenderer: (@MainActor (RetainedViewRuntime, Double) -> GPUIScene)? = nil,
         startupPresentationMode: StartupPresentationMode = .fromEnvironment(),
         startupProbeConfiguration: StartupProbeConfiguration? = .fromEnvironment(),
-        recoveryPolicy: BatchBackendRecoveryPolicy = .standard
+        recoveryPolicy: BatchBackendRecoveryPolicy = .standard,
+        backendResolution: RenderBackendResolution? = nil
     ) {
+        self.backendResolution = backendResolution
         self.configuration = configuration
         self.window = Win32Window(
             title: configuration.title, clientSize: configuration.size,
@@ -1967,14 +1981,26 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             return false
         }
 
-        nextPresenterAttachAttemptAt = nil
-        presenterAttachAttemptCount += 1
-        let attempt = presenterAttachAttemptCount
-
         guard let surface = surfaceDescriptorProvider(window) else {
+            nextPresenterAttachAttemptAt = nil
+            presenterAttachAttemptCount += 1
             recordPresenterAttachFailure("Missing surface descriptor.", in: window)
             return false
         }
+
+        // A minimized window reports a 0×0 client rect — `Win32Window` keeps
+        // that cache truthful rather than frozen at the pre-minimize size — and
+        // no backend can build a swap chain for it. That is a window state, not
+        // a graphics failure, so it defers the attempt instead of spending one
+        // of the five that end in the terminal no-presenter state.
+        guard surface.pixelSize.width > 0, surface.pixelSize.height > 0 else {
+            nextPresenterAttachAttemptAt = recoveryClock() + Self.initialPresenterAttachRetryInterval
+            return false
+        }
+
+        nextPresenterAttachAttemptAt = nil
+        presenterAttachAttemptCount += 1
+        let attempt = presenterAttachAttemptCount
 
         do {
             try activatePresenter(with: surface)
@@ -2361,7 +2387,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             lastPresentationFailureKind: lastPresentationFailureKind,
             isPresentationOccluded: activePresentationState.isOccluded,
             isPresenterUnavailable: isPresenterUnavailable,
-            nextPresenterAttachInSeconds: nextPresenterAttachInSeconds
+            nextPresenterAttachInSeconds: nextPresenterAttachInSeconds,
+            backendResolution: backendResolution
         )
     }
 
@@ -2626,7 +2653,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     // | Trigger                                  | Policy                                                        |
     // |------------------------------------------|---------------------------------------------------------------|
     // | Startup, batch available                 | Attach batch (scene) backend; reason `.defaultScene`.          |
-    // | Startup batch attach throws              | Downgrade to frame immediately; reason `.batchAttachFailure`.  |
+    // | Startup batch attach throws              | Downgrade to frame immediately; reason `.batchAttachFailure`,  |
+    // |                                          | and schedule recovery like any other downgrade.                |
     // | Batch `render(scene:)` throws mid-frame  | Render that frame on the frame backend, then pin to frame;     |
     // |                                          | reason `.batchRenderFailure`.                                  |
     // | Batch `resize` throws                    | Downgrade at the new size; reason `.batchResizeFailure`.       |
@@ -2638,7 +2666,13 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     // | Neither backend can attach               | Bounded attach retry (5 × 0.5s→8s) on a 250 ms timer, then a  |
     // |                                          | terminal `.presenterUnavailable` state that stops requesting   |
     // |                                          | frames; observable as                                          |
-    // |                                          | `RendererHealthSnapshot.isPresenterUnavailable`.               |
+    // |                                          | `RendererHealthSnapshot.isPresenterUnavailable`. A 0×0 client  |
+    // |                                          | rect (minimized) defers an attempt rather than spending one.   |
+    // | Startup probe says the factory cannot    | The composition root substitutes a factory that can actually   |
+    // | present here                             | blit (`SoftwareWindowRenderBackendFactory`), never one that    |
+    // |                                          | only rasterizes into memory; a fallback that cannot present    |
+    // |                                          | either is not substituted, so the row above applies. Recorded  |
+    // |                                          | in `RendererHealthSnapshot.backendResolution`.                 |
     //
     // A window with no presenter never invalidates itself: the not-ready
     // branch of `renderCurrentFrame` runs inside `WM_PAINT`'s
@@ -2709,6 +2743,14 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                 activeBackend = .frame
                 lastPresentationFailureKind = PresentationFailureKind.classifying(error)
                 updatePresentationSelection(reason: .batchAttachFailure(String(describing: error)))
+                // A startup attach failure is a downgrade like any other, and
+                // the policy table promises recovery after any downgrade. A
+                // driver that was mid-upgrade when the window opened used to
+                // pin the app to the frame backend for the whole session,
+                // because this was the one downgrade path that scheduled
+                // nothing and `nextBatchRecoveryAttemptAt` is set nowhere
+                // else.
+                scheduleBatchBackendRecoveryIfNeeded()
                 return
             }
         }

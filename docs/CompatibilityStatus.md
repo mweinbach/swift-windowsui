@@ -289,7 +289,7 @@ is an intentional small native bridge, not a general native-control strategy.
 | `GPUIScene` → `D3D11BatchRenderer` | **Implemented** (default) | Presentation order from `paintOperations`; shadows, quads, paths, atlas glyphs |
 | `RenderFrame` → `D3D11Renderer` | **Partial** (fallback / debug) | Primarily `fillRect` + `drawBitmap` |
 | CPU screenshot rasterizer | **Implemented** | Raw scene/frame for CI/visual checks |
-| Offscreen `drawingGroup` compositing | **Partial** | Temporary scenes must not poison outer `cachedScenePaintRange`; sub-scene carries the frame's glyph atlases, buffer clamped to the clip and area-capped (falls back to inline painting) |
+| Offscreen `drawingGroup` compositing | **Partial** | Temporary scenes must not poison outer `cachedScenePaintRange`; sub-scene carries the frame's glyph atlases, buffer clamped to the clip and area-capped (falls back to inline painting); the composited bitmap is cached on the node's paint key + clean subtree, so an unchanged group is not re-rasterized per frame |
 | Text | **Partial** | Scene path: logical layout cache + DirectWrite glyph runs (not full shaped runs); frame path still bitmap-heavy |
 
 ---

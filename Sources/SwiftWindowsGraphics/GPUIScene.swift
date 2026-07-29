@@ -426,6 +426,14 @@ public struct ScenePaintMetrics: Equatable, Sendable {
     /// Total quad instances emitted by GPU-promoted paths (one path can
     /// produce multiple quads — e.g. a closed stroked rect emits 4).
     public var quadInstancesFromPromotedPaths: Int = 0
+    /// Compositing groups (`.drawingGroup()`, `.compositingGroup()`) whose
+    /// subtree was CPU-rasterized into an offscreen bitmap during this paint.
+    public var compositingGroupsRasterized: Int = 0
+    /// Compositing groups that reused the bitmap rasterized for an earlier
+    /// paint because their key and subtree were unchanged. Rasterizing a group
+    /// walks and rasterizes its whole subtree on the main actor, so this is the
+    /// counter that says whether a `.drawingGroup()` is amortized or not.
+    public var compositingGroupsReused: Int = 0
 
     public init() {}
 

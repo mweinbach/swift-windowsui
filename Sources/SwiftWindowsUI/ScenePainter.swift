@@ -373,18 +373,20 @@ public enum ScenePainter {
             let effectiveTransform = centeredTransform.concatenating(inheritedTransform)
 
             // A degenerate frame paints none of the node's own decoration, but
-            // it is not a reason to drop the subtree: a collapsed row can still
-            // carry an offset badge, and `.frame(height: 0)` with an overlay
-            // child is legal. Own decoration is gated on this flag; children are
-            // visited either way (a `clipsToBounds` node still collapses its
-            // clip to nothing below, which prunes them for the right reason).
+            // it is not a reason to drop the subtree: macOS SwiftUI does not
+            // clip at a frame boundary, so `.frame(height: 0)` without
+            // `.clipped()` overflows and the children still render. Own
+            // decoration is gated on this flag; children are visited unless the
+            // cull below prunes them (a `clipsToBounds` node collapses its clip
+            // to nothing, which prunes them for the right reason).
             let hasPaintableExtent = paintFrame.size.width > 0 && paintFrame.size.height > 0
 
-            // Occlusion culling against the inherited clip. The footprint is the
-            // node's frame unioned with the decoration that reaches outside it —
-            // a shadow or focus/outline ring on a card scrolled one pixel past
-            // the clip edge is still visible, and culling on `paintFrame` alone
-            // made it pop.
+            // Occlusion culling against the inherited clip, for every node —
+            // a degenerate frame parked outside the clip has to prune its
+            // subtree like any other. The footprint is the node's frame unioned
+            // with the decoration that reaches outside it — a shadow or
+            // focus/outline ring on a card scrolled one pixel past the clip edge
+            // is still visible, and culling on `paintFrame` alone made it pop.
             let ownShadowRect: Rect? =
                 node.shadowColor.alpha > 0
                 ? paintFrame
@@ -396,7 +398,7 @@ public enum ScenePainter {
                 ? paintFrame.outset(by: node.outlineWidth)
                 : nil
             let cullBounds = union(paintFrame, ownShadowRect, ownOutlineRect)
-            if hasPaintableExtent, !clipAllowsDrawing(clip: inheritedClip, rect: cullBounds) {
+            if !clipAllowsSubtreeTraversal(clip: inheritedClip, bounds: cullBounds) {
                 if !skipCacheUpdates {
                     node.cachedSceneKey = nil
                     node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
@@ -886,63 +888,92 @@ public enum ScenePainter {
                 let subInheritedTransform = subShift.concatenating(inheritedTransform)
                 let subSize = buffer.size
 
-                var subScene = GPUIScene(clearColor: .clear)
-                var subDeferred: [DeferredDrawState] = []
-                var subNative = false
-                var subPixel = false
-                var subReplay = 0
+                // Rasterizing the group means walking and CPU-rasterizing its
+                // whole subtree on the main actor, so an unchanged group reuses
+                // the bitmap it produced last time. The condition is the one the
+                // paint-record replay above uses — same key, clean subtree —
+                // because the key covers everything about the group itself and
+                // `subtreeDirtyFlags` covers everything about its descendants.
+                let bitmap: BitmapSurface
+                if !skipCacheUpdates, !node.hasDirtySubtree,
+                    node.cachedCompositingGroupKey == cacheKey,
+                    let cached = node.cachedCompositingGroupBitmap,
+                    cached.width == subSize.width, cached.height == subSize.height,
+                    node.cachedCompositingGroupAtlasGeneration.map({
+                        $0 == NativeGlyphAtlas.shared.atlasGeneration
+                    }) ?? true
+                {
+                    bitmap = cached
+                    scene.paintMetrics.compositingGroupsReused += 1
+                } else {
+                    var subScene = GPUIScene(clearColor: .clear)
+                    var subDeferred: [DeferredDrawState] = []
+                    var subNative = false
+                    var subPixel = false
+                    var subReplay = 0
 
-                for child in sortedChildren {
-                    if child.paintsInDeferredPhase {
-                        continue
+                    for child in sortedChildren {
+                        if child.paintsInDeferredPhase {
+                            continue
+                        }
+                        paintNode(
+                            child,
+                            into: &subScene,
+                            deferredDraws: &subDeferred,
+                            parentOrigin: childOrigin,
+                            inheritedClip: nil,
+                            inheritedClipCornerRadius: 0,
+                            layerIndex: 0,
+                            surfaceSize: surfaceSize,
+                            displayScale: displayScale,
+                            textSystem: textSystem,
+                            previousScene: nil,
+                            primitiveOpacity: 1.0,
+                            inheritedColorEffects: [],
+                            inheritedBlurRadius: 0,
+                            inheritedBlurOpaque: false,
+                            inheritedBlendMode: .normal,
+                            usedNativeGlyphs: &subNative,
+                            usedPixelGlyphs: &subPixel,
+                            replayCount: &subReplay,
+                            inheritedTransform: subInheritedTransform,
+                            isInsideDrawingGroup: true,
+                            skipCacheUpdates: true
+                        )
                     }
-                    paintNode(
-                        child,
-                        into: &subScene,
-                        deferredDraws: &subDeferred,
-                        parentOrigin: childOrigin,
-                        inheritedClip: nil,
-                        inheritedClipCornerRadius: 0,
-                        layerIndex: 0,
-                        surfaceSize: surfaceSize,
-                        displayScale: displayScale,
-                        textSystem: textSystem,
-                        previousScene: nil,
-                        primitiveOpacity: 1.0,
-                        inheritedColorEffects: [],
-                        inheritedBlurRadius: 0,
-                        inheritedBlurOpaque: false,
-                        inheritedBlendMode: .normal,
-                        usedNativeGlyphs: &subNative,
-                        usedPixelGlyphs: &subPixel,
-                        replayCount: &subReplay,
-                        inheritedTransform: subInheritedTransform,
-                        isInsideDrawingGroup: true,
-                        skipCacheUpdates: true
-                    )
-                }
 
-                subScene.finish()
-                // The sub-scene is rasterized on the CPU right here, and
-                // `RasterTarget.drawGlyph` returns immediately when its atlas is
-                // nil — which is why every piece of text inside `.drawingGroup()`
-                // used to vanish. The peek below deliberately does *not* consume
-                // the atlas dirty region: the frame has a single consumer at the
-                // end of `paint`, and letting the sub-scene call
-                // `snapshotIfUsedInCurrentFrame()` would hand the outer scene an
-                // empty dirty region for glyphs it still has to upload.
-                if subNative {
-                    subScene.glyphAtlas = NativeGlyphAtlas.shared.currentSnapshot()
-                }
-                if subPixel {
-                    subScene.pixelGlyphAtlas = pixelGlyphAtlasSnapshot()
-                }
-                // Glyph usage inside the group is glyph usage for the frame: the
-                // atlas-recovery retry and the outer snapshot both key off it.
-                usedNativeGlyphs = usedNativeGlyphs || subNative
-                usedPixelGlyphs = usedPixelGlyphs || subPixel
+                    subScene.finish()
+                    // The sub-scene is rasterized on the CPU right here, and
+                    // `RasterTarget.drawGlyph` returns immediately when its atlas is
+                    // nil — which is why every piece of text inside `.drawingGroup()`
+                    // used to vanish. The peek below deliberately does *not* consume
+                    // the atlas dirty region: the frame has a single consumer at the
+                    // end of `paint`, and letting the sub-scene call
+                    // `snapshotIfUsedInCurrentFrame()` would hand the outer scene an
+                    // empty dirty region for glyphs it still has to upload.
+                    if subNative {
+                        subScene.glyphAtlas = NativeGlyphAtlas.shared.currentSnapshot()
+                    }
+                    if subPixel {
+                        subScene.pixelGlyphAtlas = pixelGlyphAtlasSnapshot()
+                    }
+                    // Glyph usage inside the group is glyph usage for the frame: the
+                    // atlas-recovery retry and the outer snapshot both key off it.
+                    // A reused bitmap has its glyphs baked in and needs neither.
+                    usedNativeGlyphs = usedNativeGlyphs || subNative
+                    usedPixelGlyphs = usedPixelGlyphs || subPixel
 
-                let bitmap = GPUIRawSceneRasterizer.rasterize(subScene, size: subSize)
+                    bitmap = GPUIRawSceneRasterizer.rasterize(subScene, size: subSize)
+                    scene.paintMetrics.compositingGroupsRasterized += 1
+                    if !skipCacheUpdates {
+                        node.cachedCompositingGroupKey = cacheKey
+                        node.cachedCompositingGroupBitmap = bitmap
+                        // Only text ties the bitmap to the atlas; a group without
+                        // glyphs stays valid across every recycle.
+                        node.cachedCompositingGroupAtlasGeneration =
+                            subNative ? NativeGlyphAtlas.shared.atlasGeneration : nil
+                    }
+                }
 
                 let textureID = scene.registerImageResource(bitmap)
                 let scaledFrame = scaleRect(buffer.frame, by: displayScale)
@@ -962,6 +993,9 @@ public enum ScenePainter {
                         textureID: textureID
                     ), toLayer: layerIndex)
             } else {
+                // This node painted inline, so whatever buffer it composited
+                // into on an earlier frame is dead weight now.
+                node.releaseCompositingGroupCache()
                 traversal.append(
                     .finish(
                         PaintNodeFinishState(

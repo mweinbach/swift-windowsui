@@ -2594,6 +2594,21 @@ public final class ViewNode {
     internal var cachedFrameCommandRange: Range<Int>?
     internal var cachedSceneKey: ViewPaintCacheKey?
     internal var cachedScenePaintRange: Range<Int>?
+    /// Offscreen bitmap this node's compositing group (`.drawingGroup()`,
+    /// `.compositingGroup()`) rasterized into, and the paint key it was
+    /// rasterized for. A group CPU-rasterizes its whole subtree on the main
+    /// actor, so repeating that for an unchanged subtree is the most expensive
+    /// thing the painter can do per frame; the pair is reused while the key
+    /// matches and the subtree is clean, exactly like the paint-record replay
+    /// range above.
+    internal var cachedCompositingGroupKey: ViewPaintCacheKey?
+    internal var cachedCompositingGroupBitmap: BitmapSurface?
+    /// Native glyph-atlas generation the cached bitmap was rasterized against,
+    /// when its sub-scene drew native glyphs. An atlas recycle invalidates every
+    /// UV captured before it, so a bitmap baked across one must be re-rasterized
+    /// on the repaint that recycle triggers rather than reused with someone
+    /// else's glyphs in it.
+    internal var cachedCompositingGroupAtlasGeneration: UInt64?
     private var hasAppliedInitialScrollAnchor: Bool
     private var lastAnchoredScrollContentSize: Size
     private var lastAnchoredScrollFrameSize: Size
@@ -4226,8 +4241,10 @@ public final class ViewNode {
 
         // Gap/Fix: Occlusion culling — skip the entire node early if it is
         // fully outside the inherited clip bounds (before allocating any
-        // command structs).
-        if !baseClipAllowsDrawing(baseClip: inheritedClip, rect: absoluteFrame) {
+        // command structs). Uses the same subtree test as the scene path, so a
+        // zero-extent container inside the clip keeps painting its overflowing
+        // children on both paths instead of only on one of them.
+        if !clipAllowsSubtreeTraversal(clip: inheritedClip, bounds: absoluteFrame) {
             cachedFrameKey = nil
             cachedFrameCommandRange = startIndex..<startIndex
             markSubtreeRendered()
@@ -4336,16 +4353,23 @@ public final class ViewNode {
         // control square the moment the host fell back to this renderer.
         let uniformCornerRadius = cornerRadii?.maxRadius ?? cornerRadius
 
-        if let hoverShadow = hoverEffectShadowCommand(
-            for: paintFrame,
-            inheritedClip: inheritedClip,
-            opacity: effectiveOpacity
-        ) {
+        // Same rule as ScenePainter: a zero-extent node paints none of its own
+        // decoration (the outset shadow and outline would otherwise draw a small
+        // square around a collapsed node) while its children still paint.
+        let hasPaintableExtent = paintFrame.size.width > 0 && paintFrame.size.height > 0
+
+        if hasPaintableExtent,
+            let hoverShadow = hoverEffectShadowCommand(
+                for: paintFrame,
+                inheritedClip: inheritedClip,
+                opacity: effectiveOpacity
+            )
+        {
             commands.append(.fillRect(hoverShadow))
         }
 
         let effectiveShadowColor = shadowColor.multipliedAlpha(by: effectiveOpacity)
-        if effectiveShadowColor.alpha > 0 {
+        if hasPaintableExtent, effectiveShadowColor.alpha > 0 {
             let shadowRect =
                 paintFrame
                 .outset(by: max(0, shadowSpread))
@@ -4365,16 +4389,18 @@ public final class ViewNode {
             }
         }
 
-        if let focusEffect = focusEffectCommand(
-            for: paintFrame,
-            inheritedClip: inheritedClip,
-            opacity: effectiveOpacity
-        ) {
+        if hasPaintableExtent,
+            let focusEffect = focusEffectCommand(
+                for: paintFrame,
+                inheritedClip: inheritedClip,
+                opacity: effectiveOpacity
+            )
+        {
             commands.append(.fillRect(focusEffect))
         }
 
         let effectiveOutlineColor = outlineColor.multipliedAlpha(by: effectiveOpacity)
-        if effectiveOutlineColor.alpha > 0, outlineWidth > 0 {
+        if hasPaintableExtent, effectiveOutlineColor.alpha > 0, outlineWidth > 0 {
             let outlineRect = paintFrame.outset(by: outlineWidth)
             if baseClipAllowsDrawing(baseClip: inheritedClip, rect: outlineRect) {
                 commands.append(
@@ -4394,7 +4420,7 @@ public final class ViewNode {
         let effectiveBorderColor =
             borderGradient?.startColor
             ?? borderColor.multipliedAlpha(by: effectiveOpacity)
-        if effectiveBorderColor.alpha > 0, borderWidth > 0, backgroundPath == nil,
+        if hasPaintableExtent, effectiveBorderColor.alpha > 0, borderWidth > 0, backgroundPath == nil,
             baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame)
         {
             if let borderSegments = BorderSegments.dashedSegments(
@@ -4875,6 +4901,17 @@ public final class ViewNode {
 
     var hasDirtySubtree: Bool {
         !subtreeDirtyFlags.isEmpty
+    }
+
+    /// Drops the cached compositing-group bitmap. Called when the node paints
+    /// without a group buffer (the modifier was removed, the group fell back to
+    /// inline painting, or it lost its children), so a buffer that can be as
+    /// large as `maxCompositingGroupPixels` does not outlive its use.
+    func releaseCompositingGroupCache() {
+        guard cachedCompositingGroupBitmap != nil || cachedCompositingGroupKey != nil else { return }
+        cachedCompositingGroupBitmap = nil
+        cachedCompositingGroupKey = nil
+        cachedCompositingGroupAtlasGeneration = nil
     }
 
     func markSubtreeRendered() {
@@ -6174,7 +6211,8 @@ public final class RetainedViewRuntime {
             }
         }
 
-        beginRenderPass()
+        let ownsRenderPass = beginRenderPass()
+        defer { endRenderPass(ownsPass: ownsRenderPass) }
         updateResolvedLayout()
         applyMatchedGeometryAnimations()
 
@@ -6217,7 +6255,6 @@ public final class RetainedViewRuntime {
         lastDeferredDrawSceneReplayCount = 0
         cachedFrame = frame
         cachedScene = nil
-        endRenderPass()
         if timestamp > 0 {
             lastRenderTime = timestamp
         }
@@ -6251,7 +6288,8 @@ public final class RetainedViewRuntime {
             }
         }
 
-        beginRenderPass()
+        let ownsRenderPass = beginRenderPass()
+        defer { endRenderPass(ownsPass: ownsRenderPass) }
         updateResolvedLayout()
         applyMatchedGeometryAnimations()
 
@@ -6282,7 +6320,6 @@ public final class RetainedViewRuntime {
         lastScenePaintMetrics = scene.paintMetrics
         cachedScene = cachedSceneCopy
         cachedFrame = nil
-        endRenderPass()
         if timestamp > 0 {
             lastRenderTime = timestamp
         }
@@ -7100,18 +7137,36 @@ public final class RetainedViewRuntime {
     /// raised by a user closure running *inside* the traversal (`onAppear`,
     /// `onLayout`, `onSizeChange`, `canvasDraw`) would otherwise be wiped and
     /// the change would never reach the screen.
-    private func beginRenderPass() {
+    ///
+    /// Returns whether *this* call opened the pass. A render pass runs arbitrary
+    /// app closures, and one of them re-entering `renderFrame`/`renderScene`
+    /// must not reset the staging sets or close the pass on the way out: the
+    /// outer pass would then run with `isRendering == false`, route its
+    /// invalidations straight into `dirtyFlags`, and wipe them at its own
+    /// `endRenderPass` — a permanently frozen runtime with no diagnostic. The
+    /// nested call is a no-op on both ends and the outer pass stays the owner.
+    private func beginRenderPass() -> Bool {
+        guard !isRendering else {
+            RetainedViewRuntime.reportReentrantRenderPass()
+            return false
+        }
         isRendering = true
         pendingDirtyFlags = []
         pendingDirtyNodes.removeAll(keepingCapacity: true)
+        return true
     }
 
-    /// Closes a render pass: the flags the pass consumed are cleared and the
-    /// staged ones take their place. Per-node subtree flags are re-applied
-    /// too — a node invalidated mid-traversal has its ancestors' flags erased
-    /// again as `markSubtreeRendered` unwinds, which would let the next pass
-    /// replay its stale range.
-    private func endRenderPass() {
+    /// Closes a render pass opened by `beginRenderPass()`: the flags the pass
+    /// consumed are cleared and the staged ones take their place. Per-node
+    /// subtree flags are re-applied too — a node invalidated mid-traversal has
+    /// its ancestors' flags erased again as `markSubtreeRendered` unwinds, which
+    /// would let the next pass replay its stale range.
+    ///
+    /// `ownsPass` is what `beginRenderPass()` returned; a nested pass closes
+    /// nothing. Always call it from a `defer`, so a throw or an early return
+    /// added inside the pass cannot leave `isRendering` stuck true.
+    private func endRenderPass(ownsPass: Bool) {
+        guard ownsPass else { return }
         isRendering = false
         for pending in pendingDirtyNodes {
             pending.node.node?.markDirty(pending.flags)
@@ -7119,6 +7174,29 @@ public final class RetainedViewRuntime {
         pendingDirtyNodes.removeAll(keepingCapacity: true)
         dirtyFlags = pendingDirtyFlags
         pendingDirtyFlags = []
+    }
+
+    /// Number of nested render passes observed since process start. Diagnostic
+    /// only: a nested pass means an app closure rendered from inside a render,
+    /// which is always a bug in the app, but never a reason to lose an
+    /// invalidation.
+    internal private(set) static var reentrantRenderPassCount = 0
+    private static var hasReportedReentrantRenderPass = false
+
+    private static func reportReentrantRenderPass() {
+        reentrantRenderPassCount += 1
+        guard !hasReportedReentrantRenderPass else { return }
+        hasReportedReentrantRenderPass = true
+        FileHandle.standardError.write(
+            Data(
+                """
+                [SwiftWindowsUI] render pass re-entered from inside a render \
+                (an onAppear/onLayout/canvasDraw closure rendering again); the \
+                nested pass is ignored.
+
+                """.utf8
+            )
+        )
     }
 
     fileprivate func recordLayoutReuse() {
@@ -7664,6 +7742,30 @@ private final class ViewColorAnimation {
 }
 func baseClipAllowsDrawing(baseClip: Rect?, rect: Rect) -> Bool {
     baseClip?.intersected(with: rect) != nil || baseClip == nil
+}
+
+/// Culling test for a whole *subtree*, as opposed to a single primitive.
+///
+/// Degenerate footprints are the difference. `Rect.intersected` reports "no
+/// overlap" for every zero-width or zero-height rect wherever it sits, but a
+/// zero-extent node is a legal parent: macOS SwiftUI does not clip at a frame
+/// boundary, so `.frame(height: 0)` without `.clipped()` overflows and its
+/// children still paint (see `docs/GPURenderingPipeline.md` §2b). Culling such
+/// a node on `intersected` alone erases the subtree; not culling it at all —
+/// which is what gating the cull on a paintable extent did — leaves a
+/// collapsed row parked far outside the clip traversing its whole subtree
+/// every frame.
+///
+/// So: a degenerate footprint is culled only when it is strictly outside the
+/// clip, a non-degenerate one keeps the exact overlap test primitives use
+/// (`baseClipAllowsDrawing`), and an empty clip culls everything beneath it —
+/// no pixel under it can survive.
+func clipAllowsSubtreeTraversal(clip: Rect?, bounds: Rect) -> Bool {
+    guard let clip else { return true }
+    guard !clip.isEmpty else { return false }
+    guard bounds.isEmpty else { return clip.intersected(with: bounds) != nil }
+    return bounds.maxX >= clip.minX && bounds.minX <= clip.maxX
+        && bounds.maxY >= clip.minY && bounds.minY <= clip.maxY
 }
 public enum AnimatableProperty: Hashable, Sendable {
     case opacity

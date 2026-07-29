@@ -68,7 +68,15 @@ therefore bracketed by `beginRenderPass()` / `endRenderPass()`:
 invalidations raised while a pass is open are staged and applied after
 the clear, and the raising node's subtree flags are re-applied too — the
 ancestors' flags are erased again as `markSubtreeRendered` unwinds, which
-would otherwise let the next pass replay a stale range.
+would otherwise let the next pass replay a stale range. The bracket is a
+`defer`, and `beginRenderPass()` returns whether *this* call opened the
+pass: an app closure re-entering `renderFrame`/`renderScene` is a no-op
+on both ends, because a nested pass that reset the staging and closed the
+pass on its way out left the rest of the outer pass invalidating straight
+into `dirtyFlags`, which the outer pass then wiped — a permanently clean
+runtime the host stops requesting frames for. Nested passes are counted
+in `RetainedViewRuntime.reentrantRenderPassCount` and reported once on
+stderr.
 
 **Geometry sanitation and boundedness.** `layoutSubtree` clamps
 `resolvedFrame` and `resolvedContentSize` to finite, non-negative values
@@ -86,7 +94,7 @@ one-shot diagnostic instead of overflowing the main thread's stack
 backstop, not a stack guarantee: the demo's deepest screen reaches 42.
 
 **Tests:** `RuntimeAnimationGatingTests`, `RuntimeDirtyFlagIntegrityTests`,
-`RuntimeGeometrySanitationTests`.
+`RuntimeRenderPassReentrancyTests`, `RuntimeGeometrySanitationTests`.
 
 ## 2. ViewNode → GPUIScene
 
@@ -216,10 +224,25 @@ hands a backend is already multiplied by `displayScale`:
 the node's decoration actually reaches:
 `paintFrame ∪ shadowRect ∪ outlineRect`. Culling on `paintFrame` alone
 dropped the shadow of a card scrolled one pixel past a clip edge, which
-read as shadows popping at every scroll boundary. A **degenerate** frame
-(zero width or height) suppresses only the node's *own* decoration — the
-subtree is still visited, because a collapsed row can legitimately carry
-an offset badge or an overlay child.
+read as shadows popping at every scroll boundary.
+
+**Zero-extent nodes** follow macOS SwiftUI: a frame boundary does not
+clip, so a container collapsed to `0 × 0` still paints its overflowing
+children (`.clipped()` is what hides them) while painting none of its
+*own* decoration — an outset shadow or outline around a zero-extent
+frame would otherwise draw a small square where the app asked for
+nothing. They are still culled: `clipAllowsSubtreeTraversal` (the one
+predicate both paint traversals use) treats a degenerate footprint as
+touching rather than empty, so it prunes only when the footprint is
+strictly outside the clip, and prunes everything under an empty clip.
+`Rect.intersected` reports "no overlap" for every degenerate rect
+wherever it sits, so the primitive test cannot be reused here — and
+skipping the cull for zero-extent nodes leaves a collapsed row parked
+off-screen traversing its whole subtree every frame. The frame path
+(`ViewNode.appendCommands`) uses the same predicate and the same
+own-decoration rule, so both paths paint the same tree. Hit testing is
+deliberately *not* included: prepaint still prunes a zero-extent
+subtree, so overflow content renders without becoming newly clickable.
 
 **Borders** are emitted exactly once. A node with children draws its
 border as a ring of edge/arc segments *after* its children (so child
@@ -227,7 +250,9 @@ content cannot cover it); a leaf draws the historic full-rect fill under
 its inset background. Doing both — which is what containers used to do —
 blended a translucent border twice, so
 `.border(Color.white.opacity(0.10))` composited at 0.19 on a container
-and 0.10 on a leaf.
+and 0.10 on a leaf. The ring is the whole border: a bordered container
+with a transparent or translucent background keeps its interior free of
+border colour, where the pre-children fill used to tint it.
 
 **Compositing groups** (`.drawingGroup()`, `.compositingGroup()`)
 rasterize their children into an offscreen `BitmapSurface` and composite
@@ -253,8 +278,22 @@ dirty region (the outer scene, at the end of `paint`), and consuming it
 mid-traversal would hand the GPU backend an empty dirty region for glyphs
 it still had to upload.
 
-**Tests:** `PainterDeviceSpaceTests`, `ScenePainterTests`,
-`PathTessellationBudgetTests`.
+The bitmap is **cached on the node**, under the same condition the paint
+record replay uses: the node's `ViewPaintCacheKey` is unchanged and its
+subtree is clean (the key covers the group itself, `subtreeDirtyFlags`
+covers its descendants). Rasterizing a group walks and CPU-rasterizes its
+whole subtree on the main actor, so an uncached group is the most
+expensive node in the frame, every frame it is painted. A cached bitmap
+whose sub-scene drew native glyphs also records the atlas generation it
+was baked against, so the repaint an atlas recycle triggers re-rasterizes
+instead of reusing pixels baked across the recycle.
+`ScenePaintMetrics.compositingGroupsRasterized` /
+`compositingGroupsReused` report which happened; the bitmap is released
+as soon as the node paints inline again.
+
+**Tests:** `PainterDeviceSpaceTests`, `PainterZeroExtentSemanticsTests`,
+`PainterBorderRingCoverageTests`, `CompositingGroupBitmapCacheTests`,
+`ScenePainterTests`, `PathTessellationBudgetTests`.
 
 ## 3. Text: DirectWrite + native glyph atlas
 

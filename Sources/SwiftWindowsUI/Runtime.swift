@@ -2477,7 +2477,20 @@ public final class ViewNode {
     public var previousPropertyValues: PropertySnapshot?
 
     /// Active per-property animation states driven by the `animation()` modifier.
-    public var animationStates: [AnimatableProperty: AnimationState] = [:]
+    /// The `didSet` keeps the runtime's animating-node registry in step: the
+    /// host gates its animation timer on `hasActiveAnimations`, so a node that
+    /// starts animating without the runtime knowing about it never gets ticked
+    /// and freezes mid-transition.
+    public var animationStates: [AnimatableProperty: AnimationState] = [:] {
+        didSet {
+            guard oldValue.isEmpty != animationStates.isEmpty else { return }
+            if animationStates.isEmpty {
+                runtime?.unregisterAnimatingNode(self)
+            } else {
+                runtime?.registerAnimatingNode(self)
+            }
+        }
+    }
 
     /// Persistent phase-animation state for PhaseAnimator. Survives rebuilds
     /// because it is stored on the retained ViewNode rather than in @State.
@@ -3269,6 +3282,14 @@ public final class ViewNode {
     }
 
     fileprivate func setRuntime(_ runtime: RetainedViewRuntime?) {
+        // Animation registration follows the node across runtimes: a node
+        // detached mid-animation (a removal overlay) must not keep the old
+        // runtime's driver awake, and a node attached mid-animation must be
+        // ticked by the new one.
+        if !animationStates.isEmpty {
+            self.runtime?.unregisterAnimatingNode(self)
+            runtime?.registerAnimatingNode(self)
+        }
         self.runtime = runtime
         for child in children {
             child.setRuntime(runtime)
@@ -3307,12 +3328,78 @@ public final class ViewNode {
         lifecycleTasks.removeAll()
     }
 
+    // MARK: - Traversal depth
+
+    /// Hard cap on nested layout / measure / prepaint / command recursion.
+    /// Deep trees are legal here — every `WinSwiftUI` modifier adds a wrapper
+    /// node, so depth grows with modifier-chain length and not only with
+    /// nesting — but a pathological chain has to degrade to a diagnostic
+    /// instead of overflowing the main thread's stack. A stack overflow on
+    /// Windows is an access violation: no Swift error, no renderer fallback,
+    /// no log line. `ScenePainter.paintNode` was rewritten as an explicit
+    /// worklist for exactly this reason; these traversals are still recursive,
+    /// and the measure recursion nests inside the layout one, so a single
+    /// shared counter bounds the true stack depth rather than each function's.
+    ///
+    /// 256 is a backstop, not a stack guarantee: the demo's deepest screen
+    /// reaches 42 (`maxObservedTraversalDepth`), so this leaves ~6× headroom
+    /// for real trees while keeping an optimized build's worst case inside the
+    /// main thread's 1 MB stack. Unoptimized builds have far larger frames and
+    /// run out well before the cap — which is why tests lower it rather than
+    /// building a tree deep enough to reach it.
+    internal static var maximumTraversalDepth = 256
+    private static var traversalDepth = 0
+    private static var hasReportedTraversalDepthOverflow = false
+    /// Number of subtrees dropped by the depth cap since process start.
+    internal private(set) static var traversalDepthOverflowCount = 0
+    /// Deepest nesting any traversal has reached. Diagnostic only — it is what
+    /// the cap has to stay comfortably above for real view trees.
+    internal private(set) static var maxObservedTraversalDepth = 0
+
+    /// Returns false when the cap is reached; the caller must then return
+    /// without recursing (and without a matching `leaveTraversal`).
+    fileprivate static func enterTraversal() -> Bool {
+        guard traversalDepth < maximumTraversalDepth else {
+            traversalDepthOverflowCount += 1
+            if !hasReportedTraversalDepthOverflow {
+                hasReportedTraversalDepthOverflow = true
+                FileHandle.standardError.write(
+                    Data(
+                        """
+                        [SwiftWindowsUI] view tree deeper than \
+                        \(maximumTraversalDepth) levels; the subtree below \
+                        that depth is not laid out or painted.
+
+                        """.utf8
+                    )
+                )
+            }
+            return false
+        }
+        traversalDepth += 1
+        if traversalDepth > maxObservedTraversalDepth {
+            maxObservedTraversalDepth = traversalDepth
+        }
+        return true
+    }
+
+    fileprivate static func leaveTraversal() {
+        traversalDepth -= 1
+    }
+
     fileprivate func layoutSubtree(displayScale: Double) {
+        guard ViewNode.enterTraversal() else { return }
+        defer { ViewNode.leaveTraversal() }
+
+        // Sanitize before the cache key is minted so the key, the geometry the
+        // painter reads, and the geometry the next pass compares against are
+        // all the same finite values.
+        resolvedFrame = sanitizedLayoutRect(resolvedFrame)
         let layoutKey = ViewLayoutCacheKey(frame: resolvedFrame, displayScale: displayScale)
         let layoutDirtyFlags = subtreeDirtyFlags.intersection([.layout, .children])
         if layoutDirtyFlags.isEmpty, cachedLayoutKey == layoutKey {
             runtime?.recordLayoutReuse()
-            resolvedScrollOffset = clampedScrollOffset(for: scrollOffset) + scrollOvershoot + scrollPresentedDelta
+            resolvedScrollOffset = effectiveScrollOffset
 
             if hasDirtySubtree {
                 for child in children where child.hasDirtySubtree {
@@ -3669,9 +3756,10 @@ public final class ViewNode {
             resolvedContentSize = resolvedFrame.size
         }
 
+        resolvedContentSize = sanitizedLayoutSize(resolvedContentSize)
         applyDefaultScrollAnchorAfterLayout()
         cachedLayoutKey = layoutKey
-        resolvedScrollOffset = clampedScrollOffset(for: scrollOffset)
+        resolvedScrollOffset = effectiveScrollOffset
     }
 
     private func applyDefaultScrollAnchorAfterLayout() {
@@ -3752,6 +3840,13 @@ public final class ViewNode {
             deferredDrawIndex: state.deferredDraws.count,
             deferredPriority: state.nextDeferredPriority
         )
+
+        guard ViewNode.enterTraversal() else {
+            cachedPrepaintKey = nil
+            cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
+            return
+        }
+        defer { ViewNode.leaveTraversal() }
 
         if isHidden {
             cachedPrepaintKey = nil
@@ -4096,6 +4191,14 @@ public final class ViewNode {
         replayCount: inout Int
     ) {
         let startIndex = commands.count
+        guard ViewNode.enterTraversal() else {
+            cachedFrameKey = nil
+            cachedFrameCommandRange = startIndex..<startIndex
+            markSubtreeRendered()
+            return
+        }
+        defer { ViewNode.leaveTraversal() }
+
         if isHidden {
             cachedFrameKey = nil
             cachedFrameCommandRange = startIndex..<startIndex
@@ -4226,6 +4329,13 @@ public final class ViewNode {
         )
         let directCommandStartIndex = commands.count
 
+        // `FillRectCommand` only carries a uniform radius, so the frame path
+        // degrades per-corner radii the same way ScenePainter degrades them for
+        // its uniform-radius consumers: to `maxRadius`. Reading `cornerRadius`
+        // alone (typically 0 on a per-corner node) turned a rounded segmented
+        // control square the moment the host fell back to this renderer.
+        let uniformCornerRadius = cornerRadii?.maxRadius ?? cornerRadius
+
         if let hoverShadow = hoverEffectShadowCommand(
             for: paintFrame,
             inheritedClip: inheritedClip,
@@ -4247,7 +4357,7 @@ public final class ViewNode {
                         FillRectCommand(
                             rect: shadowRect,
                             color: effectiveShadowColor,
-                            cornerRadius: cornerRadius + max(0, shadowSpread),
+                            cornerRadius: uniformCornerRadius + max(0, shadowSpread),
                             clipRect: inheritedClip
                         )
                     )
@@ -4272,7 +4382,7 @@ public final class ViewNode {
                         FillRectCommand(
                             rect: outlineRect,
                             color: effectiveOutlineColor,
-                            cornerRadius: cornerRadius + outlineWidth,
+                            cornerRadius: uniformCornerRadius + outlineWidth,
                             clipRect: inheritedClip
                         )
                     )
@@ -4290,7 +4400,7 @@ public final class ViewNode {
             if let borderSegments = BorderSegments.dashedSegments(
                 frame: paintFrame,
                 width: borderWidth,
-                cornerRadius: cornerRadius,
+                cornerRadius: uniformCornerRadius,
                 strokeStyle: borderStrokeStyle
             ) {
                 for segment in borderSegments where baseClipAllowsDrawing(baseClip: effectiveClip, rect: segment.rect) {
@@ -4312,7 +4422,7 @@ public final class ViewNode {
                         FillRectCommand(
                             rect: paintFrame,
                             color: effectiveBorderColor,
-                            cornerRadius: cornerRadius,
+                            cornerRadius: uniformCornerRadius,
                             clipRect: effectiveClip,
                             gradient: effectiveBorderGradient
                         )
@@ -4322,7 +4432,7 @@ public final class ViewNode {
         }
 
         let fillRect = borderWidth > 0 ? paintFrame.inset(by: borderWidth) : paintFrame
-        let fillCornerRadius = max(0, cornerRadius - borderWidth)
+        let fillCornerRadius = max(0, uniformCornerRadius - borderWidth)
 
         let resolvedBackgroundGradient = backgroundGradient?.withMultipliedOpacity(Double(effectiveOpacity))
         let resolvedBackgroundColor =
@@ -4760,7 +4870,7 @@ public final class ViewNode {
 
     private func invalidateRuntime(_ flags: DirtyFlags = .all) {
         markDirty(flags)
-        runtime?.invalidate(flags)
+        runtime?.invalidate(flags, from: self)
     }
 
     var hasDirtySubtree: Bool {
@@ -4771,7 +4881,7 @@ public final class ViewNode {
         subtreeDirtyFlags = []
     }
 
-    private func markDirty(_ flags: DirtyFlags) {
+    fileprivate func markDirty(_ flags: DirtyFlags) {
         var currentNode: ViewNode? = self
         while let node = currentNode {
             node.subtreeDirtyFlags.insert(flags)
@@ -4780,6 +4890,9 @@ public final class ViewNode {
     }
 
     func shiftCachedFrameRangesRecursively(by delta: Int) {
+        guard ViewNode.enterTraversal() else { return }
+        defer { ViewNode.leaveTraversal() }
+
         if let existingRange = cachedFrameCommandRange {
             cachedFrameCommandRange = (existingRange.lowerBound + delta)..<(existingRange.upperBound + delta)
         }
@@ -4800,6 +4913,9 @@ public final class ViewNode {
         deferredDrawDelta: Int,
         deferredPriorityDelta: Int
     ) {
+        guard ViewNode.enterTraversal() else { return }
+        defer { ViewNode.leaveTraversal() }
+
         if let existingRange = cachedPrepaintRange {
             cachedPrepaintRange = PrepaintStateRange(
                 start: PrepaintStateIndex(
@@ -4837,6 +4953,9 @@ public final class ViewNode {
     }
 
     func shiftCachedSceneRangesRecursively(by delta: Int) {
+        guard ViewNode.enterTraversal() else { return }
+        defer { ViewNode.leaveTraversal() }
+
         if let existingRange = cachedScenePaintRange {
             cachedScenePaintRange = (existingRange.lowerBound + delta)..<(existingRange.upperBound + delta)
         }
@@ -4850,6 +4969,9 @@ public final class ViewNode {
     }
 
     fileprivate func sizeThatFits(in constraints: LayoutConstraints) -> Size {
+        guard ViewNode.enterTraversal() else { return .zero }
+        defer { ViewNode.leaveTraversal() }
+
         let displayScale = runtime?.displayScale ?? 1.0
         let effectiveConstraints = applyingLayoutConstraints(to: constraints)
         let cacheKey = ViewMeasureCacheKey(constraints: effectiveConstraints, displayScale: displayScale)
@@ -5042,10 +5164,18 @@ public final class ViewNode {
         let desiredExtent = desiredSizes.reduce(0, +)
 
         if desiredExtent > availableExtent {
+            // The caller computes shrink floors under its own squeeze test, so
+            // the array is empty whenever that test disagrees with this one.
+            // `shrinkMainSizes` indexes it per child; size it here rather than
+            // rely on two float comparisons staying identical forever.
+            let floors =
+                shrinkFloors.count == desiredSizes.count
+                ? shrinkFloors
+                : [Double](repeating: 0, count: desiredSizes.count)
             shrinkMainSizes(
                 &allocatedSizes,
                 children: children,
-                floors: shrinkFloors,
+                floors: floors,
                 deficit: desiredExtent - availableExtent
             )
         } else if desiredExtent < availableExtent {
@@ -5056,6 +5186,10 @@ public final class ViewNode {
     }
 
     private func growMainSizes(_ sizes: inout [Double], children: [ViewNode], extraExtent: Double) {
+        guard sizes.count == children.count else {
+            return
+        }
+
         let participantIndices = children.indices.filter { children[$0].layoutPriority > 0 }
         guard !participantIndices.isEmpty else {
             return
@@ -5088,6 +5222,12 @@ public final class ViewNode {
         floors: [Double],
         deficit: Double
     ) {
+        // Three parallel arrays indexed by `children.indices`; a mismatch is an
+        // index-out-of-range trap, so refuse to shrink instead.
+        guard sizes.count == children.count, floors.count == children.count else {
+            return
+        }
+
         var remainingDeficit = deficit
         let priorities = Array(Set(children.map(\.layoutPriority))).sorted()
 
@@ -5140,6 +5280,9 @@ public final class ViewNode {
         along axis: StackAxis,
         constraints: LayoutConstraints
     ) -> Double {
+        guard ViewNode.enterTraversal() else { return 0 }
+        defer { ViewNode.leaveTraversal() }
+
         if let text, !text.isEmpty {
             let measured = sizeThatFits(in: constraints)
             return axis == .vertical ? measured.height : measured.width
@@ -5336,7 +5479,23 @@ public final class ViewNode {
     }
 
     fileprivate func clampedScrollOffset(for value: Double) -> Double {
-        min(max(value, 0), maxScrollOffset)
+        // `max(NaN, 0)` is NaN in Swift, and a NaN scroll offset poisons every
+        // descendant origin — every clip intersection then comes back empty and
+        // the window paints blank with nothing logged.
+        guard value.isFinite else { return 0 }
+        let limit = maxScrollOffset
+        return min(max(value, 0), limit.isFinite ? limit : 0)
+    }
+
+    /// The scroll offset actually presented this frame: the clamped logical
+    /// offset plus the rubber-band and keyboard-tween deltas. Both
+    /// `layoutSubtree` exits assign `resolvedScrollOffset` from this — the
+    /// full-relayout exit used to drop both deltas, so a `.layout`
+    /// invalidation arriving mid rubber-band snapped the content back to the
+    /// clamped offset for a frame and then jumped out again on the next tick.
+    fileprivate var effectiveScrollOffset: Double {
+        let composed = clampedScrollOffset(for: scrollOffset) + scrollOvershoot + scrollPresentedDelta
+        return composed.isFinite ? composed : 0
     }
 
     private func applyScrollDelta(_ delta: Double) -> Bool {
@@ -5736,6 +5895,32 @@ private func stackScrollAxis(for axis: StackAxis) -> ScrollAxis {
         return .horizontal
     }
 }
+/// Clamps a resolved layout coordinate to the finite range the scene contract
+/// accepts. Layout arithmetic reaches non-finite values from ordinary app code
+/// — `.frame(maxWidth: .infinity)` landing in `preferredSize`, or a division by
+/// an extent that collapsed to zero during first layout — and every downstream
+/// `Int(_: Float)` conversion traps on those. A Swift trap is the one failure
+/// class the host's renderer fallback cannot degrade, so the clamp happens
+/// here, at the layer boundary. Finite in-range values pass through unchanged.
+private func sanitizedLayoutCoordinate(_ value: Double) -> Double {
+    GPUISceneValue.clamped(value, to: Double(GPUISceneLimits.maxCoordinate))
+}
+/// Extents additionally floor at zero: a negative or NaN extent describes no
+/// area, and `Rect.intersected` treats it as an empty region either way.
+private func sanitizedLayoutExtent(_ value: Double) -> Double {
+    max(0, sanitizedLayoutCoordinate(value))
+}
+private func sanitizedLayoutSize(_ size: Size) -> Size {
+    Size(width: sanitizedLayoutExtent(size.width), height: sanitizedLayoutExtent(size.height))
+}
+private func sanitizedLayoutRect(_ rect: Rect) -> Rect {
+    Rect(
+        x: sanitizedLayoutCoordinate(rect.origin.x),
+        y: sanitizedLayoutCoordinate(rect.origin.y),
+        width: sanitizedLayoutExtent(rect.size.width),
+        height: sanitizedLayoutExtent(rect.size.height)
+    )
+}
 private func remainingConstraintExtent(_ maxExtent: Double, offset: Double) -> Double {
     guard maxExtent.isFinite else {
         return .infinity
@@ -5761,6 +5946,21 @@ private func clampedExtent(_ extent: Double, min minimum: Double, max maximum: D
     }
     return value
 }
+/// Weak box so the runtime can hold a set of nodes without keeping them
+/// alive. Used by the animating-node registry, where a strong reference
+/// would turn a dropped mid-animation node into a permanently spinning
+/// animation timer.
+@MainActor
+private struct WeakViewNodeRef {
+    weak var node: ViewNode?
+}
+/// One invalidation raised while a render pass was open, replayed onto the
+/// node's subtree flags once the pass has finished clearing them.
+@MainActor
+private struct PendingNodeInvalidation {
+    var node: WeakViewNodeRef
+    var flags: DirtyFlags
+}
 @MainActor
 public final class RetainedViewRuntime {
     private static let buttonRepeatInitialDelay = 0.45
@@ -5784,14 +5984,55 @@ public final class RetainedViewRuntime {
         didSet { invalidate() }
     }
 
+    /// True while anything in this runtime still needs a frame tick. The host
+    /// gates its animation timer on exactly this value, so every animation
+    /// mechanism has to be represented: the runtime-level ones (colour tweens,
+    /// button repeat, scroll momentum and presented tweens), the per-node
+    /// `animationStates` driven by `.animation()` and insertion transitions,
+    /// and the removal-transition overlays. Omitting either of the last two
+    /// froze a removal transition permanently — the overlay was painted once
+    /// at its start value and then never ticked again.
     public var hasActiveAnimations: Bool {
         !colorAnimations.isEmpty || buttonRepeatState != nil || !scrollMomenta.isEmpty
-            || !scrollPresentedTweens.isEmpty
+            || !scrollPresentedTweens.isEmpty || !transitionOverlays.isEmpty
+            || hasNodeAnimationsInFlight
+    }
+
+    /// Nodes with at least one in-flight per-property animation, maintained
+    /// from `ViewNode.animationStates`' `didSet`. References are weak so a
+    /// node dropped mid-animation cannot pin the animation driver on for the
+    /// rest of the session; stale slots are swept in `tickAnimations`.
+    private var animatingNodes: [ObjectIdentifier: WeakViewNodeRef] = [:]
+
+    private var hasNodeAnimationsInFlight: Bool {
+        for entry in animatingNodes.values where entry.node != nil {
+            return true
+        }
+        return false
+    }
+
+    fileprivate func registerAnimatingNode(_ node: ViewNode) {
+        animatingNodes[ObjectIdentifier(node)] = WeakViewNodeRef(node: node)
+    }
+
+    fileprivate func unregisterAnimatingNode(_ node: ViewNode) {
+        animatingNodes.removeValue(forKey: ObjectIdentifier(node))
+    }
+
+    private func sweepAnimatingNodes() {
+        guard !animatingNodes.isEmpty else { return }
+        animatingNodes = animatingNodes.filter { $0.value.node != nil }
     }
 
     // Gap/Fix: Granular dirty tracking — DirtyFlags replaces single boolean.
     public private(set) var dirtyFlags: DirtyFlags = .all
     public var isDirty: Bool { !dirtyFlags.isEmpty }
+
+    /// Invalidation staging for the duration of a render pass — see
+    /// `beginRenderPass()` / `endRenderPass()`.
+    private var isRendering = false
+    private var pendingDirtyFlags: DirtyFlags = []
+    private var pendingDirtyNodes: [PendingNodeInvalidation] = []
     private var cachedFrame: RenderFrame?
     private var cachedScene: GPUIScene?
     private var prepaintState = RuntimePrepaintState()
@@ -5933,6 +6174,7 @@ public final class RetainedViewRuntime {
             }
         }
 
+        beginRenderPass()
         updateResolvedLayout()
         applyMatchedGeometryAnimations()
 
@@ -5975,7 +6217,7 @@ public final class RetainedViewRuntime {
         lastDeferredDrawSceneReplayCount = 0
         cachedFrame = frame
         cachedScene = nil
-        dirtyFlags = []
+        endRenderPass()
         if timestamp > 0 {
             lastRenderTime = timestamp
         }
@@ -6009,6 +6251,7 @@ public final class RetainedViewRuntime {
             }
         }
 
+        beginRenderPass()
         updateResolvedLayout()
         applyMatchedGeometryAnimations()
 
@@ -6039,7 +6282,7 @@ public final class RetainedViewRuntime {
         lastScenePaintMetrics = scene.paintMetrics
         cachedScene = cachedSceneCopy
         cachedFrame = nil
-        dirtyFlags = []
+        endRenderPass()
         if timestamp > 0 {
             lastRenderTime = timestamp
         }
@@ -6431,6 +6674,7 @@ public final class RetainedViewRuntime {
 
     @discardableResult
     public func tickAnimations(at timestamp: Double) -> Bool {
+        sweepAnimatingNodes()
         let didAdvanceButtonRepeat = advanceButtonRepeat(at: timestamp)
         let didAdvanceScrollMomenta = tickScrollMomenta(at: timestamp)
         let didAdvanceScrollPresentedTweens = tickScrollPresentedTweens(at: timestamp)
@@ -6742,6 +6986,9 @@ public final class RetainedViewRuntime {
     }
 
     private func tickPropertyAnimations(node: ViewNode, at timestamp: Double) -> Bool {
+        guard ViewNode.enterTraversal() else { return false }
+        defer { ViewNode.leaveTraversal() }
+
         var didUpdate = false
         for (property, state) in node.animationStates {
             let elapsed = timestamp - state.startTime
@@ -6832,7 +7079,46 @@ public final class RetainedViewRuntime {
     }
 
     fileprivate func invalidate(_ flags: DirtyFlags = .all) {
-        dirtyFlags.insert(flags)
+        guard isRendering else {
+            dirtyFlags.insert(flags)
+            return
+        }
+        pendingDirtyFlags.insert(flags)
+    }
+
+    fileprivate func invalidate(_ flags: DirtyFlags, from node: ViewNode) {
+        guard isRendering else {
+            dirtyFlags.insert(flags)
+            return
+        }
+        pendingDirtyFlags.insert(flags)
+        pendingDirtyNodes.append(PendingNodeInvalidation(node: WeakViewNodeRef(node: node), flags: flags))
+    }
+
+    /// Opens a render pass. While one is open, invalidations are staged rather
+    /// than applied, because the pass ends by clearing `dirtyFlags` — anything
+    /// raised by a user closure running *inside* the traversal (`onAppear`,
+    /// `onLayout`, `onSizeChange`, `canvasDraw`) would otherwise be wiped and
+    /// the change would never reach the screen.
+    private func beginRenderPass() {
+        isRendering = true
+        pendingDirtyFlags = []
+        pendingDirtyNodes.removeAll(keepingCapacity: true)
+    }
+
+    /// Closes a render pass: the flags the pass consumed are cleared and the
+    /// staged ones take their place. Per-node subtree flags are re-applied
+    /// too — a node invalidated mid-traversal has its ancestors' flags erased
+    /// again as `markSubtreeRendered` unwinds, which would let the next pass
+    /// replay its stale range.
+    private func endRenderPass() {
+        isRendering = false
+        for pending in pendingDirtyNodes {
+            pending.node.node?.markDirty(pending.flags)
+        }
+        pendingDirtyNodes.removeAll(keepingCapacity: true)
+        dirtyFlags = pendingDirtyFlags
+        pendingDirtyFlags = []
     }
 
     fileprivate func recordLayoutReuse() {

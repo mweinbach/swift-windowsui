@@ -42,6 +42,52 @@ public Apple SwiftUI view types are mapped to ViewNode primitives —
 - Determinism across re-renders is required
   (`testParitySceneIsDeterministicAcrossRepeatedSnapshots`).
 
+## 1a. Runtime frame contract: animation gating, dirty flags, geometry
+
+Three properties of `RetainedViewRuntime` are load-bearing for anything
+above it, and each was a silent-failure class before it was pinned.
+
+**Animation gating.** The host drives frames from
+`runtime.hasActiveAnimations || runtime.isDirty || …`, so that property
+has to report *every* mechanism that needs a tick: the runtime-level
+ones (colour tweens, button repeat, scroll momentum, keyboard-scroll
+tweens), the per-node `animationStates` written by `.animation()`,
+insertion transitions, button presses and matched geometry, **and** the
+`transitionOverlays` a removal transition creates. Per-node state is
+tracked by a weak registry maintained from `ViewNode.animationStates`'
+`didSet` (weak so a node dropped mid-animation cannot pin the driver on
+for the session; stale slots are swept in `tickAnimations`). Omitting
+overlays and `animationStates` froze every removal transition
+permanently — the overlay was painted once at its start value, the frame
+that painted it cleared the dirty flags, and nothing ever ticked again.
+
+**Dirty-flag integrity.** A render pass runs app code inside its own
+traversal (`onLayout` during layout; `onAppear`, `onSizeChange` and
+`canvasDraw` during paint) and ends by clearing `dirtyFlags`. Passes are
+therefore bracketed by `beginRenderPass()` / `endRenderPass()`:
+invalidations raised while a pass is open are staged and applied after
+the clear, and the raising node's subtree flags are re-applied too — the
+ancestors' flags are erased again as `markSubtreeRendered` unwinds, which
+would otherwise let the next pass replay a stale range.
+
+**Geometry sanitation and boundedness.** `layoutSubtree` clamps
+`resolvedFrame` and `resolvedContentSize` to finite, non-negative values
+and composes `resolvedScrollOffset` from one `effectiveScrollOffset`
+property at both exits (the full-relayout exit used to drop the
+rubber-band and keyboard-tween deltas). `clampedScrollOffset` maps
+non-finite input to 0 — `max(NaN, 0)` is NaN in Swift, and a NaN offset
+poisons every descendant origin so that every clip intersection comes
+back empty and the window paints blank with nothing logged. Layout,
+measure, prepaint, the frame-path command walk, the cache-range shifts
+and the animation tick share one recursion-depth counter capped at
+`ViewNode.maximumTraversalDepth`; past it a subtree is skipped with a
+one-shot diagnostic instead of overflowing the main thread's stack
+(an access violation, which no fallback policy can absorb). The cap is a
+backstop, not a stack guarantee: the demo's deepest screen reaches 42.
+
+**Tests:** `RuntimeAnimationGatingTests`, `RuntimeDirtyFlagIntegrityTests`,
+`RuntimeGeometrySanitationTests`.
+
 ## 2. ViewNode → GPUIScene
 
 `ScenePainter.paint(root:…)` walks the retained tree and produces a
@@ -842,3 +888,11 @@ deliberately-square corners under `clipsToBounds` stay square. A node's
 own decoration quads (background, borders) take the *inherited* clip
 corner radius — SwiftUI semantics: a view's clip shapes its children,
 not its own background. Locked by `PerCornerClipTests`.
+
+The frame path (`ViewNode.appendCommands`, used when the host falls back
+to the CPU renderer) has no per-corner `FillRectCommand`, so it degrades
+to `cornerRadii?.maxRadius ?? cornerRadius` for shadow, outline, dashed
+and solid border, and fill. Reading `cornerRadius` alone — typically 0 on
+a per-corner node — turned a rounded joined control square the moment the
+renderer degraded. Locked by
+`RuntimeGeometrySanitationTests.testFramePathDegradesPerCornerRadiiToMaxRadius`.

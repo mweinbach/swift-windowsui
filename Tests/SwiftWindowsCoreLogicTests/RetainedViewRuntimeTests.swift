@@ -428,7 +428,12 @@ final class RetainedViewRuntimeTests: XCTestCase {
             runtime.pointerUp(at: Point(x: 20, y: 16))
 
             XCTAssertEqual(activationCount, 2)
-            XCTAssertFalse(runtime.hasActiveAnimations)
+            // The release also starts the button's scale-back animation, which
+            // legitimately keeps the animation driver running — per-node
+            // `animationStates` is part of `hasActiveAnimations` now. What has
+            // to be finished is the repeat state: no further tick activates.
+            XCTAssertFalse(runtime.tickAnimations(at: 2.0))
+            XCTAssertEqual(activationCount, 2)
         }
     }
 
@@ -465,7 +470,10 @@ final class RetainedViewRuntimeTests: XCTestCase {
             runtime.pointerUp(at: Point(x: 20, y: 16))
 
             XCTAssertEqual(activationCount, 1)
-            XCTAssertFalse(runtime.hasActiveAnimations)
+            // See above: the release scale animation keeps the driver on; the
+            // repeat state is what must be finished.
+            XCTAssertFalse(runtime.tickAnimations(at: 2.0))
+            XCTAssertEqual(activationCount, 1)
         }
     }
 
@@ -504,7 +512,10 @@ final class RetainedViewRuntimeTests: XCTestCase {
             runtime.pointerUp(at: Point(x: 20, y: 16))
 
             XCTAssertEqual(activationCount, 1)
-            XCTAssertFalse(runtime.hasActiveAnimations)
+            // See above: the release scale animation keeps the driver on; the
+            // repeat state is what must be finished.
+            XCTAssertFalse(runtime.tickAnimations(at: 2.0))
+            XCTAssertEqual(activationCount, 1)
         }
     }
 

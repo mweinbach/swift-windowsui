@@ -413,9 +413,11 @@ cbuffer BlurParams : register(b0)
     // xy - zw as the upper one.
     float4 blurUVScale;
     // Symmetric Gaussian weights; blurWeights[0] is the centre tap and
-    // taps ±i both use entry i. 33 float4s = 132 floats, so radii up to
-    // 128 fit (materials top out at 40).
-    float4 blurWeights[33];
+    // taps ±i both use entry i. 65 float4s = 260 floats, so radii up to
+    // 256 fit — GPUISceneLimits.maxBlurRadius, the shared cap the CPU
+    // rasterizer honours too (materials top out at 40; the headroom is
+    // for app-supplied .blur(radius:) at 2x display scale).
+    float4 blurWeights[65];
 };
 
 Texture2D blurSource : register(t0);

@@ -82,6 +82,103 @@ final class PixelFormatContractTests: XCTestCase {
         XCTAssertEqual(premultiplied.format.alphaMode, .premultiplied)
     }
 
+    /// "Without copying" has to mean *without copying*, not "copies and then
+    /// discards the copy". The conversion used to allocate a full duplicate
+    /// of the buffer before it could discover that every pixel was opaque,
+    /// which put a full-surface copy on the main thread for every image
+    /// upload of every frame. Storage identity is the observable difference.
+    func testOpaqueConversionSharesTheSourceBufferRatherThanReallocating() async throws {
+        let opaque = makeOpaqueSurface(width: 32, height: 32)
+        let premultiplied = opaque.premultipliedAlpha()
+
+        XCTAssertTrue(
+            sharesBuffer(premultiplied.pixels, opaque.pixels),
+            "An all-opaque surface must be relabelled in place, not copied")
+        XCTAssertFalse(
+            sharesBuffer(opaque.pixels, makeOpaqueSurface(width: 32, height: 32).pixels),
+            "Two separately built surfaces with equal bytes are not the same buffer — "
+                + "otherwise the assertion above proves nothing")
+    }
+
+    /// One translucent pixel is enough to make the conversion real, and the
+    /// result must then be a different buffer with converted bytes.
+    func testTranslucentSurfaceConversionProducesANewBuffer() async throws {
+        var pixels = makeOpaqueSurface(width: 32, height: 32).pixels
+        pixels[pixels.count - 1] = 128
+        let translucent = BitmapSurface(width: 32, height: 32, bytesPerRow: 128, pixels: pixels)
+
+        let premultiplied = translucent.premultipliedAlpha()
+        XCTAssertFalse(sharesBuffer(premultiplied.pixels, translucent.pixels))
+        XCTAssertEqual(premultiplied.format.alphaMode, .premultiplied)
+        // Last pixel: straight BGRA (31, 31, 200, 128) premultiplies to
+        // (value * 128 + 127) / 255 per colour channel.
+        let tail = Array(premultiplied.pixels[(premultiplied.pixels.count - 4)...])
+        XCTAssertEqual(tail, [16, 16, 100, 128])
+        // Every opaque pixel is untouched by the conversion.
+        XCTAssertEqual(
+            Array(premultiplied.pixels[0..<4]), Array(translucent.pixels[0..<4]),
+            "Opaque pixels are identical under both conventions and must not be rewritten")
+    }
+
+    /// `sharesPixelStorage` is what keeps a frame-stable image from being
+    /// re-converted and re-uploaded every frame, so it has to say "yes" only
+    /// for genuinely the same buffer.
+    func testSharesPixelStorageAnswersOnlyForTheSameBuffer() async throws {
+        let surface = makeOpaqueSurface(width: 32, height: 32)
+        XCTAssertTrue(surface.sharesPixelStorage(with: surface))
+        XCTAssertFalse(surface.sharesPixelStorage(with: makeOpaqueSurface(width: 32, height: 32)))
+
+        var relabelled = surface
+        relabelled.format = .bgra8Premultiplied
+        XCTAssertFalse(
+            surface.sharesPixelStorage(with: relabelled),
+            "Same bytes under a different convention are a different upload")
+
+        var resized = surface
+        resized.width = 16
+        XCTAssertFalse(surface.sharesPixelStorage(with: resized))
+
+        // Buffers small enough for Data's inline representation have no
+        // stable address, so the check refuses to answer for them.
+        let tiny = BitmapSurface(width: 1, height: 1, bytesPerRow: 4, pixels: Data([1, 2, 3, 255]))
+        XCTAssertFalse(tiny.sharesPixelStorage(with: tiny))
+    }
+
+    /// A surface whose stride is wider than its pixels must not be judged
+    /// by its padding bytes, which are zero and would read as translucent.
+    func testRowPaddingDoesNotCountAsTranslucency() async throws {
+        // 2 pixels per row, 16-byte stride: 8 bytes of pixels, 8 of padding.
+        var pixels = Data()
+        for _ in 0..<2 {
+            pixels.append(contentsOf: [10, 20, 30, 255, 40, 50, 60, 255])
+            pixels.append(contentsOf: [UInt8](repeating: 0, count: 8))
+        }
+        let padded = BitmapSurface(width: 2, height: 2, bytesPerRow: 16, pixels: pixels)
+        XCTAssertEqual(padded.premultipliedAlpha().pixels, padded.pixels)
+    }
+
+    /// Byte-buffer identity, which is what "converts without copying"
+    /// actually means. `Data` compares by value, so equality cannot tell a
+    /// shared buffer from a duplicate with the same contents.
+    private func sharesBuffer(_ lhs: Data, _ rhs: Data) -> Bool {
+        lhs.withUnsafeBytes { left in
+            rhs.withUnsafeBytes { right in
+                left.baseAddress != nil && left.baseAddress == right.baseAddress
+            }
+        }
+    }
+
+    private func makeOpaqueSurface(width: Int, height: Int) -> BitmapSurface {
+        var pixels = Data()
+        for y in 0..<height {
+            for x in 0..<width {
+                pixels.append(contentsOf: [UInt8(x % 256), UInt8(y % 256), 200, 255])
+            }
+        }
+        return BitmapSurface(
+            width: Int32(width), height: Int32(height), bytesPerRow: Int32(width * 4), pixels: pixels)
+    }
+
     func testFullyTransparentPixelsPremultiplyToZero() async throws {
         let straight = BitmapSurface(
             width: 1, height: 1, bytesPerRow: 4, pixels: Data([200, 180, 160, 0]))

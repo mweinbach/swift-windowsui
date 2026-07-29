@@ -408,18 +408,32 @@ final class SceneStructuralValidationTests: XCTestCase {
         XCTAssertTrue(scene.validate().isEmpty)
     }
 
-    func testValidateReportsNegativePaintOperationCount() {
+    /// A one-layer scene whose layer is hand-built rather than grown
+    /// through `add*`. The family arrays are `public private(set)`, so this
+    /// is the remaining way to produce a malformed scene — which is exactly
+    /// the residual hole `validate()` exists to cover.
+    private static func sceneWithHandBuiltLayer(_ layer: GPUILayer) -> GPUIScene {
         var scene = GPUIScene()
-        scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 10, height: 10))
-        scene.layers[0].paintOperations = [GPUIPaintOperation(kind: .quad, startIndex: 0, count: -1)]
+        scene.layers[0] = layer
+        return scene
+    }
+
+    private static let unitQuad = QuadPrimitive(x: 0, y: 0, width: 10, height: 10)
+
+    func testValidateReportsNegativePaintOperationCount() {
+        let scene = Self.sceneWithHandBuiltLayer(
+            GPUILayer(
+                quads: [Self.unitQuad],
+                paintOperations: [GPUIPaintOperation(kind: .quad, startIndex: 0, count: -1)]))
         XCTAssertEqual(scene.validate().count, 1)
     }
 
     func testMakeRenderPlanThrowsOnNegativePaintOperationCount() async throws {
         try await MainActor.run {
-            var scene = GPUIScene()
-            scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 10, height: 10))
-            scene.layers[0].paintOperations = [GPUIPaintOperation(kind: .quad, startIndex: 0, count: -1)]
+            let scene = Self.sceneWithHandBuiltLayer(
+                GPUILayer(
+                    quads: [Self.unitQuad],
+                    paintOperations: [GPUIPaintOperation(kind: .quad, startIndex: 0, count: -1)]))
             XCTAssertThrowsError(try D3D11BatchRenderer.makeRenderPlan(for: scene)) { error in
                 guard let batchError = error as? BatchRendererError else {
                     return XCTFail("Expected BatchRendererError, got \(error)")
@@ -431,14 +445,16 @@ final class SceneStructuralValidationTests: XCTestCase {
 
     func testMakeRenderPlanThrowsOnOutOfRangePaintOperation() async throws {
         try await MainActor.run {
-            var scene = GPUIScene()
-            scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 10, height: 10))
-            scene.layers[0].paintOperations = [GPUIPaintOperation(kind: .quad, startIndex: 0, count: 4)]
+            let scene = Self.sceneWithHandBuiltLayer(
+                GPUILayer(
+                    quads: [Self.unitQuad],
+                    paintOperations: [GPUIPaintOperation(kind: .quad, startIndex: 0, count: 4)]))
             XCTAssertThrowsError(try D3D11BatchRenderer.makeRenderPlan(for: scene))
 
-            var negativeStart = GPUIScene()
-            negativeStart.addQuad(QuadPrimitive(x: 0, y: 0, width: 10, height: 10))
-            negativeStart.layers[0].paintOperations = [GPUIPaintOperation(kind: .quad, startIndex: -1, count: 1)]
+            let negativeStart = Self.sceneWithHandBuiltLayer(
+                GPUILayer(
+                    quads: [Self.unitQuad],
+                    paintOperations: [GPUIPaintOperation(kind: .quad, startIndex: -1, count: 1)]))
             XCTAssertThrowsError(try D3D11BatchRenderer.makeRenderPlan(for: negativeStart))
         }
     }
@@ -450,9 +466,9 @@ final class SceneStructuralValidationTests: XCTestCase {
             var scene = GPUIScene()
             let bitmap = BitmapSurface(width: 1, height: 1, bytesPerRow: 4, pixels: Data([255, 255, 255, 255]))
             let textureID = scene.registerImageResource(bitmap)
-            scene.addImage(
-                ImagePrimitive(screenX: 0, screenY: 0, screenW: 4, screenH: 4, textureID: textureID))
-            scene.layers[0].paintOperations = [GPUIPaintOperation(kind: .image, startIndex: 0, count: 3)]
+            scene.layers[0] = GPUILayer(
+                images: [ImagePrimitive(screenX: 0, screenY: 0, screenW: 4, screenH: 4, textureID: textureID)],
+                paintOperations: [GPUIPaintOperation(kind: .image, startIndex: 0, count: 3)])
             XCTAssertThrowsError(
                 try D3D11BatchRenderer.makeRenderPlan(
                     for: scene,

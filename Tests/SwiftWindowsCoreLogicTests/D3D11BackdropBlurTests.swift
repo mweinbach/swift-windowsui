@@ -127,11 +127,32 @@ final class D3D11BackdropBlurTests: XCTestCase {
 
     func testBlurShaderUsesSymmetricGaussianWeights() async {
         XCTAssertTrue(
-            batchBackdropBlurShaderSource.contains("float4 blurWeights[33];"),
+            batchBackdropBlurShaderSource.contains("float4 blurWeights["),
             "Blur shader must take a symmetric Gaussian weight array")
         XCTAssertTrue(
             batchBackdropBlurShaderSource.contains("blurDirection"),
             "Blur shader must take a per-pass direction (H/V separable)")
+    }
+
+    /// The blur cap, the Swift cbuffer size and the HLSL array length are
+    /// one ABI in three places. One weight more than the array holds is a
+    /// cbuffer overrun on upload; one fewer than the cap allows is the CPU
+    /// rasterizer blurring wider than the shader can, which is the silent
+    /// backend divergence the shared limit exists to prevent.
+    func testBlurWeightBufferHoldsTheSharedBlurCap() async {
+        XCTAssertEqual(
+            Float(D3D11BackdropBlurEngine.maxBlurRadius), GPUISceneLimits.maxBlurRadius,
+            "The backdrop blur engine must clamp at the shared engine limit, not at one of its own")
+
+        // 4 floats of direction + 4 of UV scale, then one weight per tap
+        // from the centre outwards (radius + 1), rounded up to float4 rows.
+        let weightRows = (D3D11BackdropBlurEngine.maxBlurRadius + 1 + 3) / 4
+        XCTAssertEqual(
+            D3D11BackdropBlurEngine.blurParamsFloatCount, 8 + weightRows * 4,
+            "BlurParams must hold exactly the weights a max-radius kernel uploads")
+        XCTAssertTrue(
+            batchBackdropBlurShaderSource.contains("float4 blurWeights[\(weightRows)];"),
+            "HLSL BlurParams must declare the same weight array the Swift side uploads")
     }
 
     // MARK: - GPU-level behaviour
@@ -502,5 +523,63 @@ final class D3D11BackdropBlurTests: XCTestCase {
         let bandA = pixel(result, width, 4, 40)
         let bandB = pixel(result, width, 12, 40)
         XCTAssertNotEqual(bandA.r, bandB.r, "Content outside materials must stay unblurred")
+    }
+
+    // MARK: - Radius past the old cap
+
+    /// The painter emits `radius × displayScale`, so `.blur(radius: 80)` at
+    /// 2× is 160 device pixels — above the 128 both backends used to clamp
+    /// to, which silently rendered a large decorative blur sharper than the
+    /// app asked for, and only on HiDPI.
+    ///
+    /// A backend still clamping at 128 draws radius 160 and radius 128
+    /// identically, so "the two radii produce different pixels" is the
+    /// question, asked of each backend on its own. Cross-backend agreement
+    /// at that radius is `CrossBackendPixelParityTests`' large-radius
+    /// material scene.
+    func testBothBackendsHonourABlurRadiusAboveTheOldCap() async throws {
+        let size = IntSize(width: 96, height: 96)
+        let atOldCap = try WARPBatchRenderer.render(makeLargeBlurScene(radius: 128, size: size), size: size)
+        let aboveOldCap = try WARPBatchRenderer.render(makeLargeBlurScene(radius: 160, size: size), size: size)
+
+        let gpuReport = comparePixels(aboveOldCap, atOldCap, tolerance: 2)
+        XCTAssertLessThan(
+            gpuReport.matchRatio, 0.99,
+            "The GPU blur must widen past 128 device pixels rather than clamping; identical output at 128 "
+                + "and 160 means the weight cbuffer or the engine cap is back below the shared limit")
+
+        let cpuAtOldCap = GPUIRawSceneRasterizer.rasterize(makeLargeBlurScene(radius: 128, size: size), size: size)
+        let cpuAboveOldCap = GPUIRawSceneRasterizer.rasterize(makeLargeBlurScene(radius: 160, size: size), size: size)
+        let cpuReport = comparePixels(cpuAboveOldCap, cpuAtOldCap, tolerance: 2)
+        XCTAssertLessThan(
+            cpuReport.matchRatio, 0.99,
+            "The CPU rasterizer must widen past 128 device pixels too, or every screenshot and macOS-parity "
+                + "render disagrees with what the GPU shows")
+    }
+
+    /// Two flat bands under a translucent material panel: a wide kernel
+    /// averages a gradient into near-uniform grey, which would make two
+    /// different radii agree for the wrong reason.
+    private func makeLargeBlurScene(radius: Float, size: IntSize) -> GPUIScene {
+        var scene = GPUIScene(clearColor: Color(red: 0.08, green: 0.10, blue: 0.14, alpha: 1))
+        let half = Float(size.height) / 2
+        scene.addQuad(
+            QuadPrimitive(
+                x: 0, y: 0, width: Float(size.width), height: half,
+                startR: 0.95, startG: 0.30, startB: 0.15, startA: 1,
+                endR: 0.95, endG: 0.30, endB: 0.15, endA: 1))
+        scene.addQuad(
+            QuadPrimitive(
+                x: 0, y: half, width: Float(size.width), height: half,
+                startR: 0.10, startG: 0.35, startB: 0.85, startA: 1,
+                endR: 0.10, endG: 0.35, endB: 0.85, endA: 1))
+        scene.addQuad(
+            QuadPrimitive(
+                x: 8, y: 8, width: Float(size.width) - 16, height: Float(size.height) - 16,
+                startR: 1, startG: 1, startB: 1, startA: 0.2,
+                endR: 1, endG: 1, endB: 1, endA: 0.2,
+                blurRadius: radius))
+        scene.finish()
+        return scene
     }
 }

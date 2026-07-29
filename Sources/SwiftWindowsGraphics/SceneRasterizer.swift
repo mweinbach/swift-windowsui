@@ -296,10 +296,12 @@ private struct RasterTarget {
             }
         }
 
-        // Capped like the GPU's backdrop blur (`BackdropBlurEngine`
-        // clamps at 128): the separable blur below is O(w·h·r) and
-        // allocates a `2r+1` kernel, so an uncapped radius is an
-        // unbounded frame even before the conversion trap.
+        // Capped at the shared engine limit the GPU's backdrop blur
+        // honours too (`GPUISceneLimits.maxBlurRadius`), so the two
+        // backends truncate at the same radius or not at all: the
+        // separable blur below is O(w·h·r) and allocates a `2r+1` kernel,
+        // so an uncapped radius is an unbounded frame even before the
+        // conversion trap.
         let blurRadius = min(GPUISceneValue.int(quad.blurRadius), Int(GPUISceneLimits.maxBlurRadius))
         if blurRadius > 0 {
             applyBoxBlur(to: bounds, radius: blurRadius)

@@ -141,9 +141,22 @@ every replay inherit the guarantee:
   `GPUISceneLimits.maxCoordinate`, colours and opacity to `[0, 1]`,
   atlas/image UVs to `maxTextureCoordinate`, `effectType` to `[0, 8]`,
   `blendMode` to `[0, 4]`, backdrop `blurRadius` to `maxBlurRadius`
-  (128 — the same cap the D3D11 blur engine applies, so the two backends
-  agree above it instead of diverging), shadow `blurRadius` to
-  `maxShadowBlurRadius`.
+  (256 device pixels, shared by both backends so they agree above the cap
+  instead of each truncating somewhere else — the D3D11 blur engine sizes
+  its weight cbuffer to exactly this radius, and `D3D11BackdropBlurTests`
+  pins the two together), shadow `blurRadius` to `maxShadowBlurRadius`.
+
+`GPUISceneLimits` holds **shared engine limits, not backend
+capabilities**: each number bounds what this engine promises to draw at
+all, on every backend, so a scene renders the same everywhere rather than
+being truncated differently by each consumer. Where a value coincides with
+a D3D11 maximum, that is a floor the engine chose to live inside, not a
+capability read off a device — `maxBlurRadius` is 256 because the painter
+emits `radius × displayScale` and 128 silently sharpened
+`.blur(radius: 100)` on any HiDPI display, not because D3D11 said so.
+Asking the device what it can actually do is a backend capability record
+(WS-20); until it lands, a backend that can do less than the shared limit
+is a divergence, not a configuration.
 - `PathPrimitive` additionally caps its element count
   (`maxPathElements`) and clamps element coordinates, arc radii and
   angles.
@@ -441,6 +454,22 @@ The rules that follow from that:
    than `bytesPerRow * height`, throwing `BitmapSurfaceError` instead of
    handing a short buffer to `CreateTexture2D` / `CreateBitmap`. The glyph
    atlas upload carries the same check.
+5. **The conversion scans before it allocates, and an unchanged image is
+   not re-uploaded.** Straight and premultiplied bytes are identical for an
+   opaque pixel, so `converted(to:)` looks for a translucent one first and
+   returns the surface relabelled — sharing the buffer — when it finds
+   none; only a genuinely translucent surface is copied and rewritten,
+   through an unsafe buffer. On top of that, `bindResources(for:)` runs
+   every frame, and it used to release the texture and SRV of every bound
+   image, so a frame-stable `Image` or `.drawingGroup()` bitmap paid a
+   full-surface conversion plus a `CreateTexture2D` on the main thread on
+   every frame. `bindImageResource` now keeps the existing texture when the
+   incoming surface is the *same buffer*
+   (`BitmapSurface.sharesPixelStorage`), which is sound because `detach()`
+   — which every device rebuild goes through — empties the image map
+   outright. A producer that rebuilds its bitmap each frame still
+   re-uploads; a real upload protocol (content revisions, explicit
+   invalidation) is WS-09.
 
 The glyph atlas texture is the one deliberate exception: it stays
 `R8G8B8A8_UNORM` because the glyph shader samples only `.a`, which is byte 3
@@ -461,9 +490,15 @@ in either channel order.
 ## 4b. Resource lifetime: `attach` / `detach`
 
 Both backend protocols (`RenderBackend`, `BatchRenderBackend`) declare
-`detach()` alongside `attach(to:)`, defaulting to a no-op for backends that
-own no platform resources (the CPU rasterizer, test fakes). The D3D11
-implementations release everything the attach created — device, context,
+`detach()` alongside `attach(to:)` as a **bare requirement, with no
+protocol-extension default**: a default no-op let a backend owning a
+device, a swap chain and two atlases satisfy the requirement by inheriting
+an empty teardown and leak exactly as it did before the requirement
+existed. Backends that own no platform resources (the CPU rasterizer, test
+fakes) write their own one-line no-op, where a reader can see it is a
+decision. `check-contracts.ps1` fails if either default comes back, and
+fails if a file that calls `CreateSwapChainForHwnd` defines no `detach()`.
+The D3D11 implementations release everything the attach created — device, context,
 DXGI factory, swap chain, render target view, every shader and pipeline
 state, all four instance buffers, both glyph atlases, the image-texture
 map, the path cache and the backdrop-blur engine — and reset `isAttached`.
@@ -492,9 +527,27 @@ Creation calls route their COM out-params through `makeCOM(into:_:)`
 (`COMOwnership.swift`), which creates into a local and releases the
 destination only once the replacement exists — so a re-attach cannot
 overwrite a live pointer and a failed create leaves the previous resource
-intact. `deinit` on both renderers is a debug assertion, not a teardown
-path: releasing requires the immediate context and therefore the main
-actor, which a nonisolated `deinit` cannot reach.
+intact. `deinit` on both renderers is a **backstop, not a teardown path**:
+releasing requires the immediate context and therefore the main actor,
+which a nonisolated `deinit` cannot reach, and enqueueing the raw pointers
+onto the main actor would release them at an unpredictable later point —
+never at all, at process teardown. What it does instead is refuse to be
+silent: `RendererTeardownBackstop.reportUndetachedTeardown` writes the leak
+to stderr in **every** configuration and counts it, then traps in debug.
+The previous debug-only `assert` meant a shipping build leaked a device, a
+swap chain, both atlases, the path cache and the blur ping-pong pair with
+no diagnostic at all.
+
+`RenderBackendLifetimeTests` checks the released state two ways: the Swift
+side (`liveCOMObjectCountForTesting`, every stored pointer counted one at a
+time) and the **debug layer** — a device created with
+`D3D11_CREATE_DEVICE_DEBUG`, run through attach/detach cycles, with
+`ID3D11Debug` held across the detach. Because every device child holds a
+reference on its device, a device whose only surviving reference is that
+`ID3D11Debug` has nothing alive on it; the test also leaks a texture on
+purpose and confirms the count rises, so the check is known to have teeth.
+It skips when the Graphics Tools feature (which ships the debug layer) is
+not installed.
 
 **Invariants** (`RenderBackendLifetimeTests`)
 - `testDetachReleasesEveryCOMObjectTheRendererOwns` — every stored pointer,
@@ -766,12 +819,28 @@ renders through the D3D11 batch renderer (offscreen on WARP) and through
 the rasterizer, and must agree within 4 per channel over at least 99.5 % of
 pixels — the tolerance shape `scripts/gallery-compare.ps1` uses.
 
-Scenes the two backends genuinely disagree on stay **in the suite but
-skipped**, each `XCTSkip` naming the workstream that will make it pass and
-carrying the measured match ratio so progress is visible before the gate
-flips. Today: shadows (different inflation, falloff and alpha), materials
-(blur-then-tint offscreen vs tint-then-blur in place), and everything with a
-rounded corner, a rotation or a non-integer edge (the shader's ramp width is
+Scenes the two backends genuinely disagree on stay **in the suite and
+asserted against a measured floor**, never skipped. Each carries the match
+ratio measured when the divergence was accepted (rounded down to three
+decimals) and the workstream that will close it, and the assertion pins the
+scene from both sides:
+
+- it may not fall **below** the floor, so a shader change that halves a
+  deferred scene's agreement fails instead of passing as a skip;
+- it may not **reach** `requiredMatchRatio` either — a scene that has
+  quietly started passing fails with "promote me", because a deferred scene
+  nobody unskips is a gate nobody is minding.
+
+Skipping after computing the comparison, which is what the suite did first,
+bought neither: it built the report and threw it away. Turning the skips
+into floors immediately found one scene that had already graduated —
+materials, at 0.9996 — and it now gates like the rest.
+
+Today's deferred list: shadows (different inflation, falloff and alpha),
+a material blurred at a radius wider than its own region (the CPU
+re-normalizes the truncated kernel at the edges, the GPU clamps taps to the
+region's outermost texels), and everything with a rounded corner, a
+rotation or a non-integer edge (the shader's ramp width is
 `max(fwidth(distance), 0.75)`, up to 1.41 px along a corner arc, while
 `roundedRectCoverage` always ramps over exactly 1 px, and square quads take
 a binary-coverage short-circuit with no antialiasing at all).

@@ -82,13 +82,25 @@ public struct ImageResourceBinding: Equatable, Sendable {
     }
 }
 public struct GPUILayer: Equatable, Sendable {
-    public var shadows: [ShadowPrimitive]
-    public var quads: [QuadPrimitive]
-    public var glyphs: [GlyphPrimitive]
-    public var pixelGlyphs: [GlyphPrimitive]
-    public var images: [ImagePrimitive]
-    public var paths: [PathPrimitive]
-    public var paintOperations: [GPUIPaintOperation]
+    // Readable everywhere, writable only here. `add*` sanitizes every field
+    // it accepts and keeps the family arrays, their orderings and
+    // `paintOperations` in step; an `append` from outside did neither, so
+    // the sanitation the whole scene contract rests on was one line of app
+    // code away from being skipped.
+    //
+    // Residual hole, deliberately left open: `init` below still takes the
+    // arrays wholesale, because a hand-built layer is how the malformed
+    // scenes that prove `validate()` works get made. Direct construction is
+    // therefore still unsanitized — `validate()` covers its structural
+    // shape and the saturating conversions in `GPUISceneValue` cover its
+    // field values, which is what keeps a bad one from trapping a backend.
+    public private(set) var shadows: [ShadowPrimitive]
+    public private(set) var quads: [QuadPrimitive]
+    public private(set) var glyphs: [GlyphPrimitive]
+    public private(set) var pixelGlyphs: [GlyphPrimitive]
+    public private(set) var images: [ImagePrimitive]
+    public private(set) var paths: [PathPrimitive]
+    public private(set) var paintOperations: [GPUIPaintOperation]
 
     private var shadowOrderings: [GPUIPrimitiveOrdering]
     private var quadOrderings: [GPUIPrimitiveOrdering]
@@ -783,8 +795,11 @@ public struct GPUIScene: Equatable, Sendable {
 /// clip" in band as `clipWidth == clipHeight == 0`, so a clip that
 /// collapses in exactly one dimension is an explicitly *empty* clip and
 /// rejects the primitive, while a clip that collapses in both is the
-/// unclipped sentinel. `PathPrimitive` carries an optional `Rect`
-/// instead and implements the same rule in `GPUIPrimitives.swift`.
+/// unclipped sentinel. The sentinel exists only because these four
+/// families cannot say "no clip" any other way: `PathPrimitive` carries an
+/// optional `Rect`, where `nil` already means unclipped, so a *present*
+/// collapsed clip there is an empty clip and nothing else — see
+/// `PathPrimitive.contentMaskedBounds` in `GPUIPrimitives.swift`.
 func contentMaskedBounds(
     x: Float,
     y: Float,

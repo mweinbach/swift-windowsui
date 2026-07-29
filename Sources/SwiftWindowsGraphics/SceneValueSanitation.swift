@@ -16,6 +16,18 @@ import SwiftWindowsCore
 /// error, so it is the one failure class the host's fallback policy
 /// cannot degrade — hence sanitation here, once, where both backends
 /// inherit it.
+///
+/// These are **shared engine limits, not backend capabilities**. Each one
+/// bounds what this engine promises to draw at all — every backend, the
+/// CPU rasterizer included, honours the same number, so a scene renders
+/// the same everywhere rather than being truncated differently by each
+/// consumer. Where a number happens to coincide with a D3D11 maximum that
+/// is a floor the engine chose to live inside, not a capability read off
+/// the device. Asking the *device* what it can do — feature level, real
+/// maximum texture dimension, per-adapter kernel budgets — is a backend
+/// capability record, which is WS-20; when that lands, a backend that can
+/// do less than the engine limit reports it there rather than silently
+/// clamping, and this enum keeps only what representability requires.
 public enum GPUISceneLimits {
     /// Largest absolute pixel coordinate (position, size, corner radius)
     /// a primitive may carry. Far beyond any real surface, small enough
@@ -23,11 +35,19 @@ public enum GPUISceneLimits {
     /// in range.
     public static let maxCoordinate: Float = 1_000_000
 
-    /// Largest post-process (backdrop) blur radius. Matches the D3D11
-    /// backdrop blur engine's own clamp, so clamping here makes the two
-    /// backends agree instead of diverging above the cap — and bounds the
-    /// CPU rasterizer's O(w·h·r) separable blur, which had no cap at all.
-    public static let maxBlurRadius: Float = 128
+    /// Largest post-process (backdrop) blur radius, in *device* pixels.
+    /// Every consumer honours it — the D3D11 backdrop blur engine sizes its
+    /// weight cbuffer to exactly this radius — so the backends agree above
+    /// the cap instead of each truncating somewhere else, and the CPU
+    /// rasterizer's O(w·h·r) separable blur is bounded rather than
+    /// unbounded.
+    ///
+    /// 256 rather than 128 because the painter emits
+    /// `radius × displayScale`: at 128 a `.blur(radius: 100)` was silently
+    /// sharpened on any 1.5× or 2× display, which is where this stack
+    /// mostly runs. 256 covers a 128pt blur at 2× — past any decorative
+    /// use — and costs the GPU one more cbuffer page.
+    public static let maxBlurRadius: Float = 256
 
     /// Largest shadow blur radius. Shadows only inflate a rect, so the
     /// bound is looser than the backdrop-blur one.
@@ -48,9 +68,12 @@ public enum GPUISceneLimits {
     /// replayed) index was an unbounded allocation loop.
     public static let maxLayers = 256
 
-    /// Largest CPU-rasterizer surface dimension. Matches the D3D11
-    /// feature-level 11 maximum texture dimension; past it the backing
-    /// allocation is the failure, not the drawing.
+    /// Largest CPU-rasterizer surface dimension. The engine draws no
+    /// surface larger than this on any backend; past it the backing
+    /// allocation is the failure, not the drawing. The number is the
+    /// feature-level 11 texture maximum because that is the smallest
+    /// ceiling any supported backend imposes, so one shared limit keeps
+    /// the CPU reference and the GPU path drawing the same surfaces.
     public static let maxSurfaceDimension = 16_384
 
     /// Largest number of flattening recursions a single curve may take.

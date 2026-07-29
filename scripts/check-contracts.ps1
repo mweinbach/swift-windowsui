@@ -386,6 +386,45 @@ Assert-SinglePresentCallSite `
     "Sources/SwiftWindowsRendererD3D11/D3D11BatchRenderer.swift" `
     "The batch backend must present only from presentFrame(), where the HRESULT is classified by DeviceLostPolicy."
 
+# `detach()` is the only thing in the stack that owns GPU resource lifetime,
+# and a protocol-extension default let a backend holding a device, a swap
+# chain and two atlases satisfy it by inheriting an empty implementation --
+# leaking exactly as it did before the requirement existed. A bare
+# requirement makes every conformer state its teardown, no-op included.
+Assert-NotContains `
+    "Sources/SwiftWindowsGraphics/RenderGraph.swift" `
+    "extension RenderBackend \{[\s\S]*?func detach\(\) \{\}" `
+    "RenderBackend must not supply a default detach(); a backend that owns a device would inherit a silent no-op teardown."
+Assert-NotContains `
+    "Sources/SwiftWindowsGraphics/BatchRenderBackend.swift" `
+    "extension BatchRenderBackend \{[\s\S]*?func detach\(\) \{\}" `
+    "BatchRenderBackend must not supply a default detach(); a backend that owns a swap chain would inherit a silent no-op teardown."
+
+function Assert-SwapChainOwnerImplementsDetach {
+    param(
+        [string] $RelativePath
+    )
+
+    $fullPath = Get-RepoPath $RelativePath
+    if (-not (Test-Path -LiteralPath $fullPath)) {
+        Add-Failure "$RelativePath is missing; cannot verify its teardown contract."
+        return
+    }
+
+    $content = Get-Content -LiteralPath $fullPath -Raw
+    if ($content -notmatch "CreateSwapChainForHwnd\(") {
+        return
+    }
+    if ($content -notmatch "func detach\(\)\s*\{") {
+        Add-Failure "$RelativePath creates an HWND swap chain but defines no detach(); the swap chain pins the window and nothing else in the process can release it."
+    }
+}
+
+# Anything that binds a swap chain to an HWND owns a resource the rest of the
+# process cannot reach. It has to define its own teardown, not inherit one.
+Assert-SwapChainOwnerImplementsDetach "Sources/SwiftWindowsRendererD3D11/D3D11Renderer.swift"
+Assert-SwapChainOwnerImplementsDetach "Sources/SwiftWindowsRendererD3D11/D3D11BatchRenderer.swift"
+
 function Assert-SwapChainWindowAssociation {
     param(
         [string] $RelativePath

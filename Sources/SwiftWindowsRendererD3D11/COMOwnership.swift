@@ -7,7 +7,43 @@
 // `detach()` on the render backends covers the first; `makeCOM(into:_:)`
 // covers the second, so no call site has to remember the release.
 
+import Foundation
 import WinSDK
+
+/// The release-visible backstop for a renderer that was deallocated while
+/// still attached.
+///
+/// `detach()` runs on the main actor because it drives the immediate
+/// context, and a nonisolated `deinit` cannot get there — so the deinit
+/// cannot free anything, and it deliberately does not try: enqueueing the
+/// raw pointers onto the main actor would release objects at an
+/// unpredictable later point, and at process teardown that work never runs
+/// at all. What it *can* do is refuse to be silent. A debug-only
+/// `assert` left a shipping build leaking a device, a swap chain (which
+/// also pins a destroyed HWND), both glyph atlases, every cached path
+/// texture and the blur ping-pong pair with no diagnostic whatsoever;
+/// this writes the same message to stderr in every configuration and
+/// counts the occurrence so a test can see it happen.
+enum RendererTeardownBackstop {
+    /// How many times the backstop has fired this process. Never reset in
+    /// production; tests read and restore it.
+    nonisolated(unsafe) static var undetachedTeardownCount = 0
+
+    /// Set by tests that deliberately drop an attached renderer, so the
+    /// debug trap does not abort the run they are trying to make.
+    nonisolated(unsafe) static var suppressTrapForTesting = false
+
+    /// Reports `message` to stderr, counts it, and traps in debug builds
+    /// unless a test has opted out.
+    static func reportUndetachedTeardown(_ message: String) {
+        undetachedTeardownCount &+= 1
+        let line = "[swift-windowsui] \(message)\n"
+        FileHandle.standardError.write(Data(line.utf8))
+        if !suppressTrapForTesting {
+            assertionFailure(message)
+        }
+    }
+}
 
 /// Releases the COM object `pointer` refers to and nils it. Safe to call on
 /// an already-nil pointer, which makes it usable in `defer` and in the

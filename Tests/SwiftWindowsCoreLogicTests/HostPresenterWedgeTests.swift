@@ -366,4 +366,9 @@ private final class CountingFrameRenderBackend: RenderBackend {
             throw FakeRenderBackendError.renderFailure
         }
     }
+
+    /// Owns no platform resources, so teardown really is nothing — stated
+    /// rather than inherited, which is the point of `detach()` having no
+    /// protocol-extension default.
+    func detach() {}
 }

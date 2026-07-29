@@ -148,6 +148,13 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
     private var imageResources: [Int32: ImageResourceEntry] = [:]
 
+    /// Bitmap uploads through `createImageTextureResource` since this
+    /// renderer was constructed — bound images and cached path renders both
+    /// go through it. An unchanged image must not add to this once per
+    /// frame; that is the whole point of the storage-identity check in
+    /// `bindImageResource`.
+    internal private(set) var imageTextureUploadsForTesting: UInt64 = 0
+
     // Path rasterization is CPU-bound (we don't yet have a real GPU
     // tessellator), so caching the resulting bitmap + GPU texture across
     // frames is the difference between "redo every frame" and "upload once
@@ -301,6 +308,18 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         device.map { UInt(bitPattern: $0) } ?? 0
     }
 
+    /// The live device, for the one test that has to talk to it directly:
+    /// the debug layer's live-object check queries `ID3D11Debug` off it.
+    internal var deviceForTesting: UnsafeMutablePointer<ID3D11Device>? { device }
+
+    /// Test seam: adds `D3D11_CREATE_DEVICE_DEBUG` to the next device
+    /// creation, so `ID3D11Debug` can be queried and live objects counted
+    /// across attach/detach cycles. Off in production — the debug layer
+    /// costs an order of magnitude in draw-call overhead and needs the
+    /// Graphics Tools feature installed, which a user machine need not
+    /// have.
+    internal var createsDebugDeviceForTesting = false
+
     public enum AtlasSource: Equatable {
         case snapshot
         case cached
@@ -399,11 +418,32 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             return
         }
 
-        if var existing = imageResources.removeValue(forKey: textureID) {
-            releaseCOM(&existing.srv)
-            releaseCOM(&existing.texture)
+        guard var existing = imageResources.removeValue(forKey: textureID) else {
+            imageResources[textureID] = ImageResourceEntry(bitmap: bitmap, texture: nil, srv: nil)
+            return
         }
 
+        // `bindResources(for:)` runs every frame, so a frame-stable image
+        // used to be premultiplied and re-uploaded on every one of them —
+        // a full-surface conversion plus a `CreateTexture2D` per Image and
+        // per compositing-group bitmap. When the incoming surface is the
+        // same buffer as the bound one, the texture already on the device
+        // is the texture this bitmap would produce, so keep it.
+        //
+        // Safe because `detach()` — which every device rebuild goes
+        // through — empties `imageResources` outright, so a surviving entry
+        // always belongs to the current device.
+        //
+        // Storage identity is deliberately weak: a producer that rebuilds
+        // its bitmap each frame still re-uploads. A real upload protocol
+        // (content revisions, explicit invalidation) is WS-09.
+        if existing.texture != nil, existing.bitmap.sharesPixelStorage(with: bitmap) {
+            imageResources[textureID] = existing
+            return
+        }
+
+        releaseCOM(&existing.srv)
+        releaseCOM(&existing.texture)
         imageResources[textureID] = ImageResourceEntry(bitmap: bitmap, texture: nil, srv: nil)
     }
 
@@ -601,7 +641,13 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// offscreen texture uses the same `B8G8R8A8_UNORM` format as the swap
     /// chain so readback bytes match what a window would have shown.
     /// `readOffscreenPixels()` returns the result.
-    public func attachOffscreen(size: IntSize, driver: OffscreenDriver = .hardwareFirst) throws {
+    ///
+    /// Internal, like every other seam this renderer exposes for tests
+    /// (`simulateDeviceLossForTesting`, `cachedResourcesForTesting`): the
+    /// only callers are suites that already `@testable import` this module,
+    /// and a render target that bypasses `attach(to:)` is not a surface the
+    /// package supports.
+    internal func attachOffscreen(size: IntSize, driver: OffscreenDriver = .hardwareFirst) throws {
         // Same contract as the windowed attach: start from nothing, so a
         // swap chain left over from a previous windowed attach cannot keep
         // pinning an HWND this renderer no longer draws to.
@@ -699,17 +745,18 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     }
 
     deinit {
-        // Backstop, not a teardown path: `detach()` has to run on the main
-        // actor because it drives the immediate context, and a nonisolated
-        // deinit cannot. The host calls `detach()` from `windowWillClose`
-        // and on every presenter switch; reaching here still attached means
-        // one of those call sites was missed, so say so loudly in debug
-        // builds instead of leaking silently.
-        assert(
-            !isAttachedMirror,
-            "D3D11BatchRenderer was deallocated while still attached — its device, swap chain and "
-                + "atlases leak. Call detach() from the owner's teardown."
-        )
+        // Backstop, not a teardown path — see `RendererTeardownBackstop`
+        // for why a nonisolated deinit cannot free any of this. The host
+        // calls `detach()` from `windowWillClose` and on every presenter
+        // switch; reaching here still attached means one of those call
+        // sites was missed, and the report is emitted in release builds
+        // too, because that is where the leak actually costs something.
+        if isAttachedMirror {
+            RendererTeardownBackstop.reportUndetachedTeardown(
+                "D3D11BatchRenderer was deallocated while still attached — its device, swap chain and "
+                    + "atlases leak. Call detach() from the owner's teardown."
+            )
+        }
     }
 
     public func resize(to size: IntSize) throws {
@@ -1172,7 +1219,10 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// premultiplied blend state. With the usual opaque clear colour the
     /// two conventions coincide byte for byte, which is why parity scenes
     /// clear to alpha 1.
-    public func readOffscreenPixels() throws -> BitmapSurface {
+    ///
+    /// Internal for the same reason as `attachOffscreen(size:driver:)`: it
+    /// reads a target only a test can create.
+    internal func readOffscreenPixels() throws -> BitmapSurface {
         guard renderTargetKind == .offscreen, let offscreenTexture else {
             throw BatchRendererError(
                 operation: "Read offscreen pixels",
@@ -1297,7 +1347,10 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             return
         }
 
-        let flags = UINT(bitPattern: D3D11_CREATE_DEVICE_BGRA_SUPPORT.rawValue)
+        var flags = UINT(bitPattern: D3D11_CREATE_DEVICE_BGRA_SUPPORT.rawValue)
+        if createsDebugDeviceForTesting {
+            flags |= UINT(bitPattern: D3D11_CREATE_DEVICE_DEBUG.rawValue)
+        }
         // A driver that predates feature level 11_1 fails the whole call
         // with E_INVALIDARG instead of negotiating down, so that one
         // HRESULT — and only that one — earns a retry without 11_1.
@@ -2000,7 +2053,10 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         // chain format and the legacy renderer — and every GPU upload is
         // normalized to premultiplied alpha, which is what the
         // ONE/INV_SRC_ALPHA blend state and the bilinear sampler both need.
+        // Opaque surfaces convert without copying; `bindImageResource`
+        // keeps an unchanged image from reaching here at all.
         let upload = bitmap.premultipliedAlpha()
+        imageTextureUploadsForTesting &+= 1
 
         var textureDescriptor = D3D11_TEXTURE2D_DESC()
         textureDescriptor.Width = UINT(upload.width)

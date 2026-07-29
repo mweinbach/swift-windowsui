@@ -23,11 +23,19 @@ import XCTest
 /// `scripts/gallery-compare.ps1` uses, so 8-bit rounding and antialiasing
 /// noise pass while structural divergence does not.
 ///
-/// Scenes the audit found genuinely divergent are **in the suite but
-/// skipped**, each naming the workstream that will make it pass. They still
-/// render on both backends so the scene cannot rot, and the skip message
-/// carries the measured match ratio so progress is visible before the gate
-/// flips.
+/// Scenes the audit found genuinely divergent are **in the suite and
+/// asserted against a measured floor** rather than skipped, each naming the
+/// workstream that will close the gap. Two things are checked for them:
+///
+/// - the ratio may not fall below the floor recorded when the divergence
+///   was accepted, so a shader change that halves a deferred scene's
+///   agreement is a failure rather than a green skip;
+/// - the ratio may not *reach* `requiredMatchRatio` either — a scene that
+///   has quietly started passing fails with "promote me", because a
+///   deferred scene that nobody unskips is a gate nobody is minding.
+///
+/// Skipping after computing the comparison, which is what this suite did
+/// first, bought neither: it discarded the report it had just built.
 @MainActor
 final class CrossBackendPixelParityTests: XCTestCase {
 
@@ -38,15 +46,26 @@ final class CrossBackendPixelParityTests: XCTestCase {
 
     // MARK: - Scene Catalogue
 
+    /// A scene the backends are known to disagree on, with the floor its
+    /// agreement may not fall below.
+    private struct KnownDivergence {
+        /// The workstream that will close the gap, and why it is open.
+        let reason: String
+        /// The measured match ratio, rounded *down* to three decimals: tight
+        /// enough that a real regression trips it (0.001 of a 128×128
+        /// surface is 16 pixels), loose enough to absorb the rounding
+        /// differences between WARP builds.
+        let matchRatioFloor: Double
+    }
+
     private struct ParityScene {
         let name: String
         let size: IntSize
         let scene: GPUIScene
-        /// Non-nil when the backends are known to disagree today; the text
-        /// names the workstream that will make the scene pass.
-        let knownDivergence: String?
+        /// Non-nil when the backends are known to disagree today.
+        let knownDivergence: KnownDivergence?
 
-        init(name: String, size: IntSize, knownDivergence: String? = nil, scene: GPUIScene) {
+        init(name: String, size: IntSize, knownDivergence: KnownDivergence? = nil, scene: GPUIScene) {
             self.name = name
             self.size = size
             self.knownDivergence = knownDivergence
@@ -111,16 +130,20 @@ final class CrossBackendPixelParityTests: XCTestCase {
     /// the boundary and disagree by up to ~0.35 alpha half a pixel either
     /// side of it, so a rounded rect misses the ratio on its corner arcs
     /// alone.
-    private static let coverageKernelDivergence =
+    private static let coverageKernelReason =
         "WS-08 (CPU rasterizer fidelity): the two backends use different coverage ramps — the shader's "
         + "derivative-based `aa` widens to 1.41px along a corner arc while the CPU rasterizer always ramps "
         + "over 1px — so corner and non-integer edge pixels disagree."
+
+    private static func coverageKernelDivergence(floor: Double) -> KnownDivergence {
+        KnownDivergence(reason: coverageKernelReason, matchRatioFloor: floor)
+    }
 
     private static func uniformRadiusScene() -> ParityScene {
         ParityScene(
             name: "uniform corner radius",
             size: surface,
-            knownDivergence: coverageKernelDivergence,
+            knownDivergence: coverageKernelDivergence(floor: 0.992),
             scene: makeScene { scene in
                 scene.addQuad(
                     QuadPrimitive(
@@ -138,7 +161,7 @@ final class CrossBackendPixelParityTests: XCTestCase {
         ParityScene(
             name: "per-corner radii",
             size: surface,
-            knownDivergence: coverageKernelDivergence,
+            knownDivergence: coverageKernelDivergence(floor: 0.993),
             scene: makeScene { scene in
                 scene.addQuad(
                     QuadPrimitive(
@@ -159,9 +182,11 @@ final class CrossBackendPixelParityTests: XCTestCase {
         ParityScene(
             name: "rotated quad",
             size: surface,
-            knownDivergence:
-                "WS-08 (CPU rasterizer fidelity): a rotated square quad has no antialiased edge on the CPU "
-                + "rasterizer (binary coverage) while the GPU runs the box SDF, so every edge pixel disagrees.",
+            knownDivergence: KnownDivergence(
+                reason:
+                    "WS-08 (CPU rasterizer fidelity): a rotated square quad has no antialiased edge on the CPU "
+                    + "rasterizer (binary coverage) while the GPU runs the box SDF, so every edge pixel disagrees.",
+                matchRatioFloor: 0.991),
             scene: makeScene { scene in
                 scene.addQuad(
                     QuadPrimitive(
@@ -179,9 +204,11 @@ final class CrossBackendPixelParityTests: XCTestCase {
         ParityScene(
             name: "shadow",
             size: surface,
-            knownDivergence:
-                "WS-08 (CPU rasterizer fidelity): the CPU shadow inflates by blur/2 with a 1px ramp at 55% "
-                + "alpha; the GPU inflates by 2×blur with a smoothstep falloff at full alpha.",
+            knownDivergence: KnownDivergence(
+                reason:
+                    "WS-08 (CPU rasterizer fidelity): the CPU shadow inflates by blur/2 with a 1px ramp at 55% "
+                    + "alpha; the GPU inflates by 2×blur with a smoothstep falloff at full alpha.",
+                matchRatioFloor: 0.967),
             scene: makeScene { scene in
                 scene.addShadow(
                     ShadowPrimitive(
@@ -305,6 +332,10 @@ final class CrossBackendPixelParityTests: XCTestCase {
             fillColor: Color(red: 0.95, green: 0.55, blue: 0.20, alpha: 1)
         )
         let quads = PathToQuadTessellator.tessellate(triangle) ?? []
+        // An empty tessellation would make both backends draw the clear
+        // colour and agree perfectly, which reads as a promotion rather
+        // than as the broken fixture it is.
+        XCTAssertFalse(quads.isEmpty, "the tessellator produced no quads for the fixture path")
 
         return ParityScene(
             name: "path as quads",
@@ -312,9 +343,7 @@ final class CrossBackendPixelParityTests: XCTestCase {
             // The tessellator emits one scanline quad per row, so the
             // triangle's diagonals land on fractional x edges — exactly
             // where the square-quad coverage rules diverge.
-            knownDivergence: quads.isEmpty
-                ? "the tessellator produced no quads for the fixture path"
-                : coverageKernelDivergence,
+            knownDivergence: coverageKernelDivergence(floor: 0.993),
             scene: makeScene { scene in
                 for quad in quads {
                     scene.addQuad(quad)
@@ -348,13 +377,21 @@ final class CrossBackendPixelParityTests: XCTestCase {
     }
 
     /// A Material: an opaque backdrop with a blurred, tinted panel over it.
+    ///
+    /// Gates rather than defers: the two backends compose the effect
+    /// differently — the CPU tints then blurs in place over the quad's whole
+    /// AABB, the GPU blurs the backdrop offscreen then composites the tint
+    /// through coverage — but the result agrees on 99.96% of pixels, which
+    /// clears the suite's ratio. The residual disagreement is a thin band on
+    /// the panel's edge, where the CPU's in-place blur has already mixed the
+    /// tint into the pixels the GPU still composites over; WS-08 owns it.
+    /// The scene was deferred on the strength of the argument rather than
+    /// the measurement, which is the failure mode measured floors exist to
+    /// stop.
     private static func materialScene() -> ParityScene {
         ParityScene(
             name: "material",
             size: surface,
-            knownDivergence:
-                "WS-08 (CPU rasterizer fidelity): the CPU tints then blurs in place over the quad's whole "
-                + "AABB; the GPU blurs the backdrop offscreen then composites the tint through coverage.",
             scene: makeScene { scene in
                 scene.addQuad(
                     QuadPrimitive(
@@ -376,13 +413,72 @@ final class CrossBackendPixelParityTests: XCTestCase {
         )
     }
 
+    /// A blur radius past the old 128-device-pixel cap.
+    ///
+    /// The painter emits `radius × displayScale`, so `.blur(radius: 80)` on
+    /// a 2× display is 160 device pixels — which both backends used to clamp
+    /// back to 128 and silently render sharper than asked. The shared cap is
+    /// 256 now (`GPUISceneLimits.maxBlurRadius`, with the GPU's weight
+    /// cbuffer sized to match), and this scene is what stops one of the two
+    /// from quietly re-introducing a lower one: a backend still clamping at
+    /// 128 blurs visibly less than the other and misses the ratio.
+    ///
+    /// Two flat bands rather than a gradient backdrop, because a kernel this
+    /// wide averages a gradient into near-uniform grey, which any two
+    /// implementations agree on for the wrong reason.
+    ///
+    /// The recorded floor is low and honestly so: the material divergence
+    /// that costs 0.04% of pixels at radius 16 costs most of them at radius
+    /// 160, because a kernel wider than the region makes the *edge* policy —
+    /// the CPU re-normalizes the truncated kernel, the GPU clamps to the
+    /// region's outermost texels — the dominant term rather than a border
+    /// effect. What the floor buys is that the two cannot drift further
+    /// apart unnoticed; that each backend actually honours a radius past the
+    /// old 128 cap is pinned separately, in `D3D11BackdropBlurTests`.
+    private static func largeRadiusMaterialScene() -> ParityScene {
+        ParityScene(
+            name: "large-radius material",
+            size: surface,
+            knownDivergence: KnownDivergence(
+                reason:
+                    "WS-08 (CPU rasterizer fidelity): at a radius wider than the blurred region the two "
+                    + "backends' kernel-edge policies dominate — the CPU re-normalizes the truncated kernel, "
+                    + "the GPU clamps taps to the region's outermost texels.",
+                matchRatioFloor: 0.620),
+            scene: makeScene { scene in
+                scene.addQuad(
+                    QuadPrimitive(
+                        x: 0, y: 0, width: 128, height: 64,
+                        startR: 0.95, startG: 0.30, startB: 0.15, startA: 1,
+                        endR: 0.95, endG: 0.30, endB: 0.15, endA: 1
+                    )
+                )
+                scene.addQuad(
+                    QuadPrimitive(
+                        x: 0, y: 64, width: 128, height: 64,
+                        startR: 0.10, startG: 0.35, startB: 0.85, startA: 1,
+                        endR: 0.10, endG: 0.35, endB: 0.85, endA: 1
+                    )
+                )
+                scene.addQuad(
+                    QuadPrimitive(
+                        x: 16, y: 24, width: 96, height: 80,
+                        startR: 1, startG: 1, startB: 1, startA: 0.25,
+                        endR: 1, endG: 1, endB: 1, endA: 0.25,
+                        blurRadius: 160
+                    )
+                )
+            }
+        )
+    }
+
     /// Rounded-clip coverage: content clipped by a rounded container, which
     /// is what every card in the demo does.
     private static func clippedRoundedContentScene() -> ParityScene {
         ParityScene(
             name: "clipped rounded content",
             size: surface,
-            knownDivergence: coverageKernelDivergence,
+            knownDivergence: coverageKernelDivergence(floor: 0.990),
             scene: makeScene { scene in
                 // Content deliberately larger than the clip on every side so
                 // all four rounded corners are exercised.
@@ -475,37 +571,46 @@ final class CrossBackendPixelParityTests: XCTestCase {
     // MARK: - Assertion
 
     private func assertParity(_ parityScene: ParityScene, file: StaticString = #filePath, line: UInt = #line) throws {
-        let gpu: BitmapSurface
         let cpu = GPUIRawSceneRasterizer.rasterize(parityScene.scene, size: parityScene.size)
-
-        do {
-            gpu = try WARPBatchRenderer.render(parityScene.scene, size: parityScene.size)
-        } catch {
-            if let divergence = parityScene.knownDivergence {
-                throw XCTSkip(
-                    "\(parityScene.name): known divergence — \(divergence) (GPU render also failed: \(error))")
-            }
-            throw error
-        }
+        // No `catch` here on purpose. This used to swallow a GPU render
+        // failure into a skip for any scene carrying a known divergence,
+        // which turned "the backend threw" into "we already knew about
+        // that". `WARPBatchRenderer` throws `XCTSkip` itself when no D3D11
+        // device exists, and that propagates as a skip; anything else is a
+        // failure for every scene.
+        let gpu = try WARPBatchRenderer.render(parityScene.scene, size: parityScene.size)
 
         let report = comparePixels(gpu, cpu, tolerance: Self.channelTolerance)
-        let summary = String(
+        var detail = String(
             format: "%@: %.4f of pixels within ±%d (max channel delta %d)",
             parityScene.name, report.matchRatio, Self.channelTolerance, report.maxChannelDelta)
-
-        if let divergence = parityScene.knownDivergence {
-            throw XCTSkip("\(summary) — known divergence, unskip with \(divergence)")
-        }
-
-        var detail = summary
         if let failure = report.firstFailure {
             detail +=
                 "; first mismatch at (\(failure.x), \(failure.y)) GPU BGRA \(failure.actual) vs CPU \(failure.expected)"
         }
 
+        guard let divergence = parityScene.knownDivergence else {
+            XCTAssertGreaterThanOrEqual(
+                report.matchRatio, Self.requiredMatchRatio,
+                "Cross-backend parity failed for \(detail)", file: file, line: line)
+            return
+        }
+
+        // A deferred scene is pinned from both sides: it may not drift down,
+        // and it may not quietly become passable without anyone noticing.
         XCTAssertGreaterThanOrEqual(
-            report.matchRatio, Self.requiredMatchRatio,
-            "Cross-backend parity failed for \(detail)", file: file, line: line)
+            report.matchRatio, divergence.matchRatioFloor,
+            "Known-divergent scene regressed below its recorded floor of \(divergence.matchRatioFloor) — "
+                + "\(detail). The accepted divergence is: \(divergence.reason)",
+            file: file, line: line)
+
+        if report.matchRatio >= Self.requiredMatchRatio {
+            XCTFail(
+                "Promote me: \(detail) now meets the suite's required ratio of \(Self.requiredMatchRatio), so "
+                    + "its knownDivergence must be removed and the scene must gate like the rest. The "
+                    + "divergence it was deferred for was: \(divergence.reason)",
+                file: file, line: line)
+        }
     }
 
     // MARK: - Scenes
@@ -547,4 +652,6 @@ final class CrossBackendPixelParityTests: XCTestCase {
     func testPathTextureParity() async throws { try assertParity(Self.pathTextureScene()) }
 
     func testMaterialParity() async throws { try assertParity(Self.materialScene()) }
+
+    func testLargeRadiusMaterialParity() async throws { try assertParity(Self.largeRadiusMaterialScene()) }
 }

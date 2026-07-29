@@ -480,25 +480,28 @@ public struct PathPrimitive: Equatable, Sendable {
         }
     }
 
-    /// Same acceptance rule as the four float-clip families (see
+    /// The same acceptance rule the four float-clip families apply (see
     /// `contentMaskedBounds(x:y:width:height:…)` in `GPUIScene.swift`): a
     /// clip that misses the path entirely rejects it. This used to fall
     /// back to the *unclipped* bounds, so a path outside its clip was
     /// still accepted — it burned a paint operation, a cached path
     /// texture and a draw call, and left "who decides visibility" as the
     /// one question answered per family instead of by the contract.
+    ///
+    /// What it does *not* share is those families' in-band "collapsed in
+    /// both dimensions means unclipped" sentinel, which they need only
+    /// because four floats cannot express absence.
     public var contentMaskedBounds: Rect? {
         guard !bounds.isEmpty else { return nil }
+        // `clipBounds` is an Optional, so `nil` already says "unclipped".
+        // The four float-clip families need an in-band sentinel — collapsed
+        // in *both* dimensions means "no clip" — precisely because they
+        // cannot express absence; importing that sentinel here made a
+        // present, collapsed clip mean the opposite of what it says. A path
+        // under a `clipsToBounds` node whose frame collapsed to 0×0 is
+        // clipped away, not unclipped.
         guard let clip = clipBounds else { return bounds }
-
-        // `clipBounds` is an optional Rect rather than four floats, but
-        // it carries the same in-band sentinel: collapsed in exactly one
-        // dimension is an explicitly empty clip, collapsed in both is
-        // "unclipped".
-        let collapsedWidth = clip.size.width <= 0
-        let collapsedHeight = clip.size.height <= 0
-        if collapsedWidth != collapsedHeight { return nil }
-        if collapsedWidth { return bounds }
+        guard clip.size.width > 0, clip.size.height > 0 else { return nil }
 
         guard let masked = bounds.intersected(with: clip) else { return nil }
         guard masked.size.width > 0, masked.size.height > 0 else { return nil }

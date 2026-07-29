@@ -102,6 +102,12 @@ public protocol RenderBackend: AnyObject {
     /// different backend, since flip-model presentation is exclusive per
     /// window. Detaching an unattached backend is a no-op, and a detached
     /// backend must be re-attachable.
+    ///
+    /// Deliberately has no protocol-extension default: a backend that owns
+    /// a device and a swap chain used to satisfy this requirement by
+    /// inheriting an empty implementation and leak exactly as it did before
+    /// the requirement existed. Backends that own nothing write their own
+    /// one-line no-op, where a reader can see that it is a decision.
     func detach()
 }
 extension RenderBackend {
@@ -110,10 +116,6 @@ extension RenderBackend {
     public var backendStatusDescription: String { "\(backendDisplayName) READY" }
 
     public var presentationState: PresentationState { PresentationState() }
-
-    /// Backends that own no platform resources (software rasterizers, test
-    /// fakes) inherit a no-op teardown.
-    public func detach() {}
 }
 public struct RenderFrame: Equatable, Sendable {
     public var clearColor: Color
@@ -648,43 +650,119 @@ public struct BitmapSurface: Equatable, Sendable {
         converted(to: .straight)
     }
 
+    /// True as soon as one pixel carries alpha below 255.
+    ///
+    /// This is the whole question `converted(to:)` has to answer before it
+    /// allocates anything: straight and premultiplied bytes are identical
+    /// for an opaque pixel, so an all-opaque surface converts by relabelling
+    /// its format. The scan touches one byte per pixel and stops at the
+    /// first translucent one.
+    private var containsTranslucentPixel: Bool {
+        let rowStride = Int(bytesPerRow)
+        let rowCount = Int(height)
+        let pixelCount = Int(width)
+        guard rowStride > 0, rowCount > 0, pixelCount > 0 else { return false }
+
+        return pixels.withUnsafeBytes { buffer -> Bool in
+            let byteCount = buffer.count
+            for y in 0..<rowCount {
+                let rowStart = y * rowStride
+                // A short buffer is `validate()`'s business; here it just
+                // ends the scan, since there is nothing left to convert.
+                guard rowStart + 3 < byteCount else { return false }
+                let lastInRow = min(pixelCount, (byteCount - rowStart) / 4)
+                for x in 0..<lastInRow where buffer[rowStart + x * 4 + 3] < 255 {
+                    return true
+                }
+            }
+            return false
+        }
+    }
+
+    /// True when `other` is the same image *and* the same buffer — a
+    /// storage-identity test, not a byte comparison.
+    ///
+    /// Uploads key on this to skip re-converting and re-uploading a
+    /// frame-stable bitmap. It is deliberately conservative: it answers
+    /// "certainly the same bytes" or "cannot tell", never "different". Both
+    /// surfaces are alive for the duration of the call because the caller
+    /// holds them, so a freed buffer cannot be re-allocated at the matching
+    /// address mid-check; buffers small enough for `Data`'s inline
+    /// representation — whose bytes live in the struct rather than at a
+    /// stable address — are excluded outright.
+    ///
+    /// A real upload protocol (content revisions, explicit invalidation) is
+    /// WS-09's job. This is the cheap identity that keeps an unchanged image
+    /// from being premultiplied and uploaded again every frame until then.
+    public func sharesPixelStorage(with other: BitmapSurface) -> Bool {
+        guard width == other.width, height == other.height, bytesPerRow == other.bytesPerRow,
+            format == other.format, pixels.count == other.pixels.count,
+            pixels.count > Self.inlineStorageByteCeiling
+        else {
+            return false
+        }
+
+        return pixels.withUnsafeBytes { lhs in
+            other.pixels.withUnsafeBytes { rhs in
+                lhs.baseAddress != nil && lhs.baseAddress == rhs.baseAddress
+            }
+        }
+    }
+
+    /// Above this many bytes `Data` always stores out of line, so its base
+    /// address identifies the buffer. Foundation's inline representation
+    /// tops out well below this; the margin is deliberate.
+    private static let inlineStorageByteCeiling = 64
+
     private func converted(to alphaMode: BitmapPixelFormat.AlphaMode) -> BitmapSurface {
         guard format.alphaMode != alphaMode else { return self }
 
+        // Scan before allocating. The old code copied the whole buffer and
+        // only then discovered that nothing in it needed converting, which
+        // put a full-surface `Data` copy plus a bounds-checked per-pixel
+        // loop on the main thread for every image upload of every frame.
+        guard containsTranslucentPixel else {
+            var relabelled = self
+            relabelled.format.alphaMode = alphaMode
+            return relabelled
+        }
+
         let rowStride = Int(bytesPerRow)
+        let rowCount = Int(height)
         let pixelCount = Int(width)
         var converted = [UInt8](pixels)
-        var changed = false
-        for y in 0..<Int(height) {
-            let rowStart = y * rowStride
-            for x in 0..<pixelCount {
-                let offset = rowStart + x * 4
-                guard offset + 3 < converted.count else { continue }
-                let alpha = Int(converted[offset + 3])
-                guard alpha < 255 else { continue }
-                changed = true
-                if alpha == 0 {
-                    converted[offset] = 0
-                    converted[offset + 1] = 0
-                    converted[offset + 2] = 0
-                    continue
-                }
-                for channel in 0..<3 {
-                    let value = Int(converted[offset + channel])
-                    let scaled =
-                        alphaMode == .premultiplied
-                        ? (value * alpha + 127) / 255
-                        : min(255, (value * 255 + alpha / 2) / alpha)
-                    converted[offset + channel] = UInt8(scaled)
+        converted.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            let byteCount = buffer.count
+            for y in 0..<rowCount {
+                let rowStart = y * rowStride
+                guard rowStart + 3 < byteCount else { break }
+                let lastInRow = min(pixelCount, (byteCount - rowStart) / 4)
+                for x in 0..<lastInRow {
+                    let offset = rowStart + x * 4
+                    let alpha = Int(base[offset + 3])
+                    guard alpha < 255 else { continue }
+                    if alpha == 0 {
+                        base[offset] = 0
+                        base[offset + 1] = 0
+                        base[offset + 2] = 0
+                        continue
+                    }
+                    for channel in 0..<3 {
+                        let value = Int(base[offset + channel])
+                        let scaled =
+                            alphaMode == .premultiplied
+                            ? (value * alpha + 127) / 255
+                            : min(255, (value * 255 + alpha / 2) / alpha)
+                        base[offset + channel] = UInt8(scaled)
+                    }
                 }
             }
         }
 
         var result = self
         result.format.alphaMode = alphaMode
-        if changed {
-            result.pixels = Data(converted)
-        }
+        result.pixels = Data(converted)
         return result
     }
 

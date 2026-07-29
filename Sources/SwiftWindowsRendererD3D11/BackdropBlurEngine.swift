@@ -51,13 +51,18 @@ import WinSDK.DirectX
 /// rebuild).
 @MainActor
 final class D3D11BackdropBlurEngine {
-    /// Kernel radius cap. The blur cbuffer holds 132 weights, so radii
-    /// up to 128 fit; built-in materials top out at 40.
-    static let maxBlurRadius = 128
+    /// Kernel radius cap. Tracks `GPUISceneLimits.maxBlurRadius` — the
+    /// shared engine limit both backends honour — and the blur cbuffer
+    /// below is sized to hold exactly that many weights. Built-in
+    /// materials top out at 40; the cap exists for app-supplied
+    /// `.blur(radius:)` at 2× scale.
+    static let maxBlurRadius = Int(GPUISceneLimits.maxBlurRadius)
 
     /// Float count of the blur-params cbuffer:
-    /// 4 (direction) + 4 (UV scale) + 132 (weights).
-    private static let blurParamsFloatCount = 140
+    /// 4 (direction) + 4 (UV scale) + 260 (weights, `blurWeights[65]` in
+    /// HLSL). Must match `batchBackdropBlurShaderSource`'s `BlurParams`
+    /// exactly — `D3D11BackdropBlurTests` pins the two together.
+    static let blurParamsFloatCount = 268
 
     private var device: UnsafeMutablePointer<ID3D11Device>?
 

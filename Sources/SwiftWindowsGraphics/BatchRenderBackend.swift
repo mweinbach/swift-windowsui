@@ -39,6 +39,12 @@ public protocol BatchRenderBackend: AnyObject {
     /// surface to a different backend, since flip-model presentation is
     /// exclusive per window. Detaching an unattached backend is a no-op,
     /// and a detached backend must be re-attachable.
+    ///
+    /// Deliberately has no protocol-extension default: a backend that owns
+    /// a device and a swap chain used to satisfy this requirement by
+    /// inheriting an empty implementation and leak exactly as it did before
+    /// the requirement existed. Backends that own nothing write their own
+    /// one-line no-op, where a reader can see that it is a decision.
     func detach()
 }
 
@@ -46,8 +52,4 @@ extension BatchRenderBackend {
     public var presentationState: PresentationState { PresentationState() }
 
     public func bindResources(for scene: GPUIScene) {}
-
-    /// Backends that own no platform resources (software rasterizers, test
-    /// fakes) inherit a no-op teardown.
-    public func detach() {}
 }

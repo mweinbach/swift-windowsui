@@ -288,17 +288,18 @@ public final class D3D11Renderer: RenderBackend {
     }
 
     deinit {
-        // Backstop, not a teardown path: `detach()` has to run on the main
-        // actor because it drives the immediate context, and a nonisolated
-        // deinit cannot. The host calls `detach()` from `windowWillClose`
-        // and on every presenter switch; reaching here still attached means
-        // one of those call sites was missed, so say so loudly in debug
-        // builds instead of leaking silently.
-        assert(
-            !isAttachedMirror,
-            "D3D11Renderer was deallocated while still attached — its device, swap chain and Direct2D "
-                + "resources leak. Call detach() from the owner's teardown."
-        )
+        // Backstop, not a teardown path — see `RendererTeardownBackstop`
+        // for why a nonisolated deinit cannot free any of this. The host
+        // calls `detach()` from `windowWillClose` and on every presenter
+        // switch; reaching here still attached means one of those call
+        // sites was missed, and the report is emitted in release builds
+        // too, because that is where the leak actually costs something.
+        if isAttachedMirror {
+            RendererTeardownBackstop.reportUndetachedTeardown(
+                "D3D11Renderer was deallocated while still attached — its device, swap chain and Direct2D "
+                    + "resources leak. Call detach() from the owner's teardown."
+            )
+        }
     }
 
     public func resize(to size: IntSize) throws {

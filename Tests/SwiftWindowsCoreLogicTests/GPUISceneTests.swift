@@ -1104,4 +1104,58 @@ final class GPUISceneTests: XCTestCase {
         XCTAssertEqual(replayed.layers[0].quads.first, quad)
         XCTAssertEqual(replayed.layers[0].glyphs.first, glyph)
     }
+
+    // MARK: - Path clip acceptance
+
+    private func makeTriangle(clip: Rect?) -> PathPrimitive {
+        PathPrimitive(
+            elements: [
+                .moveTo(Point(x: 10, y: 50)),
+                .lineTo(Point(x: 50, y: 10)),
+                .lineTo(Point(x: 90, y: 50)),
+                .close,
+            ],
+            bounds: Rect(x: 10, y: 10, width: 80, height: 40),
+            fillColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
+            clipBounds: clip
+        )
+    }
+
+    /// `clipBounds` is an Optional, so `nil` already means unclipped. A
+    /// *present* rect of zero size can therefore only mean an empty clip —
+    /// which is exactly what a `clipsToBounds` container whose frame
+    /// collapsed to 0×0 produces. Treating it as unclipped (the in-band
+    /// sentinel the four float-clip families need) painted the path across
+    /// its whole bounds instead of dropping it.
+    func testPathWithAPresentZeroSizeClipIsRejected() {
+        XCTAssertNil(makeTriangle(clip: Rect(x: 40, y: 20, width: 0, height: 0)).contentMaskedBounds)
+        XCTAssertNil(makeTriangle(clip: Rect(x: 40, y: 20, width: 0, height: 30)).contentMaskedBounds)
+        XCTAssertNil(makeTriangle(clip: Rect(x: 40, y: 20, width: 30, height: 0)).contentMaskedBounds)
+        XCTAssertNil(makeTriangle(clip: Rect(x: 40, y: 20, width: -5, height: -5)).contentMaskedBounds)
+    }
+
+    func testPathWithNoClipKeepsItsFullBounds() {
+        XCTAssertEqual(
+            makeTriangle(clip: nil).contentMaskedBounds, Rect(x: 10, y: 10, width: 80, height: 40))
+    }
+
+    func testPathWithARealClipIsMaskedToTheIntersection() {
+        XCTAssertEqual(
+            makeTriangle(clip: Rect(x: 30, y: 20, width: 40, height: 40)).contentMaskedBounds,
+            Rect(x: 30, y: 20, width: 40, height: 30))
+        XCTAssertNil(
+            makeTriangle(clip: Rect(x: 200, y: 200, width: 40, height: 40)).contentMaskedBounds,
+            "A clip that misses the path entirely rejects it")
+    }
+
+    /// The rejection has to reach the scene, not just the accessor: a
+    /// rejected path must not burn a paint operation or a cached texture.
+    func testSceneDropsAPathWhoseClipCollapsed() {
+        var scene = GPUIScene()
+        scene.addPath(makeTriangle(clip: Rect(x: 40, y: 20, width: 0, height: 0)), toLayer: 0)
+        scene.finish()
+
+        XCTAssertTrue(scene.layers[0].paths.isEmpty)
+        XCTAssertTrue(scene.layers[0].paintOperations.isEmpty)
+    }
 }

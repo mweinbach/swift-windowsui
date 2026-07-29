@@ -75,8 +75,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
 - `CrossBackendPixelParityTests` — canonical scenes rendered through both
   the D3D11 batch backend and `GPUIRawSceneRasterizer`, asserting at most 4
   per channel over at least 99.5 % of pixels. Scenes the backends genuinely
-  disagree on are present but `XCTSkip`ped with the workstream that will
-  unskip them and the measured match ratio; see
+  disagree on are present and asserted against a **measured match-ratio
+  floor** rather than skipped: they fail if they drift below the recorded
+  ratio, and they also fail with "promote me" if they reach the required
+  ratio and should be gating like the rest. Re-measure a floor only when a
+  deliberate change moves it, and record the new value with the reason; see
   `docs/GPURenderingPipeline.md` § 7 for the current divergence list.
 - `PixelFormatContractTests` — the `BitmapSurface` format contract: the
   named default (BGRA, straight), the straight ↔ premultiplied conversions

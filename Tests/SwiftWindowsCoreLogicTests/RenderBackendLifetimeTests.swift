@@ -1,6 +1,8 @@
 import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
+import WinSDK
+import WinSDK.DirectX
 import XCTest
 
 @testable import SwiftWindowsPlatform
@@ -208,6 +210,168 @@ final class RenderBackendLifetimeTests: XCTestCase {
         XCTAssertEqual(
             Set(attachedCounts).count, 1,
             "Each cycle must rebuild the same set of resources, not accumulate: \(attachedCounts)")
+    }
+
+    // MARK: - Debug-layer live objects
+
+    /// `liveCOMObjectCountForTesting` can only see pointers this renderer
+    /// stored, so it cannot see an unbalanced `AddRef`, a `QueryInterface`
+    /// or `GetBuffer` result released nowhere, or a device kept alive by
+    /// something the renderer never knew about — precisely the class of leak
+    /// this workstream exists for. The D3D11 debug layer can see all of it:
+    /// every device child holds a reference on its device, so a device whose
+    /// only surviving reference is the `ID3D11Debug` this test holds is a
+    /// device with nothing left alive on it.
+    ///
+    /// Skips rather than fails when the debug layer is unavailable — it
+    /// ships with the optional "Graphics Tools" Windows feature, which a
+    /// developer machine need not have installed.
+    func testDebugLayerReportsNoLiveObjectGrowthAcrossAttachDetachCycles() async throws {
+        let size = IntSize(width: 48, height: 32)
+        let renderer = D3D11BatchRenderer()
+        renderer.createsDebugDeviceForTesting = true
+        defer { renderer.detach() }
+
+        var residuals: [ULONG] = []
+        for cycle in 0..<3 {
+            do {
+                try renderer.attachOffscreen(size: size, driver: .warpFirst)
+            } catch {
+                throw XCTSkip(
+                    "No D3D11 debug device on this machine (install the Graphics Tools feature to run "
+                        + "this check): \(error)")
+            }
+
+            let device = try XCTUnwrap(renderer.deviceForTesting)
+            guard let debug = queryDebugInterface(device) else {
+                renderer.detach()
+                throw XCTSkip("ID3D11Debug is not available on this device; the debug layer did not load")
+            }
+
+            let scene = makeCacheFillingScene(size: size, textureID: Int32(4200 + cycle))
+            renderer.bindResources(for: scene)
+            try renderer.render(scene: scene)
+
+            renderer.detach()
+
+            // Writes the surviving objects to the debug output. Nothing
+            // reads it programmatically — it is what a developer looks at
+            // once the reference count below says something leaked.
+            _ = debug.pointee.lpVtbl.pointee.ReportLiveDeviceObjects(debug, D3D11_RLDO_DETAIL)
+            residuals.append(referenceCount(of: debug))
+            releaseUnknown(debug)
+        }
+
+        XCTAssertEqual(
+            Set(residuals).count, 1,
+            "Live device references must not grow across attach/detach cycles: \(residuals)")
+        XCTAssertEqual(
+            residuals.first, 1,
+            "After detach the only reference left on the device should be this test's ID3D11Debug; "
+                + "anything more is a child object the renderer never released (counts: \(residuals))")
+
+        // The check has teeth only if an actual leak moves it, so leak one
+        // on purpose and confirm the number rises.
+        try renderer.attachOffscreen(size: size, driver: .warpFirst)
+        let device = try XCTUnwrap(renderer.deviceForTesting)
+        let debug = try XCTUnwrap(queryDebugInterface(device))
+        var leakedTexture: UnsafeMutablePointer<ID3D11Texture2D>?
+        var descriptor = D3D11_TEXTURE2D_DESC()
+        descriptor.Width = 8
+        descriptor.Height = 8
+        descriptor.MipLevels = 1
+        descriptor.ArraySize = 1
+        descriptor.Format = DXGI_FORMAT_B8G8R8A8_UNORM
+        descriptor.SampleDesc = DXGI_SAMPLE_DESC(Count: 1, Quality: 0)
+        descriptor.Usage = D3D11_USAGE_DEFAULT
+        descriptor.BindFlags = UINT(D3D11_BIND_SHADER_RESOURCE.rawValue)
+        let textureHR = device.pointee.lpVtbl.pointee.CreateTexture2D(device, &descriptor, nil, &leakedTexture)
+        XCTAssertGreaterThanOrEqual(textureHR, 0)
+        let texture = try XCTUnwrap(leakedTexture)
+
+        renderer.detach()
+        XCTAssertGreaterThan(
+            referenceCount(of: debug), residuals[0],
+            "A surviving device child must show up as an extra device reference, otherwise the assertions "
+                + "above cannot detect a leak either")
+
+        releaseUnknown(texture)
+        XCTAssertEqual(
+            referenceCount(of: debug), residuals[0],
+            "Releasing the leaked child must return the device to its clean count")
+        releaseUnknown(debug)
+    }
+
+    /// `QueryInterface` for `ID3D11Debug`. The returned interface is the
+    /// device object itself, so its reference count *is* the device's — the
+    /// property the assertions above rely on.
+    private func queryDebugInterface(
+        _ device: UnsafeMutablePointer<ID3D11Device>
+    ) -> UnsafeMutablePointer<ID3D11Debug>? {
+        let unknown = UnsafeMutableRawPointer(device).assumingMemoryBound(to: IUnknown.self)
+        var iid = IID_ID3D11Debug
+        var raw: UnsafeMutableRawPointer?
+        let hr = unknown.pointee.lpVtbl.pointee.QueryInterface(unknown, &iid, &raw)
+        guard hr >= 0, let raw else { return nil }
+        return raw.assumingMemoryBound(to: ID3D11Debug.self)
+    }
+
+    /// References currently held on `pointer`'s COM object, read without
+    /// changing it: `Release` returns the count that survives it, so an
+    /// `AddRef`/`Release` pair reports the count and leaves it alone.
+    private func referenceCount<T>(of pointer: UnsafeMutablePointer<T>) -> ULONG {
+        let unknown = UnsafeMutableRawPointer(pointer).assumingMemoryBound(to: IUnknown.self)
+        _ = unknown.pointee.lpVtbl.pointee.AddRef(unknown)
+        return unknown.pointee.lpVtbl.pointee.Release(unknown)
+    }
+
+    private func releaseUnknown<T>(_ pointer: UnsafeMutablePointer<T>) {
+        let unknown = UnsafeMutableRawPointer(pointer).assumingMemoryBound(to: IUnknown.self)
+        _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
+    }
+
+    // MARK: - Deinit backstop
+
+    /// A missed `detach()` used to be invisible in release: the deinit
+    /// asserted, and `assert` compiles out. The backstop reports in every
+    /// configuration now.
+    ///
+    /// This test deliberately drops an attached renderer, which really does
+    /// leak one WARP device, its swap-chain-less offscreen target and the
+    /// compiled pipeline — a nonisolated deinit cannot reach the main actor
+    /// to release them, which is the whole reason the backstop can only
+    /// report. One leaked device for the life of the test process is the
+    /// price of proving the report fires.
+    func testDeinitReportsAnUndetachedRendererRatherThanLeakingSilently() async throws {
+        let before = RendererTeardownBackstop.undetachedTeardownCount
+        RendererTeardownBackstop.suppressTrapForTesting = true
+        defer { RendererTeardownBackstop.suppressTrapForTesting = false }
+
+        // In a function, so the local is released when it returns rather
+        // than at some point ARC chooses inside this one.
+        func dropAttachedRenderer() throws {
+            let renderer = try makeDetachableRenderer(size: IntSize(width: 16, height: 16))
+            XCTAssertTrue(renderer.isAttached)
+        }
+        try dropAttachedRenderer()
+
+        XCTAssertEqual(
+            RendererTeardownBackstop.undetachedTeardownCount, before + 1,
+            "Dropping an attached renderer must report the leak, not vanish")
+    }
+
+    /// A renderer that was detached first must say nothing — a backstop that
+    /// cried wolf on the normal path would be turned off within a week.
+    func testDeinitStaysQuietForADetachedRenderer() async throws {
+        let before = RendererTeardownBackstop.undetachedTeardownCount
+
+        func dropDetachedRenderer() throws {
+            let renderer = try makeDetachableRenderer(size: IntSize(width: 16, height: 16))
+            renderer.detach()
+        }
+        try dropDetachedRenderer()
+
+        XCTAssertEqual(RendererTeardownBackstop.undetachedTeardownCount, before)
     }
 
     // MARK: - D3D11 frame renderer teardown

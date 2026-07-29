@@ -170,4 +170,87 @@ final class D3D11BatchRendererRenderTests: XCTestCase {
             XCTAssertTrue(error is BatchRendererError, "Expected BatchRendererError, got \(error)")
         }
     }
+
+    // MARK: - Image upload cost
+
+    /// `bindResources(for:)` runs every frame and used to release the
+    /// texture and SRV of every bound image, so an unchanged `Image` — or a
+    /// `.drawingGroup()` compositing bitmap — paid a full-surface
+    /// premultiply plus a `CreateTexture2D` on the main thread on every one
+    /// of them. Re-binding the same buffer must now cost nothing.
+    func testRebindingTheSameBitmapDoesNotReUploadTheTexture() async throws {
+        let size = IntSize(width: 64, height: 64)
+        let renderer = try makeOwnedRenderer(size: size)
+        defer { renderer.detach() }
+
+        let bitmap = makeImageFixture(size: 32, seed: 7)
+        let scene = makeImageScene(bitmap: bitmap, textureID: 9001, size: size)
+
+        renderer.bindResources(for: scene)
+        try renderer.render(scene: scene)
+        let afterFirstFrame = renderer.imageTextureUploadsForTesting
+        XCTAssertEqual(afterFirstFrame, 1, "The first frame must actually upload")
+
+        for _ in 0..<4 {
+            renderer.bindResources(for: scene)
+            try renderer.render(scene: scene)
+        }
+        XCTAssertEqual(
+            renderer.imageTextureUploadsForTesting, afterFirstFrame,
+            "A frame-stable image must not be premultiplied and re-uploaded once per frame")
+
+        // A genuinely different bitmap under the same texture ID still has
+        // to replace the texture, otherwise the screen would go stale.
+        let replacement = makeImageFixture(size: 32, seed: 200)
+        let replacementScene = makeImageScene(bitmap: replacement, textureID: 9001, size: size)
+        renderer.bindResources(for: replacementScene)
+        try renderer.render(scene: replacementScene)
+        XCTAssertEqual(
+            renderer.imageTextureUploadsForTesting, afterFirstFrame + 1,
+            "New pixels under a bound texture ID must re-upload")
+    }
+
+    private func makeImageFixture(size: Int, seed: Int) -> BitmapSurface {
+        var pixels = Data()
+        for y in 0..<size {
+            for x in 0..<size {
+                pixels.append(UInt8((x * 3 + seed) % 256))
+                pixels.append(UInt8((y * 5 + seed) % 256))
+                pixels.append(UInt8(seed % 256))
+                pixels.append(255)
+            }
+        }
+        return BitmapSurface(
+            width: Int32(size), height: Int32(size), bytesPerRow: Int32(size * 4), pixels: pixels)
+    }
+
+    private func makeImageScene(bitmap: BitmapSurface, textureID: Int32, size: IntSize) -> GPUIScene {
+        var scene = GPUIScene(clearColor: .black)
+        scene.bindImageResource(bitmap, for: textureID)
+        scene.addImage(
+            ImagePrimitive(
+                screenX: 0, screenY: 0, screenW: Float(size.width), screenH: Float(size.height),
+                uvX: 0, uvY: 0, uvW: 1, uvH: 1,
+                opacity: 1,
+                textureID: textureID
+            )
+        )
+        scene.finish()
+        return scene
+    }
+
+    /// A renderer of this test's own: the shared `WARPBatchRenderer` carries
+    /// bindings and upload counts from every other suite.
+    private func makeOwnedRenderer(size: IntSize) throws -> D3D11BatchRenderer {
+        let probe = try makeWARPDevice()
+        probe.release()
+
+        let renderer = D3D11BatchRenderer()
+        do {
+            try renderer.attachOffscreen(size: size, driver: .warpFirst)
+        } catch {
+            throw XCTSkip("D3D11 batch renderer unavailable on this machine: \(error)")
+        }
+        return renderer
+    }
 }

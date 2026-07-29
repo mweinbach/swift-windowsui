@@ -125,6 +125,15 @@ public final class GlyphAtlas {
     public private(set) var isDirty: Bool
     public private(set) var dirtyRegion: GlyphAtlasRegion?
 
+    /// Bumped every time `clear()` recycles the shelf allocator.
+    ///
+    /// Atlas rects are only meaningful within the generation that handed them
+    /// out: after a clear, the same rect addresses a *different* glyph. Anyone
+    /// holding a rect across a paint pass (`ScenePainter` holds one per emitted
+    /// `GlyphPrimitive`) must compare this before shipping it, or the scene
+    /// draws — and caches — the wrong characters.
+    public private(set) var generation: UInt64 = 0
+
     private var shelves: [Shelf] = []
 
     struct Shelf {
@@ -221,6 +230,7 @@ public final class GlyphAtlas {
         shelves.removeAll()
         isDirty = true
         dirtyRegion = GlyphAtlasRegion(x: 0, y: 0, width: width, height: height)
+        generation &+= 1
     }
 
     public func markClean() {

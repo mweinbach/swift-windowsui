@@ -90,7 +90,22 @@ public enum ScenePainter {
         let originalDeferredDraws = deferredDraws
         var bypassReplayAfterAtlasRecovery = false
 
-        for attempt in 0..<2 {
+        // One LRU tick per *rendered frame*, not per attempt: the loop below
+        // repaints the same frame, and advancing the clock again would age
+        // glyphs the frame is still using out from under it.
+        NativeGlyphAtlas.shared.beginFrame()
+        defer { NativeGlyphAtlas.shared.setSuspended(false) }
+
+        for attempt in 0..<glyphAtlasPaintAttempts {
+            // The atlas recovers from exhaustion by recycling its shelves, which
+            // invalidates every UV this pass already emitted. On the last attempt
+            // we stop asking it for glyphs at all so the pass cannot exhaust: the
+            // scene degrades to bitmap text instead of shipping — and caching —
+            // quads that address someone else's atlas cells.
+            let isFinalAttempt = attempt == glyphAtlasPaintAttempts - 1
+            NativeGlyphAtlas.shared.setSuspended(isFinalAttempt)
+            let atlasGenerationAtStart = NativeGlyphAtlas.shared.atlasGeneration
+
             var scene = GPUIScene(clearColor: clearColor)
             var attemptDeferredDraws = originalDeferredDraws
             var attemptReplayCount = 0
@@ -99,7 +114,6 @@ public enum ScenePainter {
             var usedPixelGlyphs = false
             let replaySource = bypassReplayAfterAtlasRecovery ? nil : previousScene
 
-            NativeGlyphAtlas.shared.beginFrame()
             paintNode(
                 root,
                 into: &scene,
@@ -147,12 +161,14 @@ public enum ScenePainter {
             )
 
             if usedNativeGlyphs,
-                NativeGlyphAtlas.shared.consumeRecoveryRequest(),
-                attempt == 0
+                NativeGlyphAtlas.shared.atlasGeneration != atlasGenerationAtStart,
+                !isFinalAttempt
             {
                 // Atlas recovery invalidates every native glyph UV captured earlier in the pass,
-                // including replayed text ranges. Rebuild once without replay so text rerasterizes
-                // against the recovered atlas before we return the scene.
+                // including replayed text ranges. Rebuild without replay so text rerasterizes
+                // against the recovered atlas before we return the scene. The generation token
+                // catches a recovery anywhere in the pass, so a *second* exhaustion on the retry
+                // is caught too — the previous per-frame boolean was only consulted once.
                 bypassReplayAfterAtlasRecovery = true
                 continue
             }
@@ -171,6 +187,10 @@ public enum ScenePainter {
             return scene
         }
 
+        // Unreachable by construction: the final attempt runs with the atlas
+        // suspended, so it emits no native glyph, cannot exhaust, and always
+        // takes the return above. Kept as a typed backstop rather than a trap —
+        // a blank frame is recoverable, a runtime crash is not.
         deferredDraws = originalDeferredDraws
         replayCount = 0
         deferredReplayCount = 0
@@ -180,6 +200,13 @@ public enum ScenePainter {
     }
 
     // MARK: - Private
+
+    /// Paint attempts per frame before the glyph atlas is given up on.
+    ///
+    /// Attempt 0 paints normally, attempt 1 repaints without scene replay after
+    /// an atlas recovery, and attempt 2 paints with the atlas suspended so the
+    /// frame is guaranteed to be free of recycled UVs.
+    private static let glyphAtlasPaintAttempts = 3
 
     private struct PaintTraversalContext {
         let node: ViewNode

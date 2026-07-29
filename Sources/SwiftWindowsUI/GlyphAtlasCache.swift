@@ -7,7 +7,20 @@ public final class GlyphAtlasCache {
     private let atlas: GlyphAtlas
     private let maxEntries: Int
     private var frameCounter: UInt64 = 0
-    public private(set) var didRecoverFromExhaustionOnLastInsert = false
+
+    /// Generation of the backing atlas. `insert` recovers from exhaustion by
+    /// clearing the atlas, which invalidates every rect handed out before it;
+    /// callers holding rects across a batch of inserts compare this instead of
+    /// trusting a per-insert flag, so a recovery that happens anywhere in the
+    /// batch is still visible at the end of it.
+    public var atlasGeneration: UInt64 {
+        atlas.generation
+    }
+
+    /// LRU clock, advanced once per rendered frame by `nextFrame()`.
+    public var frameIndex: UInt64 {
+        frameCounter
+    }
 
     struct CacheEntry {
         var entry: GlyphEntry
@@ -48,8 +61,6 @@ public final class GlyphAtlasCache {
         bearingY: Float,
         advance: Float
     ) -> GlyphEntry? {
-        didRecoverFromExhaustionOnLastInsert = false
-
         // Evict if at capacity
         if entries.count >= maxEntries {
             evictLRU(count: 1)
@@ -74,8 +85,9 @@ public final class GlyphAtlasCache {
                 advance: advance
             )
         else {
+            // Recovery bumps `atlasGeneration`; that bump is the signal every
+            // holder of a previously returned rect has to react to.
             clear()
-            didRecoverFromExhaustionOnLastInsert = true
             return insertWithoutRecovery(
                 key: key,
                 pixels: pixels,

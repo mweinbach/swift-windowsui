@@ -29,21 +29,59 @@ final class NativeGlyphAtlas {
         }
     }
 
-    static let shared = NativeGlyphAtlas()
+    private static let processAtlas = NativeGlyphAtlas(atlasWidth: 2048, atlasHeight: 2048)
 
-    private let atlas = GlyphAtlas(width: 2048, height: 2048)
+    /// The process-wide atlas every painter pass draws from. Substitutable so a
+    /// test can point the painter at a deliberately small atlas — exhaustion is
+    /// otherwise a four-thousand-glyph working set away.
+    private(set) static var shared = processAtlas
+
+    private let atlas: GlyphAtlas
     private let cache: GlyphAtlasCache
     private var usedInCurrentFrame = false
-    private var didRecoverFromExhaustionInCurrentFrame = false
 
-    private init() {
-        self.cache = GlyphAtlasCache(atlas: atlas)
+    /// While suspended the atlas hands out nothing at all — not even cached
+    /// entries — so `ScenePainter` emits no native glyph and text falls through
+    /// to the pixel-font path for the whole pass. The painter arms this on its
+    /// final attempt: an atlas whose working set does not fit can never produce
+    /// a pass whose UVs all survive to present, and bitmap text is strictly
+    /// better than text drawn from recycled atlas cells.
+    private(set) var isSuspended = false
+
+    init(atlasWidth: Int32, atlasHeight: Int32, maxEntries: Int = 4096) {
+        let atlas = GlyphAtlas(width: atlasWidth, height: atlasHeight)
+        self.atlas = atlas
+        self.cache = GlyphAtlasCache(atlas: atlas, maxEntries: maxEntries)
+    }
+
+    /// Test-only: swap the process-wide atlas. Always pair with
+    /// `restoreSharedForTesting()` in a `defer`.
+    static func installForTesting(_ replacement: NativeGlyphAtlas) {
+        shared = replacement
+    }
+
+    static func restoreSharedForTesting() {
+        shared = processAtlas
     }
 
     func beginFrame() {
         usedInCurrentFrame = false
-        didRecoverFromExhaustionInCurrentFrame = false
         cache.nextFrame()
+    }
+
+    func setSuspended(_ suspended: Bool) {
+        isSuspended = suspended
+    }
+
+    /// See `GlyphAtlas.generation`. A change across a paint pass means every
+    /// rect the pass captured before it is now addressing someone else's pixels.
+    var atlasGeneration: UInt64 {
+        atlas.generation
+    }
+
+    /// LRU clock; advanced once per rendered frame, not once per paint attempt.
+    var frameIndex: UInt64 {
+        cache.frameIndex
     }
 
     var wasUsedInCurrentFrame: Bool {
@@ -95,18 +133,12 @@ final class NativeGlyphAtlas {
         IntSize(width: atlas.width, height: atlas.height)
     }
 
-    func consumeRecoveryRequest() -> Bool {
-        let didRecover = didRecoverFromExhaustionInCurrentFrame
-        didRecoverFromExhaustionInCurrentFrame = false
-        return didRecover
-    }
-
     /// Test-only helper for forcing the shared atlas back to a clean empty state.
     func resetForTesting() {
         cache.clear()
         atlas.markClean()
         usedInCurrentFrame = false
-        didRecoverFromExhaustionInCurrentFrame = false
+        isSuspended = false
     }
 
     func glyph(for character: Character, style: PixelTextStyle, scaleFactor: Double) -> GlyphEntry? {
@@ -198,9 +230,6 @@ final class NativeGlyphAtlas {
             bearingY: bitmap.bearingY,
             advance: bitmap.advance
         )
-        if cache.didRecoverFromExhaustionOnLastInsert, entry != nil {
-            didRecoverFromExhaustionInCurrentFrame = true
-        }
         if entry != nil {
             usedInCurrentFrame = true
         }
@@ -211,6 +240,10 @@ final class NativeGlyphAtlas {
         key: GlyphKey,
         rasterize: () -> NativeGlyphBitmap?
     ) -> PreparedGlyph? {
+        if isSuspended {
+            return nil
+        }
+
         if let cached = cache.peek(key) {
             return PreparedGlyph(key: key, cachedEntry: cached, bitmap: nil)
         }

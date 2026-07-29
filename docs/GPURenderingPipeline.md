@@ -266,12 +266,48 @@ layout box at 4096 px wide. Letting it center inside that box produces
 glyph origins around `x ≈ 2000`, which then failed the painter's
 visible-clip preflight check and silently fell back to PixelText.
 
+### Atlas exhaustion: the generation token
+
+The atlas is a shelf allocator with no free list, so its only recovery
+from a full atlas is `clear()` — which recycles every shelf *under the
+UVs the current paint pass has already emitted*. An atlas rect is
+therefore only meaningful within the generation that handed it out:
+after a clear, the same rect addresses a different glyph.
+
+`GlyphAtlas.generation` is bumped on every `clear()`, and
+`ScenePainter.paint` compares it across each paint attempt:
+
+1. Attempt 0 paints normally. If the generation moved, every UV it
+   emitted is suspect and the scene is thrown away.
+2. Attempt 1 repaints with scene replay bypassed, so cached text ranges
+   rerasterize against the recovered atlas instead of replaying stale
+   UVs.
+3. Attempt 2 paints with the atlas *suspended*
+   (`NativeGlyphAtlas.setSuspended`): it hands out nothing, so
+   `appendNativeTextGlyphs` emits nothing, text falls through to the
+   pixel-font path, and the pass cannot exhaust. A frame whose working
+   set does not fit the atlas therefore degrades to bitmap text rather
+   than shipping — and caching — quads that sample recycled cells.
+
+Suspension is released at the end of the paint, so the degradation is
+scoped to the one frame that could not be satisfied.
+
+`NativeGlyphAtlas.beginFrame()` (the LRU clock) is ticked once per
+rendered *frame*, outside the attempt loop: ticking it per attempt would
+age glyphs the frame is still using.
+
 **Invariants**
 - Multiple consecutive renders all receive a non-`nil` glyph atlas
   snapshot, even when no new glyphs were rasterized.
 - LRU eviction in the atlas cache always recovers — 200 distinct glyphs
   through a 32×32 atlas with a 32-entry cap drops zero inserts
   (`testSustainedExhaustionAlwaysRecoversAndNeverDropsInserts`).
+- Every `GlyphPrimitive` in a returned scene resolves to the pixels of
+  the glyph that requested it, and a working set larger than the atlas
+  emits zero native glyphs rather than stale UVs
+  (`GlyphAtlasExhaustionSafetyTests`). `NativeGlyphAtlas(atlasWidth:
+  atlasHeight:maxEntries:)` + `installForTesting` inject a small atlas so
+  this is reachable without a four-thousand-glyph working set.
 - `nativeFontSize` flows from `Font.body`/`.system(size:)` into
   `PixelTextStyle` correctly across all built-in view types.
 

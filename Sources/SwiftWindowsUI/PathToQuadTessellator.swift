@@ -161,7 +161,8 @@ enum PathToQuadTessellator {
 
         guard
             let quads = scanlineFillTriangle(
-                v0: v0, v1: v1, v2: v2, color: path.fillColor, clip: path.clipBounds)
+                v0: v0, v1: v1, v2: v2, color: path.fillColor, clip: path.clipBounds,
+                clipCornerRadius: path.clipCornerRadius)
         else {
             return nil
         }
@@ -188,7 +189,8 @@ enum PathToQuadTessellator {
             let v2 = polygonVertices[i + 1]
             guard
                 let strip = scanlineFillTriangle(
-                    v0: v0, v1: v1, v2: v2, color: path.fillColor, clip: path.clipBounds),
+                    v0: v0, v1: v1, v2: v2, color: path.fillColor, clip: path.clipBounds,
+                    clipCornerRadius: path.clipCornerRadius),
                 quads.count + strip.count <= maxTessellatedQuads
             else {
                 return nil
@@ -258,7 +260,7 @@ enum PathToQuadTessellator {
                 guard
                     let strip = scanlineFillTriangle(
                         v0: prev, v1: curr, v2: next,
-                        color: path.fillColor, clip: path.clipBounds),
+                        color: path.fillColor, clip: path.clipBounds, clipCornerRadius: path.clipCornerRadius),
                     quads.count + strip.count <= maxTessellatedQuads
                 else {
                     return nil
@@ -278,7 +280,7 @@ enum PathToQuadTessellator {
             guard
                 let strip = scanlineFillTriangle(
                     v0: raw[indices[0]], v1: raw[indices[1]], v2: raw[indices[2]],
-                    color: path.fillColor, clip: path.clipBounds),
+                    color: path.fillColor, clip: path.clipBounds, clipCornerRadius: path.clipCornerRadius),
                 quads.count + strip.count <= maxTessellatedQuads
             else {
                 return nil
@@ -435,7 +437,7 @@ enum PathToQuadTessellator {
     /// which case the caller abandons GPU promotion for the whole path and
     /// falls back to CPU rasterization.
     private static func scanlineFillTriangle(
-        v0: Point, v1: Point, v2: Point, color: Color, clip: Rect?
+        v0: Point, v1: Point, v2: Point, color: Color, clip: Rect?, clipCornerRadius: Double = 0
     ) -> [QuadPrimitive]? {
         let area2 = (v1.x - v0.x) * (v2.y - v0.y) - (v2.x - v0.x) * (v1.y - v0.y)
         if abs(area2) < 0.001 { return [] }
@@ -550,7 +552,7 @@ enum PathToQuadTessellator {
         }
 
         let rect = Rect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-        return [quad(for: rect, color: path.fillColor, clip: path.clipBounds)]
+        return [quad(for: rect, color: path.fillColor, clip: path.clipBounds, clipCornerRadius: path.clipCornerRadius)]
     }
 
     /// Mixed-output stroked-line tessellator. Walks the path
@@ -571,7 +573,7 @@ enum PathToQuadTessellator {
                 if previous == next { continue }
                 if let segment = strokedSegmentQuad(
                     from: previous, to: next, lineWidth: path.lineWidth,
-                    color: path.strokeColor, clip: path.clipBounds)
+                    color: path.strokeColor, clip: path.clipBounds, clipCornerRadius: path.clipCornerRadius)
                 {
                     quads.append(segment)
                 } else {
@@ -649,7 +651,8 @@ enum PathToQuadTessellator {
                 bounds: rawBounds.outset(by: path.lineWidth / 2),
                 strokeColor: path.strokeColor,
                 lineWidth: path.lineWidth,
-                clipBounds: path.clipBounds
+                clipBounds: path.clipBounds,
+                clipCornerRadius: path.clipCornerRadius
             )
         }
 
@@ -712,7 +715,7 @@ enum PathToQuadTessellator {
     }
 
     private static func strokedSegmentQuad(
-        from: Point, to: Point, lineWidth: Double, color: Color, clip: Rect?
+        from: Point, to: Point, lineWidth: Double, color: Color, clip: Rect?, clipCornerRadius: Double = 0
     ) -> QuadPrimitive? {
         let dx = to.x - from.x
         let dy = to.y - from.y
@@ -734,7 +737,7 @@ enum PathToQuadTessellator {
                 width: (maxX - minX) + lineWidth,
                 height: lineWidth
             )
-            return quad(for: rect, color: color, clip: clip)
+            return quad(for: rect, color: color, clip: clip, clipCornerRadius: clipCornerRadius)
         }
         if isVertical {
             let minY = min(from.y, to.y)
@@ -745,7 +748,7 @@ enum PathToQuadTessellator {
                 width: lineWidth,
                 height: (maxY - minY) + lineWidth
             )
-            return quad(for: rect, color: color, clip: clip)
+            return quad(for: rect, color: color, clip: clip, clipCornerRadius: clipCornerRadius)
         }
 
         // Diagonal segment: emit a rotated quad. The unrotated rect
@@ -762,11 +765,11 @@ enum PathToQuadTessellator {
             height: lineWidth
         )
         let angle = atan2(dy, dx)
-        return quad(for: rect, color: color, clip: clip, rotation: Float(angle))
+        return quad(for: rect, color: color, clip: clip, clipCornerRadius: clipCornerRadius, rotation: Float(angle))
     }
 
     private static func quad(
-        for rect: Rect, color: Color, clip: Rect?, rotation: Float = 0
+        for rect: Rect, color: Color, clip: Rect?, clipCornerRadius: Double = 0, rotation: Float = 0
     ) -> QuadPrimitive {
         let clipRect = clip ?? Rect(x: 0, y: 0, width: 0, height: 0)
         return QuadPrimitive(
@@ -782,7 +785,7 @@ enum PathToQuadTessellator {
             clipY: Float(clipRect.origin.y),
             clipWidth: Float(clipRect.size.width),
             clipHeight: Float(clipRect.size.height),
-            clipCornerRadius: 0,
+            clipCornerRadius: Float(clipCornerRadius),
             blendMode: 0,
             effectType: 0,
             effectIntensity: 0,

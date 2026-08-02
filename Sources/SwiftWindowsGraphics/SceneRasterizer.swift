@@ -152,6 +152,12 @@ private struct RasterTarget {
             height: Double(quad.height)
         )
         let rotation = Double(quad.rotationRadians)
+        guard
+            !GPUIClipEncoding.isEmpty(
+                clipX: quad.clipX, clipY: quad.clipY, clipWidth: quad.clipWidth, clipHeight: quad.clipHeight)
+        else {
+            return
+        }
         let clip = GPUIClipRegion(
             x: quad.clipX, y: quad.clipY, width: quad.clipWidth, height: quad.clipHeight,
             cornerRadius: quad.clipCornerRadius)
@@ -517,8 +523,16 @@ private struct RasterTarget {
             width: rect.size.width + expand * 2,
             height: rect.size.height + expand * 2
         )
+        guard
+            !GPUIClipEncoding.isEmpty(
+                clipX: shadow.clipX, clipY: shadow.clipY, clipWidth: shadow.clipWidth,
+                clipHeight: shadow.clipHeight)
+        else {
+            return
+        }
         let clip = GPUIClipRegion(
-            x: shadow.clipX, y: shadow.clipY, width: shadow.clipWidth, height: shadow.clipHeight)
+            x: shadow.clipX, y: shadow.clipY, width: shadow.clipWidth, height: shadow.clipHeight,
+            cornerRadius: shadow.clipCornerRadius)
         guard let bounds = clippedPixelBounds(envelope, clip: clip.rect) else {
             return
         }
@@ -531,7 +545,11 @@ private struct RasterTarget {
             for x in bounds.x0..<bounds.x1 {
                 let pixelCenterX = Double(x) + 0.5
                 let pixelCenterY = Double(y) + 0.5
-                guard clip.alpha(atPixelX: x, y: y) > 0 else { continue }
+                // A rounded clip contributes antialiased coverage, not a
+                // yes/no gate — the shader multiplies `clipAlpha` into the
+                // output and so must this.
+                let clipAlpha = clip.alpha(atPixelX: x, y: y)
+                guard clipAlpha > 0 else { continue }
                 // The shader only runs where the expanded quad covers the
                 // pixel centre; the scan window rounds outward.
                 guard
@@ -543,7 +561,7 @@ private struct RasterTarget {
                     width: rect.size.width,
                     height: rect.size.height,
                     radii: radii)
-                let alpha = 1 - GPUIQuadCoverage.smoothstep(-blur * 0.5, blur, distance)
+                let alpha = (1 - GPUIQuadCoverage.smoothstep(-blur * 0.5, blur, distance)) * clipAlpha
                 if alpha > 0 {
                     blend(color.withAlphaMultiplier(Float(alpha)), x: x, y: y)
                 }
@@ -562,8 +580,16 @@ private struct RasterTarget {
             width: Double(glyph.screenW),
             height: Double(glyph.screenH)
         )
+        guard
+            !GPUIClipEncoding.isEmpty(
+                clipX: glyph.clipX, clipY: glyph.clipY, clipWidth: glyph.clipWidth,
+                clipHeight: glyph.clipHeight)
+        else {
+            return
+        }
         let clip = GPUIClipRegion(
-            x: glyph.clipX, y: glyph.clipY, width: glyph.clipWidth, height: glyph.clipHeight)
+            x: glyph.clipX, y: glyph.clipY, width: glyph.clipWidth, height: glyph.clipHeight,
+            cornerRadius: glyph.clipCornerRadius)
         guard let bounds = clippedPixelBounds(rect, clip: clip.rect) else {
             return
         }
@@ -587,7 +613,8 @@ private struct RasterTarget {
                 // pixel centres inside it.
                 let pixelCenterX = Double(x) + 0.5
                 let pixelCenterY = Double(y) + 0.5
-                guard clip.alpha(atPixelX: x, y: y) > 0 else { continue }
+                let clipAlpha = clip.alpha(atPixelX: x, y: y)
+                guard clipAlpha > 0 else { continue }
                 guard GPUIQuadCoverage.geometryCovers(localX: pixelCenterX, localY: pixelCenterY, rect: rect)
                 else { continue }
                 let tx = clamp((pixelCenterX - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1)
@@ -604,10 +631,11 @@ private struct RasterTarget {
                 }
 
                 let alphaByte = atlas.pixels[offset + 3]
-                let coverage =
+                let glyphCoverage =
                     alphaByte > 0
                     ? Float(alphaByte) / 255.0
                     : Float(max(atlas.pixels[offset], max(atlas.pixels[offset + 1], atlas.pixels[offset + 2]))) / 255.0
+                let coverage = glyphCoverage * Float(clipAlpha)
                 if coverage > 0 {
                     blend(color.withAlphaMultiplier(coverage), x: x, y: y)
                 }
@@ -622,8 +650,16 @@ private struct RasterTarget {
             width: Double(image.screenW),
             height: Double(image.screenH)
         )
+        guard
+            !GPUIClipEncoding.isEmpty(
+                clipX: image.clipX, clipY: image.clipY, clipWidth: image.clipWidth,
+                clipHeight: image.clipHeight)
+        else {
+            return
+        }
         let clip = GPUIClipRegion(
-            x: image.clipX, y: image.clipY, width: image.clipWidth, height: image.clipHeight)
+            x: image.clipX, y: image.clipY, width: image.clipWidth, height: image.clipHeight,
+            cornerRadius: image.clipCornerRadius)
         guard let bounds = clippedPixelBounds(rect, clip: clip.rect) else {
             return
         }
@@ -640,7 +676,8 @@ private struct RasterTarget {
             for x in bounds.x0..<bounds.x1 {
                 let pixelCenterX = Double(x) + 0.5
                 let pixelCenterY = Double(y) + 0.5
-                guard clip.alpha(atPixelX: x, y: y) > 0 else { continue }
+                let clipAlpha = clip.alpha(atPixelX: x, y: y)
+                guard clipAlpha > 0 else { continue }
                 guard GPUIQuadCoverage.geometryCovers(localX: pixelCenterX, localY: pixelCenterY, rect: rect)
                 else { continue }
                 let tx = clamp((pixelCenterX - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1)
@@ -663,7 +700,7 @@ private struct RasterTarget {
                         red: Float(bitmap.pixels[offset + 2]) / 255 / divisor,
                         green: Float(bitmap.pixels[offset + 1]) / 255 / divisor,
                         blue: Float(bitmap.pixels[offset]) / 255 / divisor,
-                        alpha: sourceAlpha * image.opacity
+                        alpha: sourceAlpha * image.opacity * Float(clipAlpha)
                     ),
                     x: x,
                     y: y
@@ -686,7 +723,8 @@ private struct RasterTarget {
         }
         let clip = GPUIClipRegion(
             x: clipRect.origin.x, y: clipRect.origin.y,
-            width: clipRect.size.width, height: clipRect.size.height)
+            width: clipRect.size.width, height: clipRect.size.height,
+            cornerRadius: path.clipCornerRadius)
 
         let fillColor = RasterColor(path.fillColor)
         let strokeColor = RasterColor(path.strokeColor)

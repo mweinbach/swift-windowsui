@@ -853,20 +853,24 @@ public struct GPUIScene: Equatable, Sendable {
 /// is accepted only if it has positive extent and a non-empty
 /// intersection with its effective clip.
 ///
-/// The four float-clip families (quad, glyph, image, shadow) encode "no
-/// clip" in band as `clipWidth == clipHeight == 0`, so a clip that
-/// collapses in exactly one dimension is an explicitly *empty* clip and
-/// rejects the primitive, while a clip that collapses in both is the
-/// unclipped sentinel. The sentinel exists only because these four
-/// families cannot say "no clip" any other way: `PathPrimitive` carries an
-/// optional `Rect`, where `nil` already means unclipped, so a *present*
-/// collapsed clip there is an empty clip and nothing else — see
-/// `PathPrimitive.contentMaskedBounds` in `GPUIPrimitives.swift`.
+/// The four float-clip families (quad, glyph, image, shadow) encode their
+/// clip in band; `GPUIClipEncoding` owns that encoding and the three states
+/// it has to express. Absent (all four fields zero) clips nothing; empty
+/// (positioned but collapsed, or negative extent) clips everything and
+/// rejects the primitive here. This used to reject only the *asymmetric*
+/// collapse and read the symmetric one as "unclipped", so a container whose
+/// clip collapsed to nothing released its children onto the whole window.
+/// `PathPrimitive` needs none of it: it carries an optional `Rect`, where
+/// `nil` already means unclipped, so a *present* collapsed clip there is an
+/// empty clip and nothing else — see `PathPrimitive.contentMaskedBounds` in
+/// `GPUIPrimitives.swift`.
 func contentMaskedBounds(
     x: Float,
     y: Float,
     width: Float,
     height: Float,
+    clipX: Float = 0,
+    clipY: Float = 0,
     clipWidth: Float,
     clipHeight: Float,
     contentMask: GPUIContentMask
@@ -875,8 +879,9 @@ func contentMaskedBounds(
         return nil
     }
 
-    let hasExplicitZeroDimensionClip = (clipWidth == 0 && clipHeight > 0) || (clipWidth > 0 && clipHeight == 0)
-    guard !hasExplicitZeroDimensionClip else {
+    guard
+        !GPUIClipEncoding.isEmpty(clipX: clipX, clipY: clipY, clipWidth: clipWidth, clipHeight: clipHeight)
+    else {
         return nil
     }
 
@@ -897,6 +902,7 @@ extension QuadPrimitive {
     fileprivate var contentMaskedBounds: Rect? {
         SwiftWindowsGraphics.contentMaskedBounds(
             x: x, y: y, width: width, height: height,
+            clipX: clipX, clipY: clipY,
             clipWidth: clipWidth, clipHeight: clipHeight, contentMask: contentMask)
     }
 }
@@ -904,6 +910,7 @@ extension GlyphPrimitive {
     fileprivate var contentMaskedBounds: Rect? {
         SwiftWindowsGraphics.contentMaskedBounds(
             x: screenX, y: screenY, width: screenW, height: screenH,
+            clipX: clipX, clipY: clipY,
             clipWidth: clipWidth, clipHeight: clipHeight, contentMask: contentMask)
     }
 }
@@ -911,6 +918,7 @@ extension ImagePrimitive {
     fileprivate var contentMaskedBounds: Rect? {
         SwiftWindowsGraphics.contentMaskedBounds(
             x: screenX, y: screenY, width: screenW, height: screenH,
+            clipX: clipX, clipY: clipY,
             clipWidth: clipWidth, clipHeight: clipHeight, contentMask: contentMask)
     }
 }
@@ -918,6 +926,7 @@ extension ShadowPrimitive {
     fileprivate var contentMaskedBounds: Rect? {
         SwiftWindowsGraphics.contentMaskedBounds(
             x: x, y: y, width: width, height: height,
+            clipX: clipX, clipY: clipY,
             clipWidth: clipWidth, clipHeight: clipHeight, contentMask: contentMask)
     }
 }

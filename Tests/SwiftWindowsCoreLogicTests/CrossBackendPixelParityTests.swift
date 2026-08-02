@@ -480,6 +480,92 @@ final class CrossBackendPixelParityTests: XCTestCase {
         )
     }
 
+    /// A fully opaque 16x16 glyph atlas cell: the glyph's own coverage is
+    /// uniform, so the only thing this scene can disagree about is the
+    /// rounded clip's coverage ramp.
+    private static func solidGlyphAtlas() -> GlyphAtlasSnapshot {
+        let side = 16
+        var pixels = [UInt8]()
+        pixels.reserveCapacity(side * side * 4)
+        for _ in 0..<(side * side) {
+            pixels.append(contentsOf: [255, 255, 255, 255])
+        }
+        return GlyphAtlasSnapshot(
+            width: Int32(side), height: Int32(side), pixels: Data(pixels),
+            contentVersion: RenderContentVersion.next(), update: .full)
+    }
+
+    /// Text inside a rounded container. Before `clipCornerRadius` reached the
+    /// glyph family, text in a rounded card was clipped square on both
+    /// backends — consistent, and consistently wrong against macOS — so this
+    /// scene could not have failed and could not have caught it either.
+    private static func glyphInRoundedContainerScene() -> ParityScene {
+        ParityScene(
+            name: "glyph in rounded container",
+            size: surface,
+            scene: makeScene { scene in
+                scene.glyphAtlas = solidGlyphAtlas()
+                for row in 0..<4 {
+                    for column in 0..<4 {
+                        scene.addGlyph(
+                            GlyphPrimitive(
+                                screenX: Float(8 + column * 28), screenY: Float(8 + row * 28),
+                                screenW: 28, screenH: 28,
+                                atlasU0: 0, atlasV0: 0, atlasU1: 1, atlasV1: 1,
+                                colorR: 0.95, colorG: 0.85, colorB: 0.35, colorA: 1,
+                                clipX: 24, clipY: 24, clipWidth: 80, clipHeight: 80,
+                                clipCornerRadius: 20
+                            )
+                        )
+                    }
+                }
+            }
+        )
+    }
+
+    /// The same rounding on the image family: an icon or a `.drawingGroup()`
+    /// composite inside a rounded card.
+    private static func imageInRoundedContainerScene() -> ParityScene {
+        let bitmap = imageFixture(size: 64, alpha: 255)
+        return ParityScene(
+            name: "image in rounded container",
+            size: surface,
+            scene: makeScene { scene in
+                scene.bindImageResource(bitmap, for: 21)
+                scene.addImage(
+                    ImagePrimitive(
+                        screenX: 0, screenY: 0, screenW: 128, screenH: 128,
+                        uvX: 0, uvY: 0, uvW: 1, uvH: 1,
+                        opacity: 1,
+                        clipX: 24, clipY: 24, clipWidth: 80, clipHeight: 80,
+                        clipCornerRadius: 20,
+                        textureID: 21
+                    )
+                )
+            }
+        )
+    }
+
+    /// And on the shadow family: a card shadow inside a rounded scroll clip.
+    private static func shadowInRoundedContainerScene() -> ParityScene {
+        ParityScene(
+            name: "shadow in rounded container",
+            size: surface,
+            scene: makeScene { scene in
+                scene.addShadow(
+                    ShadowPrimitive(
+                        x: 20, y: 20, width: 88, height: 88,
+                        cornerRadius: 8,
+                        colorR: 0, colorG: 0, colorB: 0, colorA: 0.8,
+                        blurRadius: 10,
+                        clipX: 24, clipY: 24, clipWidth: 80, clipHeight: 80,
+                        clipCornerRadius: 20
+                    )
+                )
+            }
+        )
+    }
+
     /// A colour effect applied to a gradient: `applyColorEffect` exists once
     /// in HLSL and once in Swift, and this is the only thing that keeps the
     /// two transcriptions honest.
@@ -602,6 +688,12 @@ final class CrossBackendPixelParityTests: XCTestCase {
     func testColorEffectParity() async throws { try assertParity(Self.colorEffectScene()) }
 
     func testClippedRoundedContentParity() async throws { try assertParity(Self.clippedRoundedContentScene()) }
+
+    func testGlyphInRoundedContainerParity() async throws { try assertParity(Self.glyphInRoundedContainerScene()) }
+
+    func testImageInRoundedContainerParity() async throws { try assertParity(Self.imageInRoundedContainerScene()) }
+
+    func testShadowInRoundedContainerParity() async throws { try assertParity(Self.shadowInRoundedContainerScene()) }
 
     func testPathAsQuadsParity() async throws { try assertParity(Self.pathAsQuadsScene()) }
 

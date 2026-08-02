@@ -494,8 +494,24 @@ struct ImageInstance
     float clipX, clipY, clipWidth;
     float clipHeight;
     int textureID;
-    float pad1, pad2;
+    // This slot used to be padding; it now carries the clip rounding, so an
+    // image inside a rounded card is cut by the card arc. Stride is unchanged
+    // at 64 bytes. Mirrors ImagePrimitive in SwiftWindowsGraphics.
+    float clipCornerRadius;
+    float pad2;
 };
+
+// Shared with the quad shader's roundedRectDistance for a uniform radius; the
+// CPU rasterizer runs the same maths through GPUIClipRegion.
+float imageClipDistance(float2 localPosition, float2 size, float radius)
+{
+    float2 halfSize = size * 0.5;
+    float2 localPoint = localPosition - halfSize;
+    float clampedRadius = min(radius, min(halfSize.x, halfSize.y));
+    float2 corner = max(halfSize - float2(clampedRadius, clampedRadius), float2(0.0, 0.0));
+    float2 delta = abs(localPoint) - corner;
+    return length(max(delta, float2(0.0, 0.0))) + min(max(delta.x, delta.y), 0.0) - clampedRadius;
+}
 
 StructuredBuffer<ImageInstance> instances : register(t0);
 Texture2D imageTexture : register(t1);
@@ -508,6 +524,7 @@ struct VSOutput
     float opacity : TEXCOORD1;
     float4 clipRect : TEXCOORD2;
     float2 pixelPosition : TEXCOORD3;
+    float clipRadius : TEXCOORD4;
 };
 
 VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
@@ -540,12 +557,14 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     output.opacity = inst.opacity;
     output.clipRect = float4(inst.clipX, inst.clipY, inst.clipWidth, inst.clipHeight);
     output.pixelPosition = pixelPosition;
+    output.clipRadius = inst.clipCornerRadius;
     return output;
 }
 
 float4 psMain(VSOutput input) : SV_Target
 {
     // Per-pixel clip check
+    float clipAlpha = 1.0;
     if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
     {
         if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
@@ -553,6 +572,18 @@ float4 psMain(VSOutput input) : SV_Target
             input.pixelPosition.y > input.clipRect.y + input.clipRect.w)
         {
             discard;
+        }
+
+        if (input.clipRadius > 0.0)
+        {
+            float clipDistance = imageClipDistance(
+                input.pixelPosition - input.clipRect.xy, input.clipRect.zw, input.clipRadius);
+            float clipAA = max(fwidth(clipDistance), 0.75);
+            clipAlpha = saturate(0.5 - clipDistance / clipAA);
+            if (clipAlpha <= 0.0)
+            {
+                discard;
+            }
         }
     }
 
@@ -563,7 +594,7 @@ float4 psMain(VSOutput input) : SV_Target
     // premultiplied colour by opacity scales RGB and A together, so the
     // result stays premultiplied.
     float4 sampleColor = imageTexture.Sample(imageSampler, input.uv);
-    return sampleColor * input.opacity;
+    return sampleColor * input.opacity * clipAlpha;
 }
 """#
 
@@ -585,6 +616,11 @@ struct ShadowInstance
     float blurRadius;
     float offsetX, offsetY;
     float clipX, clipY, clipWidth, clipHeight;
+    float clipCornerRadius;
+    // 12 bytes of padding: 17 floats round up to a 20-float (80 byte)
+    // structured-buffer stride. Mirrors ShadowPrimitive in
+    // SwiftWindowsGraphics, pinned by GPUIPrimitiveLayoutCoherenceTests.
+    float pad0, pad1, pad2;
 };
 
 StructuredBuffer<ShadowInstance> instances : register(t0);
@@ -600,6 +636,7 @@ struct VSOutput
     float blurRadius : TEXCOORD4;
     float4 clipRect : TEXCOORD5;
     float2 pixelPosition : TEXCOORD6;
+    float clipRadius : TEXCOORD7;
 };
 
 VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
@@ -637,6 +674,7 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     output.blurRadius = inst.blurRadius;
     output.clipRect = float4(inst.clipX, inst.clipY, inst.clipWidth, inst.clipHeight);
     output.pixelPosition = pixelPosition;
+    output.clipRadius = inst.clipCornerRadius;
     return output;
 }
 
@@ -652,6 +690,7 @@ float roundedRectDistanceShadow(float2 localPosition, float2 size, float radius)
 
 float4 psMain(VSOutput input) : SV_Target
 {
+    float clipAlpha = 1.0;
     if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
     {
         if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
@@ -659,6 +698,18 @@ float4 psMain(VSOutput input) : SV_Target
             input.pixelPosition.y > input.clipRect.y + input.clipRect.w)
         {
             discard;
+        }
+
+        if (input.clipRadius > 0.0)
+        {
+            float clipDistance = roundedRectDistanceShadow(
+                input.pixelPosition - input.clipRect.xy, input.clipRect.zw, input.clipRadius);
+            float clipAA = max(fwidth(clipDistance), 0.75);
+            clipAlpha = saturate(0.5 - clipDistance / clipAA);
+            if (clipAlpha <= 0.0)
+            {
+                discard;
+            }
         }
     }
 
@@ -670,7 +721,7 @@ float4 psMain(VSOutput input) : SV_Target
 
     // smoothstep falloff based on blur radius
     float blur = max(input.blurRadius, 0.5);
-    float alpha = 1.0 - smoothstep(-blur * 0.5, blur, dist);
+    float alpha = (1.0 - smoothstep(-blur * 0.5, blur, dist)) * clipAlpha;
 
     float4 color = input.shadowColor;
     return float4(color.rgb * color.a * alpha, color.a * alpha);

@@ -300,7 +300,10 @@ public struct RetainedAlignmentGuide: Sendable, Equatable, Hashable {
 }
 struct ViewPaintCacheKey: Equatable, Sendable {
     var bounds: Rect
-    var contentMask: Rect?
+    /// The full clip shape, not just its rejection rect: a clip that keeps its
+    /// rect but changes its rounding (a rounded card scrolling until an
+    /// ancestor cuts a corner away) has to invalidate the replay cache too.
+    var contentMask: RuntimeClipShape?
     var opacity: Float
     var blurRadius: Double
     var blurOpaque: Bool
@@ -1143,13 +1146,11 @@ struct ScrollIndicatorDeferredDrawPayload {
 struct DeferredSubtreePayload {
     weak var node: ViewNode?
     var parentOrigin: Point
-    var inheritedClip: Rect?
-    var inheritedClipCornerRadius: Double = 0
-    /// Per-corner clip radii inherited from clipping ancestors, mirroring
-    /// what ScenePainter threads through its main traversal. Without it
-    /// deferred content (overlays, deferred caches) falls back to the
-    /// uniform `inheritedClipCornerRadius`.
-    var inheritedClipCornerRadii: RetainedCornerRadii?
+    /// The full inherited clip — rejection rect, rounding anchor and radii —
+    /// so deferred content (overlays, deferred caches) resolves clip rounding
+    /// exactly as inline content does. It used to be a rect plus two loose
+    /// radius scalars, which is how the two paths drifted apart.
+    var inheritedClip: RuntimeClipShape?
     var inheritedOpacity: Float
     var inheritedInverseTransform: Transform2D?
     var inheritedTransform: Transform2D = .identity
@@ -1225,7 +1226,7 @@ enum DeferredDrawPayload {
 struct DeferredDrawState {
     var priority: Int
     var parentDispatchIndex: Int
-    var contentMask: Rect?
+    var contentMask: RuntimeClipShape?
     var payload: DeferredDrawPayload
     var cachedFrameCommandRange: Range<Int>?
     var cachedScenePaintRange: Range<Int>?
@@ -3866,7 +3867,7 @@ public final class ViewNode {
     fileprivate func appendPrepaintState(
         into state: inout RuntimePrepaintState,
         parentOrigin: Point,
-        inheritedClip: Rect?,
+        inheritedClip: RuntimeClipShape?,
         inheritedOpacity: Float = 1,
         parentDispatchIndex: Int? = nil,
         inheritedInverseTransform: Transform2D? = nil,
@@ -3875,8 +3876,6 @@ public final class ViewNode {
         inheritedBlurRadius: Double = 0,
         inheritedBlurOpaque: Bool = false,
         inheritedBlendMode: BlendMode = .normal,
-        inheritedClipCornerRadius: Double = 0,
-        inheritedClipCornerRadii: RetainedCornerRadii? = nil,
         previousState: RuntimePrepaintState? = nil,
         displayScale: Double = 1,
         replayCount: inout Int
@@ -3910,36 +3909,25 @@ public final class ViewNode {
             height: resolvedFrame.size.height
         )
 
-        if !baseClipAllowsDrawing(baseClip: inheritedClip, rect: absoluteFrame) {
+        if !inheritedClip.allowsDrawing(absoluteFrame) {
             cachedPrepaintKey = nil
             cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
             return
         }
 
+        // One narrowing rule, shared with the painter, the frame path and hit
+        // testing (`RuntimeClipShape.intersecting`).
         var effectiveClip = inheritedClip
-        var effectiveClipCornerRadius = inheritedClipCornerRadius
-        var effectiveClipCornerRadii = inheritedClipCornerRadii
         if clipsToBounds {
-            if let inheritedClip {
-                guard let clippedRect = inheritedClip.intersected(with: absoluteFrame) else {
-                    cachedPrepaintKey = nil
-                    cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
-                    return
-                }
-
-                effectiveClip = clippedRect
-            } else {
-                effectiveClip = absoluteFrame
+            guard
+                let clipped = inheritedClip.narrowed(
+                    to: absoluteFrame, radii: cornerRadii, uniformRadius: cornerRadius, space: .layout)
+            else {
+                cachedPrepaintKey = nil
+                cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
+                return
             }
-            // Mirror ScenePainter's clip-radius propagation so deferred
-            // subtrees inherit the same corner rounding as inline content.
-            if let cornerRadii, cornerRadii.hasPositiveRadius {
-                effectiveClipCornerRadius = cornerRadii.maxRadius
-                effectiveClipCornerRadii = cornerRadii
-            } else if cornerRadius > 0 {
-                effectiveClipCornerRadius = cornerRadius
-                effectiveClipCornerRadii = nil
-            }
+            effectiveClip = clipped
         }
 
         let effectiveOpacity = inheritedOpacity * Float(opacity)
@@ -4128,7 +4116,7 @@ public final class ViewNode {
                     dispatchIndex: dispatchIndex,
                     node: self,
                     frame: absoluteFrame,
-                    clipRect: effectiveClip,
+                    clipRect: effectiveClip?.rect,
                     clipInverseTransform: inheritedInverseTransform,
                     hitTestInverseTransform: nodeInverseTransform
                 )
@@ -4159,8 +4147,6 @@ public final class ViewNode {
                             node: child,
                             parentOrigin: childOrigin,
                             inheritedClip: effectiveClip,
-                            inheritedClipCornerRadius: effectiveClipCornerRadius,
-                            inheritedClipCornerRadii: effectiveClipCornerRadii,
                             inheritedOpacity: effectiveOpacity,
                             inheritedInverseTransform: nodeInverseTransform,
                             inheritedTransform: effectiveTransform,
@@ -4187,8 +4173,6 @@ public final class ViewNode {
                 inheritedBlurRadius: effectiveBlurRadius,
                 inheritedBlurOpaque: effectiveBlurOpaque,
                 inheritedBlendMode: effectiveBlendMode,
-                inheritedClipCornerRadius: effectiveClipCornerRadius,
-                inheritedClipCornerRadii: effectiveClipCornerRadii,
                 previousState: previousState,
                 displayScale: displayScale,
                 replayCount: &replayCount
@@ -4232,7 +4216,7 @@ public final class ViewNode {
     fileprivate func appendCommands(
         into commands: inout [RenderCommand],
         parentOrigin: Point,
-        inheritedClip: Rect?,
+        inheritedClip: RuntimeClipShape?,
         inheritedOpacity: Float = 1,
         inheritedBlendMode: BlendMode = .normal,
         previousRenderedFrame: RenderFrame? = nil,
@@ -4278,7 +4262,7 @@ public final class ViewNode {
         // command structs). Uses the same subtree test as the scene path, so a
         // zero-extent container inside the clip keeps painting its overflowing
         // children on both paths instead of only on one of them.
-        if !clipAllowsSubtreeTraversal(clip: inheritedClip, bounds: absoluteFrame) {
+        if !inheritedClip.allowsSubtreeTraversal(bounds: paintFrame) {
             cachedFrameKey = nil
             cachedFrameCommandRange = startIndex..<startIndex
             markSubtreeRendered()
@@ -4304,21 +4288,26 @@ public final class ViewNode {
             previousFrame = absoluteFrame
         }
 
+        // The frame path emits its geometry at `paintFrame` — the node's own
+        // transform applied — so it has to clip there too. Clipping the
+        // untransformed `absoluteFrame` while drawing the transformed one made
+        // a rotated `.clipped()` container chop its content diagonally here and
+        // bleed past the visible edge on the scene path: two different regions
+        // for the same tree, swapped silently by `fallbackToFrameRenderer`.
         var effectiveClip = inheritedClip
         if clipsToBounds {
-            if let inheritedClip {
-                guard let clippedRect = inheritedClip.intersected(with: absoluteFrame) else {
-                    cachedFrameKey = nil
-                    cachedFrameCommandRange = startIndex..<startIndex
-                    markSubtreeRendered()
-                    return
-                }
-
-                effectiveClip = clippedRect
-            } else {
-                effectiveClip = absoluteFrame
+            guard
+                let clipped = inheritedClip.narrowed(
+                    to: paintFrame, radii: cornerRadii, uniformRadius: cornerRadius, space: .layout)
+            else {
+                cachedFrameKey = nil
+                cachedFrameCommandRange = startIndex..<startIndex
+                markSubtreeRendered()
+                return
             }
+            effectiveClip = clipped
         }
+        let effectiveClipRect = effectiveClip?.rect
 
         // Gap/Fix: Opacity group compositing — when a view has opacity < 1 AND
         // has children, the correct result requires compositing into an offscreen
@@ -4395,7 +4384,7 @@ public final class ViewNode {
         if hasPaintableExtent,
             let hoverShadow = hoverEffectShadowCommand(
                 for: paintFrame,
-                inheritedClip: inheritedClip,
+                inheritedClip: inheritedClip?.rect,
                 opacity: effectiveOpacity
             )
         {
@@ -4409,14 +4398,14 @@ public final class ViewNode {
                 .outset(by: max(0, shadowSpread))
                 .offsetBy(dx: shadowOffset.x, dy: shadowOffset.y)
 
-            if baseClipAllowsDrawing(baseClip: inheritedClip, rect: shadowRect) {
+            if baseClipAllowsDrawing(baseClip: inheritedClip?.rect, rect: shadowRect) {
                 commands.append(
                     .fillRect(
                         FillRectCommand(
                             rect: shadowRect,
                             color: effectiveShadowColor,
                             cornerRadius: uniformCornerRadius + max(0, shadowSpread),
-                            clipRect: inheritedClip
+                            clipRect: inheritedClip?.rect
                         )
                     )
                 )
@@ -4426,7 +4415,7 @@ public final class ViewNode {
         if hasPaintableExtent,
             let focusEffect = focusEffectCommand(
                 for: paintFrame,
-                inheritedClip: inheritedClip,
+                inheritedClip: inheritedClip?.rect,
                 opacity: effectiveOpacity
             )
         {
@@ -4436,14 +4425,14 @@ public final class ViewNode {
         let effectiveOutlineColor = outlineColor.multipliedAlpha(by: effectiveOpacity)
         if hasPaintableExtent, effectiveOutlineColor.alpha > 0, outlineWidth > 0 {
             let outlineRect = paintFrame.outset(by: outlineWidth)
-            if baseClipAllowsDrawing(baseClip: inheritedClip, rect: outlineRect) {
+            if baseClipAllowsDrawing(baseClip: inheritedClip?.rect, rect: outlineRect) {
                 commands.append(
                     .fillRect(
                         FillRectCommand(
                             rect: outlineRect,
                             color: effectiveOutlineColor,
                             cornerRadius: uniformCornerRadius + outlineWidth,
-                            clipRect: inheritedClip
+                            clipRect: inheritedClip?.rect
                         )
                     )
                 )
@@ -4470,7 +4459,7 @@ public final class ViewNode {
                                 rect: segment.rect,
                                 color: effectiveBorderColor,
                                 cornerRadius: segment.cornerRadius,
-                                clipRect: effectiveClip,
+                                clipRect: effectiveClipRect,
                                 gradient: effectiveBorderGradient
                             )
                         )
@@ -4483,7 +4472,7 @@ public final class ViewNode {
                             rect: paintFrame,
                             color: effectiveBorderColor,
                             cornerRadius: uniformCornerRadius,
-                            clipRect: effectiveClip,
+                            clipRect: effectiveClipRect,
                             gradient: effectiveBorderGradient
                         )
                     )
@@ -4508,7 +4497,7 @@ public final class ViewNode {
                             rect: fillRect,
                             color: resolvedBackgroundColor,
                             cornerRadius: fillCornerRadius,
-                            clipRect: effectiveClip,
+                            clipRect: effectiveClipRect,
                             gradient: resolvedBackgroundGradient
                         )
                     )
@@ -4526,7 +4515,7 @@ public final class ViewNode {
                         FillPathCommand(
                             path: scaledPath,
                             color: resolvedBackgroundColor,
-                            clipRect: effectiveClip
+                            clipRect: effectiveClipRect
                         )
                     )
                 )
@@ -4539,7 +4528,7 @@ public final class ViewNode {
                             path: scaledPath,
                             color: effectiveStrokeColor,
                             style: StrokeStyle(lineWidth: borderWidth),
-                            clipRect: effectiveClip
+                            clipRect: effectiveClipRect
                         )
                     )
                 )
@@ -4549,7 +4538,7 @@ public final class ViewNode {
         if let hoverOverlay = hoverEffectOverlayCommand(
             for: fillRect,
             cornerRadius: fillCornerRadius,
-            clipRect: effectiveClip,
+            clipRect: effectiveClipRect,
             opacity: effectiveOpacity
         ) {
             commands.append(.fillRect(hoverOverlay))
@@ -4569,7 +4558,7 @@ public final class ViewNode {
                         rect: fillRect,
                         color: retainedRedactionPlaceholderBaseColor.multipliedAlpha(by: effectiveOpacity),
                         cornerRadius: retainedRedactionPlaceholderCornerRadius(for: fillRect),
-                        clipRect: effectiveClip
+                        clipRect: effectiveClipRect
                     )
                 )
             )
@@ -4582,7 +4571,7 @@ public final class ViewNode {
                         rect: fillRect,
                         bitmap: bitmapSurface,
                         opacity: effectiveOpacity,
-                        clipRect: effectiveClip
+                        clipRect: effectiveClipRect
                     )
                 )
             )
@@ -4593,14 +4582,14 @@ public final class ViewNode {
         {
             let effectiveTextStyle = textStyle.multipliedOpacity(by: effectiveOpacity)
             if !NativeTextRenderer.appendCommands(
-                for: text, in: fillRect, style: effectiveTextStyle, scaleFactor: displayScale, clipRect: effectiveClip,
-                into: &commands)
+                for: text, in: fillRect, style: effectiveTextStyle, scaleFactor: displayScale,
+                clipRect: effectiveClipRect, into: &commands)
             {
                 PixelFont.appendCommands(
                     for: text,
                     in: fillRect,
                     style: effectiveTextStyle,
-                    clipRect: effectiveClip,
+                    clipRect: effectiveClipRect,
                     into: &commands
                 )
             }
@@ -4615,7 +4604,7 @@ public final class ViewNode {
             context.appendCommands(
                 into: &commands,
                 origin: absoluteOrigin,
-                clipRect: effectiveClip,
+                clipRect: effectiveClipRect,
                 opacity: effectiveOpacity,
                 displayScale: displayScale
             )
@@ -4661,7 +4650,7 @@ public final class ViewNode {
         markSubtreeRendered()
     }
 
-    fileprivate func hitTest(at point: Point, parentOrigin: Point, inheritedClip: Rect?) -> ViewNode? {
+    fileprivate func hitTest(at point: Point, parentOrigin: Point, inheritedClip: RuntimeClipShape?) -> ViewNode? {
         if isHidden {
             return nil
         }
@@ -4675,18 +4664,16 @@ public final class ViewNode {
 
         var effectiveClip = inheritedClip
         if clipsToBounds {
-            if let inheritedClip {
-                guard let clippedRect = inheritedClip.intersected(with: absoluteFrame) else {
-                    return nil
-                }
-
-                effectiveClip = clippedRect
-            } else {
-                effectiveClip = absoluteFrame
+            guard
+                let clipped = inheritedClip.narrowed(
+                    to: absoluteFrame, radii: cornerRadii, uniformRadius: cornerRadius, space: .layout)
+            else {
+                return nil
             }
+            effectiveClip = clipped
         }
 
-        if let effectiveClip, !effectiveClip.contains(point) {
+        if !effectiveClip.contains(point) {
             return nil
         }
 
@@ -4869,9 +4856,9 @@ public final class ViewNode {
         return contentShape.style.contains(point, in: frame)
     }
 
-    fileprivate func scrollTarget(at point: Point, axis: ScrollAxis? = nil, parentOrigin: Point, inheritedClip: Rect?)
-        -> ViewNode?
-    {
+    fileprivate func scrollTarget(
+        at point: Point, axis: ScrollAxis? = nil, parentOrigin: Point, inheritedClip: RuntimeClipShape?
+    ) -> ViewNode? {
         if isHidden {
             return nil
         }
@@ -4885,18 +4872,16 @@ public final class ViewNode {
 
         var effectiveClip = inheritedClip
         if clipsToBounds {
-            if let inheritedClip {
-                guard let clippedRect = inheritedClip.intersected(with: absoluteFrame) else {
-                    return nil
-                }
-
-                effectiveClip = clippedRect
-            } else {
-                effectiveClip = absoluteFrame
+            guard
+                let clipped = inheritedClip.narrowed(
+                    to: absoluteFrame, radii: cornerRadii, uniformRadius: cornerRadius, space: .layout)
+            else {
+                return nil
             }
+            effectiveClip = clipped
         }
 
-        if let effectiveClip, !effectiveClip.contains(point) {
+        if !effectiveClip.contains(point) {
             return nil
         }
 
@@ -7282,7 +7267,7 @@ public final class RetainedViewRuntime {
             switch prepaintState.deferredDraws[deferredDrawIndex].payload {
             case .scrollIndicator:
                 let fillRect = prepaintState.deferredDraws[deferredDrawIndex].payload.fillRectCommand(
-                    contentMask: prepaintState.deferredDraws[deferredDrawIndex].contentMask
+                    contentMask: prepaintState.deferredDraws[deferredDrawIndex].contentMask?.rect
                 )
                 commands.append(.fillRect(fillRect))
             case .subtree(let payload):
@@ -7334,7 +7319,7 @@ public final class RetainedViewRuntime {
         deferredDraw.rect
     }
 
-    private func deferredDrawContentMask(_ deferredDraw: DeferredDrawState) -> Rect? {
+    private func deferredDrawContentMask(_ deferredDraw: DeferredDrawState) -> RuntimeClipShape? {
         deferredDraw.contentMask
     }
 
@@ -7660,8 +7645,6 @@ public final class RetainedViewRuntime {
                     inheritedBlurRadius: payload.inheritedBlurRadius,
                     inheritedBlurOpaque: payload.inheritedBlurOpaque,
                     inheritedBlendMode: payload.inheritedBlendMode,
-                    inheritedClipCornerRadius: payload.inheritedClipCornerRadius,
-                    inheritedClipCornerRadii: payload.inheritedClipCornerRadii,
                     previousState: previousState,
                     displayScale: displayScale,
                     replayCount: &replayCount
@@ -7796,6 +7779,10 @@ private final class ViewColorAnimation {
 }
 func baseClipAllowsDrawing(baseClip: Rect?, rect: Rect) -> Bool {
     baseClip?.intersected(with: rect) != nil || baseClip == nil
+}
+
+func baseClipAllowsDrawing(baseClip: RuntimeClipShape?, rect: Rect) -> Bool {
+    baseClip.allowsDrawing(rect)
 }
 
 /// Culling test for a whole *subtree*, as opposed to a single primitive.

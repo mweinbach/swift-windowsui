@@ -18,10 +18,10 @@ private func deferredSubtreePayloads(
 }
 
 /// Pins per-corner clip radii propagation into DEFERRED subtree payloads.
-/// `DeferredSubtreePayload` now carries `inheritedClipCornerRadius` /
-/// `inheritedClipCornerRadii` (mirroring the main paint traversal in
-/// ScenePainter), so deferred content (overlays, deferred caches) resolves
-/// the same per-corner clip rounding as inline children instead of
+/// `DeferredSubtreePayload` carries the whole `RuntimeClipShape` — rejection
+/// rect, rounding anchor and radii — which is what the main paint traversal
+/// in ScenePainter narrows, so deferred content (overlays, deferred caches)
+/// resolves the same per-corner clip rounding as inline children instead of
 /// dropping to the uniform-zero fallback.
 final class DeferredClipCornerRadiiTests: XCTestCase {
 
@@ -44,10 +44,10 @@ final class DeferredClipCornerRadiiTests: XCTestCase {
             let payloads = deferredSubtreePayloads(of: runtime)
             XCTAssertEqual(payloads.count, 1)
             XCTAssertEqual(
-                payloads[0].inheritedClipCornerRadius, 10, accuracy: 0.001,
+                payloads[0].inheritedClip?.uniformRadius ?? 0, 10, accuracy: 0.001,
                 "scalar fallback carries the largest inherited clip radius")
             XCTAssertEqual(
-                payloads[0].inheritedClipCornerRadii,
+                payloads[0].inheritedClip?.radii,
                 RetainedCornerRadii(topLeft: 10, bottomLeft: 10),
                 "deferred payload must carry the per-corner clip radii")
         }
@@ -71,9 +71,9 @@ final class DeferredClipCornerRadiiTests: XCTestCase {
 
             let payloads = deferredSubtreePayloads(of: runtime)
             XCTAssertEqual(payloads.count, 1)
-            XCTAssertEqual(payloads[0].inheritedClipCornerRadius, 12, accuracy: 0.001)
+            XCTAssertEqual(payloads[0].inheritedClip?.uniformRadius ?? 0, 12, accuracy: 0.001)
             XCTAssertNil(
-                payloads[0].inheritedClipCornerRadii,
+                payloads[0].inheritedClip?.radii,
                 "uniform-radius clips keep the nil per-corner path (historic behaviour)")
         }
     }
@@ -96,8 +96,9 @@ final class DeferredClipCornerRadiiTests: XCTestCase {
 
             let payloads = deferredSubtreePayloads(of: runtime)
             XCTAssertEqual(payloads.count, 1)
-            XCTAssertEqual(payloads[0].inheritedClipCornerRadius, 0, accuracy: 0.001)
-            XCTAssertNil(payloads[0].inheritedClipCornerRadii)
+            XCTAssertNil(
+                payloads[0].inheritedClip,
+                "no clipping ancestor means no clip at all, not a zero-radius one")
         }
     }
 

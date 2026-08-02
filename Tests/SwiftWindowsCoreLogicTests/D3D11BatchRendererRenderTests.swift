@@ -153,7 +153,11 @@ final class D3D11BatchRendererRenderTests: XCTestCase {
 
     func testSceneWithGlyphsButNoAtlasFailsWithATypedError() async throws {
         let size = IntSize(width: 32, height: 32)
-        let renderer = try WARPBatchRenderer.shared(size: size)
+        // A renderer of this test's own: its precondition is "no atlas has
+        // ever been uploaded", and the shared `WARPBatchRenderer` caches an
+        // atlas as soon as any other suite renders a glyph through it.
+        let renderer = try makeOwnedRenderer(size: size)
+        defer { renderer.detach() }
 
         var scene = GPUIScene(clearColor: .black)
         scene.addGlyph(

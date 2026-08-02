@@ -11,6 +11,11 @@ struct GlyphInstance {
     float atlasU0, atlasV0, atlasU1, atlasV1;
     float colorR, colorG, colorB, colorA;
     float clipX, clipY, clipWidth, clipHeight;
+    float clipCornerRadius;
+    // 12 bytes of padding: 17 floats round up to a 20-float (80 byte)
+    // structured-buffer stride. Mirrors GlyphPrimitive in
+    // SwiftWindowsGraphics, pinned by GPUIPrimitiveLayoutCoherenceTests.
+    float pad0, pad1, pad2;
 };
 
 StructuredBuffer<GlyphInstance> instances : register(t0);
@@ -30,7 +35,20 @@ struct VSOutput {
     float4 clipRect : TEXCOORD3;
     float2 uv : TEXCOORD4;
     float4 color : COLOR0;
+    float clipRadius : TEXCOORD5;
 };
+
+// The quad shader's roundedRectDistance for a uniform radius. Text inside a
+// rounded container has to be cut by the container arc, not by its bounding
+// box; the CPU rasterizer runs the same maths through GPUIClipRegion.
+float glyphClipDistance(float2 localPosition, float2 size, float radius) {
+    float2 halfSize = size * 0.5;
+    float2 localPoint = localPosition - halfSize;
+    float clampedRadius = min(radius, min(halfSize.x, halfSize.y));
+    float2 corner = max(halfSize - float2(clampedRadius, clampedRadius), float2(0.0, 0.0));
+    float2 delta = abs(localPoint) - corner;
+    return length(max(delta, float2(0.0, 0.0))) + min(max(delta.x, delta.y), 0.0) - clampedRadius;
+}
 
 VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID) {
     const float2 quad[6] = {
@@ -61,10 +79,12 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID) {
     output.clipRect = float4(inst.clipX, inst.clipY, inst.clipWidth, inst.clipHeight);
     output.uv = uv;
     output.color = float4(inst.colorR, inst.colorG, inst.colorB, inst.colorA);
+    output.clipRadius = inst.clipCornerRadius;
     return output;
 }
 
 float4 psMain(VSOutput input) : SV_Target {
+    float clipAlpha = 1.0;
     if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
     {
         float2 pixelPos = input.screenPosition + input.unit * input.screenSize;
@@ -74,9 +94,21 @@ float4 psMain(VSOutput input) : SV_Target {
         {
             discard;
         }
+
+        if (input.clipRadius > 0.0)
+        {
+            float clipDistance = glyphClipDistance(
+                pixelPos - input.clipRect.xy, input.clipRect.zw, input.clipRadius);
+            float clipAA = max(fwidth(clipDistance), 0.75);
+            clipAlpha = saturate(0.5 - clipDistance / clipAA);
+            if (clipAlpha <= 0.0)
+            {
+                discard;
+            }
+        }
     }
 
-    float glyphAlpha = glyphAtlas.Sample(glyphSampler, input.uv).a;
+    float glyphAlpha = glyphAtlas.Sample(glyphSampler, input.uv).a * clipAlpha;
     return float4(input.color.rgb * input.color.a * glyphAlpha, input.color.a * glyphAlpha);
 }
 """#

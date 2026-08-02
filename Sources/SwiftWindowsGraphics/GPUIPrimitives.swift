@@ -152,31 +152,12 @@ public struct QuadPrimitive: Equatable, Sendable {
 
     public var contentMask: GPUIContentMask {
         get {
-            guard clipWidth > 0, clipHeight > 0 else {
-                return GPUIContentMask()
-            }
-
-            return GPUIContentMask(
-                bounds: Rect(
-                    x: Double(clipX),
-                    y: Double(clipY),
-                    width: Double(clipWidth),
-                    height: Double(clipHeight)
-                ))
+            GPUIClipEncoding.contentMask(
+                clipX: clipX, clipY: clipY, clipWidth: clipWidth, clipHeight: clipHeight)
         }
         set {
-            guard let bounds = newValue.bounds else {
-                clipX = 0
-                clipY = 0
-                clipWidth = 0
-                clipHeight = 0
-                return
-            }
-
-            clipX = Float(bounds.origin.x)
-            clipY = Float(bounds.origin.y)
-            clipWidth = Float(bounds.size.width)
-            clipHeight = Float(bounds.size.height)
+            GPUIClipEncoding.encode(
+                newValue.bounds, into: &clipX, &clipY, &clipWidth, &clipHeight)
         }
     }
 }
@@ -184,7 +165,7 @@ public struct QuadPrimitive: Equatable, Sendable {
 // MARK: - Glyph Primitive
 
 /// A single glyph from a font atlas, designed for direct upload to a D3D11
-/// structured buffer. Total: 16 floats = 64 bytes (divisible by 16).
+/// structured buffer. Total: 20 floats = 80 bytes (divisible by 16).
 @frozen
 public struct GlyphPrimitive: Equatable, Sendable {
     // Screen destination
@@ -207,12 +188,22 @@ public struct GlyphPrimitive: Equatable, Sendable {
     public var clipY: Float
     public var clipWidth: Float
     public var clipHeight: Float
+    // Rounding of the clip rect. Text inside a rounded container used to be
+    // clipped square on both backends — consistent, and consistently wrong
+    // against macOS — because only `QuadPrimitive` could express it.
+    public var clipCornerRadius: Float
+    // Padding to a 16-byte multiple, which HLSL structured buffers require
+    // for their element stride. 17 floats round up to 20.
+    public var _pad0: Float
+    public var _pad1: Float
+    public var _pad2: Float
 
     public init(
         screenX: Float = 0, screenY: Float = 0, screenW: Float = 0, screenH: Float = 0,
         atlasU0: Float = 0, atlasV0: Float = 0, atlasU1: Float = 0, atlasV1: Float = 0,
         colorR: Float = 1, colorG: Float = 1, colorB: Float = 1, colorA: Float = 1,
-        clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0
+        clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0,
+        clipCornerRadius: Float = 0
     ) {
         self.screenX = screenX
         self.screenY = screenY
@@ -230,37 +221,22 @@ public struct GlyphPrimitive: Equatable, Sendable {
         self.clipY = clipY
         self.clipWidth = clipWidth
         self.clipHeight = clipHeight
+        self.clipCornerRadius = clipCornerRadius
+        self._pad0 = 0
+        self._pad1 = 0
+        self._pad2 = 0
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }
 
     public var contentMask: GPUIContentMask {
         get {
-            guard clipWidth > 0, clipHeight > 0 else {
-                return GPUIContentMask()
-            }
-
-            return GPUIContentMask(
-                bounds: Rect(
-                    x: Double(clipX),
-                    y: Double(clipY),
-                    width: Double(clipWidth),
-                    height: Double(clipHeight)
-                ))
+            GPUIClipEncoding.contentMask(
+                clipX: clipX, clipY: clipY, clipWidth: clipWidth, clipHeight: clipHeight)
         }
         set {
-            guard let bounds = newValue.bounds else {
-                clipX = 0
-                clipY = 0
-                clipWidth = 0
-                clipHeight = 0
-                return
-            }
-
-            clipX = Float(bounds.origin.x)
-            clipY = Float(bounds.origin.y)
-            clipWidth = Float(bounds.size.width)
-            clipHeight = Float(bounds.size.height)
+            GPUIClipEncoding.encode(
+                newValue.bounds, into: &clipX, &clipY, &clipWidth, &clipHeight)
         }
     }
 }
@@ -290,8 +266,11 @@ public struct ImagePrimitive: Equatable, Sendable {
     public var clipHeight: Float
     // Which texture to bind
     public var textureID: Int32
+    // Rounding of the clip rect. This field used to be `_pad0`, so an image
+    // inside a rounded card clipped square while the card background rounded
+    // — the rounding cost nothing here but a name.
+    public var clipCornerRadius: Float
     // Padding to reach 64 bytes (16 x 4-byte fields)
-    public var _pad0: Float
     public var _pad1: Float
 
     public init(
@@ -299,6 +278,7 @@ public struct ImagePrimitive: Equatable, Sendable {
         uvX: Float = 0, uvY: Float = 0, uvW: Float = 1, uvH: Float = 1,
         opacity: Float = 1,
         clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0,
+        clipCornerRadius: Float = 0,
         textureID: Int32 = 0
     ) {
         self.screenX = screenX
@@ -315,7 +295,7 @@ public struct ImagePrimitive: Equatable, Sendable {
         self.clipWidth = clipWidth
         self.clipHeight = clipHeight
         self.textureID = textureID
-        self._pad0 = 0
+        self.clipCornerRadius = clipCornerRadius
         self._pad1 = 0
     }
 
@@ -323,31 +303,12 @@ public struct ImagePrimitive: Equatable, Sendable {
 
     public var contentMask: GPUIContentMask {
         get {
-            guard clipWidth > 0, clipHeight > 0 else {
-                return GPUIContentMask()
-            }
-
-            return GPUIContentMask(
-                bounds: Rect(
-                    x: Double(clipX),
-                    y: Double(clipY),
-                    width: Double(clipWidth),
-                    height: Double(clipHeight)
-                ))
+            GPUIClipEncoding.contentMask(
+                clipX: clipX, clipY: clipY, clipWidth: clipWidth, clipHeight: clipHeight)
         }
         set {
-            guard let bounds = newValue.bounds else {
-                clipX = 0
-                clipY = 0
-                clipWidth = 0
-                clipHeight = 0
-                return
-            }
-
-            clipX = Float(bounds.origin.x)
-            clipY = Float(bounds.origin.y)
-            clipWidth = Float(bounds.size.width)
-            clipHeight = Float(bounds.size.height)
+            GPUIClipEncoding.encode(
+                newValue.bounds, into: &clipX, &clipY, &clipWidth, &clipHeight)
         }
     }
 }
@@ -355,7 +316,7 @@ public struct ImagePrimitive: Equatable, Sendable {
 // MARK: - Shadow Primitive
 
 /// A soft shadow rectangle, designed for direct upload to a D3D11 structured
-/// buffer. Total: 16 floats = 64 bytes (divisible by 16).
+/// buffer. Total: 20 floats = 80 bytes (divisible by 16).
 @frozen
 public struct ShadowPrimitive: Equatable, Sendable {
     // Shadow rect
@@ -380,6 +341,13 @@ public struct ShadowPrimitive: Equatable, Sendable {
     public var clipY: Float
     public var clipWidth: Float
     public var clipHeight: Float
+    // Rounding of the clip rect, so a shadow inside a rounded container is
+    // shaped by the container instead of squaring off at its corners.
+    public var clipCornerRadius: Float
+    // Padding to a 16-byte multiple: 17 floats round up to 20.
+    public var _pad0: Float
+    public var _pad1: Float
+    public var _pad2: Float
 
     public init(
         x: Float = 0, y: Float = 0, width: Float = 0, height: Float = 0,
@@ -387,7 +355,8 @@ public struct ShadowPrimitive: Equatable, Sendable {
         colorR: Float = 0, colorG: Float = 0, colorB: Float = 0, colorA: Float = 0.5,
         blurRadius: Float = 4,
         offsetX: Float = 0, offsetY: Float = 0,
-        clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0
+        clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0,
+        clipCornerRadius: Float = 0
     ) {
         self.x = x
         self.y = y
@@ -405,37 +374,22 @@ public struct ShadowPrimitive: Equatable, Sendable {
         self.clipY = clipY
         self.clipWidth = clipWidth
         self.clipHeight = clipHeight
+        self.clipCornerRadius = clipCornerRadius
+        self._pad0 = 0
+        self._pad1 = 0
+        self._pad2 = 0
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }
 
     public var contentMask: GPUIContentMask {
         get {
-            guard clipWidth > 0, clipHeight > 0 else {
-                return GPUIContentMask()
-            }
-
-            return GPUIContentMask(
-                bounds: Rect(
-                    x: Double(clipX),
-                    y: Double(clipY),
-                    width: Double(clipWidth),
-                    height: Double(clipHeight)
-                ))
+            GPUIClipEncoding.contentMask(
+                clipX: clipX, clipY: clipY, clipWidth: clipWidth, clipHeight: clipHeight)
         }
         set {
-            guard let bounds = newValue.bounds else {
-                clipX = 0
-                clipY = 0
-                clipWidth = 0
-                clipHeight = 0
-                return
-            }
-
-            clipX = Float(bounds.origin.x)
-            clipY = Float(bounds.origin.y)
-            clipWidth = Float(bounds.size.width)
-            clipHeight = Float(bounds.size.height)
+            GPUIClipEncoding.encode(
+                newValue.bounds, into: &clipX, &clipY, &clipWidth, &clipHeight)
         }
     }
 }
@@ -451,6 +405,11 @@ public struct PathPrimitive: Equatable, Sendable {
     public var strokeColor: Color
     public var lineWidth: Double
     public var clipBounds: Rect?
+    /// Rounding of `clipBounds`, so a `Shape`, `Canvas` drawing or vector icon
+    /// inside a rounded container is cut by the container arc rather than by
+    /// its bounding box. Logical points, scaled with everything else by
+    /// `scaled(by:)`.
+    public var clipCornerRadius: Double
 
     public init(
         elements: [PathElement],
@@ -458,7 +417,8 @@ public struct PathPrimitive: Equatable, Sendable {
         fillColor: Color = .clear,
         strokeColor: Color = .clear,
         lineWidth: Double = 0,
-        clipBounds: Rect? = nil
+        clipBounds: Rect? = nil,
+        clipCornerRadius: Double = 0
     ) {
         self.elements = elements
         self.bounds = bounds
@@ -466,6 +426,7 @@ public struct PathPrimitive: Equatable, Sendable {
         self.strokeColor = strokeColor
         self.lineWidth = lineWidth
         self.clipBounds = clipBounds
+        self.clipCornerRadius = clipCornerRadius
     }
 
     public var contentMask: GPUIContentMask {
@@ -557,7 +518,8 @@ public struct PathPrimitive: Equatable, Sendable {
             fillColor: fillColor,
             strokeColor: strokeColor,
             lineWidth: lineWidth,
-            clipBounds: translatedClip
+            clipBounds: translatedClip,
+            clipCornerRadius: clipCornerRadius
         )
     }
 
@@ -604,7 +566,8 @@ public struct PathPrimitive: Equatable, Sendable {
             fillColor: fillColor,
             strokeColor: strokeColor,
             lineWidth: lineWidth * factor,
-            clipBounds: clipBounds.map { $0.scaled(by: factor) }
+            clipBounds: clipBounds.map { $0.scaled(by: factor) },
+            clipCornerRadius: clipCornerRadius * factor
         )
     }
 }

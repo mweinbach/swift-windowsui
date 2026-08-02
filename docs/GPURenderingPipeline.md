@@ -270,7 +270,13 @@ wherever it sits, so the primitive test cannot be reused here — and
 skipping the cull for zero-extent nodes leaves a collapsed row parked
 off-screen traversing its whole subtree every frame. The frame path
 (`ViewNode.appendCommands`) uses the same predicate and the same
-own-decoration rule, so both paths paint the same tree. Hit testing is
+own-decoration rule, so both paths paint the same tree. Both also cull and
+clip against `paintFrame` — the transformed footprint they actually draw at.
+The frame path used to clip the *untransformed* `absoluteFrame` while drawing
+the transformed one, so a rotated `.clipped()` container chopped its content
+diagonally there and bled past the visible edge on the scene path: two
+different regions for one tree, swapped silently whenever the host fell back
+to the frame renderer. Hit testing is
 deliberately *not* included: prepaint still prunes a zero-extent
 subtree, so overflow content renders without becoming newly clickable.
 
@@ -1379,6 +1385,93 @@ deliberately-square corners under `clipsToBounds` stay square. A node's
 own decoration quads (background, borders) take the *inherited* clip
 corner radius — SwiftUI semantics: a view's clip shapes its children,
 not its own background. Locked by `PerCornerClipTests`.
+
+## The clip shape
+
+Clipping is one value, `RuntimeClipShape`
+(`Sources/SwiftWindowsUI/ClipShape.swift`), with one narrowing rule shared by
+all five traversals that used to carry their own copy of it:
+`appendPrepaintState`, `appendCommands`, `hitTest`, `scrollTarget` and
+`ScenePainter.paintNode`. It carries three things four loose scalars could
+not:
+
+- **`rect`** — the *rejection* rect, the intersection of every clip rect on
+  the chain. Nothing outside it paints, hits or scrolls.
+- **`shapeRect`** — the rect the rounding is *anchored* to: the frame of the
+  innermost node that established a rounded clip. Narrowing by a square
+  `clipsToBounds` ancestor moves `rect` and leaves `shapeRect` alone.
+- **`space`** — `.layout` (untransformed absolute layout space: prepaint, hit
+  testing, the frame fallback) or `.painted` (screen space after the
+  accumulated node transforms, the only space the axis-aligned primitive clip
+  fields can express). A clip is only ever intersected against a frame in the
+  same space.
+
+Keeping the anchor separate fixes two visible bugs at once. A rounded card
+scrolling past a `ScrollView` boundary used to pop its rounding onto the
+*viewport* edge mid-scroll, because the radii were re-anchored to the
+intersected rect; a nested *square* `.clipped()` used to inherit the card's
+radii and apply them at its own square corners, biting arcs out of list rows
+nowhere near the card's rounded edge.
+
+The primitive ABI carries one axis-aligned clip rect plus one radius, so
+`shapeRect` cannot be shipped verbatim.
+`RuntimeClipShape.resolvedCornerRadius(forQuadRect:)` lowers it per
+primitive: **a corner of the rejection rect is rounded only when it is still
+a corner of `shapeRect`**, and a primitive reaching no surviving rounded
+corner is emitted square. An *intact* clip (`rect == shapeRect`) answers its
+uniform radius for every primitive exactly as before, so the zone analysis
+only engages once an ancestor has actually cut a corner away.
+
+Two residuals, documented rather than hidden. A single primitive spanning one
+surviving rounded corner *and* one cut corner still takes the largest reached
+radius, which rounds the cut corner it touches — the historic uniform
+approximation, unchanged. And an ancestor whose corner lands *inside* a
+rounded shape's corner arc (a diagonal cut) is slightly too permissive there;
+exactness would need a second clip rect in every primitive family.
+
+`RuntimeClipShape` is a `final class` with `let` properties — a value in
+everything but its representation. `ViewNode.appendCommands` is the one
+recursive traversal left and its unoptimized frame is enormous; a 120-byte
+clip copied into every argument and temporary along it overflows the main
+thread's 1 MB stack at the demo's depth of ~42, well before
+`ViewNode.maximumTraversalDepth` can fire.
+
+### Rounded clips reach every family
+
+`clipCornerRadius` used to exist only on `QuadPrimitive`, so text, images,
+shadows and paths inside a rounded container were rect-clipped on *both*
+backends — consistent, and consistently wrong against macOS.
+`GlyphPrimitive` and `ShadowPrimitive` now carry it (64 → 80 bytes each,
+padded to the 16-byte structured-buffer stride), `ImagePrimitive` reuses a
+padding slot (stride unchanged at 64), and `PathPrimitive` carries a
+`Double`. The HLSL glyph, image and shadow pixel shaders run the same
+`roundedRectDistance` + `saturate(0.5 - d/aa)` ramp the quad shader does, and
+the CPU rasterizer multiplies `GPUIClipRegion.alpha` into those families'
+coverage instead of using it as a yes/no gate.
+`CrossBackendPixelParityTests` gates a glyph, an image and a shadow inside a
+rounded container.
+
+An image, a glyph and a path carry no corner radius of their own, so they are
+rounded by the node's *own* clip; a background or border quad carries its own
+radii and is rounded only by what ancestors imposed. That is the same SwiftUI
+rule the per-corner section states, applied per family.
+
+### An empty clip is representable
+
+The four float-clip families encode their clip in band, and
+`GPUIClipEncoding` (`Sources/SwiftWindowsGraphics/ClipEncoding.swift`) owns
+the three states that has to express: *absent* is all four fields zero — the
+value every unclipped primitive has always had — while a clip that is
+positioned but collapsed (`clipX: 10, clipY: 10, clipWidth: 0,
+clipHeight: 0`), or has a negative extent (`GPUIClipEncoding.emptyExtent`),
+is an *empty* clip and rejects its primitive at `add*`.
+`contentMaskedBounds` used to reject only the asymmetric collapse and read
+the symmetric one as "unclipped", so a container whose clip collapsed to
+nothing did not hide its children — it removed their clip.
+`PathPrimitive` needs none of this: its `clipBounds` is an optional `Rect`,
+where `nil` already means unclipped.
+
+Locked by `ClipAbstractionTests`.
 
 The frame path (`ViewNode.appendCommands`, used when the host falls back
 to the CPU renderer) has no per-corner `FillRectCommand`, so it degrades

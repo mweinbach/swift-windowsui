@@ -1666,50 +1666,6 @@ public enum ScenePainter {
         clip.allowsDrawing(rect)
     }
 
-    /// Resolves the uniform clip corner radius for one emitted quad against
-    /// a per-corner clip. Clip rounding is only visible in the corner zones
-    /// a quad actually reaches, so:
-    ///   - a quad reaching no clip-corner zone needs no rounding (0),
-    ///   - a quad reaching corners that all share one radius uses exactly
-    ///     that radius (e.g. the left segment of a joined control with
-    ///     rounded left corners and square right corners gets the left
-    ///     radius, and its square corners stay square),
-    ///   - a quad spanning differently-rounded corners falls back to the
-    ///     largest radius (the historic uniform approximation).
-    /// Without a per-corner clip the uniform fallback applies unchanged.
-    private static func resolveClipCornerRadius(
-        forQuadRect quadRect: Rect,
-        clip: Rect?,
-        cornerRadii: RetainedCornerRadii?,
-        uniformFallback: Double
-    ) -> Double {
-        guard let clip, let cornerRadii, cornerRadii.hasPositiveRadius else {
-            return uniformFallback
-        }
-
-        let zone = cornerRadii.maxRadius
-        var reached: [Double] = []
-        reached.reserveCapacity(4)
-        if quadRect.intersected(with: Rect(x: clip.minX, y: clip.minY, width: zone, height: zone)) != nil {
-            reached.append(cornerRadii.topLeft)
-        }
-        if quadRect.intersected(with: Rect(x: clip.maxX - zone, y: clip.minY, width: zone, height: zone)) != nil {
-            reached.append(cornerRadii.topRight)
-        }
-        let bottomRightZone = Rect(x: clip.maxX - zone, y: clip.maxY - zone, width: zone, height: zone)
-        if quadRect.intersected(with: bottomRightZone) != nil {
-            reached.append(cornerRadii.bottomRight)
-        }
-        if quadRect.intersected(with: Rect(x: clip.minX, y: clip.maxY - zone, width: zone, height: zone)) != nil {
-            reached.append(cornerRadii.bottomLeft)
-        }
-
-        guard let first = reached.first else {
-            return 0
-        }
-        return reached.allSatisfy { $0 == first } ? first : cornerRadii.maxRadius
-    }
-
     /// Converts a clip shape's rejection rect into four Float values for
     /// primitive clip fields. The shape's *rounding* is lowered separately,
     /// per primitive, by `RuntimeClipShape.resolvedCornerRadius(forQuadRect:)`.

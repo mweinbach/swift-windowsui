@@ -1260,50 +1260,44 @@ struct PrepaintDispatchState {
     var node: ViewNode
     var parentIndex: Int?
 }
+/// One node's interaction footprint, flattened by prepaint. Two spaces meet
+/// here and each field says which one it is in:
+///
+/// - `clip` is `.painted` — the region the painter actually draws this node's
+///   content into. A pointer is tested against it in screen space, with no
+///   inverse mapping, which is what makes the interactive region *be* the
+///   visible region under a transform.
+/// - `frame` is untransformed layout space, so the pointer is inverse-mapped
+///   into it by `inverseTransform` (the accumulated inverse of this node's own
+///   transform and every ancestor's). That is the exact rotated footprint, not
+///   its axis-aligned approximation.
 @MainActor
 struct PrepaintInteractionState {
     var dispatchIndex: Int
     var node: ViewNode
     var frame: Rect
-    var clipRect: Rect?
-    var clipInverseTransform: Transform2D?
-    var hitTestInverseTransform: Transform2D?
+    var clip: RuntimeClipShape?
+    var inverseTransform: Transform2D?
+
+    private func localPoint(_ point: Point) -> Point {
+        guard let inverseTransform else { return point }
+        return inverseTransform.applying(to: point)
+    }
 
     func containsForHitTesting(_ point: Point) -> Bool {
-        let clippedPoint: Point
-        if let clipInverseTransform {
-            clippedPoint = clipInverseTransform.applying(to: point)
-        } else {
-            clippedPoint = point
-        }
-
-        if let clipRect, !clipRect.contains(clippedPoint) {
+        guard clip.contains(point) else {
             return false
         }
 
-        let hitTestPoint: Point
-        if let hitTestInverseTransform {
-            hitTestPoint = hitTestInverseTransform.applying(to: point)
-        } else {
-            hitTestPoint = clippedPoint
-        }
-
-        return node.containsInteractionPoint(hitTestPoint, in: frame)
+        return node.containsInteractionPoint(localPoint(point), in: frame)
     }
 
     func containsForScrollTarget(_ point: Point) -> Bool {
-        let transformedPoint: Point
-        if let clipInverseTransform {
-            transformedPoint = clipInverseTransform.applying(to: point)
-        } else {
-            transformedPoint = point
-        }
-
-        if let clipRect, !clipRect.contains(transformedPoint) {
+        guard clip.contains(point) else {
             return false
         }
 
-        return frame.contains(transformedPoint)
+        return frame.contains(localPoint(point))
     }
 }
 @MainActor
@@ -1451,7 +1445,8 @@ public final class ViewNode {
     /// `cornerRadius` for the border and fill quads; uniform-only
     /// consumers (shadow, outline, dashed borders) use
     /// `cornerRadii.maxRadius`. Clip rounding resolves per corner for each
-    /// emitted quad (see ScenePainter.resolveClipCornerRadius), falling
+    /// emitted quad (see
+    /// `RuntimeClipShape.resolvedCornerRadius(forQuadRect:)`), falling
     /// back to `maxRadius` only for quads that span differently-rounded
     /// corners.
     public var cornerRadii: RetainedCornerRadii? {
@@ -3909,19 +3904,52 @@ public final class ViewNode {
             height: resolvedFrame.size.height
         )
 
-        if !inheritedClip.allowsDrawing(absoluteFrame) {
+        // The same transform algebra as `ScenePainter.paintNode`, derived here
+        // because prepaint's results are consumed by the painter as well as by
+        // interaction: a deferred subtree inherits `effectiveTransform` and the
+        // clip below verbatim, and the interaction record inverse-maps a
+        // pointer with `nodeInverseTransform`.
+        let centeredTransform: Transform2D
+        let paintFrame: Rect
+        if transform.isIdentity {
+            centeredTransform = .identity
+            paintFrame = absoluteFrame.applying(transform: inheritedTransform)
+        } else {
+            let screenFrame = absoluteFrame.applying(transform: inheritedTransform)
+            let center = Point(x: screenFrame.midX, y: screenFrame.midY)
+            centeredTransform = Transform2D.translation(x: -center.x, y: -center.y)
+                .concatenating(transform)
+                .concatenating(.translation(x: center.x, y: center.y))
+            paintFrame = screenFrame.applying(transform: centeredTransform)
+        }
+        let effectiveTransform = centeredTransform.concatenating(inheritedTransform)
+
+        let nodeInverseTransform: Transform2D?
+        if transform.isIdentity {
+            nodeInverseTransform = inheritedInverseTransform
+        } else if let inverseTransform = centeredTransform.inverseOrNil() {
+            nodeInverseTransform = inheritedInverseTransform?.concatenating(inverseTransform) ?? inverseTransform
+        } else {
+            nodeInverseTransform = inheritedInverseTransform
+        }
+
+        if !inheritedClip.allowsDrawing(paintFrame) {
             cachedPrepaintKey = nil
             cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
             return
         }
 
-        // One narrowing rule, shared with the painter, the frame path and hit
-        // testing (`RuntimeClipShape.intersecting`).
+        // One narrowing rule and one space, shared with the painter and the
+        // frame path (`RuntimeClipShape.intersecting`). Prepaint narrowed the
+        // *untransformed* frame while both paint paths narrowed the
+        // transformed one, so a rotated `.clipped()` container painted one
+        // region, accepted pointers in a second, and handed its deferred
+        // overlays a third.
         var effectiveClip = inheritedClip
         if clipsToBounds {
             guard
                 let clipped = inheritedClip.narrowed(
-                    to: absoluteFrame, radii: cornerRadii, uniformRadius: cornerRadius, space: .layout)
+                    to: paintFrame, radii: cornerRadii, uniformRadius: cornerRadius, space: .painted)
             else {
                 cachedPrepaintKey = nil
                 cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
@@ -3936,8 +3964,12 @@ public final class ViewNode {
         let effectiveBlurOpaque = inheritedBlurOpaque || blurOpaque
         let effectiveBlendMode = blendMode == .normal ? inheritedBlendMode : blendMode
         let resolvedHoverEffect = resolvedActiveHoverEffect
+        // Keyed on the transformed frame, like the painter's: a replayed
+        // subtree carries the inverse transform it was recorded with, and an
+        // ancestor transform that moves an unclipped node leaves its
+        // untransformed frame — and so the old key — unchanged.
         let cacheKey = ViewPaintCacheKey(
-            bounds: absoluteFrame,
+            bounds: paintFrame,
             contentMask: effectiveClip,
             opacity: effectiveOpacity,
             blurRadius: effectiveBlurRadius,
@@ -4066,42 +4098,6 @@ public final class ViewNode {
             return
         }
 
-        let nodeInverseTransform: Transform2D?
-        if transform.isIdentity {
-            nodeInverseTransform = inheritedInverseTransform
-        } else {
-            let center = Point(
-                x: absoluteFrame.origin.x + absoluteFrame.size.width * 0.5,
-                y: absoluteFrame.origin.y + absoluteFrame.size.height * 0.5
-            )
-            let centeredTransform = Transform2D.translation(x: -center.x, y: -center.y)
-                .concatenating(transform)
-                .concatenating(.translation(x: center.x, y: center.y))
-            if let inverseTransform = centeredTransform.inverseOrNil() {
-                if let inheritedInverseTransform {
-                    nodeInverseTransform = inheritedInverseTransform.concatenating(inverseTransform)
-                } else {
-                    nodeInverseTransform = inverseTransform
-                }
-            } else {
-                nodeInverseTransform = inheritedInverseTransform
-            }
-        }
-
-        let nodeForwardTransform: Transform2D
-        if transform.isIdentity {
-            nodeForwardTransform = .identity
-        } else {
-            let center = Point(
-                x: absoluteFrame.origin.x + absoluteFrame.size.width * 0.5,
-                y: absoluteFrame.origin.y + absoluteFrame.size.height * 0.5
-            )
-            nodeForwardTransform = Transform2D.translation(x: -center.x, y: -center.y)
-                .concatenating(transform)
-                .concatenating(.translation(x: center.x, y: center.y))
-        }
-        let effectiveTransform = nodeForwardTransform.concatenating(inheritedTransform)
-
         let dispatchIndex = state.dispatchNodes.count
         state.dispatchNodes.append(
             PrepaintDispatchState(
@@ -4116,9 +4112,8 @@ public final class ViewNode {
                     dispatchIndex: dispatchIndex,
                     node: self,
                     frame: absoluteFrame,
-                    clipRect: effectiveClip?.rect,
-                    clipInverseTransform: inheritedInverseTransform,
-                    hitTestInverseTransform: nodeInverseTransform
+                    clip: effectiveClip,
+                    inverseTransform: nodeInverseTransform
                 )
             )
         }
@@ -4179,7 +4174,12 @@ public final class ViewNode {
             )
         }
 
-        if effectiveOpacity > 0, let track = scrollIndicatorTrack(in: absoluteFrame) {
+        // Built on `paintFrame`, in the same space as the `contentMask` below:
+        // the painter draws this rect verbatim and `deferredDrawContains`
+        // tests a screen point against both, so a track in layout space under
+        // a transform would be drawn where the viewport is not and clipped by
+        // a clip it no longer overlaps.
+        if effectiveOpacity > 0, let track = scrollIndicatorTrack(in: paintFrame) {
             let effectiveScrollIndicatorColor = scrollIndicatorColor.multipliedAlpha(by: effectiveOpacity)
             state.deferredDraws.append(
                 DeferredDrawState(
@@ -4298,7 +4298,7 @@ public final class ViewNode {
         if clipsToBounds {
             guard
                 let clipped = inheritedClip.narrowed(
-                    to: paintFrame, radii: cornerRadii, uniformRadius: cornerRadius, space: .layout)
+                    to: paintFrame, radii: cornerRadii, uniformRadius: cornerRadius, space: .painted)
             else {
                 cachedFrameKey = nil
                 cachedFrameCommandRange = startIndex..<startIndex
@@ -4443,8 +4443,13 @@ public final class ViewNode {
         let effectiveBorderColor =
             borderGradient?.startColor
             ?? borderColor.multipliedAlpha(by: effectiveOpacity)
+        // Gated on `paintFrame`, not `absoluteFrame`: the border below is drawn
+        // at `paintFrame` and the clip was narrowed there, so testing the
+        // untransformed frame dropped the border of a translated view whose
+        // painted frame is inside the clip — on this path only, while
+        // `ScenePainter` drew it.
         if hasPaintableExtent, effectiveBorderColor.alpha > 0, borderWidth > 0, backgroundPath == nil,
-            baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame)
+            baseClipAllowsDrawing(baseClip: effectiveClip, rect: paintFrame)
         {
             if let borderSegments = BorderSegments.dashedSegments(
                 frame: paintFrame,
@@ -4650,79 +4655,6 @@ public final class ViewNode {
         markSubtreeRendered()
     }
 
-    fileprivate func hitTest(at point: Point, parentOrigin: Point, inheritedClip: RuntimeClipShape?) -> ViewNode? {
-        if isHidden {
-            return nil
-        }
-
-        let absoluteFrame = Rect(
-            x: parentOrigin.x + resolvedFrame.origin.x,
-            y: parentOrigin.y + resolvedFrame.origin.y,
-            width: resolvedFrame.size.width,
-            height: resolvedFrame.size.height
-        )
-
-        var effectiveClip = inheritedClip
-        if clipsToBounds {
-            guard
-                let clipped = inheritedClip.narrowed(
-                    to: absoluteFrame, radii: cornerRadii, uniformRadius: cornerRadius, space: .layout)
-            else {
-                return nil
-            }
-            effectiveClip = clipped
-        }
-
-        if !effectiveClip.contains(point) {
-            return nil
-        }
-
-        // Gap/Fix: Hit testing with transforms — apply the inverse of the view's
-        // transform (centered on the view's center) to the test point before
-        // checking containment. This ensures rotated/scaled views are hit-tested
-        // in their local coordinate space.
-        let testPoint: Point
-        if !transform.isIdentity {
-            let cx = absoluteFrame.origin.x + absoluteFrame.size.width * 0.5
-            let cy = absoluteFrame.origin.y + absoluteFrame.size.height * 0.5
-            let centeredTransform = Transform2D.translation(x: -cx, y: -cy)
-                .concatenating(transform)
-                .concatenating(.translation(x: cx, y: cy))
-            if let inverseTransform = centeredTransform.inverseOrNil() {
-                testPoint = inverseTransform.applying(to: point)
-            } else {
-                testPoint = point
-            }
-        } else {
-            testPoint = point
-        }
-
-        let absoluteOrigin = Point(
-            x: parentOrigin.x + resolvedFrame.origin.x,
-            y: parentOrigin.y + resolvedFrame.origin.y
-        )
-
-        let childOrigin = Point(
-            x: absoluteOrigin.x - (scrollAxis == .horizontal ? resolvedScrollOffset : 0),
-            y: absoluteOrigin.y - (scrollAxis == .vertical ? resolvedScrollOffset : 0)
-        )
-
-        for child in children.reversed() {
-            if let hitNode = child.hitTest(at: testPoint, parentOrigin: childOrigin, inheritedClip: effectiveClip) {
-                return hitNode
-            }
-        }
-
-        if isHitTestVisible, absoluteFrame.contains(testPoint) {
-            guard containsInteractionPoint(testPoint, in: absoluteFrame) else {
-                return nil
-            }
-            return self
-        }
-
-        return nil
-    }
-
     var resolvedActiveHoverEffect: RetainedHoverEffect? {
         guard isHovered, !isHoverEffectDisabled, let hoverEffect else {
             return nil
@@ -4854,63 +4786,6 @@ public final class ViewNode {
         }
 
         return contentShape.style.contains(point, in: frame)
-    }
-
-    fileprivate func scrollTarget(
-        at point: Point, axis: ScrollAxis? = nil, parentOrigin: Point, inheritedClip: RuntimeClipShape?
-    ) -> ViewNode? {
-        if isHidden {
-            return nil
-        }
-
-        let absoluteFrame = Rect(
-            x: parentOrigin.x + resolvedFrame.origin.x,
-            y: parentOrigin.y + resolvedFrame.origin.y,
-            width: resolvedFrame.size.width,
-            height: resolvedFrame.size.height
-        )
-
-        var effectiveClip = inheritedClip
-        if clipsToBounds {
-            guard
-                let clipped = inheritedClip.narrowed(
-                    to: absoluteFrame, radii: cornerRadii, uniformRadius: cornerRadius, space: .layout)
-            else {
-                return nil
-            }
-            effectiveClip = clipped
-        }
-
-        if !effectiveClip.contains(point) {
-            return nil
-        }
-
-        let absoluteOrigin = Point(
-            x: parentOrigin.x + resolvedFrame.origin.x,
-            y: parentOrigin.y + resolvedFrame.origin.y
-        )
-
-        let childOrigin = Point(
-            x: absoluteOrigin.x - (scrollAxis == .horizontal ? resolvedScrollOffset : 0),
-            y: absoluteOrigin.y - (scrollAxis == .vertical ? resolvedScrollOffset : 0)
-        )
-
-        for child in children.reversed() {
-            if let target = child.scrollTarget(
-                at: point, axis: axis, parentOrigin: childOrigin, inheritedClip: effectiveClip)
-            {
-                return target
-            }
-        }
-
-        if isScrollable,
-            absoluteFrame.contains(point),
-            axis == nil || scrollAxis == axis
-        {
-            return self
-        }
-
-        return nil
     }
 
     private func invalidateRuntime(_ flags: DirtyFlags = .all) {
@@ -7606,6 +7481,15 @@ public final class RetainedViewRuntime {
         prepaintState = nextState
         lastPrepaintReplayCount = replayCount
         lastDeferredOverlayReplayCount = replayCount
+    }
+
+    /// The coordinate space of every clip the last prepaint recorded. All of
+    /// them are `.painted`: the same clip is read by interaction and by the
+    /// painter, which inherits it for deferred subtrees and scroll indicators.
+    internal var prepaintClipSpacesForTesting: [RuntimeClipShape.Space] {
+        prepaintState.interactions.compactMap { $0.clip?.space }
+            + prepaintState.deferredDraws.compactMap { $0.contentMask?.space }
+            + prepaintState.deferredSubtrees.compactMap { $0.payload.inheritedClip?.space }
     }
 
     private func processDeferredPrepaintDraws(

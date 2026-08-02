@@ -141,6 +141,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   consumer (hit testing round-trips at 0.75), track sizes / fixed size /
   placement / level translation, a 100-message drag costing ≤ 1 display-mode
   query, and an unchanged appearance snapshot triggering no reload.
+- `ClipAbstractionTests` — the one clip value and the one space it lives in:
+  the narrowing rule (anchored rounding, cut corners squared, an empty clip
+  distinct from an absent one), rounded clips reaching the glyph / image /
+  shadow / path families, and clip-space coherence under a transform — the
+  interactive region of a rotated clip pixel-for-pixel equals its painted
+  region, a deferred subtree under a translating clip paints where its clip
+  moved, the frame path's border gate is the frame it paints, and every clip
+  prepaint records is `.painted`.
 
 Test runs never write images into the source tree: `check-contracts.ps1`
 fails if a `ReferenceImages` directory appears under `Tests/`. Reviewed

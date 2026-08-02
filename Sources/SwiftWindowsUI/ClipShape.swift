@@ -18,8 +18,11 @@ import SwiftWindowsCore
 ///   per-corner radii, so the same tree clipped differently depending on which
 ///   traversal asked.
 ///
-/// One type, one `intersecting(_:radii:uniformRadius:)`, five call sites. Four
-/// fields carry what the loose scalars could not:
+/// One type, one `intersecting(_:radii:uniformRadius:space:)`, three call
+/// sites — `appendPrepaintState`, `appendCommands` and
+/// `ScenePainter.paintNode`; the two recursive interaction traversals were
+/// unreachable and are gone, and interaction now reads the clip prepaint
+/// already recorded. Four fields carry what the loose scalars could not:
 ///
 /// - `rect` — the **rejection** rect: the intersection of every clip rect on
 ///   the chain. Nothing outside it paints, hits or scrolls.
@@ -52,13 +55,20 @@ final class RuntimeClipShape: Equatable, Sendable {
 
     /// The coordinate space a clip's rects are expressed in.
     ///
-    /// `.layout` is untransformed absolute layout space — where hit testing,
-    /// prepaint and the frame fallback live, and the mathematically correct
-    /// model, since a hit point is inverse-mapped into it rather than the clip
-    /// being forward-mapped into an axis-aligned approximation of screen
-    /// space. `.painted` is screen space after the accumulated node
-    /// transforms, which is the only space the axis-aligned primitive clip
-    /// fields can express.
+    /// `.painted` is screen space after the accumulated node transforms, and
+    /// it is the space every clip the runtime narrows lives in. It has to be:
+    /// one clip value is read by the painter (which writes it into the
+    /// axis-aligned primitive clip fields) *and* by interaction, and prepaint
+    /// hands its clip verbatim to `ScenePainter` for every deferred subtree
+    /// and scroll indicator. A clip narrowed anywhere else would be two
+    /// different regions depending on who asked.
+    ///
+    /// `.layout` is untransformed absolute layout space — the space a node's
+    /// `resolvedFrame` chain, `PrepaintInteractionState.frame` and an
+    /// inverse-mapped hit point live in. Nothing narrows a clip there; the
+    /// case exists so the narrowing API can state which space a rect is in
+    /// and a mismatch trips an assertion instead of silently producing a
+    /// third region under a transform.
     enum Space: Equatable, Sendable {
         case layout
         case painted
@@ -118,7 +128,7 @@ final class RuntimeClipShape: Equatable, Sendable {
     /// Narrows this clip by a `clipsToBounds` node's frame.
     ///
     /// Returns `nil` when the result is empty — the node and its whole subtree
-    /// are unreachable, which is what all five traversals do with it. That is
+    /// are unreachable, which is what every traversal does with it. That is
     /// the runtime's representation of "clips everything", and it is distinct
     /// from an *absent* clip (`Optional<RuntimeClipShape>.none`), which clips
     /// nothing. The scene contract needs the same distinction and cannot use
@@ -129,9 +139,19 @@ final class RuntimeClipShape: Equatable, Sendable {
     /// `resolvedCornerRadius(forQuadRect:)` then squares off exactly the corners
     /// the narrowing cut away, which is both the nested-square-clip fix and the
     /// scrolled-rounded-card fix in one rule.
-    func intersecting(_ frame: Rect, radii nodeRadii: RetainedCornerRadii?, uniformRadius nodeRadius: Double)
-        -> RuntimeClipShape?
-    {
+    ///
+    /// `frameSpace` is the space `frame` is expressed in and it must be this
+    /// clip's. Intersecting two rects from different spaces is arithmetically
+    /// fine and geometrically meaningless — it is how the interactive clip and
+    /// the painted clip became two regions under a transform — so the caller
+    /// states the space and a mismatch trips here rather than downstream.
+    func intersecting(
+        _ frame: Rect,
+        radii nodeRadii: RetainedCornerRadii?,
+        uniformRadius nodeRadius: Double,
+        space frameSpace: Space
+    ) -> RuntimeClipShape? {
+        assert(frameSpace == space, "a \(space) clip cannot be narrowed by a \(frameSpace)-space frame")
         guard let narrowed = rect.intersected(with: frame) else {
             return nil
         }
@@ -290,6 +310,6 @@ extension Optional where Wrapped == RuntimeClipShape {
             return RuntimeClipShape.bounds(
                 of: frame, radii: radii, uniformRadius: uniformRadius, space: space)
         }
-        return shape.intersecting(frame, radii: radii, uniformRadius: uniformRadius)
+        return shape.intersecting(frame, radii: radii, uniformRadius: uniformRadius, space: space)
     }
 }

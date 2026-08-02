@@ -1474,21 +1474,52 @@ not its own background. Locked by `PerCornerClipTests`.
 
 Clipping is one value, `RuntimeClipShape`
 (`Sources/SwiftWindowsUI/ClipShape.swift`), with one narrowing rule shared by
-all five traversals that used to carry their own copy of it:
-`appendPrepaintState`, `appendCommands`, `hitTest`, `scrollTarget` and
-`ScenePainter.paintNode`. It carries three things four loose scalars could
-not:
+the three traversals that used to carry their own copy of it:
+`appendPrepaintState`, `appendCommands` and `ScenePainter.paintNode`. (Two
+more — `ViewNode.hitTest` and `ViewNode.scrollTarget` — were recursive
+interaction traversals with no entry point left; interaction reads the clip
+prepaint already recorded, and they are gone.) It carries three things four
+loose scalars could not:
 
 - **`rect`** — the *rejection* rect, the intersection of every clip rect on
   the chain. Nothing outside it paints, hits or scrolls.
 - **`shapeRect`** — the rect the rounding is *anchored* to: the frame of the
   innermost node that established a rounded clip. Narrowing by a square
   `clipsToBounds` ancestor moves `rect` and leaves `shapeRect` alone.
-- **`space`** — `.layout` (untransformed absolute layout space: prepaint, hit
-  testing, the frame fallback) or `.painted` (screen space after the
-  accumulated node transforms, the only space the axis-aligned primitive clip
-  fields can express). A clip is only ever intersected against a frame in the
-  same space.
+- **`space`** — `.painted` (screen space after the accumulated node
+  transforms, the only space the axis-aligned primitive clip fields can
+  express) for every clip the runtime narrows, or `.layout` (untransformed
+  absolute layout space, where `resolvedFrame`,
+  `PrepaintInteractionState.frame` and an inverse-mapped hit point live).
+  `intersecting(_:radii:uniformRadius:space:)` takes the incoming frame's
+  space and asserts it matches, because intersecting two rects from different
+  spaces is arithmetically fine and geometrically meaningless.
+
+### One space, because one clip has more than one consumer
+
+Prepaint used to narrow the *untransformed* frame while both paint paths
+narrowed the transformed one, and prepaint's clip is not a private value: the
+painter inherits it for every deferred subtree and scroll indicator, and
+interaction tests pointers against it. A rotated `.clipped()` container
+therefore painted one region, accepted pointers in a second and handed its
+overlays a third — on the fixture in `ClipAbstractionTests` the visible and
+interactive regions agreed on only 70% of probes, and a deferred overlay under
+a *translating* transform was clipped away entirely.
+
+Every runtime clip is now narrowed by `paintFrame`. Interaction follows:
+`PrepaintInteractionState.clip` is tested against the raw screen point, so the
+interactive region *is* the painted region, while the node's own `frame` stays
+in layout space and the pointer is inverse-mapped into it — the exact rotated
+footprint rather than its bounding box. Locked by
+`ClipAbstractionTests.testTheInteractiveRegionOfARotatedClipIsItsVisibleRegion`,
+`…testADeferredSubtreeUnderATranslatedClipPaintsWhereItsClipMoved` and
+`…testEveryRuntimeClipIsNarrowedInPaintedSpace`.
+
+The residual is the axis-aligned clip ABI itself: a rotated clip ships as its
+bounding box on both paths, so both the eye and the pointer see the box. The
+frame path's border used to be the one gate left comparing `absoluteFrame`
+against a `paintFrame`-narrowed clip, which dropped the border of a translated
+view the scene path drew — `…testATranslatedBorderSurvivesTheFramePathClipGate`.
 
 Keeping the anchor separate fixes two visible bugs at once. A rounded card
 scrolling past a `ScrollView` boundary used to pop its rounding onto the

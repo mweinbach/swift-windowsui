@@ -20,7 +20,7 @@ final class ClipAbstractionTests: XCTestCase {
             of: Rect(x: 0, y: 0, width: 100, height: 100), radii: nil, uniformRadius: 12, space: .layout)
         // A square `.clipped()` ancestor cuts the bottom half away.
         let narrowed = card.intersecting(
-            Rect(x: 0, y: 0, width: 100, height: 50), radii: nil, uniformRadius: 0)
+            Rect(x: 0, y: 0, width: 100, height: 50), radii: nil, uniformRadius: 0, space: .layout)
 
         let clipped = try? XCTUnwrap(narrowed)
         XCTAssertEqual(clipped?.rect, Rect(x: 0, y: 0, width: 100, height: 50))
@@ -34,7 +34,8 @@ final class ClipAbstractionTests: XCTestCase {
         let clip = RuntimeClipShape.bounds(
             of: Rect(x: 0, y: 0, width: 40, height: 40), radii: nil, uniformRadius: 0, space: .layout)
         XCTAssertNil(
-            clip.intersecting(Rect(x: 100, y: 100, width: 10, height: 10), radii: nil, uniformRadius: 0),
+            clip.intersecting(
+                Rect(x: 100, y: 100, width: 10, height: 10), radii: nil, uniformRadius: 0, space: .layout),
             "an empty intersection is nil — the caller culls, it does not fall back to unclipped")
 
         let noClip: RuntimeClipShape? = nil
@@ -47,7 +48,7 @@ final class ClipAbstractionTests: XCTestCase {
             of: Rect(x: 0, y: 0, width: 100, height: 100), radii: nil, uniformRadius: 16, space: .layout)
         // The scroll viewport cuts the card's bottom edge away.
         let scrolled = card.intersecting(
-            Rect(x: 0, y: 0, width: 100, height: 60), radii: nil, uniformRadius: 0)!
+            Rect(x: 0, y: 0, width: 100, height: 60), radii: nil, uniformRadius: 0, space: .layout)!
 
         XCTAssertEqual(
             scrolled.resolvedCornerRadius(forQuadRect: Rect(x: 0, y: 0, width: 100, height: 8)), 16,
@@ -352,5 +353,153 @@ final class ClipAbstractionTests: XCTestCase {
         runtime.pointerDown(at: Point(x: 50, y: 50))
         runtime.pointerUp(at: Point(x: 50, y: 50))
         XCTAssertEqual(activations, 1, "the clip's interior still hits")
+    }
+
+    /// The clip a node establishes is narrowed by its *transformed* frame on
+    /// every path that paints, and prepaint used to narrow it by the
+    /// untransformed one — so a rotated `.clipped()` container painted one
+    /// region and accepted pointers in a different one. Nothing the user can
+    /// see may be dead to the pointer, and nothing dead to the eye may be
+    /// live to the pointer.
+    func testTheInteractiveRegionOfARotatedClipIsItsVisibleRegion() async {
+        var activations = 0
+        let child = ViewNode(
+            frame: Rect(x: -40, y: -40, width: 180, height: 180),
+            backgroundColor: Color(red: 1, green: 0.2, blue: 0.2, alpha: 1),
+            isHitTestVisible: true
+        )
+        child.onActivate = { activations += 1 }
+        let clipper = ViewNode(
+            frame: Rect(x: 20, y: 20, width: 60, height: 60),
+            clipsToBounds: true,
+            transform: Transform2D(rotation: 0.5),
+            isHitTestVisible: false,
+            children: [child]
+        )
+        let root = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 100, height: 100),
+            isHitTestVisible: false,
+            children: [clipper]
+        )
+        let runtime = RetainedViewRuntime(root: root)
+        let bitmap = GPUIRawSceneRasterizer.rasterize(
+            runtime.renderScene(), size: IntSize(width: 100, height: 100))
+
+        func isPainted(_ x: Int, _ y: Int) -> Bool {
+            bitmap.pixels[(y * 100 + x) * 4 + 2] > 128
+        }
+        func hits(_ x: Int, _ y: Int) -> Bool {
+            let before = activations
+            let point = Point(x: Double(x) + 0.5, y: Double(y) + 0.5)
+            runtime.pointerDown(at: point)
+            runtime.pointerUp(at: point)
+            return activations > before
+        }
+
+        // Inside the rotated container's painted region, outside the
+        // *unrotated* rect the interaction clip used to be narrowed by.
+        XCTAssertTrue(isPainted(12, 12), "the fixture must paint the probe")
+        XCTAssertTrue(hits(12, 12), "a painted pixel of a rotated clip must accept the pointer")
+        XCTAssertTrue(isPainted(22, 22))
+        XCTAssertTrue(hits(22, 22))
+        XCTAssertFalse(isPainted(95, 95))
+        XCTAssertFalse(hits(95, 95), "a pixel the rotated clip rejects must stay dead")
+
+        var agreeing = 0
+        var total = 0
+        for y in stride(from: 1, to: 100, by: 3) {
+            for x in stride(from: 1, to: 100, by: 3) {
+                total += 1
+                if isPainted(x, y) == hits(x, y) {
+                    agreeing += 1
+                }
+            }
+        }
+        XCTAssertGreaterThan(
+            Double(agreeing) / Double(total), 0.98,
+            "the visible region and the interactive region are one region")
+    }
+
+    /// Prepaint's clip is handed straight to `ScenePainter` for every
+    /// deferred subtree, so it has to be narrowed in the space the painter
+    /// narrows in. A layout-space clip under a translating transform emptied
+    /// out against the painted frame and the overlay vanished.
+    func testADeferredSubtreeUnderATranslatedClipPaintsWhereItsClipMoved() async {
+        let deferred = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 40, height: 40),
+            backgroundColor: Color(red: 0, green: 1, blue: 0, alpha: 1),
+            paintsInDeferredPhase: true
+        )
+        let clipper = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 40, height: 40),
+            clipsToBounds: true,
+            transform: Transform2D.translation(x: 50, y: 0),
+            children: [deferred]
+        )
+        let root = ViewNode(frame: Rect(x: 0, y: 0, width: 100, height: 100), children: [clipper])
+
+        let quads = RetainedViewRuntime(root: root).renderScene().layers[0].quads
+        XCTAssertEqual(quads.count, 1, "the deferred overlay travels with the transform, it is not clipped away")
+        XCTAssertEqual(Double(quads[0].x), 50, accuracy: 0.001)
+    }
+
+    /// The frame path draws the border at `paintFrame` but used to gate it on
+    /// the untransformed `absoluteFrame` — the one surviving mixed-space
+    /// comparison after WS-16 — so a translated bordered view inside a clip
+    /// lost its border on the fallback renderer while the scene path drew it.
+    func testATranslatedBorderSurvivesTheFramePathClipGate() async {
+        let bordered = ViewNode(
+            frame: Rect(x: -60, y: 20, width: 50, height: 50),
+            borderColor: Color(red: 0, green: 0, blue: 1, alpha: 1),
+            borderWidth: 4,
+            transform: Transform2D.translation(x: 80, y: 0)
+        )
+        let clipper = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 100, height: 100),
+            clipsToBounds: true,
+            children: [bordered]
+        )
+
+        let frame = RetainedViewRuntime(root: clipper).renderFrame()
+        let borderRects: [Rect] = frame.commands.compactMap { command in
+            guard case .fillRect(let fill) = command, fill.color.blue > 0.5 else { return nil }
+            return fill.rect
+        }
+        XCTAssertEqual(borderRects.count, 1, "the border is gated on the frame the path actually paints")
+        XCTAssertEqual(borderRects.first?.origin.x ?? -1, 20, accuracy: 0.001)
+    }
+
+    // MARK: - The space discriminator
+
+    func testNarrowingCarriesTheClipSpaceForward() async {
+        let painted = RuntimeClipShape.bounds(
+            of: Rect(x: 0, y: 0, width: 60, height: 60), radii: nil, uniformRadius: 8, space: .painted)
+        let narrowed = painted.intersecting(
+            Rect(x: 0, y: 0, width: 60, height: 30), radii: nil, uniformRadius: 0, space: .painted)
+        XCTAssertEqual(narrowed?.space, .painted, "a narrowed clip stays in the space it was narrowed in")
+
+        let layout: RuntimeClipShape? = nil
+        XCTAssertEqual(
+            layout.narrowed(
+                to: Rect(x: 0, y: 0, width: 10, height: 10), radii: nil, uniformRadius: 0, space: .layout)?.space,
+            .layout)
+    }
+
+    func testEveryRuntimeClipIsNarrowedInPaintedSpace() async {
+        let child = ViewNode(frame: Rect(x: 0, y: 0, width: 20, height: 20), paintsInDeferredPhase: true)
+        let clipper = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 40, height: 40),
+            clipsToBounds: true,
+            children: [child]
+        )
+        let root = ViewNode(frame: Rect(x: 0, y: 0, width: 60, height: 60), children: [clipper])
+        let runtime = RetainedViewRuntime(root: root)
+        _ = runtime.renderScene()
+
+        let spaces = runtime.prepaintClipSpacesForTesting
+        XCTAssertFalse(spaces.isEmpty, "the fixture must record a clip")
+        XCTAssertTrue(
+            spaces.allSatisfy { $0 == .painted },
+            "prepaint's clip is consumed by the painter, so it lives in the painter's space")
     }
 }

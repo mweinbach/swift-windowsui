@@ -24,7 +24,8 @@ final class NativeGlyphAtlas {
                 height: bitmap.height,
                 bearingX: bitmap.bearingX,
                 bearingY: bitmap.bearingY,
-                advance: bitmap.advance
+                advance: bitmap.advance,
+                verticalFrame: bitmap.verticalFrame
             )
         }
     }
@@ -181,7 +182,10 @@ final class NativeGlyphAtlas {
             key = GlyphKey(
                 character: glyph.character,
                 glyphID: glyphID,
-                fontFaceID: glyph.fontFace?.identifier,
+                // Registry ID, never the raw COM address: an address is
+                // recycled the moment the last handle to a face releases, and
+                // the next face at that address would inherit these entries.
+                fontFaceID: glyph.fontFaceID?.rawValue,
                 fontFamily: fontFamily,
                 fontSize: Float(fontSize * scaleFactor),
                 weight: weight,
@@ -227,7 +231,8 @@ final class NativeGlyphAtlas {
             height: bitmap.surface.height,
             bearingX: bitmap.bearingX,
             bearingY: bitmap.bearingY,
-            advance: bitmap.advance
+            advance: bitmap.advance,
+            verticalFrame: bitmap.verticalFrame
         )
         if entry != nil {
             usedInCurrentFrame = true
@@ -248,6 +253,7 @@ final class NativeGlyphAtlas {
         }
 
         guard let bitmap = rasterize() else {
+            TextRenderDiagnosticsCounters.glyphRasterFailures += 1
             return nil
         }
 

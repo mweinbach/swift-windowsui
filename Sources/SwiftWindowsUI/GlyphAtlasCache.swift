@@ -61,6 +61,28 @@ public final class GlyphAtlasCache {
         bearingY: Float,
         advance: Float
     ) -> GlyphEntry? {
+        insert(
+            key: key,
+            pixels: pixels,
+            width: width,
+            height: height,
+            bearingX: bearingX,
+            bearingY: bearingY,
+            advance: advance,
+            verticalFrame: .layoutBoxTop
+        )
+    }
+
+    func insert(
+        key: GlyphKey,
+        pixels: Data,
+        width: Int32,
+        height: Int32,
+        bearingX: Float,
+        bearingY: Float,
+        advance: Float,
+        verticalFrame: GlyphVerticalFrame
+    ) -> GlyphEntry? {
         // Evict if at capacity
         if entries.count >= maxEntries {
             evictLRU(count: 1)
@@ -82,7 +104,8 @@ public final class GlyphAtlasCache {
                 height: height,
                 bearingX: bearingX,
                 bearingY: bearingY,
-                advance: advance
+                advance: advance,
+                verticalFrame: verticalFrame
             )
         else {
             // Recovery bumps `atlasGeneration`; that bump is the signal every
@@ -95,7 +118,8 @@ public final class GlyphAtlasCache {
                 height: height,
                 bearingX: bearingX,
                 bearingY: bearingY,
-                advance: advance
+                advance: advance,
+                verticalFrame: verticalFrame
             )
         }
 
@@ -109,7 +133,8 @@ public final class GlyphAtlasCache {
         height: Int32,
         bearingX: Float,
         bearingY: Float,
-        advance: Float
+        advance: Float,
+        verticalFrame: GlyphVerticalFrame
     ) -> GlyphEntry? {
         guard let position = atlas.allocate(width: width, height: height) else {
             return nil
@@ -124,7 +149,8 @@ public final class GlyphAtlasCache {
             height: height,
             bearingX: bearingX,
             bearingY: bearingY,
-            advance: advance
+            advance: advance,
+            verticalFrame: verticalFrame
         )
 
         // Remove old entry if re-inserting the same key

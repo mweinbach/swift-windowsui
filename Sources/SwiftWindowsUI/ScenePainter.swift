@@ -107,6 +107,10 @@ public enum ScenePainter {
             let isFinalAttempt = attempt == glyphAtlasPaintAttempts - 1
             NativeGlyphAtlas.shared.setSuspended(isFinalAttempt)
             let atlasGenerationAtStart = NativeGlyphAtlas.shared.atlasGeneration
+            // Counters describe the attempt that ships, not the ones discarded
+            // along the way - except the recovery count, which is the reason
+            // there was more than one attempt.
+            TextRenderDiagnosticsCounters.beginPass(preservingAtlasRecoveries: attempt > 0)
 
             var scene = GPUIScene(clearColor: clearColor)
             var attemptDeferredDraws = originalDeferredDraws
@@ -170,6 +174,7 @@ public enum ScenePainter {
                 // catches a recovery anywhere in the pass, so a *second* exhaustion on the retry
                 // is caught too — the previous per-frame boolean was only consulted once.
                 bypassReplayAfterAtlasRecovery = true
+                TextRenderDiagnosticsCounters.atlasRecoveries += 1
                 continue
             }
 
@@ -183,6 +188,7 @@ public enum ScenePainter {
             deferredDraws = attemptDeferredDraws
             replayCount = attemptReplayCount
             deferredReplayCount = attemptDeferredReplayCount
+            scene.paintMetrics.textDiagnostics = TextRenderDiagnosticsCounters.snapshot()
             scene.finish()
             return scene
         }
@@ -1903,6 +1909,11 @@ public enum ScenePainter {
             return
         }
 
+        // Everything below draws through the 5x7 bitmap atlas, which uppercases
+        // its input and maps anything outside A-Z/0-9 and a handful of symbols
+        // to "?". That is a severe, silent quality cliff; count it.
+        TextRenderDiagnosticsCounters.pixelFontFallbacks += 1
+
         let effectiveStyle = style.resolvingMinimumScaleFactor(
             for: text,
             maxContentWidth: max(0, contentRect.size.width),
@@ -2077,14 +2088,24 @@ public enum ScenePainter {
             }
 
             for glyph in line.glyphs where shouldRenderNativeGlyph(glyph) {
-                let glyphLayoutOrigin = Point(
-                    x: (startX + glyph.origin.x) * displayScale,
-                    y: (lineOriginY + glyph.origin.y) * displayScale
-                )
+                // Two anchors, because the two rasterizers measure ink from two
+                // different places (see `GlyphVerticalFrame`). A shaped glyph's
+                // `origin.y` is its baseline; the hit-test walk's is the line
+                // top. Whichever frame the *raster* came back in is the one the
+                // destination is computed against, so a raster that fell back
+                // to the other path lands right instead of one ascent low.
+                let glyphLayoutX = (startX + glyph.origin.x) * displayScale
+                let lineTopY = lineOriginY * displayScale
+                let baselineY =
+                    glyph.verticalFrame == .baseline
+                    ? (lineOriginY + glyph.origin.y) * displayScale
+                    : (lineOriginY + line.ascent) * displayScale
+                let glyphLayoutOrigin = Point(x: glyphLayoutX, y: baselineY)
                 if let scaledVisibleClip,
                     let preflightRect = nativeGlyphPreflightRect(
                         for: glyph,
-                        origin: glyphLayoutOrigin,
+                        origin: Point(x: glyphLayoutX, y: baselineY),
+                        lineTopY: lineTopY,
                         scaleFactor: displayScale
                     ),
                     scaledVisibleClip.intersected(with: preflightRect) == nil
@@ -2102,6 +2123,7 @@ public enum ScenePainter {
                 guard previewEntry.width > 0, previewEntry.height > 0 else {
                     continue
                 }
+                let anchorY = previewEntry.verticalFrame == .baseline ? baselineY : lineTopY
 
                 // Snap glyph destination to integer device pixels.  Without
                 // this, the rasterizer's tx/ty mapping reads the same atlas
@@ -2110,7 +2132,7 @@ public enum ScenePainter {
                 // pattern.  Pixel-aligned glyphs render crisp 1:1 from atlas.
                 let destinationOrigin = Point(
                     x: (glyphLayoutOrigin.x + Double(previewEntry.bearingX)).rounded(),
-                    y: (glyphLayoutOrigin.y + Double(previewEntry.bearingY)).rounded()
+                    y: (anchorY + Double(previewEntry.bearingY)).rounded()
                 )
                 guard destinationOrigin.x.isFinite, destinationOrigin.y.isFinite else {
                     continue
@@ -2312,20 +2334,31 @@ public enum ScenePainter {
         }
     }
 
+    /// Conservative device-space bound for a glyph that has not been rastered
+    /// yet, used only to cull. It spans both possible anchors - baseline and
+    /// line top - because which one the raster will report is not known until
+    /// the raster exists, and a cull that guesses wrong drops visible text.
     private static func nativeGlyphPreflightRect(
         for glyph: NativeTextGlyphLayout,
         origin: Point,
+        lineTopY: Double,
         scaleFactor: Double
     ) -> Rect? {
         guard let metrics = makeCapturedGlyphRasterMetrics(for: glyph, scaleFactor: scaleFactor) else {
             return nil
         }
 
+        let baselineAnchoredTop =
+            origin.y - Double(metrics.paddingPixels) - metrics.baselineYOffset * metrics.renderScale
+        let lineTopAnchoredTop = lineTopY - Double(metrics.paddingPixels)
+        let top = min(baselineAnchoredTop, lineTopAnchoredTop)
+        let bottom = max(baselineAnchoredTop, lineTopAnchoredTop) + Double(metrics.targetHeight)
+
         return Rect(
             x: origin.x - Double(metrics.paddingPixels),
-            y: origin.y - Double(metrics.paddingPixels) - metrics.baselineYOffset * metrics.renderScale,
+            y: top,
             width: Double(metrics.targetWidth),
-            height: Double(metrics.targetHeight)
+            height: max(0, bottom - top)
         )
     }
 

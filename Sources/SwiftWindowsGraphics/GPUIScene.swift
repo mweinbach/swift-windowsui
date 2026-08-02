@@ -415,6 +415,42 @@ public struct GPUILayer: Equatable, Sendable {
 /// GPU fast lane (PathToQuadTessellator promotion) vs the CPU
 /// rasterization fallback. Updated by the scene painter as it emits
 /// primitives.
+/// Text-pipeline failure counters for one painted scene.
+///
+/// Every failure in the text stack used to be a `nil` that turned, several
+/// frames up, into "draw the 5×7 bitmap font" — a severe, user-visible quality
+/// cliff with no signal anywhere. These counters make the cliff observable
+/// without changing what the pipeline draws.
+public struct TextRenderDiagnostics: Equatable, Sendable {
+    /// Text nodes that could not use the native glyph path and fell through to
+    /// the 5×7 `PixelFont` atlas (which uppercases and maps most codepoints to
+    /// `?`).
+    public var pixelFontFallbacks: Int = 0
+    /// Glyphs whose raster (DirectWrite or GDI) returned nothing, so no quad
+    /// was emitted for them.
+    public var glyphRasterFailures: Int = 0
+    /// Paint attempts abandoned because the glyph atlas recycled its shelves
+    /// mid-pass, invalidating already-captured UVs.
+    public var atlasRecoveries: Int = 0
+    /// Glyph runs resolved by DirectWrite shaping (glyph IDs + shaped
+    /// positions).
+    public var shapedGlyphRuns: Int = 0
+    /// Glyph runs that fell back to the per-character hit-test walk, which has
+    /// no ligatures and no complex-script forms.
+    public var unshapedGlyphRuns: Int = 0
+    /// Rasterizations that dropped a non-zero `letterSpacing` because the
+    /// legacy bitmap raster path cannot express it.
+    public var letterSpacingDroppedRasterizations: Int = 0
+
+    public init() {}
+
+    /// True when nothing in the text pipeline degraded during this scene.
+    public var isClean: Bool {
+        pixelFontFallbacks == 0 && glyphRasterFailures == 0 && atlasRecoveries == 0
+            && unshapedGlyphRuns == 0 && letterSpacingDroppedRasterizations == 0
+    }
+}
+
 public struct ScenePaintMetrics: Equatable, Sendable {
     /// Path primitives that fell through to the CPU rasterizer.
     public var pathsRasterizedOnCPU: Int = 0
@@ -431,6 +467,8 @@ public struct ScenePaintMetrics: Equatable, Sendable {
     /// walks and rasterizes its whole subtree on the main actor, so this is the
     /// counter that says whether a `.drawingGroup()` is amortized or not.
     public var compositingGroupsReused: Int = 0
+    /// Text-pipeline degradations observed while painting this scene.
+    public var textDiagnostics: TextRenderDiagnostics = TextRenderDiagnostics()
 
     public init() {}
 

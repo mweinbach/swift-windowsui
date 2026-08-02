@@ -55,7 +55,16 @@ public struct PixelTextStyle: Sendable, Equatable {
     public var scale: Double
     public var alignment: TextHorizontalAlignment
     public var verticalAlignment: TextVerticalAlignment
+    /// Inter-glyph gap of the 5x7 `PixelFontAtlas`, in atlas units (its
+    /// glyphs are 5 units wide). This is *not* typographic tracking and not a
+    /// point value: its default of 1 is the bitmap font's normal spacing, so
+    /// applying it to a real font would space every string out by a point.
+    /// Native tracking lives in `nativeLetterSpacing`.
     public var letterSpacing: Double
+    /// Typographic tracking in points, applied by the DirectWrite glyph path
+    /// to both measurement and painting. `nil` means "the font's own
+    /// spacing" - only `.kerning` / `.tracking` set it.
+    public var nativeLetterSpacing: Double?
     public var lineSpacing: Double
     public var insets: EdgeInsets
     public var fontFamily: String
@@ -86,6 +95,7 @@ public struct PixelTextStyle: Sendable, Equatable {
         alignment: TextHorizontalAlignment = .center,
         verticalAlignment: TextVerticalAlignment = .center,
         letterSpacing: Double = 1,
+        nativeLetterSpacing: Double? = nil,
         lineSpacing: Double = 2,
         insets: EdgeInsets = .zero,
         fontFamily: String = "Segoe UI",
@@ -115,6 +125,7 @@ public struct PixelTextStyle: Sendable, Equatable {
         self.alignment = alignment
         self.verticalAlignment = verticalAlignment
         self.letterSpacing = letterSpacing
+        self.nativeLetterSpacing = nativeLetterSpacing
         self.lineSpacing = lineSpacing
         self.insets = insets
         self.fontFamily = fontFamily
@@ -192,6 +203,7 @@ extension PixelTextStyle {
         copy.scale = max(0.01, scale * factor)
         copy.nativeFontSize = max(1, nativeFontPixelSize * factor)
         copy.letterSpacing = letterSpacing * factor
+        copy.nativeLetterSpacing = nativeLetterSpacing.map { $0 * factor }
         copy.lineSpacing = lineSpacing * factor
         copy.minimumScaleFactor = 1
         copy.spans = spans?.map { span in
@@ -1237,6 +1249,17 @@ private func fittingEllipsis(maxWidth: Double?, measureLine: (String) -> Double)
 
     return ""
 }
+/// Longest prefix of `text` that fits, found by galloping *up* from a short
+/// prefix before binary-searching.
+///
+/// A plain binary search over the whole remaining token probes at n/2 first,
+/// and on the DirectWrite path every probe builds and shapes a full
+/// `IDWriteTextLayout`. Space-less scripts have no other break opportunity, so
+/// a 20,000-character CJK paragraph is one token and each of its ~n/m slices
+/// re-shaped most of the paragraph — O(n² log n) character shaping on the main
+/// actor before the first frame. A wrapped line holds tens of characters, so
+/// galloping bounds every probe at ~2× the answer and the whole wrap costs
+/// O(n log m). Results are identical; only the probe sequence changes.
 private func longestFittingPrefixLength(
     for text: String,
     maxWidth: Double,
@@ -1244,15 +1267,35 @@ private func longestFittingPrefixLength(
     measureLine: (String) -> Double
 ) -> Int {
     let characters = Array(text)
-    var lowerBound = 0
-    var upperBound = characters.count
-    var best = 0
-    let remainingWidth = max(0, maxWidth - reservedWidth)
+    guard !characters.isEmpty else {
+        return 0
+    }
 
+    let remainingWidth = max(0, maxWidth - reservedWidth)
+    func fits(_ count: Int) -> Bool {
+        measureLine(String(characters.prefix(count))) <= remainingWidth
+    }
+
+    var best = 0
+    var firstMisfit = characters.count + 1
+    var probe = 1
+    while probe <= characters.count {
+        guard fits(probe) else {
+            firstMisfit = probe
+            break
+        }
+        best = probe
+        guard probe <= Int.max / 2 else {
+            break
+        }
+        probe *= 2
+    }
+
+    var lowerBound = best + 1
+    var upperBound = min(firstMisfit - 1, characters.count)
     while lowerBound <= upperBound {
-        let midpoint = (lowerBound + upperBound) / 2
-        let candidate = String(characters.prefix(midpoint))
-        if measureLine(candidate) <= remainingWidth {
+        let midpoint = lowerBound + (upperBound - lowerBound) / 2
+        if fits(midpoint) {
             best = midpoint
             lowerBound = midpoint + 1
         } else {

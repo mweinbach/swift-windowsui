@@ -87,6 +87,10 @@ public struct GlyphEntry: Equatable, Sendable {
     public var bearingX: Float
     public var bearingY: Float
     public var advance: Float
+    /// Vertical frame `bearingY` is measured in. Carried through the cache so
+    /// the painter anchors a raster against the origin it was measured from
+    /// instead of assuming both rasterizers agree — they do not.
+    var verticalFrame: GlyphVerticalFrame = .layoutBoxTop
 
     public init(
         atlasX: Int32,
@@ -104,6 +108,28 @@ public struct GlyphEntry: Equatable, Sendable {
         self.bearingX = bearingX
         self.bearingY = bearingY
         self.advance = advance
+    }
+
+    init(
+        atlasX: Int32,
+        atlasY: Int32,
+        width: Int32,
+        height: Int32,
+        bearingX: Float,
+        bearingY: Float,
+        advance: Float,
+        verticalFrame: GlyphVerticalFrame
+    ) {
+        self.init(
+            atlasX: atlasX,
+            atlasY: atlasY,
+            width: width,
+            height: height,
+            bearingX: bearingX,
+            bearingY: bearingY,
+            advance: advance
+        )
+        self.verticalFrame = verticalFrame
     }
 
     public func uvRect(atlasWidth: Int32, atlasHeight: Int32) -> (u0: Float, v0: Float, u1: Float, v1: Float) {

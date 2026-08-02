@@ -5752,6 +5752,9 @@ public struct Text: View {
                 fontWidth: resolvedFont.width.retainedTextFontWidth,
                 alignment: resolvedAlignment.textAlignment(layoutDirection: context.layoutDirection),
                 letterSpacing: letterSpacing ?? context.letterSpacing ?? 1,
+                // Native tracking only when the app actually asked. The
+                // `?? 1` above is the 5x7 atlas gap, not a point value.
+                nativeLetterSpacing: letterSpacing ?? context.letterSpacing,
                 lineSpacing: lineSpacing ?? context.lineSpacing ?? resolvedFont.resolvedLineSpacing,
                 lineBreakMode: self.lineBreakMode?.retainedTextLineBreakMode
                     ?? resolvedLineBreakMode(
@@ -6334,7 +6337,11 @@ public struct Image: View {
                     color: renderedColor,
                     scale: resolvedScale,
                     weight: symbolVariants.contains(.fill) ? .bold : .regular,
-                    alignment: alignment.textAlignment(layoutDirection: context.layoutDirection)
+                    alignment: alignment.textAlignment(layoutDirection: context.layoutDirection),
+                    // From this view's environment, not the process-global
+                    // default: two hosts on monitors at different DPI each
+                    // rasterize at their own scale.
+                    displayScale: context.iconRasterDisplayScale
                 )
                 applyImageMetadata(to: node, context: context)
                 return retainedSymbolVariantNode(
@@ -12618,6 +12625,7 @@ private func textInputComponent(
                 alignment: context.textAlignment.textAlignment(layoutDirection: context.layoutDirection),
                 insets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
                 letterSpacing: context.letterSpacing ?? 1,
+                nativeLetterSpacing: context.letterSpacing,
                 lineSpacing: context.lineSpacing ?? resolvedFont.resolvedLineSpacing,
                 lineBreakMode: allowsNewlines ? .wrap : .truncateTail,
                 maximumNumberOfLines: allowsNewlines ? nil : 1,
@@ -13875,7 +13883,8 @@ public struct DatePicker: View {
                 .chevronDown,
                 preferredSize: Size(width: 14, height: 14),
                 color: context.foregroundColor.opacity(context.isEnabled ? 0.78 : 0.45),
-                scale: 1.1
+                scale: 1.1,
+                displayScale: context.iconRasterDisplayScale
             )
             return Controls.stackPanel(
                 preferredSize: context.controlSize.singleLineTextInputSize,
@@ -14766,7 +14775,8 @@ public struct Toggle: View {
                 .checkmark,
                 preferredSize: Size(width: boxSize - 4, height: boxSize - 4),
                 color: context.isEnabled ? .white : surfaceStyle.palette.disabledForeground,
-                scale: 1.2
+                scale: 1.2,
+                displayScale: context.iconRasterDisplayScale
             )
             : Controls.panel(
                 preferredSize: Size(width: boxSize - 4, height: boxSize - 4),
@@ -14864,7 +14874,8 @@ public struct Toggle: View {
                     .checkmark,
                     preferredSize: Size(width: 20, height: 20),
                     color: context.isEnabled ? .white : surfaceStyle.palette.disabledForeground,
-                    scale: 1.25
+                    scale: 1.25,
+                    displayScale: context.iconRasterDisplayScale
                 )
                 : Controls.panel(
                     preferredSize: Size(width: 20, height: 20),
@@ -15295,7 +15306,8 @@ public struct Picker<SelectionValue: Hashable>: View {
                     .checkmark,
                     preferredSize: Size(width: 18, height: 18),
                     color: context.isEnabled ? context.tint : Color(red: 0.55, green: 0.58, blue: 0.62, alpha: 0.70),
-                    scale: 1.2
+                    scale: 1.2,
+                    displayScale: context.iconRasterDisplayScale
                 )
                 : Controls.panel(
                     preferredSize: Size(width: 18, height: 18),

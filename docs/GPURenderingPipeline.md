@@ -382,6 +382,87 @@ layout box at 4096 px wide. Letting it center inside that box produces
 glyph origins around `x ≈ 2000`, which then failed the painter's
 visible-clip preflight check and silently fell back to PixelText.
 
+### 3.0 Shaping, and the two glyph coordinate frames
+
+Step 1 resolves a line into glyphs two ways, and which one runs decides
+whether the text is *shaped*:
+
+- `captureGlyphLayouts` draws the layout through an `IDWriteTextRenderer`
+  and receives real `DWRITE_GLYPH_RUN`s: glyph IDs, shaped advances,
+  per-glyph offsets and a cluster map. Ligatures are one glyph, complex
+  scripts get their contextual forms, and each glyph carries the
+  `IDWriteFontFace` it came from.
+- `fallbackGlyphLayouts` walks `Array(text)` and hit-tests each character
+  position. It produces one glyph per character with no glyph ID and no
+  face, so every glyph is later re-laid-out in isolation.
+
+Shaping is primary. `NativeTextRenderer.isGlyphShapingEnabled` (default
+`true`) is the escape hatch: turning it off reverts the whole pipeline to
+the hit-test walk, which stays live anyway because a capture that comes
+back empty falls through to it.
+
+Enabling shaping exposed a hazard the old ordering had been hiding: the
+two rasterizers measure ink from different origins.
+
+| producer | `origin.y` / `bearingY` measured from |
+|---|---|
+| `captureGlyphLayouts` + `rasterizeCapturedGlyph` | the text **baseline** |
+| `fallbackGlyphLayouts` + `rasterizeGlyph(Character:)` | the **layout-box top** |
+
+Each pair is self-consistent, but a shaped glyph whose raster falls back
+to the character path mixes them and lands one ascent low.
+`GlyphVerticalFrame` makes the frame part of the value:
+`NativeTextGlyphLayout.verticalFrame` says which origin `origin.y` is,
+`NativeGlyphBitmap.verticalFrame` and `GlyphEntry.verticalFrame` say
+which origin `bearingY` is, and the painter computes both anchors (line
+top and baseline) and picks the one the *raster* reports. The cull
+preflight spans both anchors, because which one applies is not known
+until the raster exists.
+
+`FontFaceRegistry` hands out monotonic `FontFaceID`s and retains each
+`IDWriteFontFace`. `GlyphKey.fontFaceID` used to be the raw COM address,
+which a later face allocated at the same address would inherit — an
+alias that only became reachable once shaping started producing
+face-keyed entries.
+
+### 3.2 Text diagnostics
+
+`ScenePaintMetrics.textDiagnostics` (`TextRenderDiagnostics`) counts what
+degraded while painting: `pixelFontFallbacks` (strings pushed onto the
+5×7 bitmap atlas, which uppercases and maps most codepoints to `?`),
+`glyphRasterFailures`, `atlasRecoveries`, `shapedGlyphRuns` /
+`unshapedGlyphRuns`, and `letterSpacingDroppedRasterizations`. The text
+layer reports failure as `nil` from a dozen places with no scene in
+scope, so `ScenePainter` brackets each attempt with
+`TextRenderDiagnosticsCounters.beginPass()` and copies the snapshot onto
+the scene it ships. Nothing branches on the counters — `isClean` is a
+reporting convenience, not a gate.
+
+### 3.3 Conversions, tracking and wrap cost
+
+- Every `Double → Int32/UInt32` in the text layer goes through
+  `roundedUpInt32` / `roundedUpUInt32`, which return `nil` on non-finite
+  or out-of-range input instead of trapping. `framePathTextRasterSize`
+  clamps both axes first: an unbounded frame extent contributes *no*
+  floor (so `.frame(width: .infinity)` rasterizes at the measured width,
+  not at the 4096 ceiling), and a non-finite draw *origin* makes
+  `appendCommands` decline rather than invent a pixel.
+- `PixelTextStyle.letterSpacing` is the 5×7 atlas's inter-glyph gap in
+  atlas units — its default of 1 is that font's normal spacing, not a
+  point value. Typographic tracking is `nativeLetterSpacing`, set only by
+  `.kerning` / `.tracking`, and the DirectWrite path applies it to both
+  measurement and painted glyph positions. The legacy bitmap raster path
+  cannot express it (that needs `IDWriteTextLayout1`) and says so through
+  `letterSpacingDroppedRasterizations`.
+- `longestFittingPrefixLength` gallops up from a short prefix before
+  binary-searching. A plain binary search probes at n/2 first, and on the
+  DirectWrite path each probe builds and shapes a whole
+  `IDWriteTextLayout`; space-less scripts have no other break
+  opportunity, so a 20,000-character CJK paragraph is one token and
+  wrapping it was O(n² log n) character shaping on the main actor.
+  `DirectWriteSystem.makeLineMeasurer` additionally memoises each call's
+  probes, which the minimum-scale-factor pass and the wrap pass share.
+
 ### 3.1 The atlas and texture upload protocol
 
 An atlas snapshot is a *versioned* value, not a bag of pixels with a
@@ -436,7 +517,10 @@ costs nothing and an unchanged image keeps its texture across frames.
 That cache is bounded twice — 30 frames unused, and a 96 MB byte budget
 — and both bounds evict least-recently-used first.
 
-**Tests:** `AtlasUploadProtocolTests` — the decision table, the
+**Tests:** `TextShapingPipelineTests` — shaped glyph identity, the frame
+plumbing (a shaped scene and an unshaped scene paint glyphs at the same
+height), the conversion guards, the registry, tracking, and the wrap
+probe budget. `AtlasUploadProtocolTests` — the decision table, the
 producers' versioning, and the real upload counts on WARP (frame 1
 fresh = one full upload, frame 2 unchanged = zero, frame 3 with a small
 region = one boxed upload, a region into a nil texture = full) plus

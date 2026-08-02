@@ -8737,6 +8737,19 @@ public struct ViewBuildContext {
         environmentValues.displayScale
     }
 
+    /// Display scale icon bitmaps are rasterized at.
+    ///
+    /// `Controls.icon` rasterizes eagerly at component-build time, so the scale
+    /// has to be known while the tree is being built. It used to come from the
+    /// process-global `NativeTextRenderer.defaultIconDisplayScale`, which every
+    /// window host overwrote on activation — under multi-window hosting at
+    /// mixed DPI the last window to activate decided the raster scale for all
+    /// of them. Reading it from the environment gives each host its own.
+    public var iconRasterDisplayScale: Double {
+        let scale = environmentValues.displayScale
+        return scale.isFinite && scale > 0 ? scale : 1
+    }
+
     public var pixelLength: Double {
         environmentValues.pixelLength
     }

@@ -14,6 +14,7 @@ final class WindowTextSystem {
         var lowercaseSmallCaps: Bool
         var uppercaseSmallCaps: Bool
         var letterSpacing: Double
+        var nativeLetterSpacing: Double?
         var lineSpacing: Double
         var lineBreakMode: TextLineBreakMode
         var maximumNumberOfLines: Int?
@@ -40,6 +41,7 @@ final class WindowTextSystem {
             self.lowercaseSmallCaps = style.lowercaseSmallCaps
             self.uppercaseSmallCaps = style.uppercaseSmallCaps
             self.letterSpacing = style.letterSpacing
+            self.nativeLetterSpacing = style.nativeLetterSpacing
             self.lineSpacing = style.lineSpacing
             self.lineBreakMode = style.lineBreakMode
             self.maximumNumberOfLines = style.maximumNumberOfLines

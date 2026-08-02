@@ -9,12 +9,28 @@ import WinSDK
 @MainActor
 public enum NativeTextRenderer {
     /// Display scale applied to icon bitmaps rasterized without an explicit
-    /// scale (the `displayScale` default of `Controls.icon`). Window hosts set
-    /// this alongside `RetainedViewRuntime.displayScale` before rebuilding the
-    /// component tree so eagerly rasterized icons match the physical display.
+    /// scale (the `displayScale` default of `Controls.icon`).
+    ///
+    /// This is a *last-resort* default for callers with no view environment —
+    /// `DeclarativeUI`, tools, tests. Every `WinSwiftUI` icon now passes
+    /// `ViewBuildContext.iconRasterDisplayScale`, which reads
+    /// `EnvironmentValues.displayScale`, because a process-global that every
+    /// window host overwrites on activation meant the last window to activate
+    /// decided the icon raster scale for all of them at mixed DPI.
     /// It defaults to 1 — the deterministic screenshot value — and offscreen
     /// scale-1 tools leave it untouched, keeping their output byte-identical.
     public static var defaultIconDisplayScale: Double = 1
+
+    /// Whether `layoutLine` resolves glyph runs through DirectWrite shaping
+    /// (glyph IDs, shaped advances, cluster map) instead of the per-character
+    /// `HitTestTextPosition` walk.
+    ///
+    /// Shaping is the correct path and the default: without it, ligatures paint
+    /// as overlapping isolated glyphs and complex scripts render in isolated
+    /// forms at shaped positions. The flag is an escape hatch - flip it off and
+    /// the whole pipeline reverts to the per-character walk, which is fully
+    /// intact and still exercised whenever a capture comes back empty.
+    public static var isGlyphShapingEnabled: Bool = true
 
     struct TestingOverrides {
         var measure: ((String, PixelTextStyle, Double, Double?) -> Size?)?
@@ -60,6 +76,13 @@ public enum NativeTextRenderer {
         clipRect: Rect?,
         into commands: inout [RenderCommand]
     ) -> Bool {
+        // A non-finite *origin* has no sane clamp - there is no pixel to draw
+        // at - so the frame path declines and the caller falls back. A
+        // non-finite *size* is fine: `framePathTextRasterSize` clamps it.
+        guard rect.origin.x.isFinite, rect.origin.y.isFinite else {
+            return false
+        }
+
         let externalizesDecorations = style.hasTextDecorations
         let textRenderStyle = externalizesDecorations ? style.withoutTextDecorations : style
 
@@ -153,8 +176,24 @@ public enum NativeTextRenderer {
         if let override = testingOverrides.rasterizeGlyphForLayout {
             return override(glyph, style, scaleFactor)
         }
-        return DirectWriteTextRenderer.rasterizeGlyph(glyph, style: style, scaleFactor: scaleFactor)
-            ?? DirectWriteTextRenderer.rasterizeGlyph(glyph.character, style: style, scaleFactor: scaleFactor)
+        if let bitmap = DirectWriteTextRenderer.rasterizeGlyph(glyph, style: style, scaleFactor: scaleFactor) {
+            return bitmap
+        }
+
+        // The atlas key is built from the *glyph's* family/weight/size, so the
+        // last-chance raster has to use them too. Rasterizing the paragraph
+        // style here cached a body-size bitmap under a title-size span's key,
+        // and every later frame drew the small glyph.
+        var glyphStyle = style
+        glyphStyle.fontFamily = glyph.fontFamily
+        glyphStyle.weight = glyph.weight
+        glyphStyle.nativeFontSize = glyph.fontSize.isFinite ? max(glyph.fontSize, 1) : style.nativeFontPixelSize
+        let bitmap = DirectWriteTextRenderer.rasterizeGlyph(
+            glyph.character, style: glyphStyle, scaleFactor: scaleFactor)
+        if bitmap == nil {
+            TextRenderDiagnosticsCounters.glyphRasterFailures += 1
+        }
+        return bitmap
     }
 }
 @MainActor
@@ -305,10 +344,18 @@ enum GDIRasterTextRenderer {
         resolvesMinimumScaleFactor: Bool = true
     ) -> BitmapSurface? {
         let rasterSize = size.scaled(by: scaleFactor)
-        let pixelWidth = max(1, Int32(rasterSize.width.rounded(.up)))
-        let pixelHeight = max(1, Int32(rasterSize.height.rounded(.up)))
+        guard
+            let pixelWidth = roundedUpInt32(
+                rasterSize.width, minimum: 1, maximum: Int32(maximumRasterPixels)),
+            let pixelHeight = roundedUpInt32(
+                rasterSize.height, minimum: 1, maximum: Int32(maximumRasterPixels))
+        else {
+            return nil
+        }
         let bytesPerRow = Int32(pixelWidth * 4)
-        let bufferSize = Int(bytesPerRow * pixelHeight)
+        // `Int`, not `Int32`: the product of two clamped extents still exceeds
+        // 2^31 at the ceiling, and a trap here is a crash on ordinary app code.
+        let bufferSize = Int(bytesPerRow) * Int(pixelHeight)
 
         guard let dc = CreateCompatibleDC(nil) else {
             return nil
@@ -535,26 +582,57 @@ private func contentWidthLimit(for maxWidth: Double?, style: PixelTextStyle) -> 
 /// measured size literally would try to rasterize multi-million-pixel bitmaps
 /// (E_INVALIDARG at texture upload). A hard ceiling keeps every raster within
 /// backend texture limits.
+let maximumFramePathRasterExtent = 4096.0
+
 func framePathTextRasterSize(frameSize: Size, measured: Size?, style: PixelTextStyle) -> Size {
+    // The frame is app-supplied and routinely non-finite: `.frame(width:
+    // .infinity)` resolves to an infinite width, and the raw value used to
+    // travel all the way into `UInt32(_:)` and trap. Both axes are sanitized
+    // here, once, so no downstream conversion has to re-derive the rule.
+    let sanitizedFrame = Size(
+        width: frameRasterFloor(frameSize.width),
+        height: frameRasterFloor(frameSize.height)
+    )
     guard let measured else {
-        return frameSize
+        return sanitizedFrame
     }
 
-    let maxRasterExtent = 4096.0
-    let contentWidth = max(0, measured.width - style.insets.leading - style.insets.trailing)
-    let contentHeight = max(0, measured.height - style.insets.top - style.insets.bottom)
-    let horizontalInsetCap = max(frameSize.width, contentWidth)
-    let verticalInsetCap = max(frameSize.height, contentHeight)
+    let maxRasterExtent = maximumFramePathRasterExtent
+    let measuredWidth = clampedRasterExtent(measured.width)
+    let measuredHeight = clampedRasterExtent(measured.height)
+    let contentWidth = max(0, measuredWidth - style.insets.leading - style.insets.trailing)
+    let contentHeight = max(0, measuredHeight - style.insets.top - style.insets.bottom)
+    let horizontalInsetCap = max(sanitizedFrame.width, contentWidth)
+    let verticalInsetCap = max(sanitizedFrame.height, contentHeight)
     let horizontalInsets = min(style.insets.leading, horizontalInsetCap) + min(style.insets.trailing, horizontalInsetCap)
     let verticalInsets = min(style.insets.top, verticalInsetCap) + min(style.insets.bottom, verticalInsetCap)
     return Size(
-        width: max(frameSize.width, min(measured.width, horizontalInsets + contentWidth, maxRasterExtent)),
-        height: max(frameSize.height, min(measured.height, verticalInsets + contentHeight, maxRasterExtent))
+        width: max(sanitizedFrame.width, min(measuredWidth, horizontalInsets + contentWidth, maxRasterExtent)),
+        height: max(sanitizedFrame.height, min(measuredHeight, verticalInsets + contentHeight, maxRasterExtent))
     )
+}
+
+/// NaN and infinity collapse to the raster ceiling, never past it.
+private func clampedRasterExtent(_ value: Double) -> Double {
+    guard value.isFinite else {
+        return maximumFramePathRasterExtent
+    }
+    return min(max(0, value), maximumFramePathRasterExtent)
+}
+
+/// The frame term is a *floor* ("rasterize at least the frame"). An unbounded
+/// frame supplies no floor at all, so it contributes zero rather than the
+/// ceiling - otherwise `.frame(width: .infinity)` would rasterize a 4096-wide
+/// bitmap for a six-character label.
+private func frameRasterFloor(_ value: Double) -> Double {
+    guard value.isFinite else {
+        return 0
+    }
+    return min(max(0, value), maximumFramePathRasterExtent)
 }
 private func measureRectWidth(maxWidth: Double?, style: PixelTextStyle, scaleFactor: Double) -> Int32 {
     let contentWidth = contentWidthLimit(for: maxWidth, style: style) ?? 4096
-    return max(1, Int32((contentWidth * max(scaleFactor, 1)).rounded(.up)))
+    return roundedUpInt32(contentWidth * max(scaleFactor, 1), minimum: 1, maximum: Int32(maximumRasterPixels)) ?? 4096
 }
 private func clampedMeasuredWidth(_ contentWidth: Double, style: PixelTextStyle, maxWidth: Double?) -> Double {
     if style.lineBreakMode == .clip, let contentLimit = contentWidthLimit(for: maxWidth, style: style) {

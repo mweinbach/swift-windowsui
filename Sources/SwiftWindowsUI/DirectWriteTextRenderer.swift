@@ -94,6 +94,12 @@ enum DirectWriteTextRenderer {
         return system.rasterizeGlyph(glyph, style: style, scaleFactor: scaleFactor)
     }
 }
+/// Hard ceiling on any single DirectWrite/GDI raster surface, in device
+/// pixels per axis. `framePathTextRasterSize` clamps to the same value in
+/// logical points before scaling; this is the last line of defence for the
+/// scaled result.
+let maximumRasterPixels: UInt32 = 8192
+
 struct CapturedGlyphRasterMetrics: Equatable, Sendable {
     var renderScale: Double
     var fontSize: Double
@@ -156,7 +162,13 @@ func isUsableCapturedGlyphBitmap(_ bitmap: NativeGlyphBitmap, fontSize: Double, 
     let maxExtent = max(fontSize * max(scaleFactor, 1.0) * 4.0, 32.0)
     return Double(bitmap.width) <= maxExtent && Double(bitmap.height) <= maxExtent
 }
-private func roundedUpInt32(_ value: Double, minimum: Int32) -> Int32? {
+/// The one `Double -> Int32` conversion in the text layer.
+///
+/// Every raw `Int32(x.rounded(.up))` in this stack was a trap waiting for
+/// `Text(...).frame(width: .infinity)`: Swift's fixed-width initializers fault
+/// on non-finite and out-of-range input. Callers that cannot proceed without a
+/// size get `nil` and degrade; nobody converts by hand.
+func roundedUpInt32(_ value: Double, minimum: Int32, maximum: Int32 = Int32.max) -> Int32? {
     guard value.isFinite else {
         return nil
     }
@@ -166,7 +178,21 @@ private func roundedUpInt32(_ value: Double, minimum: Int32) -> Int32? {
         return nil
     }
 
-    return max(minimum, Int32(rounded))
+    return min(maximum, max(minimum, Int32(rounded)))
+}
+
+/// `roundedUpInt32` for the DirectWrite APIs that take unsigned pixel extents.
+func roundedUpUInt32(_ value: Double, minimum: UInt32, maximum: UInt32 = UInt32(Int32.max)) -> UInt32? {
+    guard value.isFinite else {
+        return nil
+    }
+
+    let rounded = value.rounded(.up)
+    guard rounded >= 0, rounded <= Double(UInt32(Int32.max)) else {
+        return nil
+    }
+
+    return min(maximum, max(minimum, UInt32(rounded)))
 }
 @MainActor
 private final class DirectWriteSystem {
@@ -244,13 +270,12 @@ private final class DirectWriteSystem {
         }
 
         let maxContentWidth = contentWidthLimit(for: maxWidth, style: style)
+        let measureLine = makeLineMeasurer(style: style, format: measurementFormat)
         if resolvesMinimumScaleFactor {
             let effectiveStyle = style.resolvingMinimumScaleFactor(
                 for: text,
                 maxContentWidth: maxContentWidth,
-                measureLine: { [weak self] line in
-                    self?.measureSingleLine(line, format: measurementFormat) ?? 0
-                }
+                measureLine: measureLine
             )
             if effectiveStyle != style {
                 return layout(
@@ -267,9 +292,7 @@ private final class DirectWriteSystem {
             for: text,
             style: style,
             maxContentWidth: maxContentWidth,
-            measureLine: { [weak self] line in
-                self?.measureSingleLine(line, format: measurementFormat) ?? 0
-            }
+            measureLine: measureLine
         )
 
         var lines: [NativeTextLineLayout] = []
@@ -342,8 +365,14 @@ private final class DirectWriteSystem {
             Size(width: max(bounds.width, 1), height: max(bounds.height, 1)),
             scaleFactor: scaleFactor
         )
-        let pixelWidth = max(1, UInt32((logicalSize.width * scaleFactor).rounded(.up)))
-        let pixelHeight = max(1, UInt32((logicalSize.height * scaleFactor).rounded(.up)))
+        guard
+            let pixelWidth = roundedUpUInt32(
+                logicalSize.width * scaleFactor, minimum: 1, maximum: maximumRasterPixels),
+            let pixelHeight = roundedUpUInt32(
+                logicalSize.height * scaleFactor, minimum: 1, maximum: maximumRasterPixels)
+        else {
+            return nil
+        }
 
         var bitmapTargetRaw: UnsafeMutableRawPointer?
         let bitmapTargetHR = gdiInterop.pointee.lpVtbl!.pointee.CreateBitmapRenderTarget(
@@ -411,7 +440,10 @@ private final class DirectWriteSystem {
             surface: cropped.surface,
             bearingX: Float(-(bounds.overhangLeft * scaleFactor)) + cropped.bearingX,
             bearingY: Float(-(bounds.overhangTop * scaleFactor)) + cropped.bearingY,
-            advance: Float(advance * scaleFactor)
+            advance: Float(advance * scaleFactor),
+            // A one-character layout drawn at its own box origin: ink is
+            // measured down from the layout-box top, not from a baseline.
+            verticalFrame: .layoutBoxTop
         )
     }
 
@@ -419,7 +451,7 @@ private final class DirectWriteSystem {
         -> NativeGlyphBitmap?
     {
         var normalizedGlyph = glyph
-        normalizedGlyph.fontSize = max(glyph.fontSize, 1)
+        normalizedGlyph.fontSize = glyph.fontSize.isFinite ? max(glyph.fontSize, 1) : max(style.nativeFontPixelSize, 1)
         if let bitmap = rasterizeCapturedGlyph(normalizedGlyph, scaleFactor: scaleFactor),
             isUsableCapturedGlyphBitmap(bitmap, fontSize: normalizedGlyph.fontSize, scaleFactor: scaleFactor)
         {
@@ -453,13 +485,12 @@ private final class DirectWriteSystem {
             releaseDirectWriteCOM(&releasableFormat)
         }
 
+        let measureLine = makeLineMeasurer(style: style, format: measurementFormat)
         if resolvesMinimumScaleFactor {
             let effectiveStyle = style.resolvingMinimumScaleFactor(
                 for: text,
                 maxContentWidth: max(0, contentSize.width),
-                measureLine: { [weak self] line in
-                    self?.measureSingleLine(line, format: measurementFormat) ?? 0
-                }
+                measureLine: measureLine
             )
             if effectiveStyle != style {
                 return rasterize(
@@ -476,10 +507,15 @@ private final class DirectWriteSystem {
             for: text,
             style: style,
             maxContentWidth: max(0, contentSize.width),
-            measureLine: { [weak self] line in
-                self?.measureSingleLine(line, format: measurementFormat) ?? 0
-            }
+            measureLine: measureLine
         )
+        if style.nativeLetterSpacing ?? 0 != 0 {
+            // The bitmap raster draws through `IDWriteTextLayout`, which has no
+            // character-spacing knob in this interop (that lives on
+            // `IDWriteTextLayout1`). Wrapping above honours the tracking; the
+            // drawn glyph positions do not. Say so rather than pretending.
+            TextRenderDiagnosticsCounters.letterSpacingDroppedRasterizations += 1
+        }
 
         guard let format = createTextFormat(style: style, wrapping: wrappingMode(for: resolvedLayout, style: style))
         else {
@@ -499,8 +535,11 @@ private final class DirectWriteSystem {
             releaseDirectWriteCOM(&releasableLayout)
         }
 
-        let pixelWidth = max(1, UInt32((size.width * scaleFactor).rounded(.up)))
-        let pixelHeight = max(1, UInt32((size.height * scaleFactor).rounded(.up)))
+        guard let pixelWidth = roundedUpUInt32(size.width * scaleFactor, minimum: 1, maximum: maximumRasterPixels),
+            let pixelHeight = roundedUpUInt32(size.height * scaleFactor, minimum: 1, maximum: maximumRasterPixels)
+        else {
+            return nil
+        }
 
         var bitmapTargetRaw: UnsafeMutableRawPointer?
         let bitmapTargetHR = gdiInterop.pointee.lpVtbl!.pointee.CreateBitmapRenderTarget(
@@ -610,23 +649,65 @@ private final class DirectWriteSystem {
             releaseDirectWriteCOM(&releasableFormat)
         }
 
-        let glyphs = fallbackGlyphLayouts(from: layout, text: text, bounds: bounds, style: lineStyle)
-        let resolvedGlyphs =
-            glyphs.isEmpty
-            ? captureGlyphLayouts(from: layout, text: text, style: lineStyle) ?? []
-            : glyphs
+        // Shaping first. `captureGlyphLayouts` receives real `DWRITE_GLYPH_RUN`s
+        // - glyph IDs, shaped advances, per-glyph offsets and a cluster map -
+        // so ligatures are single glyphs and complex scripts get their
+        // contextual forms. The per-character `HitTestTextPosition` walk below
+        // it re-lays every character out in isolation at shaped positions; it
+        // is the fallback, not the default. `isGlyphShapingEnabled` is the
+        // escape hatch if a font ever shapes into something we cannot raster.
+        var resolvedGlyphs: [NativeTextGlyphLayout] = []
+        if NativeTextRenderer.isGlyphShapingEnabled,
+            let shaped = captureGlyphLayouts(from: layout, text: text, style: lineStyle),
+            !shaped.isEmpty
+        {
+            resolvedGlyphs = shaped
+            TextRenderDiagnosticsCounters.shapedGlyphRuns += 1
+        } else {
+            resolvedGlyphs = fallbackGlyphLayouts(from: layout, text: text, bounds: bounds, style: lineStyle)
+            if !resolvedGlyphs.isEmpty {
+                TextRenderDiagnosticsCounters.unshapedGlyphRuns += 1
+            }
+        }
+
+        var lineWidth = bounds.width
+        if let tracking = lineStyle.nativeLetterSpacing, tracking != 0, !resolvedGlyphs.isEmpty {
+            lineWidth = applyLetterSpacing(tracking, to: &resolvedGlyphs, lineWidth: lineWidth)
+        }
 
         let lineHeight = max(bounds.height, lineStyle.nativeFontPixelSize)
         let ascent = max(lineStyle.nativeFontPixelSize * 0.8, lineHeight * 0.7)
         let descent = max(0, lineHeight - ascent)
         return NativeTextLineLayout(
             text: text,
-            width: bounds.width,
+            width: lineWidth,
             height: lineHeight,
             ascent: ascent,
             descent: descent,
             glyphs: resolvedGlyphs
         )
+    }
+
+    /// `letterSpacing` (`.kerning` / `.tracking`) is plumbed from `WinSwiftUI`
+    /// and keyed in two caches, but DirectWrite's `IDWriteTextFormat` has no
+    /// character-spacing knob (that lives on `IDWriteTextLayout1`, which this
+    /// interop does not bind). Applying it to the shaped run keeps the one
+    /// contract that matters: measurement and painting move together.
+    /// Matches `PixelFont.rawLineWidth`, which spaces *between* glyphs only.
+    private func applyLetterSpacing(
+        _ letterSpacing: Double, to glyphs: inout [NativeTextGlyphLayout], lineWidth: Double
+    ) -> Double {
+        guard letterSpacing.isFinite else {
+            return lineWidth
+        }
+
+        for index in glyphs.indices {
+            glyphs[index].origin.x += Double(index) * letterSpacing
+            if index < glyphs.count - 1 {
+                glyphs[index].advance += letterSpacing
+            }
+        }
+        return max(0, lineWidth + Double(max(glyphs.count - 1, 0)) * letterSpacing)
     }
 
     private func atlasRasterizationStyle(from style: PixelTextStyle) -> PixelTextStyle {
@@ -723,7 +804,10 @@ private final class DirectWriteSystem {
             surface: cropped.surface,
             bearingX: cropped.bearingX,
             bearingY: cropped.bearingY - Float(metrics.baselineYOffset * metrics.renderScale),
-            advance: Float(metrics.advance * metrics.renderScale)
+            advance: Float(metrics.advance * metrics.renderScale),
+            // The run was drawn at a known baseline inside the padded target,
+            // and the crop is measured back to it.
+            verticalFrame: .baseline
         )
     }
 
@@ -757,16 +841,24 @@ private final class DirectWriteSystem {
         let characterInfo = characterInfoByUTF16Offset(for: text)
         return context.glyphs.map { glyph in
             let resolvedCharacter = glyph.textPosition.flatMap { characterInfo[$0] }
+            // The run's own em size, not the paragraph's: a `TextSpan` with a
+            // larger font shapes into a run whose `fontEmSize` is the span's,
+            // and that is the size the glyph must be rastered at.
+            let runFontSize = glyph.fontSize.isFinite && glyph.fontSize > 0 ? glyph.fontSize : style.nativeFontPixelSize
             return NativeTextGlyphLayout(
                 character: resolvedCharacter?.character ?? " ",
                 origin: glyph.origin,
                 advance: glyph.advance,
                 glyphID: glyph.glyphID,
                 fontFace: glyph.fontFace,
+                fontFaceID: glyph.fontFace.map { FontFaceRegistry.shared.identifier(for: $0) },
                 fontFamily: style.fontFamily,
                 weight: style.weight,
-                fontSize: style.nativeFontPixelSize,
-                sourceIndex: resolvedCharacter?.index
+                fontSize: runFontSize,
+                sourceIndex: resolvedCharacter?.index,
+                // `DrawGlyphRun` reports a baseline origin, so `origin.y` is
+                // the baseline - not the line top the hit-test walk reports.
+                verticalFrame: .baseline
             )
         }
     }
@@ -804,7 +896,8 @@ private final class DirectWriteSystem {
                     fontFamily: style.fontFamily,
                     weight: style.weight,
                     fontSize: style.nativeFontPixelSize,
-                    sourceIndex: index
+                    sourceIndex: index,
+                    verticalFrame: .layoutBoxTop
                 )
             )
         }
@@ -1221,7 +1314,12 @@ private final class DirectWriteSystem {
 
         let height = abs(Int32(dibSection.dsBmih.biHeight))
         let bytesPerRow = Int32(dibSection.dsBm.bmWidthBytes)
-        memset(bits, 0, Int(bytesPerRow * height))
+        // Int, not Int32: a 4K-wide surface overflows the product in 32 bits
+        // long before it overflows the allocation it describes.
+        guard height > 0, bytesPerRow > 0 else {
+            return false
+        }
+        memset(bits, 0, Int(bytesPerRow) * Int(height))
         return true
     }
 
@@ -1242,7 +1340,10 @@ private final class DirectWriteSystem {
         let width = Int32(dibSection.dsBmih.biWidth)
         let height = abs(Int32(dibSection.dsBmih.biHeight))
         let bytesPerRow = Int32(dibSection.dsBm.bmWidthBytes)
-        let data = Data(bytes: bits, count: Int(bytesPerRow * height))
+        guard width > 0, height > 0, bytesPerRow >= width * 4 else {
+            return nil
+        }
+        let data = Data(bytes: bits, count: Int(bytesPerRow) * Int(height))
 
         return BitmapSurface(width: width, height: height, bytesPerRow: bytesPerRow, pixels: data)
     }
@@ -1350,6 +1451,31 @@ private final class DirectWriteSystem {
             bearingX: Float(minX) - Float(paddingPixels),
             bearingY: Float(minY) - Float(paddingPixels)
         )
+    }
+
+    /// One memoised `measureLine` closure for a whole `layout`/`rasterize`
+    /// call.
+    ///
+    /// `resolveTextLayout` probes the same candidate strings more than once -
+    /// the minimum-scale-factor pass and the wrap pass measure the same lines,
+    /// and `wrapLine` re-measures the accumulating candidate - and every miss
+    /// on the DirectWrite path builds and destroys a full `IDWriteTextLayout`.
+    /// The memo also folds in `nativeLetterSpacing` so wrapping decisions and
+    /// painted advances are computed from the same widths.
+    private func makeLineMeasurer(style: PixelTextStyle, format: UnsafeMutablePointer<IDWriteTextFormat>) -> (String)
+        -> Double
+    {
+        let tracking = style.nativeLetterSpacing ?? 0
+        var memo: [String: Double] = [:]
+        return { [weak self] line in
+            if let cached = memo[line] {
+                return cached
+            }
+            let base = self?.measureSingleLine(line, format: format) ?? 0
+            let spaced = tracking == 0 ? base : max(0, base + Double(max(line.count - 1, 0)) * tracking)
+            memo[line] = spaced
+            return spaced
+        }
     }
 
     private func measureSingleLine(_ text: String, format: UnsafeMutablePointer<IDWriteTextFormat>) -> Double? {

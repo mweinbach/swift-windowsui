@@ -72,9 +72,16 @@ struct SceneRasterizerTests {
 
         assertPixel(bitmap, x: 15, y: 15, color: Color(red: 1, green: 0, blue: 0, alpha: 1))
         assertPixel(bitmap, x: 5, y: 5, color: Color(red: 0, green: 0, blue: 0, alpha: 1))
+        // 19x19 rather than 20x20: the quad's far corner pixel is 75%
+        // covered, because the shader's `aa` is `fwidth(distance)` and that
+        // doubles to 2 on the one pixel where both axes of the box SDF move
+        // across the derivative quad. `CrossBackendPixelParityTests` pins
+        // that the D3D11 backend draws the same corner.
         assertRegionColor(
-            bitmap, x: 10, y: 10, width: 20, height: 20,
+            bitmap, x: 10, y: 10, width: 19, height: 19,
             color: Color(red: 1, green: 0, blue: 0, alpha: 1))
+        let corner = bitmap.colorAt(x: 29, y: 29)!
+        #expect(corner.red > 0.7 && corner.red < 0.8, "the far corner is antialiased, got \(corner.red)")
     }
 
     @Test("Visual helper: gradient quad renders blended colors")

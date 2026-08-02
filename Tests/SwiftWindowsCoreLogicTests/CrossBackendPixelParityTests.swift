@@ -23,9 +23,17 @@ import XCTest
 /// `scripts/gallery-compare.ps1` uses, so 8-bit rounding and antialiasing
 /// noise pass while structural divergence does not.
 ///
-/// Scenes the audit found genuinely divergent are **in the suite and
-/// asserted against a measured floor** rather than skipped, each naming the
-/// workstream that will close the gap. Two things are checked for them:
+/// **Every scene in this suite gates.** Seven of them used to carry a
+/// measured floor instead — corner AA at 0.990–0.994, the shadow at 0.967,
+/// a large-radius material at 0.620 — because the CPU rasterizer ran a
+/// different coverage ramp, a different shadow, and a different blur
+/// ordering than the shipping shaders. WS-08 replaced all three with
+/// transcriptions of the HLSL, and the seven now agree to a maximum
+/// per-channel delta of 1 over every pixel.
+///
+/// The floor machinery below stays, unused, because it is the honest way
+/// to land a partial fix: a divergent scene belongs *in* the suite with a
+/// recorded floor, not skipped. It is pinned from both sides —
 ///
 /// - the ratio may not fall below the floor recorded when the divergence
 ///   was accepted, so a shader change that halves a deferred scene's
@@ -123,27 +131,10 @@ final class CrossBackendPixelParityTests: XCTestCase {
         )
     }
 
-    /// The rounded-corner AA gap, in one sentence: the shader's ramp width
-    /// is `max(fwidth(distance), 0.75)`, which runs from 1.0 px on the flat
-    /// edges up to 1.41 px at 45° along a corner arc; the CPU rasterizer's
-    /// `roundedRectCoverage` always ramps over exactly 1 px. Both agree at
-    /// the boundary and disagree by up to ~0.35 alpha half a pixel either
-    /// side of it, so a rounded rect misses the ratio on its corner arcs
-    /// alone.
-    private static let coverageKernelReason =
-        "WS-08 (CPU rasterizer fidelity): the two backends use different coverage ramps — the shader's "
-        + "derivative-based `aa` widens to 1.41px along a corner arc while the CPU rasterizer always ramps "
-        + "over 1px — so corner and non-integer edge pixels disagree."
-
-    private static func coverageKernelDivergence(floor: Double) -> KnownDivergence {
-        KnownDivergence(reason: coverageKernelReason, matchRatioFloor: floor)
-    }
-
     private static func uniformRadiusScene() -> ParityScene {
         ParityScene(
             name: "uniform corner radius",
             size: surface,
-            knownDivergence: coverageKernelDivergence(floor: 0.992),
             scene: makeScene { scene in
                 scene.addQuad(
                     QuadPrimitive(
@@ -161,7 +152,6 @@ final class CrossBackendPixelParityTests: XCTestCase {
         ParityScene(
             name: "per-corner radii",
             size: surface,
-            knownDivergence: coverageKernelDivergence(floor: 0.993),
             scene: makeScene { scene in
                 scene.addQuad(
                     QuadPrimitive(
@@ -182,11 +172,6 @@ final class CrossBackendPixelParityTests: XCTestCase {
         ParityScene(
             name: "rotated quad",
             size: surface,
-            knownDivergence: KnownDivergence(
-                reason:
-                    "WS-08 (CPU rasterizer fidelity): a rotated square quad has no antialiased edge on the CPU "
-                    + "rasterizer (binary coverage) while the GPU runs the box SDF, so every edge pixel disagrees.",
-                matchRatioFloor: 0.991),
             scene: makeScene { scene in
                 scene.addQuad(
                     QuadPrimitive(
@@ -204,11 +189,6 @@ final class CrossBackendPixelParityTests: XCTestCase {
         ParityScene(
             name: "shadow",
             size: surface,
-            knownDivergence: KnownDivergence(
-                reason:
-                    "WS-08 (CPU rasterizer fidelity): the CPU shadow inflates by blur/2 with a 1px ramp at 55% "
-                    + "alpha; the GPU inflates by 2×blur with a smoothstep falloff at full alpha.",
-                matchRatioFloor: 0.967),
             scene: makeScene { scene in
                 scene.addShadow(
                     ShadowPrimitive(
@@ -296,8 +276,9 @@ final class CrossBackendPixelParityTests: XCTestCase {
     /// `MIN_MAG_MIP_LINEAR` sampler, `RasterTarget.drawImage` picks the
     /// nearest texel — so the fixture uses a gentle per-texel gradient that
     /// keeps the two filters inside the tolerance. Making them agree on a
-    /// high-contrast image is WS-08's job; this scene's job is to prove the
-    /// channel order and alpha convention survive magnification.
+    /// high-contrast image needs a bilinear CPU sampler and is still open;
+    /// this scene's job is to prove the channel order and alpha convention
+    /// survive magnification.
     private static func scaledImageScene() -> ParityScene {
         let bitmap = imageFixture(size: 32, alpha: 255, step: 2)
         return ParityScene(
@@ -340,10 +321,6 @@ final class CrossBackendPixelParityTests: XCTestCase {
         return ParityScene(
             name: "path as quads",
             size: surface,
-            // The tessellator emits one scanline quad per row, so the
-            // triangle's diagonals land on fractional x edges — exactly
-            // where the square-quad coverage rules diverge.
-            knownDivergence: coverageKernelDivergence(floor: 0.993),
             scene: makeScene { scene in
                 for quad in quads {
                     scene.addQuad(quad)
@@ -378,16 +355,13 @@ final class CrossBackendPixelParityTests: XCTestCase {
 
     /// A Material: an opaque backdrop with a blurred, tinted panel over it.
     ///
-    /// Gates rather than defers: the two backends compose the effect
-    /// differently — the CPU tints then blurs in place over the quad's whole
-    /// AABB, the GPU blurs the backdrop offscreen then composites the tint
-    /// through coverage — but the result agrees on 99.96% of pixels, which
-    /// clears the suite's ratio. The residual disagreement is a thin band on
-    /// the panel's edge, where the CPU's in-place blur has already mixed the
-    /// tint into the pixels the GPU still composites over; WS-08 owns it.
-    /// The scene was deferred on the strength of the argument rather than
-    /// the measurement, which is the failure mode measured floors exist to
-    /// stop.
+    /// Both backends now compose the effect the same way — snapshot the
+    /// region, blur the snapshot, composite the tint through the quad's
+    /// coverage. The CPU used to tint first and blur the framebuffer in
+    /// place over the whole AABB, which cleared the ratio anyway (99.96%)
+    /// because the residual was a thin band on the panel's edge; the
+    /// scenes that ordering actually broke are the rounded ones, where it
+    /// smeared a square halo outside the corners.
     private static func materialScene() -> ParityScene {
         ParityScene(
             name: "material",
@@ -427,24 +401,17 @@ final class CrossBackendPixelParityTests: XCTestCase {
     /// wide averages a gradient into near-uniform grey, which any two
     /// implementations agree on for the wrong reason.
     ///
-    /// The recorded floor is low and honestly so: the material divergence
-    /// that costs 0.04% of pixels at radius 16 costs most of them at radius
-    /// 160, because a kernel wider than the region makes the *edge* policy —
-    /// the CPU re-normalizes the truncated kernel, the GPU clamps to the
-    /// region's outermost texels — the dominant term rather than a border
-    /// effect. What the floor buys is that the two cannot drift further
-    /// apart unnoticed; that each backend actually honours a radius past the
-    /// old 128 cap is pinned separately, in `D3D11BackdropBlurTests`.
+    /// This scene carried the suite's worst floor, 0.620, and it was the
+    /// kernel *edge policy* that earned it: a kernel wider than the region
+    /// makes the edges the dominant term rather than a border effect, and
+    /// the CPU re-normalized the truncated kernel where the GPU clamps taps
+    /// to the region's outermost texels. Clamping on both sides closed it
+    /// outright. That each backend actually honours a radius past the old
+    /// 128 cap is pinned separately, in `D3D11BackdropBlurTests`.
     private static func largeRadiusMaterialScene() -> ParityScene {
         ParityScene(
             name: "large-radius material",
             size: surface,
-            knownDivergence: KnownDivergence(
-                reason:
-                    "WS-08 (CPU rasterizer fidelity): at a radius wider than the blurred region the two "
-                    + "backends' kernel-edge policies dominate — the CPU re-normalizes the truncated kernel, "
-                    + "the GPU clamps taps to the region's outermost texels.",
-                matchRatioFloor: 0.620),
             scene: makeScene { scene in
                 scene.addQuad(
                     QuadPrimitive(
@@ -478,7 +445,6 @@ final class CrossBackendPixelParityTests: XCTestCase {
         ParityScene(
             name: "clipped rounded content",
             size: surface,
-            knownDivergence: coverageKernelDivergence(floor: 0.990),
             scene: makeScene { scene in
                 // Content deliberately larger than the clip on every side so
                 // all four rounded corners are exercised.

@@ -8,7 +8,13 @@ import SwiftWindowsCore
 ///
 /// 1. A **reference renderer** for pixel-perfect comparison against GPU backends
 ///    (e.g. D3D11BatchRenderer).  Any pixel diff between CPU and GPU output
-///    indicates a bug in the GPU shader or batching logic.
+///    indicates a bug in one of them — the claim is only worth what
+///    `CrossBackendPixelParityTests` measures, and it holds because
+///    `GPUIQuadCoverage`, `drawShadow` and `drawMaterialQuad` are
+///    transcriptions of the shipping HLSL rather than paraphrases of it
+///    (see `docs/GPURenderingPipeline.md` § 7a). The known residual is
+///    texture filtering: the GPU samples glyphs and images through a
+///    linear sampler, the rasterizer picks the nearest texel.
 ///
 /// 2. A **headless / CI backend** that does not need a GPU, HWND, or windowing
 ///    system.  It can render off-screen to a ``BitmapSurface`` for testing.

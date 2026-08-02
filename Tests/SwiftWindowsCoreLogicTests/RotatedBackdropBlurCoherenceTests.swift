@@ -16,16 +16,13 @@ import XCTest
 ///     through `D3D11BackdropBlurEngine`, which blurs the same AABB
 ///     (`blurRegion(for:...)`).
 ///
-/// Documented residual differences (pre-existing, not changed here):
-///   - the CPU rasterizer blurs in place AFTER drawing the quad, so it
-///     also softens the AABB corners outside the rotated footprint;
-///     D3D11 composites only through the quad's coverage, confining
-///     visible blur to the footprint;
-///   - the CPU rasterizer's `applyBoxBlur` converts its byte-domain
-///     averages through a normalized-[0,1] byte helper, quantizing
-///     blurred output far more harshly than a true Gaussian (affects
-///     axis-aligned material quads identically — reported as a
-///     follow-up, not pinned here).
+/// Both residual differences this file used to list are closed: the CPU
+/// rasterizer no longer blurs the framebuffer in place after drawing the
+/// tint (it snapshots the region, blurs the snapshot, and composites
+/// through the quad's coverage, exactly as the material shader does), and
+/// the byte-domain quantization in the blur passes is gone. What is left
+/// is that the two agree, which `CrossBackendPixelParityTests` measures
+/// and this file localizes to the rotated case.
 final class RotatedBackdropBlurCoherenceTests: XCTestCase {
 
     // MARK: - D3D11 routing

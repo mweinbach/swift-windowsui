@@ -75,7 +75,15 @@ final class VisualBaselineRegressionTests: XCTestCase {
             // comment if a visual change is intentional. Otherwise, a
             // hash drift means the rendering pipeline produces different
             // pixels than the last reviewed baseline.
-            let goldenHash: UInt64 = 0xFA5C_A9ED_4D36_C725
+            //
+            // Moved once, deliberately, in WS-08: square quads used to get
+            // binary coverage here and the box SDF's antialiasing on
+            // screen. The four rects in this scene are integer-aligned, so
+            // the only pixels that changed are each rect's far corner —
+            // 75 % covered rather than 100 %, because `fwidth` doubles
+            // where both axes of the SDF move across the derivative quad.
+            // That is what the shipping shader has always drawn.
+            let goldenHash: UInt64 = 0x08A7_699C_4BC5_C0A5
             XCTAssertEqual(
                 hash, goldenHash,
                 String(

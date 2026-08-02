@@ -151,7 +151,7 @@ Use these when you accept retained approximations.
 | **Drag and drop** | API + metadata on nodes; OS file drops (WM_DROPFILES) delivered to `onDrop` destinations as file URLs | Full delete/reorder/drop affordances, drag-over highlighting, OLE drag sessions |
 | **Accessibility** | Metadata on `ViewNode` + derived `AccessibilityElementProjection` + Win32 UI Automation provider (`WM_GETOBJECT`, fragment tree, InvokePattern, focus/structure events); default traits on Supported controls | Value/Text/Selection/Toggle patterns, live regions, fine-grained structure-changed events |
 | **Materials / blur** | True separable-Gaussian backdrop blur on both paths (D3D11: backbuffer region copy + two-pass GPU blur, same kernel as CPU); design-parity constants | Rotated material quads approximate; no downsample chain |
-| **Blend / drawing groups** | Metadata; some blend modes on frame fallback | Scene-path offscreen group compositing as full SwiftUI drawing groups |
+| **Blend / drawing groups** | Metadata only — both backends composite source-over, gated by `CPUGPUBlendModeContractTests` | Separable blend modes on the GPU (batch split + blend-state swap); scene-path offscreen group compositing as full SwiftUI drawing groups |
 | **3D transforms** | Z-axis rotation maps to 2D; metadata stored | Full 3D projection pipeline |
 | **Color effects / shaders** | Metadata for invalidation / source shape | No compiled Metal/HLSL filter application yet |
 | **Navigation deep stacks** | Push/pop for common link patterns | Full path binding, deep-link multi-window routing |

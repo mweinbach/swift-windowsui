@@ -915,18 +915,13 @@ scene from both sides:
   nobody unskips is a gate nobody is minding.
 
 Skipping after computing the comparison, which is what the suite did first,
-bought neither: it built the report and threw it away. Turning the skips
-into floors immediately found one scene that had already graduated —
-materials, at 0.9996 — and it now gates like the rest.
+bought neither: it built the report and threw it away.
 
-Today's deferred list: shadows (different inflation, falloff and alpha),
-a material blurred at a radius wider than its own region (the CPU
-re-normalizes the truncated kernel at the edges, the GPU clamps taps to the
-region's outermost texels), and everything with a rounded corner, a
-rotation or a non-integer edge (the shader's ramp width is
-`max(fwidth(distance), 0.75)`, up to 1.41 px along a corner arc, while
-`roundedRectCoverage` always ramps over exactly 1 px, and square quads take
-a binary-coverage short-circuit with no antialiasing at all).
+**The deferred list is currently empty.** Seven scenes carried floors —
+corner antialiasing at 0.990–0.994, the shadow at 0.967, a large-radius
+material at 0.620 — and § 7a closed all of them; every scene in the suite
+now gates at the standard ratio, with a maximum per-channel delta of 1. The
+machinery stays because a floor is the honest way to land a partial fix.
 
 Images and CPU-rasterized path textures used to be on that list — the batch
 renderer uploaded BGRA `BitmapSurface` bytes as `R8G8B8A8_UNORM` and blended
@@ -936,6 +931,124 @@ now agree, because the pixel format is part of the surface (§ 4a). The
 residual sampling difference — linear on the GPU, nearest on the CPU — is
 still real; the `scaled image` scene keeps its gradient gentle enough to
 stay inside the tolerance rather than pretending the filters match.
+
+## 7a. What the reference renderer actually models
+
+The CPU rasterizer's job is to draw what the shaders draw. Six models it
+used to get wrong, and what it does now — each pinned by
+`SharedCoverageKernelTests`, `CPURasterizerGPUModelTests`,
+`PathRasterizationQualityTests` or `CPUGPUBlendModeContractTests`, and all
+six measured end-to-end by `CrossBackendPixelParityTests`.
+
+**Coverage.** `GPUIQuadCoverage` is the single Swift transcription of
+`roundedRectDistance` + `saturate(0.5 - d/aa)`, used by the quad body, the
+rounded clip and the shadow envelope alike. Three parts of the shader that
+are easy to lose in a paraphrase and that the old `roundedRectCoverage`
+had lost:
+
+- There is **no `radius == 0` short circuit.** Square quads run the same
+  box SDF as rounded ones; answering `rect.contains(pixelCentre) ? 1 : 0`
+  snapped every divider, border segment and un-rounded control background
+  to whole pixels in the reference render while the shader feathered them.
+- `aa` is **`fwidth(distance)` as the hardware measures it** — a finite
+  difference across the 2×2 derivative quad, aligned to even pixel
+  coordinates, not the analytic gradient. It is 1 along an axis-aligned
+  edge, √2 along a corner arc at 45°, wider again on a rotated edge (the
+  derivative is taken after the rotation), and **2** on the one pixel where
+  both axes of the box SDF move across the quad. That last case is why the
+  far corner pixel of every square rect is 75 % covered rather than 100 %,
+  on both backends; an analytic gradient reads 1 px of ramp there where the
+  shader reads 2. Emulating the derivative quad rather than differentiating
+  in closed form is what took the parity scenes from ~0.99 to 1.0000.
+- The **rasterizer's own coverage rule is part of the model**: a pixel
+  shader runs only where the geometry covers the pixel centre, so the
+  shipping antialiasing is a *half* ramp — alpha falls from 1 to 0.5 across
+  the last half pixel inside the quad and is cut to 0 outside it. Scanning
+  an outward-rounded integer window and evaluating the SDF over it painted
+  an outward half-ramp no GPU draw can produce.
+
+**Clipping.** A rounded clip contributes an antialiased `clipAlpha` that
+multiplies the primitive's alpha; it used to be computed and then thrown
+away as a boolean gate, so every card and sheet corner was hard-edged in
+the reference render. An unrounded clip is rejected per pixel centre
+against the float rect, in every family (quad, glyph, image, path, shadow),
+rather than via the outward-rounded scan window — a systematic 1 px bleed
+at 125 % and 150 % DPI.
+
+**Shadows.** The envelope is the rect grown by `2 · blurRadius`, the
+falloff is `1 - smoothstep(-blur/2, blur, distance)`, and the peak alpha is
+the requested alpha. The rasterizer used to grow by `blurRadius / 2`, ramp
+linearly over 1 px on a rounded rect of radius
+`cornerRadius + 0.35 · blurRadius`, and scale alpha by a magic `0.55` that
+appeared nowhere else in the stack. A `.shadow(radius: 20)` was a crisp
+10 px halo at 55 % in every screenshot and a soft 40 px halo at full alpha
+on screen. The `0.55` is retired, not promoted to a design constant.
+
+**Materials.** `drawMaterialQuad` performs the GPU's three steps in the
+GPU's order: snapshot the region under the quad, blur the snapshot, then
+composite the tint over it *through the quad's coverage*. The rasterizer
+used to tint first and blur the framebuffer in place over the quad's whole
+axis-aligned window, which smeared the backdrop outside a rounded corner
+into a square halo and — with `blurOpaque` — overwrote the same window's
+alpha unconditionally, turning an opaque material's rounded corners into
+square opaque blocks. The blur itself clamps taps to the region's outermost
+texel, as the GPU's sampler-clamped pass does, instead of re-normalizing
+the truncated kernel; that policy difference is invisible while the kernel
+is narrower than the region and dominant once it is wider, which is exactly
+`.blur(radius: 80)` on a 2× display.
+
+**Colour effects.** `luminanceToAlpha` writes alpha, so both sides branch
+it out of `applyColorEffect` and apply it *before* the coverage multiply;
+applying it after overwrote the antialiasing and the quad's own alpha. The
+shader `saturate`s the effect result, because the CPU's `RasterColor`
+clamps every channel — without it an over-driven brightness composited
+brighter on the GPU, where the premultiply happens before the render
+target's UNORM clamp.
+
+**Blend modes.** The contract is **source-over, and only source-over**.
+`QuadPrimitive.blendMode` used to be honoured by the CPU rasterizer's
+`blend` (five separable modes) and ignored by the HLSL, which declares
+`float blendMode;` and never reads it against a fixed
+`ONE / INV_SRC_ALPHA` blend state — so `.blendMode(.multiply)` was a
+multiply in every screenshot and a plain composite on screen. The field is
+still lowered onto the primitive so the information survives, but no
+backend interprets it. Implementing it means splitting quad batches and
+swapping `ID3D11BlendState` (multiply, screen and plusLighter are
+expressible as fixed-function states; overlay is not);
+`CPUGPUBlendModeContractTests` is what that work would delete.
+
+## 7b. Path fill and stroke
+
+`ensureCachedPathTexture` CPU-rasterizes every `PathPrimitive` and uploads
+the bitmap, so path quality here is not a fallback concern — it is the
+shipping appearance of `Canvas`, `Shape` strokes, chart lines and the
+SF-symbol vector fallback.
+
+Fill and stroke each accumulate into one per-path coverage buffer
+(`PathCoverageRasterizer`, exact in x and 8× supersampled in y) and
+composite with a **single blend per pixel**. Four things that buys:
+
+- **Antialiasing.** Spans used to be blended at full strength across
+  integer x, so every curve and diagonal was a staircase.
+- **No double blending.** Each flattened stroke segment used to be
+  scanline-filled as its own quad with the right edge rounded out and the
+  left rounded in, so adjacent segments overlapped and a translucent
+  polyline came out blotchy and progressively darker at every vertex.
+- **Joins.** The stroke outline is a quad per segment plus a round join
+  wherever consecutive segments turn enough for the wedge between them to
+  show, all wound the same way so a non-zero fill of the set is exactly
+  their union. `PathPrimitive` carries only a `lineWidth`, so caps are butt
+  (SwiftUI's default) and joins are round — a stand-in for SwiftUI's
+  default miter that is indistinguishable on a flattened curve and degrades
+  to a rounded corner rather than an unbounded spike on a sharp one.
+  Carrying `StrokeStyle` through the contract is what a real miter needs.
+- **SwiftUI fill semantics.** Every subpath is implicitly closed for
+  filling (a three-point triangle without `.close` used to be *invisible*:
+  most scanlines produced one crossing and the pairing loop discarded it)
+  but not for stroking, and the fill rule is **non-zero**, matching
+  SwiftUI and this stack's own `Path.contains(_:eoFill: false)`. Even-odd
+  filled a star or a figure-eight with holes its own hit testing called
+  solid.
 
 ## 8. Stress / robustness invariants
 
@@ -1022,9 +1135,10 @@ panel whose ViewNode `blurRadius` is set from the material kind:
 | `bar`         | 0.64   | 18 px       |
 
 The painter emits the panel's background quad with the encoded
-`blurRadius`; the CPU rasterizer's existing `applyBoxBlur` step
-produces the actual blurred backdrop in-place. Tested by
-`MaterialBackdropBlurTests`.
+`blurRadius`; the CPU rasterizer's `drawMaterialQuad` snapshots the
+region under the quad, blurs the snapshot and composites the tint over it
+through the quad's coverage (§ 7a). Tested by
+`MaterialBackdropBlurTests` and `CPURasterizerGPUModelTests`.
 
 **Backend parity:** the D3D11 batch renderer now performs true backdrop
 blur for material quads: each blur quad (radius ≥ 1) splits the quad

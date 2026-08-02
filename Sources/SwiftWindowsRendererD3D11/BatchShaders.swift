@@ -283,7 +283,12 @@ float4 psMain(VSOutput input) : SV_Target
     }
     else
     {
-        color.rgb = applyColorEffect(color.rgb, input.effectType, input.effectIntensity, input.effectParam1, input.effectParam2, input.effectParam3, input.effectParam4);
+        // saturate: the CPU rasterizer clamps every channel when it
+        // builds a RasterColor, so an over-driven brightness or contrast
+        // has to clamp here too. Without it a partially transparent quad
+        // with rgb > 1 composites brighter on the GPU, since the
+        // premultiply happens before the render target's UNORM clamp.
+        color.rgb = saturate(applyColorEffect(color.rgb, input.effectType, input.effectIntensity, input.effectParam1, input.effectParam2, input.effectParam3, input.effectParam4));
     }
 
     return float4(color.rgb * color.a * alpha * clipAlpha, color.a * alpha * clipAlpha);
@@ -297,12 +302,12 @@ float4 psMain(VSOutput input) : SV_Target
 // ALREADY-BLURRED backdrop instead of emitting the tint alone. The
 // backdrop texture holds the blurred "scene so far" for the quad's
 // region (produced by the separable blur pass below), sampled with
-// screen-space UVs derived from the region cbuffer. This is the GPU
-// counterpart of the CPU rasterizer's applyBoxBlur + tint: because the
-// tint composite is affine in the backdrop and the Gaussian is linear,
-// blur-then-tint and tint-then-blur agree for constant tints (and for
-// the smooth gradients materials actually use), so both backends
-// produce the same frosted-glass result.
+// screen-space UVs derived from the region cbuffer. The CPU rasterizer's
+// `drawMaterialQuad` performs the same three steps in the same order —
+// snapshot the region, blur it, composite the tint through the quad's
+// coverage — so the frosted-glass result agrees rather than merely
+// resembling. It used to tint first and blur the framebuffer in place
+// over the whole AABB, which no shader ordering can reproduce.
 
 let batchMaterialQuadShaderSource = batchQuadShaderSharedSource + "\n" + #"""
 Texture2D backdropTexture : register(t1);
@@ -368,7 +373,9 @@ float4 psMain(VSOutput input) : SV_Target
     }
     else
     {
-        color.rgb = applyColorEffect(color.rgb, input.effectType, input.effectIntensity, input.effectParam1, input.effectParam2, input.effectParam3, input.effectParam4);
+        // saturate for the same reason as the plain quad shader: the CPU
+        // rasterizer's RasterColor clamps, so this must too.
+        color.rgb = saturate(applyColorEffect(color.rgb, input.effectType, input.effectIntensity, input.effectParam1, input.effectParam2, input.effectParam3, input.effectParam4));
     }
 
     // Sample the blurred backdrop at this pixel's screen position.

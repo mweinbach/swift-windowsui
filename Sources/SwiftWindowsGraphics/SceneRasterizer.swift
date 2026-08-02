@@ -8,7 +8,8 @@ import SwiftWindowsCore
 /// backdrop now looks like macOS visual-effects blur instead of a
 /// "smeared rectangle" box approximation.
 ///
-/// Public so tests can verify the kernel shape directly.
+/// Public so tests can verify the kernel shape directly, and so the D3D11
+/// backdrop-blur engine uploads the exact same weights.
 public func gaussianBlurKernel(radius: Int) -> [Float] {
     precondition(radius > 0)
     let sigma = max(Float(radius) / 2.0, 0.5)
@@ -29,8 +30,6 @@ public func gaussianBlurKernel(radius: Int) -> [Float] {
     }
     return kernel
 }
-
-// MARK: - Path Flattening & Scanline Fill
 
 /// Rotates the offset `(dx, dy)` from the centre by `(cosR, sinR)` and
 /// returns the resulting world-space point. Used by the rasterizer's
@@ -153,15 +152,17 @@ private struct RasterTarget {
             height: Double(quad.height)
         )
         let rotation = Double(quad.rotationRadians)
+        let clip = GPUIClipRegion(
+            x: quad.clipX, y: quad.clipY, width: quad.clipWidth, height: quad.clipHeight,
+            cornerRadius: quad.clipCornerRadius)
         // Choose pixel-scan bounds and the (x, y) → local-coords mapping
         // based on whether the quad is rotated. For rotation == 0 the
         // local coords are the pixel center, preserving byte-identical
         // output with the historic axis-aligned fast path.
         let bounds: PixelBounds
         let localOf: (Double, Double) -> (Double, Double)
-        let clipForScan = clipRect(quad.clipX, quad.clipY, quad.clipWidth, quad.clipHeight)
         if rotation == 0 {
-            guard let unrotatedBounds = clippedPixelBounds(rect, clip: clipForScan) else { return }
+            guard let unrotatedBounds = clippedPixelBounds(rect, clip: clip.rect) else { return }
             bounds = unrotatedBounds
             localOf = { ($0, $1) }
         } else {
@@ -186,7 +187,7 @@ private struct RasterTarget {
             let minY = corners.map(\.y).min() ?? rect.minY
             let maxY = corners.map(\.y).max() ?? rect.maxY
             let aabb = Rect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-            guard let rotatedBounds = clippedPixelBounds(aabb, clip: clipForScan) else { return }
+            guard let rotatedBounds = clippedPixelBounds(aabb, clip: clip.rect) else { return }
             bounds = rotatedBounds
             // Pre-compute inverse-rotation values for the closure.
             let invCos = cos(-rotation)
@@ -202,71 +203,19 @@ private struct RasterTarget {
 
         // Resolve the effective corner radii: per-corner values win when
         // the primitive carries any; otherwise broadcast the uniform
-        // cornerRadius (the historic path, byte-identical output).
-        let cornerRadii: (topLeft: Double, topRight: Double, bottomRight: Double, bottomLeft: Double)
+        // cornerRadius — the same rule the shader's vertex stage applies.
+        let radii: GPUIQuadCoverage.CornerRadii
         if quad.usesPerCornerRadii {
-            cornerRadii = (
+            radii = GPUIQuadCoverage.CornerRadii(
                 topLeft: Double(quad.cornerRadiusTopLeft),
                 topRight: Double(quad.cornerRadiusTopRight),
                 bottomRight: Double(quad.cornerRadiusBottomRight),
-                bottomLeft: Double(quad.cornerRadiusBottomLeft)
-            )
+                bottomLeft: Double(quad.cornerRadiusBottomLeft))
         } else {
-            let uniform = max(0, Double(quad.cornerRadius))
-            cornerRadii = (topLeft: uniform, topRight: uniform, bottomRight: uniform, bottomLeft: uniform)
+            radii = GPUIQuadCoverage.CornerRadii(uniform: max(0, Double(quad.cornerRadius)))
         }
         let start = RasterColor(red: quad.startR, green: quad.startG, blue: quad.startB, alpha: quad.startA)
         let end = RasterColor(red: quad.endR, green: quad.endG, blue: quad.endB, alpha: quad.endA)
-        let effectType = quad.effectType
-        let effectIntensity = quad.effectIntensity
-        let effectParam1 = quad.effectParam1
-        let effectParam2 = quad.effectParam2
-        let effectParam3 = quad.effectParam3
-        let effectParam4 = quad.effectParam4
-        let clipRadius = max(0, Double(quad.clipCornerRadius))
-        // Loop-invariant, and the conversion saturates: `Int(_: Float)`
-        // traps on a non-finite selector, and this used to run once per
-        // pixel.
-        let mode = BlendMode(rawValue: GPUISceneValue.int(quad.blendMode)) ?? .normal
-        for y in bounds.y0..<bounds.y1 {
-            for x in bounds.x0..<bounds.x1 {
-                let pixelCenterX = Double(x) + 0.5
-                let pixelCenterY = Double(y) + 0.5
-                let (localX, localY) = localOf(pixelCenterX, pixelCenterY)
-                let coverage = roundedRectCoverage(x: localX, y: localY, rect: rect, cornerRadii: cornerRadii)
-                guard coverage > 0 else {
-                    continue
-                }
-
-                if clipRadius > 0 {
-                    let clipRect = Rect(
-                        x: Double(quad.clipX),
-                        y: Double(quad.clipY),
-                        width: Double(quad.clipWidth),
-                        height: Double(quad.clipHeight)
-                    )
-                    // Clip is in world (pre-rotation) coordinates; use
-                    // the world pixel center, not the local-rotated one.
-                    let clipCoverage = roundedRectCoverage(
-                        x: pixelCenterX, y: pixelCenterY, rect: clipRect, radius: clipRadius)
-                    guard clipCoverage > 0 else {
-                        continue
-                    }
-                }
-
-                let progress: Float
-                if quad.gradientAxis >= 0.5 {
-                    progress = Float(clamp((localX - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1))
-                } else {
-                    progress = Float(clamp((localY - rect.minY) / max(rect.size.height, 1), lower: 0, upper: 1))
-                }
-                var color = start.interpolated(to: end, progress: progress).withAlphaMultiplier(Float(coverage))
-                color = applyRasterColorEffect(
-                    color, effectType: effectType, intensity: effectIntensity, param1: effectParam1,
-                    param2: effectParam2, param3: effectParam3, param4: effectParam4)
-                blend(color, x: x, y: y, mode: mode)
-            }
-        }
 
         // Capped at the shared engine limit the GPU's backdrop blur
         // honours too (`GPUISceneLimits.maxBlurRadius`), so the two
@@ -274,48 +223,329 @@ private struct RasterTarget {
         // separable blur below is O(w·h·r) and allocates a `2r+1` kernel,
         // so an uncapped radius is an unbounded frame even before the
         // conversion trap.
+        //
+        // The predicate is `> 0` after truncation, which is exactly
+        // `D3D11BatchRenderer.splitQuadRangeForBackdropBlur`'s: a quad
+        // that blurs here takes the backdrop path there.
         let blurRadius = min(GPUISceneValue.int(quad.blurRadius), Int(GPUISceneLimits.maxBlurRadius))
         if blurRadius > 0 {
-            applyBoxBlur(to: bounds, radius: blurRadius)
-            if quad.blurOpaque > 0.5 {
-                for y in bounds.y0..<bounds.y1 {
-                    for x in bounds.x0..<bounds.x1 {
-                        let offset = pixelOffset(x: x, y: y)
-                        pixels[offset + 3] = 255
-                    }
-                }
+            drawMaterialQuad(
+                quad, rect: rect, radii: radii, clip: clip, bounds: bounds, localOf: localOf,
+                start: start, end: end, blurRadius: blurRadius)
+            return
+        }
+
+        // The plain quad shader widens its edge falloff by `blurRadius * 2`
+        // instead of blurring. Only sub-pixel radii ever reach it — anything
+        // that truncates to ≥ 1 went to the material path above — but the
+        // term is transcribed rather than dropped so the two agree there too.
+        let extraEdgeSoftness = 2 * max(Double(quad.blurRadius), 0)
+        let distanceAt = quadDistanceSampler(rect: rect, radii: radii, localOf: localOf)
+        for y in bounds.y0..<bounds.y1 {
+            for x in bounds.x0..<bounds.x1 {
+                // Clip is in world (pre-rotation) coordinates; use the
+                // world pixel center, not the local-rotated one.
+                let clipAlpha = clip.alpha(atPixelX: x, y: y)
+                guard clipAlpha > 0 else { continue }
+                let (localX, localY) = localOf(Double(x) + 0.5, Double(y) + 0.5)
+                guard GPUIQuadCoverage.geometryCovers(localX: localX, localY: localY, rect: rect) else { continue }
+                let coverage = GPUIQuadCoverage.coverage(
+                    pixelX: x, pixelY: y, extraEdgeSoftness: extraEdgeSoftness, distanceAt: distanceAt)
+                guard coverage > 0 else { continue }
+
+                let color = shadedQuadColor(quad, start: start, end: end, localX: localX, localY: localY, rect: rect)
+                blend(color.withAlphaMultiplier(Float(coverage * clipAlpha)), x: x, y: y)
             }
         }
     }
 
+    /// Wraps a quad's geometry as the surface-space distance function
+    /// `GPUIQuadCoverage.coverage` samples. The inverse rotation lives in
+    /// `localOf`, so the finite difference the coverage function takes is
+    /// a screen-space one — which is where `fwidth` takes it.
+    private func quadDistanceSampler(
+        rect: Rect,
+        radii: GPUIQuadCoverage.CornerRadii,
+        localOf: @escaping (Double, Double) -> (Double, Double)
+    ) -> (Double, Double) -> Double {
+        { sampleX, sampleY in
+            let (localX, localY) = localOf(sampleX, sampleY)
+            return GPUIQuadCoverage.signedDistance(
+                localX: localX - rect.minX, localY: localY - rect.minY,
+                width: rect.size.width, height: rect.size.height, radii: radii)
+        }
+    }
+
+    /// The material/backdrop-blur path, ported from the GPU's ordering:
+    /// snapshot the scene-so-far under the quad, blur *that*, then
+    /// composite the tint over the blurred copy and write the result
+    /// through the quad's own coverage.
+    ///
+    /// The rasterizer used to draw the tint into the framebuffer and blur
+    /// the result in place over the quad's whole axis-aligned scan window.
+    /// Two consequences, both visible in every screenshot of a card: the
+    /// backdrop *outside* a rounded corner was smeared into a square halo,
+    /// and `blurOpaque` overwrote the same window's alpha unconditionally,
+    /// so an opaque material's rounded corners became square opaque
+    /// blocks. Compositing through coverage cannot express either.
+    private mutating func drawMaterialQuad(
+        _ quad: QuadPrimitive,
+        rect: Rect,
+        radii: GPUIQuadCoverage.CornerRadii,
+        clip: GPUIClipRegion,
+        bounds: PixelBounds,
+        localOf: @escaping (Double, Double) -> (Double, Double),
+        start: RasterColor,
+        end: RasterColor,
+        blurRadius: Int
+    ) {
+        let regionWidth = bounds.width
+        let regionHeight = bounds.height
+        guard regionWidth > 0, regionHeight > 0 else { return }
+
+        var backdrop = premultipliedRegion(bounds)
+        blurPremultipliedRegion(&backdrop, width: regionWidth, height: regionHeight, radius: blurRadius)
+        let forcesOpaque = quad.blurOpaque > 0.5
+        let distanceAt = quadDistanceSampler(rect: rect, radii: radii, localOf: localOf)
+
+        for y in bounds.y0..<bounds.y1 {
+            for x in bounds.x0..<bounds.x1 {
+                let clipAlpha = clip.alpha(atPixelX: x, y: y)
+                guard clipAlpha > 0 else { continue }
+                let (localX, localY) = localOf(Double(x) + 0.5, Double(y) + 0.5)
+                guard GPUIQuadCoverage.geometryCovers(localX: localX, localY: localY, rect: rect) else { continue }
+                let coverage = GPUIQuadCoverage.coverage(pixelX: x, pixelY: y, distanceAt: distanceAt)
+                guard coverage > 0 else { continue }
+
+                let color = shadedQuadColor(quad, start: start, end: end, localX: localX, localY: localY, rect: rect)
+                let offset = ((y - bounds.y0) * regionWidth + (x - bounds.x0)) * 4
+                // The blurred backdrop is premultiplied, matching the
+                // render target the GPU's blur pass copies from.
+                let inverse = 1 - color.alpha
+                let compositedBlue = color.blue * color.alpha + Float(backdrop[offset]) / 255 * inverse
+                let compositedGreen = color.green * color.alpha + Float(backdrop[offset + 1]) / 255 * inverse
+                let compositedRed = color.red * color.alpha + Float(backdrop[offset + 2]) / 255 * inverse
+                let backdropAlpha = Float(backdrop[offset + 3]) / 255
+                let outputAlpha = forcesOpaque ? 1 : color.alpha + backdropAlpha * inverse
+                guard outputAlpha > 0 else { continue }
+
+                blend(
+                    RasterColor(
+                        red: compositedRed / outputAlpha,
+                        green: compositedGreen / outputAlpha,
+                        blue: compositedBlue / outputAlpha,
+                        alpha: outputAlpha * Float(coverage * clipAlpha)
+                    ),
+                    x: x, y: y)
+            }
+        }
+    }
+
+    /// The quad's tint at a local sample: gradient lerp, then the colour
+    /// effect — including `luminanceToAlpha`, which the shader applies to
+    /// `color.a` **before** the coverage multiply.
+    ///
+    /// The rasterizer used to multiply coverage in first, so effect 8's
+    /// `alpha = luminance` overwrote both the quad's alpha and its
+    /// antialiasing: a `luminanceToAlpha` quad was a hard-edged block on
+    /// CPU and a properly feathered, correctly clipped shape on screen.
+    private func shadedQuadColor(
+        _ quad: QuadPrimitive,
+        start: RasterColor,
+        end: RasterColor,
+        localX: Double,
+        localY: Double,
+        rect: Rect
+    ) -> RasterColor {
+        let progress: Float
+        if quad.gradientAxis > 0.5 {
+            progress = Float(clamp((localX - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1))
+        } else {
+            progress = Float(clamp((localY - rect.minY) / max(rect.size.height, 1), lower: 0, upper: 1))
+        }
+        let color = start.interpolated(to: end, progress: progress)
+        // 8 = luminanceToAlpha, branched in psMain rather than inside
+        // applyColorEffect because it writes alpha as well as rgb.
+        if quad.effectType > 7.5, quad.effectType < 8.5 {
+            let luminance = Float(
+                0.299 * Double(color.red) + 0.587 * Double(color.green) + 0.114 * Double(color.blue))
+            return RasterColor(red: luminance, green: luminance, blue: luminance, alpha: luminance)
+        }
+        return applyRasterColorEffect(
+            color, effectType: quad.effectType, intensity: quad.effectIntensity, param1: quad.effectParam1,
+            param2: quad.effectParam2, param3: quad.effectParam3, param4: quad.effectParam4)
+    }
+
+    /// Copies the framebuffer under `bounds` into a premultiplied BGRA
+    /// buffer — the convention the GPU's ping-pong targets hold, since
+    /// they are a `CopySubresourceRegion` of a premultiplied render
+    /// target.
+    private func premultipliedRegion(_ bounds: PixelBounds) -> [UInt8] {
+        let regionWidth = bounds.width
+        let regionHeight = bounds.height
+        var region = [UInt8](repeating: 0, count: regionWidth * regionHeight * 4)
+        for y in bounds.y0..<bounds.y1 {
+            for x in bounds.x0..<bounds.x1 {
+                let source = pixelOffset(x: x, y: y)
+                let destination = ((y - bounds.y0) * regionWidth + (x - bounds.x0)) * 4
+                let alpha = Float(pixels[source + 3]) / 255
+                region[destination] = byte(Float(pixels[source]) / 255 * alpha)
+                region[destination + 1] = byte(Float(pixels[source + 1]) / 255 * alpha)
+                region[destination + 2] = byte(Float(pixels[source + 2]) / 255 * alpha)
+                region[destination + 3] = pixels[source + 3]
+            }
+        }
+        return region
+    }
+
+    /// Two-pass separable Gaussian over an isolated region, with taps
+    /// beyond the region clamped to its outermost texel.
+    ///
+    /// Clamp-to-edge rather than the truncated-kernel renormalisation
+    /// this used to do, because clamping is what the GPU pass does (the
+    /// shader clamps every tap into the region's texel-centre range). The
+    /// two policies agree to within rounding while the kernel is narrower
+    /// than the region and diverge completely once it is wider — which is
+    /// exactly the case a `.blur(radius: 80)` on a 2× display produces.
+    /// Weights are quantised to bytes between the passes because the GPU's
+    /// ping-pong targets are `B8G8R8A8_UNORM`.
+    private func blurPremultipliedRegion(_ region: inout [UInt8], width: Int, height: Int, radius: Int) {
+        guard radius > 0, width > 0, height > 0 else { return }
+        let kernel = gaussianBlurKernel(radius: radius)
+        // Prefix sums so the taps that all clamp to the same edge texel
+        // cost one multiply instead of `radius` of them: without this a
+        // radius wider than the region turns every pixel into a
+        // full-kernel walk over a handful of distinct samples.
+        var prefix = [Float](repeating: 0, count: kernel.count + 1)
+        for index in 0..<kernel.count {
+            prefix[index + 1] = prefix[index] + kernel[index]
+        }
+        var temp = [UInt8](repeating: 0, count: width * height * 4)
+
+        for y in 0..<height {
+            let rowOffset = y * width
+            for x in 0..<width {
+                let firstTap = max(-radius, -x)
+                let lastTap = min(radius, width - 1 - x)
+                let leadingWeight = prefix[min(kernel.count, max(0, radius - x))]
+                let trailingWeight = prefix[kernel.count] - prefix[min(kernel.count, max(0, radius + width - x))]
+                var sumBlue = Float(region[rowOffset * 4]) * leadingWeight
+                var sumGreen = Float(region[rowOffset * 4 + 1]) * leadingWeight
+                var sumRed = Float(region[rowOffset * 4 + 2]) * leadingWeight
+                var sumAlpha = Float(region[rowOffset * 4 + 3]) * leadingWeight
+                let lastOffset = (rowOffset + width - 1) * 4
+                sumBlue += Float(region[lastOffset]) * trailingWeight
+                sumGreen += Float(region[lastOffset + 1]) * trailingWeight
+                sumRed += Float(region[lastOffset + 2]) * trailingWeight
+                sumAlpha += Float(region[lastOffset + 3]) * trailingWeight
+                if firstTap <= lastTap {
+                    for tap in firstTap...lastTap {
+                        let weight = kernel[tap + radius]
+                        let offset = (rowOffset + x + tap) * 4
+                        sumBlue += Float(region[offset]) * weight
+                        sumGreen += Float(region[offset + 1]) * weight
+                        sumRed += Float(region[offset + 2]) * weight
+                        sumAlpha += Float(region[offset + 3]) * weight
+                    }
+                }
+                let destination = (rowOffset + x) * 4
+                temp[destination] = byte(sumBlue / 255)
+                temp[destination + 1] = byte(sumGreen / 255)
+                temp[destination + 2] = byte(sumRed / 255)
+                temp[destination + 3] = byte(sumAlpha / 255)
+            }
+        }
+
+        for y in 0..<height {
+            let firstTap = max(-radius, -y)
+            let lastTap = min(radius, height - 1 - y)
+            let leadingWeight = prefix[min(kernel.count, max(0, radius - y))]
+            let trailingWeight = prefix[kernel.count] - prefix[min(kernel.count, max(0, radius + height - y))]
+            for x in 0..<width {
+                let topOffset = x * 4
+                let bottomOffset = ((height - 1) * width + x) * 4
+                var sumBlue = Float(temp[topOffset]) * leadingWeight + Float(temp[bottomOffset]) * trailingWeight
+                var sumGreen =
+                    Float(temp[topOffset + 1]) * leadingWeight + Float(temp[bottomOffset + 1]) * trailingWeight
+                var sumRed =
+                    Float(temp[topOffset + 2]) * leadingWeight + Float(temp[bottomOffset + 2]) * trailingWeight
+                var sumAlpha =
+                    Float(temp[topOffset + 3]) * leadingWeight + Float(temp[bottomOffset + 3]) * trailingWeight
+                if firstTap <= lastTap {
+                    for tap in firstTap...lastTap {
+                        let weight = kernel[tap + radius]
+                        let offset = ((y + tap) * width + x) * 4
+                        sumBlue += Float(temp[offset]) * weight
+                        sumGreen += Float(temp[offset + 1]) * weight
+                        sumRed += Float(temp[offset + 2]) * weight
+                        sumAlpha += Float(temp[offset + 3]) * weight
+                    }
+                }
+                let destination = (y * width + x) * 4
+                region[destination] = byte(sumBlue / 255)
+                region[destination + 1] = byte(sumGreen / 255)
+                region[destination + 2] = byte(sumRed / 255)
+                region[destination + 3] = byte(sumAlpha / 255)
+            }
+        }
+    }
+
+    /// The GPU's shadow model, transcribed: the envelope is the rect grown
+    /// by `2 · blurRadius`, the falloff is
+    /// `1 - smoothstep(-blur/2, blur, distance)`, and the peak alpha is
+    /// the requested alpha.
+    ///
+    /// What this replaces was a different shadow, not a differently
+    /// antialiased one: a rect grown by `blurRadius / 2` with a 1 px ramp
+    /// on a rounded rect of radius `cornerRadius + 0.35 · blurRadius`, at
+    /// `colorA * 0.55`. A `.shadow(radius: 20)` was a crisp 10 px halo at
+    /// 55 % in every screenshot and a soft 40 px halo at full alpha on
+    /// screen; the `0.55` appeared nowhere else in the stack and is
+    /// retired rather than promoted to a design constant.
     mutating func drawShadow(_ shadow: ShadowPrimitive) {
-        let spread = Double(max(shadow.blurRadius, 0))
+        let blurRadius = max(Double(shadow.blurRadius), 0)
+        let expand = blurRadius * 2
         let rect = Rect(
-            x: Double(shadow.x + shadow.offsetX) - spread * 0.5,
-            y: Double(shadow.y + shadow.offsetY) - spread * 0.5,
-            width: Double(shadow.width) + spread,
-            height: Double(shadow.height) + spread
+            x: Double(shadow.x + shadow.offsetX),
+            y: Double(shadow.y + shadow.offsetY),
+            width: Double(shadow.width),
+            height: Double(shadow.height)
         )
-        guard
-            let bounds = clippedPixelBounds(
-                rect, clip: clipRect(shadow.clipX, shadow.clipY, shadow.clipWidth, shadow.clipHeight))
-        else {
+        let envelope = Rect(
+            x: rect.minX - expand,
+            y: rect.minY - expand,
+            width: rect.size.width + expand * 2,
+            height: rect.size.height + expand * 2
+        )
+        let clip = GPUIClipRegion(
+            x: shadow.clipX, y: shadow.clipY, width: shadow.clipWidth, height: shadow.clipHeight)
+        guard let bounds = clippedPixelBounds(envelope, clip: clip.rect) else {
             return
         }
 
         let color = RasterColor(
-            red: shadow.colorR, green: shadow.colorG, blue: shadow.colorB, alpha: shadow.colorA * 0.55)
-        let radius = max(0, Double(shadow.cornerRadius + shadow.blurRadius * 0.35))
+            red: shadow.colorR, green: shadow.colorG, blue: shadow.colorB, alpha: shadow.colorA)
+        let radii = GPUIQuadCoverage.CornerRadii(uniform: Double(shadow.cornerRadius))
+        let blur = max(blurRadius, 0.5)
         for y in bounds.y0..<bounds.y1 {
             for x in bounds.x0..<bounds.x1 {
-                let coverage = roundedRectCoverage(
-                    x: Double(x) + 0.5,
-                    y: Double(y) + 0.5,
-                    rect: rect,
-                    radius: radius
-                )
-                if coverage > 0 {
-                    blend(color.withAlphaMultiplier(Float(coverage)), x: x, y: y)
+                let pixelCenterX = Double(x) + 0.5
+                let pixelCenterY = Double(y) + 0.5
+                guard clip.alpha(atPixelX: x, y: y) > 0 else { continue }
+                // The shader only runs where the expanded quad covers the
+                // pixel centre; the scan window rounds outward.
+                guard
+                    GPUIQuadCoverage.geometryCovers(localX: pixelCenterX, localY: pixelCenterY, rect: envelope)
+                else { continue }
+                let distance = GPUIQuadCoverage.signedDistance(
+                    localX: pixelCenterX - rect.minX,
+                    localY: pixelCenterY - rect.minY,
+                    width: rect.size.width,
+                    height: rect.size.height,
+                    radii: radii)
+                let alpha = 1 - GPUIQuadCoverage.smoothstep(-blur * 0.5, blur, distance)
+                if alpha > 0 {
+                    blend(color.withAlphaMultiplier(Float(alpha)), x: x, y: y)
                 }
             }
         }
@@ -332,10 +562,9 @@ private struct RasterTarget {
             width: Double(glyph.screenW),
             height: Double(glyph.screenH)
         )
-        guard
-            let bounds = clippedPixelBounds(
-                rect, clip: clipRect(glyph.clipX, glyph.clipY, glyph.clipWidth, glyph.clipHeight))
-        else {
+        let clip = GPUIClipRegion(
+            x: glyph.clipX, y: glyph.clipY, width: glyph.clipWidth, height: glyph.clipHeight)
+        guard let bounds = clippedPixelBounds(rect, clip: clip.rect) else {
             return
         }
 
@@ -349,8 +578,20 @@ private struct RasterTarget {
 
         for y in bounds.y0..<bounds.y1 {
             for x in bounds.x0..<bounds.x1 {
-                let tx = clamp((Double(x) + 0.5 - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1)
-                let ty = clamp((Double(y) + 0.5 - rect.minY) / max(rect.size.height, 1), lower: 0, upper: 1)
+                // The shader rejects per pixel centre against the float
+                // clip rect; the integer scan window rounds outward, so
+                // without this the two disagree by a pixel wherever the
+                // clip lands on a fraction — which at 125 % and 150 % DPI
+                // is most of the time. The same argument applies to the
+                // glyph's own quad, which the rasterizer covers only at
+                // pixel centres inside it.
+                let pixelCenterX = Double(x) + 0.5
+                let pixelCenterY = Double(y) + 0.5
+                guard clip.alpha(atPixelX: x, y: y) > 0 else { continue }
+                guard GPUIQuadCoverage.geometryCovers(localX: pixelCenterX, localY: pixelCenterY, rect: rect)
+                else { continue }
+                let tx = clamp((pixelCenterX - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1)
+                let ty = clamp((pixelCenterY - rect.minY) / max(rect.size.height, 1), lower: 0, upper: 1)
                 let sourceX = clamp(
                     GPUISceneValue.int(((u0 + (u1 - u0) * tx) * Double(atlasWidth)).rounded(.down)),
                     lower: 0, upper: atlasWidth - 1)
@@ -381,10 +622,9 @@ private struct RasterTarget {
             width: Double(image.screenW),
             height: Double(image.screenH)
         )
-        guard
-            let bounds = clippedPixelBounds(
-                rect, clip: clipRect(image.clipX, image.clipY, image.clipWidth, image.clipHeight))
-        else {
+        let clip = GPUIClipRegion(
+            x: image.clipX, y: image.clipY, width: image.clipWidth, height: image.clipHeight)
+        guard let bounds = clippedPixelBounds(rect, clip: clip.rect) else {
             return
         }
 
@@ -398,8 +638,13 @@ private struct RasterTarget {
         let isPremultiplied = bitmap.format.alphaMode == .premultiplied
         for y in bounds.y0..<bounds.y1 {
             for x in bounds.x0..<bounds.x1 {
-                let tx = clamp((Double(x) + 0.5 - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1)
-                let ty = clamp((Double(y) + 0.5 - rect.minY) / max(rect.size.height, 1), lower: 0, upper: 1)
+                let pixelCenterX = Double(x) + 0.5
+                let pixelCenterY = Double(y) + 0.5
+                guard clip.alpha(atPixelX: x, y: y) > 0 else { continue }
+                guard GPUIQuadCoverage.geometryCovers(localX: pixelCenterX, localY: pixelCenterY, rect: rect)
+                else { continue }
+                let tx = clamp((pixelCenterX - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1)
+                let ty = clamp((pixelCenterY - rect.minY) / max(rect.size.height, 1), lower: 0, upper: 1)
                 let sourceX = clamp(
                     GPUISceneValue.int((Double(image.uvX) + Double(image.uvW) * tx) * Double(sourceWidth)), lower: 0,
                     upper: sourceWidth - 1)
@@ -427,138 +672,51 @@ private struct RasterTarget {
         }
     }
 
-    private mutating func applyBoxBlur(to bounds: PixelBounds, radius: Int) {
-        guard radius > 0 else { return }
-        let w = bounds.x1 - bounds.x0
-        let h = bounds.y1 - bounds.y0
-        guard w > 0, h > 0 else { return }
-
-        let kernel = gaussianBlurKernel(radius: radius)
-        var temp = [UInt8](repeating: 0, count: h * w * 4)
-
-        // Horizontal pass: each pixel becomes a weighted sum of its
-        // horizontal neighbourhood. Edge samples clamp by re-normalising
-        // the truncated kernel so the bounds don't darken the borders.
-        for y in bounds.y0..<bounds.y1 {
-            for x in bounds.x0..<bounds.x1 {
-                var sumB: Float = 0
-                var sumG: Float = 0
-                var sumR: Float = 0
-                var sumA: Float = 0
-                var weight: Float = 0
-                let xStart = max(x - radius, bounds.x0)
-                let xEnd = min(x + radius + 1, bounds.x1)
-                for k in xStart..<xEnd {
-                    let kw = kernel[k - x + radius]
-                    let offset = pixelOffset(x: k, y: y)
-                    sumB += Float(pixels[offset]) * kw
-                    sumG += Float(pixels[offset + 1]) * kw
-                    sumR += Float(pixels[offset + 2]) * kw
-                    sumA += Float(pixels[offset + 3]) * kw
-                    weight += kw
-                }
-                let inv = weight > 0 ? 1 / weight : 0
-                let tempOffset = ((y - bounds.y0) * w + (x - bounds.x0)) * 4
-                temp[tempOffset] = byte(sumB * inv / 255)
-                temp[tempOffset + 1] = byte(sumG * inv / 255)
-                temp[tempOffset + 2] = byte(sumR * inv / 255)
-                temp[tempOffset + 3] = byte(sumA * inv / 255)
-            }
-        }
-
-        // Vertical pass: same Gaussian kernel sampled vertically from the
-        // horizontal pass's intermediate buffer.
-        for y in bounds.y0..<bounds.y1 {
-            for x in bounds.x0..<bounds.x1 {
-                var sumB: Float = 0
-                var sumG: Float = 0
-                var sumR: Float = 0
-                var sumA: Float = 0
-                var weight: Float = 0
-                let yStart = max(y - radius, bounds.y0)
-                let yEnd = min(y + radius + 1, bounds.y1)
-                for k in yStart..<yEnd {
-                    let kw = kernel[k - y + radius]
-                    let tempOffset = ((k - bounds.y0) * w + (x - bounds.x0)) * 4
-                    sumB += Float(temp[tempOffset]) * kw
-                    sumG += Float(temp[tempOffset + 1]) * kw
-                    sumR += Float(temp[tempOffset + 2]) * kw
-                    sumA += Float(temp[tempOffset + 3]) * kw
-                    weight += kw
-                }
-                let inv = weight > 0 ? 1 / weight : 0
-                let offset = pixelOffset(x: x, y: y)
-                pixels[offset] = byte(sumB * inv / 255)
-                pixels[offset + 1] = byte(sumG * inv / 255)
-                pixels[offset + 2] = byte(sumR * inv / 255)
-                pixels[offset + 3] = byte(sumA * inv / 255)
-            }
-        }
-    }
-
+    /// Fill and stroke, each accumulated into one per-path coverage buffer
+    /// and composited with a single blend per pixel.
+    ///
+    /// This is not a fallback-only concern: `ensureCachedPathTexture`
+    /// CPU-rasterizes every `PathPrimitive` and uploads the bitmap, so
+    /// whatever happens here *is* the shipping appearance of `Canvas`,
+    /// `Shape` strokes, charts and the SF-symbol vector fallback.
     mutating func drawPath(_ path: PathPrimitive) {
-        let clip = path.clipBounds ?? Rect(x: 0, y: 0, width: Double(width), height: Double(height))
-        guard let bounds = clippedPixelBounds(path.bounds, clip: clip) else {
+        let clipRect = path.clipBounds ?? Rect(x: 0, y: 0, width: Double(width), height: Double(height))
+        guard let bounds = clippedPixelBounds(path.bounds, clip: clipRect) else {
             return
         }
+        let clip = GPUIClipRegion(
+            x: clipRect.origin.x, y: clipRect.origin.y,
+            width: clipRect.size.width, height: clipRect.size.height)
 
         let fillColor = RasterColor(path.fillColor)
         let strokeColor = RasterColor(path.strokeColor)
-        let flattened = FlattenedPath(path.elements, bounds: path.bounds)
+        let flattened = FlattenedPath(path.elements)
 
         if fillColor.alpha > 0 {
-            for y in bounds.y0..<bounds.y1 {
-                let scanY = Double(y) + 0.5
-                let intersections = flattened.scanlineIntersections(y: scanY)
-                guard intersections.count >= 2 else { continue }
-                let sorted = intersections.sorted()
-                for i in stride(from: 0, to: sorted.count - 1, by: 2) {
-                    // Intersections come from raw element coordinates, so
-                    // they are only as finite as the path is; the
-                    // conversion saturates instead of trapping and the
-                    // span is then clamped to the scan bounds.
-                    let x0 = max(bounds.x0, GPUISceneValue.int(sorted[i].rounded(.up)))
-                    // `max(x0, …)`: a span entirely to the right of the
-                    // scan window leaves x1 < x0, and `x0..<x1` is a trap,
-                    // not an empty range.
-                    let x1 = max(x0, min(bounds.x1, GPUISceneValue.int(sorted[i + 1].rounded(.down)) + 1))
-                    for x in x0..<x1 {
-                        blend(fillColor, x: x, y: y)
-                    }
-                }
-            }
+            var coverage = [Float](repeating: 0, count: bounds.width * bounds.height)
+            PathCoverageRasterizer.accumulate(edges: flattened.fillEdges, bounds: bounds, into: &coverage)
+            blendCoverage(coverage, bounds: bounds, color: fillColor, clip: clip)
         }
 
         if strokeColor.alpha > 0, path.lineWidth > 0 {
-            let halfWidth = path.lineWidth / 2
-            for segment in flattened.segments {
-                let dx = segment.end.x - segment.start.x
-                let dy = segment.end.y - segment.start.y
-                let length = hypot(dx, dy)
-                guard length > 0 else { continue }
-                let nx = -dy / length * halfWidth
-                let ny = dx / length * halfWidth
+            var coverage = [Float](repeating: 0, count: bounds.width * bounds.height)
+            PathCoverageRasterizer.accumulate(
+                edges: flattened.strokeOutlineEdges(lineWidth: path.lineWidth), bounds: bounds, into: &coverage)
+            blendCoverage(coverage, bounds: bounds, color: strokeColor, clip: clip)
+        }
+    }
 
-                let strokeQuad = [
-                    Point(x: segment.start.x + nx, y: segment.start.y + ny),
-                    Point(x: segment.end.x + nx, y: segment.end.y + ny),
-                    Point(x: segment.end.x - nx, y: segment.end.y - ny),
-                    Point(x: segment.start.x - nx, y: segment.start.y - ny),
-                ]
-                let strokePath = FlattenedPath(polygon: strokeQuad)
-                for y in bounds.y0..<bounds.y1 {
-                    let scanY = Double(y) + 0.5
-                    let intersections = strokePath.scanlineIntersections(y: scanY)
-                    guard intersections.count >= 2 else { continue }
-                    let sorted = intersections.sorted()
-                    for i in stride(from: 0, to: sorted.count - 1, by: 2) {
-                        let x0 = max(bounds.x0, GPUISceneValue.int(sorted[i].rounded(.up)))
-                        let x1 = max(x0, min(bounds.x1, GPUISceneValue.int(sorted[i + 1].rounded(.down)) + 1))
-                        for x in x0..<x1 {
-                            blend(strokeColor, x: x, y: y)
-                        }
-                    }
-                }
+    private mutating func blendCoverage(
+        _ coverage: [Float], bounds: PixelBounds, color: RasterColor, clip: GPUIClipRegion
+    ) {
+        for y in bounds.y0..<bounds.y1 {
+            let rowOffset = (y - bounds.y0) * bounds.width
+            for x in bounds.x0..<bounds.x1 {
+                let value = coverage[rowOffset + (x - bounds.x0)]
+                guard value > 0 else { continue }
+                let clipAlpha = clip.alpha(atPixelX: x, y: y)
+                guard clipAlpha > 0 else { continue }
+                blend(color.withAlphaMultiplier(value * Float(clipAlpha)), x: x, y: y)
             }
         }
     }
@@ -583,7 +741,16 @@ private struct RasterTarget {
         pixels[offset + 3] = byte(color.alpha)
     }
 
-    private mutating func blend(_ color: RasterColor, x: Int, y: Int, mode: BlendMode = .normal) {
+    /// Source-over, and only source-over.
+    ///
+    /// `QuadPrimitive.blendMode` used to select between five separable
+    /// modes here while the HLSL declared the field and never read it —
+    /// `.blendMode(.multiply)` was a multiply in every screenshot and a
+    /// plain composite on screen. The renderer-neutral contract now says
+    /// one thing: the scene composites source-over. See
+    /// `docs/GPURenderingPipeline.md` and
+    /// `CPUGPUBlendModeContractTests`.
+    private mutating func blend(_ color: RasterColor, x: Int, y: Int) {
         let sourceAlpha = clamp(color.alpha, lower: 0, upper: 1)
         guard sourceAlpha > 0 else {
             return
@@ -599,43 +766,12 @@ private struct RasterTarget {
             return
         }
 
-        let blendedRed: Float
-        let blendedGreen: Float
-        let blendedBlue: Float
-        switch mode {
-        case .normal:
-            blendedRed = color.red
-            blendedGreen = color.green
-            blendedBlue = color.blue
-        case .multiply:
-            blendedRed = color.red * destinationRed
-            blendedGreen = color.green * destinationGreen
-            blendedBlue = color.blue * destinationBlue
-        case .screen:
-            blendedRed = 1 - (1 - color.red) * (1 - destinationRed)
-            blendedGreen = 1 - (1 - color.green) * (1 - destinationGreen)
-            blendedBlue = 1 - (1 - color.blue) * (1 - destinationBlue)
-        case .overlay:
-            blendedRed =
-                destinationRed < 0.5 ? 2 * color.red * destinationRed : 1 - 2 * (1 - color.red) * (1 - destinationRed)
-            blendedGreen =
-                destinationGreen < 0.5
-                ? 2 * color.green * destinationGreen : 1 - 2 * (1 - color.green) * (1 - destinationGreen)
-            blendedBlue =
-                destinationBlue < 0.5
-                ? 2 * color.blue * destinationBlue : 1 - 2 * (1 - color.blue) * (1 - destinationBlue)
-        case .additive:
-            blendedRed = min(1, color.red + destinationRed)
-            blendedGreen = min(1, color.green + destinationGreen)
-            blendedBlue = min(1, color.blue + destinationBlue)
-        }
-
         pixels[offset] = byte(
-            (blendedBlue * sourceAlpha + destinationBlue * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
+            (color.blue * sourceAlpha + destinationBlue * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
         pixels[offset + 1] = byte(
-            (blendedGreen * sourceAlpha + destinationGreen * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
+            (color.green * sourceAlpha + destinationGreen * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
         pixels[offset + 2] = byte(
-            (blendedRed * sourceAlpha + destinationRed * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
+            (color.red * sourceAlpha + destinationRed * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
         pixels[offset + 3] = byte(outputAlpha)
     }
 
@@ -663,12 +799,6 @@ private struct RasterTarget {
     private func pixelOffset(x: Int, y: Int) -> Int {
         (y * width + x) * 4
     }
-}
-private struct PixelBounds {
-    var x0: Int
-    var y0: Int
-    var x1: Int
-    var y1: Int
 }
 private struct RasterColor {
     var red: Float
@@ -701,12 +831,13 @@ private struct RasterColor {
         RasterColor(red: red, green: green, blue: blue, alpha: alpha * multiplier)
     }
 }
-private func clipRect(_ x: Float, _ y: Float, _ width: Float, _ height: Float) -> Rect? {
-    guard width > 0, height > 0 else {
-        return nil
-    }
-    return Rect(x: Double(x), y: Double(y), width: Double(width), height: Double(height))
-}
+/// The Swift half of `applyColorEffect` in `BatchShaders.swift`. Effect 8
+/// (`luminanceToAlpha`) is deliberately absent from both: it writes alpha
+/// as well as rgb, so both sides branch it in the caller.
+///
+/// `RasterColor`'s initializer clamps every channel, which is the CPU's
+/// `saturate`; the shader gained an explicit one so an over-driven
+/// brightness or contrast composites the same on both.
 private func applyRasterColorEffect(
     _ color: RasterColor, effectType: Float, intensity: Float, param1: Float = 0, param2: Float = 0, param3: Float = 0,
     param4: Float = 0
@@ -786,219 +917,11 @@ private func applyRasterColorEffect(
             red: color.red * param1, green: color.green * param2, blue: color.blue * param3, alpha: color.alpha)
     }
 
-    // 8 = luminanceToAlpha
-    if t < 8.5 {
-        let lum = Float(0.299 * Double(color.red) + 0.587 * Double(color.green) + 0.114 * Double(color.blue))
-        return RasterColor(red: lum, green: lum, blue: lum, alpha: lum)
-    }
-
     return color
-}
-private func roundedRectCoverage(x: Double, y: Double, rect: Rect, radius: Double) -> Double {
-    let r = max(0, radius)
-    return roundedRectCoverage(
-        x: x, y: y, rect: rect, cornerRadii: (topLeft: r, topRight: r, bottomRight: r, bottomLeft: r))
-}
-/// Per-corner variant of the uniform rounded-rect coverage above. The
-/// corner radius is selected by the quadrant the sample falls into
-/// (split along the rect's centrelines) — the same rule the D3D11
-/// pixel shader's `roundedRectDistance` implements, so both backends
-/// agree on the shape boundary. With four equal radii this reduces to
-/// exactly the historic uniform computation (byte-identical output).
-private func roundedRectCoverage(
-    x: Double,
-    y: Double,
-    rect: Rect,
-    cornerRadii: (topLeft: Double, topRight: Double, bottomRight: Double, bottomLeft: Double)
-) -> Double {
-    let localX = x - rect.midX
-    let localY = y - rect.midY
-    let radius =
-        localX > 0
-        ? (localY > 0 ? cornerRadii.bottomRight : cornerRadii.topRight)
-        : (localY > 0 ? cornerRadii.bottomLeft : cornerRadii.topLeft)
-    let clampedRadius = max(0, min(radius, min(rect.size.width, rect.size.height) * 0.5))
-    guard clampedRadius > 0 else {
-        return rect.contains(Point(x: x, y: y)) ? 1 : 0
-    }
-
-    let innerMinX = rect.minX + clampedRadius
-    let innerMaxX = rect.maxX - clampedRadius
-    let innerMinY = rect.minY + clampedRadius
-    let innerMaxY = rect.maxY - clampedRadius
-    let closestX = clamp(x, lower: innerMinX, upper: innerMaxX)
-    let closestY = clamp(y, lower: innerMinY, upper: innerMaxY)
-    let distance = ((x - closestX) * (x - closestX) + (y - closestY) * (y - closestY)).squareRoot()
-    return clamp(clampedRadius + 0.5 - distance, lower: 0, upper: 1)
 }
 private func byte(_ value: Float) -> UInt8 {
     UInt8((clamp(value, lower: 0, upper: 1) * 255).rounded())
 }
 private func clamp<T: Comparable>(_ value: T, lower: T, upper: T) -> T {
     min(max(value, lower), upper)
-}
-private struct FlattenedSegment {
-    var start: Point
-    var end: Point
-}
-private struct FlattenedPath {
-    var segments: [FlattenedSegment]
-
-    init(polygon points: [Point]) {
-        var segs: [FlattenedSegment] = []
-        for i in 0..<points.count {
-            let j = (i + 1) % points.count
-            segs.append(FlattenedSegment(start: points[i], end: points[j]))
-        }
-        self.segments = segs
-    }
-
-    init(_ elements: [PathElement], bounds: Rect) {
-        var segs: [FlattenedSegment] = []
-        var current = Point.zero
-        var subpathStart = Point.zero
-        var needsMove = true
-
-        for element in elements {
-            switch element {
-            case .moveTo(let p):
-                current = p
-                subpathStart = p
-                needsMove = false
-            case .lineTo(let p):
-                if !needsMove {
-                    segs.append(FlattenedSegment(start: current, end: p))
-                }
-                current = p
-            case .quadraticCurveTo(let control, let end):
-                if !needsMove {
-                    segs.append(contentsOf: flattenQuadratic(start: current, control: control, end: end))
-                }
-                current = end
-            case .cubicCurveTo(let control1, let control2, let end):
-                if !needsMove {
-                    segs.append(
-                        contentsOf: flattenCubic(start: current, control1: control1, control2: control2, end: end))
-                }
-                current = end
-            case .arc(let center, let radius, let startAngle, let endAngle, let clockwise):
-                segs.append(
-                    contentsOf: flattenArc(
-                        center: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: clockwise
-                    ))
-                let finalAngle = clockwise ? endAngle : startAngle
-                current = Point(x: center.x + radius * cos(finalAngle), y: center.y + radius * sin(finalAngle))
-            case .close:
-                if current != subpathStart {
-                    segs.append(FlattenedSegment(start: current, end: subpathStart))
-                }
-                current = subpathStart
-            }
-        }
-        self.segments = segs
-    }
-
-    func scanlineIntersections(y: Double) -> [Double] {
-        var xs: [Double] = []
-        for seg in segments {
-            let y0 = seg.start.y
-            let y1 = seg.end.y
-            if (y0 < y && y1 >= y) || (y1 < y && y0 >= y) || (y0 == y && y1 == y) {
-                if y0 == y1 {
-                    xs.append(seg.start.x)
-                    xs.append(seg.end.x)
-                } else {
-                    let t = (y - y0) / (y1 - y0)
-                    xs.append(seg.start.x + t * (seg.end.x - seg.start.x))
-                }
-            }
-        }
-        return xs
-    }
-}
-// The flatness tests below are `<=` comparisons, and every comparison
-// against NaN is false — so a single non-finite control point makes
-// subdivision permanent and the recursion is a stack overflow, not a
-// slow frame. `GPUISceneSanitizer` keeps non-finite coordinates out of
-// the scene; the depth cap is what makes termination a property of the
-// algorithm rather than of its callers.
-private func flattenQuadratic(start: Point, control: Point, end: Point, depth: Int = 0) -> [FlattenedSegment] {
-    let flatness: Double = 0.25
-    let dx = end.x - start.x
-    let dy = end.y - start.y
-    let d = abs((control.x - end.x) * dy - (control.y - end.y) * dx)
-    if depth >= GPUISceneLimits.maxCurveFlatteningDepth || d * d <= flatness * flatness * (dx * dx + dy * dy) {
-        return [FlattenedSegment(start: start, end: end)]
-    }
-    let m0 = Point(x: (start.x + control.x) * 0.5, y: (start.y + control.y) * 0.5)
-    let m1 = Point(x: (control.x + end.x) * 0.5, y: (control.y + end.y) * 0.5)
-    let mid = Point(x: (m0.x + m1.x) * 0.5, y: (m0.y + m1.y) * 0.5)
-    var left = flattenQuadratic(start: start, control: m0, end: mid, depth: depth + 1)
-    let right = flattenQuadratic(start: mid, control: m1, end: end, depth: depth + 1)
-    left.append(contentsOf: right)
-    return left
-}
-private func flattenCubic(start: Point, control1: Point, control2: Point, end: Point, depth: Int = 0)
-    -> [FlattenedSegment]
-{
-    let flatness: Double = 0.25
-    let dx = end.x - start.x
-    let dy = end.y - start.y
-    let d1 = abs((control1.x - end.x) * dy - (control1.y - end.y) * dx)
-    let d2 = abs((control2.x - end.x) * dy - (control2.y - end.y) * dx)
-    if depth >= GPUISceneLimits.maxCurveFlatteningDepth
-        || (d1 * d1 + d2 * d2) <= flatness * flatness * (dx * dx + dy * dy)
-    {
-        return [FlattenedSegment(start: start, end: end)]
-    }
-    let m0 = Point(x: (start.x + control1.x) * 0.5, y: (start.y + control1.y) * 0.5)
-    let m1 = Point(x: (control1.x + control2.x) * 0.5, y: (control1.y + control2.y) * 0.5)
-    let m2 = Point(x: (control2.x + end.x) * 0.5, y: (control2.y + end.y) * 0.5)
-    let n0 = Point(x: (m0.x + m1.x) * 0.5, y: (m0.y + m1.y) * 0.5)
-    let n1 = Point(x: (m1.x + m2.x) * 0.5, y: (m1.y + m2.y) * 0.5)
-    let mid = Point(x: (n0.x + n1.x) * 0.5, y: (n0.y + n1.y) * 0.5)
-    var left = flattenCubic(start: start, control1: m0, control2: n0, end: mid, depth: depth + 1)
-    let right = flattenCubic(start: mid, control1: n1, control2: m2, end: end, depth: depth + 1)
-    left.append(contentsOf: right)
-    return left
-}
-private func flattenArc(center: Point, radius: Double, startAngle: Double, endAngle: Double, clockwise: Bool)
-    -> [FlattenedSegment]
-{
-    // A non-finite angle makes both normalisation comparisons false-forever
-    // (clockwise) or true-forever (counter-clockwise), so the walk is
-    // bounded by turn count as well as by the comparison. One full turn per
-    // iteration means `maxArcSegments` turns is far more than any real arc.
-    guard radius.isFinite, startAngle.isFinite, endAngle.isFinite else {
-        return []
-    }
-    // Only the end angle is normalized into the directed sweep range; start is fixed.
-    var end = endAngle
-    var turns = 0
-    if clockwise {
-        while end > startAngle, turns < GPUISceneLimits.maxArcSegments {
-            end -= 2 * .pi
-            turns += 1
-        }
-    } else {
-        while end < startAngle, turns < GPUISceneLimits.maxArcSegments {
-            end += 2 * .pi
-            turns += 1
-        }
-    }
-    let sweep = end - startAngle
-    let steps = min(
-        max(4, GPUISceneValue.int(ceil(abs(sweep) * radius * 0.5))),
-        GPUISceneLimits.maxArcSegments
-    )
-    var segs: [FlattenedSegment] = []
-    let step = sweep / Double(steps)
-    var prev = Point(x: center.x + radius * cos(startAngle), y: center.y + radius * sin(startAngle))
-    for i in 1...steps {
-        let a = startAngle + step * Double(i)
-        let p = Point(x: center.x + radius * cos(a), y: center.y + radius * sin(a))
-        segs.append(FlattenedSegment(start: prev, end: p))
-        prev = p
-    }
-    return segs
 }

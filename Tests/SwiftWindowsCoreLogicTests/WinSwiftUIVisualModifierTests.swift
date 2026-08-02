@@ -395,7 +395,16 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
 
     // MARK: - blendMode
 
-    func testBlendModeMultiplyProducesBlackOverRedAndBlue() async {
+    // `.blendMode` is carried onto the primitive and interpreted by
+    // nobody: the HLSL declares `float blendMode;` and never reads it, and
+    // the blend state is a fixed `ONE / INV_SRC_ALPHA`. These tests used to
+    // assert the separable results the CPU rasterizer alone produced, which
+    // meant they passed on a picture the user never saw.
+    // `CPUGPUBlendModeContractTests` owns the decision and pins it on both
+    // backends; what is left here is that the modifier stays inert rather
+    // than becoming a partial, backend-specific effect again.
+
+    func testBlendModeMultiplyCompositesSourceOver() async {
         await MainActor.run {
             let bitmap = render(
                 ZStack {
@@ -410,14 +419,14 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
                 size: IntSize(width: 60, height: 60)
             )
             let center = colorAt(bitmap, x: 20, y: 20)
-            // Blue (0,0,1) * Red (1,0,0) = Black (0,0,0)
-            XCTAssertLessThan(center?.red ?? 1, 0.2)
-            XCTAssertLessThan(center?.green ?? 1, 0.2)
-            XCTAssertLessThan(center?.blue ?? 1, 0.2)
+            // Source-over of opaque blue: plain blue, not blue x red = black.
+            XCTAssertEqual(center?.red ?? -1, Color.blue.red, accuracy: 0.01)
+            XCTAssertEqual(center?.green ?? -1, Color.blue.green, accuracy: 0.01)
+            XCTAssertEqual(center?.blue ?? -1, Color.blue.blue, accuracy: 0.01)
         }
     }
 
-    func testBlendModeScreenProducesMagentaOverRedAndBlue() async {
+    func testBlendModeScreenCompositesSourceOver() async {
         await MainActor.run {
             let bitmap = render(
                 ZStack {
@@ -432,16 +441,13 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
                 size: IntSize(width: 60, height: 60)
             )
             let center = colorAt(bitmap, x: 20, y: 20)
-            let expectedRed = 1 - ((1 - Color.blue.red) * (1 - Color.red.red))
-            let expectedGreen = 1 - ((1 - Color.blue.green) * (1 - Color.red.green))
-            let expectedBlue = 1 - ((1 - Color.blue.blue) * (1 - Color.red.blue))
-            XCTAssertEqual(center?.red ?? -1, expectedRed, accuracy: 0.01)
-            XCTAssertEqual(center?.green ?? -1, expectedGreen, accuracy: 0.01)
-            XCTAssertEqual(center?.blue ?? -1, expectedBlue, accuracy: 0.01)
+            XCTAssertEqual(
+                center?.red ?? -1, Color.blue.red, accuracy: 0.01, "screen would have lifted red toward 1")
+            XCTAssertEqual(center?.blue ?? -1, Color.blue.blue, accuracy: 0.01)
         }
     }
 
-    func testBlendModeOverlayDarkensWhiteOnDarkGray() async {
+    func testBlendModeOverlayCompositesSourceOver() async {
         await MainActor.run {
             let bitmap = render(
                 ZStack {
@@ -456,13 +462,11 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
                 size: IntSize(width: 60, height: 60)
             )
             let center = colorAt(bitmap, x: 20, y: 20)
-            // Overlay of white on dark gray (0.25) gives medium gray (0.5)
-            XCTAssertGreaterThan(center?.red ?? 0, 0.4)
-            XCTAssertLessThan(center?.red ?? 1, 0.7)
+            XCTAssertEqual(center?.red ?? -1, 1, accuracy: 0.01, "overlay would have darkened white to ~0.5")
         }
     }
 
-    func testBlendModePlusLighterAdditiveProducesYellowOverRedAndGreen() async {
+    func testBlendModePlusLighterCompositesSourceOver() async {
         await MainActor.run {
             let bitmap = render(
                 ZStack {
@@ -477,12 +481,10 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
                 size: IntSize(width: 60, height: 60)
             )
             let center = colorAt(bitmap, x: 20, y: 20)
-            let expectedRed = min(Color.red.red + Color.green.red, 1)
-            let expectedGreen = min(Color.red.green + Color.green.green, 1)
-            let expectedBlue = min(Color.red.blue + Color.green.blue, 1)
-            XCTAssertEqual(center?.red ?? -1, expectedRed, accuracy: 0.01)
-            XCTAssertEqual(center?.green ?? -1, expectedGreen, accuracy: 0.01)
-            XCTAssertEqual(center?.blue ?? -1, expectedBlue, accuracy: 0.01)
+            XCTAssertEqual(center?.red ?? -1, Color.red.red, accuracy: 0.01)
+            XCTAssertEqual(
+                center?.green ?? -1, Color.red.green, accuracy: 0.01,
+                "additive would have added the backdrop's green on top")
         }
     }
 

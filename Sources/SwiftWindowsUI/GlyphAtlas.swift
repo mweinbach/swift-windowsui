@@ -125,6 +125,34 @@ public final class GlyphAtlas {
     public private(set) var isDirty: Bool
     public private(set) var dirtyRegion: GlyphAtlasRegion?
 
+    /// Identifies the current pixels, process-wide (see
+    /// `RenderContentVersion`). Bumped by every write and every clear, and
+    /// minted rather than started at zero so two atlases — the shared one
+    /// and a test's small one, or a future per-scale atlas — can never
+    /// claim the same version for different pixels.
+    public private(set) var contentVersion: UInt64 = RenderContentVersion.next()
+
+    /// The version `dirtyRegion` accumulated from: applying the region to
+    /// pixels at this version yields pixels at `contentVersion`. Reset by
+    /// `markClean()`, which is what ends one accumulation window.
+    private var dirtyBaseVersion: UInt64
+    /// Set by `clear()`: the shelves moved, so no region describes the
+    /// difference and every consumer needs the whole atlas.
+    private var needsFullUpdate = false
+
+    /// What a consumer has to upload to be current with these pixels.
+    /// `GlyphAtlasSnapshot` carries this verbatim; the decision itself is
+    /// the backend's, via `uploadDecision(for:)`.
+    public var update: AtlasUpdate {
+        if needsFullUpdate {
+            return .full
+        }
+        guard isDirty, let dirtyRegion else {
+            return .unchanged
+        }
+        return .region(dirtyRegion, since: dirtyBaseVersion)
+    }
+
     /// Bumped every time `clear()` recycles the shelf allocator.
     ///
     /// Atlas rects are only meaningful within the generation that handed them
@@ -148,6 +176,7 @@ public final class GlyphAtlas {
         self.pixels = Data(count: Int(width) * Int(height) * 4)
         self.isDirty = false
         self.dirtyRegion = nil
+        self.dirtyBaseVersion = contentVersion
     }
 
     public func allocate(width glyphWidth: Int32, height glyphHeight: Int32) -> (x: Int32, y: Int32)? {
@@ -209,6 +238,7 @@ public final class GlyphAtlas {
         }
 
         isDirty = true
+        contentVersion = RenderContentVersion.next()
         let nextRegion = GlyphAtlasRegion(x: x, y: y, width: glyphWidth, height: glyphHeight)
         dirtyRegion =
             dirtyRegion.map { existing in
@@ -230,11 +260,19 @@ public final class GlyphAtlas {
         shelves.removeAll()
         isDirty = true
         dirtyRegion = GlyphAtlasRegion(x: 0, y: 0, width: width, height: height)
+        contentVersion = RenderContentVersion.next()
+        needsFullUpdate = true
         generation &+= 1
     }
 
+    /// Ends the current accumulation window: the frame's single consumer
+    /// has taken the region, so the next one starts from here. The version
+    /// is *not* reset — a consumer that missed this window is caught by the
+    /// version comparison and takes a full upload.
     public func markClean() {
         isDirty = false
         dirtyRegion = nil
+        needsFullUpdate = false
+        dirtyBaseVersion = contentVersion
     }
 }

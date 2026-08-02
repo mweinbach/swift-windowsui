@@ -1262,16 +1262,20 @@ public enum ScenePainter {
         )
     }
 
-    /// Snapshot of the shared pixel-font atlas. The pixel atlas is a static
-    /// surface, so every consumer in a frame can take the same full-surface
-    /// snapshot without any dirty-region bookkeeping.
+    /// Snapshot of the shared pixel-font atlas. The pixel atlas is built
+    /// once and never written again, so every snapshot of it carries the
+    /// same content version and reports `.unchanged`: the first frame
+    /// uploads it, every later frame skips. It used to declare the whole
+    /// surface dirty on every frame, which is a full texture upload per
+    /// frame for pixels that cannot change.
     private static func pixelGlyphAtlasSnapshot() -> GlyphAtlasSnapshot {
         let atlas = PixelFontAtlas.shared.surface
         return GlyphAtlasSnapshot(
             width: atlas.width,
             height: atlas.height,
             pixels: atlas.pixels,
-            dirtyRegion: GlyphAtlasRegion(x: 0, y: 0, width: atlas.width, height: atlas.height)
+            contentVersion: atlas.contentToken,
+            update: .unchanged
         )
     }
 

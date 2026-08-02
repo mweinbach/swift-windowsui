@@ -124,17 +124,39 @@ public struct GlyphAtlasRegion: Equatable, Sendable {
         self.height = height
     }
 }
+/// The atlas pixels as they stood when a frame was painted, plus what a
+/// consumer has to upload to be current with them.
+///
+/// Consumers without a texture of their own (the CPU rasterizer, the
+/// snapshot tool) read `pixels` and ignore the rest; consumers that own a
+/// texture ask ``uploadDecision(for:)`` instead of interpreting
+/// `contentVersion` and `update` themselves.
 public struct GlyphAtlasSnapshot: Equatable, Sendable {
     public var width: Int32
     public var height: Int32
     public var pixels: Data
-    public var dirtyRegion: GlyphAtlasRegion?
+    /// Identifies these exact pixels, process-wide and monotonically (see
+    /// `RenderContentVersion`). Two snapshots with the same version hold
+    /// the same bytes; a consumer that already uploaded this version can
+    /// skip the upload entirely.
+    public var contentVersion: UInt64
+    /// How these pixels relate to the previous snapshot of the same atlas.
+    /// Defaults to `.full`, which claims nothing and always uploads — the
+    /// safe default for a producer that does not track versions.
+    public var update: AtlasUpdate
 
-    public init(width: Int32, height: Int32, pixels: Data, dirtyRegion: GlyphAtlasRegion? = nil) {
+    public init(
+        width: Int32,
+        height: Int32,
+        pixels: Data,
+        contentVersion: UInt64 = 0,
+        update: AtlasUpdate = .full
+    ) {
         self.width = width
         self.height = height
         self.pixels = pixels
-        self.dirtyRegion = dirtyRegion
+        self.contentVersion = contentVersion
+        self.update = update
     }
 }
 public struct ImageResourceBinding: Equatable, Sendable {
@@ -493,9 +515,20 @@ public struct GPUIScene: Equatable, Sendable {
         return true
     }
 
+    /// Texture ID for `bitmap`, reusing the one already registered for the
+    /// same content.
+    ///
+    /// Deduplication is by ``BitmapContentKey`` — an O(1) token compare —
+    /// not by `==`, which memcmp'd the whole buffer against every image
+    /// already registered this frame (a 1920×1080 background cost 8 MB of
+    /// comparison per registration). The trade is that two byte-identical
+    /// buffers built independently now get two IDs and two textures; the
+    /// common case, one buffer reused across frames and call sites, keeps
+    /// its token through every copy and still dedupes.
     @discardableResult
     public mutating func registerImageResource(_ bitmap: BitmapSurface) -> Int32 {
-        if let existing = imageResources.first(where: { $0.bitmap == bitmap }) {
+        let key = bitmap.contentKey
+        if let existing = imageResources.first(where: { $0.bitmap.contentKey == key }) {
             return existing.textureID
         }
 

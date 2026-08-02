@@ -215,11 +215,11 @@ Structural bounds live alongside it:
   unconditionally (it is O(layers + paint operations) and allocates
   nothing on a clean scene) and throws a `.sceneContent`
   `BatchRendererError` rather than trapping on a malformed layer.
-- `GlyphAtlasSnapshot.clampedDirtyRegion` is what consumers upload from:
-  the raw region is producer-supplied, and a negative origin traps at
-  `UINT(_:)` while an over-hanging region reads past the end of
-  `pixels`. Clamping to nothing degrades to the always-in-bounds
-  full-atlas upload.
+- `GlyphAtlasSnapshot.uploadDecision(for:)` is what consumers upload
+  from (see §3.1): regions are producer-supplied, and a negative origin
+  traps at `UINT(_:)` while an over-hanging region reads past the end of
+  `pixels`, so the decision clamps first. A region that clamps to nothing
+  degrades to the always-in-bounds full-atlas upload.
 
 Downstream of the contract, every remaining `Float → Int` conversion
 uses `GPUISceneValue.int`, which saturates instead of trapping
@@ -350,8 +350,8 @@ Text rendering is the most complex part of the pipeline.
 3. The painter walks each glyph in the line, looks up its atlas entry,
    and emits a `GlyphPrimitive` with UVs into the atlas.
 4. `NativeGlyphAtlas.snapshotIfUsedInCurrentFrame()` attaches the atlas
-   to the scene. If new glyphs were rasterized this frame, the snapshot
-   carries the dirty region (so the GPU backend can upload incrementally).
+   to the scene, carrying its content version and what changed since the
+   previous snapshot (§3.1).
 5. The painter forces leading text alignment when laying out a *single
    line* through DirectWrite, so glyph origins return relative to the
    line's natural start. The actual horizontal alignment of the line
@@ -361,6 +361,66 @@ The "force leading alignment" rule is critical: DirectWrite sized the
 layout box at 4096 px wide. Letting it center inside that box produces
 glyph origins around `x ≈ 2000`, which then failed the painter's
 visible-clip preflight check and silently fell back to PixelText.
+
+### 3.1 The atlas and texture upload protocol
+
+An atlas snapshot is a *versioned* value, not a bag of pixels with a
+dirty rect. Three pieces, all in `AtlasUploadProtocol.swift`:
+
+- `contentVersion: UInt64` on `GlyphAtlasSnapshot` — minted from
+  `RenderContentVersion.next()`, a single process-wide monotonic source.
+  Uniqueness across producers is the point: a consumer compares versions
+  without knowing which atlas produced them, so per-instance counters
+  would let two atlases alias each other's textures.
+- `AtlasUpdate` — `unchanged`, `region(_, since:)` or `full`. The base
+  version in `region` is part of the claim: the shared process atlas has
+  one dirty region and N window consumers, so "the region since someone's
+  last read" is only safe for the consumer whose texture is at exactly
+  that version.
+- `AtlasTextureState` — what a consumer's texture holds: `isInitialized`,
+  `uploadedVersion`, `size`. `isInitialized` is tracked, never inferred
+  from a matching size.
+
+`GlyphAtlasSnapshot.uploadDecision(for:)` turns those into `skip`,
+`region` or `full`, and `D3D11BatchRenderer.updateGlyphAtlasTexture`
+does exactly what it says. Everything ambiguous falls to `full`: a fresh
+texture, a resize, a region whose base version this texture never held, a
+region that clamps to nothing.
+
+This replaced an `Optional<GlyphAtlasRegion>` carrying three meanings at
+once, which the producer and the D3D11 consumer read in opposite
+directions. Two bugs lived in that one block: a zero-size "nothing
+changed" region failed the consumer's `width > 0` guard and took the
+**full** branch, so every frame containing text uploaded the whole
+2048×2048×4 = 16 MiB atlas; and a texture created moments earlier was
+judged initialized because its size matched, so a first frame with a
+small dirty region uploaded only that rect into undefined texels — a
+frame of garbage text whenever a second window opened against a warm
+atlas, or after a device reset.
+
+The pixel-font atlas is built once and never written, so its snapshot
+reports the same version and `.unchanged` on every frame; it used to
+declare itself fully dirty on each one.
+
+Image textures follow the same idea with a different key.
+`BitmapSurface.contentToken` is minted when a buffer is created and
+re-minted by the `didSet` on `pixels`, so any write — including
+`replaceSubrange` and `withUnsafeMutableBytes` — produces a new
+identity. `contentKey` (token + geometry + alpha mode) keys both
+`GPUIScene.registerImageResource`'s dedupe (previously a `memcmp` of the
+whole buffer against every image already registered) and the D3D11
+image-texture cache. Texture IDs are positional within a frame's
+registration order, so a scene that gains or loses one image renumbers
+the rest; keying the GPU cache on content instead means renumbering
+costs nothing and an unchanged image keeps its texture across frames.
+That cache is bounded twice — 30 frames unused, and a 96 MB byte budget
+— and both bounds evict least-recently-used first.
+
+**Tests:** `AtlasUploadProtocolTests` — the decision table, the
+producers' versioning, and the real upload counts on WARP (frame 1
+fresh = one full upload, frame 2 unchanged = zero, frame 3 with a small
+region = one boxed upload, a region into a nil texture = full) plus
+image texture/SRV pointer identity across rebinds and renumbering.
 
 ### Atlas exhaustion: the generation token
 
@@ -546,13 +606,10 @@ The rules that follow from that:
    every frame, and it used to release the texture and SRV of every bound
    image, so a frame-stable `Image` or `.drawingGroup()` bitmap paid a
    full-surface conversion plus a `CreateTexture2D` on the main thread on
-   every frame. `bindImageResource` now keeps the existing texture when the
-   incoming surface is the *same buffer*
-   (`BitmapSurface.sharesPixelStorage`), which is sound because `detach()`
-   — which every device rebuild goes through — empties the image map
-   outright. A producer that rebuilds its bitmap each frame still
-   re-uploads; a real upload protocol (content revisions, explicit
-   invalidation) is WS-09.
+   every frame. Binding is now pure bookkeeping and the GPU texture is
+   resolved from `BitmapSurface.contentKey` at draw time (§3.1), which is
+   sound because `detach()` — which every device rebuild goes through —
+   empties the texture cache outright.
 
 The glyph atlas texture is the one deliberate exception: it stays
 `R8G8B8A8_UNORM` because the glyph shader samples only `.a`, which is byte 3

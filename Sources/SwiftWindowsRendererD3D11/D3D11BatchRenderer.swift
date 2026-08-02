@@ -133,26 +133,62 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     private var shadowInstanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
     private var shadowInstanceCapacity = D3D11BatchRenderer.initialShadowInstanceCapacity
 
-    private var glyphAtlasTexture: UnsafeMutablePointer<ID3D11Texture2D>?
-    private var glyphAtlasSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
-    private var glyphAtlasSize = IntSize.zero
-    private var pixelGlyphAtlasTexture: UnsafeMutablePointer<ID3D11Texture2D>?
-    private var pixelGlyphAtlasSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
-    private var pixelGlyphAtlasSize = IntSize.zero
-
-    private struct ImageResourceEntry {
-        var bitmap: BitmapSurface
+    /// One atlas texture plus the upload bookkeeping the atlas protocol
+    /// needs. `state` is the whole point: it records what this texture
+    /// actually holds — including whether anything has been uploaded into
+    /// it at all — instead of inferring it from the size, which is how a
+    /// partial upload used to land in a brand-new texture.
+    private struct AtlasTextureSlot {
         var texture: UnsafeMutablePointer<ID3D11Texture2D>?
         var srv: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+        var state = AtlasTextureState.uninitialized
+
+        mutating func release() {
+            releaseCOM(&srv)
+            releaseCOM(&texture)
+            state = .uninitialized
+        }
     }
 
-    private var imageResources: [Int32: ImageResourceEntry] = [:]
+    private var glyphAtlas = AtlasTextureSlot()
+    private var pixelGlyphAtlas = AtlasTextureSlot()
+
+    /// Atlas uploads since construction, split by branch. A static text
+    /// screen must add nothing to the first two after its first frame; it
+    /// used to add a full 16 MiB upload to `full` on every frame.
+    internal private(set) var atlasFullUploadsForTesting: UInt64 = 0
+    internal private(set) var atlasRegionUploadsForTesting: UInt64 = 0
+    internal private(set) var atlasSkippedUploadsForTesting: UInt64 = 0
+
+    /// The GPU side of one image, keyed by content rather than by texture
+    /// ID. Texture IDs are positional within a frame's registration order,
+    /// so a scene that gains or loses one image renumbers the rest; keying
+    /// the textures on ``BitmapContentKey`` means that renumbering costs
+    /// nothing, and the same bitmap keeps its texture across frames.
+    private struct ImageTextureEntry {
+        var texture: UnsafeMutablePointer<ID3D11Texture2D>?
+        var srv: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+        var byteCount: Int
+        var lastUsedFrame: UInt64
+    }
+
+    private var imageTextures: [BitmapContentKey: ImageTextureEntry] = [:]
+    private var imageTextureByteCount = 0
+    /// This frame's ID → bitmap bindings. Holds no GPU resources: the
+    /// textures live in `imageTextures` and outlive any one binding.
+    private var imageBindings: [Int32: BitmapSurface] = [:]
+
+    /// Image textures are large (a 4K background is 33 MB), so the cache is
+    /// bounded twice: by bytes, and by how long an entry may go unused.
+    /// Both bounds evict least-recently-used first, so eviction is a
+    /// function of the frames that ran, not of allocator luck.
+    private static let imageCacheStaleFrames: UInt64 = 30
+    private static let imageCacheByteBudget = 96 * 1024 * 1024
 
     /// Bitmap uploads through `createImageTextureResource` since this
     /// renderer was constructed — bound images and cached path renders both
     /// go through it. An unchanged image must not add to this once per
-    /// frame; that is the whole point of the storage-identity check in
-    /// `bindImageResource`.
+    /// frame; that is the whole point of keying the cache on content.
     internal private(set) var imageTextureUploadsForTesting: UInt64 = 0
 
     // Path rasterization is CPU-bound (we don't yet have a real GPU
@@ -281,12 +317,12 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         tally(shadowInstanceBuffer.map(UnsafeMutableRawPointer.init))
         tally(shadowInstanceSRV.map(UnsafeMutableRawPointer.init))
 
-        tally(glyphAtlasTexture.map(UnsafeMutableRawPointer.init))
-        tally(glyphAtlasSRV.map(UnsafeMutableRawPointer.init))
-        tally(pixelGlyphAtlasTexture.map(UnsafeMutableRawPointer.init))
-        tally(pixelGlyphAtlasSRV.map(UnsafeMutableRawPointer.init))
+        tally(glyphAtlas.texture.map(UnsafeMutableRawPointer.init))
+        tally(glyphAtlas.srv.map(UnsafeMutableRawPointer.init))
+        tally(pixelGlyphAtlas.texture.map(UnsafeMutableRawPointer.init))
+        tally(pixelGlyphAtlas.srv.map(UnsafeMutableRawPointer.init))
 
-        for entry in imageResources.values {
+        for entry in imageTextures.values {
             tally(entry.texture.map(UnsafeMutableRawPointer.init))
             tally(entry.srv.map(UnsafeMutableRawPointer.init))
         }
@@ -413,38 +449,21 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
     }
 
+    /// Records which bitmap a texture ID refers to this frame.
+    ///
+    /// Binding is pure bookkeeping — no conversion, no upload, no release.
+    /// `bindResources(for:)` runs every frame, and this used to release the
+    /// texture and SRV of every bound image on every one of them, so an
+    /// unchanged `Image` (or a `.drawingGroup()` compositing bitmap) paid a
+    /// full-surface premultiply plus a `CreateTexture2D` per frame. The
+    /// texture is resolved from the bitmap's content key at draw time
+    /// instead, so re-binding the same content — under this ID or any
+    /// other — costs nothing.
     public func bindImageResource(_ bitmap: BitmapSurface, for textureID: Int32) {
         guard textureID >= 0 else {
             return
         }
-
-        guard var existing = imageResources.removeValue(forKey: textureID) else {
-            imageResources[textureID] = ImageResourceEntry(bitmap: bitmap, texture: nil, srv: nil)
-            return
-        }
-
-        // `bindResources(for:)` runs every frame, so a frame-stable image
-        // used to be premultiplied and re-uploaded on every one of them —
-        // a full-surface conversion plus a `CreateTexture2D` per Image and
-        // per compositing-group bitmap. When the incoming surface is the
-        // same buffer as the bound one, the texture already on the device
-        // is the texture this bitmap would produce, so keep it.
-        //
-        // Safe because `detach()` — which every device rebuild goes
-        // through — empties `imageResources` outright, so a surviving entry
-        // always belongs to the current device.
-        //
-        // Storage identity is deliberately weak: a producer that rebuilds
-        // its bitmap each frame still re-uploads. A real upload protocol
-        // (content revisions, explicit invalidation) is WS-09.
-        if existing.texture != nil, existing.bitmap.sharesPixelStorage(with: bitmap) {
-            imageResources[textureID] = existing
-            return
-        }
-
-        releaseCOM(&existing.srv)
-        releaseCOM(&existing.texture)
-        imageResources[textureID] = ImageResourceEntry(bitmap: bitmap, texture: nil, srv: nil)
+        imageBindings[textureID] = bitmap
     }
 
     public func bindResources(for scene: GPUIScene) {
@@ -453,25 +472,74 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
     }
 
-    /// Releases the GPU side of every bound image and forgets the bindings.
-    /// The bitmaps themselves are re-supplied by `bindResources(for:)` on
-    /// the next frame, so nothing is lost by dropping them with the device.
+    /// Releases the GPU side of every cached image and forgets the
+    /// bindings. The bitmaps themselves are re-supplied by
+    /// `bindResources(for:)` on the next frame, so nothing is lost by
+    /// dropping them with the device.
     private func releaseAllImageResources() {
-        while let (textureID, _) = imageResources.first {
-            guard var entry = imageResources.removeValue(forKey: textureID) else {
-                continue
+        // Snapshot the keys: the loop body mutates the dictionary.
+        for key in Array(imageTextures.keys) {
+            releaseImageTexture(forKey: key)
+        }
+        imageBindings.removeAll()
+    }
+
+    private func releaseImageTexture(forKey key: BitmapContentKey) {
+        guard var entry = imageTextures.removeValue(forKey: key) else {
+            return
+        }
+        imageTextureByteCount -= entry.byteCount
+        releaseCOM(&entry.srv)
+        releaseCOM(&entry.texture)
+    }
+
+    /// Drops image textures nothing has drawn for `imageCacheStaleFrames`,
+    /// then trims the least recently used until the byte budget is met.
+    ///
+    /// Runs once per frame, before any of the frame's draws, so an entry
+    /// this frame will use — touched no later than the previous frame —
+    /// is never the one evicted.
+    private func evictStaleImageTextures() {
+        if frameCounter > Self.imageCacheStaleFrames {
+            let staleThreshold = frameCounter - Self.imageCacheStaleFrames
+            let stale = imageTextures.filter { $0.value.lastUsedFrame < staleThreshold }
+            for (key, _) in stale {
+                releaseImageTexture(forKey: key)
             }
-            releaseCOM(&entry.srv)
-            releaseCOM(&entry.texture)
+        }
+
+        guard imageTextureByteCount > Self.imageCacheByteBudget else {
+            return
+        }
+        let leastRecentlyUsedFirst = imageTextures.sorted { $0.value.lastUsedFrame < $1.value.lastUsedFrame }
+        for (key, _) in leastRecentlyUsedFirst {
+            guard imageTextureByteCount > Self.imageCacheByteBudget else { break }
+            releaseImageTexture(forKey: key)
         }
     }
 
     internal var cachedResourcesForTesting: CachedResources {
         CachedResources(
-            hasGlyphAtlas: glyphAtlasSRV != nil,
-            hasPixelGlyphAtlas: pixelGlyphAtlasSRV != nil,
-            boundImageTextureIDs: Set(imageResources.keys)
+            hasGlyphAtlas: glyphAtlas.srv != nil,
+            hasPixelGlyphAtlas: pixelGlyphAtlas.srv != nil,
+            boundImageTextureIDs: Set(imageBindings.keys)
         )
+    }
+
+    /// Test seam: the texture and SRV addresses backing `textureID`, or
+    /// `nil` when nothing is cached for it. Pointer identity is how a test
+    /// tells "reused the texture" from "recreated an identical one".
+    internal func imageTextureIdentityForTesting(for textureID: Int32) -> (texture: UInt, srv: UInt)? {
+        guard let bitmap = imageBindings[textureID], let entry = imageTextures[bitmap.contentKey],
+            let texture = entry.texture, let srv = entry.srv
+        else {
+            return nil
+        }
+        return (UInt(bitPattern: texture), UInt(bitPattern: srv))
+    }
+
+    internal var imageTextureCacheCountForTesting: Int {
+        imageTextures.count
     }
 
     public static func makeRenderPlan(
@@ -693,12 +761,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         releaseAllCachedPaths()
         releaseAllImageResources()
 
-        releaseCOM(&glyphAtlasSRV)
-        releaseCOM(&glyphAtlasTexture)
-        glyphAtlasSize = .zero
-        releaseCOM(&pixelGlyphAtlasSRV)
-        releaseCOM(&pixelGlyphAtlasTexture)
-        pixelGlyphAtlasSize = .zero
+        glyphAtlas.release()
+        pixelGlyphAtlas.release()
 
         releaseCOM(&quadInstanceSRV)
         releaseCOM(&quadInstanceBuffer)
@@ -830,7 +894,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
         frameCounter &+= 1
         evictStaleCachedPaths()
-        // Re-fetch the render-target guards: the eviction call above is
+        evictStaleImageTextures()
+        // Re-fetch the render-target guards: the eviction calls above are
         // pure local work but a future hook (e.g. device-loss recovery) might
         // teardown the render target mid-frame and we want to fail safe.
         guard isAttached, hasRenderTarget else {
@@ -864,21 +929,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
 
         try updateFrameUniforms(surfaceSize: surfacePixelSize)
-        if renderPlan.glyphAtlasSource == .snapshot, let glyphAtlas = finishedScene.glyphAtlas {
-            try updateGlyphAtlasTexture(
-                glyphAtlas,
-                texture: &glyphAtlasTexture,
-                srv: &glyphAtlasSRV,
-                size: &glyphAtlasSize
-            )
+        if renderPlan.glyphAtlasSource == .snapshot, let snapshot = finishedScene.glyphAtlas {
+            try updateGlyphAtlasTexture(snapshot, slot: &glyphAtlas)
         }
-        if renderPlan.pixelGlyphAtlasSource == .snapshot, let pixelGlyphAtlas = finishedScene.pixelGlyphAtlas {
-            try updateGlyphAtlasTexture(
-                pixelGlyphAtlas,
-                texture: &pixelGlyphAtlasTexture,
-                srv: &pixelGlyphAtlasSRV,
-                size: &pixelGlyphAtlasSize
-            )
+        if renderPlan.pixelGlyphAtlasSource == .snapshot, let snapshot = finishedScene.pixelGlyphAtlas {
+            try updateGlyphAtlasTexture(snapshot, slot: &pixelGlyphAtlas)
         }
 
         for step in renderPlan.steps {
@@ -930,7 +985,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                 try renderGlyphBatch(
                     layer.glyphs,
                     range: range,
-                    atlasSRV: glyphAtlasSRV,
+                    atlasSRV: glyphAtlas.srv,
                     deviceContext: deviceContext
                 )
             case .pixelGlyphs(let layerIndex, let range, _):
@@ -938,7 +993,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                 try renderGlyphBatch(
                     layer.pixelGlyphs,
                     range: range,
-                    atlasSRV: pixelGlyphAtlasSRV,
+                    atlasSRV: pixelGlyphAtlas.srv,
                     deviceContext: deviceContext
                 )
             case .images(let layerIndex, let range, let textureID):
@@ -1877,11 +1932,19 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
     }
 
+    /// Brings `slot`'s texture up to date with `snapshot`, uploading as
+    /// little as the atlas protocol allows.
+    ///
+    /// Three branches, decided by ``GlyphAtlasSnapshot/uploadDecision(for:)``
+    /// rather than here: skip when the texture already holds this content
+    /// version, upload one box when the snapshot's region is relative to
+    /// exactly what the texture holds, upload everything otherwise. The
+    /// last case covers every ambiguity — a fresh texture, a resize, a
+    /// region whose base version this texture never had (a second window
+    /// consuming the shared atlas), a region that clamps to nothing.
     private func updateGlyphAtlasTexture(
         _ snapshot: GlyphAtlasSnapshot,
-        texture: inout UnsafeMutablePointer<ID3D11Texture2D>?,
-        srv: inout UnsafeMutablePointer<ID3D11ShaderResourceView>?,
-        size: inout IntSize
+        slot: inout AtlasTextureSlot
     ) throws {
         guard let device, let deviceContext else {
             return
@@ -1902,9 +1965,24 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             )
         }
 
-        if texture == nil || size.width != snapshot.width || size.height != snapshot.height {
-            releaseCOM(&srv)
-            releaseCOM(&texture)
+        // Decided against the state the texture is in *now*, before any
+        // recreation below can change it.
+        let decision: AtlasUploadDecision =
+            slot.texture == nil ? .full : snapshot.uploadDecision(for: slot.state)
+        if decision == .skip {
+            atlasSkippedUploadsForTesting &+= 1
+            return
+        }
+
+        if slot.texture == nil || slot.state.size.width != snapshot.width
+            || slot.state.size.height != snapshot.height
+        {
+            releaseCOM(&slot.srv)
+            releaseCOM(&slot.texture)
+            // Nothing has been uploaded into the replacement yet; the state
+            // says so explicitly rather than letting a matching size imply
+            // otherwise.
+            slot.state = .uninitialized
 
             var textureDesc = D3D11_TEXTURE2D_DESC()
             textureDesc.Width = UINT(snapshot.width)
@@ -1920,13 +1998,13 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             textureDesc.Usage = D3D11_USAGE_DEFAULT
             textureDesc.BindFlags = UINT(D3D11_BIND_SHADER_RESOURCE.rawValue)
 
-            let textureHR = makeCOM(into: &texture) { newTexture in
+            let textureHR = makeCOM(into: &slot.texture) { newTexture in
                 device.pointee.lpVtbl.pointee.CreateTexture2D(device, &textureDesc, nil, &newTexture)
             }
             try throwIfFailed(
                 textureHR, operation: "ID3D11Device.CreateTexture2D(glyph atlas)", failureKind: .sceneContent)
 
-            guard let texture else {
+            guard let texture = slot.texture else {
                 throw BatchRendererError(
                     operation: "CreateTexture2D(glyph atlas)", hresult: batchHresultHandle, failureKind: .sceneContent)
             }
@@ -1940,14 +2018,13 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             }
 
             let resource = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
-            let srvHR = makeCOM(into: &srv) { view in
+            let srvHR = makeCOM(into: &slot.srv) { view in
                 device.pointee.lpVtbl.pointee.CreateShaderResourceView(device, resource, &srvDesc, &view)
             }
             try throwIfFailed(srvHR, operation: "ID3D11Device.CreateShaderResourceView(glyph atlas)")
-            size = IntSize(width: snapshot.width, height: snapshot.height)
         }
 
-        guard let texture else {
+        guard let texture = slot.texture else {
             return
         }
 
@@ -1958,22 +2035,18 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                 return
             }
 
-            // `clampedDirtyRegion` — never the raw one: a negative origin
-            // traps at `UINT(_:)` two lines down (Swift does not wrap) and
-            // a region past the atlas edge makes `UpdateSubresource` read
-            // past the end of `pixels`. Clamping to nothing degrades to
-            // the full-atlas upload below, which is always in bounds.
-            if let dirtyRegion = snapshot.clampedDirtyRegion,
-                size.width == snapshot.width,
-                size.height == snapshot.height
-            {
-                let bytesOffset = Int((dirtyRegion.y * snapshot.width + dirtyRegion.x) * 4)
+            // The region is already clamped into the atlas rect by the
+            // decision: a negative origin would trap at `UINT(_:)` below
+            // (Swift does not wrap) and a region past the atlas edge would
+            // make `UpdateSubresource` read past the end of `pixels`.
+            if case .region(let region) = decision {
+                let bytesOffset = Int((region.y * snapshot.width + region.x) * 4)
                 var updateBox = D3D11_BOX(
-                    left: UINT(dirtyRegion.x),
-                    top: UINT(dirtyRegion.y),
+                    left: UINT(region.x),
+                    top: UINT(region.y),
                     front: 0,
-                    right: UINT(dirtyRegion.x + dirtyRegion.width),
-                    bottom: UINT(dirtyRegion.y + dirtyRegion.height),
+                    right: UINT(region.x + region.width),
+                    bottom: UINT(region.y + region.height),
                     back: 1
                 )
                 let regionPointer = UnsafeRawPointer(baseAddress.advanced(by: bytesOffset))
@@ -1986,6 +2059,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                     rowPitch,
                     0
                 )
+                atlasRegionUploadsForTesting &+= 1
             } else {
                 deviceContext.pointee.lpVtbl.pointee.UpdateSubresource(
                     deviceContext,
@@ -1996,12 +2070,15 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                     rowPitch,
                     0
                 )
+                atlasFullUploadsForTesting &+= 1
             }
         }
+
+        slot.state = snapshot.uploadedState
     }
 
     private func ensureImageResourceSRV(for textureID: Int32) throws -> UnsafeMutablePointer<ID3D11ShaderResourceView> {
-        guard var entry = imageResources[textureID] else {
+        guard let bitmap = imageBindings[textureID] else {
             throw BatchRendererError(
                 operation: "Resolve image resource",
                 hresult: batchHresultInvalidArgument,
@@ -2010,20 +2087,25 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             )
         }
 
-        if entry.srv == nil || entry.texture == nil {
-            let (texture, srv) = try createImageTextureResource(for: entry.bitmap)
-            entry.texture = texture
-            entry.srv = srv
-            imageResources[textureID] = entry
+        // Content key, not texture ID: the same bitmap keeps one texture
+        // across frames however the frame's registration order renumbers
+        // it, and a texture ID rebound to different pixels resolves to a
+        // different entry rather than to a stale texture.
+        let key = bitmap.contentKey
+        if var cached = imageTextures[key], let srv = cached.srv {
+            cached.lastUsedFrame = frameCounter
+            imageTextures[key] = cached
+            return srv
         }
 
-        guard let srv = entry.srv else {
-            throw BatchRendererError(
-                operation: "Create image resource view",
-                hresult: batchHresultHandle,
-                details: "Image texture ID \(textureID) did not produce a shader resource view."
-            )
-        }
+        let (texture, srv) = try createImageTextureResource(for: bitmap)
+        imageTextures[key] = ImageTextureEntry(
+            texture: texture,
+            srv: srv,
+            byteCount: bitmap.describedByteCount,
+            lastUsedFrame: frameCounter
+        )
+        imageTextureByteCount += bitmap.describedByteCount
         return srv
     }
 
@@ -2059,8 +2141,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         // chain format and the legacy renderer — and every GPU upload is
         // normalized to premultiplied alpha, which is what the
         // ONE/INV_SRC_ALPHA blend state and the bilinear sampler both need.
-        // Opaque surfaces convert without copying; `bindImageResource`
-        // keeps an unchanged image from reaching here at all.
+        // Opaque surfaces convert without copying; the content-keyed cache
+        // in `ensureImageResourceSRV` keeps an unchanged image from
+        // reaching here at all.
         let upload = bitmap.premultipliedAlpha()
         imageTextureUploadsForTesting &+= 1
 

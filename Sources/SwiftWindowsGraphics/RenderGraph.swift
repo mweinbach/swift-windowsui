@@ -520,18 +520,18 @@ public struct FillRectCommand: Equatable, Sendable {
 /// DirectWrite/GDI text path stores premultiplied alpha. Every consumer
 /// picked one and was therefore wrong about half its inputs. Carrying the
 /// format in the surface makes each consumer convert instead of assume.
-public struct BitmapPixelFormat: Equatable, Sendable, CustomStringConvertible {
+public struct BitmapPixelFormat: Hashable, Sendable, CustomStringConvertible {
     /// Byte order within a 32-bit pixel. Only BGRA exists today — it is
     /// what GDI DIBs, WIC's `32bppBGRA`, Direct2D and the swap chain's
     /// `B8G8R8A8_UNORM` all use — but naming it keeps the assumption
     /// checkable.
-    public enum ChannelOrder: Equatable, Sendable {
+    public enum ChannelOrder: Hashable, Sendable {
         /// Byte 0 = blue, 1 = green, 2 = red, 3 = alpha.
         case bgra
     }
 
     /// Whether the colour channels have already been scaled by alpha.
-    public enum AlphaMode: Equatable, Sendable {
+    public enum AlphaMode: Hashable, Sendable {
         /// Colour channels are independent of alpha (`rgb`, `a`).
         case straight
         /// Colour channels are already scaled by alpha (`rgb * a`, `a`).
@@ -587,15 +587,72 @@ public enum BitmapSurfaceError: Error, Equatable, CustomStringConvertible {
     }
 }
 
+/// Identity of the *content* of a bitmap: the producer-minted token of the
+/// bytes plus the geometry that says how to read them.
+///
+/// A texture cache keys on this. Unlike a byte comparison it is O(1), and
+/// unlike a buffer address it stays valid after the surface it came from is
+/// gone — an address can be recycled by a different allocation, a token
+/// never is.
+public struct BitmapContentKey: Hashable, Sendable {
+    public var token: UInt64
+    public var width: Int32
+    public var height: Int32
+    public var bytesPerRow: Int32
+    public var alphaMode: BitmapPixelFormat.AlphaMode
+
+    public init(
+        token: UInt64,
+        width: Int32,
+        height: Int32,
+        bytesPerRow: Int32,
+        alphaMode: BitmapPixelFormat.AlphaMode
+    ) {
+        self.token = token
+        self.width = width
+        self.height = height
+        self.bytesPerRow = bytesPerRow
+        self.alphaMode = alphaMode
+    }
+}
+
 public struct BitmapSurface: Equatable, Sendable {
     public var width: Int32
     public var height: Int32
     public var bytesPerRow: Int32
-    public var pixels: Data
+    /// Re-minting `contentToken` on every write is what makes the token
+    /// safe: any mutation of the buffer — including `replaceSubrange` and
+    /// `withUnsafeMutableBytes`, which are mutating accesses through this
+    /// property — produces a new identity, so a cached texture keyed on the
+    /// old token is never mistaken for the new bytes.
+    public var pixels: Data {
+        didSet { contentToken = RenderContentVersion.next() }
+    }
     /// Channel order and alpha convention of `pixels`. Defaults to the
     /// straight-alpha BGRA the CPU rasterizer produces; producers that
     /// store premultiplied bytes must say so.
     public var format: BitmapPixelFormat
+
+    /// Process-unique identity of this buffer's bytes, minted when the
+    /// surface is created and re-minted on every write.
+    ///
+    /// Deliberately excluded from `==`: two surfaces with the same bytes
+    /// and different tokens are equal (they draw the same), they just do
+    /// not share a cache entry. The conservative direction — a redundant
+    /// upload, never a stale texture.
+    public private(set) var contentToken: UInt64 = RenderContentVersion.next()
+
+    /// Cache key for this surface's content. Includes the geometry because
+    /// the same bytes read at a different stride are a different image.
+    public var contentKey: BitmapContentKey {
+        BitmapContentKey(
+            token: contentToken,
+            width: width,
+            height: height,
+            bytesPerRow: bytesPerRow,
+            alphaMode: format.alphaMode
+        )
+    }
 
     public init(
         width: Int32,
@@ -609,6 +666,11 @@ public struct BitmapSurface: Equatable, Sendable {
         self.bytesPerRow = bytesPerRow
         self.pixels = pixels
         self.format = format
+    }
+
+    public static func == (lhs: BitmapSurface, rhs: BitmapSurface) -> Bool {
+        lhs.width == rhs.width && lhs.height == rhs.height && lhs.bytesPerRow == rhs.bytesPerRow
+            && lhs.format == rhs.format && lhs.pixels == rhs.pixels
     }
 
     /// Number of bytes an upload will read out of `pixels`.
@@ -678,41 +740,6 @@ public struct BitmapSurface: Equatable, Sendable {
             return false
         }
     }
-
-    /// True when `other` is the same image *and* the same buffer — a
-    /// storage-identity test, not a byte comparison.
-    ///
-    /// Uploads key on this to skip re-converting and re-uploading a
-    /// frame-stable bitmap. It is deliberately conservative: it answers
-    /// "certainly the same bytes" or "cannot tell", never "different". Both
-    /// surfaces are alive for the duration of the call because the caller
-    /// holds them, so a freed buffer cannot be re-allocated at the matching
-    /// address mid-check; buffers small enough for `Data`'s inline
-    /// representation — whose bytes live in the struct rather than at a
-    /// stable address — are excluded outright.
-    ///
-    /// A real upload protocol (content revisions, explicit invalidation) is
-    /// WS-09's job. This is the cheap identity that keeps an unchanged image
-    /// from being premultiplied and uploaded again every frame until then.
-    public func sharesPixelStorage(with other: BitmapSurface) -> Bool {
-        guard width == other.width, height == other.height, bytesPerRow == other.bytesPerRow,
-            format == other.format, pixels.count == other.pixels.count,
-            pixels.count > Self.inlineStorageByteCeiling
-        else {
-            return false
-        }
-
-        return pixels.withUnsafeBytes { lhs in
-            other.pixels.withUnsafeBytes { rhs in
-                lhs.baseAddress != nil && lhs.baseAddress == rhs.baseAddress
-            }
-        }
-    }
-
-    /// Above this many bytes `Data` always stores out of line, so its base
-    /// address identifies the buffer. Foundation's inline representation
-    /// tops out well below this; the margin is deliberate.
-    private static let inlineStorageByteCeiling = 64
 
     private func converted(to alphaMode: BitmapPixelFormat.AlphaMode) -> BitmapSurface {
         guard format.alphaMode != alphaMode else { return self }

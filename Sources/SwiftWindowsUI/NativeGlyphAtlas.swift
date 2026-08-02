@@ -105,17 +105,16 @@ final class NativeGlyphAtlas {
 
         // Consumers without their own atlas-texture cache (CPU rasterizer,
         // snapshot tools) need to read pixels every frame, even when no new
-        // glyphs were uploaded. Provide the full pixel buffer always; GPU
-        // backends can still skip texture uploads when dirtyRegion is empty.
-        let dirtyRegion =
-            atlas.isDirty
-            ? atlas.dirtyRegion
-            : GlyphAtlasRegion(x: 0, y: 0, width: 0, height: 0)
+        // glyphs were uploaded, so the full buffer always ships. What a GPU
+        // backend does with it is decided by the version and the update:
+        // a static text screen re-emits the same `contentVersion` frame
+        // after frame and every texture already holding it skips.
         return GlyphAtlasSnapshot(
             width: atlas.width,
             height: atlas.height,
             pixels: atlas.pixels,
-            dirtyRegion: dirtyRegion
+            contentVersion: atlas.contentVersion,
+            update: atlas.update
         )
     }
 

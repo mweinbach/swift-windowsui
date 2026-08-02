@@ -197,10 +197,12 @@ final class PainterDeviceSpaceTests: XCTestCase {
         if usesNativeGlyphs {
             let atlas = try? XCTUnwrap(scene.glyphAtlas)
             guard let atlas else { return }
-            XCTAssertNotNil(
-                atlas.clampedDirtyRegion,
-                "the sub-scene must peek at the atlas, not consume the frame's dirty region — "
-                    + "otherwise the outer scene ships UVs the backend never uploaded")
+            guard case .region = atlas.update else {
+                XCTFail(
+                    "the sub-scene must peek at the atlas, not consume the frame's dirty region — "
+                        + "otherwise the outer scene ships UVs the backend never uploaded")
+                return
+            }
         }
     }
 

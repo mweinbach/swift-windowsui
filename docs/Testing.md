@@ -88,6 +88,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   readbacks proving red stays red, a half-transparent image composites to
   mid-gray, and an already-premultiplied surface is not multiplied twice —
   each cross-checked against `GPUIRawSceneRasterizer`.
+- `AtlasUploadProtocolTests` — the atlas and texture upload protocol: the
+  pure decision table (`skip` / `region` / `full`, including a fresh
+  texture always taking `full` and a region only applying to the version
+  it was computed against), the producers' content versioning, and the
+  real upload counts on WARP — frame 1 fresh = one full upload, frame 2
+  unchanged = zero, frame 3 with a small region = one boxed upload. Also
+  pins image texture/SRV pointer identity across rebinds and across a
+  frame that renumbers the texture IDs.
 - `RenderBackendLifetimeTests` — GPU resource lifetime: `detach()` empties
   every stored COM pointer, the image map and the path cache; attach →
   detach → attach round-trips draw the identical frame on a fresh device;

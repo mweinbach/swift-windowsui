@@ -482,37 +482,31 @@ final class SceneStructuralValidationTests: XCTestCase {
         XCTAssertEqual(scene.validate().count, 1)
     }
 
-    func testClampedDirtyRegionNormalisesNegativeAndOversizedRegions() {
-        let atlas = GlyphAtlasSnapshot(
-            width: 64, height: 64, pixels: Data(count: 64 * 64 * 4),
-            dirtyRegion: GlyphAtlasRegion(x: -8, y: -8, width: 16, height: 16))
-        let clamped = atlas.clampedDirtyRegion
+    private static func makeAtlas() -> GlyphAtlasSnapshot {
+        GlyphAtlasSnapshot(width: 64, height: 64, pixels: Data(count: 64 * 64 * 4))
+    }
+
+    func testClampedRegionNormalisesNegativeAndOversizedRegions() {
+        let atlas = Self.makeAtlas()
+        let clamped = atlas.clampedRegion(GlyphAtlasRegion(x: -8, y: -8, width: 16, height: 16))
         XCTAssertEqual(clamped?.x, 0)
         XCTAssertEqual(clamped?.y, 0)
         XCTAssertEqual(clamped?.width, 8)
         XCTAssertEqual(clamped?.height, 8)
 
-        let overhang = GlyphAtlasSnapshot(
-            width: 64, height: 64, pixels: Data(count: 64 * 64 * 4),
-            dirtyRegion: GlyphAtlasRegion(x: 60, y: 60, width: 100, height: 100))
-        XCTAssertEqual(overhang.clampedDirtyRegion?.width, 4)
-        XCTAssertEqual(overhang.clampedDirtyRegion?.height, 4)
+        let overhang = atlas.clampedRegion(GlyphAtlasRegion(x: 60, y: 60, width: 100, height: 100))
+        XCTAssertEqual(overhang?.width, 4)
+        XCTAssertEqual(overhang?.height, 4)
 
-        let outside = GlyphAtlasSnapshot(
-            width: 64, height: 64, pixels: Data(count: 64 * 64 * 4),
-            dirtyRegion: GlyphAtlasRegion(x: 200, y: 200, width: 8, height: 8))
-        XCTAssertNil(outside.clampedDirtyRegion, "a region outside the atlas degrades to a full upload")
-
-        let clean = GlyphAtlasSnapshot(
-            width: 64, height: 64, pixels: Data(count: 64 * 64 * 4),
-            dirtyRegion: GlyphAtlasRegion(x: 0, y: 0, width: 0, height: 0))
-        XCTAssertNil(clean.clampedDirtyRegion)
+        XCTAssertNil(
+            atlas.clampedRegion(GlyphAtlasRegion(x: 200, y: 200, width: 8, height: 8)),
+            "a region outside the atlas degrades to a full upload")
+        XCTAssertNil(atlas.clampedRegion(GlyphAtlasRegion(x: 0, y: 0, width: 0, height: 0)))
     }
 
-    func testClampedDirtyRegionPassesAWellFormedRegionThrough() {
-        let atlas = GlyphAtlasSnapshot(
-            width: 64, height: 64, pixels: Data(count: 64 * 64 * 4),
-            dirtyRegion: GlyphAtlasRegion(x: 8, y: 12, width: 16, height: 20))
-        XCTAssertEqual(atlas.clampedDirtyRegion, GlyphAtlasRegion(x: 8, y: 12, width: 16, height: 20))
+    func testClampedRegionPassesAWellFormedRegionThrough() {
+        XCTAssertEqual(
+            Self.makeAtlas().clampedRegion(GlyphAtlasRegion(x: 8, y: 12, width: 16, height: 20)),
+            GlyphAtlasRegion(x: 8, y: 12, width: 16, height: 20))
     }
 }

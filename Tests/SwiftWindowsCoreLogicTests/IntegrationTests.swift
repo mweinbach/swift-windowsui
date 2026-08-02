@@ -297,7 +297,7 @@ final class IntegrationTests: XCTestCase {
         }
     }
 
-    func testTextMutationReattachesAtlasPayloadWithDirtyRegion() async {
+    func testTextMutationReattachesAtlasPayload() async {
         await MainActor.run {
             let textNode = ViewNode(
                 frame: Rect(x: 0, y: 0, width: 240, height: 80),
@@ -312,8 +312,12 @@ final class IntegrationTests: XCTestCase {
             let mutatedGlyphs = Self.flattenedGlyphs(in: mutatedScene)
 
             XCTAssertFalse(mutatedGlyphs.native.isEmpty && mutatedGlyphs.pixel.isEmpty)
+            // The frame that draws the glyphs must carry the atlas they
+            // came from — a backend with nothing cached has no other source
+            // for those UVs. What it *uploads* is the upload protocol's
+            // business, not this test's.
             XCTAssertTrue(
-                mutatedScene.glyphAtlas?.dirtyRegion != nil || mutatedScene.pixelGlyphAtlas?.dirtyRegion != nil
+                mutatedScene.glyphAtlas != nil || mutatedScene.pixelGlyphAtlas != nil
             )
         }
     }

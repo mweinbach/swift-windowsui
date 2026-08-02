@@ -12,7 +12,8 @@ final class D3D11BatchRendererTests: XCTestCase {
             width: 1,
             height: 1,
             pixels: Data([255, 255, 255, 255]),
-            dirtyRegion: GlyphAtlasRegion(x: 0, y: 0, width: 1, height: 1)
+            contentVersion: RenderContentVersion.next(),
+            update: .full
         )
     }
 

@@ -482,23 +482,9 @@ extension GlyphAtlasSnapshot {
         return Int(width) * Int(height) * 4
     }
 
-    /// The dirty region clamped into the atlas rect, or `nil` when there
-    /// is no usable sub-region and the consumer should upload (or read)
-    /// the whole atlas.
-    ///
-    /// The raw `dirtyRegion` is producer-supplied and unvalidated: a
-    /// negative origin traps at `UINT(_:)` on the D3D11 upload path and a
-    /// region past the atlas edge is a heap over-read. Consumers use this
-    /// instead of the stored property.
-    public var clampedDirtyRegion: GlyphAtlasRegion? {
-        guard let region = dirtyRegion, width > 0, height > 0 else { return nil }
-        let x0 = max(0, min(region.x, width))
-        let y0 = max(0, min(region.y, height))
-        let x1 = max(x0, min(region.x &+ max(0, region.width), width))
-        let y1 = max(y0, min(region.y &+ max(0, region.height), height))
-        guard x1 > x0, y1 > y0 else { return nil }
-        return GlyphAtlasRegion(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
-    }
+    // Dirty-region clamping lives in `AtlasUploadProtocol.swift`
+    // (`clampedRegion(_:)`): it is one step of the upload decision rather
+    // than a property every consumer has to remember to prefer.
 
     var structuralDefect: SceneDefect? {
         guard let requiredByteCount else {

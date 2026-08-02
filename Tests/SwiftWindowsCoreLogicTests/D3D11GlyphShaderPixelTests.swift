@@ -492,9 +492,8 @@ final class D3D11GlyphShaderPixelTests: XCTestCase {
             width: Int32(Self.atlasTexelCount),
             height: Int32(Self.atlasTexelCount),
             pixels: Data(Self.makeAtlasPixels()),
-            dirtyRegion: GlyphAtlasRegion(
-                x: Int32(Self.entryOrigin.x), y: Int32(Self.entryOrigin.y),
-                width: Int32(Self.entrySize), height: Int32(Self.entrySize))
+            contentVersion: RenderContentVersion.next(),
+            update: .full
         )
         let bitmap = GPUIRawSceneRasterizer.rasterize(
             scene, size: IntSize(width: Int32(harness.width), height: Int32(harness.height)))

@@ -120,28 +120,38 @@ final class PixelFormatContractTests: XCTestCase {
             "Opaque pixels are identical under both conventions and must not be rewritten")
     }
 
-    /// `sharesPixelStorage` is what keeps a frame-stable image from being
-    /// re-converted and re-uploaded every frame, so it has to say "yes" only
-    /// for genuinely the same buffer.
-    func testSharesPixelStorageAnswersOnlyForTheSameBuffer() async throws {
+    /// `contentKey` is what keeps a frame-stable image from being
+    /// re-converted and re-uploaded every frame, so it has to match only
+    /// for genuinely the same content.
+    func testContentKeyMatchesOnlyForTheSameContent() async throws {
         let surface = makeOpaqueSurface(width: 32, height: 32)
-        XCTAssertTrue(surface.sharesPixelStorage(with: surface))
-        XCTAssertFalse(surface.sharesPixelStorage(with: makeOpaqueSurface(width: 32, height: 32)))
+        var copy = surface
+        XCTAssertEqual(
+            surface.contentKey, copy.contentKey,
+            "A copy of the same surface is the same upload")
+        XCTAssertNotEqual(
+            surface.contentKey, makeOpaqueSurface(width: 32, height: 32).contentKey,
+            "An independently built buffer is a different upload, even byte for byte")
 
         var relabelled = surface
         relabelled.format = .bgra8Premultiplied
-        XCTAssertFalse(
-            surface.sharesPixelStorage(with: relabelled),
+        XCTAssertNotEqual(
+            surface.contentKey, relabelled.contentKey,
             "Same bytes under a different convention are a different upload")
 
         var resized = surface
         resized.width = 16
-        XCTAssertFalse(surface.sharesPixelStorage(with: resized))
+        XCTAssertNotEqual(surface.contentKey, resized.contentKey)
 
-        // Buffers small enough for Data's inline representation have no
-        // stable address, so the check refuses to answer for them.
+        // Writing through `pixels` — including in place — re-mints the
+        // token, so a cached texture is never mistaken for the new bytes.
+        copy.pixels[0] = ~copy.pixels[0]
+        XCTAssertNotEqual(surface.contentKey, copy.contentKey)
+
+        // The token is content identity, not object identity: it survives
+        // buffers too small to have a stable address.
         let tiny = BitmapSurface(width: 1, height: 1, bytesPerRow: 4, pixels: Data([1, 2, 3, 255]))
-        XCTAssertFalse(tiny.sharesPixelStorage(with: tiny))
+        XCTAssertEqual(tiny.contentKey, tiny.contentKey)
     }
 
     /// A surface whose stride is wider than its pixels must not be judged

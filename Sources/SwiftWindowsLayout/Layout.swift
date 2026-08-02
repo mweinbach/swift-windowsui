@@ -74,6 +74,12 @@ public enum StackMainAlignment: Equatable, Sendable {
 public enum StackDistribution: Equatable, Sendable {
     /// Children fill available space according to their flex properties.
     case fill
+    /// Every child gets an identical main-axis extent (macOS
+    /// `NSSegmentedControl.segmentDistribution == .fillEqually`). Equality
+    /// wins over content pressure: text shrink floors and flex properties
+    /// do not apply, so an over-long label truncates rather than breaking
+    /// the equal split.
+    case fillEqually
     /// Equal spacing between children; no spacing before first or after last.
     case spaceBetween
     /// Equal spacing around each child (half-space at edges).

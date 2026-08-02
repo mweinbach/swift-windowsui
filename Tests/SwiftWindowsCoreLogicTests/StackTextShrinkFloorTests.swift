@@ -287,4 +287,136 @@ final class StackTextShrinkFloorTests: XCTestCase {
             XCTAssertEqual(second.resolvedFrame.size.height, 30, accuracy: 0.001)
         }
     }
+
+    /// A floor protects text from sibling pressure, never from a
+    /// container that is smaller than the child alone: a lone oversized
+    /// text in an undersized box fills the box instead of poking out.
+    func testFloorIsCappedByTheContainersOwnExtent() async {
+        await MainActor.run {
+            let text = makeSingleLineCaptionNode()
+            let referenceRoot = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 400, height: 400),
+                layoutMode: .stack(.vertical(alignment: .leading)),
+                isHitTestVisible: false,
+                children: [text]
+            )
+            renderStackFloorProbe(referenceRoot)
+            let naturalTextHeight = text.resolvedFrame.size.height
+            XCTAssertGreaterThan(naturalTextHeight, 8)
+
+            let squeezedText = makeSingleLineCaptionNode()
+            let sibling = ViewNode(
+                backgroundColor: .white, preferredSize: Size(width: 100, height: 100))
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 400, height: 8),
+                layoutMode: .stack(.vertical(alignment: .leading)),
+                isHitTestVisible: false,
+                children: [squeezedText, sibling]
+            )
+            renderStackFloorProbe(root)
+
+            XCTAssertLessThanOrEqual(
+                squeezedText.resolvedFrame.size.height, 8.001,
+                "A floor never exceeds the extent the container itself can offer")
+        }
+    }
+
+    /// A `clipsToBounds` container absorbs squeeze instead of propagating
+    /// its content's floor: clipping is the declared cut boundary, so a
+    /// pinned frame stays contained and the interior clips.
+    func testClippingContainerAbsorbsSqueezeWithoutPropagatingFloor() async {
+        await MainActor.run {
+            let clippedText = makeSingleLineCaptionNode()
+            let clippingCard = ViewNode(
+                layoutMode: .stack(
+                    .vertical(
+                        padding: EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4),
+                        alignment: .stretch)),
+                isHitTestVisible: false,
+                children: [clippedText]
+            )
+            clippingCard.clipsToBounds = true
+            let protectedText = makeSingleLineCaptionNode()
+            let referenceRoot = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 400, height: 400),
+                layoutMode: .stack(.vertical(alignment: .leading)),
+                isHitTestVisible: false,
+                children: [makeSingleLineCaptionNode()]
+            )
+            renderStackFloorProbe(referenceRoot)
+            let naturalTextHeight = referenceRoot.children[0].resolvedFrame.size.height
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 400, height: naturalTextHeight + 12),
+                layoutMode: .stack(.vertical(spacing: 8, alignment: .leading)),
+                isHitTestVisible: false,
+                children: [protectedText, clippingCard]
+            )
+            renderStackFloorProbe(root)
+
+            XCTAssertEqual(
+                protectedText.resolvedFrame.size.height, naturalTextHeight, accuracy: 0.001,
+                "The unclipped text keeps its floor")
+            XCTAssertEqual(
+                clippingCard.resolvedFrame.size.height, 4, accuracy: 0.001,
+                "The clipping card absorbs the whole deficit instead of overflowing")
+            XCTAssertLessThanOrEqual(
+                clippingCard.resolvedFrame.maxY, root.resolvedFrame.size.height + 0.001,
+                "The squeezed stack stays contained")
+        }
+    }
+
+    /// Explicit single-line text opted into truncation: it takes no width
+    /// floor, so a squeezed row shrinks it (showing an ellipsis) instead
+    /// of overflowing the trailing edge.
+    func testSingleLineTextTakesNoWidthFloor() async {
+        await MainActor.run {
+            let label = makeSingleLineCaptionNode()
+            label.textStyle.maximumNumberOfLines = 1
+            let value = ViewNode(text: "A VERY LONG TRAILING VALUE STRING")
+            value.textStyle.maximumNumberOfLines = 1
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 160, height: 40),
+                layoutMode: .stack(.horizontal(spacing: 8, alignment: .center)),
+                isHitTestVisible: false,
+                children: [label, value]
+            )
+            renderStackFloorProbe(root)
+
+            XCTAssertLessThanOrEqual(
+                value.resolvedFrame.maxX, 160.001,
+                "Single-line text shrinks (truncating) instead of overflowing the row")
+        }
+    }
+
+    /// `.fillEqually` overrides the text shrink floor: equality is the
+    /// distribution's contract (macOS segmented controls), so an over-long
+    /// label truncates instead of stealing width from its siblings.
+    func testFillEquallyDistributionOverridesTextShrinkFloors() async {
+        await MainActor.run {
+            let short = ViewNode(text: "A")
+            let long = ViewNode(text: "AN EXTREMELY LONG SEGMENT LABEL THAT CANNOT FIT")
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 240, height: 40),
+                layoutMode: .stack(
+                    .horizontal(spacing: 4, alignment: .stretch, distribution: .fillEqually)),
+                isHitTestVisible: false,
+                children: [short, long]
+            )
+            renderStackFloorProbe(root)
+
+            XCTAssertEqual(
+                short.resolvedFrame.size.width,
+                long.resolvedFrame.size.width,
+                accuracy: 0.001,
+                "fillEqually must keep children equal even when one label cannot fit its share"
+            )
+            XCTAssertEqual(
+                short.resolvedFrame.size.width + long.resolvedFrame.size.width + 4,
+                240,
+                accuracy: 0.001,
+                "equal shares plus spacing must exactly consume the track"
+            )
+        }
+    }
 }

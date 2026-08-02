@@ -15272,7 +15272,8 @@ public struct Picker<SelectionValue: Hashable>: View {
             stackLayout: .horizontal(
                 spacing: 4,
                 padding: EdgeInsets(top: 1, leading: 4, bottom: 1, trailing: 4),
-                alignment: .stretch
+                alignment: .stretch,
+                distribution: .fillEqually
             ),
             isHitTestVisible: false,
             children: optionNodes

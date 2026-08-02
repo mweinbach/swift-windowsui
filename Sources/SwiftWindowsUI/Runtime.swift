@@ -3480,13 +3480,25 @@ public final class ViewNode {
             // pressure: a squeezed stack compresses padding, spacers, and
             // flexible siblings before it crushes a label below its
             // measured main-axis size (see stackShrinkFloorMainExtent).
-            // Computed only when a squeeze actually occurs.
+            // Computed only when a squeeze actually occurs. A floor
+            // protects a child from sibling pressure, never from a
+            // container that is smaller than the child alone, so each
+            // floor is capped at this node's full main extent (full, not
+            // the content box: floors may extend into padding — that is
+            // how padding compresses before text).
             var shrinkFloors: [Double] = []
             if !allowsOverflowAlongMainAxis,
+                stackLayout.distribution != .fillEqually,
                 desiredMainSizes.reduce(0, +) > availableChildMainExtent
             {
+                let floorCap =
+                    stackLayout.axis == .vertical
+                    ? resolvedFrame.size.height : resolvedFrame.size.width
                 shrinkFloors = visibleChildren.map {
-                    $0.stackShrinkFloorMainExtent(along: stackLayout.axis, constraints: childConstraints)
+                    min(
+                        $0.stackShrinkFloorMainExtent(along: stackLayout.axis, constraints: childConstraints),
+                        floorCap
+                    )
                 }
             }
 
@@ -3494,6 +3506,16 @@ public final class ViewNode {
             var allocatedMainSizes: [Double]
             if allowsOverflowAlongMainAxis {
                 allocatedMainSizes = desiredMainSizes
+            } else if stackLayout.distribution == .fillEqually, !visibleChildren.isEmpty {
+                // Equality wins over content pressure: every child gets the
+                // same share of the track, shrink floors and flex do not
+                // apply. An unconstrained track falls back to the widest
+                // desired extent so intrinsic measurement stays equal too.
+                let share =
+                    availableChildMainExtent.isFinite
+                    ? max(0, availableChildMainExtent / Double(visibleChildren.count))
+                    : (desiredMainSizes.max() ?? 0)
+                allocatedMainSizes = [Double](repeating: share, count: visibleChildren.count)
             } else {
                 allocatedMainSizes = allocateMainSizes(
                     desiredSizes: desiredMainSizes,
@@ -3504,7 +3526,9 @@ public final class ViewNode {
             }
 
             // Apply flex grow/shrink
-            if !allowsOverflowAlongMainAxis, !visibleChildren.isEmpty {
+            if !allowsOverflowAlongMainAxis, stackLayout.distribution != .fillEqually,
+                !visibleChildren.isEmpty
+            {
                 let allocatedTotal = allocatedMainSizes.reduce(0, +)
                 let remaining = availableChildMainExtent - allocatedTotal
 
@@ -3557,7 +3581,7 @@ public final class ViewNode {
             let effectiveSpacing: Double
 
             switch stackLayout.distribution {
-            case .fill:
+            case .fill, .fillEqually:
                 effectiveSpacing = stackLayout.spacing
                 switch stackLayout.mainAlignment {
                 case .start:
@@ -3589,7 +3613,17 @@ public final class ViewNode {
                 mainCursorStart = mainOrigin + slotSpace
             }
 
+            // Padding compresses in placement as it does in allocation:
+            // when the occupied extent cannot fit the content box, the
+            // leading padding yields (down to the node's own edge) before
+            // children overflow the trailing edge. When content fits, the
+            // clamp is a no-op; scrollable axes keep natural placement.
             var mainCursor = mainCursorStart
+            if !allowsOverflowAlongMainAxis {
+                let fullMainExtent =
+                    stackLayout.axis == .vertical ? resolvedFrame.size.height : resolvedFrame.size.width
+                mainCursor = max(0, min(mainCursorStart, fullMainExtent - occupiedMainExtent))
+            }
             var visibleIndex = 0
             var maxCrossExtent: Double = 0
 
@@ -5312,7 +5346,11 @@ public final class ViewNode {
     /// labeled container compresses its padding and flexible siblings
     /// (and ultimately overflows) instead of crushing text below its
     /// measured size. Nodes without text content keep a zero floor, which
-    /// preserves the previous shrink behavior for them.
+    /// preserves the previous shrink behavior for them. Two escape
+    /// hatches keep pinned control chrome contained: a `clipsToBounds`
+    /// container absorbs squeeze instead of propagating a floor, and
+    /// explicit single-line text takes no width floor because truncation
+    /// is its degrade path.
     fileprivate func stackShrinkFloorMainExtent(
         along axis: StackAxis,
         constraints: LayoutConstraints
@@ -5320,7 +5358,23 @@ public final class ViewNode {
         guard ViewNode.enterTraversal() else { return 0 }
         defer { ViewNode.leaveTraversal() }
 
+        // A clipping container is the declared "content may be cut here"
+        // boundary: it absorbs squeeze (its interior clips or truncates)
+        // instead of resisting it, so it contributes no floor upward.
+        // Control chrome (buttons, segmented tracks) relies on this to
+        // keep pinned frames contained.
+        if clipsToBounds {
+            return 0
+        }
+
         if let text, !text.isEmpty {
+            // Explicit single-line text opted into truncation as its
+            // degrade path: an over-long label shows an ellipsis instead
+            // of resisting the squeeze, so it takes no width floor. The
+            // vertical floor (line height) still applies.
+            if axis == .horizontal, textStyle.maximumNumberOfLines == 1 {
+                return 0
+            }
             let measured = sizeThatFits(in: constraints)
             return axis == .vertical ? measured.height : measured.width
         }

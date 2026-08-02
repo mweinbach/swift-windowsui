@@ -703,6 +703,13 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
                 }
             )
 
+            // Frames are stamped from the host's monotonic clock and paced
+            // against the vsync period, so a test that wants three *rendered*
+            // frames has to move time between them the way a real session
+            // does — two paints inside one 16 ms interval are one frame.
+            let clock = FakeRecoveryClock(1_000)
+            host.frameClock = { clock.now }
+
             let window = Win32Window(title: "Test", clientSize: expectedSurface.pixelSize)
             host.windowDidCreate(window)
 
@@ -721,6 +728,7 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
 
             batchRenderer.setRenderShouldFail(true)
             rightContent.backgroundColor = Color(red: 0.3, green: 0.4, blue: 0.7, alpha: 1)
+            clock.now += 0.05
             host.windowNeedsDisplay(window)
 
             XCTAssertFalse(host.isUsingScenePresentationBackend)
@@ -742,6 +750,7 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             )
 
             rightContent.backgroundColor = Color(red: 0.7, green: 0.2, blue: 0.3, alpha: 1)
+            clock.now += 0.05
             host.windowNeedsDisplay(window)
 
             XCTAssertEqual(frameRenderer.renderedFrames.count, 2)
@@ -1502,7 +1511,12 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
                 "Initial timer cadence should use the initial monitor refresh rate")
             XCTAssertEqual(host.currentTimerState.intervalMilliseconds, expectedTimerInterval(for: 60))
             XCTAssertNotNil(host.currentRuntimeMinimumFrameInterval)
-            XCTAssertEqual(host.currentRuntimeMinimumFrameInterval ?? 0, 1.0 / 60.0, accuracy: 0.000_001)
+            XCTAssertEqual(
+                host.currentRuntimeMinimumFrameInterval ?? 0,
+                WinSwiftUIWindowHost.pacingInterval(forRefreshRate: 60),
+                accuracy: 0.000_001,
+                "The pacing floor sits strictly below the vsync period so a tick that lands early still renders."
+            )
 
             // Verify timer state was recorded with expected values
             XCTAssertFalse(recordedTimerStates.isEmpty, "Timer state changes should be recorded")
@@ -1523,7 +1537,11 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
                 host.currentTimerState.refreshRate, 144,
                 "Display-change handling should resample the window monitor refresh rate")
             XCTAssertEqual(host.currentTimerState.intervalMilliseconds, expectedTimerInterval(for: 144))
-            XCTAssertEqual(host.currentRuntimeMinimumFrameInterval ?? 0, 1.0 / 144.0, accuracy: 0.000_001)
+            XCTAssertEqual(
+                host.currentRuntimeMinimumFrameInterval ?? 0,
+                WinSwiftUIWindowHost.pacingInterval(forRefreshRate: 144),
+                accuracy: 0.000_001
+            )
             XCTAssertTrue(recordedTimerStates.contains(where: { $0.refreshRate == 60 }))
             XCTAssertTrue(
                 recordedTimerStates.contains(where: { $0.refreshRate == 144 }),
@@ -1798,6 +1816,15 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             batchRenderer: nil,
             surfaceDescriptorProvider: { _ in expectedSurface }
         )
+        // Frames are paced against the vsync period now, and this test drives
+        // several of them inside one real millisecond. A clock that advances a
+        // frame per entry keeps the subject of the test the dependency set
+        // rather than the frame budget.
+        let clock = FakeRecoveryClock(1_000)
+        host.frameClock = {
+            clock.now += 0.02
+            return clock.now
+        }
 
         host.windowDidCreate(fakeWindow)
         XCTAssertEqual(frameRenderer.renderedFrames.count, 1, "Initial host startup should render once")

@@ -866,10 +866,13 @@ final class RetainedViewRuntimeTests: XCTestCase {
             XCTAssertEqual(offsetAfterWheel, 60)
             XCTAssertTrue(runtime.hasActiveAnimations, "Wheel impulse should seed momentum")
 
-            // First tick after seeding just records time; no glide yet.
+            // The first tick after seeding glides only by the time actually
+            // elapsed since the wheel — microseconds on a monotonic frame
+            // clock, where the old tick-count clock quantized it to exactly
+            // zero.
             let t0 = Win32Window.currentTimestampSeconds()
             _ = runtime.tickAnimations(at: t0)
-            XCTAssertEqual(scrollPanel.scrollOffset, offsetAfterWheel)
+            XCTAssertEqual(scrollPanel.scrollOffset, offsetAfterWheel, accuracy: 0.1)
 
             // Subsequent ticks glide further in the direction of the wheel.
             _ = runtime.tickAnimations(at: t0 + 0.016)

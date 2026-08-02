@@ -126,6 +126,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   scene session, and `RendererHealthSnapshot.backendResolution` separates
   healthy hardware from WARP from a substituted factory. Includes one real-HWND
   `StretchDIBits` blit, skipped where a top-level window cannot be created.
+- `FrameClockPacingTests` — the frame clock and the pacing floor: the clock is
+  monotonic and resolves inside a system tick, the floor sits strictly below
+  the vsync period, a 15.625 ms-quantized tick sequence renders ≥ 55 frames per
+  simulated second at 60 Hz, two rebuilds cannot share one vsync interval, and
+  `WM_PAINT`-driven frames carry the host clock rather than `0`.
+- `BatchRecoveryBackoffTests` — the recovery ladder: 5 → 10 → 20 → 40 → 60 s
+  carried across downgrades instead of resetting, retired only by a sustained
+  run of presented scene frames, with a `.sceneContent` failure never retried
+  against an unchanged tree and `.permanent` scheduling nothing.
+- `WindowConfigurationDPITests` — window creation and configuration: creation
+  geometry linear in DPI and independent of the frame inset, the logical root
+  equal to the requested size at 2×, one clamped effective scale for every
+  consumer (hit testing round-trips at 0.75), track sizes / fixed size /
+  placement / level translation, a 100-message drag costing ≤ 1 display-mode
+  query, and an unchanged appearance snapshot triggering no reload.
 
 Test runs never write images into the source tree: `check-contracts.ps1`
 fails if a `ReferenceImages` directory appears under `Tests/`. Reviewed

@@ -177,6 +177,23 @@ behavior** unless a note says otherwise.
 | `ImmersiveSpace`, `Volume`, Widget configs | **Shim** | Source shapes only; no visionOS / widget runtime |
 | `supportsMultipleWindows` | **Implemented** | True for coordinator-managed hosts; false otherwise |
 
+### Window scene modifiers
+
+The window is created at the requested size *in logical points*: the client
+size is scaled by the target monitor's DPI and turned into a window rect with
+`AdjustWindowRectExForDpi`, so `WindowGroup(size:)` means the same thing at
+100 % and 200 %.
+
+| API | Status | Behavior today |
+| --- | --- | --- |
+| `windowMinSize` / `windowMaxSize` | **Implemented** | `WM_GETMINMAXINFO` track sizes, converted from logical points at the window's current DPI |
+| `windowIdealSize` | **Implemented** | The size the window opens at, clamped into min/max |
+| `windowResizability(.contentSize)` | **Implemented** | Fixed size: no sizing border, no maximize box, one track size |
+| `windowResizability(.minSize / .maxSize)` | **Partial** | Stays resizable; the declared min/max ride the track sizes above |
+| `defaultPosition` | **Implemented** | Placed at the normalized position within the target monitor's work area |
+| `windowLevel` | **Partial** | Any non-`.normal`/`.base` level becomes `HWND_TOPMOST`; Win32 has no finer z-band vocabulary |
+| `windowToolbarStyle`, `navigationSubtitle`, `windowStyle`, `menuBarExtraStyle`, restoration / launch / activation / background-drag behaviors, `windowManagerRole`, `allowsWindowInlining` | **Shim** | Parsed and reported once at window creation (`unsupportedWindowConfigurationModifiers`), never silently dropped |
+
 ### Environment / system flags
 
 | API | Status | Behavior today |

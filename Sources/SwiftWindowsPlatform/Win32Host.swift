@@ -116,6 +116,54 @@ extension WindowDelegate {
     public func window(_ window: Win32Window, touchEnded points: [Point]) {}
     public func window(_ window: Win32Window, didReceiveFileDrop payload: FileDropPayload) {}
 }
+/// The window traits the scene layer asks for and the Win32 host can actually
+/// enforce.
+///
+/// `WindowGroupConfiguration` has carried `minSize`, `maxSize`, `idealSize`,
+/// `defaultPosition`, `resizability` and `windowLevel` since the scene
+/// modifiers were written, and none of them ever reached an HWND: there was no
+/// `WM_GETMINMAXINFO` handler and no `SetWindowPos` for placement or level, so
+/// `.windowResizability(.contentSize)` and `.windowMinSize(…)` were silent
+/// no-ops. This is the renderer-neutral subset the host can honour; the
+/// translation from SwiftUI-shaped values lives in `WinSwiftUI`, and the
+/// enforcement lives here.
+public struct Win32WindowConfiguration: Equatable, Sendable {
+    public enum Resizability: Sendable, Equatable {
+        case resizable
+        /// The window is pinned to its content size: no sizing border, no
+        /// maximize box, and `WM_GETMINMAXINFO` reports one track size.
+        case fixedSize
+    }
+
+    /// Smallest client size the user may drag the window down to, in logical
+    /// points.
+    public var minimumClientSize: IntSize?
+    /// Largest client size the user may drag the window up to, in logical
+    /// points.
+    public var maximumClientSize: IntSize?
+    /// Where to place the window inside its monitor's work area, normalized to
+    /// 0…1 on each axis. `nil` leaves placement to Windows (`CW_USEDEFAULT`).
+    public var normalizedPosition: Point?
+    public var resizability: Resizability
+    /// Whether the window sits above ordinary windows (`HWND_TOPMOST`).
+    public var isAlwaysOnTop: Bool
+
+    public init(
+        minimumClientSize: IntSize? = nil,
+        maximumClientSize: IntSize? = nil,
+        normalizedPosition: Point? = nil,
+        resizability: Resizability = .resizable,
+        isAlwaysOnTop: Bool = false
+    ) {
+        self.minimumClientSize = minimumClientSize
+        self.maximumClientSize = maximumClientSize
+        self.normalizedPosition = normalizedPosition
+        self.resizability = resizability
+        self.isAlwaysOnTop = isAlwaysOnTop
+    }
+
+    public static let `default` = Win32WindowConfiguration()
+}
 public struct Win32PlatformError: Error, CustomStringConvertible, Sendable {
     public let operation: String
     public let code: DWORD
@@ -178,6 +226,18 @@ public final class Win32Window {
     // Monitor refresh rate cache
     private var cachedRefreshRate: UINT = 60
     private var refreshRateDirty = true
+    /// Identity of the monitor the window was last seen on. `WM_MOVE` only
+    /// invalidates the refresh rate when this changes.
+    private var cachedMonitorIdentity: UInt?
+    private var lastRefreshRateQueryTime: Double = -.greatestFiniteMagnitude
+    /// Number of display-mode enumerations this window has performed.
+    /// Internal so a headless test can prove a drag does not run one per
+    /// `WM_MOVE`.
+    internal private(set) var refreshRateQueryCount = 0
+    /// Injectable clock for the refresh-rate rate limiter.
+    internal var refreshRateQueryClock: @MainActor () -> Double = { Win32Window.currentTimestampSeconds() }
+    private static let refreshRateQueryMinimumInterval: Double = 0.25
+    internal var testMonitorIdentityOverride: UInt?
 
     // System appearance sampling
     /// Injectable settings source; defaults to live Win32 sampling. Tests
@@ -213,14 +273,30 @@ public final class Win32Window {
     internal var testScaleFactorOverride: Double?
     internal var testMonitorRefreshRateOverride: UINT? {
         didSet {
-            refreshRateDirty = true
+            // Stands in for a genuine display-mode change, which is not the
+            // spam source the rate limiter exists for.
+            invalidateRefreshRate(force: true)
         }
     }
 
-    public init(title: String, clientSize: IntSize, titleBarVisibility: WindowTitleBarVisibility = .automatic) {
+    /// The client size the caller asked for, in *logical points*. `clientSize`
+    /// tracks the OS and is in physical pixels from the first `WM_SIZE`, so
+    /// the requested size has to be kept separately: the min/max track sizes
+    /// and the fixed-size pin are all expressed against it.
+    public let requestedLogicalClientSize: IntSize
+    public let configuration: Win32WindowConfiguration
+
+    public init(
+        title: String,
+        clientSize: IntSize,
+        titleBarVisibility: WindowTitleBarVisibility = .automatic,
+        configuration: Win32WindowConfiguration = .default
+    ) {
         self.title = title
         self.clientSize = clientSize
+        self.requestedLogicalClientSize = clientSize
         self.titleBarVisibility = titleBarVisibility
+        self.configuration = configuration
     }
 
     public var nativeHandle: NativeWindowHandle? {
@@ -245,11 +321,53 @@ public final class Win32Window {
         return Double(dpi) / 96.0
     }
 
-    public var monitorRefreshRate: UINT {
-        if refreshRateDirty {
-            refreshRateDirty = false
-            cachedRefreshRate = queryMonitorRefreshRate()
+    /// The single scale every consumer of this window must agree on.
+    ///
+    /// The raw `GetDpiForWindow` value can legitimately be below 1.0 in remote
+    /// and virtual-display sessions, and the layer above used to clamp it in
+    /// one place (the logical root size) and not in the others (hit testing,
+    /// the IME caret rect, `clientRectToScreen`). A 0.75 session then laid out
+    /// an 800×600 root and converted a click at physical (400, 300) to logical
+    /// (533, 400): every hit test, hover, drag and caret was off by a third
+    /// with nothing crashing. One rule, one place.
+    public var effectiveScaleFactor: Double {
+        Self.effectiveScaleFactor(for: scaleFactor)
+    }
+
+    /// The clamp itself, so the layer above applies exactly this rule to the
+    /// scale carried on a `SurfaceDescriptor`.
+    public static func effectiveScaleFactor(for rawScaleFactor: Double) -> Double {
+        guard rawScaleFactor.isFinite, rawScaleFactor > 0 else {
+            return 1.0
         }
+
+        return max(rawScaleFactor, 1.0)
+    }
+
+    /// Cached monitor refresh rate, re-queried only when the window's monitor
+    /// actually changed and at most once per
+    /// ``refreshRateQueryMinimumInterval``.
+    ///
+    /// `WM_MOVE` arrives at mouse-report rate (125–1000 Hz on a gaming mouse)
+    /// and used to mark this dirty unconditionally, so every drag ran a
+    /// `MonitorFromWindow` + `GetMonitorInfoW` + `EnumDisplaySettingsW`
+    /// driver round-trip per message on the UI thread, inside the modal move
+    /// loop.
+    public var monitorRefreshRate: UINT {
+        guard refreshRateDirty else {
+            return cachedRefreshRate
+        }
+
+        let now = refreshRateQueryClock()
+        guard now - lastRefreshRateQueryTime >= Self.refreshRateQueryMinimumInterval else {
+            // Still dirty: the next access past the rate limit re-queries.
+            return cachedRefreshRate
+        }
+
+        refreshRateDirty = false
+        lastRefreshRateQueryTime = now
+        refreshRateQueryCount &+= 1
+        cachedRefreshRate = queryMonitorRefreshRate()
         return cachedRefreshRate
     }
 
@@ -273,6 +391,50 @@ public final class Win32Window {
         cachedSystemAppearance = nil
     }
 
+    /// Re-samples the appearance and reports whether anything the app can see
+    /// actually changed. The snapshot has been `Equatable` all along; nothing
+    /// compared it, so every broadcast was a full reload.
+    @discardableResult
+    internal func refreshSystemAppearanceIfChanged() -> Bool {
+        let previous = cachedSystemAppearance
+        cachedSystemAppearance = nil
+        return systemAppearance != previous
+    }
+
+    /// Invalidates the refresh-rate cache only when the window's monitor
+    /// actually changed. Internal so a headless test can drive a drag.
+    internal func noteWindowMayHaveChangedMonitor() {
+        let identity = currentMonitorIdentity()
+        guard identity != cachedMonitorIdentity else {
+            return
+        }
+
+        cachedMonitorIdentity = identity
+        invalidateRefreshRate()
+    }
+
+    /// Marks the cached refresh rate stale. `force` skips the rate limiter,
+    /// which exists for `WM_MOVE`-shaped spam rather than for the rare, real
+    /// display-topology change `WM_DISPLAYCHANGE` reports.
+    private func invalidateRefreshRate(force: Bool = false) {
+        refreshRateDirty = true
+        if force {
+            lastRefreshRateQueryTime = -.greatestFiniteMagnitude
+        }
+    }
+
+    private func currentMonitorIdentity() -> UInt {
+        if let testMonitorIdentityOverride {
+            return testMonitorIdentityOverride
+        }
+
+        guard let hwnd else {
+            return 0
+        }
+
+        return UInt(bitPattern: MonitorFromWindow(hwnd, DWORD(MONITOR_DEFAULTTONEAREST)))
+    }
+
     public func create() throws {
         guard hwnd == nil else {
             return
@@ -293,14 +455,15 @@ public final class Win32Window {
         // sends immediately afterwards resolves freed memory.
         let rawSelf = Unmanaged.passRetained(self).toOpaque()
         ownsRetainedSelfReference = true
-        let style: DWORD
-        switch titleBarVisibility.kind {
-        case .hidden:
-            let hiddenStyle = Int32(WS_POPUP) | Int32(WS_THICKFRAME) | Int32(WS_MINIMIZEBOX) | Int32(WS_MAXIMIZEBOX)
-            style = DWORD(UInt32(bitPattern: hiddenStyle))
-        default:
-            style = DWORD(UInt32(bitPattern: Int32(WS_OVERLAPPEDWINDOW)))
-        }
+        let style = windowStyle
+        // `nWidth`/`nHeight` are the *outer window* rect in *physical* pixels,
+        // and `WindowGroup(size:)` is logical points. Passing one for the
+        // other opened every app at a fraction of its intended area on any
+        // HiDPI machine — a requested 1280×720 became a ≈632×341 logical
+        // client area at 200 %, small enough to flip the app into the compact
+        // size class before it ever painted.
+        let creationDpi = Self.creationDpi()
+        let geometry = Self.windowGeometry(forLogicalClientSize: clientSize, style: style, dpi: creationDpi)
 
         let createdWindow: HWND?
         do {
@@ -313,8 +476,8 @@ public final class Win32Window {
                         style,
                         CW_USEDEFAULT,
                         CW_USEDEFAULT,
-                        Int32(clientSize.width),
-                        Int32(clientSize.height),
+                        geometry.windowWidth,
+                        geometry.windowHeight,
                         nil,
                         nil,
                         instance,
@@ -340,6 +503,14 @@ public final class Win32Window {
 
         hwnd = createdWindow
 
+        // The `WM_SIZE` Windows delivers from inside `CreateWindowExW` arrives
+        // before `hwnd` is assigned, so the wndproc's cache refresh is a no-op
+        // for it. Sample the real client rect here instead: until this ran,
+        // `currentClientSize()` reported the *logical* size the caller asked
+        // for, and the startup surface descriptor built a swap chain for it —
+        // half the window's pixels on a 200 % display.
+        updateCachedClientSize()
+
         // Accept files dragged from the shell (WM_DROPFILES).
         if let window = createdWindow {
             FileDropManager.setAcceptsDroppedFiles(on: window, true)
@@ -350,11 +521,190 @@ public final class Win32Window {
             RegisterTouchWindow(window, 0)
         }
 
+        // Placement and z-order, once the HWND exists and its real monitor is
+        // known. The size constraints ride `WM_GETMINMAXINFO`; the style
+        // already carries the fixed-size decision.
+        applyConfigurationToCreatedWindow()
+
         // Prime the system appearance snapshot at startup so the first
         // environment build sees current OS settings.
         _ = systemAppearance
 
         delegate?.windowDidCreate(self)
+    }
+
+    /// Window style for this window's title-bar visibility and resizability.
+    /// `.fixedSize` drops the sizing border and the maximize box, which is the
+    /// half of `.windowResizability(.contentSize)` that a track-size limit
+    /// cannot express.
+    private var windowStyle: DWORD {
+        var style: Int32
+        switch titleBarVisibility.kind {
+        case .hidden:
+            style = Int32(WS_POPUP) | Int32(WS_THICKFRAME) | Int32(WS_MINIMIZEBOX) | Int32(WS_MAXIMIZEBOX)
+        default:
+            style = Int32(WS_OVERLAPPEDWINDOW)
+        }
+
+        if configuration.resizability == .fixedSize {
+            style &= ~(Int32(WS_THICKFRAME) | Int32(WS_MAXIMIZEBOX))
+        }
+
+        return DWORD(UInt32(bitPattern: style))
+    }
+
+    private func applyConfigurationToCreatedWindow() {
+        guard let hwnd else {
+            return
+        }
+
+        if configuration.isAlwaysOnTop {
+            SetWindowPos(
+                hwnd,
+                Self.topmostWindowHandle,
+                0,
+                0,
+                0,
+                0,
+                UINT(SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
+            )
+        }
+
+        guard let normalizedPosition = configuration.normalizedPosition else {
+            return
+        }
+
+        var windowRect = RECT()
+        guard GetWindowRect(hwnd, &windowRect) else {
+            return
+        }
+
+        let monitor = MonitorFromWindow(hwnd, DWORD(MONITOR_DEFAULTTONEAREST))
+        var monitorInfo = MONITORINFO()
+        monitorInfo.cbSize = DWORD(MemoryLayout<MONITORINFO>.size)
+        guard GetMonitorInfoW(monitor, &monitorInfo) else {
+            return
+        }
+
+        let origin = Self.windowOrigin(
+            normalizedPosition: normalizedPosition,
+            windowSize: IntSize(
+                width: Int32(windowRect.right - windowRect.left),
+                height: Int32(windowRect.bottom - windowRect.top)
+            ),
+            workArea: monitorInfo.rcWork
+        )
+        SetWindowPos(hwnd, nil, origin.x, origin.y, 0, 0, UINT(SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE))
+    }
+
+    /// Top-left of a window of `windowSize` placed at `normalizedPosition`
+    /// within `workArea`. Pure, so the placement arithmetic is testable
+    /// without a monitor.
+    internal static func windowOrigin(
+        normalizedPosition: Point,
+        windowSize: IntSize,
+        workArea: RECT
+    ) -> (x: Int32, y: Int32) {
+        func clamped(_ value: Double) -> Double {
+            guard value.isFinite else { return 0.5 }
+            return min(max(value, 0), 1)
+        }
+
+        let slackX = max(0, Int32(workArea.right - workArea.left) - windowSize.width)
+        let slackY = max(0, Int32(workArea.bottom - workArea.top) - windowSize.height)
+        return (
+            x: Int32(workArea.left) + Int32((Double(slackX) * clamped(normalizedPosition.x)).rounded()),
+            y: Int32(workArea.top) + Int32((Double(slackY) * clamped(normalizedPosition.y)).rounded())
+        )
+    }
+
+    /// `HWND_TOPMOST`. Declared here because the WinSDK Swift overlay does not
+    /// export the sentinel handles.
+    private static let topmostWindowHandle = HWND(bitPattern: -1)
+
+    /// Outer window size, in physical pixels, for a logical client size at a
+    /// given DPI. Pure and callable without a window, so the DPI contract is
+    /// testable headlessly.
+    internal struct WindowCreationGeometry: Equatable {
+        var windowWidth: Int32
+        var windowHeight: Int32
+    }
+
+    internal static func windowGeometry(
+        forLogicalClientSize clientSize: IntSize,
+        style: DWORD,
+        exStyle: DWORD = 0,
+        dpi: UINT
+    ) -> WindowCreationGeometry {
+        let physical = physicalClientSize(forLogicalClientSize: clientSize, dpi: dpi)
+        var rect = RECT(left: 0, top: 0, right: LONG(physical.width), bottom: LONG(physical.height))
+        guard AdjustWindowRectExForDpi(&rect, style, false, exStyle, dpi) else {
+            return WindowCreationGeometry(windowWidth: physical.width, windowHeight: physical.height)
+        }
+
+        return WindowCreationGeometry(
+            windowWidth: Int32(rect.right - rect.left),
+            windowHeight: Int32(rect.bottom - rect.top)
+        )
+    }
+
+    internal static func physicalClientSize(forLogicalClientSize clientSize: IntSize, dpi: UINT) -> IntSize {
+        let scale = Double(max(dpi, 1)) / 96.0
+        return IntSize(
+            width: Int32((Double(max(clientSize.width, 1)) * scale).rounded()),
+            height: Int32((Double(max(clientSize.height, 1)) * scale).rounded())
+        )
+    }
+
+    /// DPI of the monitor the window is about to be created on.
+    ///
+    /// `GetDpiForWindow` needs an HWND that does not exist yet. Under
+    /// per-monitor-v2 awareness — which `Win32HighDpiSupport` installs before
+    /// any window is created — `GetDpiForSystem` reports the *primary*
+    /// monitor's DPI, which is the monitor `CW_USEDEFAULT` places the window
+    /// on. A window that lands elsewhere is corrected by `WM_DPICHANGED`.
+    internal static func creationDpi() -> UINT {
+        if let testCreationDpiOverride {
+            return testCreationDpiOverride
+        }
+
+        let dpi = GetDpiForSystem()
+        return dpi > 0 ? dpi : 96
+    }
+
+    internal static var testCreationDpiOverride: UINT?
+
+    /// Current DPI of this window, falling back to the creation DPI before the
+    /// HWND exists.
+    private var currentDpi: UINT {
+        if let testScaleFactorOverride {
+            return UINT(max(1, (testScaleFactorOverride * 96.0).rounded()))
+        }
+
+        guard let hwnd else {
+            return Self.creationDpi()
+        }
+
+        let dpi = GetDpiForWindow(hwnd)
+        return dpi > 0 ? dpi : Self.creationDpi()
+    }
+
+    /// Physical outer-window track sizes `WM_GETMINMAXINFO` reports, derived
+    /// from the logical constraints the scene layer asked for. Internal so a
+    /// headless test can pin the conversion.
+    internal func trackSizeLimits(dpi: UINT) -> (minimum: IntSize?, maximum: IntSize?) {
+        let style = windowStyle
+        let pinnedSize = configuration.resizability == .fixedSize ? requestedLogicalClientSize : nil
+
+        func outerSize(_ logical: IntSize) -> IntSize {
+            let geometry = Self.windowGeometry(forLogicalClientSize: logical, style: style, dpi: dpi)
+            return IntSize(width: geometry.windowWidth, height: geometry.windowHeight)
+        }
+
+        return (
+            minimum: (configuration.minimumClientSize ?? pinnedSize).map(outerSize),
+            maximum: (configuration.maximumClientSize ?? pinnedSize).map(outerSize)
+        )
     }
 
     public func show() {
@@ -462,7 +812,10 @@ public final class Win32Window {
             return rect
         }
 
-        let scale = scaleFactor
+        // The same clamped scale the runtime laid this rect out with — a raw
+        // sub-1 DPI here would report accessibility bounds a third away from
+        // the pixels the user sees.
+        let scale = effectiveScaleFactor
         var topLeft = POINT(x: LONG((rect.origin.x * scale).rounded()), y: LONG((rect.origin.y * scale).rounded()))
         var bottomRight = POINT(
             x: LONG(((rect.origin.x + rect.size.width) * scale).rounded()),
@@ -769,6 +1122,28 @@ public final class Win32Window {
             delegate?.window(self, didResizeTo: clientSize)
             return 0
 
+        case UINT(WM_GETMINMAXINFO):
+            // DefWindowProc fills the defaults; the configured constraints
+            // override them. Without this handler `.windowMinSize(…)`,
+            // `.windowMaxSize(…)` and `.windowResizability(.contentSize)` were
+            // parsed by the scene modifiers and then dropped.
+            let result = DefWindowProcW(hwnd, message, wParam, lParam)
+            guard let info = UnsafeMutableRawPointer(bitPattern: Int(lParam))?.assumingMemoryBound(to: MINMAXINFO.self)
+            else {
+                return result
+            }
+
+            let limits = trackSizeLimits(dpi: currentDpi)
+            if let minimum = limits.minimum {
+                info.pointee.ptMinTrackSize.x = LONG(minimum.width)
+                info.pointee.ptMinTrackSize.y = LONG(minimum.height)
+            }
+            if let maximum = limits.maximum {
+                info.pointee.ptMaxTrackSize.x = LONG(maximum.width)
+                info.pointee.ptMaxTrackSize.y = LONG(maximum.height)
+            }
+            return result
+
         case UINT(WM_PAINT):
             var paint = PAINTSTRUCT()
             BeginPaint(hwnd, &paint)
@@ -873,7 +1248,7 @@ public final class Win32Window {
         // Window lifecycle and state messages
 
         case UINT(WM_DISPLAYCHANGE):
-            refreshRateDirty = true
+            invalidateRefreshRate(force: true)
             delegate?.windowDidChangeDisplay(self)
             return 0
 
@@ -903,8 +1278,11 @@ public final class Win32Window {
             let packed = UInt32(truncatingIfNeeded: lParam)
             windowPosition.x = LONG(Int16(bitPattern: UInt16(packed & 0xFFFF)))
             windowPosition.y = LONG(Int16(bitPattern: UInt16((packed >> 16) & 0xFFFF)))
-            // Invalidate refresh rate cache in case the window moved to a different monitor
-            refreshRateDirty = true
+            // A drag delivers this at mouse-report rate. Only a monitor change
+            // can change the refresh rate, and the cache is rate limited on
+            // top of that, so a drag costs one `MonitorFromWindow` per message
+            // instead of a display-mode enumeration.
+            noteWindowMayHaveChangedMonitor()
             delegate?.windowDidChangeDisplay(self)
             return 0
 
@@ -919,15 +1297,23 @@ public final class Win32Window {
             return 0
 
         case UINT(WM_SETTINGCHANGE):
-            invalidateSystemAppearanceCache()
-            delegate?.windowDidChangeSystemSettings(self)
+            // `WM_SETTINGCHANGE` is a broadcast: an environment-variable
+            // change, a policy refresh, any `SystemParametersInfo` write by
+            // any process on the machine. Forwarding all of them tore down and
+            // re-registered every observed-object token, rebuilt the whole
+            // tree and raised a UIA structure change — which makes screen
+            // readers re-announce — for settings the app does not read.
+            if refreshSystemAppearanceIfChanged() {
+                delegate?.windowDidChangeSystemSettings(self)
+            }
             return 0
 
         case UINT(WM_SYSCOLORCHANGE):
             // High-contrast theme switches broadcast WM_SYSCOLORCHANGE;
             // route them through the same settings invalidation path.
-            invalidateSystemAppearanceCache()
-            delegate?.windowDidChangeSystemSettings(self)
+            if refreshSystemAppearanceIfChanged() {
+                delegate?.windowDidChangeSystemSettings(self)
+            }
             return 0
 
         case UINT(WM_SETCURSOR):
@@ -1080,7 +1466,7 @@ public final class Win32Window {
             return
         }
 
-        let scale = scaleFactor
+        let scale = effectiveScaleFactor
         let clientPoint = Point(
             x: (caretRect.origin.x * scale).rounded(),
             y: ((caretRect.origin.y + caretRect.size.height) * scale).rounded()
@@ -1236,9 +1622,35 @@ public final class Win32Window {
         return max(1, value)
     }
 
+    /// The window's monotonic frame clock, in seconds.
+    ///
+    /// `GetTickCount64` advances in system clock ticks — documented as 10–16 ms
+    /// and typically 15.625 ms — which is *coarser than a 60 Hz vsync period*.
+    /// Pacing fed by it saw 15.6 ms elapsed against a 16.667 ms interval, so
+    /// every other animation frame was dropped and every continuous animation
+    /// ran at ~30 fps with alternating 15.6/31.2 ms spacing, sampling the
+    /// easing curves in `docs/AnimationParity.md` on a quantized, jittering
+    /// clock. `QueryPerformanceCounter` is monotonic and sub-microsecond.
     public static func currentTimestampSeconds() -> Double {
-        Double(GetTickCount64()) / 1000.0
+        var counter = LARGE_INTEGER()
+        guard QueryPerformanceCounter(&counter), performanceCounterFrequency > 0 else {
+            return Double(GetTickCount64()) / 1000.0
+        }
+
+        return Double(counter.QuadPart) / performanceCounterFrequency
     }
+
+    /// Counts per second, fixed at boot on every supported Windows version, so
+    /// this is queried once. Zero means the query failed and the tick-count
+    /// fallback applies.
+    private static let performanceCounterFrequency: Double = {
+        var frequency = LARGE_INTEGER()
+        guard QueryPerformanceFrequency(&frequency), frequency.QuadPart > 0 else {
+            return 0
+        }
+
+        return Double(frequency.QuadPart)
+    }()
 
     private static func keyboardEvent(from wParam: WPARAM, lParam: LPARAM) -> KeyboardEvent {
         KeyboardEvent(

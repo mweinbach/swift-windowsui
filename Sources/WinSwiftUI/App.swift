@@ -1718,9 +1718,53 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// `.permanent` failure is never worth retrying, and a `.sceneContent`
     /// failure will reproduce on the same scene no matter how long we wait.
     private(set) var lastPresentationFailureKind: PresentationFailureKind?
+    /// Consecutive frames the scene backend has presented since the last
+    /// downgrade. The backoff ladder only restarts once this crosses
+    /// ``healthySceneFrameThreshold`` — "the backend attached again" is not
+    /// evidence that it works.
+    private var consecutiveSuccessfulSceneFrames = 0
+    /// Whether a downgrade has happened since the scene backend last proved
+    /// itself. Keeps the *first* downgrade of a healthy session at the
+    /// policy's initial interval instead of starting one rung up the ladder.
+    private var didDowngradeSinceHealthySceneRun = false
+    /// Whether the retained tree has changed since the scene-content failure
+    /// that caused the current downgrade. A `.sceneContent` failure is a
+    /// property of the scene, not of the device, so retrying before the tree
+    /// changes only re-runs the same failure and flips the app's appearance
+    /// twice for nothing.
+    private var didSceneContentChangeSinceFailure = false
+    /// Frames the scene backend must present before its recovery ladder is
+    /// considered paid off. Half a second at 60 Hz.
+    private static let healthySceneFrameThreshold = 30
     /// Test seam: lets unit tests inject a fake wall clock without touching
     /// `Win32Window.currentTimestampSeconds`.
     var recoveryClock: @MainActor () -> Double = { Win32Window.currentTimestampSeconds() }
+    /// The window's monotonic frame clock. Every render entry point stamps its
+    /// frame from here — including `WM_PAINT`, which used to pass `0`.
+    ///
+    /// The runtime's pacing gate is `timestamp > 0 && lastRenderTime > 0`, and
+    /// `WM_PAINT` is the dominant path (`requestFrame` → `InvalidateRect` →
+    /// `WM_PAINT`), so pacing was inert exactly where almost every frame is
+    /// produced and over-strict on the timer path. Worse, the two paths
+    /// disagreed about "now": one session interleaved renders at `t = 0` and
+    /// `t = 523456.7`, which is only harmless while nothing but pacing reads
+    /// the timestamp.
+    var frameClock: @MainActor () -> Double = { Win32Window.currentTimestampSeconds() }
+    /// How far below the vsync period the pacing floor sits.
+    ///
+    /// A floor of exactly `1/refreshRate` drops any tick that lands even
+    /// microseconds early, and a timer never lands exactly on the period: at
+    /// 60 Hz that halved every continuous animation to ~30 fps with
+    /// alternating spacing. 1.15 admits a tick up to ~13 % early and still
+    /// refuses a second frame inside the same vsync interval.
+    private static let pacingIntervalTolerance = 1.15
+
+    /// The runtime's minimum interval between rebuilds at a given refresh
+    /// rate. Strictly below the vsync period, by
+    /// ``pacingIntervalTolerance``.
+    static func pacingInterval(forRefreshRate refreshRate: Int) -> Double {
+        1.0 / (Double(max(refreshRate, 1)) * pacingIntervalTolerance)
+    }
     private var pendingPresentation = false
     private var startupProbeCompleted = false
     private var isWindowActive = true
@@ -1836,8 +1880,10 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         self.backendResolution = backendResolution
         self.configuration = configuration
         self.window = Win32Window(
-            title: configuration.title, clientSize: configuration.size,
-            titleBarVisibility: configuration.titleBarVisibility ?? .automatic)
+            title: configuration.title,
+            clientSize: WinSwiftUIWindowHost.initialClientSize(for: configuration),
+            titleBarVisibility: configuration.titleBarVisibility ?? .automatic,
+            configuration: WinSwiftUIWindowHost.platformConfiguration(for: configuration))
         self.renderer = renderer
         self.batchRenderer = batchRenderer
         self.surfaceDescriptorProvider = surfaceDescriptorProvider
@@ -1852,7 +1898,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         self.recoveryPolicy = recoveryPolicy
         self.currentBatchRecoveryInterval = recoveryPolicy.initialRetryInterval
 
-        runtime.setRootSize(configuration.size)
+        runtime.setRootSize(WinSwiftUIWindowHost.initialClientSize(for: configuration))
         componentHost.setComponents { [weak self] in
             guard let self else {
                 return []
@@ -1876,6 +1922,94 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         }
     }
 
+    // MARK: - Window configuration
+    //
+    // The scene modifiers have always parsed `minSize` / `maxSize` /
+    // `idealSize` / `defaultPosition` / `resizability` / `windowLevel` into
+    // `WindowGroupConfiguration` and then dropped them: nothing between the
+    // configuration and `CreateWindowExW` read a single one. These three
+    // members are the whole translation — what the Win32 host can enforce, and
+    // an explicit list of what it cannot, so an unsupported modifier is
+    // reported once instead of silently doing nothing.
+
+    /// Client size the window opens at, in logical points. `idealSize` is
+    /// SwiftUI's "open at this size" knob (`.defaultSize`), so it wins over
+    /// the group's declared size, clamped into any min/max the app also set.
+    static func initialClientSize(for configuration: WindowGroupConfiguration) -> IntSize {
+        var size = configuration.idealSize ?? configuration.size
+        if let minimum = configuration.minSize {
+            size = IntSize(width: max(size.width, minimum.width), height: max(size.height, minimum.height))
+        }
+        if let maximum = configuration.maxSize {
+            size = IntSize(width: min(size.width, maximum.width), height: min(size.height, maximum.height))
+        }
+        return size
+    }
+
+    static func platformConfiguration(for configuration: WindowGroupConfiguration) -> Win32WindowConfiguration {
+        // `.contentSize` pins the window to its content; `.minSize` and
+        // `.maxSize` stay resizable and are expressed through the track-size
+        // limits below, which is as close as Win32 gets to them.
+        let resizability: Win32WindowConfiguration.Resizability =
+            configuration.resizability?.kind == .contentSize ? .fixedSize : .resizable
+
+        let isAlwaysOnTop: Bool
+        switch configuration.windowLevel?.kind {
+        case .floating, .tornOffMenu, .modalPanel, .mainMenu, .statusBar, .popUpMenu, .screenSaver, .overlay:
+            isAlwaysOnTop = true
+        case .normal, .base, nil:
+            isAlwaysOnTop = false
+        }
+
+        return Win32WindowConfiguration(
+            minimumClientSize: configuration.minSize,
+            maximumClientSize: configuration.maxSize,
+            normalizedPosition: configuration.defaultPosition.map {
+                Point(x: $0.position.x, y: $0.position.y)
+            },
+            resizability: resizability,
+            isAlwaysOnTop: isAlwaysOnTop
+        )
+    }
+
+    /// Scene modifiers this window parsed but cannot honour on Win32.
+    /// Reported once at creation: a modifier that does nothing is a bug
+    /// report waiting to happen, and silence is the worst possible answer.
+    var unsupportedWindowConfigurationModifiers: [String] {
+        var unsupported: [String] = []
+        func note(_ name: String, _ isSet: Bool) {
+            if isSet {
+                unsupported.append(name)
+            }
+        }
+
+        note("windowToolbarStyle", configuration.toolbarStyle != nil)
+        note("menuBarExtraStyle", configuration.menuBarExtraStyle != nil)
+        note("windowStyle", configuration.windowStyle != nil)
+        note("restorationBehavior", configuration.restorationBehavior != nil)
+        note("defaultLaunchBehavior", configuration.launchBehavior != nil)
+        note("windowActivationMode", configuration.activationMode != nil)
+        note("windowBackgroundDragBehavior", configuration.backgroundDragBehavior != nil)
+        note("navigationSubtitle", configuration.subtitle != nil)
+        note("persistentSystemOverlays", configuration.persistenceBehavior != nil)
+        note("windowManagerRole", configuration.windowManagerRole != nil)
+        note("allowsWindowInlining", configuration.allowsWindowInlining != nil)
+        return unsupported
+    }
+
+    private func reportUnsupportedWindowConfigurationIfNeeded() {
+        let unsupported = unsupportedWindowConfigurationModifiers
+        guard !unsupported.isEmpty else {
+            return
+        }
+
+        report(
+            "Window \"\(configuration.title)\" declares scene modifiers this host does not apply: "
+                + unsupported.joined(separator: ", ")
+                + ". See docs/CompatibilityStatus.md."
+        )
+    }
+
     private func accessibilityFocusDidChange(to node: ViewNode?) {
         // Skip re-projection entirely when no assistive client is attached.
         guard let uiaBridge, uiaBridge.isClientListening else {
@@ -1893,6 +2027,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func windowDidCreate(_ window: Win32Window) {
+        reportUnsupportedWindowConfigurationIfNeeded()
         do {
             guard let surface = surfaceDescriptorProvider(window) else {
                 recordPresenterAttachFailure("Missing surface descriptor.", in: window)
@@ -1925,8 +2060,9 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         isPresenterUnavailable = false
         presenterAttachAttemptCount = 0
         nextPresenterAttachAttemptAt = nil
-        runtime.displayScale = surface.scaleFactor
-        NativeTextRenderer.defaultIconDisplayScale = surface.scaleFactor
+        let scaleFactor = Win32Window.effectiveScaleFactor(for: surface.scaleFactor)
+        runtime.displayScale = scaleFactor
+        NativeTextRenderer.defaultIconDisplayScale = scaleFactor
         runtime.setRootSize(logicalSize(for: surface))
         componentHost.reload()
         uiaBridge?.raiseStructureChanged()
@@ -2024,7 +2160,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         }
 
         do {
-            let scaleFactor = window.scaleFactor
+            let scaleFactor = window.effectiveScaleFactor
             runtime.displayScale = scaleFactor
             NativeTextRenderer.defaultIconDisplayScale = scaleFactor
             surfaceDescriptor?.pixelSize = size
@@ -2044,7 +2180,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, pointerMovedTo point: Point) {
-        let scaleFactor = window.scaleFactor
+        let scaleFactor = window.effectiveScaleFactor
         let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
         runtime.pointerMoved(to: logicalPoint)
         onInputEventRouted?(.pointerMoved(point: logicalPoint, scaleFactor: scaleFactor))
@@ -2058,7 +2194,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double) {
-        let scaleFactor = window.scaleFactor
+        let scaleFactor = window.effectiveScaleFactor
         let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
         runtime.mouseWheel(at: logicalPoint, delta: delta)
         onInputEventRouted?(.mouseWheel(point: logicalPoint, delta: delta, axis: nil, scaleFactor: scaleFactor))
@@ -2066,7 +2202,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, horizontalScrollAt point: Point, delta: Double) {
-        let scaleFactor = window.scaleFactor
+        let scaleFactor = window.effectiveScaleFactor
         let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
         runtime.mouseWheel(at: logicalPoint, delta: delta, axis: .horizontal)
         onInputEventRouted?(.mouseWheel(point: logicalPoint, delta: delta, axis: .horizontal, scaleFactor: scaleFactor))
@@ -2074,7 +2210,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, leftMouseDownAt point: Point) {
-        let scaleFactor = window.scaleFactor
+        let scaleFactor = window.effectiveScaleFactor
         let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
         runtime.pointerDown(at: logicalPoint)
         onInputEventRouted?(.pointerDown(point: logicalPoint, scaleFactor: scaleFactor))
@@ -2082,7 +2218,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, leftMouseUpAt point: Point) {
-        let scaleFactor = window.scaleFactor
+        let scaleFactor = window.effectiveScaleFactor
         let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
         runtime.pointerUp(at: logicalPoint)
         onInputEventRouted?(.pointerUp(point: logicalPoint, scaleFactor: scaleFactor))
@@ -2090,7 +2226,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func windowDidReceiveRightClick(_ window: Win32Window, event: MouseEvent) {
-        let scaleFactor = window.scaleFactor
+        let scaleFactor = window.effectiveScaleFactor
         let logicalPoint = logicalPoint(event.position, scaleFactor: scaleFactor)
         runtime.contextClick(at: logicalPoint)
         onInputEventRouted?(.contextClick(point: logicalPoint, scaleFactor: scaleFactor))
@@ -2107,7 +2243,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, didReceiveFileDrop payload: FileDropPayload) {
-        let logicalPoint = logicalPoint(payload.clientPoint, scaleFactor: window.scaleFactor)
+        let logicalPoint = logicalPoint(payload.clientPoint, scaleFactor: window.effectiveScaleFactor)
         _ = runtime.performFileDrop(payload.fileURLs, at: logicalPoint)
         commitRuntimeState(in: window, interactive: true)
     }
@@ -2500,6 +2636,13 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             }
         }
 
+        // A scene-content failure reproduces on the scene that produced it, so
+        // the recovery gate below needs to know whether the tree has changed
+        // since. Sampled here, before the render consumes the dirty flags.
+        if runtime.isDirty {
+            didSceneContentChangeSinceFailure = true
+        }
+
         // Opportunistic recovery: if we previously downgraded and the
         // configured policy permits, try re-attaching the batch backend
         // before this frame's render path picks a backend.
@@ -2511,13 +2654,17 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             return false
         }
 
+        // One monotonic clock for every entry point, `WM_PAINT` included.
+        let frameTimestamp = timestamp ?? frameClock()
+
         do {
             if activeBackend == .scene, let batchRenderer {
-                let scene = sceneRenderer(runtime, timestamp ?? 0)
+                let scene = sceneRenderer(runtime, frameTimestamp)
                 batchRenderer.bindResources(for: scene)
                 try batchRenderer.render(scene: scene)
+                noteSuccessfulSceneFrame()
             } else {
-                try renderer.render(frame: runtime.renderFrame(at: timestamp ?? 0))
+                try renderer.render(frame: runtime.renderFrame(at: frameTimestamp))
             }
         } catch {
             guard activeBackend == .scene else {
@@ -2537,7 +2684,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                     in: window
                 )
                 didAttachFrameBackend = true
-                try renderer.render(frame: runtime.renderFrame(at: timestamp ?? 0))
+                try renderer.render(frame: runtime.renderFrame(at: frameTimestamp))
             } catch {
                 guard didAttachFrameBackend else {
                     // Both presenters are gone. Leaving `activeBackend` on
@@ -2571,7 +2718,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     private func syncAnimationDriver(for window: Win32Window) {
         let refreshRate = max(Int(window.monitorRefreshRate), 1)
-        runtime.minimumFrameInterval = 1.0 / Double(refreshRate)
+        runtime.minimumFrameInterval = Self.pacingInterval(forRefreshRate: refreshRate)
         window.useHighResolutionTimer = true
 
         // Without a presenter there is nothing to animate and nothing to
@@ -2613,8 +2760,13 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         logicalSize(for: surface.pixelSize, scaleFactor: surface.scaleFactor)
     }
 
+    /// Pixels → points, through the one clamped scale
+    /// (`Win32Window.effectiveScaleFactor`) that the root size, the runtime's
+    /// display scale, hit testing, the IME caret rect and `clientRectToScreen`
+    /// all share. Clamping here and not in `logicalPoint` is what put a 0.75
+    /// session's clicks a third away from the elements they landed on.
     private func logicalSize(for pixelSize: IntSize, scaleFactor: Double) -> IntSize {
-        let logicalScale = max(scaleFactor, 1.0)
+        let logicalScale = Win32Window.effectiveScaleFactor(for: scaleFactor)
         return IntSize(
             width: Int32((Double(pixelSize.width) / logicalScale).rounded(.toNearestOrAwayFromZero)),
             height: Int32((Double(pixelSize.height) / logicalScale).rounded(.toNearestOrAwayFromZero))
@@ -2622,11 +2774,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     private func logicalPoint(_ point: Point, scaleFactor: Double) -> Point {
-        guard scaleFactor > 0 else {
-            return point
-        }
-
-        return Point(x: point.x / scaleFactor, y: point.y / scaleFactor)
+        let logicalScale = Win32Window.effectiveScaleFactor(for: scaleFactor)
+        return Point(x: point.x / logicalScale, y: point.y / logicalScale)
     }
 
     private static func defaultSurfaceDescriptor(for window: Win32Window) -> SurfaceDescriptor? {
@@ -2637,7 +2786,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         return SurfaceDescriptor(
             windowHandle: handle,
             pixelSize: window.currentClientSize(),
-            scaleFactor: window.scaleFactor
+            scaleFactor: window.effectiveScaleFactor
         )
     }
 
@@ -2821,20 +2970,59 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         scheduleBatchBackendRecoveryIfNeeded()
     }
 
+    /// Counts a frame the scene backend actually presented, and retires the
+    /// recovery ladder once it has presented enough of them in a row.
+    private func noteSuccessfulSceneFrame() {
+        guard didDowngradeSinceHealthySceneRun else {
+            return
+        }
+
+        consecutiveSuccessfulSceneFrames += 1
+        guard consecutiveSuccessfulSceneFrames >= Self.healthySceneFrameThreshold else {
+            return
+        }
+
+        // The scene backend has carried the session for half a second. A
+        // failure after this is new information, so the next downgrade starts
+        // the ladder over rather than continuing yesterday's.
+        didDowngradeSinceHealthySceneRun = false
+        currentBatchRecoveryInterval = recoveryPolicy.initialRetryInterval
+        lastPresentationFailureKind = nil
+    }
+
     /// After a downgrade, if the recovery policy is enabled, set the next
-    /// attempt timestamp. Resets backoff so the first retry happens after
-    /// `initialRetryInterval`.
+    /// attempt timestamp.
+    ///
+    /// The backoff is *carried across downgrades*. Resetting it here — which
+    /// is what this did — combined with `attemptBatchBackendRecoveryIfDue`
+    /// only extending it on *attach* failure produced the recovery flap: a
+    /// healthy device with one unrenderable scene re-attaches trivially, so a
+    /// single unuploadable image oscillated the app between two visibly
+    /// different backends every 5 seconds for the rest of the session, each
+    /// cycle costing a full scene build and a failed present. The ladder now
+    /// only restarts after the scene backend has presented
+    /// ``healthySceneFrameThreshold`` consecutive frames.
     ///
     /// A `.permanent` failure — no adapter, a missing feature level, an
     /// unsupported format — schedules nothing: retrying it every 5s for the
     /// rest of the session costs a full scene build and a visible backend
     /// switch per attempt and can never succeed.
     private func scheduleBatchBackendRecoveryIfNeeded() {
+        consecutiveSuccessfulSceneFrames = 0
+        didSceneContentChangeSinceFailure = false
+
         guard recoveryPolicy.isEnabled, batchRenderer != nil, lastPresentationFailureKind != .permanent else {
             nextBatchRecoveryAttemptAt = nil
             return
         }
-        currentBatchRecoveryInterval = recoveryPolicy.initialRetryInterval
+
+        if didDowngradeSinceHealthySceneRun {
+            currentBatchRecoveryInterval = min(
+                currentBatchRecoveryInterval * recoveryPolicy.backoffMultiplier,
+                recoveryPolicy.maxRetryInterval
+            )
+        }
+        didDowngradeSinceHealthySceneRun = true
         nextBatchRecoveryAttemptAt = recoveryClock() + currentBatchRecoveryInterval
     }
 
@@ -2852,6 +3040,16 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         let now = recoveryClock()
         guard now >= dueAt else { return }
 
+        // The typed failure, consumed. `.sceneContent` means *this scene*
+        // could not be rendered — an image that will not upload, a glyph
+        // atlas that never arrived — so promoting the backend before the tree
+        // has changed submits the same scene, fails the same way, and costs a
+        // second visible backend switch on the way back down.
+        if lastPresentationFailureKind == .sceneContent, !didSceneContentChangeSinceFailure {
+            extendBatchRecoveryBackoff(now: now)
+            return
+        }
+
         let surface = surfaceDescriptor ?? surfaceDescriptorProvider(window)
         guard let surface else {
             // No surface available — schedule the next attempt and bail.
@@ -2868,8 +3066,13 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             try batchRenderer.resize(to: surface.pixelSize)
             activeBackend = .scene
             nextBatchRecoveryAttemptAt = nil
-            currentBatchRecoveryInterval = recoveryPolicy.initialRetryInterval
+            // The interval is deliberately *not* reset here: a successful
+            // re-attach on a healthy device says nothing about whether the
+            // scene will render. `noteSuccessfulSceneFrame` retires the ladder
+            // once frames actually reach the screen.
+            consecutiveSuccessfulSceneFrames = 0
             lastPresentationFailureKind = nil
+            didSceneContentChangeSinceFailure = false
             // A real recovery makes the suppressed failures history: the next
             // occurrence of any of them deserves a line again.
             resetFailureReporting()

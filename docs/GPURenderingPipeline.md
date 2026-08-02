@@ -873,6 +873,107 @@ then do it again on restore.
 - `RenderBackendAvailabilityTests` — the probe contract and the composition
   root's substitution.
 
+## 4e. Frame clock, pacing, and DPI-correct window configuration
+
+**One monotonic clock.** `Win32Window.currentTimestampSeconds()` is
+`QueryPerformanceCounter` divided by a once-queried frequency, and *every*
+render entry point stamps its frame from it through the host's `frameClock`
+seam — `WM_PAINT` included. Two defects met at that sentence:
+
+- `GetTickCount64` advances in system clock ticks (documented 10–16 ms,
+  typically 15.625 ms), which is coarser than a 60 Hz vsync period. Feeding it
+  into a pacing floor of exactly `1/refreshRate` refused a tick that arrived
+  15.6 ms after the last render for being 1 ms early, so every continuous
+  animation — colour transitions, scroll momentum, rubber-band, keyboard-scroll
+  tween — ran at ~30 fps with alternating 15.6/31.2 ms spacing, sampling the
+  easing curves pinned in `docs/AnimationParity.md` on a quantized, jittering
+  clock.
+- `WM_PAINT` passed `0`, and the runtime's gate is `timestamp > 0 &&
+  lastRenderTime > 0`. Since almost every frame is produced through
+  `requestFrame` → `InvalidateRect` → `WM_PAINT`, pacing was inert exactly
+  where frames come from and over-strict on the timer path, and one session
+  interleaved renders at `t = 0` and `t = 523456.7`.
+
+The floor is now `1 / (refreshRate × 1.15)`
+(`WinSwiftUIWindowHost.pacingInterval(forRefreshRate:)`): strictly below the
+vsync period, so a tick that lands slightly early still renders, and still
+above half of it, so two rebuilds cannot share one vsync interval. A paced
+frame returns the cached scene/frame and *leaves the dirty flags set*, so the
+content still reaches the screen on the next tick.
+
+**Recovery ladder.** `scheduleBatchBackendRecoveryIfNeeded` no longer resets
+the backoff on every downgrade. A healthy device with one unrenderable scene
+re-attaches trivially (`createDeviceIfNeeded`, the factory and
+`createSwapChain` all early-out on live objects), so resetting on downgrade
+plus extending only on *attach* failure oscillated the app between two
+visibly different presenters every 5 s for the rest of the session — a full
+scene build and a failed present per cycle. The interval is carried across
+downgrades (5 → 10 → 20 → 40 → 60 s) and only restarts once the scene backend
+has presented 30 consecutive frames. WS-02's typed failure is consumed here
+too: a `.sceneContent` failure describes *the scene*, not the device, so the
+promotion is withheld until the retained tree has actually changed since the
+failure (sampled from `runtime.isDirty` at the top of the frame, before the
+render consumes the flags). `.permanent` still schedules nothing.
+
+**DPI-correct creation.** `CreateWindowExW`'s `nWidth`/`nHeight` are the outer
+window rect in *physical* pixels; `WindowGroup(size:)` is logical points.
+Passing one for the other opened every app at a fraction of its intended area
+on any HiDPI display — a requested 1280×720 became a ≈632×341 logical client
+area at 200 %, below the 600 pt threshold that flips
+`resolvedHorizontalSizeClass` to `.compact`. `create()` now resolves the
+target monitor's DPI (`GetDpiForSystem` under the per-monitor-v2 awareness
+`Win32HighDpiSupport` installs, i.e. the primary monitor `CW_USEDEFAULT` uses),
+scales the client size by `dpi/96`, and runs `AdjustWindowRectExForDpi` to turn
+the desired client rect into a window rect.
+
+**Window configuration.** `Win32WindowConfiguration` is the renderer-neutral
+subset of `WindowGroupConfiguration` the host can enforce; `WinSwiftUI`
+translates, `SwiftWindowsPlatform` applies. `minSize`/`maxSize` and
+`.windowResizability(.contentSize)` become `WM_GETMINMAXINFO` track sizes (and,
+for a fixed size, a style without `WS_THICKFRAME`/`WS_MAXIMIZEBOX`);
+`idealSize` is the size the window opens at, clamped into min/max;
+`defaultPosition` places the window in its monitor's work area; a non-normal
+`windowLevel` becomes `HWND_TOPMOST`. Modifiers with no Win32 meaning
+(toolbar style, subtitle, activation mode, …) are reported once at window
+creation instead of silently doing nothing — see
+`unsupportedWindowConfigurationModifiers`.
+
+**One effective scale.** `Win32Window.effectiveScaleFactor` clamps the raw
+`GetDpiForWindow` ratio at 1.0 and is the *only* scale the root size,
+`runtime.displayScale`, `logicalPoint`, the IME caret rect and
+`clientRectToScreen` use. Clamping in one of those and not the others put
+every hit test, hover, drag and caret in a sub-1 DPI session (remote and
+virtual displays report them) a third away from the pixels the user sees, with
+nothing crashing.
+
+**Caches.** `WM_MOVE` arrives at mouse-report rate and used to mark the
+refresh rate dirty unconditionally, so every drag ran a `MonitorFromWindow` +
+`GetMonitorInfoW` + `EnumDisplaySettingsW` driver round-trip per message on
+the UI thread inside the modal move loop. It now invalidates only on a monitor
+*identity* change, and the query itself is rate limited to once per 250 ms
+(`WM_DISPLAYCHANGE`, being rare and real, bypasses the limiter). Likewise
+`WM_SETTINGCHANGE` — a broadcast any process can trigger by writing any system
+parameter — only reaches the delegate when the re-sampled
+`SystemAppearanceSnapshot` actually differs, instead of tearing down every
+observed-object token, rebuilding the tree and raising a UIA structure change
+for a setting the app does not read.
+
+**Invariants**
+- `FrameClockPacingTests` — the clock is monotonic and finer than a system
+  tick; the floor sits strictly below the vsync period; a 15.625 ms-quantized
+  tick sequence renders ≥ 55 frames per simulated second at 60 Hz; two
+  rebuilds cannot share a vsync interval; `WM_PAINT` frames carry the host
+  clock, never `0`.
+- `BatchRecoveryBackoffTests` — the ladder grows 5 → 10 → 20 → 40 → 60 across
+  downgrades, a sustained healthy run retires it, a `.sceneContent` failure is
+  not retried against an unchanged tree, `.permanent` schedules nothing.
+- `WindowConfigurationDPITests` — creation geometry is linear in DPI and
+  frame-inset independent; the logical root equals the requested size at 2×;
+  the effective scale clamps once for every consumer and hit testing
+  round-trips at 0.75; track sizes, fixed size, placement and level
+  translation; a 100-message drag costs ≤ 1 display-mode query; an unchanged
+  appearance triggers no reload.
+
 ## 5. Backend dispatch + fallback chain
 
 `WinSwiftUIWindowHost` picks the rendering backend:

@@ -60,24 +60,45 @@ final class BorderSegmentsPerCornerDashTests: XCTestCase {
     func testSquareCornersEmitNoArcSegments() async {
         await MainActor.run {
             let frame = Self.frame
-            // Rounded top-left only; butt caps so only true arc pieces
-            // carry a pill corner radius (edge segments get capRadius 0).
+            // Butt caps so only true arc pieces carry a pill corner radius
+            // (edge segments get capRadius 0). Every quadrant is exercised:
+            // the single rounded corner emits arc pieces, and they all stay
+            // inside that corner's zone.
             let style = StrokeStyle(dashPattern: [6, 2], lineCap: .butt)
-            let segments = BorderSegments.dashedSegments(
-                frame: frame, width: 3,
-                cornerRadii: RetainedCornerRadii(topLeft: 10), strokeStyle: style)
-            let pillSegments = (segments ?? []).filter { $0.cornerRadius > 0 }
+            let radius = 10.0
+            let cases: [(name: String, radii: RetainedCornerRadii, zone: Rect)] = [
+                (
+                    "top-left", RetainedCornerRadii(topLeft: radius),
+                    Rect(x: frame.minX, y: frame.minY, width: radius, height: radius)
+                ),
+                (
+                    "top-right", RetainedCornerRadii(topRight: radius),
+                    Rect(x: frame.maxX - radius, y: frame.minY, width: radius, height: radius)
+                ),
+                (
+                    "bottom-right", RetainedCornerRadii(bottomRight: radius),
+                    Rect(x: frame.maxX - radius, y: frame.maxY - radius, width: radius, height: radius)
+                ),
+                (
+                    "bottom-left", RetainedCornerRadii(bottomLeft: radius),
+                    Rect(x: frame.minX, y: frame.maxY - radius, width: radius, height: radius)
+                ),
+            ]
 
-            XCTAssertFalse(pillSegments.isEmpty, "the rounded top-left corner must emit arc pieces")
-            for segment in pillSegments {
-                let centreX = segment.rect.origin.x + segment.rect.size.width * 0.5
-                let centreY = segment.rect.origin.y + segment.rect.size.height * 0.5
-                XCTAssertLessThan(
-                    centreX, frame.origin.x + 10,
-                    "arc piece outside the rounded top-left corner zone")
-                XCTAssertLessThan(
-                    centreY, frame.origin.y + 10,
-                    "arc piece outside the rounded top-left corner zone")
+            for testCase in cases {
+                let segments = BorderSegments.dashedSegments(
+                    frame: frame, width: 3, cornerRadii: testCase.radii, strokeStyle: style)
+                let pillSegments = (segments ?? []).filter { $0.cornerRadius > 0 }
+
+                XCTAssertFalse(
+                    pillSegments.isEmpty,
+                    "the rounded \(testCase.name) corner must emit arc pieces")
+                for segment in pillSegments {
+                    let centre = Point(x: segment.rect.midX, y: segment.rect.midY)
+                    XCTAssertTrue(
+                        testCase.zone.contains(centre),
+                        "arc piece \(segment.rect) outside the rounded \(testCase.name) corner zone")
+                }
             }
         }
     }
@@ -86,12 +107,11 @@ final class BorderSegmentsPerCornerDashTests: XCTestCase {
         await MainActor.run {
             let frame = Self.frame
             // Contrast case for the square-corner pin: with a uniform
-            // radius, pill (arc) segments appear in the corner zones.
-            // NOTE: the bottom-LEFT corner is excluded — the shared
-            // corner-arc bounding-box approximation historically drops
-            // pieces in the positive-sin quadrant, so BL arc segments are
-            // often absent even in the uniform variant (pre-existing
-            // limitation, not changed by the per-corner work).
+            // radius, pill (arc) segments appear in all four corner zones.
+            // The bottom-left corner used to be exempt here — the shared
+            // corner-arc bounding box assumed the ring's outer side lay at
+            // +x/-y, which dropped pieces in the positive-sin quadrants —
+            // and is now held to the same bar as the rest.
             let style = StrokeStyle(dashPattern: [6, 2], lineCap: .butt)
             let segments =
                 BorderSegments.dashedSegments(
@@ -102,6 +122,7 @@ final class BorderSegmentsPerCornerDashTests: XCTestCase {
                 Rect(x: frame.minX, y: frame.minY, width: 10, height: 10),
                 Rect(x: frame.maxX - 10, y: frame.minY, width: 10, height: 10),
                 Rect(x: frame.maxX - 10, y: frame.maxY - 10, width: 10, height: 10),
+                Rect(x: frame.minX, y: frame.maxY - 10, width: 10, height: 10),
             ]
             for zone in zones {
                 XCTAssertTrue(

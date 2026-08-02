@@ -527,14 +527,20 @@ enum BorderSegments {
             let theta1 = baseAngle + (subStart / arcLength) * (Double.pi / 2)
             let theta2 = baseAngle + (subEnd / arcLength) * (Double.pi / 2)
 
-            // Bounding box of the annular sector from innerR to r, theta1..theta2
-            let xs = [cos(theta1), cos(theta2)].sorted()
-            let ys = [sin(theta1), sin(theta2)].sorted()
+            // Bounding box of the annular sector from innerR to r, theta1..theta2.
+            // Which side of the centre the ring's *outer* edge falls on flips
+            // per quadrant, so neither radius may be pinned to a fixed side:
+            // both extents come from the extremes of {innerR, r} x {the two
+            // direction cosines}.
+            let (minXOffset, maxXOffset) = radialExtent(
+                innerR: innerR, outerR: r, cos(theta1), cos(theta2))
+            let (minYOffset, maxYOffset) = radialExtent(
+                innerR: innerR, outerR: r, sin(theta1), sin(theta2))
 
-            let minX = cx + innerR * xs[0]
-            let maxX = cx + r * xs[1]
-            let minY = cy + r * ys[0]
-            let maxY = cy + innerR * ys[1]
+            let minX = cx + minXOffset
+            let maxX = cx + maxXOffset
+            let minY = cy + minYOffset
+            let maxY = cy + maxYOffset
 
             // Apply square/round cap extension along the arc tangent.
             // This is an axis-aligned approximation of the true tangent extension.
@@ -552,6 +558,32 @@ enum BorderSegments {
             let pillRadius = min(width * 0.5, min(rect.size.width, rect.size.height) * 0.5)
             segments.append(BorderSegment(rect: rect, cornerRadius: pillRadius))
         }
+    }
+
+    /// Extent of `p * v` along one axis, for a radius `p` anywhere in
+    /// `innerR...outerR` and a direction cosine `v` anywhere between `v1` and
+    /// `v2` — i.e. the interval product that bounds one axis of an annular
+    /// sector.  Every sub-arc stays inside a single quadrant, where `cos` and
+    /// `sin` are monotonic, so the interval's extremes are among the four
+    /// corner products and this box is exact.
+    ///
+    /// Assuming the outer edge always lies at `+x`/`-y` (true only for the
+    /// top-right corner) narrowed the other three corners' boxes by the border
+    /// width and inverted some sub-boxes, which then got dropped outright.
+    private static func radialExtent(
+        innerR: Double,
+        outerR: Double,
+        _ v1: Double,
+        _ v2: Double
+    ) -> (min: Double, max: Double) {
+        let innerLow = innerR * v1
+        let innerHigh = innerR * v2
+        let outerLow = outerR * v1
+        let outerHigh = outerR * v2
+        return (
+            min(min(innerLow, innerHigh), min(outerLow, outerHigh)),
+            max(max(innerLow, innerHigh), max(outerLow, outerHigh))
+        )
     }
 
     // MARK: - Existing helpers

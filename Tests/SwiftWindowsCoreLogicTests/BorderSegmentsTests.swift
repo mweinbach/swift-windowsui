@@ -98,12 +98,14 @@ struct BorderSegmentsTests {
         #expect(topEdgeCount > 0)
     }
 
-    @Test("Rounded rect dashed border includes corner arc segments")
+    @Test("Rounded rect dashed border includes corner arc segments at every corner")
     func roundedRectDashedBorderIncludesArcSegments() {
+        let frame = Rect(x: 0, y: 0, width: 40, height: 30)
+        let radius = 8.0
         let segments = BorderSegments.dashedSegments(
-            frame: Rect(x: 0, y: 0, width: 40, height: 30),
+            frame: frame,
             width: 2,
-            cornerRadius: 8,
+            cornerRadius: radius,
             strokeStyle: StrokeStyle(lineWidth: 2, dashPattern: [6, 3])
         )
 
@@ -112,15 +114,24 @@ struct BorderSegmentsTests {
             return
         }
 
-        // Top-right corner area should have small segments
-        var cornerCount = 0
-        for seg in segments {
-            if seg.rect.origin.x > 20 && seg.rect.origin.y < 10 && seg.rect.size.width < 12 && seg.rect.size.height < 12
-            {
-                cornerCount += 1
-            }
+        // Each corner zone must hold small arc pieces — the dash gap (3) is
+        // shorter than a corner arc (~12.6), so no corner can be skipped.
+        let zones: [(name: String, rect: Rect)] = [
+            ("top-left", Rect(x: frame.minX, y: frame.minY, width: radius, height: radius)),
+            ("top-right", Rect(x: frame.maxX - radius, y: frame.minY, width: radius, height: radius)),
+            (
+                "bottom-right",
+                Rect(x: frame.maxX - radius, y: frame.maxY - radius, width: radius, height: radius)
+            ),
+            ("bottom-left", Rect(x: frame.minX, y: frame.maxY - radius, width: radius, height: radius)),
+        ]
+        for zone in zones {
+            let cornerCount = segments.filter { seg in
+                seg.cornerRadius > 0 && seg.rect.size.width < 12 && seg.rect.size.height < 12
+                    && seg.rect.intersected(with: zone.rect) != nil
+            }.count
+            #expect(cornerCount > 0, "no arc segments at the \(zone.name) corner")
         }
-        #expect(cornerCount > 0)
     }
 
     @Test("Rounded rect with zero dash pattern falls back to nil")

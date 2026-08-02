@@ -284,6 +284,19 @@ and 0.10 on a leaf. The ring is the whole border: a bordered container
 with a transparent or translucent background keeps its interior free of
 border colour, where the pre-children fill used to tint it.
 
+A **rounded** ring walks its corners as annular sectors, subdivided into
+axis-aligned bounding boxes (`QuadPrimitive` has no arcs). Each box's
+extent per axis is the interval product of `[innerR, r]` with the two
+direction cosines of the sub-arc — every sub-arc stays inside one
+quadrant, where `cos`/`sin` are monotonic, so that box is exact. It has
+to be computed that way because *which* side of the arc centre carries
+the ring's outer edge flips per quadrant: pinning it to `+x`/`-y` (true
+only for the top-right corner) made the other three corners' boxes
+narrower than the ring by exactly the border width and inverted the
+sub-boxes next to the straight edges, which were then dropped — three
+corners out of four rendered thin or gapped. Every corner's arc boxes
+now union to the full `radius × radius` corner square.
+
 **Compositing groups** (`.drawingGroup()`, `.compositingGroup()`)
 rasterize their children into an offscreen `BitmapSurface` and composite
 it as one `ImagePrimitive`. `compositingGroupBuffer` decides whether that
@@ -336,8 +349,9 @@ sites did, turned a rejection into a permanently blank subtree: the empty
 range was written straight back into the cache.
 
 **Tests:** `PainterDeviceSpaceTests`, `PainterZeroExtentSemanticsTests`,
-`PainterBorderRingCoverageTests`, `CompositingGroupBitmapCacheTests`,
-`ScenePainterTests`, `PathTessellationBudgetTests`.
+`PainterBorderRingCoverageTests`, `BorderCornerArcGeometryTests`,
+`CompositingGroupBitmapCacheTests`, `ScenePainterTests`,
+`PathTessellationBudgetTests`.
 
 ## 3. Text: DirectWrite + native glyph atlas
 

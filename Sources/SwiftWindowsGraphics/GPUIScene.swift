@@ -5,8 +5,9 @@ import Foundation
 import SwiftWindowsCore
 
 /// A rendering layer containing typed, contiguous primitive arrays.
-/// `paintOperations` preserves the source paint order across primitive families
-/// while sidecar draw-order metadata enables Zed-style sorted batching.
+/// `paintOperations` is the layer's presentation order — it preserves the
+/// source paint order across primitive families, and the family arrays are a
+/// data layout for instanced draws, never a draw order of their own.
 
 // MARK: - GPUIScene
 
@@ -41,10 +42,74 @@ public enum GPUIScenePrimitive: Equatable, Sendable {
     case image(ImagePrimitive)
     case path(PathPrimitive)
 }
+
+/// One entry in the scene's replay log.
+///
+/// `primitive` is a *reference* — `(layerIndex, kind, index)` — into the
+/// family array that already holds the value, not a second copy of it.
+/// The copy cost the largest primitive's stride per entry (~152 B for a
+/// 64-byte glyph) and doubled again while `previousScene` was retained for
+/// replay; the reference is stable because nothing reorders a family array
+/// after insertion (see `GPUIScene.presentationOrder()`).
 public enum GPUIScenePaintRecord: Equatable, Sendable {
-    case primitive(layerIndex: Int, primitive: GPUIScenePrimitive)
+    case primitive(layerIndex: Int, kind: GPUIPaintPrimitiveKind, index: Int)
     case startLayer(layerIndex: Int, bounds: Rect)
     case endLayer(layerIndex: Int)
+}
+
+/// One run of same-family primitives in presentation order: `range` of
+/// `layers[layerIndex]`'s `kind` array, drawn in index order.
+public struct GPUIPresentationRun: Equatable, Sendable {
+    public var layerIndex: Int
+    public var kind: GPUIPaintPrimitiveKind
+    public var range: Range<Int>
+
+    public init(layerIndex: Int, kind: GPUIPaintPrimitiveKind, range: Range<Int>) {
+        self.layerIndex = layerIndex
+        self.kind = kind
+        self.range = range
+    }
+}
+
+/// The scene's presentation order, as one sequence.
+///
+/// The cross-layer rule, which used to exist only as an accident of both
+/// backends agreeing: **layers are z-order groups — every primitive in
+/// `layers[i]` paints before every primitive in `layers[i+1]` — and within
+/// a layer `paintOperations` is the presentation order.** The CPU
+/// rasterizer used to walk the flat `paintRecords` log instead, discarding
+/// `layerIndex` entirely, so a scene that interleaved layers rendered in a
+/// different order on each backend and no screenshot could show it.
+///
+/// A paint operation that `GPUIScene.validate()` would flag as
+/// out-of-range is skipped rather than clamped: a malformed scene loses
+/// that run on the CPU (and is refused outright by the D3D11 plan
+/// builder), which is the one behaviour that neither traps nor invents
+/// pixels.
+public struct GPUIPresentationOrder: Sequence, IteratorProtocol, Sendable {
+    private let layers: [GPUILayer]
+    private var layerIndex = 0
+    private var operationIndex = 0
+
+    init(layers: [GPUILayer]) {
+        self.layers = layers
+    }
+
+    public mutating func next() -> GPUIPresentationRun? {
+        while layerIndex < layers.count {
+            let layer = layers[layerIndex]
+            while operationIndex < layer.paintOperations.count {
+                let operation = layer.paintOperations[operationIndex]
+                operationIndex += 1
+                if let range = layer.presentationRange(of: operation) {
+                    return GPUIPresentationRun(layerIndex: layerIndex, kind: operation.kind, range: range)
+                }
+            }
+            layerIndex += 1
+            operationIndex = 0
+        }
+        return nil
+    }
 }
 public struct GlyphAtlasRegion: Equatable, Sendable {
     public var x: Int32
@@ -83,10 +148,10 @@ public struct ImageResourceBinding: Equatable, Sendable {
 }
 public struct GPUILayer: Equatable, Sendable {
     // Readable everywhere, writable only here. `add*` sanitizes every field
-    // it accepts and keeps the family arrays, their orderings and
-    // `paintOperations` in step; an `append` from outside did neither, so
-    // the sanitation the whole scene contract rests on was one line of app
-    // code away from being skipped.
+    // it accepts and keeps the family arrays and `paintOperations` in step;
+    // an `append` from outside did neither, so the sanitation the whole
+    // scene contract rests on was one line of app code away from being
+    // skipped.
     //
     // Residual hole, deliberately left open: `init` below still takes the
     // arrays wholesale, because a hand-built layer is how the malformed
@@ -102,16 +167,13 @@ public struct GPUILayer: Equatable, Sendable {
     public private(set) var paths: [PathPrimitive]
     public private(set) var paintOperations: [GPUIPaintOperation]
 
-    private var shadowOrderings: [GPUIPrimitiveOrdering]
-    private var quadOrderings: [GPUIPrimitiveOrdering]
-    private var glyphOrderings: [GPUIPrimitiveOrdering]
-    private var pixelGlyphOrderings: [GPUIPrimitiveOrdering]
-    private var imageOrderings: [GPUIPrimitiveOrdering]
-    private var pathOrderings: [GPUIPrimitiveOrdering]
-    private var primitiveBounds = GPUIBoundsTree()
-    private var layerStack: [GPUIDrawOrder] = []
-    private var nextPaintIndex: UInt32 = 0
-    private var maxAssignedOrder: GPUIDrawOrder = 0
+    /// One entry per live scoped layer: `true` when the push was accepted
+    /// and recorded, `false` for a rejected push. The sentinel is what
+    /// lets `popScopedLayer` refuse to pop somebody else's scope — a
+    /// caller that pairs push/pop unconditionally used to close the
+    /// *enclosing* scope after a rejected push, permanently unbalancing
+    /// `paintRecords` and blanking every replayed subtree after it.
+    private var scopeStack: [Bool] = []
 
     public init(
         shadows: [ShadowPrimitive] = [],
@@ -129,26 +191,6 @@ public struct GPUILayer: Equatable, Sendable {
         self.images = images
         self.paths = paths
         self.paintOperations = paintOperations
-        self.shadowOrderings = shadows.indices.map {
-            GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0))
-        }
-        self.quadOrderings = quads.indices.map {
-            GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0))
-        }
-        self.glyphOrderings = glyphs.indices.map {
-            GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0))
-        }
-        self.pixelGlyphOrderings = pixelGlyphs.indices.map {
-            GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0))
-        }
-        self.imageOrderings = images.indices.map {
-            GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0))
-        }
-        self.pathOrderings = paths.indices.map {
-            GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0))
-        }
-        self.nextPaintIndex = UInt32(
-            shadows.count + quads.count + glyphs.count + pixelGlyphs.count + images.count + paths.count)
     }
 
     public var primitiveCount: Int {
@@ -163,228 +205,161 @@ public struct GPUILayer: Equatable, Sendable {
         paintOperations.count
     }
 
+    /// Opens a scoped layer. Returns `false` — and pushes a rejection
+    /// sentinel so the matching `popScopedLayer` is a no-op — when the
+    /// bounds are empty.
     public mutating func pushScopedLayer(_ bounds: Rect) -> Bool {
         guard !bounds.isEmpty else {
+            scopeStack.append(false)
             return false
         }
 
-        let order = primitiveBounds.insert(bounds)
-        maxAssignedOrder = max(maxAssignedOrder, order)
-        layerStack.append(order)
+        scopeStack.append(true)
         return true
     }
 
+    /// Closes the innermost scoped layer. Returns `false` when there is
+    /// nothing to close, or when the matching push was rejected.
     public mutating func popScopedLayer() -> Bool {
-        layerStack.popLast() != nil
+        guard let wasAccepted = scopeStack.popLast() else {
+            return false
+        }
+        return wasAccepted
     }
 
-    mutating func addShadow(_ shadow: ShadowPrimitive) -> Bool {
-        guard let maskedBounds = shadow.contentMaskedBounds else {
-            return false
+    mutating func addShadow(_ shadow: ShadowPrimitive) -> Int? {
+        guard shadow.contentMaskedBounds != nil else {
+            return nil
         }
 
         let startIndex = shadows.count
         shadows.append(shadow)
-        shadowOrderings.append(reserveOrdering(for: maskedBounds, primitiveIndex: startIndex))
         appendPaintOperation(kind: .shadow, startIndex: startIndex)
-        return true
+        return startIndex
     }
 
-    mutating func addQuad(_ quad: QuadPrimitive) -> Bool {
-        guard let maskedBounds = quad.contentMaskedBounds else {
-            return false
+    mutating func addQuad(_ quad: QuadPrimitive) -> Int? {
+        guard quad.contentMaskedBounds != nil else {
+            return nil
         }
 
         let startIndex = quads.count
         quads.append(quad)
-        quadOrderings.append(reserveOrdering(for: maskedBounds, primitiveIndex: startIndex))
         appendPaintOperation(kind: .quad, startIndex: startIndex)
-        return true
+        return startIndex
     }
 
-    mutating func addGlyph(_ glyph: GlyphPrimitive) -> Bool {
-        guard let maskedBounds = glyph.contentMaskedBounds else {
-            return false
+    mutating func addGlyph(_ glyph: GlyphPrimitive) -> Int? {
+        guard glyph.contentMaskedBounds != nil else {
+            return nil
         }
 
         let startIndex = glyphs.count
         glyphs.append(glyph)
-        glyphOrderings.append(reserveOrdering(for: maskedBounds, primitiveIndex: startIndex))
         appendPaintOperation(kind: .glyph, startIndex: startIndex)
-        return true
+        return startIndex
     }
 
-    mutating func addPixelGlyph(_ glyph: GlyphPrimitive) -> Bool {
-        guard let maskedBounds = glyph.contentMaskedBounds else {
-            return false
+    mutating func addPixelGlyph(_ glyph: GlyphPrimitive) -> Int? {
+        guard glyph.contentMaskedBounds != nil else {
+            return nil
         }
 
         let startIndex = pixelGlyphs.count
         pixelGlyphs.append(glyph)
-        pixelGlyphOrderings.append(reserveOrdering(for: maskedBounds, primitiveIndex: startIndex))
         appendPaintOperation(kind: .pixelGlyph, startIndex: startIndex)
-        return true
+        return startIndex
     }
 
-    mutating func addImage(_ image: ImagePrimitive) -> Bool {
-        guard let maskedBounds = image.contentMaskedBounds else {
-            return false
+    mutating func addImage(_ image: ImagePrimitive) -> Int? {
+        guard image.contentMaskedBounds != nil else {
+            return nil
         }
 
         let startIndex = images.count
         images.append(image)
-        imageOrderings.append(reserveOrdering(for: maskedBounds, primitiveIndex: startIndex))
         appendPaintOperation(kind: .image, startIndex: startIndex)
-        return true
+        return startIndex
     }
 
-    mutating func addPath(_ path: PathPrimitive) -> Bool {
-        guard let maskedBounds = path.contentMaskedBounds else {
-            return false
+    mutating func addPath(_ path: PathPrimitive) -> Int? {
+        guard path.contentMaskedBounds != nil else {
+            return nil
         }
 
         let startIndex = paths.count
         paths.append(path)
-        pathOrderings.append(reserveOrdering(for: maskedBounds, primitiveIndex: startIndex))
         appendPaintOperation(kind: .path, startIndex: startIndex)
-        return true
+        return startIndex
     }
 
+    /// Seals the layer. Presentation order is fixed at insertion, so this
+    /// only re-coalesces `paintOperations` into canonical run-length form
+    /// — which `add*` already maintains, and which a hand-built layer may
+    /// not. It deliberately reorders nothing: `finish()` used to sort each
+    /// family by a bounds-tree draw order and remap the operations back,
+    /// which cost ~12 heap allocations per primitive per frame to produce
+    /// an ordering only `orderedBatches()` read and nothing in production
+    /// called.
     public mutating func finish() {
-        let shadowIndexMap = Self.sortFamily(&shadows, orderings: &shadowOrderings)
-        let quadIndexMap = Self.sortFamily(&quads, orderings: &quadOrderings)
-        let glyphIndexMap = Self.sortFamily(&glyphs, orderings: &glyphOrderings)
-        let pixelGlyphIndexMap = Self.sortFamily(&pixelGlyphs, orderings: &pixelGlyphOrderings)
-        let imageIndexMap = Self.sortFamily(&images, orderings: &imageOrderings)
-        let pathIndexMap = Self.sortFamily(&paths, orderings: &pathOrderings)
+        guard paintOperations.count > 1 else {
+            return
+        }
 
-        remapPaintOperations(
-            shadowIndexMap: shadowIndexMap,
-            quadIndexMap: quadIndexMap,
-            glyphIndexMap: glyphIndexMap,
-            pixelGlyphIndexMap: pixelGlyphIndexMap,
-            imageIndexMap: imageIndexMap,
-            pathIndexMap: pathIndexMap
-        )
+        var coalesced: [GPUIPaintOperation] = []
+        coalesced.reserveCapacity(paintOperations.count)
+        for operation in paintOperations {
+            if var last = coalesced.last, last.kind == operation.kind,
+                last.count >= 0, operation.count >= 0,
+                last.startIndex + last.count == operation.startIndex
+            {
+                last.count += operation.count
+                coalesced[coalesced.count - 1] = last
+                continue
+            }
+            coalesced.append(operation)
+        }
+        paintOperations = coalesced
     }
 
-    public func orderedBatches() -> GPUILayerBatchIterator {
-        GPUILayerBatchIterator(
-            shadowOrderings: shadowOrderings,
-            quadOrderings: quadOrderings,
-            glyphOrderings: glyphOrderings,
-            pixelGlyphOrderings: pixelGlyphOrderings,
-            imageOrderings: imageOrderings,
-            pathOrderings: pathOrderings
-        )
+    /// The primitive index range `operation` presents, or `nil` when the
+    /// operation does not describe a real range of its family array. The
+    /// predicate is `GPUIScene.validate()`'s, so what the CPU rasterizer
+    /// silently skips is exactly what the D3D11 plan builder refuses.
+    func presentationRange(of operation: GPUIPaintOperation) -> Range<Int>? {
+        let familyCount = count(of: operation.kind)
+        guard operation.count > 0, operation.startIndex >= 0,
+            operation.startIndex <= familyCount - operation.count
+        else {
+            return nil
+        }
+        return operation.startIndex..<(operation.startIndex + operation.count)
+    }
+
+    func count(of kind: GPUIPaintPrimitiveKind) -> Int {
+        switch kind {
+        case .shadow: return shadows.count
+        case .quad: return quads.count
+        case .glyph: return glyphs.count
+        case .pixelGlyph: return pixelGlyphs.count
+        case .image: return images.count
+        case .path: return paths.count
+        }
+    }
+
+    func primitive(kind: GPUIPaintPrimitiveKind, at index: Int) -> GPUIScenePrimitive? {
+        switch kind {
+        case .shadow: return shadows.indices.contains(index) ? .shadow(shadows[index]) : nil
+        case .quad: return quads.indices.contains(index) ? .quad(quads[index]) : nil
+        case .glyph: return glyphs.indices.contains(index) ? .glyph(glyphs[index]) : nil
+        case .pixelGlyph: return pixelGlyphs.indices.contains(index) ? .pixelGlyph(pixelGlyphs[index]) : nil
+        case .image: return images.indices.contains(index) ? .image(images[index]) : nil
+        case .path: return paths.indices.contains(index) ? .path(paths[index]) : nil
+        }
     }
 
     private mutating func appendPaintOperation(kind: GPUIPaintPrimitiveKind, startIndex: Int) {
         Self.appendPaintOperation(kind: kind, startIndex: startIndex, to: &paintOperations)
-    }
-
-    private mutating func reserveOrdering(for bounds: Rect?, primitiveIndex: Int) -> GPUIPrimitiveOrdering {
-        let order: GPUIDrawOrder
-        if let scopedOrder = layerStack.last {
-            order = scopedOrder
-        } else if let bounds, !bounds.isEmpty {
-            order = primitiveBounds.insert(bounds)
-        } else {
-            order = maxAssignedOrder &+ 1
-        }
-
-        maxAssignedOrder = max(maxAssignedOrder, order)
-        let ordering = GPUIPrimitiveOrdering(
-            primitiveIndex: primitiveIndex,
-            order: order,
-            paintIndex: nextPaintIndex
-        )
-        nextPaintIndex &+= 1
-        return ordering
-    }
-
-    private static func sortFamily<T>(_ primitives: inout [T], orderings: inout [GPUIPrimitiveOrdering]) -> [Int] {
-        var oldIndexToNewIndex = Array(primitives.indices)
-        guard primitives.count == orderings.count, primitives.count > 1 else {
-            for index in orderings.indices {
-                orderings[index].primitiveIndex = index
-            }
-            return oldIndexToNewIndex
-        }
-
-        let sortedEntries = orderings.enumerated().sorted { lhs, rhs in
-            let lhsOrdering = lhs.element
-            let rhsOrdering = rhs.element
-            if lhsOrdering.order != rhsOrdering.order {
-                return lhsOrdering.order < rhsOrdering.order
-            }
-            if lhsOrdering.paintIndex != rhsOrdering.paintIndex {
-                return lhsOrdering.paintIndex < rhsOrdering.paintIndex
-            }
-            return lhs.offset < rhs.offset
-        }
-
-        var sortedPrimitives: [T] = []
-        sortedPrimitives.reserveCapacity(primitives.count)
-        var sortedOrderings: [GPUIPrimitiveOrdering] = []
-        sortedOrderings.reserveCapacity(orderings.count)
-
-        for (newIndex, entry) in sortedEntries.enumerated() {
-            sortedPrimitives.append(primitives[entry.offset])
-            var ordering = entry.element
-            ordering.primitiveIndex = newIndex
-            sortedOrderings.append(ordering)
-            oldIndexToNewIndex[entry.offset] = newIndex
-        }
-
-        primitives = sortedPrimitives
-        orderings = sortedOrderings
-        return oldIndexToNewIndex
-    }
-
-    private mutating func remapPaintOperations(
-        shadowIndexMap: [Int],
-        quadIndexMap: [Int],
-        glyphIndexMap: [Int],
-        pixelGlyphIndexMap: [Int],
-        imageIndexMap: [Int],
-        pathIndexMap: [Int]
-    ) {
-        var remappedOperations: [GPUIPaintOperation] = []
-        remappedOperations.reserveCapacity(paintOperations.count)
-
-        for operation in paintOperations {
-            let indexMap: [Int]
-            switch operation.kind {
-            case .shadow:
-                indexMap = shadowIndexMap
-            case .quad:
-                indexMap = quadIndexMap
-            case .glyph:
-                indexMap = glyphIndexMap
-            case .pixelGlyph:
-                indexMap = pixelGlyphIndexMap
-            case .image:
-                indexMap = imageIndexMap
-            case .path:
-                indexMap = pathIndexMap
-            }
-
-            let upperBound = operation.startIndex + operation.count
-            guard operation.startIndex >= 0, upperBound <= indexMap.count else {
-                continue
-            }
-
-            for oldIndex in operation.startIndex..<upperBound {
-                Self.appendPaintOperation(
-                    kind: operation.kind,
-                    startIndex: indexMap[oldIndex],
-                    to: &remappedOperations
-                )
-            }
-        }
-
-        paintOperations = remappedOperations
     }
 
     private static func appendPaintOperation(
@@ -500,14 +475,22 @@ public struct GPUIScene: Equatable, Sendable {
         return true
     }
 
-    public mutating func pushScopedLayer(_ bounds: Rect, toLayer layerIndex: Int) {
+    /// Opens a scoped layer and records the marker replay validation pairs
+    /// against. Returns `false` when the push was refused — the caller may
+    /// still pop unconditionally, because the layer remembers the
+    /// rejection and `popScopedLayer` declines to close somebody else's
+    /// scope for it.
+    @discardableResult
+    public mutating func pushScopedLayer(_ bounds: Rect, toLayer layerIndex: Int) -> Bool {
         guard ensureLayer(layerIndex) else {
-            return
+            return false
         }
-        if layers[layerIndex].pushScopedLayer(bounds) {
-            paintRecords.append(.startLayer(layerIndex: layerIndex, bounds: bounds))
-            isFinished = false
+        guard layers[layerIndex].pushScopedLayer(bounds) else {
+            return false
         }
+        paintRecords.append(.startLayer(layerIndex: layerIndex, bounds: bounds))
+        isFinished = false
+        return true
     }
 
     @discardableResult
@@ -534,14 +517,20 @@ public struct GPUIScene: Equatable, Sendable {
         imageResources.append(ImageResourceBinding(textureID: textureID, bitmap: bitmap))
     }
 
-    public mutating func popScopedLayer(fromLayer layerIndex: Int) {
-        guard ensureLayer(layerIndex) else {
-            return
+    /// Closes the innermost scoped layer of `layerIndex`. Returns `false`
+    /// when there was no accepted push to close, in which case no
+    /// `endLayer` marker is recorded and `paintRecords` stays balanced.
+    @discardableResult
+    public mutating func popScopedLayer(fromLayer layerIndex: Int) -> Bool {
+        guard layers.indices.contains(layerIndex) else {
+            return false
         }
-        if layers[layerIndex].popScopedLayer() {
-            paintRecords.append(.endLayer(layerIndex: layerIndex))
-            isFinished = false
+        guard layers[layerIndex].popScopedLayer() else {
+            return false
         }
+        paintRecords.append(.endLayer(layerIndex: layerIndex))
+        isFinished = false
+        return true
     }
 
     // MARK: - Primitive insertion (appends to last layer)
@@ -578,8 +567,8 @@ public struct GPUIScene: Equatable, Sendable {
         guard let quad = GPUISceneSanitizer.sanitized(quad), ensureLayer(layerIndex) else {
             return
         }
-        if layers[layerIndex].addQuad(quad) {
-            paintRecords.append(.primitive(layerIndex: layerIndex, primitive: .quad(quad)))
+        if let index = layers[layerIndex].addQuad(quad) {
+            paintRecords.append(.primitive(layerIndex: layerIndex, kind: .quad, index: index))
             isFinished = false
         }
     }
@@ -588,8 +577,8 @@ public struct GPUIScene: Equatable, Sendable {
         guard let glyph = GPUISceneSanitizer.sanitized(glyph), ensureLayer(layerIndex) else {
             return
         }
-        if layers[layerIndex].addGlyph(glyph) {
-            paintRecords.append(.primitive(layerIndex: layerIndex, primitive: .glyph(glyph)))
+        if let index = layers[layerIndex].addGlyph(glyph) {
+            paintRecords.append(.primitive(layerIndex: layerIndex, kind: .glyph, index: index))
             isFinished = false
         }
     }
@@ -598,8 +587,8 @@ public struct GPUIScene: Equatable, Sendable {
         guard let image = GPUISceneSanitizer.sanitized(image), ensureLayer(layerIndex) else {
             return
         }
-        if layers[layerIndex].addImage(image) {
-            paintRecords.append(.primitive(layerIndex: layerIndex, primitive: .image(image)))
+        if let index = layers[layerIndex].addImage(image) {
+            paintRecords.append(.primitive(layerIndex: layerIndex, kind: .image, index: index))
             isFinished = false
         }
     }
@@ -608,8 +597,8 @@ public struct GPUIScene: Equatable, Sendable {
         guard let shadow = GPUISceneSanitizer.sanitized(shadow), ensureLayer(layerIndex) else {
             return
         }
-        if layers[layerIndex].addShadow(shadow) {
-            paintRecords.append(.primitive(layerIndex: layerIndex, primitive: .shadow(shadow)))
+        if let index = layers[layerIndex].addShadow(shadow) {
+            paintRecords.append(.primitive(layerIndex: layerIndex, kind: .shadow, index: index))
             isFinished = false
         }
     }
@@ -618,8 +607,8 @@ public struct GPUIScene: Equatable, Sendable {
         guard let glyph = GPUISceneSanitizer.sanitized(glyph), ensureLayer(layerIndex) else {
             return
         }
-        if layers[layerIndex].addPixelGlyph(glyph) {
-            paintRecords.append(.primitive(layerIndex: layerIndex, primitive: .pixelGlyph(glyph)))
+        if let index = layers[layerIndex].addPixelGlyph(glyph) {
+            paintRecords.append(.primitive(layerIndex: layerIndex, kind: .pixelGlyph, index: index))
             isFinished = false
         }
     }
@@ -628,16 +617,37 @@ public struct GPUIScene: Equatable, Sendable {
         guard let path = GPUISceneSanitizer.sanitized(path), ensureLayer(layerIndex) else {
             return
         }
-        if layers[layerIndex].addPath(path) {
-            paintRecords.append(.primitive(layerIndex: layerIndex, primitive: .path(path)))
+        if let index = layers[layerIndex].addPath(path) {
+            paintRecords.append(.primitive(layerIndex: layerIndex, kind: .path, index: index))
             isFinished = false
         }
+    }
+
+    /// The primitive a paint record or presentation run refers to, or
+    /// `nil` when the reference does not resolve.
+    public func primitive(kind: GPUIPaintPrimitiveKind, inLayer layerIndex: Int, at index: Int) -> GPUIScenePrimitive? {
+        guard layers.indices.contains(layerIndex) else {
+            return nil
+        }
+        return layers[layerIndex].primitive(kind: kind, at: index)
+    }
+
+    /// The scene's presentation order as one sequence, layer-major.
+    /// Both backends consume this: it is the only draw-order authority.
+    public func presentationOrder() -> GPUIPresentationOrder {
+        GPUIPresentationOrder(layers: layers)
     }
 
     /// Represents the result of a replay operation.
     public enum GPUISceneReplayResult: Equatable, Sendable {
         /// Replay succeeded and reconstructed equivalent scene content.
         case success
+        /// The range does not address the source scene's paint records at
+        /// all. A cached range outlives the scene it was measured against
+        /// — a subtree that painted into a `drawingGroup` sub-scene, or a
+        /// `previousScene` that was rebuilt shorter — and indexing the
+        /// records with it traps rather than returning a bad picture.
+        case invalidRange(Range<Int>, recordCount: Int)
         /// Replay was rejected because the range is structurally unbalanced.
         /// Contains details about the validation failure.
         case unbalanced(layerIndex: Int?, depth: Int, reason: UnbalancedReason)
@@ -654,6 +664,12 @@ public struct GPUIScene: Equatable, Sendable {
     }
 
     public mutating func replay(_ range: Range<Int>, from previousScene: GPUIScene) -> GPUISceneReplayResult {
+        // Bounds first: `validateReplayRange` walks `paintRecords` with
+        // this range and traps on one that outran the source scene.
+        guard range.lowerBound >= 0, range.upperBound <= previousScene.paintRecords.count else {
+            return .invalidRange(range, recordCount: previousScene.paintRecords.count)
+        }
+
         // Validate that the range is structurally balanced
         let validation = validateReplayRange(range, in: previousScene)
         guard validation.isBalanced else {
@@ -670,8 +686,11 @@ public struct GPUIScene: Equatable, Sendable {
 
         for record in previousScene.paintRecords[range] {
             switch record {
-            case .primitive(let layerIndex, let primitive):
-                switch primitive {
+            case .primitive(let layerIndex, let kind, let index):
+                // A record that does not resolve is dropped rather than
+                // faked: the family arrays are the primitive values, the
+                // records are only references into them.
+                switch previousScene.primitive(kind: kind, inLayer: layerIndex, at: index) {
                 case .shadow(let shadow):
                     addShadow(shadow, toLayer: layerIndex)
                 case .quad(let quad):
@@ -684,6 +703,8 @@ public struct GPUIScene: Equatable, Sendable {
                     addImage(image, toLayer: layerIndex)
                 case .path(let path):
                     addPath(path, toLayer: layerIndex)
+                case nil:
+                    continue
                 }
             case .startLayer(let layerIndex, let bounds):
                 pushScopedLayer(bounds, toLayer: layerIndex)
@@ -718,7 +739,7 @@ public struct GPUIScene: Equatable, Sendable {
             case .endLayer(let layerIndex):
                 initialLayerDepths[layerIndex, default: 0] -= 1
                 maxLayerIndex = max(maxLayerIndex, layerIndex)
-            case .primitive(let layerIndex, _):
+            case .primitive(let layerIndex, _, _):
                 maxLayerIndex = max(maxLayerIndex, layerIndex)
             }
         }
@@ -747,7 +768,7 @@ public struct GPUIScene: Equatable, Sendable {
                 if layerDepths[layerIndex]! < 0 {
                     return (false, layerIndex, -1, .startsInsideScope)
                 }
-            case .primitive(let layerIndex, _):
+            case .primitive(let layerIndex, _, _):
                 maxLayerIndex = max(maxLayerIndex, layerIndex)
             }
         }

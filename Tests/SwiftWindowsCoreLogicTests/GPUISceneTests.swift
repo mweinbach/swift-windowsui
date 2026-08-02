@@ -192,276 +192,145 @@ final class GPUISceneTests: XCTestCase {
         XCTAssertEqual(scene.layers[2].quads[0].x, 10)
     }
 
-    // MARK: - VAL-SCENE-003: Deterministic draw ordering with family tie precedence
+    // MARK: - VAL-SCENE-003: Presentation order is insertion order, layer-major
 
-    func testDeterministicDrawOrderingIsStable() {
-        var scene = GPUIScene()
-
-        // Add primitives in overlapping positions
-        scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 100, height: 100))
-        scene.addGlyph(GlyphPrimitive(screenX: 50, screenY: 50, screenW: 20, screenH: 20))
-
-        scene.finish()
-
-        var iterator = scene.layers[0].orderedBatches()
-        let firstBatch = iterator.next()
-        let secondBatch = iterator.next()
-
-        // Run the same setup twice and verify identical output
-        var scene2 = GPUIScene()
-        scene2.addQuad(QuadPrimitive(x: 0, y: 0, width: 100, height: 100))
-        scene2.addGlyph(GlyphPrimitive(screenX: 50, screenY: 50, screenW: 20, screenH: 20))
-        scene2.finish()
-
-        var iterator2 = scene2.layers[0].orderedBatches()
-        let firstBatch2 = iterator2.next()
-        let secondBatch2 = iterator2.next()
-
-        XCTAssertEqual(firstBatch, firstBatch2)
-        XCTAssertEqual(secondBatch, secondBatch2)
+    /// Flattens the scene's single draw-order authority into one
+    /// comparable list so a test can say "these two scenes present the
+    /// same primitives in the same sequence".
+    private func presentationSequence(_ scene: GPUIScene) -> [String] {
+        var sequence: [String] = []
+        for run in scene.presentationOrder() {
+            for index in run.range {
+                sequence.append("\(run.layerIndex)/\(run.kind)/\(index)")
+            }
+        }
+        return sequence
     }
 
-    func testFamilyTiePrecedenceShadowBeforeQuad() {
-        // Use scoped layer so both primitives share the same draw order
-        // Family precedence: shadow (0) < quad (1)
-        var scene = GPUIScene()
+    private func describe(_ expected: [(Int, GPUIPaintPrimitiveKind, Int)]) -> [String] {
+        expected.map { "\($0.0)/\($0.1)/\($0.2)" }
+    }
 
-        scene.pushScopedLayer(Rect(x: 0, y: 0, width: 100, height: 100), toLayer: 0)
-        // Add quad first, then shadow - shadow should come first due to precedence
+    func testPresentationOrderFollowsInsertionNotFamilyRank() {
+        // The retired bounds-tree model sorted ties by family rank, so a
+        // shadow added after a quad still drew first. Paint order is the
+        // only order now: what the painter emitted last draws last.
+        var scene = GPUIScene()
         scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))
         scene.addShadow(ShadowPrimitive(x: 0, y: 0, width: 50, height: 50))
-        scene.popScopedLayer(fromLayer: 0)
-
-        scene.finish()
-
-        var iterator = scene.layers[0].orderedBatches()
-        // Shadow should be drawn before quad (lower sort rank)
-        XCTAssertEqual(iterator.next(), .shadows(0..<1))
-        XCTAssertEqual(iterator.next(), .quads(0..<1))
-    }
-
-    func testFamilyTiePrecedenceQuadBeforeGlyph() {
-        var scene = GPUIScene()
-
-        scene.pushScopedLayer(Rect(x: 0, y: 0, width: 100, height: 100), toLayer: 0)
-        scene.addGlyph(GlyphPrimitive(screenX: 0, screenY: 0, screenW: 50, screenH: 50))
-        scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))
-        scene.popScopedLayer(fromLayer: 0)
-
-        scene.finish()
-
-        var iterator = scene.layers[0].orderedBatches()
-        // Quad (sort rank 1) should come before glyph (sort rank 2)
-        XCTAssertEqual(iterator.next(), .quads(0..<1))
-        XCTAssertEqual(iterator.next(), .glyphs(0..<1))
-    }
-
-    func testFamilyTiePrecedenceGlyphBeforePixelGlyph() {
-        var scene = GPUIScene()
-
-        scene.pushScopedLayer(Rect(x: 0, y: 0, width: 100, height: 100), toLayer: 0)
-        scene.addPixelGlyph(GlyphPrimitive(screenX: 0, screenY: 0, screenW: 12, screenH: 12))
+        scene.addImage(ImagePrimitive(screenX: 0, screenY: 0, screenW: 50, screenH: 50))
         scene.addGlyph(GlyphPrimitive(screenX: 0, screenY: 0, screenW: 12, screenH: 12))
-        scene.popScopedLayer(fromLayer: 0)
-
         scene.finish()
 
-        var iterator = scene.layers[0].orderedBatches()
-        // Glyph (sort rank 2) should come before pixelGlyph (sort rank 3)
-        XCTAssertEqual(iterator.next(), .glyphs(0..<1))
-        XCTAssertEqual(iterator.next(), .pixelGlyphs(0..<1))
+        XCTAssertEqual(
+            presentationSequence(scene),
+            describe([(0, .quad, 0), (0, .shadow, 0), (0, .image, 0), (0, .glyph, 0)]))
     }
 
-    func testFamilyTiePrecedencePixelGlyphBeforeImage() {
+    func testReverseInsertionReversesPresentationOrder() {
+        var forward = GPUIScene()
+        forward.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))
+        forward.addGlyph(GlyphPrimitive(screenX: 25, screenY: 25, screenW: 20, screenH: 20))
+        forward.finish()
+
+        var reversed = GPUIScene()
+        reversed.addGlyph(GlyphPrimitive(screenX: 25, screenY: 25, screenW: 20, screenH: 20))
+        reversed.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))
+        reversed.finish()
+
+        XCTAssertEqual(presentationSequence(forward), describe([(0, .quad, 0), (0, .glyph, 0)]))
+        XCTAssertEqual(presentationSequence(reversed), describe([(0, .glyph, 0), (0, .quad, 0)]))
+    }
+
+    func testPresentationOrderIsLayerMajor() {
+        // Layers are z-order groups: everything in layer 0 presents before
+        // anything in layer 1, whatever order the adds arrived in.
         var scene = GPUIScene()
-
-        scene.pushScopedLayer(Rect(x: 0, y: 0, width: 100, height: 100), toLayer: 0)
-        scene.addImage(ImagePrimitive(screenX: 0, screenY: 0, screenW: 64, screenH: 64))
-        scene.addPixelGlyph(GlyphPrimitive(screenX: 0, screenY: 0, screenW: 12, screenH: 12))
-        scene.popScopedLayer(fromLayer: 0)
-
+        _ = scene.pushLayer()
+        scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 40, height: 40), toLayer: 1)
+        scene.addQuad(QuadPrimitive(x: 10, y: 10, width: 40, height: 40), toLayer: 0)
+        scene.addQuad(QuadPrimitive(x: 20, y: 20, width: 40, height: 40), toLayer: 1)
         scene.finish()
 
-        var iterator = scene.layers[0].orderedBatches()
-        // pixelGlyph (sort rank 3) should come before image (sort rank 4)
-        XCTAssertEqual(iterator.next(), .pixelGlyphs(0..<1))
-        XCTAssertEqual(iterator.next(), .images(0..<1))
+        XCTAssertEqual(
+            presentationSequence(scene),
+            describe([(0, .quad, 0), (1, .quad, 0), (1, .quad, 1)]))
     }
 
-    func testFullFamilyTiePrecedenceOrder() {
+    func testPresentationOrderIsStableAcrossIdenticalBuilds() {
+        func build() -> GPUIScene {
+            var scene = GPUIScene()
+            scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 100, height: 100))
+            scene.addGlyph(GlyphPrimitive(screenX: 50, screenY: 50, screenW: 20, screenH: 20))
+            scene.addQuad(QuadPrimitive(x: 120, y: 0, width: 40, height: 40))
+            scene.finish()
+            return scene
+        }
+
+        XCTAssertEqual(presentationSequence(build()), presentationSequence(build()))
+    }
+
+    // MARK: - VAL-SCENE-004: Runs coalesce by adjacency only
+
+    func testPresentationRunsCoalesceOnlyAcrossAdjacentSameFamilyPrimitives() {
         var scene = GPUIScene()
-
-        scene.pushScopedLayer(Rect(x: 0, y: 0, width: 100, height: 100), toLayer: 0)
-        // Add all families in reverse order
-        scene.addImage(ImagePrimitive(screenX: 10, screenY: 10, screenW: 32, screenH: 32))
-        scene.addPixelGlyph(GlyphPrimitive(screenX: 10, screenY: 10, screenW: 8, screenH: 8))
-        scene.addGlyph(GlyphPrimitive(screenX: 10, screenY: 10, screenW: 12, screenH: 12))
-        scene.addQuad(QuadPrimitive(x: 10, y: 10, width: 40, height: 40))
-        scene.addShadow(ShadowPrimitive(x: 10, y: 10, width: 50, height: 50))
-        scene.popScopedLayer(fromLayer: 0)
-
-        scene.finish()
-
-        var iterator = scene.layers[0].orderedBatches()
-        // All at same draw order, family precedence should be:
-        // shadow -> quad -> glyph -> pixelGlyph -> image
-        XCTAssertEqual(iterator.next(), .shadows(0..<1))
-        XCTAssertEqual(iterator.next(), .quads(0..<1))
-        XCTAssertEqual(iterator.next(), .glyphs(0..<1))
-        XCTAssertEqual(iterator.next(), .pixelGlyphs(0..<1))
-        XCTAssertEqual(iterator.next(), .images(0..<1))
-        XCTAssertNil(iterator.next())
-    }
-
-    func testReverseInsertionPreservesDeterministicOrder() {
-        // When primitives have different draw orders based on bounds, insertion order matters
-        // When they share the same draw order (scoped layer), family precedence matters
-        var scene1 = GPUIScene()
-        scene1.pushScopedLayer(Rect(x: 0, y: 0, width: 200, height: 200), toLayer: 0)
-        scene1.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))
-        scene1.addGlyph(GlyphPrimitive(screenX: 25, screenY: 25, screenW: 20, screenH: 20))
-        scene1.popScopedLayer(fromLayer: 0)
-        scene1.finish()
-
-        var scene2 = GPUIScene()
-        scene2.pushScopedLayer(Rect(x: 0, y: 0, width: 200, height: 200), toLayer: 0)
-        scene2.addGlyph(GlyphPrimitive(screenX: 25, screenY: 25, screenW: 20, screenH: 20))
-        scene2.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))
-        scene2.popScopedLayer(fromLayer: 0)
-        scene2.finish()
-
-        var iter1 = scene1.layers[0].orderedBatches()
-        var iter2 = scene2.layers[0].orderedBatches()
-
-        // Both should have identical batch ordering due to scoped layer making both primitives share draw order
-        // Family precedence (quad before glyph) should determine the order
-        XCTAssertEqual(iter1.next(), iter2.next())
-        XCTAssertEqual(iter1.next(), iter2.next())
-        XCTAssertEqual(iter1.next(), iter2.next())
-    }
-
-    // MARK: - VAL-SCENE-004: Non-overlapping work coalesces without changing overlap semantics
-
-    func testNonOverlappingSameFamilyPrimitivesCoalesce() {
-        var scene = GPUIScene()
-
-        // Non-overlapping quads at x=0, x=100, x=200
         scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))
         scene.addQuad(QuadPrimitive(x: 100, y: 0, width: 50, height: 50))
-        scene.addQuad(QuadPrimitive(x: 200, y: 0, width: 50, height: 50))
-
+        scene.addGlyph(GlyphPrimitive(screenX: 200, screenY: 0, screenW: 20, screenH: 20))
+        scene.addQuad(QuadPrimitive(x: 300, y: 0, width: 50, height: 50))
         scene.finish()
 
-        var iterator = scene.layers[0].orderedBatches()
-        // All non-overlapping quads should coalesce into one range
-        let batch = iterator.next()
-        XCTAssertEqual(batch, .quads(0..<3))
-        XCTAssertNil(iterator.next())
+        let runs = Array(scene.presentationOrder())
+        XCTAssertEqual(runs.count, 3)
+        XCTAssertEqual(runs[0], GPUIPresentationRun(layerIndex: 0, kind: .quad, range: 0..<2))
+        XCTAssertEqual(runs[1], GPUIPresentationRun(layerIndex: 0, kind: .glyph, range: 0..<1))
+        XCTAssertEqual(runs[2], GPUIPresentationRun(layerIndex: 0, kind: .quad, range: 2..<3))
     }
 
-    func testOverlappingPrimitivesDoNotCoalesce() {
+    func testFinishDoesNotReorderPrimitives() {
+        // Overlapping primitives used to be reordered by the bounds tree
+        // during finish(); the family arrays are now exactly what the
+        // painter appended, which is what makes a paint record's index a
+        // stable reference.
         var scene = GPUIScene()
-
-        // Overlapping quads - first at (0,0) size (100,100), second at (50,50) size (100,100)
-        scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 100, height: 100))
-        scene.addQuad(QuadPrimitive(x: 50, y: 50, width: 100, height: 100))
-
+        scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 100, height: 100, startR: 1))
+        scene.addQuad(QuadPrimitive(x: 50, y: 50, width: 100, height: 100, startR: 0.5))
+        let beforeFinish = scene.layers[0].quads
         scene.finish()
 
-        var iterator = scene.layers[0].orderedBatches()
-        // Overlapping quads should NOT coalesce into a single range
-        let batch1 = iterator.next()
-        let batch2 = iterator.next()
-        XCTAssertNotNil(batch1)
-        XCTAssertNotNil(batch2)
-
-        // The two batches should be separate ranges
-        if case .quads(let range1) = batch1, case .quads(let range2) = batch2 {
-            XCTAssertEqual(range1.count + range2.count, 2)
-            XCTAssertNotEqual(range1, range2)
-        } else {
-            XCTFail("Expected two quad batches for overlapping primitives")
-        }
+        XCTAssertEqual(scene.layers[0].quads, beforeFinish)
+        XCTAssertEqual(presentationSequence(scene), describe([(0, .quad, 0), (0, .quad, 1)]))
     }
 
-    func testCoalescingDoesNotChangeVisibleOverlapSemantics() {
+    func testFinishCoalescesHandBuiltPaintOperations() {
         var scene = GPUIScene()
-
-        // Quad 1 at bottom-left
-        scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 100, height: 100))
-        // Glyph overlapping quad 1 (should be drawn on top)
-        scene.addGlyph(GlyphPrimitive(screenX: 50, screenY: 50, screenW: 30, screenH: 30))
-        // Non-overlapping quad 2 (can coalesce with quad 1 in same-family batching)
-        scene.addQuad(QuadPrimitive(x: 200, y: 200, width: 50, height: 50))
-
+        scene.layers = [
+            GPUILayer(
+                quads: [
+                    QuadPrimitive(x: 0, y: 0, width: 10, height: 10),
+                    QuadPrimitive(x: 20, y: 0, width: 10, height: 10),
+                ],
+                paintOperations: [
+                    GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
+                    GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
+                ])
+        ]
         scene.finish()
 
-        var iterator = scene.layers[0].orderedBatches()
-
-        // First batch should be quads (0..<2) - both quads coalesced despite glyph between
-        let batch1 = iterator.next()
-        XCTAssertEqual(batch1, .quads(0..<2))
-
-        // Second batch should be the glyph
-        let batch2 = iterator.next()
-        XCTAssertEqual(batch2, .glyphs(0..<1))
-
-        // Glyph comes after the quads in draw order (correct z-order)
-        XCTAssertNil(iterator.next())
+        XCTAssertEqual(
+            scene.layers[0].paintOperations,
+            [GPUIPaintOperation(kind: .quad, startIndex: 0, count: 2)])
     }
 
-    func testDeterministicCoalescingForMultipleNonOverlappingPrimitives() {
+    func testScopedLayerDoesNotChangePresentationOrder() {
         var scene = GPUIScene()
-
-        // Create pattern: quad, glyph, quad, glyph, quad (non-overlapping)
-        scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))
-        scene.addGlyph(GlyphPrimitive(screenX: 100, screenY: 0, screenW: 20, screenH: 20))
-        scene.addQuad(QuadPrimitive(x: 200, y: 0, width: 50, height: 50))
-        scene.addGlyph(GlyphPrimitive(screenX: 300, screenY: 0, screenW: 20, screenH: 20))
-        scene.addQuad(QuadPrimitive(x: 400, y: 0, width: 50, height: 50))
-
-        scene.finish()
-
-        var iterator = scene.layers[0].orderedBatches()
-
-        // All 3 quads should coalesce (non-overlapping)
-        let quadBatch = iterator.next()
-        XCTAssertEqual(quadBatch, .quads(0..<3))
-
-        // All 2 glyphs should coalesce (non-overlapping)
-        let glyphBatch = iterator.next()
-        XCTAssertEqual(glyphBatch, .glyphs(0..<2))
-
-        XCTAssertNil(iterator.next())
-    }
-
-    func testFinishCoalescesNonOverlappingFamilyRanges() {
-        var scene = GPUIScene()
-        scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 20, height: 20))
-        scene.addGlyph(GlyphPrimitive(screenX: 100, screenY: 0, screenW: 12, screenH: 12))
-        scene.addQuad(QuadPrimitive(x: 200, y: 0, width: 20, height: 20))
-
-        scene.finish()
-
-        var iterator = scene.layers[0].orderedBatches()
-        XCTAssertEqual(iterator.next(), .quads(0..<2))
-        XCTAssertEqual(iterator.next(), .glyphs(0..<1))
-        XCTAssertNil(iterator.next())
-    }
-
-    func testScopedLayerKeepsPrimitivesOnTheSameDrawOrder() {
-        var scene = GPUIScene()
-        scene.pushScopedLayer(Rect(x: 0, y: 0, width: 100, height: 100), toLayer: 0)
+        XCTAssertTrue(scene.pushScopedLayer(Rect(x: 0, y: 0, width: 100, height: 100), toLayer: 0))
         scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 100, height: 100))
         scene.addGlyph(GlyphPrimitive(screenX: 10, screenY: 10, screenW: 20, screenH: 20))
-        scene.popScopedLayer(fromLayer: 0)
-
+        XCTAssertTrue(scene.popScopedLayer(fromLayer: 0))
         scene.finish()
 
-        var iterator = scene.layers[0].orderedBatches()
-        XCTAssertEqual(iterator.next(), .quads(0..<1))
-        XCTAssertEqual(iterator.next(), .glyphs(0..<1))
-        XCTAssertNil(iterator.next())
+        XCTAssertEqual(presentationSequence(scene), describe([(0, .quad, 0), (0, .glyph, 0)]))
     }
 
     func testMaskedPrimitiveOutsideContentMaskIsDropped() {
@@ -642,7 +511,8 @@ final class GPUISceneTests: XCTestCase {
         XCTAssertEqual(scene.paintRecordCount, 0)
     }
 
-    func testMaskedBoundsDriveDrawOrderAssignment() {
+    func testMaskedBoundsDoNotAffectPresentationOrder() {
+        // A clip narrows what a primitive covers, never when it draws.
         var scene = GPUIScene()
         scene.addQuad(
             QuadPrimitive(
@@ -665,9 +535,9 @@ final class GPUISceneTests: XCTestCase {
 
         scene.finish()
 
-        var iterator = scene.layers[0].orderedBatches()
-        XCTAssertEqual(iterator.next(), .quads(0..<2))
-        XCTAssertNil(iterator.next())
+        XCTAssertEqual(
+            Array(scene.presentationOrder()),
+            [GPUIPresentationRun(layerIndex: 0, kind: .quad, range: 0..<2)])
     }
 
     func testReplayCopiesScenePaintRecords() {
@@ -684,135 +554,114 @@ final class GPUISceneTests: XCTestCase {
         XCTAssertEqual(replayed, original)
     }
 
-    // MARK: - VAL-SCENE-005: Scoped layers create stable shared ordering regions
+    // MARK: - VAL-SCENE-005: Scoped layers bracket the replay log
 
-    func testSingleScopedLayerCreatesSharedOrderingRegion() {
+    func testSingleScopedLayerBracketsItsPaintRecords() {
         var scene = GPUIScene()
 
-        // Push scoped layer - this creates a shared draw-order region
-        scene.pushScopedLayer(Rect(x: 0, y: 0, width: 200, height: 200), toLayer: 0)
+        XCTAssertTrue(scene.pushScopedLayer(Rect(x: 0, y: 0, width: 200, height: 200), toLayer: 0))
         scene.addQuad(QuadPrimitive(x: 10, y: 10, width: 80, height: 80))
         scene.addGlyph(GlyphPrimitive(screenX: 20, screenY: 20, screenW: 20, screenH: 20))
-        scene.popScopedLayer(fromLayer: 0)
+        XCTAssertTrue(scene.popScopedLayer(fromLayer: 0))
 
-        // Add content outside the scoped layer
+        // Content outside the scoped layer
         scene.addQuad(QuadPrimitive(x: 250, y: 250, width: 50, height: 50))
 
         scene.finish()
 
-        // Verify paint records show scoped layer markers
         let records = scene.paintRecords
         XCTAssertTrue(records.contains { if case .startLayer = $0 { return true } else { return false } })
         XCTAssertTrue(records.contains { if case .endLayer = $0 { return true } else { return false } })
 
-        // Content inside scoped layer should share same draw order
-        var iterator = scene.layers[0].orderedBatches()
-        // Both scoped layer quads should be coalesced
-        let batch1 = iterator.next()
-        XCTAssertNotNil(batch1)
-        // Then the glyph
-        let batch2 = iterator.next()
-        XCTAssertNotNil(batch2)
+        // The scope is a replay bracket, not a draw order: presentation
+        // order is still exactly what was added.
+        XCTAssertEqual(
+            presentationSequence(scene),
+            describe([(0, .quad, 0), (0, .glyph, 0), (0, .quad, 1)]))
     }
 
-    func testNestedScopedLayersPreserveDeterministicOrdering() {
+    func testNestedScopedLayersStayBalanced() {
         var scene = GPUIScene()
 
-        // Outer scoped layer
         scene.pushScopedLayer(Rect(x: 0, y: 0, width: 300, height: 300), toLayer: 0)
         scene.addQuad(QuadPrimitive(x: 10, y: 10, width: 100, height: 100))
 
-        // Inner scoped layer
         scene.pushScopedLayer(Rect(x: 50, y: 50, width: 200, height: 200), toLayer: 0)
         scene.addGlyph(GlyphPrimitive(screenX: 60, screenY: 60, screenW: 30, screenH: 30))
         scene.popScopedLayer(fromLayer: 0)
 
-        // Back to outer layer
         scene.addShadow(ShadowPrimitive(x: 120, y: 120, width: 50, height: 50))
         scene.popScopedLayer(fromLayer: 0)
 
-        // Content outside all scopes
         scene.addImage(ImagePrimitive(screenX: 350, screenY: 350, screenW: 64, screenH: 64))
 
         scene.finish()
 
-        // Verify paint records contain balanced start/end layer pairs
-        var scopeDepth = 0
+        XCTAssertEqual(scopeBalance(scene).depth, 0, "Scopes should be balanced")
+        XCTAssertEqual(scopeBalance(scene).maxDepth, 2, "Should have 2 nested scope levels")
+
+        XCTAssertEqual(
+            presentationSequence(scene),
+            describe([(0, .quad, 0), (0, .glyph, 0), (0, .shadow, 0), (0, .image, 0)]))
+    }
+
+    /// Net and peak scoped-layer depth over the whole replay log.
+    private func scopeBalance(_ scene: GPUIScene) -> (depth: Int, maxDepth: Int) {
+        var depth = 0
         var maxDepth = 0
         for record in scene.paintRecords {
             switch record {
             case .startLayer:
-                scopeDepth += 1
-                maxDepth = max(maxDepth, scopeDepth)
+                depth += 1
+                maxDepth = max(maxDepth, depth)
             case .endLayer:
-                scopeDepth -= 1
-            default:
+                depth -= 1
+            case .primitive:
                 break
             }
         }
-        XCTAssertEqual(scopeDepth, 0, "Scopes should be balanced")
-        XCTAssertEqual(maxDepth, 2, "Should have 2 nested scope levels")
-
-        // All scoped content should be grouped together
-        var iterator = scene.layers[0].orderedBatches()
-        // Outer scoped layer items
-        let batch1 = iterator.next()
-        XCTAssertNotNil(batch1)
-
-        // Image outside scope comes after
-        let batch2 = iterator.next()
-        XCTAssertNotNil(batch2)
+        return (depth, maxDepth)
     }
 
     func testScopedLayerEmptyBoundsIsRejected() {
         var scene = GPUIScene()
 
-        // Try to push empty scoped layer
         let emptyRect = Rect(x: 0, y: 0, width: 0, height: 100)
-        scene.pushScopedLayer(emptyRect, toLayer: 0)
+        XCTAssertFalse(scene.pushScopedLayer(emptyRect, toLayer: 0))
 
-        // Should not create a startLayer record
         let hasStartLayer = scene.paintRecords.contains {
             if case .startLayer = $0 { return true } else { return false }
         }
         XCTAssertFalse(hasStartLayer, "Empty scoped layer should be rejected")
     }
 
-    func testScopedLayerPrimitivesShareSameDrawOrder() {
-        // Without scoped layer, overlapping primitives get different draw orders
-        var scene1 = GPUIScene()
-        scene1.addQuad(QuadPrimitive(x: 0, y: 0, width: 100, height: 100))
-        // Glyph overlaps the quad, so it gets a higher draw order
-        scene1.addGlyph(GlyphPrimitive(screenX: 50, screenY: 50, screenW: 30, screenH: 30))
-        scene1.finish()
+    func testPopAfterRejectedPushDoesNotCloseTheEnclosingScope() {
+        // The failure this pins: a caller that pushes and pops
+        // unconditionally used to close the *enclosing* scope when its own
+        // push was refused, leaving a stray endLayer that made every later
+        // replay range unbalanced — and therefore blank, forever.
+        var scene = GPUIScene()
+        XCTAssertTrue(scene.pushScopedLayer(Rect(x: 0, y: 0, width: 100, height: 100), toLayer: 0))
+        XCTAssertFalse(scene.pushScopedLayer(Rect(x: 0, y: 0, width: 0, height: 0), toLayer: 0))
+        XCTAssertFalse(scene.popScopedLayer(fromLayer: 0), "the rejected push must be what is popped")
+        scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 20, height: 20))
+        XCTAssertTrue(scene.popScopedLayer(fromLayer: 0))
 
-        // With scoped layer, both primitives share the scoped layer's draw order
-        var scene2 = GPUIScene()
-        scene2.pushScopedLayer(Rect(x: 0, y: 0, width: 200, height: 200), toLayer: 0)
-        scene2.addQuad(QuadPrimitive(x: 0, y: 0, width: 100, height: 100))
-        scene2.addGlyph(GlyphPrimitive(screenX: 50, screenY: 50, screenW: 30, screenH: 30))
-        scene2.popScopedLayer(fromLayer: 0)
-        scene2.finish()
+        XCTAssertEqual(scopeBalance(scene).depth, 0)
+        XCTAssertEqual(scopeBalance(scene).maxDepth, 1)
 
-        var iter1 = scene1.layers[0].orderedBatches()
-        var iter2 = scene2.layers[0].orderedBatches()
+        // And the log the balance guards is still replayable end to end.
+        var replayed = GPUIScene()
+        XCTAssertEqual(replayed.replay(0..<scene.paintRecordCount, from: scene), .success)
+        XCTAssertEqual(replayed.layers[0].quads.count, 1)
+    }
 
-        // scene1: quad and glyph have different draw orders due to overlap
-        // They should be in separate batches
-        let batch1Quad = iter1.next()
-        let batch1Glyph = iter1.next()
-        XCTAssertNotNil(batch1Quad)
-        XCTAssertNotNil(batch1Glyph)
-        XCTAssertNil(iter1.next())  // Iterator should be exhausted after 2 batches
-
-        // scene2: quad and glyph share the same draw order from scoped layer
-        // Family precedence (quad before glyph) applies, but within same order they coalesce by family
-        // So we expect one quad batch and one glyph batch (both at same draw order value)
-        let batch2Quad = iter2.next()
-        let batch2Glyph = iter2.next()
-        XCTAssertNotNil(batch2Quad)
-        XCTAssertNotNil(batch2Glyph)
-        XCTAssertNil(iter2.next())  // Iterator should be exhausted after 2 batches
+    func testPopWithoutPushIsRefused() {
+        var scene = GPUIScene()
+        XCTAssertFalse(scene.popScopedLayer(fromLayer: 0))
+        XCTAssertFalse(scene.popScopedLayer(fromLayer: 7), "an unbuilt layer has no scope to close")
+        XCTAssertEqual(scene.paintRecordCount, 0)
+        XCTAssertEqual(scene.layers.count, 1, "a refused pop must not grow the scene")
     }
 
     // MARK: - VAL-SCENE-006: Balanced replay ranges reconstruct equivalent scene

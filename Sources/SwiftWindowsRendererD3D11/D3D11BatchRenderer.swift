@@ -554,38 +554,44 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             )
         }
 
+        // `presentationOrder()` is the scene's single draw-order
+        // authority: layers in index order, and within each layer
+        // `layer.paintOperations` in order. The CPU rasterizer walks the
+        // same sequence, so a plan step and a rasterized primitive are the
+        // same primitive in the same position — which is what makes a
+        // cross-backend pixel comparison mean anything.
         var steps: [RenderStep] = []
-        for (layerIndex, layer) in scene.layers.enumerated() {
-            for operation in layer.paintOperations {
-                let range = operation.startIndex..<(operation.startIndex + operation.count)
-                switch operation.kind {
-                case .shadow:
-                    steps.append(.shadows(layerIndex: layerIndex, range: range))
-                case .quad:
-                    steps.append(.quads(layerIndex: layerIndex, range: range))
-                case .glyph:
-                    if let glyphAtlasSource {
-                        steps.append(.glyphs(layerIndex: layerIndex, range: range, atlasSource: glyphAtlasSource))
-                    }
-                case .pixelGlyph:
-                    if let pixelGlyphAtlasSource {
-                        steps.append(
-                            .pixelGlyphs(layerIndex: layerIndex, range: range, atlasSource: pixelGlyphAtlasSource))
-                    }
-                case .image:
-                    var runStart = range.lowerBound
-                    while runStart < range.upperBound {
-                        let textureID = layer.images[runStart].textureID
-                        var runEnd = runStart + 1
-                        while runEnd < range.upperBound, layer.images[runEnd].textureID == textureID {
-                            runEnd += 1
-                        }
-                        steps.append(.images(layerIndex: layerIndex, range: runStart..<runEnd, textureID: textureID))
-                        runStart = runEnd
-                    }
-                case .path:
-                    steps.append(.paths(layerIndex: layerIndex, range: range))
+        for run in scene.presentationOrder() {
+            let layerIndex = run.layerIndex
+            let range = run.range
+            switch run.kind {
+            case .shadow:
+                steps.append(.shadows(layerIndex: layerIndex, range: range))
+            case .quad:
+                steps.append(.quads(layerIndex: layerIndex, range: range))
+            case .glyph:
+                if let glyphAtlasSource {
+                    steps.append(.glyphs(layerIndex: layerIndex, range: range, atlasSource: glyphAtlasSource))
                 }
+            case .pixelGlyph:
+                if let pixelGlyphAtlasSource {
+                    steps.append(
+                        .pixelGlyphs(layerIndex: layerIndex, range: range, atlasSource: pixelGlyphAtlasSource))
+                }
+            case .image:
+                let images = scene.layers[layerIndex].images
+                var runStart = range.lowerBound
+                while runStart < range.upperBound {
+                    let textureID = images[runStart].textureID
+                    var runEnd = runStart + 1
+                    while runEnd < range.upperBound, images[runEnd].textureID == textureID {
+                        runEnd += 1
+                    }
+                    steps.append(.images(layerIndex: layerIndex, range: runStart..<runEnd, textureID: textureID))
+                    runStart = runEnd
+                }
+            case .path:
+                steps.append(.paths(layerIndex: layerIndex, range: range))
             }
         }
 

@@ -54,16 +54,7 @@ public enum GPUIRawSceneRasterizer {
         let imageBindings = Dictionary(
             scene.imageResources.map { ($0.textureID, $0.bitmap) }, uniquingKeysWith: { _, latest in latest })
 
-        if scene.paintRecords.isEmpty {
-            rasterizeLayerOperations(in: scene, target: &target, imageBindings: imageBindings)
-        } else {
-            for record in scene.paintRecords {
-                guard case .primitive(_, let primitive) = record else {
-                    continue
-                }
-                rasterize(primitive, scene: scene, target: &target, imageBindings: imageBindings)
-            }
-        }
+        rasterizeLayerOperations(in: scene, target: &target, imageBindings: imageBindings)
 
         return target.bitmapSurface()
     }
@@ -100,58 +91,39 @@ public enum GPUIRawSceneRasterizer {
         return rasterize(scene, size: IntSize(width: Int32(width), height: Int32(height)))
     }
 
+    /// Draws the scene in `presentationOrder()` — the same layer-major
+    /// walk over `layer.paintOperations` the D3D11 plan builder makes.
+    ///
+    /// This used to prefer a second walk over the flat `paintRecords` log,
+    /// which discarded `layerIndex`, so an interleaved multi-layer scene
+    /// rendered in insertion order here and in layer order on the GPU. No
+    /// screenshot could ever show the difference, because every screenshot
+    /// came through this function.
     private static func rasterizeLayerOperations(
         in scene: GPUIScene,
         target: inout RasterTarget,
         imageBindings: [Int32: BitmapSurface]
     ) {
-        for layer in scene.layers {
-            for operation in layer.paintOperations {
-                for index in operation.startIndex..<(operation.startIndex + operation.count) {
-                    switch operation.kind {
-                    case .shadow where layer.shadows.indices.contains(index):
-                        target.drawShadow(layer.shadows[index])
-                    case .quad where layer.quads.indices.contains(index):
-                        target.drawQuad(layer.quads[index])
-                    case .glyph where layer.glyphs.indices.contains(index):
-                        target.drawGlyph(layer.glyphs[index], atlas: scene.glyphAtlas)
-                    case .pixelGlyph where layer.pixelGlyphs.indices.contains(index):
-                        target.drawGlyph(layer.pixelGlyphs[index], atlas: scene.pixelGlyphAtlas)
-                    case .image where layer.images.indices.contains(index):
-                        if let bitmap = imageBindings[layer.images[index].textureID] {
-                            target.drawImage(layer.images[index], bitmap: bitmap)
-                        }
-                    case .path where layer.paths.indices.contains(index):
-                        target.drawPath(layer.paths[index])
-                    default:
-                        break
+        for run in scene.presentationOrder() {
+            let layer = scene.layers[run.layerIndex]
+            switch run.kind {
+            case .shadow:
+                for index in run.range { target.drawShadow(layer.shadows[index]) }
+            case .quad:
+                for index in run.range { target.drawQuad(layer.quads[index]) }
+            case .glyph:
+                for index in run.range { target.drawGlyph(layer.glyphs[index], atlas: scene.glyphAtlas) }
+            case .pixelGlyph:
+                for index in run.range { target.drawGlyph(layer.pixelGlyphs[index], atlas: scene.pixelGlyphAtlas) }
+            case .image:
+                for index in run.range {
+                    if let bitmap = imageBindings[layer.images[index].textureID] {
+                        target.drawImage(layer.images[index], bitmap: bitmap)
                     }
                 }
+            case .path:
+                for index in run.range { target.drawPath(layer.paths[index]) }
             }
-        }
-    }
-
-    private static func rasterize(
-        _ primitive: GPUIScenePrimitive,
-        scene: GPUIScene,
-        target: inout RasterTarget,
-        imageBindings: [Int32: BitmapSurface]
-    ) {
-        switch primitive {
-        case .shadow(let shadow):
-            target.drawShadow(shadow)
-        case .quad(let quad):
-            target.drawQuad(quad)
-        case .glyph(let glyph):
-            target.drawGlyph(glyph, atlas: scene.glyphAtlas)
-        case .pixelGlyph(let glyph):
-            target.drawGlyph(glyph, atlas: scene.pixelGlyphAtlas)
-        case .image(let image):
-            if let bitmap = imageBindings[image.textureID] {
-                target.drawImage(image, bitmap: bitmap)
-            }
-        case .path(let path):
-            target.drawPath(path)
         }
     }
 }

@@ -1,3 +1,4 @@
+import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 
@@ -207,6 +208,34 @@ public enum ScenePainter {
     /// an atlas recovery, and attempt 2 paints with the atlas suspended so the
     /// frame is guaranteed to be free of recycled UVs.
     private static let glyphAtlasPaintAttempts = 3
+
+    /// Cached paint ranges the scene refused to replay. Diagnostic only —
+    /// every rejection is answered by repainting the subtree — but a
+    /// non-zero count means some node is carrying a range from a scene it
+    /// never painted into, which is a cache-bookkeeping bug worth finding.
+    internal private(set) static var rejectedReplayCount = 0
+    private static var hasReportedRejectedReplay = false
+
+    private static func reportRejectedReplay() {
+        rejectedReplayCount += 1
+        guard !hasReportedRejectedReplay else { return }
+        hasReportedRejectedReplay = true
+        FileHandle.standardError.write(
+            Data(
+                """
+                [SwiftWindowsUI] scene replay rejected for a cached paint \
+                range; the subtree is being repainted instead of replayed.
+
+                """.utf8
+            )
+        )
+    }
+
+    /// Test seam: lets a test observe rejections from a known baseline.
+    internal static func resetRejectedReplayCountForTesting() {
+        rejectedReplayCount = 0
+        hasReportedRejectedReplay = false
+    }
 
     private struct PaintTraversalContext {
         let node: ViewNode
@@ -493,14 +522,26 @@ public enum ScenePainter {
                 node.cachedSceneKey == cacheKey,
                 let cachedScenePaintRange = node.cachedScenePaintRange
             {
-                _ = scene.replay(cachedScenePaintRange, from: previousScene)
-                let delta = startPaintRecord - cachedScenePaintRange.lowerBound
-                node.shiftCachedSceneRangesRecursively(by: delta)
-                node.cachedSceneKey = cacheKey
-                node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
-                node.markSubtreeRendered()
-                replayCount += 1
-                continue
+                // Replay validates before it appends anything, so a
+                // rejected range leaves the scene untouched and the node
+                // falls through to a full repaint below. Discarding the
+                // result — which is what this call site did — turned a
+                // rejection into a permanently blank subtree: the empty
+                // replay range was written straight back into the cache.
+                switch scene.replay(cachedScenePaintRange, from: previousScene) {
+                case .success:
+                    let delta = startPaintRecord - cachedScenePaintRange.lowerBound
+                    node.shiftCachedSceneRangesRecursively(by: delta)
+                    node.cachedSceneKey = cacheKey
+                    node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
+                    node.markSubtreeRendered()
+                    replayCount += 1
+                    continue
+                case .invalidRange, .unbalanced:
+                    reportRejectedReplay()
+                    node.cachedSceneKey = nil
+                    node.cachedScenePaintRange = nil
+                }
             }
 
             if hasPaintableExtent,
@@ -1033,8 +1074,16 @@ public enum ScenePainter {
                                 inheritedBlurOpaque: blurOpaque,
                                 inheritedBlendMode: effectiveBlendMode,
                                 inheritedTransform: effectiveTransform,
-                                isInsideDrawingGroup: false,
-                                skipCacheUpdates: false
+                                // Both flags are inherited, not reset. Hard-coding
+                                // them to false made every grandchild of a
+                                // `.drawingGroup()` write a `cachedScenePaintRange`
+                                // measured against the group's *sub-scene* — indices
+                                // into a scene that is discarded as soon as it is
+                                // rasterized. Replaying such a range against the real
+                                // `previousScene` reads someone else's primitives, or
+                                // walks past the end of the record log.
+                                isInsideDrawingGroup: isInsideDrawingGroup,
+                                skipCacheUpdates: skipCacheUpdates
                             )
                         )
                     )
@@ -1691,10 +1740,18 @@ public enum ScenePainter {
         }) {
             let startPaintRecord = scene.paintRecordCount
             if let previousScene, let cachedScenePaintRange = deferredDraws[deferredDrawIndex].cachedScenePaintRange {
-                _ = scene.replay(cachedScenePaintRange, from: previousScene)
-                deferredDraws[deferredDrawIndex].cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
-                replayCount += 1
-                continue
+                switch scene.replay(cachedScenePaintRange, from: previousScene) {
+                case .success:
+                    deferredDraws[deferredDrawIndex].cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
+                    replayCount += 1
+                    continue
+                case .invalidRange, .unbalanced:
+                    // Same rule as the node cache: a rejected replay added
+                    // nothing, so drop the range and repaint the overlay
+                    // rather than caching the emptiness.
+                    reportRejectedReplay()
+                    deferredDraws[deferredDrawIndex].cachedScenePaintRange = nil
+                }
             }
 
             switch deferredDraws[deferredDrawIndex].payload {

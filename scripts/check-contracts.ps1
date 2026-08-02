@@ -147,20 +147,24 @@ Assert-Contains `
     "GPUIScene must expose paintOperations as the source paint stream."
 Assert-Contains `
     "Sources/SwiftWindowsGraphics/GPUIScene.swift" `
-    "remapPaintOperations" `
-    "GPUIScene.finish() must remap paintOperations after primitive sorting."
+    "func presentationOrder\(\)" `
+    "GPUIScene must expose presentationOrder() as the single draw-order authority."
 Assert-Contains `
     "Sources/SwiftWindowsRendererD3D11/D3D11BatchRenderer.swift" `
-    "layer\.paintOperations" `
-    "D3D11BatchRenderer must consume layer.paintOperations for presentation order."
+    "scene\.presentationOrder\(\)" `
+    "D3D11BatchRenderer must plan presentation from scene.presentationOrder()."
 Assert-NotContains `
     "Sources/SwiftWindowsRendererD3D11/D3D11BatchRenderer.swift" `
     "orderedBatches\(" `
-    "D3D11BatchRenderer must not plan visible presentation from orderedBatches()."
+    "D3D11BatchRenderer must not plan visible presentation from a second ordering."
 Assert-Contains `
     "Sources/SwiftWindowsGraphics/SceneRasterizer.swift" `
-    "layer\.paintOperations" `
-    "GPUIRawSceneRasterizer must consume layer.paintOperations for scene screenshots."
+    "scene\.presentationOrder\(\)" `
+    "GPUIRawSceneRasterizer must consume the same presentationOrder() the GPU plans from."
+Assert-NotContains `
+    "Sources/SwiftWindowsGraphics/SceneRasterizer.swift" `
+    "for record in scene\.paintRecords" `
+    "GPUIRawSceneRasterizer must not walk paintRecords as a second presentation order."
 Assert-Contains `
     "Sources/SwiftWindowsUI/ScenePainter.swift" `
     "skipCacheUpdates" `

@@ -111,12 +111,42 @@ families:
 - `paths` — Canvas / Path primitives (currently CPU-rasterized; see §4).
 
 The painter writes its primitives into the `paintOperations` array in
-**presentation order**. The D3D11 backend and CPU rasterizer both
-consume this array so families always render in the declared order.
+**presentation order**. Both backends read that array through one
+iterator, `GPUIScene.presentationOrder()`, which spells the cross-layer
+rule out:
+
+> **Layers are z-order groups.** Every primitive in `layers[i]` presents
+> before every primitive in `layers[i+1]`, and within a layer
+> `paintOperations` is the order. A run whose range falls outside its
+> family array (what `GPUIScene.validate()` flags) is skipped by the
+> iterator, so the CPU rasterizer loses that run instead of trapping and
+> `D3D11BatchRenderer.makeRenderPlan` refuses the scene outright.
+
+`D3D11BatchRenderer.makeRenderPlan` turns each run into a `RenderStep`;
+`GPUIRawSceneRasterizer` draws each run in place. The two therefore emit
+the identical `(layer, family, index)` sequence for any scene
+(`ScenePresentationOrderTests`).
+
+This used to be three orderings. The CPU rasterizer preferred a second
+walk over the flat `paintRecords` log — global insertion order, with
+`layerIndex` discarded — so an interleaved multi-layer scene drew in a
+different z-order on each backend; and because every screenshot, gallery
+baseline and macOS-parity render comes through the CPU rasterizer, no
+visual gate could observe the shipping order at all. A third ordering (a
+bounds tree assigning a Zed-style draw `order` per primitive, plus a
+per-family sort in `finish()`) was computed for every primitive of every
+frame at roughly a dozen heap allocations each, and its only consumer,
+`orderedBatches()`, was never called outside tests. Choosing
+`paintOperations` retired the other two: `GPUIBoundsTree`,
+`GPUIPrimitiveOrdering` and the family sort are gone, `finish()` now only
+re-coalesces paint operations, and `paintRecords` is a reference log of
+`(layerIndex, kind, index)` rather than a second copy of every primitive.
 
 **Invariants**
-- `paintOperations` is the single source of presentation order; no
-  family-level sort may bypass it.
+- `paintOperations`, read through `presentationOrder()`, is the single
+  source of presentation order; no family-level sort may bypass it, and
+  family arrays are never reordered after insertion (which is what makes
+  a paint record's index a stable reference).
 - Glyphs at body-text font sizes never fall back to PixelText
   (`ViewTaxonomyParityTests`, `CrossViewRenderingParityTests`,
   `DynamicListStressTests`).
@@ -290,6 +320,20 @@ instead of reusing pixels baked across the recycle.
 `ScenePaintMetrics.compositingGroupsRasterized` /
 `compositingGroupsReused` report which happened; the bitmap is released
 as soon as the node paints inline again.
+
+`isInsideDrawingGroup` and `skipCacheUpdates` are **inherited by the whole
+subtree**, not just by the group's direct children. Resetting them at each
+child boundary — which the traversal did — let every grandchild inside a
+group write a `cachedScenePaintRange` measured against the group's
+sub-scene, a scene discarded as soon as it is rasterized. Replaying such a
+range against the real `previousScene` reads unrelated primitives, or runs
+past the end of the record log; `GPUIScene.replay` now bounds-checks the
+range and returns `.invalidRange` rather than trapping, and `ScenePainter`
+answers any rejection by dropping the cache entry and repainting the
+subtree (counted in `ScenePainter.rejectedReplayCount`, reported once on
+stderr). Discarding the replay result with `_ =`, which is what both call
+sites did, turned a rejection into a permanently blank subtree: the empty
+range was written straight back into the cache.
 
 **Tests:** `PainterDeviceSpaceTests`, `PainterZeroExtentSemanticsTests`,
 `PainterBorderRingCoverageTests`, `CompositingGroupBitmapCacheTests`,

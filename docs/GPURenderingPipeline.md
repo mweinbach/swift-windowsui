@@ -447,6 +447,27 @@ Shaping is primary. `NativeTextRenderer.isGlyphShapingEnabled` (default
 the hit-test walk, which stays live anyway because a capture that comes
 back empty falls through to it.
 
+The capture renderer is a COM object DirectWrite calls *back* into, and
+before it reports a run's baseline it asks that object two questions:
+`IsPixelSnappingDisabled` and `GetPixelsPerDip`. The capture answers
+"disabled" and "1" — it is reading the layout's own DIP coordinates and
+never draws, and `ScenePainter` snaps glyph destinations to device pixels
+itself. Both renderers this file installs receive their client context as
+one untyped `void *` from `IDWriteTextLayout.Draw`, and they pass two
+different structs through it, so every context now carries a tag in its
+first word (`DirectWriteClientContextTag`) and an accessor that refuses a
+foreign one. That is not hypothetical tidiness: the two renderers used to
+share `GetPixelsPerDip`, which read `pixelsPerDip` at offset 16 of the
+8-byte capture context and handed DirectWrite whatever followed it in
+memory. DirectWrite snaps the baseline origin against that number, so on
+an unlucky process every shaped line reported `baselineOriginY == 0` — a
+whole ascent too high, with most of the line then culled above the
+surface. The value was stable inside a process and different in the next
+one, which is what an intermittent, order-sensitive text test looks like.
+`TextShapingPipelineTests` pins both halves: the snapping contract at the
+seam, and the user-visible invariant that a shaped glyph's `origin.y` is
+the line's baseline rather than its top.
+
 Enabling shaping exposed a hazard the old ordering had been hiding: the
 two rasterizers measure ink from different origins.
 
@@ -656,6 +677,16 @@ reporting convenience, not a gate.
   shaping capture runs only for text that actually carries
   `nativeLetterSpacing`. `TextMeasurePaintFidelityTests` pins measured ==
   painted for a tracked string whose glyph and character counts differ.
+- That coherence costs a whole `IDWriteTextLayout` plus a glyph-run
+  capture *per probed prefix*, on the main actor, so the count is memoised
+  on `DirectWriteSystem` — keyed by the line plus the style fields that
+  change a glyph count, bounded at 512 entries, and deliberately outliving
+  a single `layout` call. Scoped to the call, the same bill was re-paid by
+  the next `measure`, the next `rasterize` and every frame's layout of the
+  same unchanged paragraph. Spanned text has per-range fonts and span
+  ranges that index the paragraph rather than the probed prefix, so it has
+  no honest key and is not cached.
+  `testWrappedTrackedParagraphShapesEachPrefixOnce` counts the probes.
 - `longestFittingPrefixLength` gallops up from a short prefix before
   binary-searching. A plain binary search probes at n/2 first, and on the
   DirectWrite path each probe builds and shapes a whole

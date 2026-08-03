@@ -28,6 +28,17 @@ enum DirectWriteTextRenderer {
         DirectWriteSystem.shared?.measuredLineWidthForTesting(text, style: style)
     }
 
+    /// Test seam: DirectWrite shaping probes run for tracking coherence since
+    /// the last `resetShapedGlyphCountCacheForTesting()`. Every probe is a full
+    /// text layout plus a glyph-run capture on the main actor.
+    static var shapedGlyphCountProbesForTesting: Int {
+        DirectWriteSystem.shared?.shapedGlyphCountProbes ?? 0
+    }
+
+    static func resetShapedGlyphCountCacheForTesting() {
+        DirectWriteSystem.shared?.resetShapedGlyphCountCacheForTesting()
+    }
+
     static func appendCommands(
         for text: String,
         in rect: Rect,
@@ -200,15 +211,82 @@ func roundedUpUInt32(_ value: Double, minimum: UInt32, maximum: UInt32 = UInt32(
 
     return min(maximum, max(minimum, UInt32(rounded)))
 }
+/// Everything about a candidate line that changes how many glyphs it shapes
+/// into. Alignment, colour and decorations are deliberately absent: they change
+/// where the run is drawn, never how many glyphs it has.
+private struct ShapedGlyphCountKey: Hashable {
+    var line: String
+    var fontFamily: String
+    var fontPixelSize: Double
+    var weight: TextWeight
+    var fontWidth: TextFontWidth
+    var isItalic: Bool
+    var enableKerning: Bool
+    var monospacedDigits: Bool
+    var lowercaseSmallCaps: Bool
+    var uppercaseSmallCaps: Bool
+
+    /// `nil` for spanned text, which has no single font to key on.
+    init?(line: String, style: PixelTextStyle) {
+        guard style.spans?.isEmpty ?? true else {
+            return nil
+        }
+
+        self.line = line
+        self.fontFamily = style.fontFamily
+        self.fontPixelSize = style.nativeFontPixelSize
+        self.weight = style.weight
+        self.fontWidth = style.fontWidth
+        self.isItalic = style.isItalic
+        self.enableKerning = style.enableKerning
+        self.monospacedDigits = style.monospacedDigits
+        self.lowercaseSmallCaps = style.lowercaseSmallCaps
+        self.uppercaseSmallCaps = style.uppercaseSmallCaps
+    }
+}
+/// A memoised shaped glyph count, including the "shaping declined" answer —
+/// which costs exactly as much to compute as a successful one.
+private struct ShapedGlyphCount {
+    var count: Int?
+}
 @MainActor
 private final class DirectWriteSystem {
     static let shared: DirectWriteSystem? = try? DirectWriteSystem()
+
+    /// Enough to hold every wrap probe of a few long tracked paragraphs; small
+    /// enough that the memo can never become the thing that grows.
+    static let maximumShapedGlyphCountEntries = 512
 
     private let loader: Win32TextLibraryLoader
     private let module: HMODULE
     private let factory: UnsafeMutablePointer<IDWriteFactory>
     private let gdiInterop: UnsafeMutablePointer<IDWriteGdiInterop>
     private let renderingParams: UnsafeMutablePointer<IDWriteRenderingParams>
+
+    /// Bounded memo for ``shapedGlyphCount``, deliberately *not* scoped to one
+    /// `makeLineMeasurer` closure.
+    ///
+    /// The wrap search probes a new prefix per gallop step, and a tracked
+    /// paragraph pays a full DirectWrite layout plus a glyph-run capture for
+    /// every one of them, on the main actor. Scoped to a single layout call
+    /// that cost is paid again by the very next `measure`, `rasterize` and
+    /// per-frame `layout` of the same unchanged paragraph. Living on the
+    /// process-wide system, the second and every later pass over the same text
+    /// shapes nothing at all. Eviction is oldest-first, which is what bounds
+    /// it; a hit does not reorder, because a memo that never grows does not
+    /// need to be clever about what it drops.
+    fileprivate var shapedGlyphCounts: [ShapedGlyphCountKey: ShapedGlyphCount] = [:]
+    fileprivate var shapedGlyphCountOrder: [ShapedGlyphCountKey] = []
+
+    /// Test seam: shaping probes actually run, so a test can pin that a wrapped
+    /// tracked paragraph does not re-shape what it has already shaped.
+    fileprivate var shapedGlyphCountProbes = 0
+
+    fileprivate func resetShapedGlyphCountCacheForTesting() {
+        shapedGlyphCounts.removeAll()
+        shapedGlyphCountOrder.removeAll()
+        shapedGlyphCountProbes = 0
+    }
 
     init() throws {
         let loader = Win32TextLibraryLoader()
@@ -1519,6 +1597,38 @@ private final class DirectWriteSystem {
             return nil
         }
 
+        guard let cacheKey = ShapedGlyphCountKey(line: line, style: style) else {
+            // Spanned text has per-range fonts, and a span's `Range<String.Index>`
+            // indexes the *paragraph*, not this candidate prefix - there is no
+            // honest key for it. Spans are rare and tracking rarer; pay the shape.
+            return uncachedShapedGlyphCount(for: line, style: style)
+        }
+        if let cached = shapedGlyphCounts[cacheKey] {
+            return cached.count
+        }
+
+        let count = uncachedShapedGlyphCount(for: line, style: style)
+        insertShapedGlyphCount(count, for: cacheKey)
+        return count
+    }
+
+    /// Records `count` in ``shapedGlyphCounts``, evicting the oldest entry once
+    /// the memo is full.
+    private func insertShapedGlyphCount(_ count: Int?, for key: ShapedGlyphCountKey) {
+        if shapedGlyphCounts[key] == nil, shapedGlyphCounts.count >= Self.maximumShapedGlyphCountEntries,
+            let oldest = shapedGlyphCountOrder.first
+        {
+            shapedGlyphCountOrder.removeFirst()
+            shapedGlyphCounts.removeValue(forKey: oldest)
+        }
+        if shapedGlyphCounts.updateValue(ShapedGlyphCount(count: count), forKey: key) == nil {
+            shapedGlyphCountOrder.append(key)
+        }
+    }
+
+    private func uncachedShapedGlyphCount(for line: String, style: PixelTextStyle) -> Int? {
+        shapedGlyphCountProbes += 1
+
         var lineStyle = style
         lineStyle.verticalAlignment = .top
         lineStyle.alignment = .leading
@@ -1635,13 +1745,38 @@ private func characterInfoByUTF16Offset(for text: String) -> [UInt32: (index: In
 
     return result
 }
+/// Which struct a renderer callback's `clientDrawingContext` points at.
+///
+/// `IDWriteTextLayout.Draw` passes one untyped `void *` to every entry of the
+/// renderer vtable, and this file installs *two* renderers that pass two
+/// different structs through it: the bitmap draw path passes a
+/// ``DirectWriteDrawingContext``, the shaping capture passes a
+/// ``DirectWriteGlyphLayoutContext``. A callback shared by both vtables
+/// therefore has to know which one it got. One did not: `GetPixelsPerDip` read
+/// `pixelsPerDip` (offset 16) out of the 8-byte capture context and handed
+/// DirectWrite whatever followed it in memory. DirectWrite feeds that value
+/// into its baseline pixel snapping, so on an unlucky process every shaped line
+/// reported `baselineOriginY == 0` — a whole ascent too high, with most of the
+/// line then culled above the surface. The tag makes the confusion detectable
+/// instead of silent.
+///
+/// Each context stores it as a plain `UInt32` first field rather than as an
+/// enum value: a two-case enum occupies one byte, and the three padding bytes
+/// after it are exactly the kind of uninitialized memory this tag exists to
+/// stop anything reading.
+private enum DirectWriteClientContextTag {
+    static let bitmapDrawing: UInt32 = 0x4457_4244
+    static let glyphLayoutCapture: UInt32 = 0x4457_474C
+}
 private struct DirectWriteDrawingContext {
+    var contextTag: UInt32 = DirectWriteClientContextTag.bitmapDrawing
     var bitmapRenderTarget: UnsafeMutablePointer<IDWriteBitmapRenderTarget>
     var renderingParams: UnsafeMutablePointer<IDWriteRenderingParams>
     var pixelsPerDip: FLOAT
     var textColor: COLORREF
 }
 private struct DirectWriteGlyphLayoutContext {
+    var contextTag: UInt32 = DirectWriteClientContextTag.glyphLayoutCapture
     var glyphs: [DirectWriteCapturedGlyph]
 }
 private struct DirectWriteCapturedGlyph {
@@ -1674,9 +1809,9 @@ private var directWriteGlyphLayoutRendererVTable = IDWriteTextRendererVtbl(
     QueryInterface: directWriteRendererQueryInterface,
     AddRef: directWriteRendererAddRef,
     Release: directWriteRendererRelease,
-    IsPixelSnappingDisabled: directWriteRendererIsPixelSnappingDisabled,
+    IsPixelSnappingDisabled: directWriteGlyphLayoutIsPixelSnappingDisabled,
     GetCurrentTransform: directWriteRendererGetCurrentTransform,
-    GetPixelsPerDip: directWriteRendererGetPixelsPerDip,
+    GetPixelsPerDip: directWriteGlyphLayoutGetPixelsPerDip,
     DrawGlyphRun: directWriteGlyphLayoutDrawGlyphRun,
     DrawUnderline: directWriteGlyphLayoutDrawUnderline,
     DrawStrikethrough: directWriteGlyphLayoutDrawStrikethrough,
@@ -1697,6 +1832,37 @@ private func createGlyphLayoutRenderer() -> UnsafeMutablePointer<IDWriteTextRend
             interface: IDWriteTextRenderer(lpVtbl: &directWriteGlyphLayoutRendererVTable), refCount: 1))
     return UnsafeMutableRawPointer(storage).assumingMemoryBound(to: IDWriteTextRenderer.self)
 }
+/// Test seam: what the shaping-capture renderer answers DirectWrite's pixel
+/// snapping questions with, asked through the installed vtable with the very
+/// context ``captureGlyphLayouts`` passes.
+///
+/// Nothing else can observe this — the answers go straight into DirectWrite,
+/// which folds them into the baseline origin it reports back. When
+/// `GetPixelsPerDip` read them out of the wrong struct the value was
+/// uninitialized memory: stable within a process, different in the next one,
+/// and occasionally small enough to snap a whole line's baseline to zero.
+@MainActor
+func glyphLayoutRendererPixelSnappingForTesting() -> (isPixelSnappingDisabled: Bool, pixelsPerDip: Float)? {
+    guard let renderer = createGlyphLayoutRenderer() else {
+        return nil
+    }
+    defer {
+        var releasableRenderer: UnsafeMutablePointer<IDWriteTextRenderer>? = renderer
+        releaseDirectWriteCOM(&releasableRenderer)
+    }
+
+    var context = DirectWriteGlyphLayoutContext(glyphs: [])
+    var isDisabled = WindowsBool(false)
+    var pixelsPerDip: FLOAT = 0
+    let vtable = renderer.pointee.lpVtbl!.pointee
+    withUnsafeMutablePointer(to: &context) { contextPointer in
+        _ = vtable.IsPixelSnappingDisabled(
+            UnsafeMutableRawPointer(renderer), UnsafeMutableRawPointer(contextPointer), &isDisabled)
+        _ = vtable.GetPixelsPerDip(
+            UnsafeMutableRawPointer(renderer), UnsafeMutableRawPointer(contextPointer), &pixelsPerDip)
+    }
+    return (isDisabled == true, Float(pixelsPerDip))
+}
 private func rendererStorage(from rawPointer: UnsafeMutableRawPointer?) -> UnsafeMutablePointer<SwiftTextRendererCOM>? {
     guard let rawPointer else {
         return nil
@@ -1704,10 +1870,16 @@ private func rendererStorage(from rawPointer: UnsafeMutableRawPointer?) -> Unsaf
 
     return rawPointer.assumingMemoryBound(to: SwiftTextRendererCOM.self)
 }
+/// The tag both client-drawing-context structs carry in their first word.
+/// Reading it is always in bounds: every context this file hands DirectWrite
+/// begins with it.
+private func clientContextTag(of rawPointer: UnsafeMutableRawPointer) -> UInt32 {
+    rawPointer.load(as: UInt32.self)
+}
 private func drawingContext(from rawPointer: UnsafeMutableRawPointer?) -> UnsafeMutablePointer<
     DirectWriteDrawingContext
 >? {
-    guard let rawPointer else {
+    guard let rawPointer, clientContextTag(of: rawPointer) == DirectWriteClientContextTag.bitmapDrawing else {
         return nil
     }
 
@@ -1716,7 +1888,7 @@ private func drawingContext(from rawPointer: UnsafeMutableRawPointer?) -> Unsafe
 private func glyphLayoutContext(from rawPointer: UnsafeMutableRawPointer?) -> UnsafeMutablePointer<
     DirectWriteGlyphLayoutContext
 >? {
-    guard let rawPointer else {
+    guard let rawPointer, clientContextTag(of: rawPointer) == DirectWriteClientContextTag.glyphLayoutCapture else {
         return nil
     }
 
@@ -1786,7 +1958,33 @@ private func directWriteRendererGetPixelsPerDip(
     _ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?,
     _ pixelsPerDip: UnsafeMutablePointer<FLOAT>?
 ) -> HRESULT {
-    pixelsPerDip?.pointee = drawingContext(from: clientDrawingContext)?.pointee.pixelsPerDip ?? 1.0
+    // DirectWrite divides by this to snap a run's baseline origin, so a garbage
+    // value does not degrade the raster - it relocates the whole line. The
+    // context tag rejects a foreign context and the finite/positive guard
+    // rejects a corrupt one; either way DirectWrite gets 1 DIP per pixel.
+    let reported = drawingContext(from: clientDrawingContext)?.pointee.pixelsPerDip ?? 1.0
+    pixelsPerDip?.pointee = reported.isFinite && reported > 0 ? reported : 1.0
+    return 0
+}
+
+/// The shaping capture asks the layout where its glyphs *are*, in the layout's
+/// own DIP coordinates; it never draws. Pixel snapping would round the baseline
+/// origin against a device grid the capture has no business knowing about, and
+/// the painter snaps glyph destinations to device pixels itself
+/// (`ScenePainter.appendNativeTextGlyphs`). So the capture renderer declares
+/// snapping off and a 1:1 DIP scale, and never consults the client context.
+private func directWriteGlyphLayoutIsPixelSnappingDisabled(
+    _ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?,
+    _ isDisabled: UnsafeMutablePointer<WindowsBool>?
+) -> HRESULT {
+    isDisabled?.pointee = WindowsBool(true)
+    return 0
+}
+private func directWriteGlyphLayoutGetPixelsPerDip(
+    _ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?,
+    _ pixelsPerDip: UnsafeMutablePointer<FLOAT>?
+) -> HRESULT {
+    pixelsPerDip?.pointee = 1.0
     return 0
 }
 private func directWriteRendererDrawGlyphRun(

@@ -255,6 +255,68 @@ final class TextMeasurePaintFidelityTests: XCTestCase {
         }
     }
 
+    /// Tracking coherence is bought with a DirectWrite shaping probe — a whole
+    /// text layout plus a glyph-run capture, on the main actor — for every
+    /// prefix the wrap search measures. Scoped to a single `layout` call, that
+    /// bill was re-paid by the next `measure`, the next `rasterize` and every
+    /// frame's layout of the same unchanged paragraph. The memo outlives the
+    /// call, so a repeat pass over unchanged tracked text shapes nothing.
+    @MainActor
+    private func trackedWrapStyle() -> PixelTextStyle {
+        var style = makeStyle(weight: .regular, size: 16)
+        style.nativeLetterSpacing = 6
+        style.lineBreakMode = .wrap
+        style.maximumNumberOfLines = nil
+        return style
+    }
+
+    func testWrappedTrackedParagraphShapesEachPrefixOnce() async {
+        await MainActor.run {
+            DirectWriteTextRenderer.resetShapedGlyphCountCacheForTesting()
+            let style = trackedWrapStyle()
+            let paragraph = String(repeating: "Handgloves shaped wrapping ", count: 8)
+
+            guard let cold = DirectWriteTextRenderer.layout(paragraph, style: style, scaleFactor: 1, maxWidth: 240)
+            else {
+                return XCTFail("DirectWrite layout unavailable")
+            }
+            let coldProbes = DirectWriteTextRenderer.shapedGlyphCountProbesForTesting
+            XCTAssertGreaterThan(cold.lines.count, 1, "the fixture must actually wrap")
+            XCTAssertGreaterThan(coldProbes, 0, "the fixture must actually exercise the tracking-coherence path")
+
+            // The wrap search probes the same prefixes again, and the
+            // minimum-scale-factor pass probes them a third time.
+            guard let warm = DirectWriteTextRenderer.layout(paragraph, style: style, scaleFactor: 1, maxWidth: 240)
+            else {
+                return XCTFail("DirectWrite layout unavailable")
+            }
+            XCTAssertEqual(warm.lines.map(\.text), cold.lines.map(\.text))
+            XCTAssertEqual(
+                DirectWriteTextRenderer.shapedGlyphCountProbesForTesting, coldProbes,
+                "a repeated layout of unchanged tracked text must not shape a single prefix again")
+
+            _ = DirectWriteTextRenderer.measure(paragraph, style: style, scaleFactor: 1, maxWidth: 240)
+            XCTAssertEqual(
+                DirectWriteTextRenderer.shapedGlyphCountProbesForTesting, coldProbes,
+                "measuring what was just laid out must not shape anything")
+        }
+    }
+
+    /// The memo is only sound if it is keyed on everything that changes a
+    /// count. Measure-vs-paint is the assertion that catches a wrong answer:
+    /// a stale count moves the measured width by whole tracking steps.
+    func testTrackedMeasureStillMatchesPaintWithAWarmShapingMemo() async {
+        await MainActor.run {
+            DirectWriteTextRenderer.resetShapedGlyphCountCacheForTesting()
+            for _ in 0..<2 {
+                assertTrackedMeasureMatchesPaint(
+                    "a\u{0301}\u{0302}bc", expectsGlyphCountToDifferFromCharacterCount: true)
+                assertTrackedMeasureMatchesPaint(
+                    "Dashboard settings", expectsGlyphCountToDifferFromCharacterCount: false)
+            }
+        }
+    }
+
     // MARK: - Full WinSwiftUI construction (pill containment)
 
     /// The demo's pill button shape: bold rounded 12pt caption on a

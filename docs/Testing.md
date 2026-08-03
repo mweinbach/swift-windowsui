@@ -196,7 +196,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   text, where measurement and painting have to count the same inter-glyph
   gaps. Its combining-mark fixture asserts that it still shapes into a
   different glyph count than character count, so it fails loudly rather
-  than passing for the wrong reason.
+  than passing for the wrong reason. It also counts DirectWrite shaping
+  probes: a second pass over the same tracked paragraph must shape nothing,
+  because the gap-count memo outlives one `layout` call — and measure ==
+  paint is re-asserted with the memo warm, since a mis-keyed memo shows up
+  as a width off by whole tracking steps.
 - `TextShapingPipelineTests` — WS-17's pipeline end to end: shaped glyph
   identity (a real `DWRITE_GLYPH_RUN`, not a per-character hit-test walk),
   the two glyph coordinate frames and the raster declaring which one it
@@ -205,7 +209,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   stable monotonic identifiers and reporting when its retained set stops
   being bounded, tracking moving measurement and paint together, and the
   galloping wrap probe staying linear on a 20,000-character space-less
-  paragraph. Needs a real DirectWrite; the cases that would silently pass
+  paragraph. It also pins the shaping capture's pixel-snapping contract —
+  snapping disabled, exactly one DIP per pixel — and that a shaped glyph's
+  `origin.y` is the line's baseline, not its top. Those two were the
+  intermittent, process-dependent text failures: the capture renderer used
+  to answer DirectWrite's `GetPixelsPerDip` out of the wrong client context
+  struct, so DirectWrite snapped whole lines against uninitialized memory.
+  A text failure that reproduces in some processes and not others, or only
+  when other suites run first, is that shape of bug — suspect the seam, not
+  the harness. Needs a real DirectWrite; the cases that would silently pass
   without one assert the layout came back first.
 - `SharedCoverageKernelTests` — `GPUIQuadCoverage`, the one Swift
   transcription of the quad shader's coverage math, compared on a dense

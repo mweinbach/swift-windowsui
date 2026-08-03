@@ -116,6 +116,46 @@ final class TextShapingPipelineTests: XCTestCase {
         XCTAssertEqual(shaped.height, unshaped.height, accuracy: 0.001)
     }
 
+    /// The capture renderer is an `IDWriteTextRenderer` DirectWrite calls back
+    /// into, and DirectWrite asks it how to snap a run's baseline before it
+    /// reports one. Those two answers used to come out of the *bitmap* draw
+    /// context — a different struct, read past its end — so the pixels-per-DIP
+    /// DirectWrite snapped against was uninitialized memory: constant within a
+    /// process, different in the next, and small enough often enough to snap
+    /// `baselineOriginY` to 0 and paint the whole line an ascent too high.
+    @MainActor
+    func testShapingCaptureReportsADeterministicPixelSnappingContract() async throws {
+        let report = try XCTUnwrap(
+            glyphLayoutRendererPixelSnappingForTesting(),
+            "the capture renderer must be constructible")
+
+        XCTAssertTrue(
+            report.isPixelSnappingDisabled,
+            "the capture reads layout coordinates; the painter owns device snapping")
+        XCTAssertEqual(
+            report.pixelsPerDip, 1, accuracy: 0,
+            "a capture that never draws has exactly one DIP per pixel")
+    }
+
+    /// The user-visible half of the same defect: a shaped glyph's `origin.y` is
+    /// its baseline, and the baseline lives inside the line box. Zero is not a
+    /// baseline — it is the line top, one ascent high.
+    @MainActor
+    func testShapedGlyphOriginsSitOnTheLinesBaseline() async throws {
+        let style = bodyStyle()
+        let layout = try XCTUnwrap(NativeTextRenderer.layout("Handgloves", style: style, scaleFactor: 1))
+        let line = try XCTUnwrap(layout.lines.first)
+        XCTAssertFalse(line.glyphs.isEmpty)
+
+        for glyph in line.glyphs {
+            XCTAssertEqual(glyph.verticalFrame, .baseline)
+            XCTAssertGreaterThan(glyph.origin.y, 0, "a baseline at the line top is an ascent too high")
+            XCTAssertEqual(
+                glyph.origin.y, line.ascent, accuracy: 0.001,
+                "every glyph of a single-format line shares the line's baseline")
+        }
+    }
+
     // MARK: - Glyph coordinate frames
 
     @MainActor

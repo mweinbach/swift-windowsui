@@ -224,4 +224,36 @@ final class CPURasterizerGPUModelTests: XCTestCase {
             "coverage survives the effect instead of being overwritten by it; diagonal alphas were "
                 + "\((22...34).map { alphaAt(x: $0, y: $0) })")
     }
+
+    // MARK: - Glyph atlas sampling
+
+    /// The glyph shader reads `glyphAtlas.Sample(...).a` and nothing else.
+    /// The rasterizer used to substitute `max(r, g, b)` wherever the sampled
+    /// alpha was zero — a second, GPU-less alpha convention that could only
+    /// ever make the CPU draw ink the GPU does not. Nothing produces such a
+    /// cell (`tint` and `PixelFontAtlas` both write coverage into alpha), so
+    /// the substitution was pure divergence surface.
+    func testGlyphCoverageComesFromAlphaAloneLikeTheShader() async {
+        // One 4x4 atlas: fully saturated colour, zero alpha.
+        var pixels = [UInt8]()
+        for _ in 0..<(4 * 4) {
+            pixels.append(contentsOf: [255, 255, 255, 0])
+        }
+        let bitmap = render(
+            { scene in
+                scene.glyphAtlas = GlyphAtlasSnapshot(
+                    width: 4, height: 4, pixels: Data(pixels),
+                    contentVersion: RenderContentVersion.next(), update: .full)
+                scene.addGlyph(
+                    GlyphPrimitive(
+                        screenX: 16, screenY: 16, screenW: 96, screenH: 96,
+                        atlasU0: 0, atlasV0: 0, atlasU1: 1, atlasV1: 1,
+                        colorR: 1, colorG: 1, colorB: 1, colorA: 1))
+            }, clearColor: .black)
+
+        let offset = 64 * Int(bitmap.bytesPerRow) + 64 * 4
+        XCTAssertEqual(
+            Array(bitmap.pixels[offset..<(offset + 4)]), [0, 0, 0, 255],
+            "an atlas cell with no alpha must draw nothing, whatever its colour channels hold")
+    }
 }

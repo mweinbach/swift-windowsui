@@ -183,6 +183,78 @@ final class TextMeasurePaintFidelityTests: XCTestCase {
         }
     }
 
+    // MARK: - Tracking coherence
+
+    /// Tracking is applied *between glyphs* when a line is painted
+    /// (`applyLetterSpacing` walks the shaped run) but used to be added
+    /// between *characters* when a line was measured for wrapping
+    /// (`line.count - 1`). Shaping makes those two counts different — a
+    /// combining mark is one Swift `Character` and two glyphs, a ligature is
+    /// two characters and one glyph — so a tracked string wrapped against a
+    /// width the paint never produced.
+    ///
+    /// The fixtures below are asserted to actually exercise the divergence,
+    /// so a font that stopped shaping them fails loudly instead of passing
+    /// for the wrong reason.
+    @MainActor
+    private func assertTrackedMeasureMatchesPaint(
+        _ text: String,
+        expectsGlyphCountToDifferFromCharacterCount: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        var style = makeStyle(weight: .regular, size: 16)
+        style.nativeLetterSpacing = 6
+        style.lineBreakMode = .wrap
+        style.maximumNumberOfLines = nil
+
+        guard let layout = DirectWriteTextRenderer.layout(text, style: style, scaleFactor: 1),
+            let painted = layout.lines.first
+        else {
+            XCTFail("\(text): DirectWrite layout unavailable", file: file, line: line)
+            return
+        }
+        guard let measured = DirectWriteTextRenderer.measuredLineWidthForTesting(text, style: style) else {
+            XCTFail("\(text): line measurer unavailable", file: file, line: line)
+            return
+        }
+
+        if expectsGlyphCountToDifferFromCharacterCount {
+            XCTAssertNotEqual(
+                painted.glyphs.count, text.count,
+                "\(text) shaped into \(painted.glyphs.count) glyphs for \(text.count) characters — this "
+                    + "fixture no longer exercises the character/glyph count divergence it exists for",
+                file: file, line: line)
+        }
+
+        // Sub-pixel: both sides are the same base width plus the same
+        // integer number of tracking steps, so anything larger is a
+        // different gap count.
+        XCTAssertEqual(
+            measured, painted.width, accuracy: 0.5,
+            "\(text): wrapping measures \(measured) but painting produces \(painted.width) "
+                + "(\(painted.glyphs.count) glyphs, \(text.count) characters, tracking 6)",
+            file: file, line: line)
+    }
+
+    func testTrackedTextWithCombiningMarksMeasuresWhatItPaints() async {
+        await MainActor.run {
+            // "a" + combining acute + combining circumflex is one Swift
+            // Character and (at least) a base glyph plus its marks.
+            assertTrackedMeasureMatchesPaint(
+                "a\u{0301}\u{0302}bc", expectsGlyphCountToDifferFromCharacterCount: true)
+        }
+    }
+
+    func testTrackedPlainTextStillMeasuresWhatItPaints() async {
+        await MainActor.run {
+            // The control: no shaping surprises, so this agreed before the
+            // fix too and must keep agreeing after it.
+            assertTrackedMeasureMatchesPaint(
+                "Dashboard settings", expectsGlyphCountToDifferFromCharacterCount: false)
+        }
+    }
+
     // MARK: - Full WinSwiftUI construction (pill containment)
 
     /// The demo's pill button shape: bold rounded 12pt caption on a

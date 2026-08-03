@@ -292,6 +292,34 @@ final class TextShapingPipelineTests: XCTestCase {
         XCTAssertEqual(registry.registeredFaceCount, 2)
     }
 
+    /// The registry retains every face it has ever seen, on the assumption
+    /// that DirectWrite hands the same `IDWriteFontFace` back for a given
+    /// face. Nothing enforces that, and shaping runs per glyph run — so the
+    /// assumption has to be falsifiable at runtime rather than only in the
+    /// comment that states it.
+    @MainActor
+    func testFontFaceRegistryReportsWhenTheRetainedSetStopsBeingBounded() async {
+        let registry = FontFaceRegistry()
+        XCTAssertFalse(registry.hasExceededReportThreshold, "a fresh registry has nothing to report")
+
+        for index in 0..<FontFaceRegistry.reportThreshold {
+            _ = registry.identifier(for: FakeFontFace(faceAddress: UInt(0x10_0000 + index * 0x100)))
+        }
+        XCTAssertEqual(registry.registeredFaceCount, FontFaceRegistry.reportThreshold)
+        XCTAssertFalse(
+            registry.hasExceededReportThreshold,
+            "the threshold is a ceiling to cross, not one to reach")
+
+        _ = registry.identifier(for: FakeFontFace(faceAddress: 0xFFFF_0000))
+        XCTAssertTrue(registry.hasExceededReportThreshold)
+        XCTAssertEqual(
+            registry.registeredFaceCount, FontFaceRegistry.reportThreshold + 1,
+            "the report is a report: the registry keeps handing out stable IDs")
+
+        registry.resetForTesting()
+        XCTAssertFalse(registry.hasExceededReportThreshold)
+    }
+
     @MainActor
     func testFontFaceRegistryRetainsRegisteredFaces() async {
         let registry = FontFaceRegistry()

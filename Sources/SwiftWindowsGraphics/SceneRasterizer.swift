@@ -630,12 +630,17 @@ private struct RasterTarget {
                     continue
                 }
 
-                let alphaByte = atlas.pixels[offset + 3]
-                let glyphCoverage =
-                    alphaByte > 0
-                    ? Float(alphaByte) / 255.0
-                    : Float(max(atlas.pixels[offset], max(atlas.pixels[offset + 1], atlas.pixels[offset + 2]))) / 255.0
-                let coverage = glyphCoverage * Float(clipAlpha)
+                // Alpha only, exactly like the glyph shader
+                // (`glyphAtlas.Sample(...).a`). This used to substitute
+                // `max(r, g, b)` wherever alpha was zero, which no atlas
+                // producer needs — every one of them writes coverage into
+                // alpha (`NativeTextRenderer.tint` writes premultiplied
+                // BGRA, `PixelFontAtlas` writes 255 in all four channels) —
+                // and which the GPU has no equivalent of. A cell that
+                // arrives with coverage in RGB and none in alpha is a
+                // producer bug, and the CPU rasterizer drawing it anyway
+                // hid that bug from the parity suite.
+                let coverage = Float(atlas.pixels[offset + 3]) / 255.0 * Float(clipAlpha)
                 if coverage > 0 {
                     blend(color.withAlphaMultiplier(coverage), x: x, y: y)
                 }

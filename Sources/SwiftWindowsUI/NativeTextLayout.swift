@@ -46,12 +46,23 @@ protocol RetainedFontFace: AnyObject {
 /// retained for the process lifetime of its ID, so an address can never be
 /// reused while entries keyed on it are live.
 ///
-/// The live face count is bounded in practice (DirectWrite hands back the same
-/// `IDWriteFontFace` for a given face), so retention is a fixed cost, not a
-/// leak. `registeredFaceCount` makes that assumption observable.
+/// Retention is a fixed cost rather than a leak only if the live face count is
+/// bounded, and that rests on DirectWrite handing the same `IDWriteFontFace`
+/// back for a given face — which it does in practice and nowhere promises.
+/// Shaping runs per glyph run, so every run is a chance for the assumption to
+/// be wrong. `registeredFaceCount` makes the count observable and
+/// `reportThreshold` makes the assumption falsifiable at runtime: crossing it
+/// reports once to stderr instead of growing silently forever.
 @MainActor
 final class FontFaceRegistry {
     static let shared = FontFaceRegistry()
+
+    /// Faces a healthy process is expected to stay under. Segoe UI plus every
+    /// script fallback plus the italic and weight variants of each is a few
+    /// dozen; 256 is far enough above that to be a real signal rather than a
+    /// tight bound, and low enough to catch a per-run leak long before the
+    /// retained COM objects matter.
+    static let reportThreshold = 256
 
     private var identifiers: [UInt: FontFaceID] = [:]
     private var retained: [UInt: any RetainedFontFace] = [:]
@@ -62,6 +73,12 @@ final class FontFaceRegistry {
     var registeredFaceCount: Int {
         identifiers.count
     }
+
+    /// True once `registeredFaceCount` has crossed `reportThreshold`. The
+    /// registry keeps working — a threshold is a report, not a policy — but
+    /// the bounded-in-practice claim above is now known to be false on this
+    /// machine.
+    private(set) var hasExceededReportThreshold = false
 
     /// Stable ID for `face`, registering (and retaining) it on first sight.
     func identifier(for face: any RetainedFontFace) -> FontFaceID {
@@ -74,7 +91,26 @@ final class FontFaceRegistry {
         nextRawValue += 1
         identifiers[address] = identifier
         retained[address] = face
+        reportThresholdCrossingIfNeeded()
         return identifier
+    }
+
+    private func reportThresholdCrossingIfNeeded() {
+        guard !hasExceededReportThreshold, identifiers.count > Self.reportThreshold else {
+            return
+        }
+        hasExceededReportThreshold = true
+        FileHandle.standardError.write(
+            Data(
+                """
+                [SwiftWindowsUI] font-face registry passed \(Self.reportThreshold) retained faces \
+                (\(identifiers.count) live). Faces are retained for the process lifetime of their ID, \
+                so this is unbounded growth rather than a cache: DirectWrite is handing back distinct \
+                `IDWriteFontFace` objects for faces this stack assumed it would share.
+
+                """.utf8
+            )
+        )
     }
 
     /// Test-only: drop every registration so an ID sequence can be asserted
@@ -83,6 +119,7 @@ final class FontFaceRegistry {
         identifiers.removeAll()
         retained.removeAll()
         nextRawValue = 1
+        hasExceededReportThreshold = false
     }
 }
 

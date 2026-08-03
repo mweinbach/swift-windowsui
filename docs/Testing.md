@@ -71,7 +71,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
 - `D3D11BatchRendererRenderTests` — execution coverage for attach / resize /
   render / present: a 64→1920→1→4096 resize storm, zero-size and negative
   frames, repeated-frame stability, clear colour, and the typed error a
-  glyph scene with no atlas must produce.
+  glyph scene with no atlas must produce. Also the image-texture cache's
+  live-set bound: content that changes every frame under one texture ID
+  (an animating `.drawingGroup()`) keeps exactly one live texture, while a
+  frame that renumbers its texture IDs keeps both and re-uploads neither.
 - `CrossBackendPixelParityTests` — canonical scenes rendered through both
   the D3D11 batch backend and `GPUIRawSceneRasterizer`, asserting at most 4
   per channel over at least 99.5 % of pixels. Scenes the backends genuinely
@@ -80,7 +83,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   ratio, and they also fail with "promote me" if they reach the required
   ratio and should be gating like the rest. Re-measure a floor only when a
   deliberate change moves it, and record the new value with the reason; see
-  `docs/GPURenderingPipeline.md` § 7 for the current divergence list.
+  `docs/GPURenderingPipeline.md` § 7 for the current divergence list — today
+  that list is the two magnified sampler scenes (`magnified gradient glyph
+  cell` at 0.835, `magnified high-contrast image` at 0.753), both owned by
+  WS-18. Fixtures for the sampler families are deliberately hostile: a
+  uniform opaque atlas cell or a gentle image gradient cannot observe a
+  filtering difference at all.
 - `PixelFormatContractTests` — the `BitmapSurface` format contract: the
   named default (BGRA, straight), the straight ↔ premultiplied conversions
   and their opaque fast path, the validation that rejects a truncated or
@@ -160,6 +168,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   replayed text frame CPU-rasterizing to the same pixels as the frame it
   replays (it has to ship the atlas its glyph quads address, even though it
   rasterized no glyph).
+- `TextMeasurePaintFidelityTests` — measured width == painted width for
+  native text at fractional scales, and the same equality for *tracked*
+  text, where measurement and painting have to count the same inter-glyph
+  gaps. Its combining-mark fixture asserts that it still shapes into a
+  different glyph count than character count, so it fails loudly rather
+  than passing for the wrong reason.
+- `CPURasterizerGPUModelTests` — what the reference renderer models: the
+  shadow envelope and falloff, the material composite and its shared blur
+  cap, `luminanceToAlpha` ordering, and the glyph sampler's alpha
+  convention (coverage is `.a`, exactly as the shader reads it).
 
 Test runs never write images into the source tree: `check-contracts.ps1`
 fails if a `ReferenceImages` directory appears under `Tests/`. Reviewed

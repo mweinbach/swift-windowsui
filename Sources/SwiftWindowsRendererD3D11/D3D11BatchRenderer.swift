@@ -459,6 +459,12 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// texture is resolved from the bitmap's content key at draw time
     /// instead, so re-binding the same content — under this ID or any
     /// other — costs nothing.
+    ///
+    /// A texture the bindings have walked away from is retired by
+    /// `collectUnreferencedImageTextures()` at the top of the next frame,
+    /// not here: within a frame the bindings are mid-rewrite, and a scene
+    /// that renumbers its texture IDs would otherwise release a texture the
+    /// binding two lines further down is about to ask for again.
     public func bindImageResource(_ bitmap: BitmapSurface, for textureID: Int32) {
         guard textureID >= 0 else {
             return
@@ -491,6 +497,37 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         imageTextureByteCount -= entry.byteCount
         releaseCOM(&entry.srv)
         releaseCOM(&entry.texture)
+    }
+
+    /// Releases every cached texture no live binding refers to any more.
+    ///
+    /// The cache is keyed on content and the bindings are keyed on texture
+    /// ID, so rebinding an ID to different pixels orphans the old entry
+    /// rather than replacing it. Without this, content that changes every
+    /// frame — an animating `.drawingGroup()` re-rasterizes its bitmap, and
+    /// every rasterization mints a new content token — piled dead textures
+    /// up until the 30-frame sweep or the 96 MB budget caught them, which
+    /// for a full-window group is hundreds of megabytes of live GPU memory
+    /// standing in for one visible image.
+    ///
+    /// Runs at the top of the frame, after `bindResources(for:)` has applied
+    /// every binding this frame asks for, so "unreferenced" means what it
+    /// says: a scene that renumbers texture IDs has finished renumbering by
+    /// the time this looks. Bindings themselves persist across frames, so an
+    /// image that simply stops being drawn is still the stale sweep's
+    /// business, not this one's.
+    private func collectUnreferencedImageTextures() {
+        guard !imageTextures.isEmpty else {
+            return
+        }
+        var referenced = Set<BitmapContentKey>(minimumCapacity: imageBindings.count)
+        for bitmap in imageBindings.values {
+            referenced.insert(bitmap.contentKey)
+        }
+        // Snapshot the keys: the loop body mutates the dictionary.
+        for key in Array(imageTextures.keys) where !referenced.contains(key) {
+            releaseImageTexture(forKey: key)
+        }
     }
 
     /// Drops image textures nothing has drawn for `imageCacheStaleFrames`,
@@ -894,6 +931,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
         frameCounter &+= 1
         evictStaleCachedPaths()
+        collectUnreferencedImageTextures()
         evictStaleImageTextures()
         // Re-fetch the render-target guards: the eviction calls above are
         // pure local work but a future hook (e.g. device-loss recovery) might

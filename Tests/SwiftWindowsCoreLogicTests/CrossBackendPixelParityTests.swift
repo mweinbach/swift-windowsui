@@ -23,17 +23,23 @@ import XCTest
 /// `scripts/gallery-compare.ps1` uses, so 8-bit rounding and antialiasing
 /// noise pass while structural divergence does not.
 ///
-/// **Every scene in this suite gates.** Seven of them used to carry a
-/// measured floor instead — corner AA at 0.990–0.994, the shadow at 0.967,
-/// a large-radius material at 0.620 — because the CPU rasterizer ran a
-/// different coverage ramp, a different shadow, and a different blur
-/// ordering than the shipping shaders. WS-08 replaced all three with
-/// transcriptions of the HLSL, and the seven now agree to a maximum
-/// per-channel delta of 1 over every pixel.
+/// **Every scene in this suite gates except the two magnified sampler
+/// scenes.** Seven scenes used to carry a measured floor — corner AA at
+/// 0.990–0.994, the shadow at 0.967, a large-radius material at 0.620 —
+/// because the CPU rasterizer ran a different coverage ramp, a different
+/// shadow, and a different blur ordering than the shipping shaders. WS-08
+/// replaced all three with transcriptions of the HLSL, and the seven now
+/// agree to a maximum per-channel delta of 1 over every pixel.
 ///
-/// The floor machinery below stays, unused, because it is the honest way
-/// to land a partial fix: a divergent scene belongs *in* the suite with a
-/// recorded floor, not skipped. It is pinned from both sides —
+/// What is left on a floor is one divergence with one owner: the GPU
+/// samples textures bilinearly and the CPU rasterizer picks the nearest
+/// texel, which is invisible at 1:1 and unmissable under magnification.
+/// `magnifiedGlyphGradientScene` and `magnifiedHighContrastImageScene`
+/// exist to hold that number rather than let a gentle fixture hide it.
+///
+/// The floor machinery is the honest way to carry such a gap: a divergent
+/// scene belongs *in* the suite with a recorded floor, not skipped. It is
+/// pinned from both sides —
 ///
 /// - the ratio may not fall below the floor recorded when the divergence
 ///   was accepted, so a shader change that halves a deferred scene's
@@ -523,6 +529,114 @@ final class CrossBackendPixelParityTests: XCTestCase {
         )
     }
 
+    /// An 8x8 atlas cell whose alpha ramps across its texels, drawn at 8x.
+    ///
+    /// `solidGlyphAtlas` is uniform and opaque, so the glyph sampler itself
+    /// is unobservable through it: every tap of every filter returns the
+    /// same texel. This cell makes the sampler the subject — the GPU reads
+    /// it through `MIN_MAG_MIP_LINEAR`, the CPU picks the nearest texel, and
+    /// magnifying 8x puts 64 screen pixels inside each texel so the
+    /// difference is a visible staircase rather than a rounding artefact.
+    /// Real text magnifies far less than this, but it magnifies: a glyph
+    /// rastered at one scale and drawn at another (icon scaling, an
+    /// animating `.scaleEffect` on text) samples between texels exactly like
+    /// this.
+    ///
+    /// Colour channels carry the alpha value, matching the premultiplied
+    /// white `NativeTextRenderer.tint` writes into the atlas — the shader
+    /// reads only `.a`, and so does the rasterizer now, but a fixture that
+    /// disagreed with the real producer would be testing a shape nothing
+    /// ships.
+    private static func rampGlyphAtlas() -> GlyphAtlasSnapshot {
+        let side = 8
+        var pixels = [UInt8]()
+        pixels.reserveCapacity(side * side * 4)
+        for _ in 0..<side {
+            for column in 0..<side {
+                let coverage = UInt8(column * 255 / (side - 1))
+                pixels.append(contentsOf: [coverage, coverage, coverage, coverage])
+            }
+        }
+        return GlyphAtlasSnapshot(
+            width: Int32(side), height: Int32(side), pixels: Data(pixels),
+            contentVersion: RenderContentVersion.next(), update: .full)
+    }
+
+    private static func magnifiedGlyphGradientScene() -> ParityScene {
+        ParityScene(
+            name: "magnified gradient glyph cell",
+            size: surface,
+            knownDivergence: KnownDivergence(
+                reason:
+                    "The CPU rasterizer point-samples the glyph atlas; the GPU samples it bilinearly "
+                    + "(D3D11_FILTER_MIN_MAG_MIP_LINEAR). Owner: WS-18 (bilinear CPU sampler). Until then "
+                    + "this scene records how far apart the two filters are under magnification instead of "
+                    + "hiding it behind a uniform fixture. Measured 0.8359, max channel delta 14.",
+                matchRatioFloor: 0.835),
+            scene: makeScene { scene in
+                scene.glyphAtlas = rampGlyphAtlas()
+                scene.addGlyph(
+                    GlyphPrimitive(
+                        screenX: 32, screenY: 32, screenW: 64, screenH: 64,
+                        atlasU0: 0, atlasV0: 0, atlasU1: 1, atlasV1: 1,
+                        colorR: 0.95, colorG: 0.85, colorB: 0.35, colorA: 1
+                    )
+                )
+            }
+        )
+    }
+
+    /// A high-contrast 8x8 image drawn at 8x — the same sampler question on
+    /// the image family.
+    ///
+    /// `scaledImageScene` uses a deliberately gentle per-texel gradient so
+    /// nearest and linear stay inside the tolerance; that keeps the channel
+    /// order and alpha convention gated, but it means the filter gap itself
+    /// is invisible by construction. A checkerboard is the opposite fixture:
+    /// every texel boundary is a full-range step, so the gap is the whole
+    /// signal.
+    private static func checkerImageFixture(size: Int) -> BitmapSurface {
+        var pixels = Data()
+        for y in 0..<size {
+            for x in 0..<size {
+                // Asymmetric across channels for the same reason
+                // `imageFixture` is: a channel swap must not survive.
+                let isLight = (x + y) % 2 == 0
+                pixels.append(isLight ? 245 : 10)  // B
+                pixels.append(isLight ? 245 : 30)  // G
+                pixels.append(isLight ? 200 : 10)  // R
+                pixels.append(255)  // A
+            }
+        }
+        return BitmapSurface(
+            width: Int32(size), height: Int32(size), bytesPerRow: Int32(size * 4), pixels: pixels)
+    }
+
+    private static func magnifiedHighContrastImageScene() -> ParityScene {
+        let bitmap = checkerImageFixture(size: 8)
+        return ParityScene(
+            name: "magnified high-contrast image",
+            size: surface,
+            knownDivergence: KnownDivergence(
+                reason:
+                    "`RasterTarget.drawImage` picks the nearest texel; the GPU image sampler is linear. "
+                    + "Owner: WS-18 (bilinear CPU sampler), same fix as the glyph atlas. Measured 0.7539, "
+                    + "max channel delta 116 — the filter gap is the whole signal here, which is the point.",
+                matchRatioFloor: 0.753),
+            scene: makeScene { scene in
+                scene.bindImageResource(bitmap, for: 22)
+                scene.addImage(
+                    ImagePrimitive(
+                        screenX: 32, screenY: 32, screenW: 64, screenH: 64,
+                        uvX: 0, uvY: 0, uvW: 1, uvH: 1,
+                        opacity: 1,
+                        textureID: 22
+                    )
+                )
+            }
+        )
+    }
+
     /// The same rounding on the image family: an icon or a `.drawingGroup()`
     /// composite inside a rounded card.
     private static func imageInRoundedContainerScene() -> ParityScene {
@@ -708,6 +822,12 @@ final class CrossBackendPixelParityTests: XCTestCase {
     func testScaledImageParity() async throws { try assertParity(Self.scaledImageScene()) }
 
     func testPathTextureParity() async throws { try assertParity(Self.pathTextureScene()) }
+
+    func testMagnifiedGlyphGradientParity() async throws { try assertParity(Self.magnifiedGlyphGradientScene()) }
+
+    func testMagnifiedHighContrastImageParity() async throws {
+        try assertParity(Self.magnifiedHighContrastImageScene())
+    }
 
     func testMaterialParity() async throws { try assertParity(Self.materialScene()) }
 

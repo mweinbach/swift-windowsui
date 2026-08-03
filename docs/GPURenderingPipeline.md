@@ -446,7 +446,14 @@ until the raster exists.
 `IDWriteFontFace`. `GlyphKey.fontFaceID` used to be the raw COM address,
 which a later face allocated at the same address would inherit — an
 alias that only became reachable once shaping started producing
-face-keyed entries.
+face-keyed entries. Retention is for the process lifetime, on the
+assumption that DirectWrite returns the same face object for the same
+face; nothing in its contract promises that, and shaping now runs per
+glyph run. `registeredFaceCount` makes the set observable and
+`reportThreshold` (256) makes the assumption falsifiable: crossing it
+sets `hasExceededReportThreshold` and reports once to stderr. The
+registry keeps working — a threshold is a report, not a policy — but an
+unbounded retained set stops being silent.
 
 ### 3.2 Text diagnostics
 
@@ -477,6 +484,19 @@ reporting convenience, not a gate.
   measurement and painted glyph positions. The legacy bitmap raster path
   cannot express it (that needs `IDWriteTextLayout1`) and says so through
   `letterSpacingDroppedRasterizations`.
+- Tracking is counted in **inter-glyph gaps on both sides**.
+  `applyLetterSpacing` walks the shaped run, so the painted line is
+  `base + (glyphs − 1) × tracking`; `makeLineMeasurer` used to add
+  `(characters − 1) × tracking`, which agrees only while shaping is a
+  no-op. It is not: one Swift `Character` carrying two combining marks is
+  three glyphs, and a ligature is two characters in one glyph. The
+  measurer now derives its gap count from the same shaping capture the
+  painter uses (`shapedGlyphCount`, built from a layout configured
+  exactly like `layoutLine`'s), falling back to the character count only
+  where the paint path itself falls back to the per-character walk. The
+  shaping capture runs only for text that actually carries
+  `nativeLetterSpacing`. `TextMeasurePaintFidelityTests` pins measured ==
+  painted for a tracked string whose glyph and character counts differ.
 - `longestFittingPrefixLength` gallops up from a short prefix before
   binary-searching. A plain binary search probes at n/2 first, and on the
   DirectWrite path each probe builds and shapes a whole
@@ -556,8 +576,20 @@ image-texture cache. Texture IDs are positional within a frame's
 registration order, so a scene that gains or loses one image renumbers
 the rest; keying the GPU cache on content instead means renumbering
 costs nothing and an unchanged image keeps its texture across frames.
-That cache is bounded twice — 30 frames unused, and a 96 MB byte budget
-— and both bounds evict least-recently-used first.
+That cache is bounded three ways. Two are budgets — 30 frames unused, and
+a 96 MB byte budget, both evicting least-recently-used first. The third is
+exact: at the top of every frame, after `bindResources(for:)` has applied
+the frame's bindings, `collectUnreferencedImageTextures()` releases every
+cached texture no binding refers to any more. Content-keying means
+rebinding a texture ID to different pixels *orphans* the old entry rather
+than replacing it, and an animating `.drawingGroup()` re-rasterizes its
+bitmap — hence a fresh content token — on every frame, so without the
+sweep one visible image accumulated a texture per frame until a budget
+caught it. The sweep runs at the frame boundary rather than inside
+`bindImageResource` precisely because texture IDs are positional: a scene
+that renumbers is mid-rewrite during the binding loop, and releasing there
+would drop the texture the next binding is about to ask for again
+(`D3D11BatchRendererRenderTests` pins both halves).
 
 **Tests:** `TextShapingPipelineTests` — shaped glyph identity, the frame
 plumbing (a shaped scene and an unshaped scene paint glyphs at the same
@@ -1221,20 +1253,45 @@ scene from both sides:
 Skipping after computing the comparison, which is what the suite did first,
 bought neither: it built the report and threw it away.
 
-**The deferred list is currently empty.** Seven scenes carried floors —
-corner antialiasing at 0.990–0.994, the shadow at 0.967, a large-radius
-material at 0.620 — and § 7a closed all of them; every scene in the suite
-now gates at the standard ratio, with a maximum per-channel delta of 1. The
-machinery stays because a floor is the honest way to land a partial fix.
+**The deferred list holds exactly one divergence, with one owner: texture
+filtering.** Seven scenes used to carry floors — corner antialiasing at
+0.990–0.994, the shadow at 0.967, a large-radius material at 0.620 — and
+§ 7a closed all of them; every scene in the suite gates at the standard
+ratio, with a maximum per-channel delta of 1, except the two that exist to
+hold the filtering number.
 
 Images and CPU-rasterized path textures used to be on that list — the batch
 renderer uploaded BGRA `BitmapSurface` bytes as `R8G8B8A8_UNORM` and blended
 straight alpha through a premultiplied blend state, so every image and every
 path fill rendered with red and blue swapped and an over-bright edge. They
-now agree, because the pixel format is part of the surface (§ 4a). The
-residual sampling difference — linear on the GPU, nearest on the CPU — is
-still real; the `scaled image` scene keeps its gradient gentle enough to
-stay inside the tolerance rather than pretending the filters match.
+now agree, because the pixel format is part of the surface (§ 4a).
+
+The residual sampling difference is real and is now **measured rather than
+avoided**. The GPU samples every texture — glyph atlas and image alike —
+through `D3D11_FILTER_MIN_MAG_MIP_LINEAR`; `RasterTarget` picks the nearest
+texel. At 1:1 that is invisible, which is why the `scaled image` scene's
+gentle gradient and the uniform opaque `solidGlyphAtlas` cell both passed
+without saying anything about the filters. Two scenes now magnify 8× over
+fixtures built to expose them:
+
+| Scene | Fixture | Measured ratio | Max channel delta |
+| --- | --- | --- | --- |
+| `magnified gradient glyph cell` | 8×8 atlas cell, alpha ramping across texels | 0.8359 | 14 |
+| `magnified high-contrast image` | 8×8 checkerboard | 0.7539 | 116 |
+
+Both carry a `KnownDivergence` naming **WS-18 (bilinear CPU sampler)** as
+the owner. The floors are pinned from both sides like any other deferred
+scene, so the gap can shrink deliberately but cannot widen quietly.
+
+**Glyph coverage is alpha, on both backends.** The glyph shader reads
+`glyphAtlas.Sample(glyphSampler, uv).a` and nothing else. The rasterizer
+used to substitute `max(r, g, b)` wherever the sampled alpha was zero — a
+second alpha convention with no GPU counterpart, under which the CPU could
+draw ink the GPU never would. Every atlas producer writes coverage into
+alpha (`NativeTextRenderer.tint` emits premultiplied BGRA, `PixelFontAtlas`
+writes 255 in all four channels), so the substitution bought nothing and hid
+the sampler question behind an opaque fixture. `CPURasterizerGPUModelTests`
+pins the convention: a cell with colour and no alpha draws nothing.
 
 ## 7a. What the reference renderer actually models
 

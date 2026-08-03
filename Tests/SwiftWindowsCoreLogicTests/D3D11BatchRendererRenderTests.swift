@@ -214,6 +214,79 @@ final class D3D11BatchRendererRenderTests: XCTestCase {
             "New pixels under a bound texture ID must re-upload")
     }
 
+    /// An animating `.drawingGroup()` re-rasterizes its bitmap every frame,
+    /// and every rasterization mints a new content token — so one texture ID
+    /// walks through a new cache key per frame. The cache is keyed on
+    /// content, so the previous frame's texture is orphaned rather than
+    /// replaced: before the unreferenced sweep, thirty of them stayed live
+    /// (or 96 MB of them, for a full-window group) waiting for the stale
+    /// threshold. One visible image must cost one live texture.
+    func testChangingContentUnderOneTextureIDKeepsOneLiveTexture() async throws {
+        let size = IntSize(width: 64, height: 64)
+        let renderer = try makeOwnedRenderer(size: size)
+        defer { renderer.detach() }
+
+        for frame in 0..<12 {
+            let scene = makeImageScene(
+                bitmap: makeImageFixture(size: 32, seed: frame), textureID: 9002, size: size)
+            renderer.bindResources(for: scene)
+            try renderer.render(scene: scene)
+            XCTAssertEqual(
+                renderer.imageTextureCacheCountForTesting, 1,
+                "frame \(frame): dead textures must not accumulate under a re-rasterized texture ID")
+        }
+
+        // Every frame's content is genuinely new, so every frame uploads —
+        // the sweep must bound live memory, not suppress the draw.
+        XCTAssertEqual(renderer.imageTextureUploadsForTesting, 12)
+    }
+
+    /// The sweep's counter-case: texture IDs are positional within a
+    /// frame's registration order, so a scene that gains an image renumbers
+    /// the rest. Collecting on rebind rather than at the frame boundary
+    /// would release the texture the next binding in the same loop is about
+    /// to ask for again.
+    func testRenumberingTextureIDsKeepsBothTexturesLive() async throws {
+        let size = IntSize(width: 64, height: 64)
+        let renderer = try makeOwnedRenderer(size: size)
+        defer { renderer.detach() }
+
+        let first = makeImageFixture(size: 32, seed: 11)
+        let second = makeImageFixture(size: 32, seed: 22)
+
+        func scene(order: [BitmapSurface]) -> GPUIScene {
+            var scene = GPUIScene(clearColor: .black)
+            for (index, bitmap) in order.enumerated() {
+                let textureID = Int32(9100 + index)
+                scene.bindImageResource(bitmap, for: textureID)
+                scene.addImage(
+                    ImagePrimitive(
+                        screenX: Float(index * 16), screenY: 0, screenW: 16, screenH: 16,
+                        uvX: 0, uvY: 0, uvW: 1, uvH: 1,
+                        opacity: 1,
+                        textureID: textureID
+                    )
+                )
+            }
+            scene.finish()
+            return scene
+        }
+
+        let forward = scene(order: [first, second])
+        renderer.bindResources(for: forward)
+        try renderer.render(scene: forward)
+        XCTAssertEqual(renderer.imageTextureUploadsForTesting, 2)
+        XCTAssertEqual(renderer.imageTextureCacheCountForTesting, 2)
+
+        let swapped = scene(order: [second, first])
+        renderer.bindResources(for: swapped)
+        try renderer.render(scene: swapped)
+        XCTAssertEqual(
+            renderer.imageTextureUploadsForTesting, 2,
+            "swapping which ID an unchanged bitmap answers to must not re-upload either of them")
+        XCTAssertEqual(renderer.imageTextureCacheCountForTesting, 2)
+    }
+
     private func makeImageFixture(size: Int, seed: Int) -> BitmapSurface {
         var pixels = Data()
         for y in 0..<size {

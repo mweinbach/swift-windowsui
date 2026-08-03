@@ -22,6 +22,12 @@ enum DirectWriteTextRenderer {
         layout(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)?.measuredSize
     }
 
+    /// Test seam: the per-line width wrapping decisions are taken from,
+    /// which must agree with the line width `layout` reports.
+    static func measuredLineWidthForTesting(_ text: String, style: PixelTextStyle) -> Double? {
+        DirectWriteSystem.shared?.measuredLineWidthForTesting(text, style: style)
+    }
+
     static func appendCommands(
         for text: String,
         in rect: Rect,
@@ -1472,10 +1478,82 @@ private final class DirectWriteSystem {
                 return cached
             }
             let base = self?.measureSingleLine(line, format: format) ?? 0
-            let spaced = tracking == 0 ? base : max(0, base + Double(max(line.count - 1, 0)) * tracking)
+            let spaced: Double
+            if tracking == 0 {
+                spaced = base
+            } else {
+                let gaps = self?.trackedGapCount(for: line, style: style) ?? max(line.count - 1, 0)
+                spaced = max(0, base + Double(gaps) * tracking)
+            }
             memo[line] = spaced
             return spaced
         }
+    }
+
+    /// How many inter-glyph gaps `applyLetterSpacing` will space `line` at,
+    /// so measurement and painting add the same amount of tracking.
+    ///
+    /// This used to be `line.count - 1` — *characters*, not glyphs. Shaping
+    /// makes the two counts different in both directions: a ligature
+    /// collapses two characters into one glyph, a combining mark expands one
+    /// character into two, and a complex script does both. Wrapping then
+    /// reserved a width the paint never used (or, for a ligature, less than
+    /// it used), which is exactly the divergence `makeLineMeasurer` exists to
+    /// close.
+    private func trackedGapCount(for line: String, style: PixelTextStyle) -> Int {
+        max((shapedGlyphCount(for: line, style: style) ?? line.count) - 1, 0)
+    }
+
+    /// The shaped glyph count `layoutLine` will resolve for `line`, or `nil`
+    /// when it will fall back to the per-character walk (whose glyph count is
+    /// the character count).
+    ///
+    /// Built exactly the way `layoutLine` builds its layout — same forced
+    /// leading/top alignment, same style-derived typography features and
+    /// spans — because a count taken from a differently configured layout is
+    /// no more trustworthy than the character count it replaces. Only ever
+    /// called for text carrying `nativeLetterSpacing`, which nothing but
+    /// `.kerning` / `.tracking` sets.
+    private func shapedGlyphCount(for line: String, style: PixelTextStyle) -> Int? {
+        guard NativeTextRenderer.isGlyphShapingEnabled, !line.isEmpty else {
+            return nil
+        }
+
+        var lineStyle = style
+        lineStyle.verticalAlignment = .top
+        lineStyle.alignment = .leading
+
+        guard let format = createTextFormat(style: lineStyle, wrapping: dwriteWordWrappingNoWrap),
+            let layout = createTextLayout(
+                text: line, format: format, size: Size(width: 4096, height: 4096), style: lineStyle)
+        else {
+            return nil
+        }
+        defer {
+            var releasableLayout: UnsafeMutablePointer<IDWriteTextLayout>? = layout
+            releaseDirectWriteCOM(&releasableLayout)
+            var releasableFormat: UnsafeMutablePointer<IDWriteTextFormat>? = format
+            releaseDirectWriteCOM(&releasableFormat)
+        }
+
+        guard let shaped = captureGlyphLayouts(from: layout, text: line, style: lineStyle), !shaped.isEmpty else {
+            return nil
+        }
+        return shaped.count
+    }
+
+    /// Test seam: the width wrapping and minimum-scale-factor decisions are
+    /// made from, for one line. It must equal the width `layoutLine` paints;
+    /// nothing else pins the two together.
+    func measuredLineWidthForTesting(_ text: String, style: PixelTextStyle) -> Double? {
+        guard let format = createTextFormat(style: style, wrapping: dwriteWordWrappingNoWrap) else {
+            return nil
+        }
+        defer {
+            var releasableFormat: UnsafeMutablePointer<IDWriteTextFormat>? = format
+            releaseDirectWriteCOM(&releasableFormat)
+        }
+        return makeLineMeasurer(style: style, format: format)(text)
     }
 
     private func measureSingleLine(_ text: String, format: UnsafeMutablePointer<IDWriteTextFormat>) -> Double? {

@@ -176,28 +176,40 @@ public struct SurfaceChrome: Sendable {
         return borderWidth
     }
 
+    /// macOS keyboard focus-ring stroke width. Mirrors
+    /// `MacOSControlMetrics.FocusRing.strokeWidth`, which lives one target
+    /// up in `WinSwiftUI` and so cannot be referenced from here — the two
+    /// are asserted equal by `MacOSDesignParityTests`. They used to
+    /// disagree (2 here, 4 there) with both pinned as "the" macOS value.
+    public static let focusRingStrokeWidth: Double = 4
+
+    /// Neutral ambient shadow every raised control casts: 1pt down, 1pt
+    /// spread, black at low alpha. macOS never tints a control shadow with
+    /// the accent or role colour.
+    public static let ambientShadowColor = Color(red: 0, green: 0, blue: 0, alpha: 0.12)
+
     public static let elevatedButton = SurfaceChrome(
-        borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.10),
-        borderHoveredColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.18),
-        borderFocusedColor: Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.26),
-        borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.34),
+        borderColor: Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.14),
+        borderHoveredColor: Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.28),
+        borderFocusedColor: Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.28),
+        borderPressedColor: Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.28),
         borderWidth: 1,
-        focusRingColor: Color(red: 0.82, green: 0.90, blue: 1.0, alpha: 0.28),
-        focusRingWidth: 2,
-        shadowColor: Color(red: 0.02, green: 0.05, blue: 0.10, alpha: 0.16),
-        shadowHoveredColor: Color(red: 0.02, green: 0.06, blue: 0.12, alpha: 0.20),
-        shadowFocusedColor: Color(red: 0.04, green: 0.10, blue: 0.18, alpha: 0.26),
-        shadowPressedColor: Color(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.10),
-        shadowOffset: Point(x: 0, y: 3),
-        shadowSpread: 4
+        focusRingColor: Color(red: 0.0, green: 0.478, blue: 1.0, alpha: 0.55),
+        focusRingWidth: SurfaceChrome.focusRingStrokeWidth,
+        shadowColor: SurfaceChrome.ambientShadowColor,
+        shadowHoveredColor: SurfaceChrome.ambientShadowColor,
+        shadowFocusedColor: SurfaceChrome.ambientShadowColor,
+        shadowPressedColor: .clear,
+        shadowOffset: Point(x: 0, y: 1),
+        shadowSpread: 1
     )
 
     public static let `default` = SurfaceChrome(
-        borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+        borderColor: Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.14),
         borderWidth: 1,
-        cornerRadii: CornerRadii(uniform: 8),
-        focusRingColor: Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 0.50),
-        focusRingWidth: 2
+        cornerRadii: CornerRadii(uniform: 6),
+        focusRingColor: Color(red: 0.0, green: 0.478, blue: 1.0, alpha: 0.55),
+        focusRingWidth: SurfaceChrome.focusRingStrokeWidth
     )
 }
 public enum SplitAxis: Sendable {
@@ -260,7 +272,7 @@ public enum SymbolIcon: String, Sendable, CaseIterable {
 public enum Controls {
     /// Darkened variant of a color with its alpha preserved. Used for the
     /// bottom stop of control-surface gradient sheens.
-    public static func shaded(_ color: Color, by factor: Float) -> Color {
+    public nonisolated static func shaded(_ color: Color, by factor: Float) -> Color {
         Color(
             red: color.red * factor,
             green: color.green * factor,
@@ -274,11 +286,24 @@ public enum Controls {
     /// and the bottom stop from this gradient's end color, so state color
     /// animations stay fully visible while the surface reads as the subtle
     /// top-lighter gradient of macOS Big Sur+ controls.
+    /// Luminance the bottom stop of a control sheen keeps. Apple retired
+    /// the glossy bevel with Yosemite: Big Sur+ control surfaces are
+    /// nearly flat, and the top highlight is carried by the 1pt border
+    /// gradient (`borderSheen`) rather than the fill. The previous 0.82
+    /// (an 18% drop) is what made every control read as a styled div.
+    /// Pinned in docs/MacOSDesignParity.md.
+    public nonisolated static let surfaceSheenFactor: Float = 0.96
+
+    /// Luminance the bottom stop of a *recessed* groove keeps — a slider
+    /// or progress track, which macOS genuinely does shade. Still far
+    /// shallower than the retired gloss.
+    public nonisolated static let grooveSheenFactor: Float = 0.90
+
     public static func backgroundSheen(for color: Color) -> GradientType? {
         guard color.alpha > 0 else {
             return nil
         }
-        return .linear(LinearGradient(startColor: color, endColor: shaded(color, by: 0.82)))
+        return .linear(LinearGradient(startColor: color, endColor: shaded(color, by: surfaceSheenFactor)))
     }
 
     /// Vertical border gradient: the top edge keeps the (animated) border
@@ -1212,7 +1237,9 @@ public enum Controls {
             pressed: Color(red: 0.72, green: 0.82, blue: 0.92, alpha: 1.0)
         ),
         chrome: SurfaceChrome = SurfaceChrome(
-            borderWidth: 0, focusRingColor: Color(red: 0.82, green: 0.90, blue: 1.0, alpha: 0.28), focusRingWidth: 2),
+            borderWidth: 0,
+            focusRingColor: SurfaceChrome.elevatedButton.focusRingColor,
+            focusRingWidth: SurfaceChrome.focusRingStrokeWidth),
         animation: ControlAnimationStyle = .default,
         onToggle: ((Bool) -> Void)? = nil
     ) -> ViewNode {
@@ -1257,13 +1284,13 @@ public enum Controls {
         // gradient); off state reads recessed (top-darker gradient) with a
         // hairline edge, like NSSwitch.
         let trackBackgroundColor =
-            isEnabled && !isOn ? shaded(resolvedTrackColor, by: 0.78) : resolvedTrackColor
+            isEnabled && !isOn ? shaded(resolvedTrackColor, by: grooveSheenFactor) : resolvedTrackColor
         let trackGradient: GradientType? =
             isEnabled
             ? .linear(
                 LinearGradient(
                     startColor: trackBackgroundColor,
-                    endColor: isOn ? shaded(resolvedTrackColor, by: 0.85) : resolvedTrackColor))
+                    endColor: isOn ? shaded(resolvedTrackColor, by: surfaceSheenFactor) : resolvedTrackColor))
             : nil
         let trackBorderColor =
             isError
@@ -1346,13 +1373,16 @@ public enum Controls {
             pressed: .clear
         ),
         chrome: SurfaceChrome = SurfaceChrome(
-            focusRingColor: Color(red: 0.82, green: 0.90, blue: 1.0, alpha: 0.28), focusRingWidth: 2),
+            focusRingColor: SurfaceChrome.elevatedButton.focusRingColor,
+            focusRingWidth: SurfaceChrome.focusRingStrokeWidth),
         onValueChanged: ((Double) -> Void)? = nil,
         onEditingChanged: ((Bool) -> Void)? = nil
     ) -> ViewNode {
         let sliderWidth = preferredSize?.width ?? 200
-        let trackHeight: Double = 6
-        let thumbSize: Double = 18
+        // NSSlider linear track and knob: 4pt groove, 16pt thumb
+        // (MacOSControlMetrics.Slider, one target up).
+        let trackHeight: Double = 4
+        let thumbSize: Double = 16
         let totalHeight: Double = max(thumbSize + 8, preferredSize?.height ?? 28)
 
         let clampedValue = min(max(value, range.lowerBound), range.upperBound)
@@ -1375,11 +1405,11 @@ public enum Controls {
             isEnabled
             ? .linear(
                 LinearGradient(
-                    startColor: shaded(resolvedTrackColor, by: 0.78), endColor: resolvedTrackColor))
+                    startColor: shaded(resolvedTrackColor, by: grooveSheenFactor), endColor: resolvedTrackColor))
             : nil
         let trackNode = panel(
             frame: Rect(x: 0, y: trackY, width: sliderWidth, height: trackHeight),
-            backgroundColor: isEnabled ? shaded(resolvedTrackColor, by: 0.78) : resolvedTrackColor,
+            backgroundColor: isEnabled ? shaded(resolvedTrackColor, by: grooveSheenFactor) : resolvedTrackColor,
             backgroundGradient: trackSheen,
             cornerRadius: trackHeight * 0.5,
             isHitTestVisible: false
@@ -1502,7 +1532,7 @@ public enum Controls {
             frame: Rect(x: 0, y: 0, width: barWidth, height: barHeight),
             backgroundColor: shaded(trackColor, by: 0.78),
             backgroundGradient: .linear(
-                LinearGradient(startColor: shaded(trackColor, by: 0.78), endColor: trackColor)),
+                LinearGradient(startColor: shaded(trackColor, by: grooveSheenFactor), endColor: trackColor)),
             cornerRadius: resolvedCornerRadius,
             isHitTestVisible: false
         )

@@ -1,0 +1,381 @@
+import SwiftWindowsCore
+
+import SwiftWindowsUI
+
+/// The semantic colour roles macOS control chrome is built from, resolved
+/// for one appearance.
+///
+/// Before this existed every chrome colour in `Views.swift` was a literal
+/// tuned for dark mode, so `.preferredColorScheme(.light)` changed exactly
+/// one pixel region in the whole app (the toolbar band). A control that
+/// wants to be appearance-correct asks `ViewBuildContext.controlPalette`
+/// for the role it needs — `separator`, `label`, `controlSurface` — and
+/// never writes an RGB literal.
+///
+/// The values are AppKit's published semantic colours (`NSColor.labelColor`,
+/// `separatorColor`, `controlBackgroundColor`, the `systemFill` ramp), which
+/// is also why they are achromatic: macOS neutrals are grey, not the blue-cast
+/// navy the hand-tuned literals had drifted to. Pinned in
+/// docs/MacOSDesignParity.md and asserted by `ControlPaletteTests`.
+public struct ControlPalette: Sendable, Equatable {
+
+    // MARK: Surfaces
+
+    /// The window's own backdrop (`NSColor.windowBackgroundColor`).
+    public var windowBackground: Color
+    /// Recessed content areas: text fields, list bodies, scroll content
+    /// (`NSColor.controlBackgroundColor` / `textBackgroundColor`).
+    public var controlBackground: Color
+    /// The face of a raised bordered control at rest — a push button, a
+    /// pop-up button, a stepper half.
+    public var controlSurface: Color
+    public var controlSurfaceHovered: Color
+    public var controlSurfacePressed: Color
+    /// Grouped containers that sit above the window backdrop: `GroupBox`,
+    /// `Form` sections, cards.
+    public var raisedSurface: Color
+
+    // MARK: Content
+
+    /// Primary text (`NSColor.labelColor`).
+    public var label: Color
+    public var secondaryLabel: Color
+    public var tertiaryLabel: Color
+    public var quaternaryLabel: Color
+    /// Text and glyphs in a disabled control (`disabledControlTextColor`).
+    public var disabledLabel: Color
+    /// Content drawn on top of an emphasised selection fill
+    /// (`alternateSelectedControlTextColor`) — always white on macOS.
+    public var selectedContentLabel: Color
+
+    // MARK: Structure
+
+    /// Hairline rules: `Divider`, list row separators, section closers
+    /// (`NSColor.separatorColor`).
+    public var separator: Color
+    /// The 1pt ring around a bordered control.
+    public var controlBorder: Color
+    /// The same ring on hover / focus, where macOS strengthens it.
+    public var controlBorderStrong: Color
+
+    // MARK: Selection
+
+    /// Selection fill for a list/table that does not have key focus
+    /// (`unemphasizedSelectedContentBackgroundColor`).
+    public var unemphasizedSelectedBackground: Color
+
+    // MARK: Fill ramp
+
+    /// `NSColor.systemFill` … `quinarySystemFill` — the neutral wash macOS
+    /// uses for recessed grooves, unselected segment tracks and chips.
+    public var systemFill: Color
+    public var secondaryFill: Color
+    public var tertiaryFill: Color
+    public var quaternaryFill: Color
+    public var quinaryFill: Color
+
+    /// The appearance this palette was resolved for.
+    public var colorScheme: ColorScheme
+
+    public init(
+        windowBackground: Color,
+        controlBackground: Color,
+        controlSurface: Color,
+        controlSurfaceHovered: Color,
+        controlSurfacePressed: Color,
+        raisedSurface: Color,
+        label: Color,
+        secondaryLabel: Color,
+        tertiaryLabel: Color,
+        quaternaryLabel: Color,
+        disabledLabel: Color,
+        selectedContentLabel: Color,
+        separator: Color,
+        controlBorder: Color,
+        controlBorderStrong: Color,
+        unemphasizedSelectedBackground: Color,
+        systemFill: Color,
+        secondaryFill: Color,
+        tertiaryFill: Color,
+        quaternaryFill: Color,
+        quinaryFill: Color,
+        colorScheme: ColorScheme
+    ) {
+        self.windowBackground = windowBackground
+        self.controlBackground = controlBackground
+        self.controlSurface = controlSurface
+        self.controlSurfaceHovered = controlSurfaceHovered
+        self.controlSurfacePressed = controlSurfacePressed
+        self.raisedSurface = raisedSurface
+        self.label = label
+        self.secondaryLabel = secondaryLabel
+        self.tertiaryLabel = tertiaryLabel
+        self.quaternaryLabel = quaternaryLabel
+        self.disabledLabel = disabledLabel
+        self.selectedContentLabel = selectedContentLabel
+        self.separator = separator
+        self.controlBorder = controlBorder
+        self.controlBorderStrong = controlBorderStrong
+        self.unemphasizedSelectedBackground = unemphasizedSelectedBackground
+        self.systemFill = systemFill
+        self.secondaryFill = secondaryFill
+        self.tertiaryFill = tertiaryFill
+        self.quaternaryFill = quaternaryFill
+        self.quinaryFill = quinaryFill
+        self.colorScheme = colorScheme
+    }
+
+    public var isDark: Bool { colorScheme == .dark }
+
+    /// Resolves the palette for an appearance. `.increased` contrast
+    /// strengthens exactly the roles AppKit strengthens: hairlines, control
+    /// borders and secondary/tertiary text.
+    public static func resolve(colorScheme: ColorScheme, contrast: ColorSchemeContrast = .standard) -> ControlPalette {
+        switch (colorScheme, contrast) {
+        case (.dark, .standard):
+            return darkStandard
+        case (.dark, .increased):
+            return darkIncreased
+        case (.light, .standard):
+            return lightStandard
+        case (.light, .increased):
+            return lightIncreased
+        }
+    }
+
+    public static let darkStandard = ControlPalette(
+        windowBackground: Color(red: 0.129, green: 0.129, blue: 0.129, alpha: 1),
+        controlBackground: Color(red: 0.118, green: 0.118, blue: 0.118, alpha: 1),
+        controlSurface: white(0.10),
+        controlSurfaceHovered: white(0.15),
+        controlSurfacePressed: white(0.22),
+        raisedSurface: Color(red: 0.157, green: 0.157, blue: 0.161, alpha: 1),
+        label: white(0.85),
+        secondaryLabel: white(0.55),
+        tertiaryLabel: white(0.25),
+        quaternaryLabel: white(0.10),
+        disabledLabel: white(0.25),
+        selectedContentLabel: .white,
+        separator: white(0.10),
+        controlBorder: white(0.14),
+        controlBorderStrong: white(0.28),
+        unemphasizedSelectedBackground: Color(red: 0.247, green: 0.247, blue: 0.255, alpha: 1),
+        systemFill: white(0.10),
+        secondaryFill: white(0.08),
+        tertiaryFill: white(0.05),
+        quaternaryFill: white(0.03),
+        quinaryFill: white(0.02),
+        colorScheme: .dark
+    )
+
+    public static let lightStandard = ControlPalette(
+        windowBackground: Color(red: 0.925, green: 0.925, blue: 0.925, alpha: 1),
+        controlBackground: .white,
+        controlSurface: .white,
+        controlSurfaceHovered: Color(red: 0.957, green: 0.957, blue: 0.957, alpha: 1),
+        controlSurfacePressed: Color(red: 0.878, green: 0.878, blue: 0.882, alpha: 1),
+        raisedSurface: .white,
+        label: black(0.85),
+        secondaryLabel: black(0.50),
+        tertiaryLabel: black(0.26),
+        quaternaryLabel: black(0.10),
+        disabledLabel: black(0.25),
+        selectedContentLabel: .white,
+        separator: black(0.10),
+        controlBorder: black(0.16),
+        controlBorderStrong: black(0.30),
+        unemphasizedSelectedBackground: Color(red: 0.863, green: 0.863, blue: 0.867, alpha: 1),
+        systemFill: black(0.10),
+        secondaryFill: black(0.08),
+        tertiaryFill: black(0.05),
+        quaternaryFill: black(0.03),
+        quinaryFill: black(0.02),
+        colorScheme: .light
+    )
+
+    public static let darkIncreased: ControlPalette = {
+        var palette = darkStandard
+        palette.label = .white
+        palette.secondaryLabel = white(0.75)
+        palette.tertiaryLabel = white(0.45)
+        palette.separator = white(0.28)
+        palette.controlBorder = white(0.34)
+        palette.controlBorderStrong = white(0.55)
+        return palette
+    }()
+
+    public static let lightIncreased: ControlPalette = {
+        var palette = lightStandard
+        palette.label = .black
+        palette.secondaryLabel = black(0.70)
+        palette.tertiaryLabel = black(0.45)
+        palette.separator = black(0.28)
+        palette.controlBorder = black(0.36)
+        palette.controlBorderStrong = black(0.55)
+        return palette
+    }()
+
+    // MARK: Derived control roles
+
+    /// Recessed groove an `NSSegmentedControl`'s segments sit in.
+    public var segmentedTrackFill: Color {
+        isDark
+            ? Color(red: 0.173, green: 0.173, blue: 0.180, alpha: 1)
+            : Color(red: 0.914, green: 0.914, blue: 0.922, alpha: 1)
+    }
+
+    /// The raised pill under the selected segment. Dark mode raises a grey
+    /// pill (#636366) — a near-white pill with a near-black label is the
+    /// *light* appearance and reads as a foreign chip in a dark app.
+    public var segmentedSelectedFill: Color {
+        isDark
+            ? Color(red: 0.388, green: 0.388, blue: 0.400, alpha: 1)
+            : .white
+    }
+
+    /// Label on the selected segment: white on the dark pill, black on the
+    /// light one.
+    public var segmentedSelectedLabel: Color {
+        isDark ? .white : .black
+    }
+
+    // MARK: Accent-derived roles
+
+    /// The emphasised selection fill — a *solid* accent, as
+    /// `selectedContentBackgroundColor` is on macOS. Nothing about a
+    /// selected row is a translucent wash.
+    public func selectedContentBackground(tint: Color) -> Color {
+        ControlPalette.opaque(tint)
+    }
+
+    /// State ramp for an accent-filled surface. macOS expresses button
+    /// state as a lightness change on a fully opaque accent, never as an
+    /// alpha ramp that lets the backdrop bleed through a "half-disabled"
+    /// looking fill.
+    public func accentHovered(_ tint: Color) -> Color {
+        ControlPalette.lightened(ControlPalette.opaque(tint), by: 0.08)
+    }
+
+    public func accentPressed(_ tint: Color) -> Color {
+        ControlPalette.darkened(ControlPalette.opaque(tint), by: 0.12)
+    }
+
+    // MARK: Colour maths
+
+    public static func white(_ alpha: Float) -> Color {
+        Color(red: 1, green: 1, blue: 1, alpha: alpha)
+    }
+
+    public static func black(_ alpha: Float) -> Color {
+        Color(red: 0, green: 0, blue: 0, alpha: alpha)
+    }
+
+    /// Drops any translucency, keeping the hue. Accent fills on macOS are
+    /// opaque.
+    public static func opaque(_ color: Color) -> Color {
+        Color(red: color.red, green: color.green, blue: color.blue, alpha: 1)
+    }
+
+    /// Moves a colour `amount` of the way toward white, alpha preserved.
+    public static func lightened(_ color: Color, by amount: Float) -> Color {
+        let t = min(max(amount, 0), 1)
+        return Color(
+            red: color.red + (1 - color.red) * t,
+            green: color.green + (1 - color.green) * t,
+            blue: color.blue + (1 - color.blue) * t,
+            alpha: color.alpha
+        )
+    }
+
+    /// Moves a colour `amount` of the way toward black, alpha preserved.
+    public static func darkened(_ color: Color, by amount: Float) -> Color {
+        let t = min(max(amount, 0), 1)
+        return Color(
+            red: color.red * (1 - t),
+            green: color.green * (1 - t),
+            blue: color.blue * (1 - t),
+            alpha: color.alpha
+        )
+    }
+}
+
+// MARK: - Chrome factories
+
+extension ControlPalette {
+
+    /// Fill ramp for a standard bordered (push) button.
+    public var borderedButtonPalette: SurfacePalette {
+        SurfacePalette(
+            idle: controlSurface,
+            hovered: controlSurfaceHovered,
+            focused: controlSurfaceHovered,
+            pressed: controlSurfacePressed,
+            activated: controlSurfacePressed,
+            disabledBackground: quaternaryFill,
+            disabledForeground: disabledLabel,
+            disabledBorder: quaternaryLabel
+        )
+    }
+
+    /// Fill ramp for an accent-filled (`.borderedProminent`) button. macOS
+    /// keeps the accent fully opaque at rest and moves lightness for state.
+    public func prominentPalette(tint: Color) -> SurfacePalette {
+        let accent = ControlPalette.opaque(tint)
+        return SurfacePalette(
+            idle: accent,
+            hovered: accentHovered(accent),
+            focused: accentHovered(accent),
+            pressed: accentPressed(accent),
+            activated: accentPressed(accent),
+            disabledBackground: quaternaryFill,
+            disabledForeground: disabledLabel,
+            disabledBorder: quaternaryLabel
+        )
+    }
+
+    /// The 1pt ring plus the neutral ambient shadow a bordered control
+    /// casts. macOS never tints a control shadow with the accent colour.
+    ///
+    /// `focusRingWidth` is `MacOSControlMetrics.FocusRing.strokeWidth`; the
+    /// runtime insets the ring by a hairline so it does not sit flush
+    /// against the bevel.
+    public func buttonChrome(focusTint: Color, casts shadow: Bool = true) -> SurfaceChrome {
+        SurfaceChrome(
+            borderColor: controlBorder,
+            borderHoveredColor: controlBorderStrong,
+            borderFocusedColor: controlBorderStrong,
+            borderPressedColor: controlBorderStrong,
+            borderWidth: 1,
+            focusRingColor: ControlPalette.opaque(focusTint).opacity(Double(ControlPalette.focusRingAlpha)),
+            focusRingWidth: MacOSControlMetrics.FocusRing.strokeWidth,
+            shadowColor: shadow ? ControlPalette.ambientShadow : .clear,
+            shadowHoveredColor: shadow ? ControlPalette.ambientShadow : .clear,
+            shadowFocusedColor: shadow ? ControlPalette.ambientShadow : .clear,
+            shadowPressedColor: .clear,
+            shadowOffset: Point(x: 0, y: 1),
+            shadowSpread: shadow ? 1 : 0
+        )
+    }
+
+    /// Ambient 1pt drop shadow shared by every raised control. Neutral
+    /// black at low alpha — the tinted glows the accent and destructive
+    /// styles used to cast are not a macOS affordance.
+    public static let ambientShadow = ControlPalette.black(0.12)
+
+    /// Keyboard focus rings on macOS are a clearly visible accent halo,
+    /// not the ~0.28 whisper the hand-tuned chrome used.
+    public static let focusRingAlpha: Float = 0.55
+
+    /// Opacity a disabled control's *content* is drawn at. AppKit dims the
+    /// entire disabled cell — label, glyph and all — rather than only
+    /// swapping the surface fill, which is why a disabled button used to be
+    /// pixel-identical to an enabled one everywhere except its background.
+    public static let disabledContentOpacity: Double = 0.35
+}
+
+/// The glyph a `SecureField` masks its content with.
+///
+/// macOS uses U+2022 BULLET — a round dot centred on the line box. The
+/// ASCII asterisk that used to stand in sits high on the line and reads as
+/// a placeholder string rather than masked input.
+let secureFieldMaskCharacter: Character = "\u{2022}"

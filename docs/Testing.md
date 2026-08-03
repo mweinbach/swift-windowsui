@@ -427,6 +427,7 @@ Visual checks:
 - `scripts/demo-screenshot.ps1` builds the shared demo view through `WinSwiftUIRendererSnapshotter`, pulls the raw retained runtime scene, rasterizes it offscreen, and writes `artifacts/demo-screenshot.png`.
 - Add `-AllScreens` to `demo-screenshot.ps1` to capture all three demo tabs in one run: `artifacts/demo-screenshot-dashboard.png`, `artifacts/demo-screenshot-settings.png`, and `artifacts/demo-screenshot-data.png`. Default behavior (a single dashboard shot) is unchanged.
 - The underlying `swift-windowsui-snapshot` executable also accepts `--screen <dashboard|settings|data>` to render a single non-default tab directly; the default is `dashboard`.
+- `--appearance <light|dark>` (and `-Appearance` on `demo-screenshot.ps1`) wraps the demo in `.preferredColorScheme(...)`. Light-mode runs write `artifacts/demo-screenshot-<screen>-light.png` so both appearances can be captured side by side; the default is `dark`. Before this flag existed there was no way to render light mode at all, which is why control chrome could silently ignore `colorScheme`.
 - Add `-FrameDebug` to either command to force the `RenderFrame` fallback path.
 - `demo-screenshot.ps1` does not depend on desktop window visibility, monitor placement, or foreground focus. It also leaves the raw BMP source next to the PNG as `*.raw.bmp` for inspection.
 

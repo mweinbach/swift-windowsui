@@ -72,13 +72,31 @@ final class MacOSDesignParityTests: XCTestCase {
     func testDefaultControlChromeMatchesMacOS() async {
         let chrome = SurfaceChrome.default
         XCTAssertEqual(chrome.borderWidth, 1, "Standard controls use a hairline border")
-        XCTAssertEqual(chrome.focusRingWidth, 2, "Focus ring matches macOS stroke width")
+        // One focus-ring number across both pinned sources: this used to say
+        // 2 while `MacOSControlMetrics.FocusRing.strokeWidth` said 4, with
+        // both documented as "the" macOS value.
+        XCTAssertEqual(chrome.focusRingWidth, 4, "Focus ring matches macOS stroke width")
+        XCTAssertEqual(chrome.focusRingWidth, SurfaceChrome.focusRingStrokeWidth)
     }
 
     func testElevatedButtonChromeMatchesMacOS() async {
         let chrome = SurfaceChrome.elevatedButton
         XCTAssertEqual(chrome.borderWidth, 1)
-        XCTAssertEqual(chrome.focusRingWidth, 2)
+        XCTAssertEqual(chrome.focusRingWidth, 4)
+        XCTAssertEqual(chrome.focusRingWidth, SurfaceChrome.focusRingStrokeWidth)
+    }
+
+    func testControlSurfaceSheenIsBigSurFlat() async {
+        // Apple retired the glossy bevel with Yosemite; the 0.82 end stop
+        // this used to carry is an 18% luminance drop on every control.
+        XCTAssertEqual(Controls.surfaceSheenFactor, 0.96, accuracy: 0.0001)
+        XCTAssertEqual(Controls.grooveSheenFactor, 0.90, accuracy: 0.0001)
+    }
+
+    func testPushButtonCornerRadiusIsARoundedRect() async {
+        XCTAssertEqual(MacOSControlMetrics.Button.regularCornerRadius, 6)
+        XCTAssertEqual(MacOSControlMetrics.Button.smallCornerRadius, 4)
+        XCTAssertEqual(MacOSControlMetrics.Button.largeCornerRadius, 8)
     }
 
     func testControlAnimationStyleDefaultsMatchMacOSBigSur() async {

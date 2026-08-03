@@ -30,13 +30,20 @@ final class ControlChromePolishTests: XCTestCase {
             )
             assertChromeDescendantFramesWithinBounds(node)
             let row = tryUnwrap(node.children.first)
-            XCTAssertEqual(row.children.count, 3)
-            let decrement = row.children[1]
-            let increment = row.children[2]
+            // NSStepper is a vertical pair inside one bezel beside the
+            // label: [label slot][bezel[increment][decrement]].
+            XCTAssertEqual(row.children.count, 2)
+            let bezel = row.children[1]
+            XCTAssertEqual(bezel.children.count, 2)
+            let increment = bezel.children[0]
+            let decrement = bezel.children[1]
 
-            // The pair sits flush (joined) with per-corner radii.
+            // The halves sit flush (joined) with per-corner radii, stacked
+            // up-chevron over down-chevron.
             XCTAssertEqual(
-                decrement.resolvedFrame.maxX, increment.resolvedFrame.minX, accuracy: 0.51)
+                increment.resolvedFrame.maxY, decrement.resolvedFrame.minY, accuracy: 0.51)
+            XCTAssertEqual(
+                increment.resolvedFrame.minX, decrement.resolvedFrame.minX, accuracy: 0.51)
             XCTAssertNotNil(decrement.cornerRadii)
             XCTAssertNotNil(increment.cornerRadii)
 
@@ -72,10 +79,10 @@ final class ControlChromePolishTests: XCTestCase {
             let pair = tryUnwrap(node.children.first)
             XCTAssertEqual(pair.children.count, 2)
             XCTAssertEqual(
-                pair.children[0].resolvedFrame.maxX,
-                pair.children[1].resolvedFrame.minX,
+                pair.children[0].resolvedFrame.maxY,
+                pair.children[1].resolvedFrame.minY,
                 accuracy: 0.51,
-                "labelsHidden stepper buttons should sit flush"
+                "labelsHidden stepper halves should sit flush, stacked vertically"
             )
         }
     }
@@ -126,7 +133,10 @@ final class ControlChromePolishTests: XCTestCase {
             // Unpinned: the component node is the vertical label+picker
             // stack itself; find the recessed track by its chrome.
             let shell = tryUnwrap(
-                firstNode(in: node) { $0.cornerRadius == 12 && $0.clipsToBounds && $0.children.count == 2 },
+                firstNode(in: node) {
+                    $0.cornerRadius == MacOSControlMetrics.Button.regularCornerRadius && $0.clipsToBounds
+                        && $0.children.count == 2
+                },
                 message: "segmented track not found"
             )
             XCTAssertEqual(
@@ -239,10 +249,13 @@ final class ControlChromePolishTests: XCTestCase {
                 firstNode(in: node) { $0.nodeTag == "selection:2" },
                 message: "selected row not found"
             )
-            // Selected-row border + fill stay painted at compact width.
-            XCTAssertGreaterThan(selectedRow.borderColor.alpha, 0.4)
-            XCTAssertGreaterThan(selectedRow.backgroundColor?.alpha ?? 0, 0.1)
-            XCTAssertEqual(selectedRow.cornerRadius, 10, accuracy: 0.01)
+            // A selected row is a solid accent fill with no border, as
+            // macOS draws it — the 16% wash under a 52% outline it used to
+            // paint read as an outlined chip rather than a selected row.
+            XCTAssertEqual(selectedRow.borderWidth, 0)
+            XCTAssertEqual(selectedRow.backgroundColor?.alpha ?? 0, 1, accuracy: 0.01)
+            XCTAssertEqual(
+                selectedRow.cornerRadius, MacOSControlMetrics.Button.regularCornerRadius, accuracy: 0.01)
             // 28pt minimum row height survives the compact width.
             XCTAssertGreaterThanOrEqual(selectedRow.resolvedFrame.height, 28 - 0.51)
             // Hover highlight stays installed.

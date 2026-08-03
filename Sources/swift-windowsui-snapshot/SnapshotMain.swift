@@ -11,7 +11,10 @@ struct SwiftWindowsUISnapshotTool {
         let options = try SnapshotOptions.parse(CommandLine.arguments.dropFirst())
         let model = DemoDashboardModel()
         model.selectedScreen = options.screen
-        let view = DemoRootView(model: model)
+        // `--appearance` is what makes light mode renderable at all: without
+        // it there was no way to produce a light-mode snapshot, so the fact
+        // that control chrome ignored `colorScheme` could not be seen.
+        let view = DemoRootView(model: model).preferredColorScheme(options.appearance)
         let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
             of: view,
             size: IntSize(width: Int32(options.width), height: Int32(options.height)),
@@ -55,6 +58,7 @@ struct SwiftWindowsUISnapshotTool {
         print("Backend=\(backendName)")
         print("Mode=\(options.mode.rawValue)")
         print("Screen=\(options.screen.rawValue)")
+        print("Appearance=\(options.appearance == .light ? "light" : "dark")")
         print("Format=\(format.rawValue)")
         print("Size=\(bitmap.width)x\(bitmap.height)")
         print("ScenePrimitives=\(snapshot.scene.primitiveCount)")
@@ -88,6 +92,7 @@ private struct SnapshotOptions {
     var format: SnapshotFormat
     var generateHTMLReport: Bool
     var screen: DemoScreen
+    var appearance: ColorScheme
 
     static func parse<S: Sequence>(_ arguments: S) throws -> SnapshotOptions where S.Element == String {
         var output = URL(fileURLWithPath: "artifacts/demo-screenshot.bmp")
@@ -99,6 +104,7 @@ private struct SnapshotOptions {
         var format: SnapshotFormat? = nil
         var generateHTMLReport = false
         var screen = DemoScreen.dashboard
+        var appearance = ColorScheme.dark
 
         var normalizedArguments = Array(arguments)
         if normalizedArguments.first == "--" {
@@ -143,6 +149,16 @@ private struct SnapshotOptions {
                     throw SnapshotError.invalidArgument("--screen must be dashboard, settings, or data.")
                 }
                 screen = parsed
+            case "--appearance":
+                let value = try requireValue(after: argument, from: &iterator)
+                switch value {
+                case "light":
+                    appearance = .light
+                case "dark":
+                    appearance = .dark
+                default:
+                    throw SnapshotError.invalidArgument("--appearance must be light or dark.")
+                }
             case "--help", "-h":
                 throw SnapshotError.help
             default:
@@ -177,7 +193,8 @@ private struct SnapshotOptions {
             backend: resolvedBackend,
             format: resolvedFormat,
             generateHTMLReport: generateHTMLReport,
-            screen: screen
+            screen: screen,
+            appearance: appearance
         )
     }
 
@@ -253,6 +270,8 @@ private enum SnapshotError: Error, CustomStringConvertible {
                   --html-report           Generate an HTML inspection report
                   --screen <dashboard|settings|data>
                                           Demo tab to render (default: dashboard)
+                  --appearance <light|dark>
+                                          Color scheme to render in (default: dark)
                   -h, --help              Show this help message
                 """
         case .invalidArgument(let message):

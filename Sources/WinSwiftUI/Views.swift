@@ -7791,6 +7791,10 @@ public struct Divider: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let isVertical = context.stackAxis == .horizontal
         let thickness = retainedHairlineThickness(for: context)
+        // NSColor.separatorColor: white/black at 10%. The 0.22 white this
+        // used to draw is roughly twice the macOS rule and carried the same
+        // blue cast as the rest of the retired palette.
+        let separatorColor = context.controlPalette.separator
         return Component { _ in
             // A Divider has thickness on one axis and no extent of its own
             // on the other: it fills whatever its container proposes across,
@@ -7802,7 +7806,7 @@ public struct Divider: View {
                     width: isVertical ? thickness : 0,
                     height: isVertical ? 0 : thickness
                 ),
-                backgroundColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22),
+                backgroundColor: separatorColor,
                 isHitTestVisible: false
             )
             node.layoutFillAxes = isVertical ? .verticalOnly : .horizontalOnly
@@ -9220,64 +9224,76 @@ public struct List: View {
                     mainAlignment: alignmentAnchor.map { stackMainAlignment(from: $0.y) } ?? .start
                 ),
                 isHitTestVisible: false,
-                children: content.enumerated().map { pair in
-                    let index = pair.offset
-                    let view = pair.element
-                    let tag = view.selectionTag
-                    let isSelected = tag.map { selectionMode?.contains($0) == true } == true
-                    let rowContext =
-                        isSelected
-                        ? context.withEnvironmentValue(\.backgroundProminence, .increased)
-                        : context
-                    var row = view.makeComponent(context: rowContext).makeNode(runtime: runtime)
-                    if context.isSelectionDisabled, row.selectionDisabledOverride == nil {
-                        row.selectionDisabled = true
-                    }
-                    if context.isDeleteDisabled, row.deleteDisabledOverride == nil {
-                        row.deleteDisabled = true
-                    }
-                    if context.isMoveDisabled, row.moveDisabledOverride == nil {
-                        row.moveDisabled = true
-                    }
-                    var isSelectionBoundRow = false
-                    if let selectionMode, let tag, !row.selectionDisabled {
-                        row = Self.selectableRow(
-                            wrapping: row,
-                            tag: tag,
-                            selectionMode: selectionMode,
+                children: Self.rowNodesWithSeparators(
+                    listChrome: listChrome,
+                    palette: context.controlPalette,
+                    displayScale: context.displayScale,
+                    rows: content.enumerated().map { pair -> (node: ViewNode, isSelected: Bool) in
+                        let index = pair.offset
+                        let view = pair.element
+                        let tag = view.selectionTag
+                        let isSelected = tag.map { selectionMode?.contains($0) == true } == true
+                        // Content on an emphasised selection fill inverts to
+                        // `alternateSelectedControlTextColor` (white), as AppKit
+                        // does. A row whose content sets its own colour still
+                        // wins — this only supplies the inherited default.
+                        var rowContext = context
+                        if isSelected {
+                            rowContext = rowContext.withEnvironmentValue(\.backgroundProminence, .increased)
+                            if context.environmentValues.controlActiveState != .inactive {
+                                rowContext = rowContext.withForegroundColor(context.controlPalette.selectedContentLabel)
+                            }
+                        }
+                        var row = view.makeComponent(context: rowContext).makeNode(runtime: runtime)
+                        if context.isSelectionDisabled, row.selectionDisabledOverride == nil {
+                            row.selectionDisabled = true
+                        }
+                        if context.isDeleteDisabled, row.deleteDisabledOverride == nil {
+                            row.deleteDisabled = true
+                        }
+                        if context.isMoveDisabled, row.moveDisabledOverride == nil {
+                            row.moveDisabled = true
+                        }
+                        var isSelectionBoundRow = false
+                        if let selectionMode, let tag, !row.selectionDisabled {
+                            row = Self.selectableRow(
+                                wrapping: row,
+                                tag: tag,
+                                selectionMode: selectionMode,
+                                isSelected: isSelected,
+                                isEditing: isEditing,
+                                context: context,
+                                runtime: runtime,
+                                navigationState: navigationState
+                            )
+                            isSelectionBoundRow = true
+                        }
+                        row = Self.alternatingRowIfNeeded(
+                            row,
+                            index: index,
                             isSelected: isSelected,
-                            isEditing: isEditing,
-                            context: context,
-                            runtime: runtime,
-                            navigationState: navigationState
+                            listChrome: listChrome
                         )
-                        isSelectionBoundRow = true
+                        // Rows keep a consistent minimum height so selection and
+                        // hover chrome never changes row metrics. An explicit
+                        // `defaultMinListRowHeight` environment value wins over
+                        // the built-in default for selection-bound rows.
+                        let rowMinHeight =
+                            context.defaultMinListRowHeight > 0
+                            ? context.defaultMinListRowHeight
+                            : max(
+                                listChrome.rowMinHeight,
+                                isSelectionBoundRow ? Self.defaultSelectionRowMinHeight : 0
+                            )
+                        if rowMinHeight > 0 {
+                            row.applyDefaultMinimumHeight(rowMinHeight)
+                        }
+                        if isSelectionBoundRow, context.isEnabled, let tag {
+                            navigationState.registerRow(tag: tag, node: row)
+                        }
+                        return (row, isSelected)
                     }
-                    row = Self.alternatingRowIfNeeded(
-                        row,
-                        index: index,
-                        isSelected: isSelected,
-                        listChrome: listChrome
-                    )
-                    // Rows keep a consistent minimum height so selection and
-                    // hover chrome never changes row metrics. An explicit
-                    // `defaultMinListRowHeight` environment value wins over
-                    // the built-in default for selection-bound rows.
-                    let rowMinHeight =
-                        context.defaultMinListRowHeight > 0
-                        ? context.defaultMinListRowHeight
-                        : max(
-                            listChrome.rowMinHeight,
-                            isSelectionBoundRow ? Self.defaultSelectionRowMinHeight : 0
-                        )
-                    if rowMinHeight > 0 {
-                        row.applyDefaultMinimumHeight(rowMinHeight)
-                    }
-                    if isSelectionBoundRow, context.isEnabled, let tag {
-                        navigationState.registerRow(tag: tag, node: row)
-                    }
-                    return row
-                }
+                )
             )
             navigationState.registerViewport(node: node)
             // A List is greedy on macOS: it takes the space it is offered
@@ -9337,7 +9353,76 @@ public struct List: View {
     /// Minimum total height applied to selection-bound rows when no explicit
     /// `defaultMinListRowHeight` environment value is set. Keeps row metrics
     /// stable regardless of selection, hover, or focus chrome.
+    /// Interleaves the style's hairline rule between adjacent rows.
+    ///
+    /// macOS rules *between* rows: never after the last one, and never on
+    /// either side of a selected row (the selection fill is the boundary).
+    /// The rule is one physical pixel at any backing scale, like an AppKit
+    /// separator — a 1pt line would double to 2px at 2x.
+    @MainActor
+    private static func rowNodesWithSeparators(
+        listChrome: RetainedListChrome,
+        palette: ControlPalette,
+        displayScale: Double,
+        rows: [(node: ViewNode, isSelected: Bool)]
+    ) -> [ViewNode] {
+        guard listChrome.drawsRowSeparators, rows.count > 1 else {
+            return rows.map(\.node)
+        }
+
+        let thickness = displayScale > 0 ? 1 / displayScale : 1
+        var children: [ViewNode] = []
+        children.reserveCapacity(rows.count * 2 - 1)
+        @MainActor func isGroupedContainer(_ node: ViewNode) -> Bool {
+            node.sectionHeaderChildCount > 0 || node.sectionFooterChildCount > 0
+        }
+
+        for (index, row) in rows.enumerated() {
+            let previous: (node: ViewNode, isSelected: Bool)? = index > 0 ? rows[index - 1] : nil
+            // macOS never rules between grouped sections — each section is
+            // its own box — nor on either side of a selected row, where the
+            // selection fill is the boundary.
+            if let previous, !row.isSelected, !previous.isSelected,
+                !isGroupedContainer(row.node), !isGroupedContainer(previous.node)
+            {
+                let rule = Controls.panel(
+                    preferredSize: Size(width: 0, height: thickness),
+                    backgroundColor: palette.separator,
+                    isHitTestVisible: false
+                )
+                rule.layoutFillAxes = .horizontalOnly
+                if listChrome.separatorLeadingInset > 0 {
+                    children.append(
+                        Controls.panel(
+                            layoutMode: .stack(
+                                .horizontal(
+                                    padding: EdgeInsets(
+                                        top: 0,
+                                        leading: listChrome.separatorLeadingInset,
+                                        bottom: 0,
+                                        trailing: 0
+                                    ),
+                                    alignment: .stretch
+                                )),
+                            isHitTestVisible: false,
+                            children: [rule]
+                        )
+                    )
+                } else {
+                    children.append(rule)
+                }
+            }
+            children.append(row.node)
+        }
+        return children
+    }
+
     private static var defaultSelectionRowMinHeight: Double { 28 }
+
+    /// Corner radius of the selection fill. macOS inset/sidebar selection is
+    /// a small ~6pt round rect; the 10 this used to use reads as a floating
+    /// chip on a 28pt row.
+    private static var selectionRowCornerRadius: Double { MacOSControlMetrics.Button.regularCornerRadius }
 
     private static func selectableRow(
         wrapping row: ViewNode,
@@ -9368,11 +9453,23 @@ public struct List: View {
         // Border width and padding stay constant across selection states so
         // toggling selection never changes the painted row extents; the
         // unselected border is simply fully transparent.
+        //
+        // macOS fills a selected row *solid* with
+        // `selectedContentBackgroundColor` and draws no border at all — the
+        // 16% wash under a 52% outline this used to paint reads as an
+        // outlined chip, not a selected row. An unfocused list falls back to
+        // the neutral unemphasized fill, as AppKit does when the table
+        // loses key focus.
+        let palette = context.controlPalette
+        let selectionFill =
+            context.environmentValues.controlActiveState == .inactive
+            ? palette.unemphasizedSelectedBackground
+            : palette.selectedContentBackground(tint: selectionTint)
         let rowNode = Controls.stackPanel(
-            backgroundColor: isSelected ? selectionTint.opacity(0.16) : nil,
-            borderColor: isSelected ? selectionTint.opacity(0.52) : .clear,
-            borderWidth: 1,
-            cornerRadius: 10,
+            backgroundColor: isSelected ? selectionFill : nil,
+            borderColor: .clear,
+            borderWidth: 0,
+            cornerRadius: Self.selectionRowCornerRadius,
             stackLayout: .vertical(
                 spacing: 0,
                 padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8),
@@ -12632,18 +12729,76 @@ private func retainedSearchChrome(
     return nil
 }
 extension ControlSize {
-    fileprivate var singleLineTextInputSize: Size {
+    /// Every shipped control height is `macOS reference + this`.
+    ///
+    /// macOS is designed for a trackpad; Windows is a mouse-and-touch
+    /// platform whose UX guidance asks for larger pointer targets. Rather
+    /// than let each control drift on its own — which is how the text
+    /// field reached 36pt against a 21pt reference and the pop-up button
+    /// 36 against 22 — the divergence is one named constant applied to the
+    /// reference constants. `MacOSControlMetricsWiringTests` asserts the
+    /// shipped sizes equal reference + delta, so a new divergence cannot
+    /// be introduced without changing this number and its doc row.
+    static var windowsPointerPadding: Double { 6 }
+
+    /// Scale applied to the pointer padding per control size, so a `.mini`
+    /// control is not padded as much as an `.extraLarge` one.
+    var pointerPaddingScale: Double {
         switch self {
         case .mini:
-            return Size(width: 180, height: 28)
+            return 0.5
         case .small:
-            return Size(width: 200, height: 32)
+            return 0.75
         case .regular:
-            return Size(width: 220, height: 36)
+            return 1
         case .large:
-            return Size(width: 260, height: 44)
+            return 1.25
         case .extraLarge:
-            return Size(width: 300, height: 52)
+            return 1.5
+        }
+    }
+
+    /// `macOS reference height + the Windows pointer delta`, rounded to a
+    /// whole point.
+    func ergonomicHeight(reference: Double) -> Double {
+        (reference + ControlSize.windowsPointerPadding * pointerPaddingScale).rounded()
+    }
+
+    /// Reference height for a size variant, interpolated from the two
+    /// heights macOS publishes (regular and large).
+    func referenceHeight(regular: Double, large: Double) -> Double {
+        switch self {
+        case .mini:
+            return (regular - 4).rounded()
+        case .small:
+            return (regular - 2).rounded()
+        case .regular:
+            return regular
+        case .large:
+            return large
+        case .extraLarge:
+            return (large + (large - regular)).rounded()
+        }
+    }
+
+    var singleLineTextInputSize: Size {
+        let height = ergonomicHeight(
+            reference: referenceHeight(
+                regular: MacOSControlMetrics.TextField.regularHeight,
+                large: MacOSControlMetrics.TextField.largeHeight
+            )
+        )
+        switch self {
+        case .mini:
+            return Size(width: 180, height: height)
+        case .small:
+            return Size(width: 200, height: height)
+        case .regular:
+            return Size(width: 220, height: height)
+        case .large:
+            return Size(width: 260, height: height)
+        case .extraLarge:
+            return Size(width: 300, height: height)
         }
     }
 
@@ -12677,34 +12832,35 @@ extension ControlSize {
         }
     }
 
-    fileprivate var pickerMenuPreferredSize: Size {
+    var pickerMenuPreferredSize: Size {
+        let height = ergonomicHeight(
+            reference: referenceHeight(
+                regular: MacOSControlMetrics.PopUpButton.regularHeight,
+                large: MacOSControlMetrics.PopUpButton.largeHeight
+            )
+        )
         switch self {
         case .mini:
-            return Size(width: 160, height: 30)
+            return Size(width: 160, height: height)
         case .small:
-            return Size(width: 180, height: 32)
+            return Size(width: 180, height: height)
         case .regular:
-            return Size(width: 200, height: 36)
+            return Size(width: 200, height: height)
         case .large:
-            return Size(width: 232, height: 44)
+            return Size(width: 232, height: height)
         case .extraLarge:
-            return Size(width: 264, height: 52)
+            return Size(width: 264, height: height)
         }
     }
 
-    fileprivate var stepperButtonPreferredSize: Size {
-        switch self {
-        case .mini:
-            return Size(width: 28, height: 24)
-        case .small:
-            return Size(width: 30, height: 26)
-        case .regular:
-            return Size(width: 34, height: 30)
-        case .large:
-            return Size(width: 40, height: 36)
-        case .extraLarge:
-            return Size(width: 46, height: 42)
-        }
+    /// One half of the vertical NSStepper bezel: `Stepper.buttonSize`
+    /// (19x11) plus the pointer delta on the height only — a stepper half
+    /// stays narrow, it is the stack of two that has to stay hittable.
+    var stepperButtonPreferredSize: Size {
+        let reference = MacOSControlMetrics.Stepper.buttonSize
+        let width = (reference.width + ControlSize.windowsPointerPadding * pointerPaddingScale).rounded()
+        let height = (reference.height + ControlSize.windowsPointerPadding * 0.5 * pointerPaddingScale).rounded()
+        return Size(width: width, height: height)
     }
 
     fileprivate var sliderPreferredSize: Size {
@@ -12722,18 +12878,21 @@ extension ControlSize {
         }
     }
 
-    fileprivate var progressPreferredSize: Size {
+    /// A progress bar is not a pointer target, so it takes the macOS
+    /// thickness (`ProgressBar.regularHeight`) with no ergonomic delta.
+    var progressPreferredSize: Size {
+        let reference = MacOSControlMetrics.ProgressBar.regularHeight
         switch self {
         case .mini:
-            return Size(width: 160, height: 5)
+            return Size(width: 160, height: reference - 2)
         case .small:
-            return Size(width: 180, height: 6)
+            return Size(width: 180, height: reference - 1)
         case .regular:
-            return Size(width: 200, height: 8)
+            return Size(width: 200, height: reference)
         case .large:
-            return Size(width: 240, height: 10)
+            return Size(width: 240, height: reference + 2)
         case .extraLarge:
-            return Size(width: 280, height: 12)
+            return Size(width: 280, height: reference + 4)
         }
     }
 
@@ -12752,14 +12911,15 @@ extension ControlSize {
         }
     }
 
+    /// NSColorWell: a 34x22 well at regular size.
     fileprivate var colorSwatchPreferredSize: Size {
         switch self {
         case .mini:
-            return Size(width: 28, height: 22)
+            return Size(width: 28, height: 18)
         case .small:
-            return Size(width: 30, height: 24)
+            return Size(width: 30, height: 20)
         case .regular:
-            return Size(width: 34, height: 28)
+            return Size(width: 34, height: 22)
         case .large:
             return Size(width: 40, height: 34)
         case .extraLarge:
@@ -12790,13 +12950,15 @@ private func textInputComponent(
             placeholder
             ?? labelViews.flatMap { retainedPlainText(from: $0, context: context, runtime: runtime) }
         let displayText =
-            isSecure && !isShowingPlaceholder ? String(repeating: "*", count: currentText.count) : currentText
+            isSecure && !isShowingPlaceholder
+            ? String(repeating: secureFieldMaskCharacter, count: currentText.count) : currentText
+        let inputPalette = context.controlPalette
         let textColor: Color
         if !context.isEnabled {
-            textColor = Color(red: 0.55, green: 0.58, blue: 0.62, alpha: 0.78)
+            textColor = inputPalette.disabledLabel
         } else if isShowingPlaceholder {
             // Placeholder renders at the macOS secondary-label prominence.
-            textColor = Color(red: 0.66, green: 0.70, blue: 0.76, alpha: 0.55)
+            textColor = inputPalette.tertiaryLabel
         } else {
             textColor = context.foregroundColor
         }
@@ -12833,7 +12995,8 @@ private func textInputComponent(
         if let baselineOffset = context.baselineOffset, baselineOffset != 0 {
             labelNode.transform = labelNode.transform.concatenating(.translation(x: 0, y: -Double(baselineOffset)))
         }
-        let style = context.textFieldStyle.resolvedTextInputStyle(isEnabled: context.isEnabled)
+        let style = context.textFieldStyle.resolvedTextInputStyle(
+            isEnabled: context.isEnabled, palette: context.controlPalette)
         let node = Controls.stackPanel(
             preferredSize: preferredSize,
             backgroundColor: style.backgroundColor,
@@ -12889,7 +13052,7 @@ private func textInputComponent(
             guard let marked = node.textInputMarkedText, !marked.isEmpty else {
                 return nil
             }
-            return isSecure ? String(repeating: "*", count: marked.count) : marked
+            return isSecure ? String(repeating: secureFieldMaskCharacter, count: marked.count) : marked
         }
         @MainActor func refreshChrome() {
             updateTextInputEditingChrome(
@@ -12920,7 +13083,7 @@ private func textInputComponent(
             }
             let sourceText =
                 isSecure && !currentText.isEmpty
-                ? String(repeating: "*", count: currentText.count) : currentText
+                ? String(repeating: secureFieldMaskCharacter, count: currentText.count) : currentText
             let selection = node.textInputSelection?.editableCharacterRange(in: sourceText)
             let caret = clampedTextOffset(node.textInputCaretOffset, in: sourceText)
             let display = textInputCompositionDisplayState(
@@ -12966,8 +13129,9 @@ private func textInputComponent(
         node.isFocusable = true
         node.onFocusEnter = { [weak node] in
             node?.borderColor = context.tint
-            node?.outlineColor = context.tint.opacity(0.28)
-            node?.outlineWidth = 2
+            node?.outlineColor = ControlPalette.opaque(context.tint)
+                .opacity(Double(ControlPalette.focusRingAlpha))
+            node?.outlineWidth = MacOSControlMetrics.FocusRing.strokeWidth
             onEditingChanged?(true)
             refreshChrome()
         }
@@ -13511,7 +13675,7 @@ private func textInputOffset(
         return 0
     }
 
-    let displayText = isSecure ? String(repeating: "*", count: text.count) : text
+    let displayText = isSecure ? String(repeating: secureFieldMaskCharacter, count: text.count) : text
     let localPoint = textInputContentPoint(labelNode: labelNode, rootPoint: point)
     let lineRanges = textInputHardLineRanges(in: displayText)
 
@@ -14484,11 +14648,13 @@ public struct ColorPicker: View {
         let labelViews = label
         let selection = selection
         let supportsOpacity = supportsOpacity
+        // A colour picker's label is a row label like any other. Forcing it
+        // to `.secondary` made "Accent Color" render dimmer than every
+        // sibling row in an otherwise uniform Form.
         let labelComponent = composeComponent(
             from: labelViews,
             context:
                 context
-                .withForegroundColor(.secondary)
                 .withTextAlignment(.leading)
                 .withLineLimit(1),
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
@@ -14497,29 +14663,41 @@ public struct ColorPicker: View {
 
         return Component { runtime in
             let color = selection.wrappedValue
-            let swatchNode = Controls.panel(
-                preferredSize: context.controlSize.colorSwatchPreferredSize,
+            let palette = context.controlPalette
+            // NSColorWell: a colour well with a hairline ring and a light
+            // inner gutter, and *no* hex readout — the 8-digit RGBA string
+            // this used to print next to the swatch is developer-facing
+            // text macOS never shows.
+            let wellFill = Controls.panel(
                 backgroundColor: color,
-                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.30),
-                borderWidth: 1,
-                cornerRadius: 6,
+                cornerRadius: 2,
                 isHitTestVisible: false
             )
-            let valueNode = Text(Self.hexValue(color, includesOpacity: supportsOpacity))
-                .monospaced()
-                .lineLimit(1)
-                .makeComponent(
-                    context:
-                        context
-                        .withTextAlignment(.trailing)
-                        .withLineLimit(1)
-                )
-                .makeNode(runtime: runtime)
+            // The well fills the gutter the bezel leaves it.
+            wellFill.layoutFillAxes = .both
+            let swatchNode = Controls.panel(
+                preferredSize: context.controlSize.colorSwatchPreferredSize,
+                backgroundColor: palette.controlSurface,
+                borderColor: palette.controlBorder,
+                borderWidth: 1,
+                cornerRadius: 4,
+                layoutMode: .stack(
+                    .vertical(
+                        padding: EdgeInsets(top: 2, leading: 2, bottom: 2, trailing: 2),
+                        alignment: .stretch,
+                        mainAlignment: .center
+                    )),
+                isHitTestVisible: false,
+                children: [wellFill]
+            )
             let controlNode = Controls.stackPanel(
                 stackLayout: .horizontal(spacing: 8, alignment: .center),
                 isHitTestVisible: context.isEnabled,
-                children: [swatchNode, valueNode]
+                children: [swatchNode]
             )
+            // The hex string is still the well's accessible value — it just
+            // is not painted next to it.
+            controlNode.accessibilityValue = Self.hexValue(color, includesOpacity: supportsOpacity)
 
             guard !context.labelsHidden, !labelViews.isEmpty else {
                 Self.configureInteraction(
@@ -15368,12 +15546,18 @@ public struct Picker<SelectionValue: Hashable>: View {
         options: [Option]
     ) -> ViewNode {
         // macOS segmented controls own their label metrics: compact
-        // single-line labels, dark on the raised selected pill and
-        // primary-colored otherwise. Without the cap the default body
-        // scale starves the segment and the label collapses to zero
-        // height (previously rendered as invisible segment labels). The
-        // restyle happens before the pills are built because the label's
-        // line box is what the segment padding is derived from.
+        // single-line labels. Without the cap the default body scale
+        // starves the segment and the label collapses to zero height
+        // (previously rendered as invisible segment labels). The restyle
+        // happens before the pills are built because the label's line box
+        // is what the segment padding is derived from.
+        //
+        // Label colour comes from the appearance palette. The selected
+        // label used to be near-black on a near-white pill in *both*
+        // appearances - that is the light-mode NSSegmentedControl dropped
+        // into a dark app; dark mode raises a grey pill under a white
+        // label instead.
+        let palette = context.controlPalette
         for option in options {
             let isSelected = option.value.map { AnyHashable($0) == selectedAnyValue } ?? false
             let isEnabled = context.isEnabled && option.value != nil
@@ -15390,10 +15574,8 @@ public struct Picker<SelectionValue: Hashable>: View {
             style.lineBreakMode = .truncateTail
             style.color =
                 isEnabled
-                ? (isSelected
-                    ? Color(red: 0.09, green: 0.09, blue: 0.11, alpha: 1.0)
-                    : Color(red: 0.92, green: 0.95, blue: 1.0, alpha: 0.88))
-                : Color(red: 0.55, green: 0.58, blue: 0.62, alpha: 0.70)
+                ? (isSelected ? palette.segmentedSelectedLabel : palette.label)
+                : palette.disabledLabel
             option.node.textStyle = style
         }
 
@@ -15417,46 +15599,49 @@ public struct Picker<SelectionValue: Hashable>: View {
             // standard button sheen supplies the top-lighter gradient).
             // Unselected: transparent over the recessed track, brightening
             // on hover/press.
-            let palette =
+            let segmentPalette =
                 isSelected
                 ? SurfacePalette(
-                    idle: Color(red: 0.94, green: 0.95, blue: 0.98, alpha: 1.0),
-                    hovered: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 1.0),
-                    focused: Color(red: 0.97, green: 0.98, blue: 1.0, alpha: 1.0),
-                    pressed: Color(red: 0.86, green: 0.88, blue: 0.93, alpha: 1.0),
-                    activated: Color(red: 0.90, green: 0.92, blue: 0.96, alpha: 1.0)
+                    idle: palette.segmentedSelectedFill,
+                    hovered: ControlPalette.lightened(palette.segmentedSelectedFill, by: 0.08),
+                    focused: ControlPalette.lightened(palette.segmentedSelectedFill, by: 0.08),
+                    pressed: ControlPalette.darkened(palette.segmentedSelectedFill, by: 0.10),
+                    activated: ControlPalette.darkened(palette.segmentedSelectedFill, by: 0.10),
+                    disabledForeground: palette.disabledLabel
                 )
                 : SurfacePalette(
                     idle: .clear,
-                    hovered: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
-                    focused: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.11),
-                    pressed: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16),
-                    activated: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16)
+                    hovered: palette.quaternaryFill,
+                    focused: palette.quaternaryFill,
+                    pressed: palette.tertiaryFill,
+                    activated: palette.tertiaryFill,
+                    disabledForeground: palette.disabledLabel
                 )
 
             return Controls.button(
                 runtime: runtime,
                 layoutPriority: 1,
-                cornerRadius: 8,
-                palette: palette,
+                cornerRadius: MacOSControlMetrics.Button.smallCornerRadius,
+                palette: segmentPalette,
                 chrome: SurfaceChrome(
-                    borderColor: isSelected ? Color(red: 0.10, green: 0.10, blue: 0.14, alpha: 0.18) : .clear,
+                    borderColor: isSelected ? palette.controlBorder : .clear,
                     borderWidth: isSelected ? 1 : 0,
-                    focusRingColor: context.tint.opacity(0.28),
-                    focusRingWidth: 2,
-                    shadowColor: isSelected ? Color(red: 0.0, green: 0.0, blue: 0.02, alpha: 0.32) : .clear,
-                    shadowPressedColor: isSelected ? Color(red: 0.0, green: 0.0, blue: 0.02, alpha: 0.18) : .clear,
+                    focusRingColor: ControlPalette.opaque(context.tint)
+                        .opacity(Double(ControlPalette.focusRingAlpha)),
+                    focusRingWidth: MacOSControlMetrics.FocusRing.strokeWidth,
+                    shadowColor: isSelected ? ControlPalette.ambientShadow : .clear,
+                    shadowPressedColor: .clear,
                     shadowOffset: Point(x: 0, y: 1),
-                    shadowSpread: 2
+                    shadowSpread: 1
                 ),
                 clipsToBounds: true,
                 layoutMode: .stack(
                     .vertical(
                         padding: EdgeInsets(
                             top: segmentVerticalPadding,
-                            leading: 8,
+                            leading: 10,
                             bottom: segmentVerticalPadding,
-                            trailing: 8
+                            trailing: 10
                         ),
                         alignment: .center,
                         mainAlignment: .center
@@ -15489,16 +15674,16 @@ public struct Picker<SelectionValue: Hashable>: View {
         // Recessed track: top-darker gradient reads as an inset groove the
         // raised selected pill sits in. Track padding/spacing stay at the
         // pinned 4pt geometry.
-        let trackColor = Color(red: 0.06, green: 0.08, blue: 0.12, alpha: 0.78)
+        let trackColor = palette.segmentedTrackFill
         let track = Controls.stackPanel(
             backgroundColor: trackColor,
             backgroundGradient: .linear(
                 SwiftWindowsGraphics.LinearGradient(
-                    startColor: trackColor,
-                    endColor: Color(red: 0.11, green: 0.14, blue: 0.20, alpha: 0.72))),
-            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.07),
+                    startColor: Controls.shaded(trackColor, by: Controls.grooveSheenFactor),
+                    endColor: trackColor)),
+            borderColor: palette.separator,
             borderWidth: 1,
-            cornerRadius: 12,
+            cornerRadius: MacOSControlMetrics.Button.regularCornerRadius,
             clipsToBounds: true,
             stackLayout: .horizontal(
                 spacing: 4,
@@ -15521,7 +15706,7 @@ public struct Picker<SelectionValue: Hashable>: View {
     }
 
     /// Interior padding above and below the segment pills.
-    private static var segmentedTrackVerticalPadding: Double { 1 }
+    private static var segmentedTrackVerticalPadding: Double { 2 }
 
     /// Line box of a segment's label, used to derive the segment padding
     /// that lands the track on the macOS control height.
@@ -16282,45 +16467,54 @@ public struct Stepper: View {
         let increment = increment
 
         return Component { runtime in
-            // macOS renders the stepper as one joined segmented control:
-            // the left button is rounded on the left only, the right button
-            // on the right only, and the shared hairline borders meet as the
-            // divider. Per-corner radii keep the joined edge square.
-            let decrementNode = Self.controlButton(
-                runtime: runtime,
-                title: "-",
-                accessibilityName: "Decrement",
-                isEnabled: context.isEnabled && canDecrement(),
-                preferredSize: context.controlSize.stepperButtonPreferredSize,
-                cornerRadii: RetainedCornerRadii(topLeft: 12, bottomLeft: 12),
-                action: {
-                    decrement()
-                    context.invalidate()
-                }
-            )
+            // NSStepper is a *vertical* joined pair: an up chevron above a
+            // down chevron in one 19x22pt bezel beside the field. The
+            // side-by-side "-"/"+" pair this used to draw is the iOS
+            // UIStepper form factor, and the ASCII glyphs rendered as a
+            // thin dash next to a full-weight plus.
+            let halfSize = context.controlSize.stepperButtonPreferredSize
+            let outerRadius = MacOSControlMetrics.Button.smallCornerRadius
             let incrementNode = Self.controlButton(
                 runtime: runtime,
-                title: "+",
+                icon: .chevronUp,
                 accessibilityName: "Increment",
                 isEnabled: context.isEnabled && canIncrement(),
-                preferredSize: context.controlSize.stepperButtonPreferredSize,
-                cornerRadii: RetainedCornerRadii(topRight: 12, bottomRight: 12),
+                preferredSize: halfSize,
+                palette: context.controlPalette,
+                iconDisplayScale: context.iconRasterDisplayScale,
+                cornerRadii: RetainedCornerRadii(topLeft: outerRadius, topRight: outerRadius),
                 action: {
                     increment()
                     context.invalidate()
                 }
             )
+            let decrementNode = Self.controlButton(
+                runtime: runtime,
+                icon: .chevronDown,
+                accessibilityName: "Decrement",
+                isEnabled: context.isEnabled && canDecrement(),
+                preferredSize: halfSize,
+                palette: context.controlPalette,
+                iconDisplayScale: context.iconRasterDisplayScale,
+                cornerRadii: RetainedCornerRadii(bottomRight: outerRadius, bottomLeft: outerRadius),
+                action: {
+                    decrement()
+                    context.invalidate()
+                }
+            )
+            // The shared hairline where the two halves meet is the divider.
+            let stepperNode = Controls.stackPanel(
+                stackLayout: .vertical(spacing: 0, alignment: .stretch),
+                isHitTestVisible: false,
+                children: [incrementNode, decrementNode]
+            )
 
             guard !context.labelsHidden else {
-                return Controls.stackPanel(
-                    stackLayout: .horizontal(spacing: 0, alignment: .center),
-                    isHitTestVisible: false,
-                    children: [decrementNode, incrementNode]
-                )
+                return stepperNode
             }
 
             let labelNode = labelComponent.makeNode(runtime: runtime)
-            // The buttons sit flush as a joined pair; the label keeps the
+            // The bezel sits flush as a joined pair; the label keeps the
             // 8pt gap the separate pills used to provide.
             let labelSlot = Controls.panel(
                 layoutMode: .stack(
@@ -16334,21 +16528,23 @@ public struct Stepper: View {
             return Controls.stackPanel(
                 stackLayout: .horizontal(spacing: 0, alignment: .center),
                 isHitTestVisible: false,
-                children: [labelSlot, decrementNode, incrementNode]
+                children: [labelSlot, stepperNode]
             )
         }
     }
 
     private static func controlButton(
         runtime: RetainedViewRuntime,
-        title: String,
+        icon: SymbolIcon,
         accessibilityName: String,
         isEnabled: Bool,
         preferredSize: Size,
+        palette: ControlPalette,
+        iconDisplayScale: Double,
         cornerRadii: RetainedCornerRadii,
         action: @escaping @MainActor () -> Void
     ) -> ViewNode {
-        let surfaceStyle = ButtonSurfaceStyle.default
+        let surfaceStyle = ButtonSurfaceStyle.bordered(palette: palette)
         // Joined-pair chrome: keep the standard hairline border and focus
         // ring, but drop the elevated-button shadow — a hovering or pressed
         // segment must not cast onto its sibling in the joined pair.
@@ -16358,18 +16554,17 @@ public struct Stepper: View {
         joinedChrome.shadowFocusedColor = .clear
         joinedChrome.shadowPressedColor = .clear
         joinedChrome.shadowActivatedColor = .clear
-        let titleNode = Controls.label(
-            title,
-            color: isEnabled ? .white : surfaceStyle.palette.disabledForeground,
-            scale: 1.6,
-            weight: .bold,
-            lineBreakMode: .truncateTail,
-            maximumNumberOfLines: 1
+        let titleNode = Controls.icon(
+            icon,
+            preferredSize: Size(width: preferredSize.width - 6, height: preferredSize.height - 2),
+            color: isEnabled ? palette.label : palette.disabledLabel,
+            scale: Stepper.chevronGlyphScale,
+            displayScale: iconDisplayScale
         )
         let node = Controls.button(
             runtime: runtime,
             preferredSize: preferredSize,
-            cornerRadius: 12,
+            cornerRadius: MacOSControlMetrics.Button.smallCornerRadius,
             palette: surfaceStyle.palette,
             chrome: joinedChrome,
             // No self-clip: the painter falls back to `maxRadius` for
@@ -16385,11 +16580,16 @@ public struct Stepper: View {
             children: [titleNode]
         )
         node.cornerRadii = cornerRadii
-        // "+"/"-" glyphs are poor accessible names; default to the action
+        // Chevron glyphs are poor accessible names; default to the action
         // name (an explicit accessibilityLabel modifier still wins).
         node.accessibilityLabel = accessibilityName
         return node
     }
+
+    /// Glyph scale of the stepper chevrons. Each half is only
+    /// `MacOSControlMetrics.Stepper.buttonSize.height` tall, so the glyph
+    /// has to stay small enough to sit inside the bezel.
+    fileprivate static var chevronGlyphScale: Double { 0.9 }
 
     private static func resolvedDoubleStep(_ step: Double) -> Double {
         step.isFinite && step > 0 ? step : 1
@@ -18326,16 +18526,29 @@ public struct Button: View {
         // text (a bezel, a stretch stack, a segmented track), and macOS
         // centers the title in it. The app-wide default alignment is
         // leading, so the button states its own.
+        let effectiveButtonStyle =
+            resolvedButtonStyle == .automatic && !hasCustomSurfaceStyle ? context.buttonStyle : resolvedButtonStyle
+        // A destructive button that is not accent-filled carries its role in
+        // the *label*, as macOS does: standard bezel, red title.
+        var labelContext = context.withEnvironmentValue(\.multilineTextAlignment, .center)
+        if appliesDestructiveLabelTint, effectiveButtonStyle != .borderedProminent, !hasCustomSurfaceStyle {
+            labelContext = labelContext.withForegroundColor(.red)
+        }
         let labelComponent = composeComponent(
             from: label,
-            context: context.withEnvironmentValue(\.multilineTextAlignment, .center),
+            context: labelContext,
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center))
         )
 
         return Component { runtime in
             let labelNode = labelComponent.makeNode(runtime: runtime)
-            let buttonStyle =
-                resolvedButtonStyle == .automatic && !hasCustomSurfaceStyle ? context.buttonStyle : resolvedButtonStyle
+            // AppKit dims the whole disabled cell, label included — before
+            // this the only difference between an enabled and a disabled
+            // button was its fill, with pure-white glyphs on both.
+            if !context.isEnabled {
+                labelNode.opacity = ControlPalette.disabledContentOpacity
+            }
+            let buttonStyle = effectiveButtonStyle
             let surfaceStyle = resolvedSurfaceStyle(for: buttonStyle, context: context)
             let buttonBorderShape = context.environmentValues.buttonBorderShape
             // macOS push-bezel content metrics (MacOSControlMetrics.Button):
@@ -18398,40 +18611,31 @@ public struct Button: View {
     }
 
     private func resolvedSurfaceStyle(for buttonStyle: ButtonStyle, context: ViewBuildContext) -> ButtonSurfaceStyle {
+        let palette = context.controlPalette
+        // macOS only *fills* a destructive button when the app has also
+        // asked for prominence; an `.automatic` / `.bordered` destructive
+        // button keeps the standard bezel and tints its label red (that
+        // tint is applied in `makeComponent`, not here).
         if buttonStyle == .borderedProminent {
+            if role == .destructive {
+                return ButtonSurfaceStyle.destructiveFilled(palette: palette)
+            }
+
+            let accent = ControlPalette.opaque(context.tint)
             return ButtonSurfaceStyle(
-                cornerRadius: 16,
-                palette: SurfacePalette(
-                    idle: context.tint.opacity(0.84),
-                    hovered: context.tint.opacity(0.92),
-                    focused: context.tint.opacity(0.98),
-                    pressed: context.tint,
-                    activated: context.tint,
-                    disabledBackground: Color(red: 0.20, green: 0.24, blue: 0.30, alpha: 0.50),
-                    disabledForeground: Color(red: 0.66, green: 0.70, blue: 0.78, alpha: 0.72),
-                    disabledBorder: Color(red: 0.50, green: 0.58, blue: 0.68, alpha: 0.20)
-                ),
-                chrome: SurfaceChrome(
-                    borderColor: context.tint.opacity(0.34),
-                    borderHoveredColor: context.tint.opacity(0.48),
-                    borderFocusedColor: context.tint.opacity(0.60),
-                    borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.38),
-                    borderWidth: 1,
-                    focusRingColor: context.tint.opacity(0.34),
-                    focusRingWidth: 2,
-                    shadowColor: context.tint.opacity(0.20),
-                    shadowHoveredColor: context.tint.opacity(0.26),
-                    shadowFocusedColor: context.tint.opacity(0.32),
-                    shadowPressedColor: context.tint.opacity(0.12),
-                    shadowOffset: Point(x: 0, y: 3),
-                    shadowSpread: 4
-                ),
+                cornerRadius: MacOSControlMetrics.Button.regularCornerRadius,
+                palette: palette.prominentPalette(tint: accent),
+                chrome: palette.buttonChrome(focusTint: accent),
                 clipsToBounds: true,
                 animation: .default
             )
         }
 
         guard buttonStyle == .automatic else {
+            if hasCustomSurfaceStyle {
+                return style
+            }
+
             return buttonStyle.surfaceStyle
         }
 
@@ -18439,12 +18643,16 @@ public struct Button: View {
             return style
         }
 
-        switch role {
-        case .destructive:
-            return .destructive
-        case .cancel, .none:
-            return style
-        }
+        // `ButtonSurfaceStyle.default` is the appearance-free fallback; a
+        // button that can see its context resolves the bordered ramp for
+        // the live appearance instead.
+        return .bordered(palette: palette)
+    }
+
+    /// macOS renders a destructive-role button that is *not* prominent as a
+    /// standard bezel with a red label.
+    fileprivate var appliesDestructiveLabelTint: Bool {
+        role == .destructive
     }
 }
 @MainActor
@@ -18806,54 +19014,48 @@ private struct ResolvedTextInputStyle {
     var padding: EdgeInsets
 }
 extension TextFieldStyle {
-    fileprivate func resolvedTextInputStyle(isEnabled: Bool) -> ResolvedTextInputStyle {
+    /// The recessed well every bordered text input shares, resolved for the
+    /// live appearance: `textBackgroundColor` inside a hairline, with the
+    /// shallow inset groove Big Sur+ draws (not the 18% bevel).
+    fileprivate func resolvedTextInputWell(
+        isEnabled: Bool,
+        palette: ControlPalette,
+        cornerRadius: Double
+    ) -> ResolvedTextInputStyle {
+        let backgroundColor =
+            isEnabled
+            ? palette.controlBackground
+            : palette.quaternaryFill
+        // The painter takes the top stop from the node's own background and
+        // the bottom stop from this gradient's end colour, so a recessed
+        // well is expressed as "end lighter than the fill".
+        let insetGradient: GradientType? =
+            isEnabled
+            ? .linear(
+                SwiftWindowsGraphics.LinearGradient(
+                    startColor: backgroundColor,
+                    endColor: ControlPalette.lightened(backgroundColor, by: 1 - Controls.grooveSheenFactor)))
+            : nil
+        return ResolvedTextInputStyle(
+            backgroundColor: backgroundColor,
+            backgroundGradient: insetGradient,
+            borderColor: isEnabled ? palette.controlBorder : palette.quaternaryLabel,
+            borderWidth: 1,
+            cornerRadius: cornerRadius,
+            padding: EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10)
+        )
+    }
+
+    fileprivate func resolvedTextInputStyle(isEnabled: Bool, palette: ControlPalette) -> ResolvedTextInputStyle {
         switch kind {
         case .automatic, .roundedBorder:
-            // macOS rounded-border field: recessed well (top-darker inset
-            // gradient), hairline edge.
-            let backgroundColor =
-                isEnabled
-                ? Color(red: 0.06, green: 0.08, blue: 0.13, alpha: 0.85)
-                : Color(red: 0.07, green: 0.08, blue: 0.10, alpha: 0.58)
-            let insetGradient: GradientType? =
-                isEnabled
-                ? .linear(
-                    SwiftWindowsGraphics.LinearGradient(
-                        startColor: backgroundColor,
-                        endColor: Color(red: 0.10, green: 0.13, blue: 0.20, alpha: 0.78)))
-                : nil
-            return ResolvedTextInputStyle(
-                backgroundColor: backgroundColor,
-                backgroundGradient: insetGradient,
-                borderColor: isEnabled
-                    ? Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.16)
-                    : Color(red: 0.45, green: 0.48, blue: 0.52, alpha: 0.20),
-                borderWidth: 1,
-                cornerRadius: 8,
-                padding: EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10)
+            return resolvedTextInputWell(
+                isEnabled: isEnabled,
+                palette: palette,
+                cornerRadius: MacOSControlMetrics.Button.regularCornerRadius
             )
         case .squareBorder:
-            let backgroundColor =
-                isEnabled
-                ? Color(red: 0.06, green: 0.08, blue: 0.13, alpha: 0.85)
-                : Color(red: 0.07, green: 0.08, blue: 0.10, alpha: 0.58)
-            let insetGradient: GradientType? =
-                isEnabled
-                ? .linear(
-                    SwiftWindowsGraphics.LinearGradient(
-                        startColor: backgroundColor,
-                        endColor: Color(red: 0.10, green: 0.13, blue: 0.20, alpha: 0.78)))
-                : nil
-            return ResolvedTextInputStyle(
-                backgroundColor: backgroundColor,
-                backgroundGradient: insetGradient,
-                borderColor: isEnabled
-                    ? Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.16)
-                    : Color(red: 0.45, green: 0.48, blue: 0.52, alpha: 0.20),
-                borderWidth: 1,
-                cornerRadius: 0,
-                padding: EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10)
-            )
+            return resolvedTextInputWell(isEnabled: isEnabled, palette: palette, cornerRadius: 0)
         case .plain:
             return ResolvedTextInputStyle(
                 backgroundColor: .clear,

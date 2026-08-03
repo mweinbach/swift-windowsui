@@ -1570,9 +1570,13 @@ struct DemoComponentRow: View {
             Spacer(minLength: 8)
 
             VStack(alignment: .trailing, spacing: 2) {
+                // `.secondary` rather than a fixed grey: a row inside a
+                // selection-bound List is drawn over the accent fill when
+                // selected, and the semantic colour is the one that
+                // brightens against a prominent background.
                 Text(component.version)
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundColor(DemoTheme.secondaryText)
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
 
                 Text(component.statusLabel)

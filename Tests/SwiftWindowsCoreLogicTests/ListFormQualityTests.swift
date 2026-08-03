@@ -8,6 +8,15 @@ import XCTest
 
 @testable import WinSwiftUI
 
+/// The list's *row* children, skipping the hairline rules the default
+/// style now interleaves between adjacent rows. Tests that index rows
+/// positionally go through this so adding a separator does not renumber
+/// every row assertion.
+@MainActor
+private func rows(of node: ViewNode) -> [ViewNode] {
+    node.children.filter { $0.text != nil || !$0.children.isEmpty || $0.onActivate != nil }
+}
+
 @MainActor
 private func makeListFormNode<V: View>(
     _ view: V,
@@ -53,15 +62,16 @@ final class ListFormQualityTests: XCTestCase {
                 }
             )
 
-            let selectedRow = node.children[0]
-            let unselectedRow = node.children[1]
+            let selectedRow = rows(of: node)[0]
+            let unselectedRow = rows(of: node)[1]
 
-            // Border width and padding stay constant so selection changes
-            // never shift row metrics; only colors differ.
-            XCTAssertEqual(selectedRow.borderWidth, 1)
-            XCTAssertEqual(unselectedRow.borderWidth, 1)
-            XCTAssertGreaterThan(selectedRow.borderColor.alpha, 0)
-            XCTAssertEqual(unselectedRow.borderColor, .clear)
+            // Padding stays constant so selection changes never shift row
+            // metrics; macOS fills a selected row solid and draws no
+            // border around it at all.
+            XCTAssertEqual(selectedRow.borderWidth, 0)
+            XCTAssertEqual(unselectedRow.borderWidth, 0)
+            XCTAssertEqual(selectedRow.backgroundColor?.alpha ?? 0, 1, accuracy: 0.01)
+            XCTAssertNil(unselectedRow.backgroundColor)
             guard
                 case .stack(let selectedLayout) = selectedRow.layoutMode,
                 case .stack(let unselectedLayout) = unselectedRow.layoutMode
@@ -88,9 +98,9 @@ final class ListFormQualityTests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(node.children[0].layoutConstraints?.minHeight, 28)
-            XCTAssertEqual(node.children[1].layoutConstraints?.minHeight, 28)
-            XCTAssertEqual(node.children[0].layoutConstraints?.maxHeight, .infinity)
+            XCTAssertEqual(rows(of: node)[0].layoutConstraints?.minHeight, 28)
+            XCTAssertEqual(rows(of: node)[1].layoutConstraints?.minHeight, 28)
+            XCTAssertEqual(rows(of: node)[0].layoutConstraints?.maxHeight, .infinity)
         }
     }
 
@@ -109,7 +119,7 @@ final class ListFormQualityTests: XCTestCase {
                 .environment(\.defaultMinListRowHeight, 44)
             )
 
-            XCTAssertEqual(node.children[0].layoutConstraints?.minHeight, 44)
+            XCTAssertEqual(rows(of: node)[0].layoutConstraints?.minHeight, 44)
         }
     }
 
@@ -129,7 +139,7 @@ final class ListFormQualityTests: XCTestCase {
             // text rather than a table.
             for index in 0..<2 {
                 XCTAssertEqual(
-                    node.children[index].layoutConstraints?.minHeight,
+                    rows(of: node)[index].layoutConstraints?.minHeight,
                     MacOSControlMetrics.List.plainRowHeight
                 )
             }
@@ -154,8 +164,8 @@ final class ListFormQualityTests: XCTestCase {
                 size: Size(width: 320, height: 240)
             )
 
-            let firstRow = node.children[0]
-            let secondRow = node.children[1]
+            let firstRow = rows(of: node)[0]
+            let secondRow = rows(of: node)[1]
             XCTAssertEqual(firstRow.hoverEffect, .highlight)
             XCTAssertEqual(secondRow.hoverEffect, .highlight)
             XCTAssertFalse(firstRow.isHovered)
@@ -191,7 +201,7 @@ final class ListFormQualityTests: XCTestCase {
                 }
             )
 
-            node.children[1].onActivate?()
+            rows(of: node)[1].onActivate?()
 
             XCTAssertEqual(selected, "two")
             XCTAssertTrue(didInvalidate)
@@ -221,9 +231,9 @@ final class ListFormQualityTests: XCTestCase {
                 }
             )
 
-            let firstRow = node.children[0]
-            let secondRow = node.children[1]
-            let thirdRow = node.children[2]
+            let firstRow = rows(of: node)[0]
+            let secondRow = rows(of: node)[1]
+            let thirdRow = rows(of: node)[2]
 
             runtime.requestFocus(firstRow)
             XCTAssertTrue(firstRow.isFocused)
@@ -268,11 +278,11 @@ final class ListFormQualityTests: XCTestCase {
                 size: Size(width: 320, height: 240)
             )
 
-            node.children[0].onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
+            rows(of: node)[0].onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
             XCTAssertEqual(selected, "one")
 
             selected = nil
-            node.children[0].onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.upArrow.rawValue))
+            rows(of: node)[0].onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.upArrow.rawValue))
             XCTAssertEqual(selected, "two")
         }
     }
@@ -295,20 +305,25 @@ final class ListFormQualityTests: XCTestCase {
             )
 
             // Five 52pt rows (40pt content + 12pt row padding) in a 100pt
-            // viewport: content overflows, so keyboard-driven selection must
+            // viewport, with the default style's hairline rules between
+            // them: content overflows, so keyboard-driven selection must
             // pull the target row into the visible window.
             XCTAssertEqual(node.scrollOffset, 0)
 
             for index in 0..<(tags.count - 1) {
-                node.children[index].onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
+                rows(of: node)[index].onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
             }
 
             XCTAssertEqual(selected, "r5")
-            let contentBottom = 5.0 * 52.0
+            // Four adjacencies between five rows, ruled with a
+            // one-physical-pixel hairline each — except the pair either
+            // side of the selected row, where the selection fill is the
+            // boundary. Three rules at 1x.
+            let contentBottom = 5.0 * 52.0 + 3.0
             XCTAssertEqual(node.scrollOffset, contentBottom - 100, accuracy: 0.5)
 
             for index in stride(from: tags.count - 1, through: 1, by: -1) {
-                node.children[index].onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.upArrow.rawValue))
+                rows(of: node)[index].onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.upArrow.rawValue))
             }
 
             XCTAssertEqual(selected, "r1")
@@ -333,14 +348,14 @@ final class ListFormQualityTests: XCTestCase {
                 size: Size(width: 320, height: 100)
             )
 
-            runtime.requestFocus(node.children[0])
+            runtime.requestFocus(rows(of: node)[0])
 
             // Content overflows the viewport, but unmodified arrows must move
             // the selection rather than scroll the panel.
             runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
 
             XCTAssertEqual(selected, "r2")
-            XCTAssertTrue(node.children[1].isFocused)
+            XCTAssertTrue(rows(of: node)[1].isFocused)
             // Only scroll-into-view adjustment (if any), never a scroll step.
             XCTAssertEqual(node.scrollOffset, 4, accuracy: 0.5)
         }
@@ -362,7 +377,7 @@ final class ListFormQualityTests: XCTestCase {
                 }
             )
 
-            node.children[0].onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
+            rows(of: node)[0].onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
             XCTAssertEqual(selected, ["one", "two"])
         }
     }
@@ -424,12 +439,12 @@ final class ListFormQualityTests: XCTestCase {
             )
 
             XCTAssertEqual(node.children.count, 2)
-            XCTAssertEqual(node.children[0].sectionHeaderChildCount, 1)
-            XCTAssertEqual(node.children[1].sectionHeaderChildCount, 1)
-            XCTAssertEqual(node.children[0].borderWidth, 1)
-            XCTAssertEqual(node.children[1].borderWidth, 1)
-            XCTAssertGreaterThan(node.children[0].cornerRadius, 0)
-            XCTAssertGreaterThan(node.children[1].cornerRadius, 0)
+            XCTAssertEqual(rows(of: node)[0].sectionHeaderChildCount, 1)
+            XCTAssertEqual(rows(of: node)[1].sectionHeaderChildCount, 1)
+            XCTAssertEqual(rows(of: node)[0].borderWidth, 1)
+            XCTAssertEqual(rows(of: node)[1].borderWidth, 1)
+            XCTAssertGreaterThan(rows(of: node)[0].cornerRadius, 0)
+            XCTAssertGreaterThan(rows(of: node)[1].cornerRadius, 0)
         }
     }
 }

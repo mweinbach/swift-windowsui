@@ -139,7 +139,10 @@ final class MacOSControlMetricsWiringTests: XCTestCase {
             XCTAssertEqual(layout.padding.leading, MacOSControlMetrics.List.contentInset)
             XCTAssertEqual(layout.padding.trailing, MacOSControlMetrics.List.contentInset)
 
-            for row in node.children {
+            // Rows only: the default style interleaves a hairline rule
+            // between adjacent rows, which is deliberately not a row box.
+            let separator = ControlPalette.darkStandard.separator
+            for row in node.children where row.backgroundColor != separator {
                 XCTAssertGreaterThanOrEqual(
                     row.resolvedFrame.size.height,
                     MacOSControlMetrics.List.plainRowHeight

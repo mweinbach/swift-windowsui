@@ -250,7 +250,7 @@ final class TextInputSelectionTests: XCTestCase {
                 .makeComponent(context: context)
                 .makeNode(runtime: runtime)
 
-            XCTAssertEqual(node.children[0].text, "******")
+            XCTAssertEqual(node.children[0].text, "••••••")
 
             node.onKeyDown?(controlKey(0x41))
             XCTAssertEqual(

@@ -8,7 +8,9 @@ param(
     [switch]$FrameDebug,
     [int]$WarmupMilliseconds = 0,
     [switch]$KeepOpen,
-    [switch]$AllScreens
+    [switch]$AllScreens,
+    [ValidateSet("light", "dark")]
+    [string]$Appearance = "dark"
 )
 
 $ErrorActionPreference = "Stop"
@@ -47,7 +49,8 @@ function Invoke-DemoScreenshot {
         "--width", $Width,
         "--height", $Height,
         "--scale", $Scale,
-        "--mode", $Mode
+        "--mode", $Mode,
+        "--appearance", $Appearance
     )
     if (-not [string]::IsNullOrWhiteSpace($Screen)) {
         $snapshotArgs += @("--screen", $Screen)
@@ -86,8 +89,9 @@ if ($AllScreens) {
     if ([string]::IsNullOrWhiteSpace($extension)) {
         $extension = ".png"
     }
+    $suffix = if ($Appearance -eq "light") { "-light" } else { "" }
     foreach ($screen in @("dashboard", "settings", "data")) {
-        $screenPath = Join-Path $outputDirectory "demo-screenshot-$screen$extension"
+        $screenPath = Join-Path $outputDirectory "demo-screenshot-$screen$suffix$extension"
         Invoke-DemoScreenshot -Path $screenPath -Screen $screen
     }
 } else {

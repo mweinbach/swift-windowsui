@@ -900,7 +900,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(promptedNode.children[0].text, "DISPLAY NAME")
             XCTAssertEqual(valueNode.children[0].text, "Alice")
             XCTAssertEqual(securePromptNode.children[0].text, "SECRET PHRASE")
-            XCTAssertEqual(secureValueNode.children[0].text, "****")
+            // macOS masks with U+2022 BULLET, not the ASCII asterisk.
+            XCTAssertEqual(secureValueNode.children[0].text, "••••")
         }
     }
 
@@ -1097,7 +1098,7 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(labelNode.children[0].text, "PASSWORD")
             XCTAssertEqual(promptNode.children[0].text, "SECRET")
-            XCTAssertEqual(valueNode.children[0].text, "****")
+            XCTAssertEqual(valueNode.children[0].text, "••••")
         }
     }
 
@@ -1794,7 +1795,7 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(node.children[0].text, "******")
+            XCTAssertEqual(node.children[0].text, "••••••")
 
             node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
 
@@ -2084,7 +2085,9 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(visibleNode.children[0].children[0].text, "needle")
             XCTAssertEqual(visibleNode.children[0].nodeTag, "search-field-navigation-drawer")
             XCTAssertEqual(visibleNode.children[0].cornerRadius, 10)
-            XCTAssertEqual(visibleNode.children[0].preferredSize, Size(width: 280, height: 36))
+            XCTAssertEqual(
+                visibleNode.children[0].preferredSize,
+                Size(width: 280, height: ControlSize.regular.singleLineTextInputSize.height))
             XCTAssertTrue(allTexts(in: visibleNode.children[1]).contains("SEARCHING"))
             XCTAssertEqual(
                 SearchFieldPlacement.navigationBarDrawer(displayMode: .always),
@@ -2140,7 +2143,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(plainNode.borderWidth, 0)
             XCTAssertEqual(plainNode.cornerRadius, 0)
             XCTAssertEqual(roundedNode.borderWidth, 1)
-            XCTAssertEqual(roundedNode.cornerRadius, 8)
+            XCTAssertEqual(roundedNode.cornerRadius, MacOSControlMetrics.Button.regularCornerRadius)
             XCTAssertEqual(squareNode.borderWidth, 1)
             XCTAssertEqual(squareNode.cornerRadius, 0)
             XCTAssertEqual(defaultNode.borderWidth, 1)
@@ -2161,7 +2164,7 @@ final class WinSwiftUITests: XCTestCase {
             let maskedNode = makeNode(SecureField("PASSWORD", text: binding))
 
             XCTAssertTrue(maskedNode.isFocusable)
-            XCTAssertEqual(maskedNode.children[0].text, "****")
+            XCTAssertEqual(maskedNode.children[0].text, "••••")
 
             maskedNode.onKeyDown?(KeyboardEvent(keyCode: 0x31))
             maskedNode.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.backspace.rawValue))
@@ -2171,7 +2174,7 @@ final class WinSwiftUITests: XCTestCase {
 
             let updatedNode = makeNode(SecureField("PASSWORD", text: binding))
 
-            XCTAssertEqual(updatedNode.children[0].text, "*****")
+            XCTAssertEqual(updatedNode.children[0].text, "•••••")
         }
     }
 
@@ -4376,29 +4379,29 @@ final class WinSwiftUITests: XCTestCase {
                 RetainedListItemTint(color: inheritedTint, kind: .fixed)
             )
             XCTAssertEqual(
-                listNode.children[0].listItemTint,
+                listRows(of: listNode)[0].listItemTint,
                 RetainedListItemTint(color: fixedTint, kind: .fixed)
             )
-            XCTAssertEqual(listNode.children[0].children[0].textStyle.color, fixedTint)
-            XCTAssertEqual(listNode.children[0].children[1].textStyle.color, fixedTint)
+            XCTAssertEqual(listRows(of: listNode)[0].children[0].textStyle.color, fixedTint)
+            XCTAssertEqual(listRows(of: listNode)[0].children[1].textStyle.color, fixedTint)
 
             XCTAssertEqual(
-                listNode.children[1].listItemTint,
+                listRows(of: listNode)[1].listItemTint,
                 RetainedListItemTint(color: preferredTint, kind: .preferred)
             )
-            XCTAssertEqual(listNode.children[1].children[0].textStyle.color, preferredTint)
+            XCTAssertEqual(listRows(of: listNode)[1].children[0].textStyle.color, preferredTint)
 
             XCTAssertEqual(
-                listNode.children[2].listItemTint,
+                listRows(of: listNode)[2].listItemTint,
                 RetainedListItemTint(color: monochromeTint, kind: .monochrome)
             )
-            XCTAssertEqual(listNode.children[2].children[0].textStyle.color, monochromeTint)
+            XCTAssertEqual(listRows(of: listNode)[2].children[0].textStyle.color, monochromeTint)
 
-            XCTAssertNil(listNode.children[3].listItemTint)
-            XCTAssertEqual(listNode.children[3].children[0].textStyle.color, inheritedTint)
+            XCTAssertNil(listRows(of: listNode)[3].listItemTint)
+            XCTAssertEqual(listRows(of: listNode)[3].children[0].textStyle.color, inheritedTint)
 
-            XCTAssertNil(listNode.children[4].listItemTint)
-            XCTAssertEqual(listNode.children[4].children[0].textStyle.color, inheritedTint)
+            XCTAssertNil(listRows(of: listNode)[4].listItemTint)
+            XCTAssertEqual(listRows(of: listNode)[4].children[0].textStyle.color, inheritedTint)
         }
     }
 
@@ -4597,7 +4600,11 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(labelNode.children[0].bitmapSurface?.width, 2)
             XCTAssertTrue(allTexts(in: labelNode).contains("ALBUM"))
             XCTAssertTrue(allTexts(in: buttonNode).contains("EXPORT"))
-            XCTAssertEqual(buttonNode.backgroundColor, ButtonSurfaceStyle.destructive.palette.idle)
+            // A non-prominent destructive button keeps the standard bezel;
+            // its role reads in the label.
+            XCTAssertEqual(buttonNode.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
+            XCTAssertTrue(
+                allTextColors(in: buttonNode).contains { $0.red > 0.8 && $0.green < 0.4 })
             XCTAssertTrue(allTexts(in: menuNode).contains("MORE"))
             XCTAssertTrue(allTexts(in: controlNode).contains("TOOLS"))
             XCTAssertTrue(allTexts(in: unavailableNode).contains("OFFLINE"))
@@ -5982,7 +5989,7 @@ final class WinSwiftUITests: XCTestCase {
             // (the old 16pt stub made it an orphan tick in a wide card).
             XCTAssertEqual(horizontalDivider.preferredSize, Size(width: 0, height: 1))
             XCTAssertEqual(horizontalDivider.layoutFillAxes, .horizontalOnly)
-            XCTAssertEqual(horizontalDivider.backgroundColor, Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22))
+            XCTAssertEqual(horizontalDivider.backgroundColor, ControlPalette.darkStandard.separator)
             XCTAssertFalse(horizontalDivider.isHitTestVisible)
 
             let horizontalStack = makeNode(
@@ -5995,7 +6002,7 @@ final class WinSwiftUITests: XCTestCase {
             let verticalDivider = horizontalStack.children[1]
             XCTAssertEqual(verticalDivider.preferredSize, Size(width: 1, height: 0))
             XCTAssertEqual(verticalDivider.layoutFillAxes, .verticalOnly)
-            XCTAssertEqual(verticalDivider.backgroundColor, Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22))
+            XCTAssertEqual(verticalDivider.backgroundColor, ControlPalette.darkStandard.separator)
             XCTAssertFalse(verticalDivider.isHitTestVisible)
         }
     }
@@ -6035,7 +6042,13 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(destructiveNode.backgroundColor, ButtonSurfaceStyle.destructive.palette.idle)
+            // macOS only fills a destructive button when the app also asks
+            // for prominence; otherwise the bezel is standard and the role
+            // is carried by a red label.
+            XCTAssertEqual(destructiveNode.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
+            XCTAssertTrue(
+                allTextColors(in: destructiveNode).contains { $0.red > 0.8 && $0.green < 0.4 },
+                "destructive role tints the label")
             XCTAssertEqual(cancelNode.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
             destructiveNode.onActivate?()
             XCTAssertTrue(didRunAction)
@@ -6051,7 +6064,10 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(node.backgroundColor, ButtonSurfaceStyle.destructive.palette.idle)
+            XCTAssertEqual(node.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
+            XCTAssertTrue(
+                allTextColors(in: node).contains { $0.red > 0.8 && $0.green < 0.4 },
+                "destructive role tints the label")
             XCTAssertTrue(allTexts(in: node).contains(SymbolIcon.document.rawValue))
             XCTAssertTrue(allTexts(in: node).contains("EXPORT"))
 
@@ -6089,7 +6105,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(firstBitmapNode(in: stringNode)?.bitmapSurface?.width, 2)
             XCTAssertEqual(firstBitmapNode(in: stringNode)?.bitmapSurface?.height, 1)
             XCTAssertTrue(allTexts(in: protocolNode).contains("TOOLS"))
-            XCTAssertEqual(protocolNode.backgroundColor, ButtonSurfaceStyle.destructive.palette.idle)
+            XCTAssertEqual(protocolNode.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
             XCTAssertTrue(allTexts(in: keyNode).contains("ALBUM"))
             XCTAssertEqual(keyNode.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
 
@@ -6311,8 +6327,10 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(inheritedButton.backgroundColor, .clear)
             XCTAssertEqual(inheritedButton.borderColor, .clear)
-            XCTAssertEqual(overriddenButton.backgroundColor, customColor.opacity(0.84))
-            XCTAssertEqual(overriddenButton.borderColor, customColor.opacity(0.34))
+            // A resting accent surface is the full accent, and its ring is
+            // the neutral control border — never a tinted one.
+            XCTAssertEqual(overriddenButton.backgroundColor, ControlPalette.opaque(customColor))
+            XCTAssertEqual(overriddenButton.borderColor, ControlPalette.darkStandard.controlBorder)
             XCTAssertEqual(linkButton.backgroundColor, .clear)
             XCTAssertEqual(linkButton.borderColor, .clear)
             XCTAssertEqual(cardButton.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
@@ -6480,7 +6498,7 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertNil(listNode.scrollAxis)
             XCTAssertFalse(listNode.showsScrollIndicator)
-            XCTAssertEqual(listNode.children.count, 2)
+            XCTAssertEqual(listRows(of: listNode).count, 2)
 
             XCTAssertNil(sectionNode.scrollAxis)
             XCTAssertFalse(sectionNode.showsScrollIndicator)
@@ -7391,7 +7409,10 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(horizontalLayout, .horizontal(alignment: .trailing, mainAlignment: .end))
             XCTAssertEqual(
                 listLayout,
-                .vertical(padding: EdgeInsets(top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0, trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch, mainAlignment: .end)
+                .vertical(
+                    padding: EdgeInsets(
+                        top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0,
+                        trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch, mainAlignment: .end)
             )
             XCTAssertEqual(sectionLayout.mainAlignment, .center)
         }
@@ -7414,11 +7435,15 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(node.showsScrollIndicator)
             XCTAssertEqual(
                 stackLayout,
-                .vertical(spacing: 0, padding: EdgeInsets(top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0, trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch)
+                .vertical(
+                    spacing: 0,
+                    padding: EdgeInsets(
+                        top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0,
+                        trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch)
             )
-            XCTAssertEqual(node.children.count, 2)
-            XCTAssertEqual(node.children[0].text, "ONE")
-            XCTAssertEqual(node.children[1].text, "TWO")
+            XCTAssertEqual(listRows(of: node).count, 2)
+            XCTAssertEqual(listRows(of: node)[0].text, "ONE")
+            XCTAssertEqual(listRows(of: node)[1].text, "TWO")
         }
     }
 
@@ -7444,12 +7469,12 @@ final class WinSwiftUITests: XCTestCase {
                     )
             )
 
-            XCTAssertEqual(listNode.children[0].backgroundColor, rowColor)
-            XCTAssertEqual(listNode.children[0].children[0].text, "ONE")
+            XCTAssertEqual(listRows(of: listNode)[0].backgroundColor, rowColor)
+            XCTAssertEqual(listRows(of: listNode)[0].children[0].text, "ONE")
             XCTAssertEqual(
-                listNode.children[1].backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
-            XCTAssertEqual(listNode.children[1].children[0].text, "TWO")
-            XCTAssertEqual(listNode.children[2].text, "THREE")
+                listRows(of: listNode)[1].backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
+            XCTAssertEqual(listRows(of: listNode)[1].children[0].text, "TWO")
+            XCTAssertEqual(listRows(of: listNode)[2].text, "THREE")
             XCTAssertEqual(viewBackgroundNode.children.count, 2)
             XCTAssertEqual(viewBackgroundNode.children[0].backgroundColor, .blue)
             XCTAssertEqual(viewBackgroundNode.children[1].text, "FOUR")
@@ -7470,21 +7495,21 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            guard case .stack(let explicitLayout) = listNode.children[0].layoutMode else {
+            guard case .stack(let explicitLayout) = listRows(of: listNode)[0].layoutMode else {
                 return XCTFail("Expected listRowInsets to wrap the row in a retained stack panel")
             }
-            guard case .stack(let horizontalLayout) = listNode.children[1].layoutMode else {
+            guard case .stack(let horizontalLayout) = listRows(of: listNode)[1].layoutMode else {
                 return XCTFail("Expected listRowInsets edge overload to wrap the row in a retained stack panel")
             }
 
             XCTAssertEqual(explicitLayout, .vertical(padding: explicitInsets, alignment: .stretch))
-            XCTAssertEqual(listNode.children[0].children[0].text, "ONE")
+            XCTAssertEqual(listRows(of: listNode)[0].children[0].text, "ONE")
             XCTAssertEqual(
                 horizontalLayout,
                 .vertical(padding: EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10), alignment: .stretch)
             )
-            XCTAssertEqual(listNode.children[1].children[0].text, "TWO")
-            XCTAssertEqual(listNode.children[2].text, "THREE")
+            XCTAssertEqual(listRows(of: listNode)[1].children[0].text, "TWO")
+            XCTAssertEqual(listRows(of: listNode)[2].text, "THREE")
         }
     }
 
@@ -7508,10 +7533,10 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            guard case .stack(let horizontalLayout) = listNode.children[0].layoutMode else {
+            guard case .stack(let horizontalLayout) = listRows(of: listNode)[0].layoutMode else {
                 return XCTFail("Expected horizontal listSectionMargins to wrap the section in a retained stack panel")
             }
-            guard case .stack(let defaultLayout) = listNode.children[1].layoutMode else {
+            guard case .stack(let defaultLayout) = listRows(of: listNode)[1].layoutMode else {
                 return XCTFail("Expected default listSectionMargins to wrap the section in a retained stack panel")
             }
 
@@ -7519,13 +7544,13 @@ final class WinSwiftUITests: XCTestCase {
                 horizontalLayout,
                 .vertical(padding: EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10), alignment: .stretch)
             )
-            XCTAssertTrue(allTexts(in: listNode.children[0]).contains("HORIZONTAL"))
+            XCTAssertTrue(allTexts(in: listRows(of: listNode)[0]).contains("HORIZONTAL"))
             XCTAssertEqual(
                 defaultLayout,
                 .vertical(padding: EdgeInsets(top: 16, leading: 0, bottom: 16, trailing: 0), alignment: .stretch)
             )
-            XCTAssertTrue(allTexts(in: listNode.children[1]).contains("DEFAULT"))
-            XCTAssertTrue(allTexts(in: listNode.children[2]).contains("PLAIN"))
+            XCTAssertTrue(allTexts(in: listRows(of: listNode)[1]).contains("DEFAULT"))
+            XCTAssertTrue(allTexts(in: listRows(of: listNode)[2]).contains("PLAIN"))
         }
     }
 
@@ -7545,33 +7570,33 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             XCTAssertEqual(
-                listNode.children[0].listRowSeparator,
+                listRows(of: listNode)[0].listRowSeparator,
                 RetainedListRowSeparator(visibility: .hidden, edges: .all)
             )
-            XCTAssertEqual(listNode.children[0].text, "HIDDEN")
+            XCTAssertEqual(listRows(of: listNode)[0].text, "HIDDEN")
 
             XCTAssertEqual(
-                listNode.children[1].listRowSeparator,
+                listRows(of: listNode)[1].listRowSeparator,
                 RetainedListRowSeparator(visibility: .visible, edges: .top)
             )
-            XCTAssertEqual(listNode.children[1].children.count, 2)
-            XCTAssertEqual(listNode.children[1].children[0].preferredSize, Size(width: 16, height: 1))
-            XCTAssertEqual(listNode.children[1].children[1].text, "TOP")
+            XCTAssertEqual(listRows(of: listNode)[1].children.count, 2)
+            XCTAssertEqual(listRows(of: listNode)[1].children[0].preferredSize, Size(width: 0, height: 1))
+            XCTAssertEqual(listRows(of: listNode)[1].children[1].text, "TOP")
 
             XCTAssertEqual(
-                listNode.children[2].listRowSeparator,
+                listRows(of: listNode)[2].listRowSeparator,
                 RetainedListRowSeparator(visibility: .visible, edges: .bottom)
             )
-            XCTAssertEqual(listNode.children[2].children.count, 2)
-            XCTAssertEqual(listNode.children[2].children[0].text, "BOTTOM")
-            XCTAssertEqual(listNode.children[2].children[1].preferredSize, Size(width: 16, height: 1))
+            XCTAssertEqual(listRows(of: listNode)[2].children.count, 2)
+            XCTAssertEqual(listRows(of: listNode)[2].children[0].text, "BOTTOM")
+            XCTAssertEqual(listRows(of: listNode)[2].children[1].preferredSize, Size(width: 0, height: 1))
 
             XCTAssertEqual(
-                listNode.children[3].listRowSeparator,
+                listRows(of: listNode)[3].listRowSeparator,
                 RetainedListRowSeparator(visibility: .visible, edges: .all)
             )
-            XCTAssertEqual(listNode.children[3].children.count, 3)
-            XCTAssertEqual(listNode.children[3].children[1].text, "BOTH")
+            XCTAssertEqual(listRows(of: listNode)[3].children.count, 3)
+            XCTAssertEqual(listRows(of: listNode)[3].children[1].text, "BOTH")
         }
     }
 
@@ -7579,7 +7604,7 @@ final class WinSwiftUITests: XCTestCase {
         await MainActor.run {
             let topTint = Color(red: 1, green: 0.2, blue: 0.1, alpha: 1)
             let bottomTint = Color(red: 0.1, green: 0.7, blue: 1, alpha: 1)
-            let defaultSeparatorTint = Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22)
+            let defaultSeparatorTint = ControlPalette.darkStandard.separator
             let listNode = makeNode(
                 List {
                     Text("BEFORE")
@@ -7598,30 +7623,30 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             XCTAssertEqual(
-                listNode.children[0].listRowSeparatorTint,
+                listRows(of: listNode)[0].listRowSeparatorTint,
                 RetainedListSeparatorTint(color: topTint, edges: .top)
             )
-            XCTAssertEqual(listNode.children[0].children[0].backgroundColor, topTint)
-            XCTAssertNotEqual(listNode.children[0].children[2].backgroundColor, topTint)
+            XCTAssertEqual(listRows(of: listNode)[0].children[0].backgroundColor, topTint)
+            XCTAssertNotEqual(listRows(of: listNode)[0].children[2].backgroundColor, topTint)
 
             XCTAssertEqual(
-                listNode.children[1].listRowSeparatorTint,
+                listRows(of: listNode)[1].listRowSeparatorTint,
                 RetainedListSeparatorTint(color: bottomTint, edges: .bottom)
             )
-            XCTAssertNotEqual(listNode.children[1].children[0].backgroundColor, bottomTint)
-            XCTAssertEqual(listNode.children[1].children[2].backgroundColor, bottomTint)
+            XCTAssertNotEqual(listRows(of: listNode)[1].children[0].backgroundColor, bottomTint)
+            XCTAssertEqual(listRows(of: listNode)[1].children[2].backgroundColor, bottomTint)
 
             XCTAssertEqual(
-                listNode.children[2].listRowSeparatorTint,
+                listRows(of: listNode)[2].listRowSeparatorTint,
                 RetainedListSeparatorTint(color: nil, edges: .top)
             )
-            XCTAssertEqual(listNode.children[2].text, "RESET")
+            XCTAssertEqual(listRows(of: listNode)[2].text, "RESET")
 
             XCTAssertEqual(
-                listNode.children[3].listRowSeparatorTint,
+                listRows(of: listNode)[3].listRowSeparatorTint,
                 RetainedListSeparatorTint(color: nil, edges: .top)
             )
-            XCTAssertEqual(listNode.children[3].children[0].backgroundColor, defaultSeparatorTint)
+            XCTAssertEqual(listRows(of: listNode)[3].children[0].backgroundColor, defaultSeparatorTint)
         }
     }
 
@@ -7649,33 +7674,33 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             XCTAssertEqual(
-                listNode.children[0].listSectionSeparator,
+                listRows(of: listNode)[0].listSectionSeparator,
                 RetainedListSectionSeparator(visibility: .hidden, edges: .all)
             )
-            XCTAssertTrue(allTexts(in: listNode.children[0]).contains("HIDDEN"))
+            XCTAssertTrue(allTexts(in: listRows(of: listNode)[0]).contains("HIDDEN"))
 
             XCTAssertEqual(
-                listNode.children[1].listSectionSeparator,
+                listRows(of: listNode)[1].listSectionSeparator,
                 RetainedListSectionSeparator(visibility: .visible, edges: .top)
             )
-            XCTAssertEqual(listNode.children[1].children.count, 2)
-            XCTAssertEqual(listNode.children[1].children[0].preferredSize, Size(width: 16, height: 1))
-            XCTAssertTrue(allTexts(in: listNode.children[1].children[1]).contains("TOP"))
+            XCTAssertEqual(listRows(of: listNode)[1].children.count, 2)
+            XCTAssertEqual(listRows(of: listNode)[1].children[0].preferredSize, Size(width: 0, height: 1))
+            XCTAssertTrue(allTexts(in: listRows(of: listNode)[1].children[1]).contains("TOP"))
 
             XCTAssertEqual(
-                listNode.children[2].listSectionSeparator,
+                listRows(of: listNode)[2].listSectionSeparator,
                 RetainedListSectionSeparator(visibility: .visible, edges: .bottom)
             )
-            XCTAssertEqual(listNode.children[2].children.count, 2)
-            XCTAssertTrue(allTexts(in: listNode.children[2].children[0]).contains("BOTTOM"))
-            XCTAssertEqual(listNode.children[2].children[1].preferredSize, Size(width: 16, height: 1))
+            XCTAssertEqual(listRows(of: listNode)[2].children.count, 2)
+            XCTAssertTrue(allTexts(in: listRows(of: listNode)[2].children[0]).contains("BOTTOM"))
+            XCTAssertEqual(listRows(of: listNode)[2].children[1].preferredSize, Size(width: 0, height: 1))
 
             XCTAssertEqual(
-                listNode.children[3].listSectionSeparator,
+                listRows(of: listNode)[3].listSectionSeparator,
                 RetainedListSectionSeparator(visibility: .visible, edges: .all)
             )
-            XCTAssertEqual(listNode.children[3].children.count, 3)
-            XCTAssertTrue(allTexts(in: listNode.children[3].children[1]).contains("BOTH"))
+            XCTAssertEqual(listRows(of: listNode)[3].children.count, 3)
+            XCTAssertTrue(allTexts(in: listRows(of: listNode)[3].children[1]).contains("BOTH"))
         }
     }
 
@@ -7683,7 +7708,7 @@ final class WinSwiftUITests: XCTestCase {
         await MainActor.run {
             let topTint = Color(red: 1, green: 0.2, blue: 0.1, alpha: 1)
             let bottomTint = Color(red: 0.1, green: 0.7, blue: 1, alpha: 1)
-            let defaultSeparatorTint = Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22)
+            let defaultSeparatorTint = ControlPalette.darkStandard.separator
             let listNode = makeNode(
                 List {
                     Section("BEFORE") {
@@ -7710,30 +7735,30 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             XCTAssertEqual(
-                listNode.children[0].listSectionSeparatorTint,
+                listRows(of: listNode)[0].listSectionSeparatorTint,
                 RetainedListSeparatorTint(color: topTint, edges: .top)
             )
-            XCTAssertEqual(listNode.children[0].children[0].backgroundColor, topTint)
-            XCTAssertNotEqual(listNode.children[0].children[2].backgroundColor, topTint)
+            XCTAssertEqual(listRows(of: listNode)[0].children[0].backgroundColor, topTint)
+            XCTAssertNotEqual(listRows(of: listNode)[0].children[2].backgroundColor, topTint)
 
             XCTAssertEqual(
-                listNode.children[1].listSectionSeparatorTint,
+                listRows(of: listNode)[1].listSectionSeparatorTint,
                 RetainedListSeparatorTint(color: bottomTint, edges: .bottom)
             )
-            XCTAssertNotEqual(listNode.children[1].children[0].backgroundColor, bottomTint)
-            XCTAssertEqual(listNode.children[1].children[2].backgroundColor, bottomTint)
+            XCTAssertNotEqual(listRows(of: listNode)[1].children[0].backgroundColor, bottomTint)
+            XCTAssertEqual(listRows(of: listNode)[1].children[2].backgroundColor, bottomTint)
 
             XCTAssertEqual(
-                listNode.children[2].listSectionSeparatorTint,
+                listRows(of: listNode)[2].listSectionSeparatorTint,
                 RetainedListSeparatorTint(color: nil, edges: .top)
             )
-            XCTAssertTrue(allTexts(in: listNode.children[2]).contains("RESET"))
+            XCTAssertTrue(allTexts(in: listRows(of: listNode)[2]).contains("RESET"))
 
             XCTAssertEqual(
-                listNode.children[3].listSectionSeparatorTint,
+                listRows(of: listNode)[3].listSectionSeparatorTint,
                 RetainedListSeparatorTint(color: nil, edges: .top)
             )
-            XCTAssertEqual(listNode.children[3].children[0].backgroundColor, defaultSeparatorTint)
+            XCTAssertEqual(listRows(of: listNode)[3].children[0].backgroundColor, defaultSeparatorTint)
         }
     }
 
@@ -7763,11 +7788,19 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(
                 spacedLayout,
-                .vertical(spacing: 12, padding: EdgeInsets(top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0, trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch)
+                .vertical(
+                    spacing: 12,
+                    padding: EdgeInsets(
+                        top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0,
+                        trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch)
             )
             XCTAssertEqual(
                 resetLayout,
-                .vertical(spacing: 0, padding: EdgeInsets(top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0, trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch)
+                .vertical(
+                    spacing: 0,
+                    padding: EdgeInsets(
+                        top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0,
+                        trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch)
             )
         }
     }
@@ -7832,7 +7865,11 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(
                 customLayout,
-                .vertical(spacing: 14, padding: EdgeInsets(top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0, trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch)
+                .vertical(
+                    spacing: 14,
+                    padding: EdgeInsets(
+                        top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0,
+                        trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch)
             )
             XCTAssertEqual(
                 compactLayout,
@@ -7852,7 +7889,11 @@ final class WinSwiftUITests: XCTestCase {
             )
             XCTAssertEqual(
                 rowSpacingWinsLayout,
-                .vertical(spacing: 9, padding: EdgeInsets(top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0, trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch)
+                .vertical(
+                    spacing: 9,
+                    padding: EdgeInsets(
+                        top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0,
+                        trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch)
             )
             XCTAssertEqual(ListSectionSpacing.custom(12), .custom(12))
             XCTAssertNotEqual(ListSectionSpacing.compact, .default)
@@ -7934,7 +7975,11 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(plainNode.cornerRadius, 0)
             XCTAssertEqual(
                 plainLayout,
-                .vertical(spacing: 0, padding: EdgeInsets(top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0, trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch)
+                .vertical(
+                    spacing: 0,
+                    padding: EdgeInsets(
+                        top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0,
+                        trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch)
             )
 
             XCTAssertNil(borderedNode.backgroundColor)
@@ -8032,10 +8077,10 @@ final class WinSwiftUITests: XCTestCase {
                 .environment(\.defaultMinListRowHeight, 44)
             )
 
-            XCTAssertEqual(node.children[0].layoutConstraints?.minHeight, 44)
-            XCTAssertEqual(node.children[0].layoutConstraints?.maxHeight, .infinity)
-            XCTAssertEqual(node.children[1].layoutConstraints?.minHeight, 60)
-            XCTAssertEqual(node.children[1].layoutConstraints?.maxHeight, .infinity)
+            XCTAssertEqual(listRows(of: node)[0].layoutConstraints?.minHeight, 44)
+            XCTAssertEqual(listRows(of: node)[0].layoutConstraints?.maxHeight, .infinity)
+            XCTAssertEqual(listRows(of: node)[1].layoutConstraints?.minHeight, 60)
+            XCTAssertEqual(listRows(of: node)[1].layoutConstraints?.maxHeight, .infinity)
         }
     }
 
@@ -8116,11 +8161,11 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(node.children.count, 2)
-            XCTAssertEqual(node.children[0].text, "ONE")
-            XCTAssertEqual(node.children[1].text, "TWO")
-            XCTAssertEqual(node.children[0].nodeTag, "ONE#0")
-            XCTAssertEqual(node.children[1].nodeTag, "TWO#0")
+            XCTAssertEqual(listRows(of: node).count, 2)
+            XCTAssertEqual(listRows(of: node)[0].text, "ONE")
+            XCTAssertEqual(listRows(of: node)[1].text, "TWO")
+            XCTAssertEqual(listRows(of: node)[0].nodeTag, "ONE#0")
+            XCTAssertEqual(listRows(of: node)[1].nodeTag, "TWO#0")
         }
     }
 
@@ -8141,11 +8186,11 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(node.children.count, 2)
-            XCTAssertEqual(node.children[0].text, "SEVEN")
-            XCTAssertEqual(node.children[1].text, "NINE")
-            XCTAssertEqual(node.children[0].nodeTag, "7#0")
-            XCTAssertEqual(node.children[1].nodeTag, "9#0")
+            XCTAssertEqual(listRows(of: node).count, 2)
+            XCTAssertEqual(listRows(of: node)[0].text, "SEVEN")
+            XCTAssertEqual(listRows(of: node)[1].text, "NINE")
+            XCTAssertEqual(listRows(of: node)[0].nodeTag, "7#0")
+            XCTAssertEqual(listRows(of: node)[1].nodeTag, "9#0")
         }
     }
 
@@ -8179,8 +8224,8 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertTrue(rows[0].isEnabled)
             XCTAssertEqual(rows[1].title, "NINEz")
-            XCTAssertEqual(node.children[0].nodeTag, "7#0")
-            XCTAssertEqual(node.children[2].nodeTag, "9#0")
+            XCTAssertEqual(listRows(of: node)[0].nodeTag, "7#0")
+            XCTAssertEqual(listRows(of: node)[2].nodeTag, "9#0")
         }
     }
 
@@ -8209,8 +8254,8 @@ final class WinSwiftUITests: XCTestCase {
             firstFocusable(in: node)?.onKeyDown?(KeyboardEvent(keyCode: 0x5A))
 
             XCTAssertEqual(rows[0].title, "ALPHAz")
-            XCTAssertEqual(node.children[0].nodeTag, "alpha#0")
-            XCTAssertEqual(node.children[1].nodeTag, "beta#0")
+            XCTAssertEqual(listRows(of: node)[0].nodeTag, "alpha#0")
+            XCTAssertEqual(listRows(of: node)[1].nodeTag, "beta#0")
         }
     }
 
@@ -8233,13 +8278,13 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(node.children.count, 2)
-            XCTAssertEqual(node.children[0].children[0].text, "ONE")
-            XCTAssertEqual(node.children[1].children[0].text, "TWO")
-            XCTAssertNotNil(node.children[0].backgroundColor)
-            XCTAssertNil(node.children[1].backgroundColor)
+            XCTAssertEqual(listRows(of: node).count, 2)
+            XCTAssertEqual(listRows(of: node)[0].children[0].text, "ONE")
+            XCTAssertEqual(listRows(of: node)[1].children[0].text, "TWO")
+            XCTAssertNotNil(listRows(of: node)[0].backgroundColor)
+            XCTAssertNil(listRows(of: node)[1].backgroundColor)
 
-            node.children[1].onActivate?()
+            listRows(of: node)[1].onActivate?()
 
             XCTAssertEqual(selected, "two")
             XCTAssertTrue(didInvalidate)
@@ -8268,14 +8313,14 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(node.children[0].nodeTag, "7#0")
-            XCTAssertEqual(node.children[1].nodeTag, "9#0")
-            XCTAssertEqual(node.children[0].children[0].text, "SEVEN")
-            XCTAssertEqual(node.children[1].children[0].text, "NINE")
-            XCTAssertNotNil(node.children[0].backgroundColor)
-            XCTAssertNil(node.children[1].backgroundColor)
+            XCTAssertEqual(listRows(of: node)[0].nodeTag, "7#0")
+            XCTAssertEqual(listRows(of: node)[1].nodeTag, "9#0")
+            XCTAssertEqual(listRows(of: node)[0].children[0].text, "SEVEN")
+            XCTAssertEqual(listRows(of: node)[1].children[0].text, "NINE")
+            XCTAssertNotNil(listRows(of: node)[0].backgroundColor)
+            XCTAssertNil(listRows(of: node)[1].backgroundColor)
 
-            node.children[1].onActivate?()
+            listRows(of: node)[1].onActivate?()
 
             XCTAssertEqual(selected, 9)
         }
@@ -8296,13 +8341,13 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertNotNil(node.children[0].backgroundColor)
-            XCTAssertNil(node.children[1].backgroundColor)
+            XCTAssertNotNil(listRows(of: node)[0].backgroundColor)
+            XCTAssertNil(listRows(of: node)[1].backgroundColor)
 
-            node.children[1].onActivate?()
+            listRows(of: node)[1].onActivate?()
             XCTAssertEqual(selected, ["one", "two"])
 
-            node.children[0].onActivate?()
+            listRows(of: node)[0].onActivate?()
             XCTAssertEqual(selected, ["two"])
         }
     }
@@ -8382,8 +8427,8 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(node.children[0].children[0].text, "INCREASED")
-            XCTAssertEqual(node.children[1].children[0].text, "STANDARD")
+            XCTAssertEqual(listRows(of: node)[0].children[0].text, "INCREASED")
+            XCTAssertEqual(listRows(of: node)[1].children[0].text, "STANDARD")
         }
     }
 
@@ -8410,16 +8455,16 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(node.children[0].text, "ONE")
-            XCTAssertTrue(node.children[0].selectionDisabled)
-            XCTAssertNil(node.children[0].onActivate)
-            XCTAssertEqual(node.children[1].text, "TWO")
-            XCTAssertTrue(node.children[1].selectionDisabled)
-            XCTAssertNil(node.children[1].onActivate)
+            XCTAssertEqual(listRows(of: node)[0].text, "ONE")
+            XCTAssertTrue(listRows(of: node)[0].selectionDisabled)
+            XCTAssertNil(listRows(of: node)[0].onActivate)
+            XCTAssertEqual(listRows(of: node)[1].text, "TWO")
+            XCTAssertTrue(listRows(of: node)[1].selectionDisabled)
+            XCTAssertNil(listRows(of: node)[1].onActivate)
 
-            XCTAssertFalse(node.children[2].selectionDisabled)
-            XCTAssertEqual(node.children[2].children[0].text, "THREE")
-            node.children[2].onActivate?()
+            XCTAssertFalse(listRows(of: node)[2].selectionDisabled)
+            XCTAssertEqual(listRows(of: node)[2].children[0].text, "THREE")
+            listRows(of: node)[2].onActivate?()
 
             XCTAssertEqual(selected, "three")
             XCTAssertTrue(didInvalidate)
@@ -8443,26 +8488,26 @@ final class WinSwiftUITests: XCTestCase {
                 .moveDisabled(true)
             )
 
-            XCTAssertEqual(node.children[0].text, "ONE")
-            XCTAssertTrue(node.children[0].deleteDisabled)
-            XCTAssertNil(node.children[0].deleteDisabledOverride)
-            XCTAssertTrue(node.children[0].moveDisabled)
-            XCTAssertNil(node.children[0].moveDisabledOverride)
+            XCTAssertEqual(listRows(of: node)[0].text, "ONE")
+            XCTAssertTrue(listRows(of: node)[0].deleteDisabled)
+            XCTAssertNil(listRows(of: node)[0].deleteDisabledOverride)
+            XCTAssertTrue(listRows(of: node)[0].moveDisabled)
+            XCTAssertNil(listRows(of: node)[0].moveDisabledOverride)
 
-            XCTAssertFalse(node.children[1].deleteDisabled)
-            XCTAssertEqual(node.children[1].deleteDisabledOverride, false)
-            XCTAssertTrue(node.children[1].moveDisabled)
-            XCTAssertNil(node.children[1].moveDisabledOverride)
+            XCTAssertFalse(listRows(of: node)[1].deleteDisabled)
+            XCTAssertEqual(listRows(of: node)[1].deleteDisabledOverride, false)
+            XCTAssertTrue(listRows(of: node)[1].moveDisabled)
+            XCTAssertNil(listRows(of: node)[1].moveDisabledOverride)
 
-            XCTAssertTrue(node.children[2].deleteDisabled)
-            XCTAssertNil(node.children[2].deleteDisabledOverride)
-            XCTAssertFalse(node.children[2].moveDisabled)
-            XCTAssertEqual(node.children[2].moveDisabledOverride, false)
+            XCTAssertTrue(listRows(of: node)[2].deleteDisabled)
+            XCTAssertNil(listRows(of: node)[2].deleteDisabledOverride)
+            XCTAssertFalse(listRows(of: node)[2].moveDisabled)
+            XCTAssertEqual(listRows(of: node)[2].moveDisabledOverride, false)
 
-            XCTAssertTrue(node.children[3].deleteDisabled)
-            XCTAssertEqual(node.children[3].deleteDisabledOverride, true)
-            XCTAssertTrue(node.children[3].moveDisabled)
-            XCTAssertEqual(node.children[3].moveDisabledOverride, true)
+            XCTAssertTrue(listRows(of: node)[3].deleteDisabled)
+            XCTAssertEqual(listRows(of: node)[3].deleteDisabledOverride, true)
+            XCTAssertTrue(listRows(of: node)[3].moveDisabled)
+            XCTAssertEqual(listRows(of: node)[3].moveDisabledOverride, true)
         }
     }
 
@@ -8480,10 +8525,10 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(node.children[1].nodeTag, "1#0")
-            XCTAssertNotNil(node.children[1].backgroundColor)
+            XCTAssertEqual(listRows(of: node)[1].nodeTag, "1#0")
+            XCTAssertNotNil(listRows(of: node)[1].backgroundColor)
 
-            node.children[2].onActivate?()
+            listRows(of: node)[2].onActivate?()
 
             XCTAssertEqual(selected, 2)
         }
@@ -11088,11 +11133,13 @@ final class WinSwiftUITests: XCTestCase {
                     }
             )
 
-            guard let reenabledScrim = presentationOverlayChild(
-                in: reenabledNode,
-                overlayTag: "sheet-overlay",
-                index: 0
-            ) else {
+            guard
+                let reenabledScrim = presentationOverlayChild(
+                    in: reenabledNode,
+                    overlayTag: "sheet-overlay",
+                    index: 0
+                )
+            else {
                 return
             }
             XCTAssertEqual(reenabledScrim.nodeTag, "sheet-scrim-dismiss-enabled")
@@ -11145,11 +11192,13 @@ final class WinSwiftUITests: XCTestCase {
                     }
             )
 
-            guard let upThroughScrim = presentationOverlayChild(
-                in: upThroughNode,
-                overlayTag: "sheet-overlay",
-                index: 0
-            ) else {
+            guard
+                let upThroughScrim = presentationOverlayChild(
+                    in: upThroughNode,
+                    overlayTag: "sheet-overlay",
+                    index: 0
+                )
+            else {
                 return
             }
             XCTAssertEqual(upThroughScrim.nodeTag, "sheet-scrim-background-interactive")
@@ -11219,11 +11268,13 @@ final class WinSwiftUITests: XCTestCase {
                     }
             )
 
-            guard let dragIndicatorSheet = presentationOverlayChild(
-                in: dragIndicatorNode,
-                overlayTag: "sheet-overlay",
-                index: 1
-            ) else {
+            guard
+                let dragIndicatorSheet = presentationOverlayChild(
+                    in: dragIndicatorNode,
+                    overlayTag: "sheet-overlay",
+                    index: 1
+                )
+            else {
                 return
             }
             XCTAssertEqual(dragIndicatorSheet.children.count, 2)
@@ -11238,8 +11289,9 @@ final class WinSwiftUITests: XCTestCase {
                     }
             )
 
-            guard let resizesContent = presentationOverlayChild(in: resizesNode, overlayTag: "sheet-overlay", index: 1)?
-                .children.first
+            guard
+                let resizesContent = presentationOverlayChild(in: resizesNode, overlayTag: "sheet-overlay", index: 1)?
+                    .children.first
             else {
                 return XCTFail("Expected retained sheet content")
             }
@@ -11293,11 +11345,13 @@ final class WinSwiftUITests: XCTestCase {
             fullScreenNode.onLayout?(Rect(x: 0, y: 0, width: 320, height: 180))
 
             XCTAssertEqual(fullScreenNode.children.count, 2)
-            guard let coverPanel = presentationOverlayChild(
-                in: fullScreenNode,
-                overlayTag: "full-screen-cover-overlay",
-                index: 0
-            ) else {
+            guard
+                let coverPanel = presentationOverlayChild(
+                    in: fullScreenNode,
+                    overlayTag: "full-screen-cover-overlay",
+                    index: 0
+                )
+            else {
                 return
             }
             XCTAssertTrue(allTexts(in: coverPanel).contains("FULL POPOVER"))
@@ -11316,7 +11370,8 @@ final class WinSwiftUITests: XCTestCase {
             noneNode.onLayout?(Rect(x: 0, y: 0, width: 320, height: 180))
 
             XCTAssertEqual(noneNode.children.count, 2)
-            guard let plainPopoverPanel = presentationOverlayChild(in: noneNode, overlayTag: "popover-overlay", index: 1)
+            guard
+                let plainPopoverPanel = presentationOverlayChild(in: noneNode, overlayTag: "popover-overlay", index: 1)
             else {
                 return
             }
@@ -11380,11 +11435,13 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(sheetPanel.children.first?.children.first?.cornerRadius, 2.5)
 
             let (_, renderedPresentedNode) = makeRuntimeNode(view, size: Size(width: 800, height: 600))
-            guard let renderedSheetPanel = presentationOverlayChild(
-                in: renderedPresentedNode,
-                overlayTag: "sheet-overlay",
-                index: 1
-            ) else {
+            guard
+                let renderedSheetPanel = presentationOverlayChild(
+                    in: renderedPresentedNode,
+                    overlayTag: "sheet-overlay",
+                    index: 1
+                )
+            else {
                 return
             }
             XCTAssertEqual(
@@ -11407,11 +11464,13 @@ final class WinSwiftUITests: XCTestCase {
                             .presentationDragIndicator(.hidden)
                     }
             )
-            guard let hiddenIndicatorPanel = presentationOverlayChild(
-                in: hiddenIndicatorNode,
-                overlayTag: "sheet-overlay",
-                index: 1
-            ) else {
+            guard
+                let hiddenIndicatorPanel = presentationOverlayChild(
+                    in: hiddenIndicatorNode,
+                    overlayTag: "sheet-overlay",
+                    index: 1
+                )
+            else {
                 return
             }
             XCTAssertEqual(hiddenIndicatorPanel.children.count, 1)
@@ -11424,11 +11483,13 @@ final class WinSwiftUITests: XCTestCase {
                     },
                 size: Size(width: 800, height: 600)
             )
-            guard let heightDetentPanel = presentationOverlayChild(
-                in: heightDetentNode,
-                overlayTag: "sheet-overlay",
-                index: 1
-            ) else {
+            guard
+                let heightDetentPanel = presentationOverlayChild(
+                    in: heightDetentNode,
+                    overlayTag: "sheet-overlay",
+                    index: 1
+                )
+            else {
                 return
             }
             XCTAssertEqual(heightDetentPanel.frame.size.height, 320, accuracy: 0.001)
@@ -11442,11 +11503,13 @@ final class WinSwiftUITests: XCTestCase {
                     },
                 size: Size(width: 800, height: 600)
             )
-            guard let fractionDetentPanel = presentationOverlayChild(
-                in: fractionDetentNode,
-                overlayTag: "sheet-overlay",
-                index: 1
-            ) else {
+            guard
+                let fractionDetentPanel = presentationOverlayChild(
+                    in: fractionDetentNode,
+                    overlayTag: "sheet-overlay",
+                    index: 1
+                )
+            else {
                 return
             }
             XCTAssertEqual(
@@ -11569,11 +11632,13 @@ final class WinSwiftUITests: XCTestCase {
                     }
             )
 
-            guard let coverPanel = presentationOverlayChild(
-                in: coverNode,
-                overlayTag: "full-screen-cover-overlay",
-                index: 0
-            ) else {
+            guard
+                let coverPanel = presentationOverlayChild(
+                    in: coverNode,
+                    overlayTag: "full-screen-cover-overlay",
+                    index: 0
+                )
+            else {
                 return
             }
             XCTAssertNil(coverPanel.backgroundColor)
@@ -12358,15 +12423,15 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(node.children.count, 3)
-            XCTAssertEqual(node.children[0].dynamicContentIndex, 0)
-            XCTAssertEqual(node.children[1].dynamicContentIndex, 1)
-            XCTAssertEqual(node.children[2].dynamicContentIndex, 2)
-            XCTAssertNotNil(node.children[1].onDeleteRows)
-            XCTAssertNotNil(node.children[1].onMoveRows)
+            XCTAssertEqual(listRows(of: node).count, 3)
+            XCTAssertEqual(listRows(of: node)[0].dynamicContentIndex, 0)
+            XCTAssertEqual(listRows(of: node)[1].dynamicContentIndex, 1)
+            XCTAssertEqual(listRows(of: node)[2].dynamicContentIndex, 2)
+            XCTAssertNotNil(listRows(of: node)[1].onDeleteRows)
+            XCTAssertNotNil(listRows(of: node)[1].onMoveRows)
 
-            node.children[1].onDeleteRows?(IndexSet(integer: node.children[1].dynamicContentIndex ?? -1))
-            node.children[2].onMoveRows?(IndexSet(integer: node.children[2].dynamicContentIndex ?? -1), 0)
+            listRows(of: node)[1].onDeleteRows?(IndexSet(integer: listRows(of: node)[1].dynamicContentIndex ?? -1))
+            listRows(of: node)[2].onMoveRows?(IndexSet(integer: listRows(of: node)[2].dynamicContentIndex ?? -1), 0)
 
             XCTAssertEqual(deletedOffsets, [[1]])
             XCTAssertEqual(movedOffsets.count, 1)
@@ -12389,9 +12454,9 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(node.children[0].dynamicContentIndex, 0)
-            XCTAssertNil(node.children[0].onDeleteRows)
-            XCTAssertNil(node.children[0].onMoveRows)
+            XCTAssertEqual(listRows(of: node)[0].dynamicContentIndex, 0)
+            XCTAssertNil(listRows(of: node)[0].onDeleteRows)
+            XCTAssertNil(listRows(of: node)[0].onMoveRows)
         }
     }
 
@@ -12413,11 +12478,11 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(node.children[0].dynamicInsertContentTypes, ["public.plain-text", "public.url"])
-            XCTAssertEqual(node.children[1].dynamicInsertContentTypes, ["public.plain-text", "public.url"])
-            XCTAssertNotNil(node.children[0].onInsertRows)
+            XCTAssertEqual(listRows(of: node)[0].dynamicInsertContentTypes, ["public.plain-text", "public.url"])
+            XCTAssertEqual(listRows(of: node)[1].dynamicInsertContentTypes, ["public.plain-text", "public.url"])
+            XCTAssertNotNil(listRows(of: node)[0].onInsertRows)
 
-            node.children[0].onInsertRows?(1, [provider])
+            listRows(of: node)[0].onInsertRows?(1, [provider])
 
             XCTAssertEqual(insertedOffsets, [1])
             XCTAssertEqual(insertedProviderCounts, [1])
@@ -12439,8 +12504,8 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(node.children[0].dynamicInsertContentTypes, ["public.text"])
-            node.children[0].onInsertRows?(0, [NSItemProvider()])
+            XCTAssertEqual(listRows(of: node)[0].dynamicInsertContentTypes, ["public.text"])
+            listRows(of: node)[0].onInsertRows?(0, [NSItemProvider()])
 
             XCTAssertEqual(insertedOffsets, [0])
         }
@@ -12467,10 +12532,10 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(node.children[0].dynamicDropPayloadType, String(reflecting: DropPayload.self))
-            XCTAssertNotNil(node.children[0].onDropRows)
+            XCTAssertEqual(listRows(of: node)[0].dynamicDropPayloadType, String(reflecting: DropPayload.self))
+            XCTAssertNotNil(listRows(of: node)[0].onDropRows)
 
-            node.children[0].onDropRows?([DropPayload(value: "one"), "ignored"], 2)
+            listRows(of: node)[0].onDropRows?([DropPayload(value: "one"), "ignored"], 2)
 
             XCTAssertEqual(droppedPayloads, [[DropPayload(value: "one")]])
             XCTAssertEqual(droppedOffsets, [2])
@@ -14256,7 +14321,9 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(navigationNode.children.count, 2)
             XCTAssertEqual(navigationNode.borderWidth, 1)
             XCTAssertEqual(navigationNode.cornerRadius, 10)
-            XCTAssertEqual(navigationNode.preferredSize, Size(width: 224, height: 40))
+            XCTAssertEqual(
+                navigationNode.preferredSize,
+                Size(width: 224, height: ControlSize.regular.pickerMenuPreferredSize.height + 4))
             XCTAssertEqual(firstText(in: navigationNode.children[0]), "COMPACT")
             XCTAssertTrue(navigationNode.children[1].isHidden)
 
@@ -14366,10 +14433,14 @@ final class WinSwiftUITests: XCTestCase {
             let paletteNode = node.children[1]
             XCTAssertEqual(paletteNode.children.count, 2)
             XCTAssertEqual(allTexts(in: paletteNode), ["COMPACT", "EXPANDED"])
-            XCTAssertEqual(paletteNode.children[0].preferredSize?.height, 44)
-            XCTAssertEqual(paletteNode.children[1].preferredSize?.height, 44)
-            XCTAssertEqual(paletteNode.children[0].preferredSize?.width ?? 0, 63.8, accuracy: 0.001)
-            XCTAssertEqual(paletteNode.children[1].preferredSize?.width ?? 0, 63.8, accuracy: 0.001)
+            // Palette swatches derive from the pop-up button height, which
+            // is now the macOS reference plus the Windows pointer delta.
+            let paletteItemHeight = ControlSize.large.pickerMenuPreferredSize.height
+            let paletteItemWidth = max(44, paletteItemHeight * 1.45)
+            XCTAssertEqual(paletteNode.children[0].preferredSize?.height, paletteItemHeight)
+            XCTAssertEqual(paletteNode.children[1].preferredSize?.height, paletteItemHeight)
+            XCTAssertEqual(paletteNode.children[0].preferredSize?.width ?? 0, paletteItemWidth, accuracy: 0.001)
+            XCTAssertEqual(paletteNode.children[1].preferredSize?.width ?? 0, paletteItemWidth, accuracy: 0.001)
             XCTAssertEqual(paletteNode.children[0].borderWidth, 2)
             XCTAssertEqual(paletteNode.children[1].borderWidth, 1)
 
@@ -14528,20 +14599,26 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(compactControl.children.count, 2)
             XCTAssertEqual(compactControl.borderWidth, 1)
             XCTAssertEqual(compactControl.cornerRadius, 8)
-            XCTAssertEqual(compactControl.preferredSize, Size(width: 220, height: 36))
+            XCTAssertEqual(
+                compactControl.preferredSize,
+                Size(width: 220, height: ControlSize.regular.singleLineTextInputSize.height))
             XCTAssertTrue(allTexts(in: compactControl).contains("2026-05-10"))
 
             let fieldControl = fieldNode.children[1]
             XCTAssertEqual(fieldControl.children.count, 1)
             XCTAssertEqual(fieldControl.borderWidth, 1)
             XCTAssertEqual(fieldControl.cornerRadius, 3)
-            XCTAssertEqual(fieldControl.preferredSize, Size(width: 220, height: 36))
+            XCTAssertEqual(
+                fieldControl.preferredSize,
+                Size(width: 220, height: ControlSize.regular.singleLineTextInputSize.height))
 
             let stepperControl = stepperNode.children[1]
             XCTAssertEqual(stepperControl.children.count, 2)
             XCTAssertEqual(stepperControl.borderWidth, 1)
             XCTAssertEqual(stepperControl.cornerRadius, 7)
-            XCTAssertEqual(stepperControl.preferredSize, Size(width: 250, height: 36))
+            XCTAssertEqual(
+                stepperControl.preferredSize,
+                Size(width: 250, height: ControlSize.regular.singleLineTextInputSize.height))
             XCTAssertEqual(allTexts(in: stepperControl.children[1]), ["+", "-"])
 
             let wheelControl = wheelNode.children[1]
@@ -14609,14 +14686,22 @@ final class WinSwiftUITests: XCTestCase {
                 .controlSize(.large)
             )
 
-            XCTAssertEqual(allTexts(in: titledNode), ["ACCENT", "#33669980"])
-            XCTAssertEqual(titledNode.children[1].children[0].backgroundColor, color)
-            XCTAssertEqual(titledNode.children[1].children[0].preferredSize, Size(width: 34, height: 28))
+            // NSColorWell shows a 34x22 well with a hairline ring and an
+            // inner gutter — never the 8-digit RGBA readout this used to
+            // print beside it. The hex string survives as the well's
+            // accessible value.
+            XCTAssertEqual(allTexts(in: titledNode), ["ACCENT"])
+            XCTAssertEqual(titledNode.children[1].accessibilityValue, "#33669980")
+            let titledWell = titledNode.children[1].children[0]
+            XCTAssertEqual(titledWell.children[0].backgroundColor, color)
+            XCTAssertEqual(titledWell.preferredSize, Size(width: 34, height: 22))
             XCTAssertEqual(titledNode.children[0].layoutPriority, 1)
-            XCTAssertEqual(allTexts(in: noOpacityNode), ["BRAND", "#336699"])
+            XCTAssertEqual(allTexts(in: noOpacityNode), ["BRAND"])
+            XCTAssertEqual(noOpacityNode.children[1].accessibilityValue, "#336699")
             XCTAssertTrue(allTexts(in: builderNode).contains("TINT"))
-            XCTAssertEqual(builderNode.children[1].children[0].backgroundColor, .orange)
-            XCTAssertEqual(builderNode.children[1].children[0].preferredSize, Size(width: 40, height: 34))
+            let builderWell = builderNode.children[1].children[0]
+            XCTAssertEqual(builderWell.children[0].backgroundColor, .orange)
+            XCTAssertEqual(builderWell.preferredSize, Size(width: 40, height: 34))
         }
     }
 
@@ -14759,8 +14844,11 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(allTexts(in: datePickerNode), ["2026-05-10 14:38"])
 
             XCTAssertFalse(allTexts(in: colorPickerNode).contains("ACCENT"))
-            XCTAssertEqual(allTexts(in: colorPickerNode), ["#007AFF"])
-            XCTAssertEqual(colorPickerNode.children[0].backgroundColor, .blue)
+            // A colour well paints no text at all — the hex readout moved
+            // to the well's accessible value.
+            XCTAssertEqual(allTexts(in: colorPickerNode), [])
+            XCTAssertEqual(colorPickerNode.accessibilityValue, "#007AFF")
+            XCTAssertEqual(colorPickerNode.children[0].children[0].backgroundColor, .blue)
         }
     }
 
@@ -14799,14 +14887,26 @@ final class WinSwiftUITests: XCTestCase {
                     .controlSize(.extraLarge)
             )
 
-            XCTAssertEqual(textFieldNode.preferredSize, Size(width: 200, height: 32))
+            // Heights are the macOS reference plus the single named
+            // Windows pointer delta, scaled per control size.
+            XCTAssertEqual(
+                textFieldNode.preferredSize,
+                Size(width: 200, height: ControlSize.small.singleLineTextInputSize.height))
             XCTAssertEqual(textEditorNode.preferredSize, Size(width: 300, height: 144))
             XCTAssertEqual(toggleNode.children[1].preferredSize, Size(width: 60, height: 38))
-            XCTAssertEqual(pickerNode.children[1].preferredSize, Size(width: 232, height: 44))
-            XCTAssertEqual(stepperNode.children[1].preferredSize, Size(width: 30, height: 26))
-            XCTAssertEqual(stepperNode.children[2].preferredSize, Size(width: 30, height: 26))
+            XCTAssertEqual(
+                pickerNode.children[1].preferredSize,
+                Size(width: 232, height: ControlSize.large.pickerMenuPreferredSize.height))
+            // The stepper is one bezel holding two halves, not two siblings.
+            let stepperBezel = stepperNode.children[1]
+            XCTAssertEqual(stepperBezel.children.count, 2)
+            for half in stepperBezel.children {
+                XCTAssertEqual(half.preferredSize, ControlSize.small.stepperButtonPreferredSize)
+            }
             XCTAssertEqual(sliderNode.preferredSize, Size(width: 240, height: 34))
-            XCTAssertEqual(progressNode.preferredSize, Size(width: 280, height: 12))
+            XCTAssertEqual(
+                progressNode.preferredSize,
+                Size(width: 280, height: ControlSize.extraLarge.progressPreferredSize.height))
         }
     }
 
@@ -14999,7 +15099,7 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             node.onDragStart?(Point(x: 0, y: 0))
-            node.onDragChange?(Point(x: 91, y: 0), Point(x: 91, y: 0))
+            node.onDragChange?(Point(x: 92, y: 0), Point(x: 92, y: 0))
 
             XCTAssertEqual(value, 5.25, accuracy: 0.001)
             XCTAssertTrue(didInvalidate)
@@ -15026,8 +15126,8 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             node.onDragStart?(Point(x: 0, y: 0))
-            node.onDragChange?(Point(x: 91, y: 0), Point(x: 91, y: 0))
-            node.onDragEnd?(Point(x: 91, y: 0), Point(x: 91, y: 0))
+            node.onDragChange?(Point(x: 92, y: 0), Point(x: 92, y: 0))
+            node.onDragEnd?(Point(x: 92, y: 0), Point(x: 92, y: 0))
 
             XCTAssertEqual(value, 6.0, accuracy: 0.001)
             XCTAssertEqual(editingChanges, [true, false])
@@ -15090,8 +15190,8 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             node.onDragStart?(Point(x: 0, y: 0))
-            node.onDragChange?(Point(x: 91, y: 0), Point(x: 91, y: 0))
-            node.onDragEnd?(Point(x: 91, y: 0), Point(x: 91, y: 0))
+            node.onDragChange?(Point(x: 92, y: 0), Point(x: 92, y: 0))
+            node.onDragEnd?(Point(x: 92, y: 0), Point(x: 92, y: 0))
 
             XCTAssertEqual(value, 0.5, accuracy: 0.001)
             XCTAssertEqual(editingChanges, [true, false])
@@ -15142,9 +15242,11 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(allTexts(in: node.children[0]).contains("GAIN"))
 
             let sliderNode = node.children[1].children[0]
+            // Mid-track: half of (200pt slider - 16pt macOS thumb). A
+            // half-way drag lands on 5.0 and the step-2 snap rounds it up.
             sliderNode.onDragStart?(Point(x: 0, y: 0))
-            sliderNode.onDragChange?(Point(x: 91, y: 0), Point(x: 91, y: 0))
-            sliderNode.onDragEnd?(Point(x: 91, y: 0), Point(x: 91, y: 0))
+            sliderNode.onDragChange?(Point(x: 92, y: 0), Point(x: 92, y: 0))
+            sliderNode.onDragEnd?(Point(x: 92, y: 0), Point(x: 92, y: 0))
 
             XCTAssertEqual(value, 6.0, accuracy: 0.001)
             XCTAssertEqual(editingChanges, [true, false])
@@ -15182,8 +15284,8 @@ final class WinSwiftUITests: XCTestCase {
             let sliderNode = node.children[1].children[1]
             XCTAssertEqual(sliderNode.preferredSize?.width, 100)
             sliderNode.onDragStart?(Point(x: 0, y: 0))
-            sliderNode.onDragChange?(Point(x: 41, y: 0), Point(x: 41, y: 0))
-            sliderNode.onDragEnd?(Point(x: 41, y: 0), Point(x: 41, y: 0))
+            sliderNode.onDragChange?(Point(x: 42, y: 0), Point(x: 42, y: 0))
+            sliderNode.onDragEnd?(Point(x: 42, y: 0), Point(x: 42, y: 0))
 
             XCTAssertEqual(value, 6.0, accuracy: 0.001)
             XCTAssertEqual(editingChanges, [true, false])
@@ -15234,7 +15336,9 @@ final class WinSwiftUITests: XCTestCase {
         await MainActor.run {
             let node = makeNode(ProgressView(value: 0.25, total: 1.0))
 
-            XCTAssertEqual(node.preferredSize, Size(width: 200, height: 8))
+            XCTAssertEqual(
+                node.preferredSize,
+                Size(width: 200, height: ControlSize.regular.progressPreferredSize.height))
             XCTAssertEqual(node.children.count, 2)
             XCTAssertEqual(node.children[0].frame.size.width, 200)
             XCTAssertEqual(node.children[1].frame.size.width, 50)
@@ -21310,6 +21414,28 @@ private func firstBitmapNode(in node: ViewNode) -> ViewNode? {
 
     return nil
 }
+/// A list's *row* children, skipping the hairline rules the default list
+/// style interleaves between adjacent rows.
+@MainActor
+private func listRows(of node: ViewNode) -> [ViewNode] {
+    let separator = ControlPalette.darkStandard.separator
+    return node.children.filter { child in
+        !(child.backgroundColor == separator && child.text == nil && child.children.isEmpty)
+    }
+}
+
+@MainActor
+private func allTextColors(in node: ViewNode) -> [Color] {
+    var result: [Color] = []
+    if node.text != nil {
+        result.append(node.textStyle.color)
+    }
+    for child in node.children {
+        result.append(contentsOf: allTextColors(in: child))
+    }
+    return result
+}
+
 @MainActor
 private func allTexts(in node: ViewNode) -> [String] {
     var texts: [String] = []

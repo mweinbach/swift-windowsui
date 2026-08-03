@@ -25,6 +25,14 @@ public enum MacOSControlMetrics {
         public static let smallHeight: Double = 19
         public static let regularHeight: Double = 22
         public static let largeHeight: Double = 32
+
+        /// Corner radius of the push bezel. Big Sur+ push buttons are a
+        /// rounded rectangle at ~6pt; a capsule is the opt-in shape
+        /// (`.buttonBorderShape(.capsule)`), never the default.
+        public static let miniCornerRadius: Double = 4
+        public static let smallCornerRadius: Double = 4
+        public static let regularCornerRadius: Double = 6
+        public static let largeCornerRadius: Double = 8
     }
 
     /// `Toggle` with `.switch` style — NSSwitch. macOS Sonoma's

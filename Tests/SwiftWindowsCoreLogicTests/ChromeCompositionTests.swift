@@ -37,12 +37,14 @@ final class ChromeCompositionTests: XCTestCase {
         try await MainActor.run {
             let node = makeChromeNode(Button("Tap Me") {})
 
-            // Pinned chrome constants: 1pt hairline border, 2pt focus ring.
+            // Pinned chrome constants: 1pt hairline border, 4pt focus ring
+            // (MacOSControlMetrics.FocusRing.strokeWidth).
             XCTAssertEqual(node.borderWidth, 1, accuracy: 0.001)
-            XCTAssertEqual(node.outlineWidth, 2, accuracy: 0.001)
+            XCTAssertEqual(node.outlineWidth, MacOSControlMetrics.FocusRing.strokeWidth, accuracy: 0.001)
 
             // Subtle vertical gradient: bottom stop darker than the (idle)
-            // top stop.
+            // top stop. Big Sur+ keeps 96% of the luminance, not the 82%
+            // the retired gloss dropped to.
             let background = try XCTUnwrap(node.backgroundColor)
             let sheen = try XCTUnwrap(node.backgroundGradient)
             XCTAssertLessThan(sheen.endColor.red, background.red)
@@ -66,9 +68,18 @@ final class ChromeCompositionTests: XCTestCase {
         }
     }
 
+    /// macOS only *fills* a destructive button when the app also asks for
+    /// prominence; otherwise the role reads in the label and the bezel
+    /// stays standard.
     func testDestructiveButtonKeepsRedSurfaceWithSheen() async throws {
         try await MainActor.run {
-            let node = makeChromeNode(Button("Delete", role: .destructive) {})
+            let bordered = makeChromeNode(Button("Delete", role: .destructive) {})
+            let borderedLabel = try XCTUnwrap(flattened(bordered).first { $0.text == "Delete" })
+            XCTAssertGreaterThan(borderedLabel.textStyle.color.red, borderedLabel.textStyle.color.green)
+            XCTAssertGreaterThan(borderedLabel.textStyle.color.red, borderedLabel.textStyle.color.blue)
+
+            let node = makeChromeNode(
+                Button("Delete", role: .destructive) {}.buttonStyle(.borderedProminent))
             let background = try XCTUnwrap(node.backgroundColor)
             XCTAssertGreaterThan(background.red, background.green)
             XCTAssertGreaterThan(background.red, background.blue)
@@ -112,13 +123,15 @@ final class ChromeCompositionTests: XCTestCase {
             let selected = try XCTUnwrap(nodes.first { $0.text == "Green" })
             XCTAssertLessThanOrEqual(selected.textStyle.scale, 1.3)
             XCTAssertEqual(selected.textStyle.maximumNumberOfLines, 1)
-            // Dark label on the raised light pill.
-            XCTAssertLessThan(selected.textStyle.color.red, 0.2)
+            // Dark mode raises a grey pill under a WHITE label. The
+            // near-black label on a near-white pill this used to pin is the
+            // light-mode NSSegmentedControl.
+            XCTAssertEqual(selected.textStyle.color, ControlPalette.darkStandard.segmentedSelectedLabel)
 
             let unselected = try XCTUnwrap(nodes.first { $0.text == "Red" })
             XCTAssertLessThanOrEqual(unselected.textStyle.scale, 1.3)
-            // Light label on the recessed track.
-            XCTAssertGreaterThan(unselected.textStyle.color.red, 0.8)
+            // Label colour on the recessed track.
+            XCTAssertEqual(unselected.textStyle.color, ControlPalette.darkStandard.label)
 
             // Segment chrome is compact enough to leave room for the label.
             let segmentButton = try XCTUnwrap(
@@ -127,12 +140,16 @@ final class ChromeCompositionTests: XCTestCase {
                 XCTFail("segment button should use stack layout")
                 return
             }
-            XCTAssertLessThanOrEqual(layout.padding.top, 2)
-            XCTAssertLessThanOrEqual(layout.padding.bottom, 2)
+            XCTAssertLessThanOrEqual(layout.padding.top, 4)
+            XCTAssertLessThanOrEqual(layout.padding.bottom, 4)
 
-            // Selected segment is a raised pill: light fill + soft shadow.
+            // Selected segment is a raised pill lifted off the groove by a
+            // neutral ambient shadow.
             let selectedBackground = try XCTUnwrap(segmentButton.backgroundColor)
-            XCTAssertGreaterThan(selectedBackground.red, 0.85)
+            XCTAssertEqual(selectedBackground, ControlPalette.darkStandard.segmentedSelectedFill)
+            XCTAssertGreaterThan(
+                selectedBackground.red, ControlPalette.darkStandard.segmentedTrackFill.red,
+                "the pill is raised out of the track")
             XCTAssertGreaterThan(segmentButton.shadowColor.alpha, 0.1)
         }
     }
@@ -263,7 +280,8 @@ final class ChromeCompositionTests: XCTestCase {
             let node = makeChromeNode(TextField("Name", text: .constant("")))
 
             XCTAssertEqual(node.borderWidth, 1, accuracy: 0.001)
-            XCTAssertEqual(node.cornerRadius, 8, accuracy: 0.001)
+            XCTAssertEqual(
+                node.cornerRadius, MacOSControlMetrics.Button.regularCornerRadius, accuracy: 0.001)
 
             // Recessed well: bottom stop lighter than the top stop.
             let background = try XCTUnwrap(node.backgroundColor)
@@ -274,9 +292,10 @@ final class ChromeCompositionTests: XCTestCase {
             let placeholder = try XCTUnwrap(flattened(node).first { $0.text == "Name" })
             XCTAssertLessThan(placeholder.textStyle.color.alpha, 0.7)
 
-            // Accent focus ring at the pinned 2pt width.
+            // Accent focus ring at the pinned macOS stroke width.
             node.onFocusEnter?()
-            XCTAssertEqual(node.outlineWidth, 2, accuracy: 0.001)
+            XCTAssertEqual(node.outlineWidth, MacOSControlMetrics.FocusRing.strokeWidth, accuracy: 0.001)
+            XCTAssertGreaterThanOrEqual(node.outlineColor.alpha, 0.5)
             node.onFocusExit?()
             XCTAssertEqual(node.outlineWidth, 0, accuracy: 0.001)
         }
@@ -286,8 +305,10 @@ final class ChromeCompositionTests: XCTestCase {
         try await MainActor.run {
             let node = makeChromeNode(SecureField("Password", text: .constant("secret")))
             XCTAssertNotNil(node.backgroundGradient)
-            XCTAssertEqual(node.cornerRadius, 8, accuracy: 0.001)
-            XCTAssertTrue(flattened(node).contains { $0.text == "******" })
+            XCTAssertEqual(
+                node.cornerRadius, MacOSControlMetrics.Button.regularCornerRadius, accuracy: 0.001)
+            // macOS masks with U+2022 BULLET, not the ASCII asterisk.
+            XCTAssertTrue(flattened(node).contains { $0.text == "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}" })
         }
     }
 
@@ -300,10 +321,13 @@ final class ChromeCompositionTests: XCTestCase {
                     Text("Count: 5")
                 }
             )
-            // Pinned structure: [label, decrement, increment].
-            XCTAssertEqual(node.children.count, 3)
-            let decrement = node.children[1]
-            let increment = node.children[2]
+            // Pinned structure: [label, bezel[increment, decrement]] — the
+            // vertical NSStepper, not the side-by-side UIStepper pair.
+            XCTAssertEqual(node.children.count, 2)
+            let bezel = node.children[1]
+            XCTAssertEqual(bezel.children.count, 2)
+            let increment = bezel.children[0]
+            let decrement = bezel.children[1]
 
             for button in [decrement, increment] {
                 // Elevated-button chrome: hairline border, gradient sheen.

@@ -8721,8 +8721,21 @@ public struct ViewBuildContext {
         environmentValues.windowScene
     }
 
+    public var colorScheme: ColorScheme {
+        environmentValues.colorScheme
+    }
+
     public var colorSchemeContrast: ColorSchemeContrast {
         environmentValues.colorSchemeContrast
+    }
+
+    /// The semantic chrome palette for this subtree's appearance.
+    ///
+    /// Control builders read roles from here instead of writing RGB
+    /// literals; that is what makes `.preferredColorScheme(.light)` reach
+    /// past the toolbar into buttons, fields, pickers and separators.
+    public var controlPalette: ControlPalette {
+        ControlPalette.resolve(colorScheme: colorScheme, contrast: colorSchemeContrast)
     }
 
     public var dynamicTypeSize: DynamicTypeSize {
@@ -13642,8 +13655,12 @@ public struct ButtonSurfaceStyle: Sendable {
     public var clipsToBounds: Bool
     public var animation: ControlAnimationStyle
 
+    /// macOS push buttons are a rounded rectangle at
+    /// `MacOSControlMetrics.Button.regularCornerRadius`. The default used
+    /// to be 16, which a 22–30pt control clamps to h/2 — every button in
+    /// the app rendered as a capsule.
     public init(
-        cornerRadius: Double = 16,
+        cornerRadius: Double = MacOSControlMetrics.Button.regularCornerRadius,
         palette: SurfacePalette = ButtonSurfaceStyle.defaultPalette,
         chrome: SurfaceChrome = .elevatedButton,
         clipsToBounds: Bool = true,
@@ -13656,7 +13673,11 @@ public struct ButtonSurfaceStyle: Sendable {
         self.animation = animation
     }
 
-    public static let `default` = ButtonSurfaceStyle()
+    /// Dark-appearance bordered chrome. Builders that can see a
+    /// `ViewBuildContext` should call `bordered(palette:)` instead so the
+    /// surface follows `colorScheme`; this stays as the appearance-free
+    /// fallback for the handful of call sites that have no context.
+    public static let `default` = ButtonSurfaceStyle.bordered(palette: .darkStandard)
     public static let plain = ButtonSurfaceStyle(
         cornerRadius: 0,
         palette: SurfacePalette(
@@ -13671,43 +13692,45 @@ public struct ButtonSurfaceStyle: Sendable {
         animation: .default
     )
 
-    public static let destructive = ButtonSurfaceStyle(
-        cornerRadius: 16,
-        palette: SurfacePalette(
-            idle: Color(red: 0.50, green: 0.12, blue: 0.14, alpha: 0.78),
-            hovered: Color(red: 0.62, green: 0.16, blue: 0.18, alpha: 0.86),
-            focused: Color(red: 0.70, green: 0.20, blue: 0.22, alpha: 0.92),
-            pressed: Color(red: 0.78, green: 0.24, blue: 0.26, alpha: 0.96),
-            activated: Color(red: 0.88, green: 0.28, blue: 0.30, alpha: 0.98),
-            disabledBackground: Color(red: 0.18, green: 0.10, blue: 0.11, alpha: 0.45),
-            disabledBorder: Color(red: 0.55, green: 0.20, blue: 0.22, alpha: 0.18)
-        ),
-        chrome: SurfaceChrome(
-            borderColor: Color(red: 1.0, green: 0.64, blue: 0.64, alpha: 0.18),
-            borderHoveredColor: Color(red: 1.0, green: 0.72, blue: 0.72, alpha: 0.28),
-            borderFocusedColor: Color(red: 1.0, green: 0.78, blue: 0.78, alpha: 0.38),
-            borderPressedColor: Color(red: 1.0, green: 0.86, blue: 0.86, alpha: 0.46),
-            borderWidth: 1,
-            focusRingColor: Color(red: 1.0, green: 0.50, blue: 0.50, alpha: 0.30),
-            focusRingWidth: 2,
-            shadowColor: Color(red: 0.32, green: 0.04, blue: 0.05, alpha: 0.22),
-            shadowHoveredColor: Color(red: 0.42, green: 0.05, blue: 0.06, alpha: 0.28),
-            shadowFocusedColor: Color(red: 0.52, green: 0.07, blue: 0.08, alpha: 0.34),
-            shadowPressedColor: Color(red: 0.22, green: 0.03, blue: 0.04, alpha: 0.18),
-            shadowOffset: Point(x: 0, y: 16),
-            shadowSpread: 10
-        ),
-        clipsToBounds: true,
-        animation: .default
-    )
+    /// Filled destructive surface — the `.borderedProminent` + `.destructive`
+    /// combination only. macOS fills with the system red (`#FF3B30`), not a
+    /// muted brick, and casts the same neutral 1pt ambient shadow every other
+    /// control does; the previous `offset (0,16) / spread 10` painted a
+    /// detached red slab a control-height below the button.
+    public static let destructive = ButtonSurfaceStyle.destructiveFilled(palette: .darkStandard)
 
-    public static let defaultPalette = SurfacePalette(
-        idle: Color(red: 0.18, green: 0.23, blue: 0.31, alpha: 0.74),
-        hovered: Color(red: 0.22, green: 0.29, blue: 0.39, alpha: 0.82),
-        focused: Color(red: 0.26, green: 0.35, blue: 0.47, alpha: 0.88),
-        pressed: Color(red: 0.31, green: 0.42, blue: 0.56, alpha: 0.94),
-        activated: Color(red: 0.36, green: 0.48, blue: 0.63, alpha: 0.96)
-    )
+    public static func destructiveFilled(palette: ControlPalette) -> ButtonSurfaceStyle {
+        let red = Color.red
+        return ButtonSurfaceStyle(
+            cornerRadius: MacOSControlMetrics.Button.regularCornerRadius,
+            palette: SurfacePalette(
+                idle: red,
+                hovered: ControlPalette.lightened(red, by: 0.08),
+                focused: ControlPalette.lightened(red, by: 0.08),
+                pressed: ControlPalette.darkened(red, by: 0.12),
+                activated: ControlPalette.darkened(red, by: 0.12),
+                disabledBackground: palette.quaternaryFill,
+                disabledForeground: palette.disabledLabel,
+                disabledBorder: palette.quaternaryLabel
+            ),
+            chrome: palette.buttonChrome(focusTint: red),
+            clipsToBounds: true,
+            animation: .default
+        )
+    }
+
+    /// Standard bordered-button ramp, appearance-resolved.
+    public static func bordered(palette: ControlPalette) -> ButtonSurfaceStyle {
+        ButtonSurfaceStyle(
+            cornerRadius: MacOSControlMetrics.Button.regularCornerRadius,
+            palette: palette.borderedButtonPalette,
+            chrome: palette.buttonChrome(focusTint: .accentColor),
+            clipsToBounds: true,
+            animation: .default
+        )
+    }
+
+    public static let defaultPalette = ControlPalette.darkStandard.borderedButtonPalette
 }
 public enum ButtonRole: Sendable, Equatable {
     case destructive
@@ -15171,7 +15194,9 @@ public struct ListStyle: Sendable, Equatable {
                     bottom: 0,
                     trailing: MacOSControlMetrics.List.contentInset
                 ),
-                rowMinHeight: MacOSControlMetrics.List.plainRowHeight
+                rowMinHeight: MacOSControlMetrics.List.plainRowHeight,
+                drawsRowSeparators: true,
+                separatorLeadingInset: 0
             )
         case .bordered:
             return RetainedListChrome(
@@ -15368,6 +15393,17 @@ struct RetainedListChrome: Sendable, Equatable {
     /// content or a `defaultMinListRowHeight` environment value.
     /// Anchored to `MacOSControlMetrics.List`.
     var rowMinHeight: Double = 0
+    /// Whether this style draws a hairline rule *between* rows.
+    ///
+    /// The retained model had no way to express a separator at all, so the
+    /// default list style rendered as bare strings on the window
+    /// background. macOS's inset/plain lists rule between every pair of
+    /// adjacent rows — never after the last one, and never under a
+    /// selected row.
+    var drawsRowSeparators: Bool = false
+    /// Leading inset of the rule from the list's content edge. macOS
+    /// starts the rule at the row's text, not at the list's frame.
+    var separatorLeadingInset: Double = 0
 }
 public struct ScrollIndicatorVisibility: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
@@ -17967,15 +18003,19 @@ private func applyToolbarVisibility(to node: ViewNode, visibility: Visibility, b
 }
 @MainActor
 private func retainedListSeparatorDefaultColor() -> Color {
-    Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22)
+    ControlPalette.darkStandard.separator
 }
 @MainActor
 private func retainedListSeparatorNode(tint: Color? = nil) -> ViewNode {
-    Controls.panel(
-        preferredSize: Size(width: 16, height: 1),
+    // A rule has thickness on one axis and no extent of its own on the
+    // other; the 16pt stub never reached the row's width.
+    let node = Controls.panel(
+        preferredSize: Size(width: 0, height: 1),
         backgroundColor: tint ?? retainedListSeparatorDefaultColor(),
         isHitTestVisible: false
     )
+    node.layoutFillAxes = .horizontalOnly
+    return node
 }
 @MainActor
 private func applyRetainedListSeparatorTint(to node: ViewNode, tint: RetainedListSeparatorTint) {

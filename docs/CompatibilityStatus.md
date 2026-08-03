@@ -203,7 +203,8 @@ size is scaled by the target monitor's DPI and turned into a window rect with
 | `isLuminanceReduced`, `isSceneCaptured`, `isTabBarShowingSections` | **Shim** | Overrideable; not derived from OS |
 | Most accessibility environment booleans | **Shim** | Readable/overrideable; only `accessibilityReduceMotion` affects retained animation creation |
 | `privacySensitive` | **Shim** | Metadata; no OS capture exclusion |
-| `colorSchemeContrast` | **Partial** | Derived from Windows high contrast via `SystemAppearanceSnapshot` (WM_SETTINGCHANGE/WM_SYSCOLORCHANGE); affects secondary foreground + hierarchical greys |
+| `colorScheme` / `preferredColorScheme` | **Partial** | Reaches control chrome through `ViewBuildContext.controlPalette` (`ControlPalette`): buttons, text inputs, the segmented picker, the colour well, the stepper, `Divider`, list separators and list selection all resolve per appearance, as does the toolbar band. Cards and menu/table surfaces are still dark-only literals, so a light-mode app currently has light controls on dark containers. Render either appearance with `swift-windowsui-snapshot --appearance light\|dark`. |
+| `colorSchemeContrast` | **Partial** | Derived from Windows high contrast via `SystemAppearanceSnapshot` (WM_SETTINGCHANGE/WM_SYSCOLORCHANGE); affects secondary foreground + hierarchical greys, and strengthens `ControlPalette` hairlines/borders/labels |
 | `scrollDismissesKeyboard` | **Shim** | No software keyboard host |
 | Dictation / writing tools / keyboard type / content type text metadata | **Shim** | Stored; not wired to IME policy |
 

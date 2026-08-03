@@ -249,7 +249,7 @@ final class TextInputIMECompositionTests: XCTestCase {
             // macOS parity: IME is allowed in secure fields, but the marked
             // text is masked like the committed text.
             XCTAssertEqual(node.textInputMarkedText, "xy")
-            XCTAssertEqual(IMECompositionHarness.markedSegment(in: node)?.text, "**")
+            XCTAssertEqual(IMECompositionHarness.markedSegment(in: node)?.text, "••")
 
             runtime.imeComposition(IMECompositionEvent(phase: .committed("密")))
             XCTAssertEqual(value, "abc密")

@@ -113,34 +113,36 @@ final class ControlGeometryTests: XCTestCase {
                 )
                 assertDescendantFramesWithinBounds(node)
                 let row = tryUnwrap(node.children.first)
-                // Joined pair: [label slot, decrement, increment] with the
-                // buttons flush against each other.
-                XCTAssertEqual(row.children.count, 3)
-                let decrement = row.children[1]
-                let increment = row.children[2]
+                // NSStepper: [label slot, bezel] with the bezel holding an
+                // up chevron stacked flush above a down chevron.
+                XCTAssertEqual(row.children.count, 2)
+                let bezel = row.children[1]
+                XCTAssertEqual(bezel.children.count, 2)
+                let increment = bezel.children[0]
+                let decrement = bezel.children[1]
                 XCTAssertEqual(
-                    decrement.resolvedFrame.width,
-                    increment.resolvedFrame.width,
+                    decrement.resolvedFrame.height,
+                    increment.resolvedFrame.height,
                     accuracy: 0.51,
-                    "stepper buttons should share width equally at \(width)pt"
+                    "stepper halves should share height equally at \(width)pt"
                 )
                 XCTAssertEqual(
-                    decrement.resolvedFrame.maxX,
-                    increment.resolvedFrame.minX,
+                    increment.resolvedFrame.maxY,
+                    decrement.resolvedFrame.minY,
                     accuracy: 0.51,
-                    "stepper buttons should sit flush as a joined pair at \(width)pt"
+                    "stepper halves should sit flush as a joined pair at \(width)pt"
                 )
                 // Per-corner radii: rounded outer corners, square joined edge.
-                let decrementRadii = tryUnwrap(decrement.cornerRadii)
-                XCTAssertGreaterThan(decrementRadii.topLeft, 0)
-                XCTAssertGreaterThan(decrementRadii.bottomLeft, 0)
-                XCTAssertEqual(decrementRadii.topRight, 0, accuracy: 0.01)
-                XCTAssertEqual(decrementRadii.bottomRight, 0, accuracy: 0.01)
                 let incrementRadii = tryUnwrap(increment.cornerRadii)
-                XCTAssertEqual(incrementRadii.topLeft, 0, accuracy: 0.01)
-                XCTAssertEqual(incrementRadii.bottomLeft, 0, accuracy: 0.01)
+                XCTAssertGreaterThan(incrementRadii.topLeft, 0)
                 XCTAssertGreaterThan(incrementRadii.topRight, 0)
-                XCTAssertGreaterThan(incrementRadii.bottomRight, 0)
+                XCTAssertEqual(incrementRadii.bottomLeft, 0, accuracy: 0.01)
+                XCTAssertEqual(incrementRadii.bottomRight, 0, accuracy: 0.01)
+                let decrementRadii = tryUnwrap(decrement.cornerRadii)
+                XCTAssertEqual(decrementRadii.topLeft, 0, accuracy: 0.01)
+                XCTAssertEqual(decrementRadii.topRight, 0, accuracy: 0.01)
+                XCTAssertGreaterThan(decrementRadii.bottomLeft, 0)
+                XCTAssertGreaterThan(decrementRadii.bottomRight, 0)
                 XCTAssertGreaterThan(tryUnwrap(firstTextNode(in: row)).resolvedFrame.width, 0)
             }
         }
@@ -158,13 +160,13 @@ final class ControlGeometryTests: XCTestCase {
                 )
                 let row = tryUnwrap(node.children.first)
                 labelWidths.append(tryUnwrap(firstTextNode(in: row)).resolvedFrame.width)
-                for index in [1, 2] {
-                    let button = row.children[index]
+                let bezel = row.children[1]
+                for half in bezel.children {
                     XCTAssertEqual(
-                        button.resolvedFrame.width,
-                        button.preferredSize?.width ?? -1,
+                        half.resolvedFrame.width,
+                        half.preferredSize?.width ?? -1,
                         accuracy: 0.51,
-                        "stepper button should keep its preferred width at \(width)pt"
+                        "stepper half should keep its preferred width at \(width)pt"
                     )
                 }
             }

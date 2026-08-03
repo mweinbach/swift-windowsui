@@ -210,51 +210,13 @@ private struct RasterTarget {
         let clip = GPUIClipRegion(
             x: quad.clipX, y: quad.clipY, width: quad.clipWidth, height: quad.clipHeight,
             cornerRadius: quad.clipCornerRadius)
-        // Choose pixel-scan bounds and the (x, y) → local-coords mapping
-        // based on whether the quad is rotated. For rotation == 0 the
+        // Pixel-scan bounds and the (x, y) → local-coords mapping, shared
+        // with every other rotation-carrying family. For rotation == 0 the
         // local coords are the pixel center, preserving byte-identical
         // output with the historic axis-aligned fast path.
-        let bounds: PixelBounds
-        let localOf: (Double, Double) -> (Double, Double)
-        if rotation == 0 {
-            guard let unrotatedBounds = clippedPixelBounds(rect, clip: clip.rect) else { return }
-            bounds = unrotatedBounds
-            localOf = { ($0, $1) }
-        } else {
-            // Bounding box of the rotated rect, used as the pixel scan
-            // window. Inverse rotation maps each world pixel back into
-            // the un-rotated rect's coordinate space; the existing
-            // coverage / gradient / corner-radius math then applies
-            // unchanged in local space.
-            let centre = Point(x: rect.midX, y: rect.midY)
-            let cosR = cos(rotation)
-            let sinR = sin(rotation)
-            let halfW = rect.size.width * 0.5
-            let halfH = rect.size.height * 0.5
-            let corners = [
-                rotatedCorner(-halfW, -halfH, cosR: cosR, sinR: sinR, centre: centre),
-                rotatedCorner(halfW, -halfH, cosR: cosR, sinR: sinR, centre: centre),
-                rotatedCorner(halfW, halfH, cosR: cosR, sinR: sinR, centre: centre),
-                rotatedCorner(-halfW, halfH, cosR: cosR, sinR: sinR, centre: centre),
-            ]
-            let minX = corners.map(\.x).min() ?? rect.minX
-            let maxX = corners.map(\.x).max() ?? rect.maxX
-            let minY = corners.map(\.y).min() ?? rect.minY
-            let maxY = corners.map(\.y).max() ?? rect.maxY
-            let aabb = Rect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-            guard let rotatedBounds = clippedPixelBounds(aabb, clip: clip.rect) else { return }
-            bounds = rotatedBounds
-            // Pre-compute inverse-rotation values for the closure.
-            let invCos = cos(-rotation)
-            let invSin = sin(-rotation)
-            localOf = { (worldX, worldY) in
-                let dx = worldX - centre.x
-                let dy = worldY - centre.y
-                let lx = invCos * dx - invSin * dy + halfW + rect.origin.x
-                let ly = invSin * dx + invCos * dy + halfH + rect.origin.y
-                return (lx, ly)
-            }
-        }
+        guard let scan = rotatedScan(rect, rotation: rotation, clip: clip.rect) else { return }
+        let bounds = scan.bounds
+        let localOf = scan.localOf
 
         // Resolve the effective corner radii: per-corner values win when
         // the primitive carries any; otherwise broadcast the uniform
@@ -501,9 +463,16 @@ private struct RasterTarget {
         let clip = GPUIClipRegion(
             x: shadow.clipX, y: shadow.clipY, width: shadow.clipWidth, height: shadow.clipHeight,
             cornerRadius: shadow.clipCornerRadius)
-        guard let bounds = clippedPixelBounds(envelope, clip: clip.rect) else {
+        // The envelope is concentric with the offset rect, so one turn about
+        // the envelope's centre turns both — which is exactly what the
+        // shader's vertex stage does. Local coordinates stay unrotated, so
+        // the rounded-rect distance field below is unchanged.
+        guard
+            let scan = rotatedScan(envelope, rotation: Double(shadow.rotationRadians), clip: clip.rect)
+        else {
             return
         }
+        let bounds = scan.bounds
 
         let color = RasterColor(
             red: shadow.colorR, green: shadow.colorG, blue: shadow.colorB, alpha: shadow.colorA)
@@ -511,11 +480,11 @@ private struct RasterTarget {
         let blur = max(blurRadius, 0.5)
         for y in bounds.y0..<bounds.y1 {
             for x in bounds.x0..<bounds.x1 {
-                let pixelCenterX = Double(x) + 0.5
-                let pixelCenterY = Double(y) + 0.5
+                let (pixelCenterX, pixelCenterY) = scan.localOf(Double(x) + 0.5, Double(y) + 0.5)
                 // A rounded clip contributes antialiased coverage, not a
                 // yes/no gate — the shader multiplies `clipAlpha` into the
-                // output and so must this.
+                // output and so must this. The clip is compared in *world*
+                // space; only the shadow's own geometry is un-turned.
                 let clipAlpha = clip.alpha(atPixelX: x, y: y)
                 guard clipAlpha > 0 else { continue }
                 // The shader only runs where the expanded quad covers the
@@ -558,9 +527,14 @@ private struct RasterTarget {
         let clip = GPUIClipRegion(
             x: glyph.clipX, y: glyph.clipY, width: glyph.clipWidth, height: glyph.clipHeight,
             cornerRadius: glyph.clipCornerRadius)
-        guard let bounds = clippedPixelBounds(rect, clip: clip.rect) else {
+        // A glyph inside a `.rotationEffect` subtree carries the subtree's
+        // angle; the atlas cell is sampled in unrotated cell coordinates, so
+        // the UV lerp below is the same one an upright glyph runs — which is
+        // also how the shader does it (the UVs ride the turned vertices).
+        guard let scan = rotatedScan(rect, rotation: Double(glyph.rotationRadians), clip: clip.rect) else {
             return
         }
+        let bounds = scan.bounds
 
         let atlasWidth = max(1, Int(atlas.width))
         let atlasHeight = max(1, Int(atlas.height))
@@ -579,8 +553,7 @@ private struct RasterTarget {
                 // is most of the time. The same argument applies to the
                 // glyph's own quad, which the rasterizer covers only at
                 // pixel centres inside it.
-                let pixelCenterX = Double(x) + 0.5
-                let pixelCenterY = Double(y) + 0.5
+                let (pixelCenterX, pixelCenterY) = scan.localOf(Double(x) + 0.5, Double(y) + 0.5)
                 let clipAlpha = clip.alpha(atPixelX: x, y: y)
                 guard clipAlpha > 0 else { continue }
                 guard GPUIQuadCoverage.geometryCovers(localX: pixelCenterX, localY: pixelCenterY, rect: rect)
@@ -674,9 +647,13 @@ private struct RasterTarget {
         let clip = GPUIClipRegion(
             x: image.clipX, y: image.clipY, width: image.clipWidth, height: image.clipHeight,
             cornerRadius: image.clipCornerRadius)
-        guard let bounds = clippedPixelBounds(rect, clip: clip.rect) else {
+        // A composited offscreen pass under a rotated transform carries the
+        // angle; UVs are taken in unrotated destination coordinates, exactly
+        // as the shader takes them from the turned vertices' `unit`.
+        guard let scan = rotatedScan(rect, rotation: Double(image.rotationRadians), clip: clip.rect) else {
             return
         }
+        let bounds = scan.bounds
 
         let sourceWidth = max(1, Int(bitmap.width))
         let sourceHeight = max(1, Int(bitmap.height))
@@ -688,8 +665,7 @@ private struct RasterTarget {
         let isPremultiplied = bitmap.format.alphaMode == .premultiplied
         for y in bounds.y0..<bounds.y1 {
             for x in bounds.x0..<bounds.x1 {
-                let pixelCenterX = Double(x) + 0.5
-                let pixelCenterY = Double(y) + 0.5
+                let (pixelCenterX, pixelCenterY) = scan.localOf(Double(x) + 0.5, Double(y) + 0.5)
                 let clipAlpha = clip.alpha(atPixelX: x, y: y)
                 guard clipAlpha > 0 else { continue }
                 guard GPUIQuadCoverage.geometryCovers(localX: pixelCenterX, localY: pixelCenterY, rect: rect)
@@ -854,6 +830,59 @@ private struct RasterTarget {
         pixels[offset + 2] = byte(
             (color.red * sourceAlpha + destinationRed * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
         pixels[offset + 3] = byte(outputAlpha)
+    }
+
+    /// The pixel-scan window for `rect` turned by `rotation` about its own
+    /// centre, together with the map from a world pixel back into `rect`'s
+    /// unrotated space.
+    ///
+    /// Every rotation-carrying family shares this, because every one of them
+    /// wants the same two things: scan the bounding box of the turned rect,
+    /// and evaluate its interior maths — coverage, gradient, corner radius,
+    /// atlas UV, image UV — at the *unrotated* local coordinate. The clip is
+    /// deliberately compared in world space: the scene contract's clip is an
+    /// axis-aligned screen rect and does not turn with the primitive.
+    ///
+    /// For `rotation == 0` this is the historic
+    /// `clippedPixelBounds(rect, clip:)` with an identity map, so unrotated
+    /// output stays byte-identical.
+    private func rotatedScan(_ rect: Rect, rotation: Double, clip: Rect?)
+        -> (bounds: PixelBounds, localOf: (Double, Double) -> (Double, Double))?
+    {
+        guard rotation != 0, rotation.isFinite else {
+            guard let bounds = clippedPixelBounds(rect, clip: clip) else { return nil }
+            return (bounds, { ($0, $1) })
+        }
+
+        let centre = Point(x: rect.midX, y: rect.midY)
+        let cosR = cos(rotation)
+        let sinR = sin(rotation)
+        let halfW = rect.size.width * 0.5
+        let halfH = rect.size.height * 0.5
+        let corners = [
+            rotatedCorner(-halfW, -halfH, cosR: cosR, sinR: sinR, centre: centre),
+            rotatedCorner(halfW, -halfH, cosR: cosR, sinR: sinR, centre: centre),
+            rotatedCorner(halfW, halfH, cosR: cosR, sinR: sinR, centre: centre),
+            rotatedCorner(-halfW, halfH, cosR: cosR, sinR: sinR, centre: centre),
+        ]
+        let minX = corners.map(\.x).min() ?? rect.minX
+        let maxX = corners.map(\.x).max() ?? rect.maxX
+        let minY = corners.map(\.y).min() ?? rect.minY
+        let maxY = corners.map(\.y).max() ?? rect.maxY
+        let aabb = Rect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        guard let bounds = clippedPixelBounds(aabb, clip: clip) else { return nil }
+
+        // Pre-compute inverse-rotation values for the closure.
+        let invCos = cos(-rotation)
+        let invSin = sin(-rotation)
+        let localOf: (Double, Double) -> (Double, Double) = { worldX, worldY in
+            let dx = worldX - centre.x
+            let dy = worldY - centre.y
+            let lx = invCos * dx - invSin * dy + halfW + rect.origin.x
+            let ly = invSin * dx + invCos * dy + halfH + rect.origin.y
+            return (lx, ly)
+        }
+        return (bounds, localOf)
     }
 
     private func clippedPixelBounds(_ rect: Rect, clip: Rect?) -> PixelBounds? {

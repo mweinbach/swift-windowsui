@@ -12,10 +12,12 @@ struct GlyphInstance {
     float colorR, colorG, colorB, colorA;
     float clipX, clipY, clipWidth, clipHeight;
     float clipCornerRadius;
-    // 12 bytes of padding: 17 floats round up to a 20-float (80 byte)
-    // structured-buffer stride. Mirrors GlyphPrimitive in
-    // SwiftWindowsGraphics, pinned by GPUIPrimitiveLayoutCoherenceTests.
-    float pad0, pad1, pad2;
+    // Rotation about the glyph cell's centre. 8 bytes of padding follow:
+    // 18 floats round up to a 20-float (80 byte) structured-buffer stride.
+    // Mirrors GlyphPrimitive in SwiftWindowsGraphics, pinned by
+    // GPUIPrimitiveLayoutCoherenceTests.
+    float rotationRadians;
+    float pad1, pad2;
 };
 
 StructuredBuffer<GlyphInstance> instances : register(t0);
@@ -29,9 +31,11 @@ cbuffer FrameUniforms : register(b0) {
 
 struct VSOutput {
     float4 position : SV_Position;
-    float2 screenPosition : TEXCOORD0;
-    float2 screenSize : TEXCOORD1;
-    float2 unit : TEXCOORD2;
+    // The rasterized world position of this fragment. It used to be
+    // recomputed in the pixel stage as `screenPosition + unit * screenSize`,
+    // which is only the drawn position while the cell is upright; a rotated
+    // glyph would have been clipped against where it *would* have been.
+    float2 pixelPosition : TEXCOORD0;
     float4 clipRect : TEXCOORD3;
     float2 uv : TEXCOORD4;
     float4 color : COLOR0;
@@ -60,7 +64,25 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID) {
     float2 unit = quad[vertexID];
     float2 origin = float2(inst.screenX, inst.screenY);
     float2 size = float2(inst.screenW, inst.screenH);
-    float2 pixelPos = origin + unit * size;
+    // Rotation about the cell's centre, matching the quad shader. The UV
+    // lerp is driven by `unit`, so the atlas cell turns with the vertices
+    // and the sampler is untouched.
+    float2 pixelPos;
+    if (inst.rotationRadians == 0.0)
+    {
+        pixelPos = origin + unit * size;
+    }
+    else
+    {
+        float2 centre = origin + size * 0.5;
+        float2 fromCentre = unit * size - size * 0.5;
+        float cosR = cos(inst.rotationRadians);
+        float sinR = sin(inst.rotationRadians);
+        pixelPos = centre + float2(
+            cosR * fromCentre.x - sinR * fromCentre.y,
+            sinR * fromCentre.x + cosR * fromCentre.y
+        );
+    }
 
     float2 clipPos = float2(
         (pixelPos.x / surfaceSize.x) * 2.0 - 1.0,
@@ -73,9 +95,7 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID) {
 
     VSOutput output;
     output.position = float4(clipPos, 0.0, 1.0);
-    output.screenPosition = origin;
-    output.screenSize = size;
-    output.unit = unit;
+    output.pixelPosition = pixelPos;
     output.clipRect = float4(inst.clipX, inst.clipY, inst.clipWidth, inst.clipHeight);
     output.uv = uv;
     output.color = float4(inst.colorR, inst.colorG, inst.colorB, inst.colorA);
@@ -87,7 +107,7 @@ float4 psMain(VSOutput input) : SV_Target {
     float clipAlpha = 1.0;
     if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
     {
-        float2 pixelPos = input.screenPosition + input.unit * input.screenSize;
+        float2 pixelPos = input.pixelPosition;
         if (pixelPos.x < input.clipRect.x || pixelPos.y < input.clipRect.y ||
             pixelPos.x > input.clipRect.x + input.clipRect.z ||
             pixelPos.y > input.clipRect.y + input.clipRect.w)

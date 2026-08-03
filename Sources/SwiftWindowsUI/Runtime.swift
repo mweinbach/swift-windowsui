@@ -4272,9 +4272,15 @@ public final class ViewNode {
         // overlays a third.
         var effectiveClip = inheritedClip
         if clipsToBounds {
+            // R-ROT. Prepaint lowers the same placement the painter does, so a
+            // rotated `.clipped()` container narrows to the *turned* shape on
+            // both. Passing only `paintFrame` left interaction testing the
+            // bounding box while the painter composited the rotated one — a
+            // pointer accepted in a corner nothing was drawn in.
             guard
-                let clipped = inheritedClip.narrowed(
-                    to: paintFrame, radii: cornerRadii, uniformRadius: cornerRadius, space: .painted)
+                let clipped = Self.narrowedClip(
+                    inheritedClip, to: paintFrame, localFrame: absoluteFrame,
+                    transform: effectiveTransform, radii: cornerRadii, uniformRadius: cornerRadius)
             else {
                 cachedPrepaintKey = nil
                 cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
@@ -4553,6 +4559,27 @@ public final class ViewNode {
     /// temporaries of three `concatenating` calls are several hundred bytes.
     /// Here they live in one leaf frame instead of in all 256 levels; the
     /// recursion pays only for the two values it actually carries.
+    /// The clip a `clipsToBounds` node narrows to, with its rotation lowered.
+    ///
+    /// Out of line for the same reason `accumulatedPaintGeometry` is:
+    /// `appendPrepaintState` is a recursion with almost no stack headroom, and
+    /// a `PaintPlacement` is three geometry values plus the temporaries
+    /// `lowering` builds to produce them. Here they live in one leaf frame
+    /// instead of in all 256 levels.
+    fileprivate static func narrowedClip(
+        _ inheritedClip: RuntimeClipShape?,
+        to paintFrame: Rect,
+        localFrame: Rect,
+        transform: Transform2D,
+        radii: RetainedCornerRadii?,
+        uniformRadius: Double
+    ) -> RuntimeClipShape? {
+        let placement = PaintPlacement.lowering(localFrame, through: transform)
+        return inheritedClip.narrowed(
+            to: paintFrame, shape: placement.frame, radii: radii, uniformRadius: uniformRadius,
+            rotation: placement.rotation, space: .painted)
+    }
+
     fileprivate static func accumulatedPaintGeometry(
         of frame: Rect,
         transform: Transform2D,

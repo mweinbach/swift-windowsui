@@ -22,17 +22,39 @@ public enum ScenePainter {
     /// `displayScale` exactly once, before tessellation, so the promoted
     /// quads and the residual CPU path land in the same space the backends
     /// already assume.
+    ///
+    /// It is also the single place a *rotation* reaches path geometry. Paths
+    /// never cross the GPU as typed primitives, so there is no
+    /// `rotationRadians` field to hand a shader the way the quad, glyph,
+    /// image and shadow families have one; the honest lowering is to turn the
+    /// path's own elements, which both the coverage rasterizer and the D3D11
+    /// path-texture cache then simply cover. `PathPrimitive.shapeHash`
+    /// digests the element stream, so a turned path re-keys those caches by
+    /// construction rather than by anyone remembering to add the angle.
     internal static func emit(
         path logicalPath: PathPrimitive,
         into scene: inout GPUIScene,
         layerIndex: Int,
-        displayScale: Double
+        displayScale: Double,
+        placement: PaintPlacement? = nil
     ) {
         // A dash pattern can resolve to no geometry at all — every run of a
         // short outline landing in an "off" span — and an empty `Path` is a
         // no-op the same way. Neither should cost a paint operation.
         guard !logicalPath.elements.isEmpty else { return }
-        let path = logicalPath.scaled(by: displayScale)
+        // Turn before scaling: the rotation is about the node's centre in
+        // *logical* points, and a uniform scale commutes with a rotation
+        // about a correspondingly scaled pivot, so either order is exact —
+        // this one keeps the pivot in the space the placement states it in.
+        let placed: PathPrimitive
+        if let placement, placement.isRotated {
+            placed = logicalPath.rotated(
+                by: placement.rotation,
+                about: Point(x: placement.frame.midX, y: placement.frame.midY))
+        } else {
+            placed = logicalPath
+        }
+        let path = placed.scaled(by: displayScale)
         guard let mixed = PathToQuadTessellator.tessellateMixed(path) else {
             scene.addPath(path, toLayer: layerIndex)
             scene.paintMetrics.pathsRasterizedOnCPU += 1
@@ -516,8 +538,10 @@ public enum ScenePainter {
                 guard
                     let clipped = inheritedClip.narrowed(
                         to: paintFrame,
+                        shape: quadFrame,
                         radii: node.cornerRadii,
                         uniformRadius: node.cornerRadius,
+                        rotation: placement.rotation,
                         space: .painted
                     )
                 else {
@@ -683,7 +707,20 @@ public enum ScenePainter {
             let effectiveShadowColor = node.shadowColor.multipliedAlpha(by: opacity)
             if hasPaintableExtent, effectiveShadowColor.alpha > 0, let shadowRect = ownShadowRect {
                 if clipAllowsDrawing(clip: inheritedClip, rect: shadowRect) {
-                    let scaledShadowRect = scaleRect(shadowRect, by: displayScale)
+                    // R-ROT. The halo is laid out in the node's *unrotated*
+                    // paint space and turned about the node's centre, the same
+                    // two steps the border ring and the background fill take.
+                    // Emitting `paintFrame`'s outset instead haloed the
+                    // bounding box: at 45° a √2-too-large square around a
+                    // diamond, with the corners glowing where the card has
+                    // none. `placement.rotation` rides along on the primitive
+                    // so both backends turn the soft envelope with it.
+                    let quadShadowRect =
+                        quadFrame
+                        .outset(by: max(0, node.shadowSpread))
+                        .offsetBy(dx: node.shadowOffset.x, dy: node.shadowOffset.y)
+                    let scaledShadowRect = placement.placingDevice(
+                        scaleRect(quadShadowRect, by: displayScale), displayScale: displayScale)
                     let shadowClip = clipRectFloats(inheritedClip, surfaceSize: surfaceSize, displayScale: displayScale)
                     scene.addShadow(
                         ShadowPrimitive(
@@ -706,7 +743,8 @@ public enum ScenePainter {
                             clipWidth: shadowClip.2,
                             clipHeight: shadowClip.3,
                             clipCornerRadius: Float(
-                                inheritedClip.resolvedCornerRadius(forQuadRect: shadowRect) * displayScale)
+                                inheritedClip.resolvedCornerRadius(forQuadRect: shadowRect) * displayScale),
+                            rotationRadians: Float(placement.rotation)
                         ), toLayer: layerIndex)
                 }
             }
@@ -865,8 +903,15 @@ public enum ScenePainter {
             if let path = node.backgroundPath, fillRect.size.width > 0, fillRect.size.height > 0,
                 clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
             {
-                let scaledPath = path.scaled(to: fillRect)
-                let pathBounds = scaledPath.segments.boundingRect ?? fillRect
+                // R-ROT. The shape is scaled into the node's *unrotated* paint
+                // space and `emit` turns its elements about the node's centre;
+                // scaling into `fillRect` (the bounding box) and leaving the
+                // elements upright drew a √2-too-large upright shape wherever
+                // a `Shape` background sat under a `.rotationEffect`. The two
+                // rects are the same for any node that is not rotated.
+                let scaledPath = path.scaled(to: quadFillRect)
+                let localBounds = scaledPath.segments.boundingRect ?? quadFillRect
+                let pathBounds = placement.footprint(of: localBounds)
                 // Inherited opacity must compose into the path fill the
                 // same way it does for quad fills and the path stroke
                 // below; without this, shapes ignored ancestor opacity.
@@ -886,11 +931,12 @@ public enum ScenePainter {
                                 case .close: return .close
                                 }
                             },
-                            bounds: pathBounds,
+                            bounds: localBounds,
                             fillColor: bg,
                             clipBounds: effectiveClipRect,
                             clipCornerRadius: effectiveClip.resolvedCornerRadius(forQuadRect: pathBounds)
-                        ), into: &scene, layerIndex: layerIndex, displayScale: displayScale)
+                        ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
+                        placement: placement)
                 }
                 let effectiveStrokeColor = node.borderColor.multipliedAlpha(by: opacity)
                 if effectiveStrokeColor.alpha > 0, node.borderWidth > 0 {
@@ -922,15 +968,16 @@ public enum ScenePainter {
                     // to be handed `pathBounds` unchanged, which cropped the
                     // outer half of every shape outline the tessellator sent
                     // to CPU rasterization.
-                    let strokeBounds = pathBounds.outset(
+                    let localStrokeBounds = localBounds.outset(
                         by: StrokeOutlineGeometry.boundsOutset(
                             forElements: strokeElements, lineWidth: node.borderWidth,
                             lineCap: strokeStyle.lineCap, lineJoin: strokeStyle.lineJoin,
                             miterLimit: strokeStyle.miterLimit))
+                    let strokeBounds = placement.footprint(of: localStrokeBounds)
                     Self.emit(
                         path: PathPrimitive(
                             elements: strokeElements,
-                            bounds: strokeBounds,
+                            bounds: localStrokeBounds,
                             strokeColor: effectiveStrokeColor,
                             lineWidth: node.borderWidth,
                             lineCap: strokeStyle.lineCap,
@@ -938,7 +985,8 @@ public enum ScenePainter {
                             miterLimit: strokeStyle.miterLimit,
                             clipBounds: effectiveClipRect,
                             clipCornerRadius: effectiveClip.resolvedCornerRadius(forQuadRect: strokeBounds)
-                        ), into: &scene, layerIndex: layerIndex, displayScale: displayScale)
+                        ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
+                        placement: placement)
                 }
             }
 
@@ -981,27 +1029,28 @@ public enum ScenePainter {
                 fillRect.size.width > 0, fillRect.size.height > 0,
                 clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
             {
-                let scaledFillRect = scaleRect(fillRect, by: displayScale)
+                let scaledFillRect = scaleRect(quadFillRect, by: displayScale)
                 let clipR = clipRectFloats(effectiveClip, surfaceSize: surfaceSize, displayScale: displayScale)
                 let textureID = scene.registerImageResource(bitmapSurface)
                 scene.addImage(
-                    ImagePrimitive(
-                        screenX: Float(scaledFillRect.origin.x),
-                        screenY: Float(scaledFillRect.origin.y),
-                        screenW: Float(scaledFillRect.size.width),
-                        screenH: Float(scaledFillRect.size.height),
-                        opacity: opacity,
-                        clipX: clipR.0,
-                        clipY: clipR.1,
-                        clipWidth: clipR.2,
-                        clipHeight: clipR.3,
-                        // An image carries no corner radius of its own, so —
-                        // unlike the background quad — it is rounded by the
-                        // node's own clip, not only by its ancestors'.
-                        clipCornerRadius: Float(
-                            effectiveClip.resolvedCornerRadius(forQuadRect: fillRect) * displayScale),
-                        textureID: textureID
-                    ), toLayer: layerIndex)
+                    placement.rotating(
+                        ImagePrimitive(
+                            screenX: Float(scaledFillRect.origin.x),
+                            screenY: Float(scaledFillRect.origin.y),
+                            screenW: Float(scaledFillRect.size.width),
+                            screenH: Float(scaledFillRect.size.height),
+                            opacity: opacity,
+                            clipX: clipR.0,
+                            clipY: clipR.1,
+                            clipWidth: clipR.2,
+                            clipHeight: clipR.3,
+                            // An image carries no corner radius of its own, so —
+                            // unlike the background quad — it is rounded by the
+                            // node's own clip, not only by its ancestors'.
+                            clipCornerRadius: Float(
+                                effectiveClip.resolvedCornerRadius(forQuadRect: fillRect) * displayScale),
+                            textureID: textureID
+                        ), displayScale: displayScale), toLayer: layerIndex)
             }
 
             if !drawsRedactionPlaceholder,
@@ -1013,12 +1062,21 @@ public enum ScenePainter {
                 var nativeGlyphs: [GlyphPrimitive] = []
                 var pixelGlyphs: [GlyphPrimitive] = []
                 var textDecorationQuads: [QuadPrimitive] = []
+                // R-ROT. Text is shaped and laid out in the node's *unrotated*
+                // paint space and each cell is turned about the node's centre
+                // afterwards — the same two steps the border ring takes. Laying
+                // out in `paintFrame` and leaving the cells upright is what kept
+                // a rotated card's label horizontal inside a turned card, with
+                // the line breaking to the bounding box's width rather than the
+                // card's. `cullClip` is the preimage of the clip so the
+                // pre-rotation cull cannot drop a glyph the rotation brings in.
                 appendTextGlyphs(
                     for: text,
                     style: effectiveTextStyle,
-                    in: fillRect,
+                    in: quadFillRect,
                     opacity: 1,
                     clip: effectiveClipRect,
+                    cullClip: effectiveClipRect.map { placement.unplacedFootprint(of: $0) },
                     clipCornerRadius: effectiveClip.resolvedCornerRadius(forQuadRect: fillRect),
                     surfaceSize: surfaceSize,
                     displayScale: displayScale,
@@ -1028,13 +1086,13 @@ public enum ScenePainter {
                     decorationQuads: &textDecorationQuads
                 )
                 for glyph in nativeGlyphs {
-                    scene.addGlyph(glyph, toLayer: layerIndex)
+                    scene.addGlyph(placement.rotating(glyph, displayScale: displayScale), toLayer: layerIndex)
                 }
                 for glyph in pixelGlyphs {
-                    scene.addPixelGlyph(glyph, toLayer: layerIndex)
+                    scene.addPixelGlyph(placement.rotating(glyph, displayScale: displayScale), toLayer: layerIndex)
                 }
                 for quad in textDecorationQuads {
-                    scene.addQuad(quad, toLayer: layerIndex)
+                    scene.addQuad(placement.rotating(quad, displayScale: displayScale), toLayer: layerIndex)
                 }
                 usedNativeGlyphs = usedNativeGlyphs || !nativeGlyphs.isEmpty
                 usedPixelGlyphs = usedPixelGlyphs || !pixelGlyphs.isEmpty
@@ -1048,12 +1106,13 @@ public enum ScenePainter {
                 clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
             {
                 var canvasContext = CanvasGraphicsContext()
-                canvasDraw(&canvasContext, fillRect.size)
+                canvasDraw(&canvasContext, quadFillRect.size)
                 appendCanvasOperations(
                     canvasContext.operations,
                     into: &scene,
-                    origin: fillRect.origin,
+                    origin: quadFillRect.origin,
                     baseClip: effectiveClip,
+                    placement: placement,
                     opacity: opacity,
                     layerIndex: layerIndex,
                     surfaceSize: surfaceSize,
@@ -1090,10 +1149,31 @@ public enum ScenePainter {
             }
 
             let isCompositingGroup = node.drawingGroup != nil || node.isCompositingGroup
-            if isCompositingGroup, !isInsideDrawingGroup, hasPaintableExtent,
+            // R-ROT / CLF-9. A `clipsToBounds` node whose accumulated transform
+            // has a rotation cannot express its clip in the scene contract: the
+            // primitive clip is four floats naming an axis-aligned rect, and the
+            // turned rect's box is √2 too large at 45°. So the subtree takes
+            // the offscreen route — the same `RenderPassDescriptor` machinery a
+            // `.drawingGroup()` uses — painted *un*-turned into a buffer whose
+            // edges are the clip, and composited back through an
+            // `ImagePrimitive.rotationRadians`. The bitmap's own extent is then
+            // the clip shape, exactly, on both backends.
+            //
+            // The buffer is sized from the node's unrotated frame and clamped
+            // to the ancestors' clip pulled back into that space; when it
+            // cannot be sized (non-finite frame, or past the offscreen budget)
+            // the node falls through to inline painting with the bounding-box
+            // clip, which is what the whole stack did before this route existed.
+            let routesRotatedClip = node.clipsToBounds && placement.isRotated
+            let offscreenFrame = routesRotatedClip ? quadFrame : paintFrame
+            let offscreenClip =
+                routesRotatedClip
+                ? inheritedClip.map { placement.unplacedFootprint(of: $0.rect) } : effectiveClipRect
+            if isCompositingGroup || routesRotatedClip, !isInsideDrawingGroup, hasPaintableExtent,
                 !sortedChildren.isEmpty,
                 let buffer = offscreenPassBuffer(
-                    label: "compositingGroup", paintFrame: paintFrame, clip: effectiveClipRect,
+                    label: routesRotatedClip ? "rotatedClip" : "compositingGroup",
+                    paintFrame: offscreenFrame, clip: offscreenClip,
                     displayScale: displayScale, isCacheable: true)
             {
                 // Compositing group: render children into an offscreen buffer so
@@ -1113,7 +1193,30 @@ public enum ScenePainter {
                 // first (and dropping the node's own transform entirely) put
                 // a `.drawingGroup()` under any transformed ancestor at the
                 // wrong offset inside its own bitmap.
-                let subInheritedTransform = effectiveTransform.concatenating(subShift)
+                //
+                // R-ROT. On the rotated-clip route the node's own rotation is
+                // taken *out* first, because the bitmap holds the subtree
+                // upright and the composite puts the angle back. Everything
+                // else about the transform — ancestors, scale, translation —
+                // still applies, so a rotated clip nested under a scaled
+                // ancestor lands at the right size.
+                let subInheritedTransform =
+                    routesRotatedClip
+                    ? Self.unrotating(effectiveTransform, by: placement).concatenating(subShift)
+                    : effectiveTransform.concatenating(subShift)
+                // The buffer's edges are the clip on the rotated route, and the
+                // node's own rounding rides along anchored to its unrotated
+                // frame — both expressed in the sub-scene's own space.
+                let subClip: RuntimeClipShape? =
+                    routesRotatedClip
+                    ? RuntimeClipShape(
+                        rect: Rect(origin: .zero, size: buffer.frame.size),
+                        shapeRect: Rect(
+                            x: quadFrame.origin.x - buffer.frame.origin.x,
+                            y: quadFrame.origin.y - buffer.frame.origin.y,
+                            width: quadFrame.size.width, height: quadFrame.size.height),
+                        radii: node.cornerRadii, uniformRadius: node.cornerRadius, space: .painted)
+                    : nil
                 let subSize = buffer.size
 
                 // Rasterizing the group means walking and CPU-rasterizing its
@@ -1149,7 +1252,7 @@ public enum ScenePainter {
                             into: &subScene,
                             deferredDraws: &subDeferred,
                             parentOrigin: childOrigin,
-                            inheritedClip: nil,
+                            inheritedClip: subClip,
                             layerIndex: 0,
                             surfaceSize: surfaceSize,
                             displayScale: displayScale,
@@ -1202,23 +1305,31 @@ public enum ScenePainter {
 
                 let textureID = scene.registerImageResource(bitmap)
                 let scaledFrame = scaleRect(buffer.frame, by: displayScale)
-                let clipR = clipRectFloats(effectiveClip, surfaceSize: surfaceSize, displayScale: displayScale)
+                // On the rotated route the node's own clip is the bitmap, so
+                // the composite carries only what its ancestors imposed;
+                // re-applying `effectiveClip` would square the result off
+                // against the very bounding box the route exists to escape.
+                let compositeClip = routesRotatedClip ? inheritedClip : effectiveClip
+                let clipR = clipRectFloats(compositeClip, surfaceSize: surfaceSize, displayScale: displayScale)
                 let imageOpacity = primitiveOpacity * Float(node.opacity)
+                let composite = ImagePrimitive(
+                    screenX: Float(scaledFrame.origin.x),
+                    screenY: Float(scaledFrame.origin.y),
+                    screenW: Float(scaledFrame.size.width),
+                    screenH: Float(scaledFrame.size.height),
+                    opacity: imageOpacity,
+                    clipX: clipR.0,
+                    clipY: clipR.1,
+                    clipWidth: clipR.2,
+                    clipHeight: clipR.3,
+                    clipCornerRadius: Float(
+                        compositeClip.resolvedCornerRadius(forQuadRect: buffer.frame) * displayScale),
+                    textureID: textureID
+                )
                 scene.addImage(
-                    ImagePrimitive(
-                        screenX: Float(scaledFrame.origin.x),
-                        screenY: Float(scaledFrame.origin.y),
-                        screenW: Float(scaledFrame.size.width),
-                        screenH: Float(scaledFrame.size.height),
-                        opacity: imageOpacity,
-                        clipX: clipR.0,
-                        clipY: clipR.1,
-                        clipWidth: clipR.2,
-                        clipHeight: clipR.3,
-                        clipCornerRadius: Float(
-                            effectiveClip.resolvedCornerRadius(forQuadRect: buffer.frame) * displayScale),
-                        textureID: textureID
-                    ), toLayer: layerIndex)
+                    routesRotatedClip
+                        ? placement.rotating(composite, displayScale: displayScale) : composite,
+                    toLayer: layerIndex)
             } else {
                 // This node painted inline, so whatever buffer it composited
                 // into on an earlier frame is dead weight now.
@@ -1897,6 +2008,23 @@ public enum ScenePainter {
     /// and more correct than a buffer the machine cannot afford every frame.
     private static let maxCompositingGroupPixels = 16_777_216
 
+    /// `transform` with `placement`'s rotation removed: the map that puts the
+    /// node's subtree where it would have been had it not been turned.
+    ///
+    /// Built as a screen-space operator around the node's *placed* centre and
+    /// composed last, for the same reason the node's own centred transform is
+    /// — it is expressed in the space `transform` produces. Composing it the
+    /// other way would un-turn about a point in the pre-transform space, which
+    /// is the wrong pivot for anything under a scale or an offset.
+    private static func unrotating(_ transform: Transform2D, by placement: PaintPlacement) -> Transform2D {
+        guard placement.isRotated else { return transform }
+        let pivot = Point(x: placement.frame.midX, y: placement.frame.midY)
+        let unrotate = Transform2D.translation(x: -pivot.x, y: -pivot.y)
+            .concatenating(Transform2D(rotation: -placement.rotation))
+            .concatenating(.translation(x: pivot.x, y: pivot.y))
+        return transform.concatenating(unrotate)
+    }
+
     /// Sizes the offscreen buffer for a subtree pass, or returns nil when the
     /// subtree must be painted inline instead.
     ///
@@ -2157,6 +2285,7 @@ public enum ScenePainter {
         into scene: inout GPUIScene,
         origin: Point,
         baseClip: RuntimeClipShape?,
+        placement: PaintPlacement,
         opacity: Float,
         layerIndex: Int,
         surfaceSize: Size,
@@ -2165,15 +2294,25 @@ public enum ScenePainter {
         usedNativeGlyphs: inout Bool,
         usedPixelGlyphs: inout Bool
     ) {
-        var clipStack: [Rect?] = []
         // The canvas keeps its own square push/pop clip stack; the enclosing
         // node's rounding still applies to whatever the canvas draws, resolved
         // by the same corner-survival rule every other emitter uses — so a
         // `Canvas` inside a rounded card is cut by the card arc until the
         // canvas narrows the clip away from it.
+        //
+        // R-ROT. Two clips, one region. `currentClip` is the screen-space
+        // rejection rect the primitives carry; `currentCullClip` is that same
+        // region expressed in the canvas's own drawing space, which is where
+        // every operation's rect lives *before* `placement` turns it. Culling
+        // a pre-rotation rect against the post-rotation clip is what erased a
+        // `Canvas` drawn near the edge of a rotated card. The two are the same
+        // rect for every node that is not rotated.
+        var clipStack: [(emit: Rect?, cull: Rect?)] = []
         var currentClip = baseClip?.rect
+        var currentCullClip = baseClip.map { placement.unplacedFootprint(of: $0.rect) }
         func clipRadius(_ quadRect: Rect) -> Double {
-            baseClip.ancestorCornerRadius(forQuadRect: quadRect, rejectingOutside: currentClip)
+            baseClip.ancestorCornerRadius(
+                forQuadRect: placement.footprint(of: quadRect), rejectingOutside: currentClip)
         }
 
         for operation in operations {
@@ -2183,7 +2322,7 @@ public enum ScenePainter {
                 guard effectiveColor.alpha > 0 else { continue }
                 let translated = path.translated(by: origin)
                 guard let bounds = translated.segments.boundingRect, !bounds.isEmpty else { continue }
-                guard clipAllowsDrawing(clip: currentClip, rect: bounds) else { continue }
+                guard clipAllowsDrawing(clip: currentCullClip, rect: bounds) else { continue }
                 Self.emit(
                     path: PathPrimitive(
                         elements: pathElements(from: translated.segments),
@@ -2191,7 +2330,8 @@ public enum ScenePainter {
                         fillColor: effectiveColor,
                         clipBounds: currentClip,
                         clipCornerRadius: clipRadius(bounds)
-                    ), into: &scene, layerIndex: layerIndex, displayScale: displayScale)
+                    ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
+                    placement: placement)
 
             case .strokePath(let path, let color, let style):
                 let effectiveColor = color.multipliedAlpha(by: opacity)
@@ -2216,7 +2356,7 @@ public enum ScenePainter {
                         forElements: strokeElements, lineWidth: style.lineWidth, lineCap: style.lineCap,
                         lineJoin: style.lineJoin, miterLimit: style.miterLimit))
                 guard !strokeBounds.isEmpty else { continue }
-                guard clipAllowsDrawing(clip: currentClip, rect: strokeBounds) else { continue }
+                guard clipAllowsDrawing(clip: currentCullClip, rect: strokeBounds) else { continue }
                 Self.emit(
                     path: PathPrimitive(
                         elements: strokeElements,
@@ -2228,40 +2368,43 @@ public enum ScenePainter {
                         miterLimit: style.miterLimit,
                         clipBounds: currentClip,
                         clipCornerRadius: clipRadius(strokeBounds)
-                    ), into: &scene, layerIndex: layerIndex, displayScale: displayScale)
+                    ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
+                    placement: placement)
 
             case .fillRect(let rect, let color):
                 let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
                 let effectiveColor = color.multipliedAlpha(by: opacity)
                 guard effectiveColor.alpha > 0 else { continue }
-                guard clipAllowsDrawing(clip: currentClip, rect: effectiveRect) else { continue }
+                guard clipAllowsDrawing(clip: currentCullClip, rect: effectiveRect) else { continue }
                 scene.addQuad(
-                    solidQuad(
-                        rect: effectiveRect,
-                        cornerRadius: 0,
-                        color: effectiveColor,
-                        opacity: 1,
-                        clip: currentClip,
-                        surfaceSize: surfaceSize,
-                        displayScale: displayScale,
-                        clipCornerRadius: clipRadius(effectiveRect)
-                    ), toLayer: layerIndex)
+                    placement.rotating(
+                        solidQuad(
+                            rect: effectiveRect,
+                            cornerRadius: 0,
+                            color: effectiveColor,
+                            opacity: 1,
+                            clip: currentClip,
+                            surfaceSize: surfaceSize,
+                            displayScale: displayScale,
+                            clipCornerRadius: clipRadius(effectiveRect)
+                        ), displayScale: displayScale), toLayer: layerIndex)
 
             case .fillRectGradient(let rect, let gradient):
                 let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
-                guard clipAllowsDrawing(clip: currentClip, rect: effectiveRect) else { continue }
+                guard clipAllowsDrawing(clip: currentCullClip, rect: effectiveRect) else { continue }
                 scene.addQuad(
-                    fillQuad(
-                        rect: effectiveRect,
-                        cornerRadius: 0,
-                        color: gradient.startColor,
-                        gradient: .linear(gradient),
-                        opacity: opacity,
-                        clip: currentClip,
-                        surfaceSize: surfaceSize,
-                        displayScale: displayScale,
-                        clipCornerRadius: clipRadius(effectiveRect)
-                    ), toLayer: layerIndex)
+                    placement.rotating(
+                        fillQuad(
+                            rect: effectiveRect,
+                            cornerRadius: 0,
+                            color: gradient.startColor,
+                            gradient: .linear(gradient),
+                            opacity: opacity,
+                            clip: currentClip,
+                            surfaceSize: surfaceSize,
+                            displayScale: displayScale,
+                            clipCornerRadius: clipRadius(effectiveRect)
+                        ), displayScale: displayScale), toLayer: layerIndex)
 
             case .strokeRect(let rect, let color, let lineWidth):
                 let effectiveColor = color.multipliedAlpha(by: opacity)
@@ -2271,7 +2414,7 @@ public enum ScenePainter {
                 // width past each corner on each axis, which is what the
                 // outset already is.
                 let strokeBounds = effectiveRect.outset(by: lineWidth / 2)
-                guard clipAllowsDrawing(clip: currentClip, rect: strokeBounds) else { continue }
+                guard clipAllowsDrawing(clip: currentCullClip, rect: strokeBounds) else { continue }
                 let outline: [RenderPath.Segment] = [
                     .moveTo(Point(x: effectiveRect.minX, y: effectiveRect.minY)),
                     .lineTo(Point(x: effectiveRect.maxX, y: effectiveRect.minY)),
@@ -2287,12 +2430,13 @@ public enum ScenePainter {
                         lineWidth: lineWidth,
                         clipBounds: currentClip,
                         clipCornerRadius: clipRadius(strokeBounds)
-                    ), into: &scene, layerIndex: layerIndex, displayScale: displayScale)
+                    ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
+                    placement: placement)
 
             case .drawText(let text, let rect, let style):
                 let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
                 let effectiveStyle = style.multipliedOpacity(by: opacity)
-                guard clipAllowsDrawing(clip: currentClip, rect: effectiveRect) else { continue }
+                guard clipAllowsDrawing(clip: currentCullClip, rect: effectiveRect) else { continue }
                 var nativeGlyphs: [GlyphPrimitive] = []
                 var pixelGlyphs: [GlyphPrimitive] = []
                 var decorationQuads: [QuadPrimitive] = []
@@ -2302,6 +2446,7 @@ public enum ScenePainter {
                     in: effectiveRect,
                     opacity: 1,
                     clip: currentClip,
+                    cullClip: currentCullClip,
                     clipCornerRadius: clipRadius(effectiveRect),
                     surfaceSize: surfaceSize,
                     displayScale: displayScale,
@@ -2311,13 +2456,13 @@ public enum ScenePainter {
                     decorationQuads: &decorationQuads
                 )
                 for glyph in nativeGlyphs {
-                    scene.addGlyph(glyph, toLayer: layerIndex)
+                    scene.addGlyph(placement.rotating(glyph, displayScale: displayScale), toLayer: layerIndex)
                 }
                 for glyph in pixelGlyphs {
-                    scene.addPixelGlyph(glyph, toLayer: layerIndex)
+                    scene.addPixelGlyph(placement.rotating(glyph, displayScale: displayScale), toLayer: layerIndex)
                 }
                 for quad in decorationQuads {
-                    scene.addQuad(quad, toLayer: layerIndex)
+                    scene.addQuad(placement.rotating(quad, displayScale: displayScale), toLayer: layerIndex)
                 }
                 usedNativeGlyphs = usedNativeGlyphs || !nativeGlyphs.isEmpty
                 usedPixelGlyphs = usedPixelGlyphs || !pixelGlyphs.isEmpty
@@ -2326,36 +2471,40 @@ public enum ScenePainter {
                 let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
                 let effectiveOpacity = opacity * imageOpacity
                 guard effectiveOpacity > 0 else { continue }
-                guard clipAllowsDrawing(clip: currentClip, rect: effectiveRect) else { continue }
+                guard clipAllowsDrawing(clip: currentCullClip, rect: effectiveRect) else { continue }
                 let scaledRect = scaleRect(effectiveRect, by: displayScale)
                 let clipR = clipRectFloats(currentClip, surfaceSize: surfaceSize, displayScale: displayScale)
                 let textureID = scene.registerImageResource(bitmap)
                 scene.addImage(
-                    ImagePrimitive(
-                        screenX: Float(scaledRect.origin.x),
-                        screenY: Float(scaledRect.origin.y),
-                        screenW: Float(scaledRect.size.width),
-                        screenH: Float(scaledRect.size.height),
-                        opacity: effectiveOpacity,
-                        clipX: clipR.0,
-                        clipY: clipR.1,
-                        clipWidth: clipR.2,
-                        clipHeight: clipR.3,
-                        clipCornerRadius: Float(clipRadius(effectiveRect) * displayScale),
-                        textureID: textureID
-                    ), toLayer: layerIndex)
+                    placement.rotating(
+                        ImagePrimitive(
+                            screenX: Float(scaledRect.origin.x),
+                            screenY: Float(scaledRect.origin.y),
+                            screenW: Float(scaledRect.size.width),
+                            screenH: Float(scaledRect.size.height),
+                            opacity: effectiveOpacity,
+                            clipX: clipR.0,
+                            clipY: clipR.1,
+                            clipWidth: clipR.2,
+                            clipHeight: clipR.3,
+                            clipCornerRadius: Float(clipRadius(effectiveRect) * displayScale),
+                            textureID: textureID
+                        ), displayScale: displayScale), toLayer: layerIndex)
 
             case .pushClip(let rect):
                 let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
-                clipStack.append(currentClip)
-                if let existing = currentClip {
-                    currentClip = existing.intersected(with: effectiveRect)
-                } else {
-                    currentClip = effectiveRect
-                }
+                clipStack.append((currentClip, currentCullClip))
+                // The pushed rect is in the canvas's drawing space, so it
+                // narrows the cull clip directly and the screen-space clip
+                // through its turned footprint.
+                let screenRect = placement.footprint(of: effectiveRect)
+                currentClip = currentClip.map { $0.intersected(with: screenRect) } ?? screenRect
+                currentCullClip = currentCullClip.map { $0.intersected(with: effectiveRect) } ?? effectiveRect
 
             case .popClip:
-                currentClip = clipStack.popLast() ?? baseClip?.rect
+                let restored = clipStack.popLast()
+                currentClip = restored?.emit ?? baseClip?.rect
+                currentCullClip = restored?.cull ?? baseClip.map { placement.unplacedFootprint(of: $0.rect) }
             }
         }
     }
@@ -2583,12 +2732,20 @@ public enum ScenePainter {
         )
     }
 
+    /// `cullClip` is the clip the *layout* is compared against, which is not
+    /// always the clip the primitives carry: a run inside a rotated subtree is
+    /// laid out in the node's own unrotated space and turned afterwards, so it
+    /// has to be culled against the preimage of the screen-space clip
+    /// (`PaintPlacement.unplacedFootprint`) or the rotation drops glyphs it
+    /// would have brought into view. For every axis-aligned caller the two are
+    /// the same rect.
     private static func appendTextGlyphs(
         for text: String,
         style: PixelTextStyle,
         in rect: Rect,
         opacity: Float,
         clip: Rect?,
+        cullClip: Rect?,
         clipCornerRadius: Double = 0,
         surfaceSize: Size,
         displayScale: Double,
@@ -2612,6 +2769,7 @@ public enum ScenePainter {
             in: rect,
             opacity: opacity,
             clip: clip,
+            cullClip: cullClip,
             clipCornerRadius: clipCornerRadius,
             surfaceSize: surfaceSize,
             displayScale: displayScale,
@@ -2660,7 +2818,7 @@ public enum ScenePainter {
         }
 
         let clipRect = clipRectFloats(clip, surfaceSize: surfaceSize, displayScale: displayScale)
-        let scaledVisibleClip = clip.map { scaleRect($0, by: displayScale) }
+        let scaledVisibleClip = cullClip.map { scaleRect($0, by: displayScale) }
         let glyphWidth = Double(PixelFontAtlas.glyphWidth) * scale * displayScale
         let glyphHeight = Double(PixelFontAtlas.glyphHeight) * scale * displayScale
         let horizontalAdvance =
@@ -2737,6 +2895,7 @@ public enum ScenePainter {
                 style: effectiveStyle,
                 opacity: opacity,
                 clip: clip,
+                cullClip: cullClip,
                 surfaceSize: surfaceSize,
                 displayScale: displayScale,
                 into: &decorationQuads
@@ -2751,6 +2910,7 @@ public enum ScenePainter {
         in rect: Rect,
         opacity: Float,
         clip: Rect?,
+        cullClip: Rect?,
         clipCornerRadius: Double = 0,
         surfaceSize: Size,
         displayScale: Double,
@@ -2784,7 +2944,7 @@ public enum ScenePainter {
             baseY = contentRect.maxY - totalTextHeight
         }
         let clipRect = clipRectFloats(clip, surfaceSize: surfaceSize, displayScale: displayScale)
-        let scaledVisibleClip = clip.map { scaleRect($0, by: displayScale) }
+        let scaledVisibleClip = cullClip.map { scaleRect($0, by: displayScale) }
         var appendedGlyphs: [GlyphPrimitive] = []
         var appendedDecorationQuads: [QuadPrimitive] = []
         var lineOriginY = baseY
@@ -2897,6 +3057,7 @@ public enum ScenePainter {
                 style: style,
                 opacity: opacity,
                 clip: clip,
+                cullClip: cullClip,
                 surfaceSize: surfaceSize,
                 displayScale: displayScale,
                 into: &appendedDecorationQuads
@@ -2918,6 +3079,7 @@ public enum ScenePainter {
         style: PixelTextStyle,
         opacity: Float,
         clip: Rect?,
+        cullClip: Rect?,
         surfaceSize: Size,
         displayScale: Double,
         into quads: inout [QuadPrimitive]
@@ -2936,6 +3098,7 @@ public enum ScenePainter {
                 pattern: style.underlinePattern,
                 opacity: opacity,
                 clip: clip,
+                cullClip: cullClip,
                 surfaceSize: surfaceSize,
                 displayScale: displayScale,
                 into: &quads
@@ -2951,6 +3114,7 @@ public enum ScenePainter {
                 pattern: style.strikethroughPattern,
                 opacity: opacity,
                 clip: clip,
+                cullClip: cullClip,
                 surfaceSize: surfaceSize,
                 displayScale: displayScale,
                 into: &quads
@@ -2966,6 +3130,7 @@ public enum ScenePainter {
         pattern: TextDecorationPattern,
         opacity: Float,
         clip: Rect?,
+        cullClip: Rect?,
         surfaceSize: Size,
         displayScale: Double,
         into quads: inout [QuadPrimitive]
@@ -2975,7 +3140,7 @@ public enum ScenePainter {
         }
 
         for rect in decorationSegments(lineRect: lineRect, y: y, thickness: thickness, pattern: pattern) {
-            guard clipAllowsDrawing(clip: clip, rect: rect) else {
+            guard clipAllowsDrawing(clip: cullClip, rect: rect) else {
                 continue
             }
 

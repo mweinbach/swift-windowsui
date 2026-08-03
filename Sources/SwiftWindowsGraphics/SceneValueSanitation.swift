@@ -267,6 +267,7 @@ public enum GPUISceneSanitizer {
         result.colorG = GPUISceneValue.clamped(glyph.colorG, lower: 0, upper: 1)
         result.colorB = GPUISceneValue.clamped(glyph.colorB, lower: 0, upper: 1)
         result.colorA = GPUISceneValue.clamped(glyph.colorA, lower: 0, upper: 1)
+        result.rotationRadians = glyph.rotationRadians.isFinite ? glyph.rotationRadians : 0
         return result
     }
 
@@ -293,6 +294,7 @@ public enum GPUISceneSanitizer {
         result.uvW = GPUISceneValue.clamped(image.uvW, to: GPUISceneLimits.maxTextureCoordinate)
         result.uvH = GPUISceneValue.clamped(image.uvH, to: GPUISceneLimits.maxTextureCoordinate)
         result.opacity = GPUISceneValue.clamped(image.opacity, lower: 0, upper: 1)
+        result.rotationRadians = image.rotationRadians.isFinite ? image.rotationRadians : 0
         return result
     }
 
@@ -326,6 +328,7 @@ public enum GPUISceneSanitizer {
         result.colorG = GPUISceneValue.clamped(shadow.colorG, lower: 0, upper: 1)
         result.colorB = GPUISceneValue.clamped(shadow.colorB, lower: 0, upper: 1)
         result.colorA = GPUISceneValue.clamped(shadow.colorA, lower: 0, upper: 1)
+        result.rotationRadians = shadow.rotationRadians.isFinite ? shadow.rotationRadians : 0
         return result
     }
 

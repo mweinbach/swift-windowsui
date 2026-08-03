@@ -1,3 +1,4 @@
+import Foundation
 import SwiftWindowsCore
 
 public struct GPUIContentMask: Equatable, Sendable {
@@ -192,9 +193,14 @@ public struct GlyphPrimitive: Equatable, Sendable {
     // clipped square on both backends — consistent, and consistently wrong
     // against macOS — because only `QuadPrimitive` could express it.
     public var clipCornerRadius: Float
+    // Rotation in radians around the glyph cell's centre. 0 = upright (the
+    // historic fast path). Non-zero turns the sampled cell, so a run of
+    // text inside a `.rotationEffect` subtree reads along the rotated
+    // baseline instead of staying upright inside a turned card. This slot
+    // used to be `_pad0`, so the stride is unchanged at 80 bytes.
+    public var rotationRadians: Float
     // Padding to a 16-byte multiple, which HLSL structured buffers require
-    // for their element stride. 17 floats round up to 20.
-    public var _pad0: Float
+    // for their element stride. 18 floats round up to 20.
     public var _pad1: Float
     public var _pad2: Float
 
@@ -203,7 +209,8 @@ public struct GlyphPrimitive: Equatable, Sendable {
         atlasU0: Float = 0, atlasV0: Float = 0, atlasU1: Float = 0, atlasV1: Float = 0,
         colorR: Float = 1, colorG: Float = 1, colorB: Float = 1, colorA: Float = 1,
         clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0,
-        clipCornerRadius: Float = 0
+        clipCornerRadius: Float = 0,
+        rotationRadians: Float = 0
     ) {
         self.screenX = screenX
         self.screenY = screenY
@@ -222,7 +229,7 @@ public struct GlyphPrimitive: Equatable, Sendable {
         self.clipWidth = clipWidth
         self.clipHeight = clipHeight
         self.clipCornerRadius = clipCornerRadius
-        self._pad0 = 0
+        self.rotationRadians = rotationRadians
         self._pad1 = 0
         self._pad2 = 0
     }
@@ -270,8 +277,13 @@ public struct ImagePrimitive: Equatable, Sendable {
     // inside a rounded card clipped square while the card background rounded
     // — the rounding cost nothing here but a name.
     public var clipCornerRadius: Float
-    // Padding to reach 64 bytes (16 x 4-byte fields)
-    public var _pad1: Float
+    // Rotation in radians around the destination rect's centre. 0 = axis
+    // aligned (the historic fast path). This is what lets a composited
+    // offscreen pass — a `.drawingGroup()`, or the bitmap a rotated
+    // `clipsToBounds` subtree renders into — land turned rather than
+    // squared off into its own bounding box. The slot used to be `_pad1`,
+    // so the stride is unchanged at 64 bytes.
+    public var rotationRadians: Float
 
     public init(
         screenX: Float = 0, screenY: Float = 0, screenW: Float = 0, screenH: Float = 0,
@@ -279,7 +291,8 @@ public struct ImagePrimitive: Equatable, Sendable {
         opacity: Float = 1,
         clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0,
         clipCornerRadius: Float = 0,
-        textureID: Int32 = 0
+        textureID: Int32 = 0,
+        rotationRadians: Float = 0
     ) {
         self.screenX = screenX
         self.screenY = screenY
@@ -296,7 +309,7 @@ public struct ImagePrimitive: Equatable, Sendable {
         self.clipHeight = clipHeight
         self.textureID = textureID
         self.clipCornerRadius = clipCornerRadius
-        self._pad1 = 0
+        self.rotationRadians = rotationRadians
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }
@@ -344,8 +357,16 @@ public struct ShadowPrimitive: Equatable, Sendable {
     // Rounding of the clip rect, so a shadow inside a rounded container is
     // shaped by the container instead of squaring off at its corners.
     public var clipCornerRadius: Float
-    // Padding to a 16-byte multiple: 17 floats round up to 20.
-    public var _pad0: Float
+    // Rotation in radians around the centre of the *offset* rect — the
+    // rect this actually draws, `(x + offsetX, y + offsetY, width,
+    // height)`. 0 = axis-aligned (the historic fast path). Without it a
+    // rotated card's `.shadow()` haloed the card's bounding box, which at
+    // 45° is √2 too large on each axis and square where the card is
+    // diamond. The soft envelope is concentric with the rect, so one angle
+    // turns both. The slot used to be `_pad0`; the stride is unchanged at
+    // 80 bytes.
+    public var rotationRadians: Float
+    // Padding to a 16-byte multiple: 18 floats round up to 20.
     public var _pad1: Float
     public var _pad2: Float
 
@@ -356,7 +377,8 @@ public struct ShadowPrimitive: Equatable, Sendable {
         blurRadius: Float = 4,
         offsetX: Float = 0, offsetY: Float = 0,
         clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0,
-        clipCornerRadius: Float = 0
+        clipCornerRadius: Float = 0,
+        rotationRadians: Float = 0
     ) {
         self.x = x
         self.y = y
@@ -375,7 +397,7 @@ public struct ShadowPrimitive: Equatable, Sendable {
         self.clipWidth = clipWidth
         self.clipHeight = clipHeight
         self.clipCornerRadius = clipCornerRadius
-        self._pad0 = 0
+        self.rotationRadians = rotationRadians
         self._pad1 = 0
         self._pad2 = 0
     }
@@ -756,6 +778,90 @@ public struct PathPrimitive: Equatable, Sendable {
             miterLimit: miterLimit,
             clipBounds: clipBounds.map { $0.scaled(by: factor) },
             clipCornerRadius: clipCornerRadius * factor
+        )
+    }
+
+    /// Returns a new path with every element turned by `radians` about
+    /// `pivot`, and `bounds` widened to the axis-aligned footprint of the
+    /// turned rect.
+    ///
+    /// This is how a `Shape` background, a `Canvas` drawing or a vector icon
+    /// under a `.rotationEffect` reaches the raster turned. Paths never cross
+    /// the GPU as typed primitives — both backends rasterize them — so there
+    /// is no `rotationRadians` field to carry the angle to a shader the way
+    /// the quad, glyph, image and shadow families do. Transforming the
+    /// *elements* is the honest lowering: the coverage rasterizer then simply
+    /// covers the turned geometry, strokes join and cap along it, and the
+    /// path-texture caches re-key naturally because `shapeHash` digests the
+    /// element stream.
+    ///
+    /// What is deliberately **not** rotated:
+    ///
+    /// - `clipBounds` and `clipCornerRadius`. The scene contract's clip is an
+    ///   axis-aligned screen-space rect for every family; the caller has
+    ///   already narrowed it in that space and rotating it here would put the
+    ///   path's clip in a space no other primitive shares.
+    /// - `lineWidth` and `miterLimit`. A rotation is rigid, so a stroke keeps
+    ///   its width.
+    ///
+    /// `bounds` becomes the footprint of the *rotated bounds rect* rather
+    /// than a fresh scan of the turned elements: rotation is rigid and the
+    /// elements were inside `bounds`, so the turned elements are inside the
+    /// turned rect, and both CPU raster windows (`drawPath`, the D3D11 path
+    /// cache) stay conservative without an extra pass over the geometry.
+    public func rotated(by radians: Double, about pivot: Point) -> PathPrimitive {
+        guard radians != 0, radians.isFinite, pivot.x.isFinite, pivot.y.isFinite else { return self }
+        let cosR = cos(radians)
+        let sinR = sin(radians)
+
+        func turn(_ point: Point) -> Point {
+            let dx = point.x - pivot.x
+            let dy = point.y - pivot.y
+            return Point(x: pivot.x + cosR * dx - sinR * dy, y: pivot.y + sinR * dx + cosR * dy)
+        }
+
+        let turnedElements = elements.map { element -> PathElement in
+            switch element {
+            case .moveTo(let p):
+                return .moveTo(turn(p))
+            case .lineTo(let p):
+                return .lineTo(turn(p))
+            case .quadraticCurveTo(let c, let e):
+                return .quadraticCurveTo(control: turn(c), end: turn(e))
+            case .cubicCurveTo(let c1, let c2, let e):
+                return .cubicCurveTo(control1: turn(c1), control2: turn(c2), end: turn(e))
+            case .arc(let c, let r, let s, let e, let cw):
+                // A point on the arc is `centre + r·(cos φ, sin φ)`, so
+                // turning it by θ is the same point at `φ + θ` about the
+                // turned centre: the radius and the sweep direction are
+                // rotation-invariant, both endpoints shift by the angle.
+                return .arc(
+                    center: turn(c), radius: r, startAngle: s + radians, endAngle: e + radians, clockwise: cw)
+            case .close:
+                return .close
+            }
+        }
+
+        let turnedCentre = turn(Point(x: bounds.midX, y: bounds.midY))
+        let halfWidth = (abs(cosR) * bounds.size.width + abs(sinR) * bounds.size.height) * 0.5
+        let halfHeight = (abs(sinR) * bounds.size.width + abs(cosR) * bounds.size.height) * 0.5
+
+        return PathPrimitive(
+            elements: turnedElements,
+            bounds: Rect(
+                x: turnedCentre.x - halfWidth,
+                y: turnedCentre.y - halfHeight,
+                width: halfWidth * 2,
+                height: halfHeight * 2
+            ),
+            fillColor: fillColor,
+            strokeColor: strokeColor,
+            lineWidth: lineWidth,
+            lineCap: lineCap,
+            lineJoin: lineJoin,
+            miterLimit: miterLimit,
+            clipBounds: clipBounds,
+            clipCornerRadius: clipCornerRadius
         )
     }
 }

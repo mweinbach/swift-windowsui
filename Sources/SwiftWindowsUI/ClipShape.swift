@@ -1,3 +1,4 @@
+import Foundation
 import SwiftWindowsCore
 
 /// The runtime's one clip value.
@@ -91,6 +92,23 @@ final class RuntimeClipShape: Equatable, Sendable {
     /// Uniform rounding of `shapeRect`. `radii?.maxRadius` when per-corner radii
     /// are present, so a uniform-radius consumer always has an answer.
     let uniformRadius: Double
+    /// Rotation of `shapeRect` about its own centre, in radians.
+    ///
+    /// R-ROT. `rect` is an axis-aligned *rejection* rect and stays one: it is
+    /// what every emitter writes into a primitive's clip fields, and the scene
+    /// contract has no other shape to offer. For a clip established by a
+    /// rotated node that box is √2 too large at 45°, and the region the user
+    /// should see is `shapeRect` turned by this angle. Two consumers act on it:
+    /// `contains` — so a pointer in the corner the rotated clip does not cover
+    /// is rejected — and `ScenePainter`, which routes such a subtree through an
+    /// offscreen pass and composites the bitmap back rotated, because that is
+    /// the only lowering the primitive ABI can express.
+    ///
+    /// `allowsDrawing` and `allowsSubtreeTraversal` deliberately keep using the
+    /// box: they are *acceptance* predicates, and a superset there costs a
+    /// primitive that the clip then rejects per pixel, while a subset loses
+    /// content outright.
+    let rotation: Double
     let space: Space
 
     init(
@@ -98,10 +116,12 @@ final class RuntimeClipShape: Equatable, Sendable {
         shapeRect: Rect? = nil,
         radii: RetainedCornerRadii? = nil,
         uniformRadius: Double = 0,
+        rotation: Double = 0,
         space: Space
     ) {
         self.rect = rect
         self.shapeRect = shapeRect ?? rect
+        self.rotation = rotation.isFinite ? rotation : 0
         // Per-corner radii get the floor the uniform scalar has always had.
         // They used to be copied verbatim, so a negative or non-finite corner
         // survived into `resolvedCornerRadius(forQuadRect:)` and from there
@@ -136,18 +156,27 @@ final class RuntimeClipShape: Equatable, Sendable {
     static func == (lhs: RuntimeClipShape, rhs: RuntimeClipShape) -> Bool {
         lhs === rhs
             || (lhs.rect == rhs.rect && lhs.shapeRect == rhs.shapeRect && lhs.radii == rhs.radii
-                && lhs.uniformRadius == rhs.uniformRadius && lhs.space == rhs.space)
+                && lhs.uniformRadius == rhs.uniformRadius && lhs.rotation == rhs.rotation
+                && lhs.space == rhs.space)
     }
 
     /// The clip a `clipsToBounds` node establishes when no ancestor clips.
+    ///
+    /// `shape` is the node's frame with its rotation factored out and
+    /// `rotation` is that angle; `frame` is the axis-aligned box the two
+    /// describe together. They are the same rect, and the angle 0, for every
+    /// node that is not rotated.
     static func bounds(
         of frame: Rect,
+        shape: Rect? = nil,
         radii: RetainedCornerRadii?,
         uniformRadius: Double,
+        rotation: Double = 0,
         space: Space
     ) -> RuntimeClipShape {
         RuntimeClipShape(
-            rect: frame, shapeRect: frame, radii: radii, uniformRadius: uniformRadius, space: space)
+            rect: frame, shapeRect: shape ?? frame, radii: radii, uniformRadius: uniformRadius,
+            rotation: rotation, space: space)
     }
 
     /// Narrows this clip by a `clipsToBounds` node's frame.
@@ -172,20 +201,28 @@ final class RuntimeClipShape: Equatable, Sendable {
     /// states the space and a mismatch trips here rather than downstream.
     func intersecting(
         _ frame: Rect,
+        shape: Rect? = nil,
         radii nodeRadii: RetainedCornerRadii?,
         uniformRadius nodeRadius: Double,
+        rotation nodeRotation: Double = 0,
         space frameSpace: Space
     ) -> RuntimeClipShape? {
         assert(frameSpace == space, "a \(space) clip cannot be narrowed by a \(frameSpace)-space frame")
         guard let narrowed = rect.intersected(with: frame) else {
             return nil
         }
-        if (nodeRadii?.hasPositiveRadius ?? false) || nodeRadius > 0 {
+        // A node that turns its own clip re-anchors the shape to its own
+        // (unrotated) frame whether or not it rounds it: the rotation is a
+        // property of *that* shape, and keeping an ancestor's while adopting
+        // this node's box would turn a rect nothing established.
+        if (nodeRadii?.hasPositiveRadius ?? false) || nodeRadius > 0 || nodeRotation != 0 {
             return RuntimeClipShape(
-                rect: narrowed, shapeRect: frame, radii: nodeRadii, uniformRadius: nodeRadius, space: space)
+                rect: narrowed, shapeRect: shape ?? frame, radii: nodeRadii, uniformRadius: nodeRadius,
+                rotation: nodeRotation, space: space)
         }
         return RuntimeClipShape(
-            rect: narrowed, shapeRect: shapeRect, radii: radii, uniformRadius: uniformRadius, space: space)
+            rect: narrowed, shapeRect: shapeRect, radii: radii, uniformRadius: uniformRadius,
+            rotation: rotation, space: space)
     }
 
     /// Per-primitive acceptance: the same overlap test every emitter used.
@@ -199,8 +236,24 @@ final class RuntimeClipShape: Equatable, Sendable {
         clipAllowsSubtreeTraversal(clip: rect, bounds: bounds)
     }
 
+    /// Whether `point` is inside the clipped region.
+    ///
+    /// The rejection rect answers it outright while the clip is axis-aligned.
+    /// A rotated clip's box is a superset of what it actually covers, so the
+    /// point is turned back into the shape's own space and tested there —
+    /// which is what makes the interactive region the same region the painter
+    /// composites, instead of a box √2 too large that accepted pointers in
+    /// corners nothing was drawn in.
     func contains(_ point: Point) -> Bool {
-        rect.contains(point)
+        guard rect.contains(point) else { return false }
+        guard rotation != 0 else { return true }
+        let pivot = Point(x: shapeRect.midX, y: shapeRect.midY)
+        let cosR = cos(-rotation)
+        let sinR = sin(-rotation)
+        let dx = point.x - pivot.x
+        let dy = point.y - pivot.y
+        return shapeRect.contains(
+            Point(x: pivot.x + cosR * dx - sinR * dy, y: pivot.y + sinR * dx + cosR * dy))
     }
 
     /// The uniform clip corner radius one emitted primitive should carry.
@@ -325,16 +378,24 @@ extension Optional where Wrapped == RuntimeClipShape {
 
     /// Narrows an optional clip by a `clipsToBounds` node's frame. Returns
     /// `nil` when the clip collapses; the caller culls the subtree.
+    ///
+    /// `shape`/`rotation` describe the node's frame with its rotation factored
+    /// out; omitting them (every axis-aligned caller) is the historic
+    /// behaviour exactly.
     func narrowed(
         to frame: Rect,
+        shape: Rect? = nil,
         radii: RetainedCornerRadii?,
         uniformRadius: Double,
+        rotation: Double = 0,
         space: RuntimeClipShape.Space
     ) -> RuntimeClipShape? {
-        guard let shape = self else {
+        guard let clip = self else {
             return RuntimeClipShape.bounds(
-                of: frame, radii: radii, uniformRadius: uniformRadius, space: space)
+                of: frame, shape: shape, radii: radii, uniformRadius: uniformRadius, rotation: rotation,
+                space: space)
         }
-        return shape.intersecting(frame, radii: radii, uniformRadius: uniformRadius, space: space)
+        return clip.intersecting(
+            frame, shape: shape, radii: radii, uniformRadius: uniformRadius, rotation: rotation, space: space)
     }
 }

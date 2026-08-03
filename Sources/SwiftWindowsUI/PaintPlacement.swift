@@ -153,24 +153,110 @@ struct PaintPlacement {
         )
     }
 
-    /// Applies the lowered rotation to a quad that is already in device space.
+    /// Maps a rect that is already in *device* space onto where the node's
+    /// rotation puts it: same size, centre turned about the node's centre
+    /// scaled by `displayScale`.
     ///
     /// Device space is the logical space scaled by a *uniform* `displayScale`,
     /// and a uniform scale commutes with a rotation about a correspondingly
-    /// scaled pivot — so rotating here is exact, and it keeps the rotation off
-    /// every one of the painter's quad constructors. An unrotated placement
-    /// returns the quad untouched.
-    func rotating(_ quad: QuadPrimitive, displayScale: Double) -> QuadPrimitive {
-        guard isRotated else { return quad }
-        var rotated = quad
+    /// scaled pivot — so turning here is exact, and it keeps the rotation off
+    /// every one of the painter's primitive constructors. An unrotated
+    /// placement returns the rect untouched, so axis-aligned emission stays
+    /// bit-identical.
+    ///
+    /// The orientation itself is not in the return value: the caller writes it
+    /// into the primitive's own `rotationRadians`, which is what turns the
+    /// rect in place about the centre this positions.
+    func placingDevice(_ rect: Rect, displayScale: Double) -> Rect {
+        guard isRotated else { return rect }
         let pivot = Point(x: frame.midX * displayScale, y: frame.midY * displayScale)
         let centre = Self.rotate(
-            Point(x: Double(quad.x) + Double(quad.width) * 0.5, y: Double(quad.y) + Double(quad.height) * 0.5),
+            Point(x: rect.midX, y: rect.midY),
             by: rotation,
             about: pivot
         )
-        rotated.x = Float(centre.x - Double(quad.width) * 0.5)
-        rotated.y = Float(centre.y - Double(quad.height) * 0.5)
+        return Rect(
+            x: centre.x - rect.size.width * 0.5,
+            y: centre.y - rect.size.height * 0.5,
+            width: rect.size.width,
+            height: rect.size.height
+        )
+    }
+
+    /// The axis-aligned region of the node's *unrotated* paint space that can
+    /// still reach `rect` once the node's rotation is applied — the preimage
+    /// of `rect` under `place`, widened to a box.
+    ///
+    /// It exists for the one thing a screen-space clip rect is used for
+    /// besides being written into a primitive: **culling** content that is
+    /// laid out before the rotation is applied. Text is the case that needs
+    /// it — a run is laid out in the node's own space and only then turned —
+    /// and comparing an un-turned glyph cell against the turned clip drops
+    /// glyphs that the rotation would have brought inside it. Rotation is
+    /// rigid, so the box is a superset: it can keep a glyph the clip will
+    /// reject per pixel, never drop one it would have shown.
+    func unplacedFootprint(of rect: Rect) -> Rect {
+        guard isRotated else { return rect }
+        let pivot = Point(x: frame.midX, y: frame.midY)
+        let centre = Self.rotate(Point(x: rect.midX, y: rect.midY), by: -rotation, about: pivot)
+        let cosR = abs(cos(rotation))
+        let sinR = abs(sin(rotation))
+        let width = cosR * rect.size.width + sinR * rect.size.height
+        let height = sinR * rect.size.width + cosR * rect.size.height
+        return Rect(
+            x: centre.x - width * 0.5,
+            y: centre.y - height * 0.5,
+            width: width,
+            height: height
+        )
+    }
+
+    /// Applies the lowered rotation to a quad that is already in device space.
+    func rotating(_ quad: QuadPrimitive, displayScale: Double) -> QuadPrimitive {
+        guard isRotated else { return quad }
+        var rotated = quad
+        let placed = placingDevice(
+            Rect(
+                x: Double(quad.x), y: Double(quad.y),
+                width: Double(quad.width), height: Double(quad.height)),
+            displayScale: displayScale)
+        rotated.x = Float(placed.origin.x)
+        rotated.y = Float(placed.origin.y)
+        rotated.rotationRadians = Float(rotation)
+        return rotated
+    }
+
+    /// Applies the lowered rotation to a glyph cell that is already in device
+    /// space. Text laid out in the node's own space reaches its turned
+    /// position here; the atlas UVs are untouched, because both backends
+    /// sample the cell in unrotated cell coordinates.
+    func rotating(_ glyph: GlyphPrimitive, displayScale: Double) -> GlyphPrimitive {
+        guard isRotated else { return glyph }
+        var rotated = glyph
+        let placed = placingDevice(
+            Rect(
+                x: Double(glyph.screenX), y: Double(glyph.screenY),
+                width: Double(glyph.screenW), height: Double(glyph.screenH)),
+            displayScale: displayScale)
+        rotated.screenX = Float(placed.origin.x)
+        rotated.screenY = Float(placed.origin.y)
+        rotated.rotationRadians = Float(rotation)
+        return rotated
+    }
+
+    /// Applies the lowered rotation to an image that is already in device
+    /// space — the composited result of an offscreen pass under a rotated
+    /// transform.
+    func rotating(_ image: ImagePrimitive, displayScale: Double) -> ImagePrimitive {
+        guard isRotated else { return image }
+        var rotated = image
+        let placed = placingDevice(
+            Rect(
+                x: Double(image.screenX), y: Double(image.screenY),
+                width: Double(image.screenW), height: Double(image.screenH)),
+            displayScale: displayScale)
+        rotated.screenX = Float(placed.origin.x)
+        rotated.screenY = Float(placed.origin.y)
         rotated.rotationRadians = Float(rotation)
         return rotated
     }

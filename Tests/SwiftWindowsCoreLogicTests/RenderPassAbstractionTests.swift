@@ -486,38 +486,53 @@ final class RenderPassAbstractionTests: XCTestCase {
         return worst
     }
 
-    // MARK: - Residual: rotated clipping
+    // MARK: - Closed: rotated clipping
 
-    /// WS-19 lowered rotation for quad *geometry*; a rotated `.clipped()`
-    /// container still clips to the axis-aligned bounding box of its rotated
-    /// frame, which at 45° is `√2` too large on each axis.
+    /// WS-19 lowered rotation for quad *geometry* and left a rotated
+    /// `.clipped()` container clipping to the axis-aligned bounding box of its
+    /// rotated frame, which at 45° is `√2` too large on each axis. R-ROT
+    /// closed it, and this is the test that used to record the gap.
     ///
-    /// The fix is a render pass whose result is composited through a rotated
-    /// transform. The offscreen half already exists — a compositing group
-    /// rasterizes a subtree into a bitmap and places it as an
-    /// `ImagePrimitive` — but `ImagePrimitive` carries no rotation, so the
-    /// composite would clip as an AABB again, one layer down. Closing it is
-    /// a scene-ABI change (rotation on `ImagePrimitive`, matching HLSL,
-    /// matching the CPU sampler), which is larger than this workstream.
-    ///
-    /// This test records the residual: the first assertion is what the code
-    /// does today, and the skip names what it should do instead.
-    func testRotatedClipStillNarrowsToAnAxisAlignedBox() async throws {
-        let frame = Rect(x: 0, y: 0, width: 100, height: 40)
-        let rotated = frame.applying(transform: Transform2D(rotation: .pi / 4))
+    /// The rejection rect is still that box — the primitive ABI has no other
+    /// shape to offer, and as an *acceptance* predicate a superset is the safe
+    /// side. What changed is that the box is no longer the whole answer:
+    /// `RuntimeClipShape` carries the shape and its angle, `contains` tests
+    /// the turned shape, and the painter routes such a subtree through an
+    /// offscreen pass composited back through
+    /// `ImagePrimitive.rotationRadians`, so the bitmap's own extent is the
+    /// clip. `RotationClosureTests` holds the pixel and pointer assertions;
+    /// this one pins the vocabulary the render-pass layer speaks.
+    func testARotatedClipRoutesThroughAnOffscreenPassCompositedRotated() async throws {
+        let child = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 100, height: 40),
+            backgroundColor: Color(red: 1, green: 1, blue: 1, alpha: 1))
+        let clipped = ViewNode(
+            frame: Rect(x: 20, y: 30, width: 100, height: 40),
+            clipsToBounds: true,
+            transform: Transform2D(rotation: .pi / 4),
+            children: [child])
+        let root = ViewNode(frame: Rect(x: 0, y: 0, width: 200, height: 200), children: [clipped])
 
-        // Today: the clip narrows to this box.
+        let scene = ScenePainter.paint(
+            root: root, clearColor: .black, surfaceSize: Size(width: 200, height: 200))
+
+        let composite = try XCTUnwrap(
+            scene.layers[0].images.first,
+            "a rotated clipsToBounds subtree renders into an offscreen pass")
+        XCTAssertEqual(
+            Double(composite.rotationRadians), .pi / 4, accuracy: 1e-5,
+            "and the pass is composited back through the angle the clip could not carry")
+        XCTAssertTrue(
+            scene.layers[0].quads.isEmpty,
+            "the child is inside the bitmap, so it is not also a quad in the outer scene")
+
+        // The rejection rect is unchanged and still a box, deliberately.
+        let boundingBox = Rect(x: 0, y: 0, width: 100, height: 40)
+            .applying(transform: Transform2D(rotation: .pi / 4))
         XCTAssertGreaterThan(
-            rotated.size.height, frame.size.height * 1.5,
-            "a 45° rotation of a wide rect has a much taller bounding box; that box is what the clip "
-                + "narrows to today")
-
-        throw XCTSkip(
-            "Residual (documented in docs/GPURenderingPipeline.md, 'a rotated clip is still an AABB'): "
-                + "RuntimeClipShape narrows to the AABB of the rotated frame, so a rotated clipsToBounds "
-                + "container lets children draw in the corners the rotated rect does not cover. Routing "
-                + "the subtree through an offscreen pass does not fix it until ImagePrimitive can be "
-                + "composited rotated.")
+            boundingBox.size.height, 40 * 1.5,
+            "the box a 45° turn of a wide rect fits in is much taller than the rect; it is still what "
+                + "acceptance predicates compare against")
     }
 
     /// Two flat bands under a translucent material panel — the same shape

@@ -510,7 +510,9 @@ struct ImageInstance
     // image inside a rounded card is cut by the card arc. Stride is unchanged
     // at 64 bytes. Mirrors ImagePrimitive in SwiftWindowsGraphics.
     float clipCornerRadius;
-    float pad2;
+    // The last padding slot, now the rotation about the destination rect's
+    // centre: an offscreen pass composited back through a turned transform.
+    float rotationRadians;
 };
 
 // Shared with the quad shader's roundedRectDistance for a uniform radius; the
@@ -554,7 +556,25 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     float2 unit = quad[vertexID];
     float2 screenOrigin = float2(inst.screenX, inst.screenY);
     float2 screenSize = float2(inst.screenW, inst.screenH);
-    float2 pixelPosition = screenOrigin + unit * screenSize;
+    // Rotation about the destination rect's centre, matching the quad
+    // shader. UVs come from `unit`, so the sampled texture turns with the
+    // vertices without any change to the sampler.
+    float2 pixelPosition;
+    if (inst.rotationRadians == 0.0)
+    {
+        pixelPosition = screenOrigin + unit * screenSize;
+    }
+    else
+    {
+        float2 centre = screenOrigin + screenSize * 0.5;
+        float2 fromCentre = unit * screenSize - screenSize * 0.5;
+        float cosR = cos(inst.rotationRadians);
+        float sinR = sin(inst.rotationRadians);
+        pixelPosition = centre + float2(
+            cosR * fromCentre.x - sinR * fromCentre.y,
+            sinR * fromCentre.x + cosR * fromCentre.y
+        );
+    }
     float2 clipPosition = float2(
         (pixelPosition.x / surfaceSize.x) * 2.0 - 1.0,
         1.0 - (pixelPosition.y / surfaceSize.y) * 2.0
@@ -629,10 +649,12 @@ struct ShadowInstance
     float offsetX, offsetY;
     float clipX, clipY, clipWidth, clipHeight;
     float clipCornerRadius;
-    // 12 bytes of padding: 17 floats round up to a 20-float (80 byte)
+    // Rotation about the centre of the OFFSET rect (the one this draws).
+    // 8 bytes of padding follow: 18 floats round up to a 20-float (80 byte)
     // structured-buffer stride. Mirrors ShadowPrimitive in
     // SwiftWindowsGraphics, pinned by GPUIPrimitiveLayoutCoherenceTests.
-    float pad0, pad1, pad2;
+    float rotationRadians;
+    float pad1, pad2;
 };
 
 StructuredBuffer<ShadowInstance> instances : register(t0);
@@ -670,7 +692,28 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     float2 rectOrigin = float2(inst.x + inst.offsetX - expand, inst.y + inst.offsetY - expand);
     float2 expandedSize = float2(inst.width + expand * 2.0, inst.height + expand * 2.0);
 
-    float2 pixelPosition = rectOrigin + unit * expandedSize;
+    // Rotation, exactly as the quad shader does it: the vertex is turned
+    // about the envelope's centre — which is the offset rect's centre, the
+    // envelope being concentric with it — while `localPosition` stays
+    // unrotated so the rounded-rect distance field below is still evaluated
+    // in the shadow's own axis-aligned space.
+    float2 localPosition = unit * expandedSize;
+    float2 pixelPosition;
+    if (inst.rotationRadians == 0.0)
+    {
+        pixelPosition = rectOrigin + localPosition;
+    }
+    else
+    {
+        float2 centre = rectOrigin + expandedSize * 0.5;
+        float2 fromCentre = localPosition - expandedSize * 0.5;
+        float cosR = cos(inst.rotationRadians);
+        float sinR = sin(inst.rotationRadians);
+        pixelPosition = centre + float2(
+            cosR * fromCentre.x - sinR * fromCentre.y,
+            sinR * fromCentre.x + cosR * fromCentre.y
+        );
+    }
     float2 clipPosition = float2(
         (pixelPosition.x / surfaceSize.x) * 2.0 - 1.0,
         1.0 - (pixelPosition.y / surfaceSize.y) * 2.0
@@ -678,7 +721,7 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
 
     VSOutput output;
     output.position = float4(clipPosition, 0.0, 1.0);
-    output.localPosition = unit * expandedSize;
+    output.localPosition = localPosition;
     output.expandedSize = expandedSize;
     output.rectSize = float2(inst.width, inst.height);
     output.radius = inst.cornerRadius;

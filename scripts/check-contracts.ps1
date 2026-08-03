@@ -237,6 +237,12 @@ foreach ($clipConsumer in @("Sources/SwiftWindowsUI/Runtime.swift", "Sources/Swi
     # the five-copies regression. ScenePainter's RenderFrame replay keeps its
     # own bare-Rect `currentClip` stack because RenderCommand.pushClip carries
     # nothing but a rect — that stack is named `currentClip` and is exempt.
+    # R-ROT gave that same stack a second half, `currentCullClip`: the canvas
+    # draws in the enclosing node's *unrotated* space, so the region has to be
+    # tracked there as well as in screen space, and both halves are pushed and
+    # popped together by the same `pushClip` op carrying the same bare rect.
+    # One exemption, two names, still no rounding and still no anchoring —
+    # which is what the rule is protecting.
     #
     # The binding form is deliberately *not* enumerated. An earlier version
     # anchored at line start and allowed only an optional `var`/`let` prefix,
@@ -248,7 +254,7 @@ foreach ($clipConsumer in @("Sources/SwiftWindowsUI/Runtime.swift", "Sources/Swi
     # or after a `.`, which is what keeps `self.currentClip` exempt too.
     Assert-NotContains `
         $clipConsumer `
-        "(?<![.\w])(?!currentClip\b)\w*[Cc]lip\w*\s*=\s*[^=\r\n]*\.intersected\(with:" `
+        "(?<![.\w])(?!current(?:Clip|CullClip)\b)\w*[Cc]lip\w*\s*=\s*[^=\r\n]*\.intersected\(with:" `
         "$clipConsumer must not narrow a clip with a bare Rect.intersected(with:); RuntimeClipShape.narrowed(to:) is the one narrowing rule (anchored rounding, cut corners squared, empty distinct from absent)."
 }
 

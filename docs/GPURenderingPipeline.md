@@ -320,12 +320,59 @@ angle:
   paints as a rotated card rather than the unrotated box `√2` too large
   that `Rect.applying(transform:)` returns.
 - `boundingBox` — the axis-aligned footprint of the rotated rect. Every
-  *predicate* uses it (culling, clip narrowing, the cache key's
-  `bounds`), and so does every family with no rotation field: shadows,
-  images, glyphs, paths and canvas content still paint into the box.
-  Text inside a rotated card therefore stays upright — `GlyphPrimitive`
-  and `ImagePrimitive` have no rotation, and adding one is a scene-ABI
-  change against both HLSL and the CPU sampler.
+  *predicate* uses it: culling, the clip rejection rect, the cache key's
+  `bounds`. It is an acceptance bound, not a shape.
+
+**Every family turns.** WS-19 lowered the angle for quad decoration only;
+R-ROT closed the rest, and all four GPU families now carry a
+`rotationRadians` in a slot that used to be padding (so every stride is
+unchanged and `GPUIPrimitiveLayoutCoherenceTests` still pins 144 / 80 / 64 /
+80 bytes):
+
+| family | field offset | what turns |
+| --- | --- | --- |
+| `QuadPrimitive` | 112 | the rect, about its centre; interior maths stays in unrotated local space |
+| `ShadowPrimitive` | 68 | the soft envelope, about the **offset** rect's centre — the rect it draws |
+| `GlyphPrimitive` | 68 | the atlas cell, about its centre; UVs ride the turned vertices |
+| `ImagePrimitive` | 60 | the destination rect, about its centre — how an offscreen pass composites back turned |
+
+Both backends implement each one the same way, and it is the same way in
+all four: the **vertex stage** turns the corners about the centre and the
+**pixel stage** keeps working in unrotated local coordinates, so corner
+radii, gradients, colour effects and texture sampling are untouched by the
+angle. The CPU rasterizer mirrors it through one shared helper,
+`RasterTarget.rotatedScan`, which scans the turned rect's bounding box and
+inverse-maps each pixel centre back into local space. `rotationRadians == 0`
+short-circuits on every path, so axis-aligned scenes stay byte-identical —
+the 25 gallery baselines did not move when R-ROT landed.
+
+**Paths turn their elements.** `PathPrimitive` has no `rotationRadians`
+and will not get one: paths never cross the GPU as typed primitives (both
+backends rasterize them), so there is no shader to hand an angle to. The
+honest lowering is `PathPrimitive.rotated(by:about:)`, applied once in
+`ScenePainter.emit` — the single lowering point for path geometry — which
+turns every element (an arc's centre moves and both its endpoint angles
+shift by the angle; the radius and sweep direction are rotation-invariant)
+and widens `bounds` to the turned footprint. The raster then simply covers
+the turned geometry, and the path-texture caches re-key by construction
+because `shapeHash` digests the element stream. `clipBounds` is
+deliberately *not* turned: the scene contract's clip is an axis-aligned
+screen-space rect for every family.
+
+**Text is laid out before it is turned.** A run inside a rotated subtree is
+shaped and laid out in the node's own unrotated paint space — so it breaks
+to the node's width, not to its bounding box's — and each cell is turned
+afterwards. That makes the pre-rotation cull a hazard: comparing an
+un-turned glyph cell against the turned screen clip drops glyphs the
+rotation would have brought inside it. `appendTextGlyphs` therefore takes a
+separate `cullClip`, which callers set to
+`PaintPlacement.unplacedFootprint(of:)` — the clip pulled back into the
+layout space, widened to a box. Rotation is rigid, so that box is a
+superset: it can keep a glyph the clip then rejects per pixel, never drop
+one it would have shown. `Canvas` gets the same treatment through a paired
+clip stack (`currentClip` in screen space, `currentCullClip` in the
+canvas's drawing space), which is why `check-contracts.ps1` exempts both
+names from the bare-`Rect.intersected` rule.
 
 Only a **similarity** is separable — a rotation composed with a uniform
 scale, no reflection, no shear. In matrix terms (row-vector convention,
@@ -2071,28 +2118,62 @@ content blur to sharp content, as it already did for materials.
 Pinned by `ContentBlurRenderPassTests` and by the blur-pass budget in
 `PerformanceBudgetGateTests`.
 
-### Residual: a rotated clip is still an AABB
+### A rotated clip is a render pass
 
-`ViewNode.accumulatedPaintGeometry` returns
-`frame.applying(transform:)` — a `Rect`, i.e. the axis-aligned bounding
-box of the rotated footprint — and `RuntimeClipShape` narrows to that;
-it is the same `PaintPlacement.boundingBox` the painter clips against
-(§2b). WS-19 lowered rotation for quad *geometry*, so a rotated card
-draws rotated; a rotated `.clipped()` container still clips its children
-to the **bounding box** of the rotated frame, which is up to `√2` too
-large at 45°.
+The scene contract's clip is four floats naming an axis-aligned rect, and
+that is the only clip a primitive can carry. For a clip established by a
+**rotated** node the box its turned frame fits in is up to `√2` too large
+on each axis at 45°, so the box alone cannot be the answer.
 
-Fixing it needs a render pass whose result is composited through a
-rotated transform: render the subtree into an offscreen target, then draw
-that target rotated. The offscreen half exists (compositing groups
-rasterize a subtree into a bitmap and place it as an `ImagePrimitive`),
-but `ImagePrimitive` has no rotation field, so the composite would clip
-as an AABB again — the same bug one layer down. Closing it is a scene-ABI
-change (a rotation on `ImagePrimitive`, matching HLSL, matching CPU
-sampler) and is left as follow-on work.
-`RenderPassAbstractionTests.testRotatedClipStillNarrowsToAnAxisAlignedBox`
-records the residual and skips the assertion that would hold once the
-rotated composite exists.
+`RuntimeClipShape` therefore carries three things, not two: the
+axis-aligned **rejection rect** (`rect`), the **shape** the rounding and
+the rotation are anchored to (`shapeRect`), and the **angle**
+(`rotation`). They divide by consumer:
+
+- `allowsDrawing` / `allowsSubtreeTraversal` keep using `rect`. They are
+  *acceptance* predicates, and a superset there costs a primitive the clip
+  then rejects per pixel, while a subset loses content outright.
+- `contains` — the pointer test — turns the point back into the shape's
+  own space and tests it there. The interactive region is the visible one.
+- `ScenePainter` routes the subtree through an **offscreen pass**. The
+  children are painted *un*-turned into a buffer sized from the node's
+  unrotated frame (`PaintPlacement.frame`), with the node's own rounding
+  applied inside it, and the bitmap is composited back through
+  `ImagePrimitive.rotationRadians`. The bitmap's own extent is then the
+  clip, exactly, on both backends. This is the same
+  `RenderPassDescriptor` / `OffscreenPassBuffer` machinery a
+  `.drawingGroup()` uses; the only extra step is
+  `ScenePainter.unrotating`, which takes the node's rotation out of the
+  transform the children inherit so the angle lives on the composite
+  instead of in the bitmap.
+
+When the buffer cannot be sized — a non-finite frame, or past the
+offscreen budget — the node falls through to inline painting against the
+bounding-box clip, which is what the whole stack did before this route
+existed. A childless rotated clip has nothing to buffer and paints its own
+turned decoration directly.
+
+Pinned by `RotationClosureTests` (the pixels and the pointer) and
+`RenderPassAbstractionTests.testARotatedClipRoutesThroughAnOffscreenPassCompositedRotated`
+(the vocabulary).
+
+**Frame-path residual.** `ViewNode.appendCommands` cannot follow. Its clip
+is a rect on a `RenderCommand` and it has no offscreen pass to composite,
+which is the same reason it draws a rotated node's geometry as an upright
+bounding box at all (`PaintPlacement.axisAligned`). So the fallback
+renderer paints the **bounding box** of what the scene path paints — a
+superset, never a subset: it over-fills the corners the turned rect does
+not reach, and it never drops a pixel the GPU path draws.
+`ClipAbstractionTests.testRotatedClipFallbackIsASupersetOfTheScenePathRegion`
+pins exactly that containment. Closing it would mean giving the frame path
+either a rotation on `FillRectCommand` or an offscreen pass of its own.
+
+**Nesting residual.** A clip re-anchors `shapeRect` to the node that
+established it, so a rotated ancestor clip narrowed by a *differently*
+oriented descendant keeps only the descendant's shape and angle; the
+ancestor's turned boundary degrades to its contribution to the rejection
+rect. This is the same single-`shapeRect` approximation the rounded-clip
+lowering already documents above.
 
 ### Virtualization: `.lazyStack`
 
@@ -2284,11 +2365,16 @@ footprint rather than its bounding box. Locked by
 `…testADeferredSubtreeUnderATranslatedClipPaintsWhereItsClipMoved` and
 `…testEveryRuntimeClipIsNarrowedInPaintedSpace`.
 
-The residual is the axis-aligned clip ABI itself: a rotated clip ships as its
-bounding box on both paths, so both the eye and the pointer see the box. The
-frame path's border used to be the one gate left comparing `absoluteFrame`
-against a `paintFrame`-narrowed clip, which dropped the border of a translated
-view the scene path drew — `…testATranslatedBorderSurvivesTheFramePathClipGate`.
+The axis-aligned clip ABI used to leave one residual here — a rotated clip
+shipped as its bounding box on both paths, so both the eye and the pointer saw
+the box. R-ROT closed it: `RuntimeClipShape` carries the shape and its angle,
+`contains` turns the pointer back into that shape, and the painter routes the
+subtree through an offscreen pass composited back rotated. See
+“A rotated clip is a render pass” above, including what the *frame* path can
+still only approximate. The frame path's border used to be the one gate left
+comparing `absoluteFrame` against a `paintFrame`-narrowed clip, which dropped
+the border of a translated view the scene path drew —
+`…testATranslatedBorderSurvivesTheFramePathClipGate`.
 
 **One space needs an accumulated transform, not just the node's own.**
 `appendCommands` took no inherited transform at all: it applied a node's own

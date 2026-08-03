@@ -1004,54 +1004,82 @@ func contentMaskedBounds(
     }
     return masked
 }
+/// The axis-aligned footprint of a rect turned about its own centre.
+///
+/// WS-19 / R-ROT. A rotated primitive's footprint is the bounding box of the
+/// turned rect, not the rect itself. Comparing the unrotated rect against the
+/// clip dropped diagonal stroke segments and rotated node decoration whose
+/// bodies were inside the clip all along — an origin/size pair describes a
+/// primitive only before `rotationRadians` is applied. Four families carry the
+/// angle now (quad, glyph, image, shadow), and one function is what keeps them
+/// answering the same question the same way. Zero (or non-finite) rotation
+/// returns the input unchanged, so every axis-aligned scene stays byte-identical.
+@inline(__always)
+func rotatedFootprint(x: Float, y: Float, width: Float, height: Float, rotationRadians: Float)
+    -> (x: Float, y: Float, width: Float, height: Float)
+{
+    guard rotationRadians != 0, rotationRadians.isFinite else {
+        return (x, y, width, height)
+    }
+    let angle = Double(rotationRadians)
+    let halfW = Double(width) * 0.5
+    let halfH = Double(height) * 0.5
+    let extentX = abs(cos(angle)) * halfW + abs(sin(angle)) * halfH
+    let extentY = abs(sin(angle)) * halfW + abs(cos(angle)) * halfH
+    let centreX = Double(x) + halfW
+    let centreY = Double(y) + halfH
+    return (
+        Float(centreX - extentX), Float(centreY - extentY),
+        Float(extentX * 2), Float(extentY * 2)
+    )
+}
+
 extension QuadPrimitive {
     fileprivate var contentMaskedBounds: Rect? {
-        // WS-19. A rotated quad's footprint is the bounding box of the turned
-        // rect, not the rect itself. Comparing the unrotated rect against the
-        // clip dropped diagonal stroke segments and rotated node decoration
-        // whose bodies were inside the clip all along — the quad's own
-        // origin/size pair describes it only before `rotationRadians` is
-        // applied. Zero rotation takes the historic path untouched.
-        guard rotationRadians != 0, rotationRadians.isFinite else {
-            return SwiftWindowsGraphics.contentMaskedBounds(
-                x: x, y: y, width: width, height: height,
-                clipX: clipX, clipY: clipY,
-                clipWidth: clipWidth, clipHeight: clipHeight, contentMask: contentMask)
-        }
-        let angle = Double(rotationRadians)
-        let halfW = Double(width) * 0.5
-        let halfH = Double(height) * 0.5
-        let extentX = abs(cos(angle)) * halfW + abs(sin(angle)) * halfH
-        let extentY = abs(sin(angle)) * halfW + abs(cos(angle)) * halfH
-        let centreX = Double(x) + halfW
-        let centreY = Double(y) + halfH
+        let box = rotatedFootprint(x: x, y: y, width: width, height: height, rotationRadians: rotationRadians)
         return SwiftWindowsGraphics.contentMaskedBounds(
-            x: Float(centreX - extentX), y: Float(centreY - extentY),
-            width: Float(extentX * 2), height: Float(extentY * 2),
+            x: box.x, y: box.y, width: box.width, height: box.height,
             clipX: clipX, clipY: clipY,
             clipWidth: clipWidth, clipHeight: clipHeight, contentMask: contentMask)
     }
 }
 extension GlyphPrimitive {
     fileprivate var contentMaskedBounds: Rect? {
-        SwiftWindowsGraphics.contentMaskedBounds(
-            x: screenX, y: screenY, width: screenW, height: screenH,
+        let box = rotatedFootprint(
+            x: screenX, y: screenY, width: screenW, height: screenH, rotationRadians: rotationRadians)
+        return SwiftWindowsGraphics.contentMaskedBounds(
+            x: box.x, y: box.y, width: box.width, height: box.height,
             clipX: clipX, clipY: clipY,
             clipWidth: clipWidth, clipHeight: clipHeight, contentMask: contentMask)
     }
 }
 extension ImagePrimitive {
     fileprivate var contentMaskedBounds: Rect? {
-        SwiftWindowsGraphics.contentMaskedBounds(
-            x: screenX, y: screenY, width: screenW, height: screenH,
+        let box = rotatedFootprint(
+            x: screenX, y: screenY, width: screenW, height: screenH, rotationRadians: rotationRadians)
+        return SwiftWindowsGraphics.contentMaskedBounds(
+            x: box.x, y: box.y, width: box.width, height: box.height,
             clipX: clipX, clipY: clipY,
             clipWidth: clipWidth, clipHeight: clipHeight, contentMask: contentMask)
     }
 }
 extension ShadowPrimitive {
     fileprivate var contentMaskedBounds: Rect? {
-        SwiftWindowsGraphics.contentMaskedBounds(
-            x: x, y: y, width: width, height: height,
+        // A rotated shadow turns about the centre of the rect it *draws* —
+        // the offset one — so the footprint has to be taken there. An
+        // unrotated shadow keeps the historic acceptance rect (the unoffset
+        // origin/size pair, which the painter has already gated the offset
+        // rect against), so no pre-existing scene changes acceptance.
+        guard rotationRadians != 0, rotationRadians.isFinite else {
+            return SwiftWindowsGraphics.contentMaskedBounds(
+                x: x, y: y, width: width, height: height,
+                clipX: clipX, clipY: clipY,
+                clipWidth: clipWidth, clipHeight: clipHeight, contentMask: contentMask)
+        }
+        let box = rotatedFootprint(
+            x: x + offsetX, y: y + offsetY, width: width, height: height, rotationRadians: rotationRadians)
+        return SwiftWindowsGraphics.contentMaskedBounds(
+            x: box.x, y: box.y, width: box.width, height: box.height,
             clipX: clipX, clipY: clipY,
             clipWidth: clipWidth, clipHeight: clipHeight, contentMask: contentMask)
     }

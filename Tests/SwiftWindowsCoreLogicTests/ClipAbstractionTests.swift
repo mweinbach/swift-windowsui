@@ -356,7 +356,20 @@ final class ClipAbstractionTests: XCTestCase {
     /// rotated AABB while the frame path clipped to the *unrotated* rect at the
     /// original position — two completely different regions for one tree,
     /// swapped silently whenever the host fell back to the frame renderer.
-    func testRotatedClipAgreesBetweenTheScenePathAndTheFramePath() async {
+    ///
+    /// R-ROT sharpened the scene path to the *turned* shape (an offscreen pass
+    /// composited back through `ImagePrimitive.rotationRadians`), which the
+    /// frame path cannot follow: its clip is a rect on a `RenderCommand` and
+    /// it has no offscreen pass to composite — the same reason it draws a
+    /// rotated node's geometry as an upright bounding box (`PaintPlacement`'s
+    /// `axisAligned`). So the two no longer paint the *same* region, and what
+    /// is asserted here is the relationship that survives and matters: the
+    /// fallback is a **superset**. Every pixel the GPU path paints, the
+    /// fallback paints too; the fallback additionally fills the corners of the
+    /// bounding box the turned rect does not reach. A fallback that over-paints
+    /// a corner is a visible imprecision; one that dropped content would be a
+    /// blank view. Documented in `docs/GPURenderingPipeline.md`.
+    func testRotatedClipFallbackIsASupersetOfTheScenePathRegion() async {
         func makeTree() -> ViewNode {
             let child = ViewNode(
                 frame: Rect(x: -40, y: -40, width: 180, height: 180),
@@ -377,19 +390,25 @@ final class ClipAbstractionTests: XCTestCase {
         let frameBitmap = GPUIRawSceneRasterizer.rasterize(
             RetainedViewRuntime(root: makeTree()).renderFrame(), size: size)
 
-        var agreeing = 0
-        var total = 0
+        var scenePainted = 0
+        var framePainted = 0
+        var sceneOnly = 0
         for offset in stride(from: 0, to: sceneBitmap.pixels.count, by: 4) {
             let sceneCovered = sceneBitmap.pixels[offset + 2] > 128
             let frameCovered = frameBitmap.pixels[offset + 2] > 128
-            total += 1
-            if sceneCovered == frameCovered {
-                agreeing += 1
-            }
+            if sceneCovered { scenePainted += 1 }
+            if frameCovered { framePainted += 1 }
+            if sceneCovered && !frameCovered { sceneOnly += 1 }
         }
+
+        XCTAssertGreaterThan(scenePainted, 1000, "the fixture must paint a substantial clipped region")
+        XCTAssertEqual(
+            sceneOnly, 0,
+            "the frame path may be imprecise at the corners, but it may never drop a pixel the scene "
+                + "path paints")
         XCTAssertGreaterThan(
-            Double(agreeing) / Double(total), 0.98,
-            "both paths must clip the rotated container to the same region")
+            framePainted, scenePainted,
+            "and the imprecision is exactly the corners of the bounding box the turned rect misses")
     }
 
     /// The same divergence one level down. `appendCommands` took no inherited
@@ -435,12 +454,14 @@ final class ClipAbstractionTests: XCTestCase {
         var total = 0
         var scenePainted = 0
         var framePainted = 0
+        var sceneOnly = 0
         for offset in stride(from: 0, to: sceneBitmap.pixels.count, by: 4) {
             let sceneCovered = sceneBitmap.pixels[offset + 2] > 128
             let frameCovered = frameBitmap.pixels[offset + 2] > 128
             total += 1
             if sceneCovered { scenePainted += 1 }
             if frameCovered { framePainted += 1 }
+            if sceneCovered && !frameCovered { sceneOnly += 1 }
             if sceneCovered == frameCovered {
                 agreeing += 1
             }
@@ -449,9 +470,18 @@ final class ClipAbstractionTests: XCTestCase {
         // Guard against the degenerate agreement of two blank frames.
         XCTAssertGreaterThan(scenePainted, 1000, "the fixture must paint a substantial clipped region")
         XCTAssertGreaterThan(framePainted, 1000, "the frame path must paint the clipped region too")
-        XCTAssertGreaterThan(
-            Double(agreeing) / Double(total), 0.98,
-            "the frame path must accumulate ancestor transforms into the frame it clips by")
+        // The clip here is rotated, so the frame path's region is the bounding
+        // box of the scene path's (see
+        // `testRotatedClipFallbackIsASupersetOfTheScenePathRegion`). What this
+        // test is about is the *ancestor* transform: if the frame path failed
+        // to accumulate the translation and scale above the rotation, the two
+        // regions would not even overlap, let alone nest.
+        _ = agreeing
+        _ = total
+        XCTAssertEqual(
+            sceneOnly, 0,
+            "the frame path must accumulate ancestor transforms into the frame it clips by — without "
+                + "them its region is somewhere else entirely, not a superset of this one")
     }
 
     func testAPointOutsideARotatedClipDoesNotHitTest() async {
@@ -527,13 +557,20 @@ final class ClipAbstractionTests: XCTestCase {
         }
 
         // Inside the rotated container's painted region, outside the
-        // *unrotated* rect the interaction clip used to be narrowed by.
-        XCTAssertTrue(isPainted(12, 12), "the fixture must paint the probe")
-        XCTAssertTrue(hits(12, 12), "a painted pixel of a rotated clip must accept the pointer")
-        XCTAssertTrue(isPainted(22, 22))
-        XCTAssertTrue(hits(22, 22))
+        // *unrotated* rect the interaction clip used to be narrowed by. The
+        // container is 60x60 at (20, 20) turned by 0.5 rad about (50, 50), so
+        // its own corners reach out to roughly (50 ± 41, 50) and (50, 50 ± 41)
+        // while the corners of that bounding box are outside it entirely.
+        XCTAssertTrue(isPainted(85, 45), "the fixture must paint the probe")
+        XCTAssertTrue(hits(85, 45), "a painted pixel of a rotated clip must accept the pointer")
+        XCTAssertTrue(isPainted(50, 25))
+        XCTAssertTrue(hits(50, 25))
         XCTAssertFalse(isPainted(95, 95))
         XCTAssertFalse(hits(95, 95), "a pixel the rotated clip rejects must stay dead")
+        // R-ROT: and the corner of the bounding box is dead to both, now that
+        // the clip is the turned shape rather than the box it fits in.
+        XCTAssertFalse(isPainted(12, 12), "the corner of the bounding box is outside the turned clip")
+        XCTAssertFalse(hits(12, 12), "so it takes no pointer either")
 
         var agreeing = 0
         var total = 0

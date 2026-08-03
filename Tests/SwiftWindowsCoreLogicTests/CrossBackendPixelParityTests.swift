@@ -191,6 +191,85 @@ final class CrossBackendPixelParityTests: XCTestCase {
         )
     }
 
+    /// R-ROT. A rotated card's `.shadow()`. The halo has to turn with the
+    /// card — both backends grow the same soft envelope about the same
+    /// turned rect, or the shadow is a diamond on one and a square on the
+    /// other. The quad on top shares the angle so the fixture reads as one
+    /// object rather than two.
+    private static func rotatedShadowScene() -> ParityScene {
+        ParityScene(
+            name: "rotated shadow",
+            size: surface,
+            scene: makeScene { scene in
+                scene.addShadow(
+                    ShadowPrimitive(
+                        x: 34, y: 42, width: 60, height: 44,
+                        cornerRadius: 8,
+                        colorR: 0, colorG: 0, colorB: 0, colorA: 0.7,
+                        blurRadius: 9,
+                        offsetX: 2, offsetY: 3,
+                        rotationRadians: 0.55
+                    )
+                )
+                scene.addQuad(
+                    QuadPrimitive(
+                        x: 34, y: 42, width: 60, height: 44,
+                        cornerRadius: 8,
+                        startR: 0.92, startG: 0.92, startB: 0.94, startA: 1,
+                        endR: 0.92, endG: 0.92, endB: 0.94, endA: 1,
+                        rotationRadians: 0.55
+                    )
+                )
+            }
+        )
+    }
+
+    /// R-ROT. The composite a rotated `clipsToBounds` subtree lands as: an
+    /// offscreen bitmap drawn through `ImagePrimitive.rotationRadians`. The
+    /// checker fixture is deliberate — a turned sampler that walks the
+    /// texture in the wrong direction is invisible in a smooth gradient.
+    private static func rotatedImageScene() -> ParityScene {
+        let bitmap = checkerImageFixture(size: 8)
+        return ParityScene(
+            name: "rotated image",
+            size: surface,
+            scene: makeScene { scene in
+                scene.bindImageResource(bitmap, for: 31)
+                scene.addImage(
+                    ImagePrimitive(
+                        screenX: 32, screenY: 36, screenW: 64, screenH: 56,
+                        uvX: 0, uvY: 0, uvW: 1, uvH: 1,
+                        opacity: 1,
+                        textureID: 31,
+                        rotationRadians: 0.6
+                    )
+                )
+            }
+        )
+    }
+
+    /// R-ROT. A glyph cell inside a rotated subtree. Magnified 8x for the
+    /// same reason `magnifiedGlyphGradientScene` is: the turn has to reach
+    /// the *sampler*, not only the vertices, and at 1:1 that is a rounding
+    /// artefact rather than a picture.
+    private static func rotatedGlyphScene() -> ParityScene {
+        ParityScene(
+            name: "rotated glyph cell",
+            size: surface,
+            scene: makeScene { scene in
+                scene.glyphAtlas = rampGlyphAtlas()
+                scene.addGlyph(
+                    GlyphPrimitive(
+                        screenX: 32, screenY: 32, screenW: 64, screenH: 64,
+                        atlasU0: 0, atlasV0: 0, atlasU1: 1, atlasV1: 1,
+                        colorR: 0.95, colorG: 0.85, colorB: 0.35, colorA: 1,
+                        rotationRadians: 0.45
+                    )
+                )
+            }
+        )
+    }
+
     private static func shadowScene() -> ParityScene {
         ParityScene(
             name: "shadow",
@@ -930,6 +1009,12 @@ final class CrossBackendPixelParityTests: XCTestCase {
     func testPathAsQuadsParity() async throws { try assertParity(Self.pathAsQuadsScene()) }
 
     func testRotatedQuadParity() async throws { try assertParity(Self.rotatedQuadScene()) }
+
+    func testRotatedShadowParity() async throws { try assertParity(Self.rotatedShadowScene()) }
+
+    func testRotatedImageParity() async throws { try assertParity(Self.rotatedImageScene()) }
+
+    func testRotatedGlyphParity() async throws { try assertParity(Self.rotatedGlyphScene()) }
 
     func testShadowParity() async throws { try assertParity(Self.shadowScene()) }
 

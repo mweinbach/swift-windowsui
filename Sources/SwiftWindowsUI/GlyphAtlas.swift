@@ -190,6 +190,22 @@ public final class GlyphAtlas {
     /// scene draws — and caches — the wrong characters.
     public private(set) var generation: UInt64 = 0
 
+    /// The recycle half of `generation`, on its own.
+    ///
+    /// `clear()` and free-span reuse are both "this space was handed out
+    /// before", but they invalidate very different sets. A recycle moves every
+    /// shelf, so *every* rect the atlas ever minted now addresses someone
+    /// else's pixels. Reusing one freed span invalidates exactly that span —
+    /// and the entry that owned it was removed from the cache when it was
+    /// freed, so nothing live points at it; only a *stale* holder (a replayed
+    /// paint record, a cached scene from an earlier frame) can still be
+    /// addressing it.
+    ///
+    /// `generation` stays the conservative token every external holder
+    /// compares. This one lets `ScenePainter` tell the two apart and stop
+    /// paying a full second paint pass for the narrow case.
+    public private(set) var recycleGeneration: UInt64 = 0
+
     private var shelves: [Shelf] = []
     /// `shelves` index by shelf `y`. Every allocation on a shelf sits at that
     /// shelf's `y`, so a freed rect's `atlasY` identifies its shelf exactly.
@@ -392,6 +408,7 @@ public final class GlyphAtlas {
         contentVersion = RenderContentVersion.next()
         needsFullUpdate = true
         generation &+= 1
+        recycleGeneration &+= 1
     }
 
     /// Ends the current accumulation window: the frame's single consumer

@@ -65,9 +65,33 @@ final class NativeGlyphAtlas {
         shared = processAtlas
     }
 
+    /// True while the *previous* frame reused reclaimed atlas space, so the
+    /// scene it produced is not safe to replay paint records out of.
+    ///
+    /// Carried across the boundary rather than discovered mid-pass: a reclaim
+    /// noticed halfway through a pass costs the whole pass, and once the atlas
+    /// is full and the working set keeps moving, that is every frame. Starting
+    /// the next frame with replay already off costs one pass instead of two and
+    /// makes the mid-pass check unreachable for the reclaim case.
+    private(set) var replayIsUnsafeThisFrame = false
+    private var reclaimedSinceFrameStart = false
+
     func beginFrame() {
         usedInCurrentFrame = false
+        replayIsUnsafeThisFrame = reclaimedSinceFrameStart
+        reclaimedSinceFrameStart = false
         cache.nextFrame()
+    }
+
+    /// Starts one paint attempt inside the current frame.
+    func beginPass() {
+        cache.beginPass()
+    }
+
+    /// Records that this frame reused space the allocator had handed out
+    /// before, so the next frame must not replay from the scene it ships.
+    func noteReclaimedSpaceReused() {
+        reclaimedSinceFrameStart = true
     }
 
     func setSuspended(_ suspended: Bool) {
@@ -78,6 +102,19 @@ final class NativeGlyphAtlas {
     /// rect the pass captured before it is now addressing someone else's pixels.
     var atlasGeneration: UInt64 {
         atlas.generation
+    }
+
+    /// See `GlyphAtlas.recycleGeneration` — the shelves-moved half of
+    /// `atlasGeneration`, which is the half no pass can survive.
+    var atlasRecycleGeneration: UInt64 {
+        atlas.recycleGeneration
+    }
+
+    /// See `GlyphAtlasCache.didFreeCellUsedThisFrame`. True when this pass gave
+    /// back a cell it had already drawn from, which is the only way reusing
+    /// reclaimed space can alias a rect the pass itself emitted.
+    var didFreeCellUsedThisFrame: Bool {
+        cache.didFreeCellUsedThisFrame
     }
 
     /// LRU clock; advanced once per rendered frame, not once per paint attempt.

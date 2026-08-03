@@ -162,6 +162,115 @@ final class GlyphAtlasExhaustionSafetyTests: XCTestCase {
         XCTAssertEqual(NativeGlyphAtlas.shared.frameIndex, plainClockBefore + 1)
     }
 
+    // MARK: - Reclaimed space is not a recycle
+
+    /// The steady state WS-18's free list created and nobody costed: a full
+    /// atlas plus an LRU cache means every *new* glyph is served from space an
+    /// eviction returned, and every such allocation used to bump the same
+    /// generation token a full recycle bumps. `ScenePainter` treats that token
+    /// as "throw the pass away", so a screen that introduces one glyph per
+    /// frame — a clock, a counter, a filter box — paid a second full paint pass
+    /// on every frame of it, forever.
+    ///
+    /// Reusing one freed span invalidates exactly that span, and the entry that
+    /// owned it left the cache when it was freed. Nothing this pass emitted can
+    /// be addressing it, so the pass is shippable.
+    func testOneNewGlyphPerFrameAgainstAFullAtlasCostsNoRepaint() async {
+        // 32² atlas, 16² glyphs: two shelves of two cells, so four glyphs fill
+        // it exactly and a four-entry cache evicts from the fifth on.
+        installSmallAtlas(side: 32, maxEntries: 4)
+        defer { restoreSharedAtlas() }
+
+        let warm = Array("ABCD")
+        let warmScene = paintColumn(warm)
+        XCTAssertEqual(warmScene.layers[0].glyphs.count, warm.count, "the fixture must fill the atlas natively")
+        XCTAssertEqual(warmScene.paintMetrics.textDiagnostics.atlasRecoveries, 0, "nothing has run out yet")
+
+        // Each frame keeps three glyphs and introduces a fourth: the newcomer
+        // has to come out of the evicted glyph's cell every time.
+        var repaints = 0
+        for newcomer in Array("EFGHIJ") {
+            let frame = Array("ABC") + [newcomer]
+            let scene = paintColumn(frame)
+            repaints += scene.paintMetrics.textDiagnostics.atlasRecoveries
+
+            XCTAssertEqual(
+                scene.layers[0].glyphs.count, frame.count,
+                "a frame the atlas can serve by reclaiming must still be native text")
+            guard let snapshot = scene.glyphAtlas else {
+                XCTFail("a scene carrying native glyphs must ship the atlas those glyphs address")
+                return
+            }
+            let glyphs = scene.layers[0].glyphs.sorted { $0.screenY < $1.screenY }
+            for (index, glyph) in glyphs.enumerated() {
+                XCTAssertEqual(
+                    Self.atlasTile(for: glyph, in: snapshot), Self.glyphPixels(for: frame[index]),
+                    "glyph '\(frame[index])' was shipped from a cell reclamation gave to another glyph")
+            }
+        }
+
+        XCTAssertEqual(
+            repaints, 0,
+            "six one-new-glyph frames cost \(repaints) discarded passes; reclaiming a dead cell is not a recycle")
+    }
+
+    /// The next frame is the one that pays, and it pays once: a scene built
+    /// over reclaimed space is not safe to replay paint records out of, so the
+    /// following frame starts with replay off rather than discovering it
+    /// halfway through a pass.
+    func testAFrameAfterReclamationStartsWithReplayDisabled() async {
+        installSmallAtlas(side: 32, maxEntries: 4)
+        defer { restoreSharedAtlas() }
+
+        _ = paintColumn(Array("ABCD"))
+        XCTAssertFalse(
+            NativeGlyphAtlas.shared.replayIsUnsafeThisFrame,
+            "a frame that only used virgin space leaves the next one alone")
+
+        _ = paintColumn(Array("ABCE"))
+        _ = paintColumn(Array("ABCE"))
+        XCTAssertTrue(
+            NativeGlyphAtlas.shared.replayIsUnsafeThisFrame,
+            "the frame after a reclaim must not replay last frame's glyph quads")
+
+        // A frame that reclaims nothing hands replay back.
+        _ = paintColumn(Array("ABCE"))
+        XCTAssertFalse(
+            NativeGlyphAtlas.shared.replayIsUnsafeThisFrame,
+            "the carry is for cause; a settled working set must get replay back")
+    }
+
+    /// The narrowing has one hole it must not open. When the frame's own
+    /// working set is bigger than the cache, eviction takes a glyph *this pass
+    /// already drew*, and reusing that cell aliases a rect the pass emitted —
+    /// which is the WS-14 hazard, arriving through the free list instead of
+    /// through a recycle. The pass has to be thrown away exactly as before.
+    func testReusingACellThisPassAlreadyDrewFromStillDiscardsThePass() async {
+        installSmallAtlas(side: 32, maxEntries: 4)
+        defer { restoreSharedAtlas() }
+
+        let characters = Array("ABCDEF")
+        let scene = paintColumn(characters)
+
+        if let snapshot = scene.glyphAtlas {
+            let glyphs = scene.layers[0].glyphs.sorted { $0.screenY < $1.screenY }
+            for (index, glyph) in glyphs.enumerated() {
+                XCTAssertEqual(
+                    Self.atlasTile(for: glyph, in: snapshot), Self.glyphPixels(for: characters[index]),
+                    "glyph '\(characters[index])' resolves to a cell the same pass gave to another glyph")
+            }
+        }
+        XCTAssertTrue(
+            scene.layers[0].glyphs.isEmpty,
+            "a working set larger than the cache cannot be served natively without aliasing")
+        XCTAssertEqual(
+            scene.layers[0].pixelGlyphs.count, characters.count,
+            "degrading must reach the pixel font, not drop the text")
+        XCTAssertGreaterThan(
+            scene.paintMetrics.textDiagnostics.atlasRecoveries, 0,
+            "this test only means something if the painter actually discarded a pass")
+    }
+
     // MARK: - Cached scenes
 
     /// The atlas is process-wide, a runtime's cached scene is not. A window
@@ -223,9 +332,9 @@ final class GlyphAtlasExhaustionSafetyTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    private func installSmallAtlas() {
+    private func installSmallAtlas(side: Int32 = atlasSide, maxEntries: Int = 4096) {
         NativeGlyphAtlas.installForTesting(
-            NativeGlyphAtlas(atlasWidth: Self.atlasSide, atlasHeight: Self.atlasSide))
+            NativeGlyphAtlas(atlasWidth: side, atlasHeight: side, maxEntries: maxEntries))
         NativeTextRenderer.testingOverrides.layout = { text, style, _, _ in
             Self.syntheticLayout(for: text, style: style)
         }

@@ -31,6 +31,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
 - `lint.ps1` runs `check-contracts.ps1` and then toolchain `swift-format lint --strict` against changed Swift files. Use `-Path <file>` when the checkout already has unrelated dirty Swift files, and use `-AllSwift` before broad cleanup branches or CI-style validation.
 - `agent-check.ps1 -Quick` runs contract checks, focused scene/renderer/runtime tests (including the two WARP suites, `D3D11BatchRendererRenderTests` and `CrossBackendPixelParityTests`, the pixel-format contract `PixelFormatContractTests`, and the device-loss suites `DeviceLostPolicyTests` / `DeviceLossRecoveryTests` / `PresentationFailurePolicyTests`), and the demo executable build serially. Add `-GalleryCompare` to also run the gallery regression gate.
 - Four P1 invariant suites gate Quick as well: `ScenePresentationOrderTests` (the single draw-order authority), `SharedCoverageKernelTests` (the CPU/GPU coverage kernel), `CPUGPUBlendModeContractTests` (source-over on both paths) and `ClipAbstractionTests` (one clip value, one space). All four are cheap — 0.02 s to 0.4 s of test time each, ~2.5 s of wall clock apiece once the build is warm, since a `swift test` invocation dominates. The remaining P1 suites (`CPURasterizerGPUModelTests`, `PathRasterizationQualityTests`, `BorderCornerArcGeometryTests`, `TextShapingPipelineTests`) stay Full-only. Keep the Quick gate under ~10 minutes: measure a candidate before promoting it.
+- Three P2 invariant suites joined them in P2F-GATES: `RenderPassAbstractionTests` (0.71 s — the render-pass vocabulary both backends speak; the contract check can only see that each side *mentions* the shared derivations, this checks they agree on the answers), `StrokeStyleContractTests` (0.03 s — caps, joins and the bounds outset that has to cover them, on both stroke routes), and `GlyphAtlasExhaustionSafetyTests` (0.06 s — never ship a glyph quad addressing someone else's atlas cell). All three are invisible to the screenshot gates: a stale UV renders as a plausible wrong character, and a blur schedule mismatch only shows on the GPU, which no screenshot goes through. The heavier P2 suites (`D3D11PathCacheTests`, `PathDashingTests`, `CacheComplexityAndReclamationTests`, `LazyStackVirtualizationTests`) stay Full-only.
 - `agent-check.ps1 -Full` runs full tests, builds the demo, regenerates scene plus frame fallback screenshots, and runs the gallery regression gate.
 - Do not run multiple SwiftPM test/build commands against this checkout in parallel; they share `.build/build.db`.
 - Do not leave root-level logs or screenshots behind. Generated screenshots belong under `artifacts/`, and temporary logs should be deleted before handoff.
@@ -119,7 +120,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   cannot vouch for, the suspension does not outlive the degraded frame, and a
   runtime's *cached scene* is dropped when another window recovers the shared
   atlas under it (a clean window never repaints on its own, so the token is
-  the only thing that can force it).
+  the only thing that can force it). Since P2F-GATES it also pins the *cost*
+  of the narrower invalidation: reusing a cell eviction returned is not a
+  recycle, so a full atlas taking one new glyph per frame costs zero
+  discarded passes (it was one per frame), the frame after a reclaim runs
+  with replay disabled from the start, and the one intra-pass aliasing case —
+  freeing a cell this pass already drew from — still discards the pass.
+  Gates Quick.
 - `RenderBackendLifetimeTests` — GPU resource lifetime: `detach()` empties
   every stored COM pointer, the image map and the path cache; attach →
   detach → attach round-trips draw the identical frame on a fresh device;
@@ -257,16 +264,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   interpolate *premultiplied* texels so a transparent neighbour cannot
   darken an opaque one.
 - `CacheComplexityAndReclamationTests` — the render path's caches as
-  *caches*: warm lookup cost that does not scale with cache size (a
-  4,096-entry cache under a wall-clock budget, and a 64× size difference
-  that may not become an 8× time difference), eviction returning atlas space
-  to a per-shelf free list instead of marching the frontier into a full
-  `clear()`, free-span coalescing and double-free rejection, the generation
-  bump that must accompany reclaimed-space reuse and *only* that, the
+  *caches*: warm lookup work that does not scale with cache size — 3,000
+  lookups against a full 4,096-entry cache visiting zero entries linearly,
+  the same at 64 entries, counted through
+  `GlyphAtlasCache.scannedEntriesForTesting` rather than timed (see the rule
+  at the top of `docs/PerformanceBudgets.md`; a third case pins that the
+  counter can still see the one legitimate scan, eviction's) — eviction
+  returning atlas space to a per-shelf free list instead of marching the
+  frontier into a full `clear()`, free-span coalescing and double-free
+  rejection, the generation bump that must accompany reclaimed-space reuse
+  and *only* that (and that it is **not** a `recycleGeneration` bump), the
   rewritten region still reaching the upload protocol, intra-frame recency
   ordering, and the two caches that were dead or unbounded —
-  `TextRasterCache` (now what `Controls.icon` rasterizes through) and
-  `NativeFontAvailability`'s probe cache.
+  `TextRasterCache` (now what `Controls.icon` *and* the frame path's
+  whole-string rasterization go through, keyed apart by device scale on both
+  routes) and `NativeFontAvailability`'s probe cache.
 - `PathRasterizationQualityTests` — path fill and stroke quality, which is
   not a fallback-only concern: the D3D11 path texture cache calls
   `GPUIRawSceneRasterizer.rasterizePath` and uploads the result, so this is

@@ -670,10 +670,26 @@ through `writePixels`, which bumps `contentVersion` and unions the dirty
 region like any other write — so § 3.2's upload protocol stays correct over
 reclaimed space.
 
+The two are not the same invalidation, which is why `clear()` also bumps
+`GlyphAtlas.recycleGeneration` on its own. A recycle moves every shelf, so
+every rect the atlas ever minted is wrong. Reusing one freed span
+invalidates exactly that span — and the entry that owned it left the cache
+when it was freed, so nothing *live* points at it. Only a stale holder can:
+a replayed paint record carrying last frame's UVs forward, a cached scene
+from an earlier frame, or — the one intra-pass case — a cell this pass
+already drew from and then evicted, which `GlyphAtlasCache` reports as
+`didFreeCellUsedThisFrame`.
+
 `ScenePainter.paint` compares the generation across each paint attempt:
 
-1. Attempt 0 paints normally. If the generation moved, every UV it
-   emitted is suspect and the scene is thrown away.
+1. Attempt 0 paints normally. If the generation moved *and* any of those
+   three stale holders is in play, every UV it emitted is suspect and the
+   scene is thrown away. If none is — a reclaim that aliased only dead
+   cells — the pass ships, and the *next* frame starts with replay
+   disabled (`NativeGlyphAtlas.replayIsUnsafeThisFrame`) instead. That is
+   what keeps a full atlas plus one new glyph per frame at one paint pass
+   per frame rather than two, forever: collapsing the two invalidations
+   into one token made every such frame pay a full repaint.
 2. Attempt 1 repaints with scene replay bypassed, so cached text ranges
    rerasterize against the recovered atlas instead of replaying stale
    UVs.
@@ -2382,3 +2398,28 @@ and solid border, and fill. Reading `cornerRadius` alone — typically 0 on
 a per-corner node — turned a rounded joined control square the moment the
 renderer degraded. Locked by
 `RuntimeGeometrySanitationTests.testFramePathDegradesPerCornerRadiiToMaxRadius`.
+
+### The frame path's whole-string raster cache
+
+Frame-path text is not glyph quads: `NativeTextRenderer.appendCommands` and
+`DirectWriteTextRenderer.appendCommands` lay the string out, rasterize the
+whole thing into one `BitmapSurface`, and emit a single `.drawBitmap`. That
+raster used to be rebuilt through DirectWrite on **every frame the path
+drew** — a full layout plus a full raster per visible string per frame —
+for pixels that are a pure function of `(text, style, raster size, scale)`.
+
+That tuple is exactly `TextRasterCacheKey`, so both renderers now go through
+`FramePathTextRaster.bitmap(for:size:style:scaleFactor:rasterize:)`, which is
+the same `TextRasterCache` `Controls.icon` uses. One seam for both, so the
+two cannot drift onto different keys. The scene path is untouched: it draws
+text from the glyph atlas and never asks for a whole-string bitmap.
+
+`TextRasterCache.shared` is a process global on purpose — its callers
+(`Controls.icon` from a static factory, `appendCommands` from the recursive
+`ViewNode.appendCommands`, which has no stack headroom for another
+parameter) have no runtime in scope; the key carries everything that varies
+per window, so there is no per-runtime state to separate and no invalidation
+hook to get wrong; and the 64 MiB bound is a process bound, which
+per-runtime instances would multiply by the window count. The reasoning is
+restated at the declaration, and `installForTesting` is the seam a test
+substitutes through. Bounds and enforcing tests: `docs/PerformanceBudgets.md`.

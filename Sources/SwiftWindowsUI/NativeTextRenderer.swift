@@ -378,7 +378,11 @@ enum GDIRasterTextRenderer {
             maxWidth: rect.size.width.isFinite ? rect.size.width : nil
         )
         let rasterSize = framePathTextRasterSize(frameSize: rect.size, measured: measured, style: style)
-        guard let bitmap = rasterize(text, in: rasterSize, style: style, scaleFactor: scaleFactor) else {
+        guard
+            let bitmap = FramePathTextRaster.bitmap(
+                for: text, size: rasterSize, style: style, scaleFactor: scaleFactor,
+                rasterize: { rasterize(text, in: rasterSize, style: style, scaleFactor: scaleFactor) })
+        else {
             return false
         }
 

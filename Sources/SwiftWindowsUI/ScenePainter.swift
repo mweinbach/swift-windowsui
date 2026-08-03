@@ -94,13 +94,19 @@ public enum ScenePainter {
             rect: Rect(x: 0, y: 0, width: surfaceSize.width, height: surfaceSize.height), space: .painted)
         let deviceSurfaceSize = surfaceSize.scaled(by: max(displayScale, 1.0))
         let originalDeferredDraws = deferredDraws
-        var bypassReplayAfterAtlasRecovery = false
 
         // One LRU tick per *rendered frame*, not per attempt: the loop below
         // repaints the same frame, and advancing the clock again would age
         // glyphs the frame is still using out from under it.
         NativeGlyphAtlas.shared.beginFrame()
         defer { NativeGlyphAtlas.shared.setSuspended(false) }
+
+        // A frame that follows one which reused reclaimed atlas space starts
+        // with replay already off: the previous scene's glyph quads may address
+        // cells that were handed to someone else, and finding that out halfway
+        // through this pass would cost the pass. Off from the start, it costs
+        // nothing but the replay.
+        var bypassReplayAfterAtlasRecovery = NativeGlyphAtlas.shared.replayIsUnsafeThisFrame
 
         for attempt in 0..<glyphAtlasPaintAttempts {
             // The atlas recovers from exhaustion by recycling its shelves, which
@@ -110,7 +116,9 @@ public enum ScenePainter {
             // quads that address someone else's atlas cells.
             let isFinalAttempt = attempt == glyphAtlasPaintAttempts - 1
             NativeGlyphAtlas.shared.setSuspended(isFinalAttempt)
+            NativeGlyphAtlas.shared.beginPass()
             let atlasGenerationAtStart = NativeGlyphAtlas.shared.atlasGeneration
+            let atlasRecycleGenerationAtStart = NativeGlyphAtlas.shared.atlasRecycleGeneration
             // Counters describe the attempt that ships, not the ones discarded
             // along the way - except the recovery count, which is the reason
             // there was more than one attempt.
@@ -175,18 +183,32 @@ public enum ScenePainter {
                 replayCount: &attemptDeferredReplayCount
             )
 
-            if usedNativeGlyphs,
-                NativeGlyphAtlas.shared.atlasGeneration != atlasGenerationAtStart,
-                !isFinalAttempt
-            {
-                // Atlas recovery invalidates every native glyph UV captured earlier in the pass,
-                // including replayed text ranges. Rebuild without replay so text rerasterizes
-                // against the recovered atlas before we return the scene. The generation token
-                // catches a recovery anywhere in the pass, so a *second* exhaustion on the retry
-                // is caught too — the previous per-frame boolean was only consulted once.
-                bypassReplayAfterAtlasRecovery = true
-                TextRenderDiagnosticsCounters.atlasRecoveries += 1
-                continue
+            if usedNativeGlyphs, NativeGlyphAtlas.shared.atlasGeneration != atlasGenerationAtStart {
+                // The atlas handed out space it had handed out before. Which
+                // holders that invalidates depends on *how*:
+                //
+                // - a recycle (`clear()`) moved every shelf, so every UV this
+                //   pass captured is wrong;
+                // - a replayed paint record carries last frame's UVs forward
+                //   verbatim, and this pass never re-looked them up;
+                // - freeing a cell this pass had already drawn from is the one
+                //   way reuse can alias one of *this* pass's own emissions.
+                //
+                // Any of those and the pass is unshippable: rebuild it without
+                // replay so every glyph is re-addressed against the atlas as it
+                // stands now. None of them, and reuse only invalidated cells
+                // nothing in this scene is looking at — ship it, and let the
+                // next frame start with replay off instead.
+                let recycled = NativeGlyphAtlas.shared.atlasRecycleGeneration != atlasRecycleGenerationAtStart
+                let replayedStaleRanges = attemptReplayCount + attemptDeferredReplayCount > 0
+                NativeGlyphAtlas.shared.noteReclaimedSpaceReused()
+                if !isFinalAttempt,
+                    recycled || replayedStaleRanges || NativeGlyphAtlas.shared.didFreeCellUsedThisFrame
+                {
+                    bypassReplayAfterAtlasRecovery = true
+                    TextRenderDiagnosticsCounters.atlasRecoveries += 1
+                    continue
+                }
             }
 
             if usedNativeGlyphs {

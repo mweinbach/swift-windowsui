@@ -102,21 +102,55 @@ struct TextRasterCacheKey: Hashable, Sendable {
 }
 /// Whole-string rasters, bounded by entry count and by bytes.
 ///
-/// This is the cache in front of `NativeTextRenderer.rasterize` — the one
-/// DirectWrite call in the stack that returns a whole laid-out string as a
-/// bitmap rather than per-glyph cells. `Controls.icon` is its only caller, and
-/// it runs once per icon per view-tree rebuild, so a screen of symbol icons
-/// re-rasterized every icon on every state change before this was wired up.
+/// This is the cache in front of every DirectWrite call in the stack that
+/// returns a whole laid-out string as a bitmap rather than per-glyph cells:
+/// `Controls.icon` (once per icon per view-tree rebuild) and the frame path's
+/// `NativeTextRenderer.appendCommands`, which re-rasterized every visible
+/// string on every frame it drew.
 ///
 /// It was previously allocated by nothing at all: `RetainedViewRuntime` held
 /// an `Optional` that was only ever cleared, so the type existed, was budgeted
 /// in `docs/PerformanceBudgets.md`, was gate-tested — and cached nothing.
 @MainActor
 public final class TextRasterCache {
-    /// The process-wide instance `Controls.icon` rasterizes through. Icon
-    /// rasters are keyed by content, style and device scale, so one instance
-    /// serves every window without a cross-window invalidation story.
-    static let shared = TextRasterCache()
+    /// The process-wide instance every whole-string raster goes through.
+    ///
+    /// A process global rather than a `RetainedViewRuntime` property, and
+    /// deliberately so — AGENTS.md prefers an injectable seam, so the reasons
+    /// are stated here rather than assumed:
+    ///
+    /// 1. **Its callers have no runtime.** `Controls.icon` builds a `ViewNode`
+    ///    from a static factory, and `NativeTextRenderer.appendCommands` /
+    ///    `DirectWriteTextRenderer.appendCommands` are static entry points
+    ///    reached from `ViewNode.appendCommands` — a recursive function with
+    ///    almost no stack headroom, which is the last place to thread a new
+    ///    parameter through. Reaching a per-runtime cache from any of them
+    ///    means a current-runtime global with extra steps.
+    /// 2. **There is no per-runtime state to separate.** The key carries every
+    ///    input that varies between windows — content, full style, target size
+    ///    and device scale — so two runtimes at different DPI ask different
+    ///    questions rather than invalidating each other's answers. That is also
+    ///    why there is no invalidation hook: nothing about a runtime can go
+    ///    stale here.
+    /// 3. **The budget is a process budget.** What it bounds is rasterized
+    ///    bitmap bytes held live in one process; per-runtime instances would
+    ///    multiply the 64 MiB bound by the window count.
+    ///
+    /// What the global does owe is a seam, which `installForTesting` supplies:
+    /// a test substitutes a small instance instead of reaching into shared
+    /// state that outlives it.
+    private static let processCache = TextRasterCache()
+    private(set) static var shared = processCache
+
+    /// Test-only: swap the process-wide cache. Always pair with
+    /// `restoreSharedForTesting()` in a `defer`.
+    static func installForTesting(_ replacement: TextRasterCache) {
+        shared = replacement
+    }
+
+    static func restoreSharedForTesting() {
+        shared = processCache
+    }
 
     private var entries: [TextRasterCacheKey: CacheEntry] = [:]
     private var accessClock: UInt64 = 0
@@ -134,11 +168,18 @@ public final class TextRasterCache {
         return accessClock
     }
 
+    /// Hits served since the last `clear()`. The frame path's whole claim is
+    /// that a string it drew last frame does not reach DirectWrite again this
+    /// frame, and a hit is the only way that can be true — so the test probe is
+    /// a hit count, not a clock.
+    private(set) var hitCountForTesting: Int = 0
+
     func get(for key: TextRasterCacheKey) -> BitmapSurface? {
         guard let index = entries.index(forKey: key) else {
             return nil
         }
         entries.values[index].lastAccessed = nextAccessStamp()
+        hitCountForTesting += 1
         return entries.values[index].surface
     }
 
@@ -159,6 +200,7 @@ public final class TextRasterCache {
     func clear() {
         entries.removeAll()
         totalMemoryBytes = 0
+        hitCountForTesting = 0
     }
 
     var count: Int {
@@ -182,6 +224,40 @@ public final class TextRasterCache {
             totalMemoryBytes -= oldest.value.memoryBytes
             entries.removeValue(forKey: oldest.key)
         }
+    }
+}
+/// The frame path's whole-string raster, served from `TextRasterCache`.
+///
+/// The frame path (`RetainedViewRuntime.renderFrame` → `ViewNode.appendCommands`
+/// → `NativeTextRenderer.appendCommands`) draws text as one pre-rasterized
+/// bitmap per string rather than as glyph quads, and it rebuilt that bitmap
+/// through DirectWrite on *every frame it drew* — a full text layout plus a
+/// full GDI/DirectWrite raster per visible string per frame, for text whose
+/// pixels are a pure function of `(text, style, raster size, scale)`. That
+/// tuple is exactly `TextRasterCacheKey`, which is why the cache in front of
+/// `Controls.icon` serves this path unchanged.
+///
+/// Both frame-path renderers go through here so the two cannot drift into
+/// caching on different keys; the scene path is untouched, because it draws
+/// text from the glyph atlas and never asks for a whole-string bitmap.
+@MainActor
+enum FramePathTextRaster {
+    static func bitmap(
+        for text: String,
+        size: Size,
+        style: PixelTextStyle,
+        scaleFactor: Double,
+        rasterize: () -> BitmapSurface?
+    ) -> BitmapSurface? {
+        let key = TextRasterCacheKey(text: text, style: style, size: size, renderScale: scaleFactor)
+        if let cached = TextRasterCache.shared.get(for: key) {
+            return cached
+        }
+        guard let bitmap = rasterize() else {
+            return nil
+        }
+        TextRasterCache.shared.insert(bitmap, for: key)
+        return bitmap
     }
 }
 private struct CacheEntry {

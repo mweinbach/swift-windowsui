@@ -63,7 +63,10 @@ enum DirectWriteTextRenderer {
             maxWidth: rect.size.width.isFinite ? rect.size.width : nil
         )
         let rasterSize = framePathTextRasterSize(frameSize: rect.size, measured: measured, style: style)
-        guard let bitmap = system.rasterize(text, in: rasterSize, style: style, scaleFactor: scaleFactor)
+        guard
+            let bitmap = FramePathTextRaster.bitmap(
+                for: text, size: rasterSize, style: style, scaleFactor: scaleFactor,
+                rasterize: { system.rasterize(text, in: rasterSize, style: style, scaleFactor: scaleFactor) })
         else {
             return false
         }

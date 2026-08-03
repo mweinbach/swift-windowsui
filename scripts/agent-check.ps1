@@ -166,6 +166,27 @@ if ($Full) {
     Invoke-Step "RetainedViewRuntimeTests" {
         & $testScript -Filter "RetainedViewRuntimeTests"
     }
+    # The render-pass vocabulary both backends speak: the blur schedule, the
+    # halving tap model and the texel-centre clamp, plus the cross-backend
+    # parity scenes over it (~0.71 s). The contract check can only see that
+    # each side *mentions* the shared derivations; this is what checks they
+    # agree on the answers.
+    Invoke-Step "RenderPassAbstractionTests" {
+        & $testScript -Filter "RenderPassAbstractionTests"
+    }
+    # StrokeStyle as a contract rather than a suggestion: caps, joins and the
+    # bounds outset that has to cover them, on both the tessellated and the
+    # rasterized route (~0.03 s).
+    Invoke-Step "StrokeStyleContractTests" {
+        & $testScript -Filter "StrokeStyleContractTests"
+    }
+    # Never ship a glyph quad addressing someone else's atlas cell — through a
+    # recycle, or through the free list handing a reclaimed cell to a second
+    # glyph inside one pass (~0.06 s). Invisible to every screenshot gate,
+    # because a stale UV renders as a plausible wrong character.
+    Invoke-Step "GlyphAtlasExhaustionSafetyTests" {
+        & $testScript -Filter "GlyphAtlasExhaustionSafetyTests"
+    }
     Invoke-Step "swift build swift-windowsui" {
         & $buildScript -Product "swift-windowsui"
     }

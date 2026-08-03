@@ -23,6 +23,22 @@ public final class GlyphAtlasCache {
     /// used" means what it says even within a frame.
     private var accessClock: UInt64 = 0
 
+    /// Value of `accessClock` at the last frame boundary. An entry stamped
+    /// above this was touched by the frame in flight.
+    private var frameStartAccessClock: UInt64 = 0
+
+    /// Set when freeing an entry's atlas cell took a cell the *current* frame
+    /// had already used.
+    ///
+    /// This is the one way a single paint pass can alias a rect it already
+    /// emitted: the cell goes back to the allocator, the next glyph reuses it,
+    /// and the primitive emitted earlier now samples someone else's pixels.
+    /// Freeing a cell no one has touched this frame cannot do that — nothing in
+    /// this pass is addressing it — which is what lets `ScenePainter` tell a
+    /// reclaim it has to repaint for from one it can ship. Reset per paint
+    /// attempt by `beginPass()`, because an attempt re-emits everything.
+    private(set) var didFreeCellUsedThisFrame = false
+
     /// Generation of the backing atlas. `insert` recovers from exhaustion by
     /// clearing the atlas, which invalidates every rect handed out before it;
     /// callers holding rects across a batch of inserts compare this instead of
@@ -35,6 +51,22 @@ public final class GlyphAtlasCache {
     /// LRU clock, advanced once per rendered frame by `nextFrame()`.
     public var frameIndex: UInt64 {
         frameCounter
+    }
+
+    /// Entries visited by a linear scan since `resetScanCounterForTesting()`.
+    ///
+    /// The claim this cache exists to make is that a lookup costs one hash and
+    /// nothing that grows with how much the cache holds. A wall-clock budget is
+    /// the wrong instrument for that claim — `docs/PerformanceBudgets.md`
+    /// forbids one outright, because a timing gate flakes on a loaded runner —
+    /// so the scan is *counted* instead. `lookup` and `peek` never touch this;
+    /// eviction, the one place a scan is legitimate, adds the entries it
+    /// walked. A regression to `accessOrder.firstIndex(of:)` shows up here as a
+    /// non-zero count on a pure-lookup workload, on any machine, at any load.
+    private(set) var scannedEntriesForTesting: Int = 0
+
+    func resetScanCounterForTesting() {
+        scannedEntriesForTesting = 0
     }
 
     struct CacheEntry {
@@ -173,9 +205,11 @@ public final class GlyphAtlasCache {
 
         // Re-inserting a key abandons its old rect; hand the space back rather
         // than leak it for the life of the atlas.
-        if let previous = entries[key]?.entry {
+        if let previous = entries[key] {
+            noteCellFreed(stampedAt: previous.lastAccessed)
             atlas.deallocate(
-                x: previous.atlasX, y: previous.atlasY, width: previous.width, height: previous.height)
+                x: previous.entry.atlasX, y: previous.entry.atlasY,
+                width: previous.entry.width, height: previous.entry.height)
         }
 
         entries[key] = CacheEntry(entry: entry, lastAccessed: nextAccessStamp())
@@ -196,32 +230,42 @@ public final class GlyphAtlasCache {
         }
         guard count < entries.count else {
             for entry in entries.values {
-                releaseAtlasSpace(for: entry.entry)
+                releaseAtlasSpace(for: entry)
             }
             entries.removeAll(keepingCapacity: true)
             return
         }
 
         if count == 1 {
+            scannedEntriesForTesting += entries.count
             guard
                 let oldest = entries.min(by: { $0.value.lastAccessed < $1.value.lastAccessed })
             else {
                 return
             }
-            releaseAtlasSpace(for: oldest.value.entry)
+            releaseAtlasSpace(for: oldest.value)
             entries.removeValue(forKey: oldest.key)
             return
         }
 
+        scannedEntriesForTesting += entries.count
         let doomed = entries.sorted { $0.value.lastAccessed < $1.value.lastAccessed }.prefix(count)
         for element in doomed {
-            releaseAtlasSpace(for: element.value.entry)
+            releaseAtlasSpace(for: element.value)
             entries.removeValue(forKey: element.key)
         }
     }
 
-    private func releaseAtlasSpace(for entry: GlyphEntry) {
+    private func releaseAtlasSpace(for cached: CacheEntry) {
+        noteCellFreed(stampedAt: cached.lastAccessed)
+        let entry = cached.entry
         atlas.deallocate(x: entry.atlasX, y: entry.atlasY, width: entry.width, height: entry.height)
+    }
+
+    private func noteCellFreed(stampedAt stamp: UInt64) {
+        if stamp > frameStartAccessClock {
+            didFreeCellUsedThisFrame = true
+        }
     }
 
     public func clear() {
@@ -235,5 +279,15 @@ public final class GlyphAtlasCache {
 
     public func nextFrame() {
         frameCounter += 1
+        frameStartAccessClock = accessClock
+        didFreeCellUsedThisFrame = false
+    }
+
+    /// Starts one paint attempt. A retry re-emits every glyph the discarded
+    /// attempt did, so the aliasing question is asked again from scratch; the
+    /// frame's recency clock is deliberately *not* reset, because the entries
+    /// the discarded attempt touched are still this frame's working set.
+    func beginPass() {
+        didFreeCellUsedThisFrame = false
     }
 }

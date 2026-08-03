@@ -550,6 +550,56 @@ Assert-Contains `
     "currentRegion\.halvingSource" `
     "The GPU halving pass must take its UV scale from SubTextureRegion.halvingSource; derived from the full region it samples between texels at odd extents and reaches the column the CPU drops."
 
+# WS-20 — the render-pass vocabulary is a vocabulary only while both backends
+# speak it. `BlurPassPlan` is the cost model (when to downsample and by how
+# much); a backend that decides that for itself is how the CPU reference
+# renderer and the GPU stopped blurring the same way at the same radius.
+Assert-Contains `
+    "Sources/SwiftWindowsGraphics/SceneRasterizer.swift" `
+    "BlurPassPlan" `
+    "The CPU rasterizer must take its blur schedule from BlurPassPlan; a local radius threshold is a second cost model the GPU has never heard of."
+Assert-Contains `
+    "Sources/SwiftWindowsRendererD3D11/BackdropBlurEngine.swift" `
+    "BlurPassPlan\(" `
+    "The D3D11 blur engine must build its pass schedule from BlurPassPlan, not from its own radius arithmetic."
+Assert-Contains `
+    "Sources/SwiftWindowsRendererD3D11/BackdropBlurEngine.swift" `
+    "SubTextureRegion" `
+    "The D3D11 blur engine must express its source rectangles as SubTextureRegion; a loose (x, y, w, h) quadruple is what the shared clamp and halving derivations exist to replace."
+
+function Assert-SingleHalfTexelInset {
+    # The half-texel inset is one value with two spellings — `0.5 / width` in
+    # Swift and the same number handed to the shader as a constant. It belongs
+    # to SubTextureRegion, and a second expression of it is how a sampler ends
+    # up half a texel off from the one it is supposed to match. The rule also
+    # asserts the owning expression still exists, so deleting it cannot leave a
+    # rule that matches nothing and passes forever.
+    $sourcesPath = Get-RepoPath "Sources"
+    if (-not (Test-Path -LiteralPath $sourcesPath)) {
+        Add-Failure "Sources/ is missing; cannot verify the half-texel inset contract."
+        return
+    }
+
+    $ownerSuffix = [IO.Path]::Combine("SwiftWindowsGraphics", "RenderPass.swift")
+    $found = Get-ChildItem -LiteralPath $sourcesPath -Recurse -File -Filter *.swift |
+        Select-String -Pattern "0\.5\s*/\s*(Float|float)\s*\("
+
+    $sawOwner = $false
+    foreach ($match in $found) {
+        if ($match.Path.EndsWith($ownerSuffix)) {
+            $sawOwner = $true
+            continue
+        }
+        Add-Failure "$($match.Path):$($match.LineNumber) computes a half-texel inset itself; it belongs to SubTextureRegion.halfTexelU/V in Sources/SwiftWindowsGraphics/RenderPass.swift, and a second copy is how two samplers drift half a texel apart."
+    }
+
+    if (-not $sawOwner) {
+        Add-Failure "SubTextureRegion no longer computes a half-texel inset in Sources/SwiftWindowsGraphics/RenderPass.swift; either the derivation moved (point this rule at it) or every consumer is now deriving its own."
+    }
+}
+
+Assert-SingleHalfTexelInset
+
 # DXGI installs its own window hooks the moment a swap chain is bound to an
 # HWND: Alt+Enter becomes a fullscreen mode switch and Print Screen becomes a
 # DXGI capture, neither of which this stack implements. Every swap-chain owner

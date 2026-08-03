@@ -162,6 +162,65 @@ final class GlyphAtlasExhaustionSafetyTests: XCTestCase {
         XCTAssertEqual(NativeGlyphAtlas.shared.frameIndex, plainClockBefore + 1)
     }
 
+    // MARK: - Cached scenes
+
+    /// The atlas is process-wide, a runtime's cached scene is not. A window
+    /// that is clean — nothing dirty, nothing to repaint — used to ship that
+    /// cached scene with the *current* shared atlas stapled onto it, so a
+    /// recovery triggered by some other window left its glyph quads addressing
+    /// cells that now hold someone else's pixels, forever: nothing about the
+    /// clean window ever changes to make it repaint.
+    func testACachedSceneIsNotShippedAgainstAnAtlasRecoveredUnderIt() async {
+        installSmallAtlas()
+        defer { restoreSharedAtlas() }
+
+        let characters = Array("ABC")
+        let runtime = RetainedViewRuntime(clearColor: .black, root: textColumn(characters))
+        let first = runtime.renderScene()
+        XCTAssertEqual(first.layers[0].glyphs.count, characters.count, "the fixture must draw native glyphs")
+
+        // Another window's frame, with a working set the atlas cannot hold.
+        let generationBefore = NativeGlyphAtlas.shared.atlasGeneration
+        _ = paintColumn(Array("DEFGHIJKLMNOPQRSTUV"))
+        XCTAssertGreaterThan(
+            NativeGlyphAtlas.shared.atlasGeneration, generationBefore,
+            "this test only means something if the atlas actually recycled")
+
+        let second = runtime.renderScene()
+        guard let snapshot = second.glyphAtlas else {
+            XCTFail("a scene carrying native glyphs must ship the atlas those glyphs address")
+            return
+        }
+        let glyphs = second.layers[0].glyphs.sorted { $0.screenY < $1.screenY }
+        XCTAssertEqual(glyphs.count, characters.count, "the repaint must draw the same text")
+        for (index, glyph) in glyphs.enumerated() {
+            XCTAssertEqual(
+                Self.atlasTile(for: glyph, in: snapshot), Self.glyphPixels(for: characters[index]),
+                "glyph '\(characters[index])' was shipped from a cell the recovery gave to another glyph")
+        }
+    }
+
+    /// The cache is only dropped for cause: an atlas that never recycled must
+    /// leave the fast path alone.
+    func testACachedSceneSurvivesWhenTheAtlasDoesNotRecycle() async {
+        installSmallAtlas()
+        defer { restoreSharedAtlas() }
+
+        let runtime = RetainedViewRuntime(clearColor: .black, root: textColumn(Array("AB")))
+        _ = runtime.renderScene()
+
+        // The atlas LRU clock ticks once per paint pass, so it is the cheapest
+        // observable difference between shipping the cache and repainting.
+        let generationBefore = NativeGlyphAtlas.shared.atlasGeneration
+        let clockBefore = NativeGlyphAtlas.shared.frameIndex
+        let shipped = runtime.renderScene()
+
+        XCTAssertEqual(NativeGlyphAtlas.shared.atlasGeneration, generationBefore)
+        XCTAssertEqual(NativeGlyphAtlas.shared.frameIndex, clockBefore, "a cached ship must not run a paint pass")
+        XCTAssertEqual(shipped.layers[0].glyphs.count, 2, "and it still ships its text")
+        XCTAssertNotNil(shipped.glyphAtlas, "with the atlas those quads address")
+    }
+
     // MARK: - Fixtures
 
     private func installSmallAtlas() {
@@ -180,10 +239,14 @@ final class GlyphAtlasExhaustionSafetyTests: XCTestCase {
         NativeGlyphAtlas.restoreSharedForTesting()
     }
 
+    private func paintColumn(_ characters: [Character]) -> GPUIScene {
+        ScenePainter.paint(root: textColumn(characters), clearColor: .black, surfaceSize: surfaceSize)
+    }
+
     /// One single-character text node per row, so a glyph primitive's `screenY`
     /// identifies which character requested it without relying on traversal
     /// order.
-    private func paintColumn(_ characters: [Character]) -> GPUIScene {
+    private func textColumn(_ characters: [Character]) -> ViewNode {
         let children = characters.enumerated().map { index, character in
             ViewNode(
                 frame: Rect(x: 0, y: Double(index) * rowHeight, width: 80, height: 24),
@@ -192,11 +255,10 @@ final class GlyphAtlasExhaustionSafetyTests: XCTestCase {
                     color: .white, alignment: .leading, verticalAlignment: .top, nativeFontSize: 18)
             )
         }
-        let root = ViewNode(
+        return ViewNode(
             frame: Rect(x: 0, y: 0, width: 120, height: Double(characters.count) * rowHeight + 24),
             children: children
         )
-        return ScenePainter.paint(root: root, clearColor: .black, surfaceSize: surfaceSize)
     }
 
     private static func syntheticKey(_ index: Int) -> GlyphKey {

@@ -105,6 +105,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   unchanged = zero, frame 3 with a small region = one boxed upload. Also
   pins image texture/SRV pointer identity across rebinds and across a
   frame that renumbers the texture IDs.
+- `GlyphAtlasExhaustionSafetyTests` — an atlas rect handed out before a
+  recovery addresses a different glyph after it, so no holder of one may
+  outlive the recycle: the generation token only moves when shelves are
+  recycled, a pass that recycles mid-flight re-emits its UVs, a working set
+  larger than the atlas degrades to the pixel font instead of shipping UVs it
+  cannot vouch for, the suspension does not outlive the degraded frame, and a
+  runtime's *cached scene* is dropped when another window recovers the shared
+  atlas under it (a clean window never repaints on its own, so the token is
+  the only thing that can force it).
 - `RenderBackendLifetimeTests` — GPU resource lifetime: `detach()` empties
   every stored COM pointer, the image map and the path cache; attach →
   detach → attach round-trips draw the identical frame on a fresh device;
@@ -159,8 +168,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   shadow / path families, and clip-space coherence under a transform — the
   interactive region of a rotated clip pixel-for-pixel equals its painted
   region, a deferred subtree under a translating clip paints where its clip
-  moved, the frame path's border gate is the frame it paints, and every clip
-  prepaint records is `.painted`.
+  moved, the frame path's border gate is the frame it paints, every clip
+  prepaint records is `.painted`, and a rotation nested inside a translated
+  and scaled ancestor survives on the frame path — the case a single
+  transform hides, because only there do "the node's own transform" and "the
+  accumulated transform" differ.
+- `ScrollIndicatorTransformSpaceTests` — the two spaces a scroll indicator
+  lives in: thumb length is the layout-space visible fraction, thumb position
+  and drag rate are painted space, and the untransformed geometry every other
+  indicator test pins is unchanged.
 - `ScenePresentationOrderTests` — the single draw-order authority, plus
   replay integrity at the painter: a range rejected rather than trapped, a
   rejection answered by repainting instead of caching the emptiness, a

@@ -364,7 +364,13 @@ whole subtree on the main actor, so an uncached group is the most
 expensive node in the frame, every frame it is painted. A cached bitmap
 whose sub-scene drew native glyphs also records the atlas generation it
 was baked against, so the repaint an atlas recycle triggers re-rasterizes
-instead of reusing pixels baked across the recycle.
+instead of reusing pixels baked across the recycle. The runtime's
+`cachedScene` records the same token for the same reason: the atlas is
+process-wide and a clean window never repaints, so a recovery triggered by
+*another* window would otherwise leave that window shipping pre-recovery UVs
+against the recovered atlas forever. A mismatch drops the cached scene — and
+with it the replay source, whose primitives carry the same dead UVs — and
+forces a real paint (`GlyphAtlasExhaustionSafetyTests`).
 `ScenePaintMetrics.compositingGroupsRasterized` /
 `compositingGroupsReused` report which happened; the bitmap is released
 as soon as the node paints inline again.
@@ -1672,6 +1678,34 @@ bounding box on both paths, so both the eye and the pointer see the box. The
 frame path's border used to be the one gate left comparing `absoluteFrame`
 against a `paintFrame`-narrowed clip, which dropped the border of a translated
 view the scene path drew — `…testATranslatedBorderSurvivesTheFramePathClipGate`.
+
+**One space needs an accumulated transform, not just the node's own.**
+`appendCommands` took no inherited transform at all: it applied a node's own
+transform to `paintFrame` and narrowed the clip there, then handed children a
+`.painted` clip while their frames were still built from the untransformed
+origin chain. Under a single transform the two coincide, which is why the
+rotated fixture above agreed; nest a rotation inside a translated *and*
+scaled ancestor and the frame path clipped a region the scene path never
+painted, with both clips labelled `.painted` so the `Space` assertion could
+not see it. The frame path now threads the accumulated transform the way
+prepaint and `ScenePainter.paintNode` do —
+`ViewNode.accumulatedPaintGeometry(of:transform:inheritedTransform:)`, which
+is deliberately *out of line* because `appendCommands` is the recursion whose
+frame the paragraph below is about. Pinned by
+`ClipAbstractionTests.testANestedNonCommutingTransformClipsTheSameRegionOnBothPaths`.
+
+**Scroll indicators live in both spaces at once.** The thumb's *length* is
+the fraction of the content the viewport shows — `resolvedFrame` against
+`resolvedContentSize`, both layout space — while its *position* is what the
+painter draws and what `deferredDrawContains` tests, which is painted space.
+Measuring the track on `paintFrame` put the position right and the length
+wrong: under `.scaleEffect(2)` the viewport measured twice as tall while the
+content size did not, so a `ScrollView` showing a third of its content drew a
+thumb two thirds of the track long and dragged at twice the rate.
+`ViewNode.scrollIndicatorTrack(in:inheritedTransform:centeredTransform:)`
+measures in layout space and maps the resulting rects through exactly the
+mapping the caller used for its own `paintFrame`. Pinned by
+`ScrollIndicatorTransformSpaceTests`.
 
 Keeping the anchor separate fixes two visible bugs at once. A rounded card
 scrolling past a `ScrollView` boundary used to pop its rounding onto the

@@ -392,6 +392,68 @@ final class ClipAbstractionTests: XCTestCase {
             "both paths must clip the rotated container to the same region")
     }
 
+    /// The same divergence one level down. `appendCommands` took no inherited
+    /// transform at all: it applied a node's *own* transform to `paintFrame`
+    /// and then handed children a clip narrowed in that space while their
+    /// frames were still in layout space. Under a single transform the two
+    /// happen to coincide, which is why the rotated case above passed; nest a
+    /// rotation inside a translated *and* scaled ancestor and the frame path
+    /// clipped a region the scene path never painted. Both sides now say
+    /// `.painted`, so the `Space` assertion cannot catch this — only agreement
+    /// can.
+    func testANestedNonCommutingTransformClipsTheSameRegionOnBothPaths() async {
+        func makeTree() -> ViewNode {
+            // Large enough that the surviving pixels are decided by the clip,
+            // not by where the child's own edges land.
+            let child = ViewNode(
+                frame: Rect(x: -200, y: -200, width: 600, height: 600),
+                backgroundColor: Color(red: 1, green: 0.2, blue: 0.2, alpha: 1)
+            )
+            let clipper = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 40, height: 40),
+                clipsToBounds: true,
+                transform: Transform2D(rotation: 0.6),
+                children: [child]
+            )
+            // Translation and scale together: the ancestor moves the clip and
+            // resizes it, and neither commutes with the rotation below it.
+            let ancestor = ViewNode(
+                frame: Rect(x: 20, y: 20, width: 80, height: 80),
+                transform: Transform2D(translationX: 25, translationY: 15, scaleX: 1.6, scaleY: 1.6),
+                children: [clipper]
+            )
+            return ViewNode(frame: Rect(x: 0, y: 0, width: 160, height: 160), children: [ancestor])
+        }
+
+        let size = IntSize(width: 160, height: 160)
+        let sceneBitmap = GPUIRawSceneRasterizer.rasterize(
+            RetainedViewRuntime(root: makeTree()).renderScene(), size: size)
+        let frameBitmap = GPUIRawSceneRasterizer.rasterize(
+            RetainedViewRuntime(root: makeTree()).renderFrame(), size: size)
+
+        var agreeing = 0
+        var total = 0
+        var scenePainted = 0
+        var framePainted = 0
+        for offset in stride(from: 0, to: sceneBitmap.pixels.count, by: 4) {
+            let sceneCovered = sceneBitmap.pixels[offset + 2] > 128
+            let frameCovered = frameBitmap.pixels[offset + 2] > 128
+            total += 1
+            if sceneCovered { scenePainted += 1 }
+            if frameCovered { framePainted += 1 }
+            if sceneCovered == frameCovered {
+                agreeing += 1
+            }
+        }
+
+        // Guard against the degenerate agreement of two blank frames.
+        XCTAssertGreaterThan(scenePainted, 1000, "the fixture must paint a substantial clipped region")
+        XCTAssertGreaterThan(framePainted, 1000, "the frame path must paint the clipped region too")
+        XCTAssertGreaterThan(
+            Double(agreeing) / Double(total), 0.98,
+            "the frame path must accumulate ancestor transforms into the frame it clips by")
+    }
+
     func testAPointOutsideARotatedClipDoesNotHitTest() async {
         var activations = 0
         let child = ViewNode(

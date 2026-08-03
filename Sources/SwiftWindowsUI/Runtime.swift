@@ -4174,12 +4174,17 @@ public final class ViewNode {
             )
         }
 
-        // Built on `paintFrame`, in the same space as the `contentMask` below:
-        // the painter draws this rect verbatim and `deferredDrawContains`
-        // tests a screen point against both, so a track in layout space under
-        // a transform would be drawn where the viewport is not and clipped by
-        // a clip it no longer overlaps.
-        if effectiveOpacity > 0, let track = scrollIndicatorTrack(in: paintFrame) {
+        // Returned in painted space, in the same space as the `contentMask`
+        // below: the painter draws this rect verbatim and
+        // `deferredDrawContains` tests a screen point against both, so a track
+        // in layout space under a transform would be drawn where the viewport
+        // is not and clipped by a clip it no longer overlaps. It is *measured*
+        // in layout space, because the fraction of the content that is visible
+        // is a layout-space ratio — see `scrollIndicatorTrack`.
+        if effectiveOpacity > 0,
+            let track = scrollIndicatorTrack(
+                in: absoluteFrame, inheritedTransform: inheritedTransform, centeredTransform: centeredTransform)
+        {
             let effectiveScrollIndicatorColor = scrollIndicatorColor.multipliedAlpha(by: effectiveOpacity)
             state.deferredDraws.append(
                 DeferredDrawState(
@@ -4213,12 +4218,45 @@ public final class ViewNode {
         )
     }
 
+    /// A node's painted frame and the transform its children inherit — the
+    /// same algebra `ScenePainter.paintNode` and `appendPrepaintState` derive
+    /// inline (they also need the centred transform itself, for the pointer
+    /// inverse and the scroll-indicator mapping; the agreement between all
+    /// three is what `ClipAbstractionTests` pins).
+    ///
+    /// Out of line on purpose. `appendCommands` is the deepest recursion left
+    /// in the runtime — deep enough that `RuntimeClipShape` had to become a
+    /// class to keep its frame off the stack — and in an unoptimized build the
+    /// temporaries of three `concatenating` calls are several hundred bytes.
+    /// Here they live in one leaf frame instead of in all 256 levels; the
+    /// recursion pays only for the two values it actually carries.
+    fileprivate static func accumulatedPaintGeometry(
+        of frame: Rect,
+        transform: Transform2D,
+        inheritedTransform: Transform2D
+    ) -> (paintFrame: Rect, effectiveTransform: Transform2D) {
+        let screenFrame = inheritedTransform.isIdentity ? frame : frame.applying(transform: inheritedTransform)
+        guard !transform.isIdentity else {
+            return (screenFrame, inheritedTransform)
+        }
+
+        let center = Point(x: screenFrame.midX, y: screenFrame.midY)
+        let centeredTransform = Transform2D.translation(x: -center.x, y: -center.y)
+            .concatenating(transform)
+            .concatenating(.translation(x: center.x, y: center.y))
+        return (
+            screenFrame.applying(transform: centeredTransform),
+            centeredTransform.concatenating(inheritedTransform)
+        )
+    }
+
     fileprivate func appendCommands(
         into commands: inout [RenderCommand],
         parentOrigin: Point,
         inheritedClip: RuntimeClipShape?,
         inheritedOpacity: Float = 1,
         inheritedBlendMode: BlendMode = .normal,
+        inheritedTransform: Transform2D = .identity,
         previousRenderedFrame: RenderFrame? = nil,
         displayScale: Double = 1,
         replayCount: inout Int
@@ -4246,16 +4284,15 @@ public final class ViewNode {
             height: resolvedFrame.size.height
         )
 
-        let paintFrame: Rect
-        if transform.isIdentity {
-            paintFrame = absoluteFrame
-        } else {
-            let center = Point(x: absoluteFrame.midX, y: absoluteFrame.midY)
-            let centeredTransform = Transform2D.translation(x: -center.x, y: -center.y)
-                .concatenating(transform)
-                .concatenating(.translation(x: center.x, y: center.y))
-            paintFrame = absoluteFrame.applying(transform: centeredTransform)
-        }
+        // `paintFrame` is what this path draws *and* what it narrows the clip
+        // by, so it has to be the accumulated screen frame at every depth.
+        // Applying only the node's own transform left a child of a rotated
+        // container drawing at its transformed frame while being gated against
+        // a clip its untransformed frame was compared to — the mixed-space
+        // comparison one level down, and one the `RuntimeClipShape.Space`
+        // assertion cannot see because both sides say `.painted`.
+        let (paintFrame, effectiveTransform) = Self.accumulatedPaintGeometry(
+            of: absoluteFrame, transform: transform, inheritedTransform: inheritedTransform)
 
         // Gap/Fix: Occlusion culling — skip the entire node early if it is
         // fully outside the inherited clip bounds (before allocating any
@@ -4652,6 +4689,7 @@ public final class ViewNode {
                 inheritedClip: effectiveClip,
                 inheritedOpacity: effectiveOpacity,
                 inheritedBlendMode: effectiveBlendMode,
+                inheritedTransform: effectiveTransform,
                 previousRenderedFrame: previousRenderedFrame,
                 displayScale: displayScale,
                 replayCount: &replayCount
@@ -5409,29 +5447,77 @@ public final class ViewNode {
         }
     }
 
-    fileprivate func scrollIndicatorTrack(in absoluteFrame: Rect) -> ScrollIndicatorTrack? {
-        guard let indicatorRect = scrollIndicatorRect(in: absoluteFrame), let scrollAxis else {
+    /// The indicator track, measured in layout space and returned in painted
+    /// space.
+    ///
+    /// Both spaces are load-bearing and they are not interchangeable. The
+    /// thumb's *length* is the visible fraction of the content —
+    /// `resolvedFrame` against `resolvedContentSize`, both layout-space — and
+    /// its *position* is what the painter draws and what the pointer is tested
+    /// against, which is painted space. Measuring the fraction on the painted
+    /// frame while the content size stayed in layout space made a
+    /// `.scaleEffect(2)` ScrollView report a viewport as tall as its content:
+    /// a full-length thumb that could not move, and a drag whose
+    /// `maxScrollOffset / travel` rate was scaled by the same factor.
+    ///
+    /// `inheritedTransform` then `centeredTransform` is exactly the mapping the
+    /// caller used to derive its own `paintFrame`, so the track lands inside
+    /// the viewport it belongs to rather than beside it.
+    fileprivate func scrollIndicatorTrack(
+        in layoutFrame: Rect,
+        inheritedTransform: Transform2D,
+        centeredTransform: Transform2D
+    ) -> ScrollIndicatorTrack? {
+        guard let layoutIndicatorRect = scrollIndicatorRect(in: layoutFrame), let scrollAxis else {
             return nil
         }
 
         let indicatorInsets = effectiveScrollIndicatorInsets
+        func painted(_ rect: Rect) -> Rect {
+            var mapped = rect
+            if !inheritedTransform.isIdentity {
+                mapped = mapped.applying(transform: inheritedTransform)
+            }
+            if !centeredTransform.isIdentity {
+                mapped = mapped.applying(transform: centeredTransform)
+            }
+            return mapped
+        }
+
+        let indicatorRect = painted(layoutIndicatorRect)
 
         switch scrollAxis {
         case .vertical:
-            let trackLength = max(0, absoluteFrame.size.height - indicatorInsets.top - indicatorInsets.bottom)
+            let trackLength = max(0, layoutFrame.size.height - indicatorInsets.top - indicatorInsets.bottom)
+            let trackRect = painted(
+                Rect(
+                    x: layoutIndicatorRect.origin.x,
+                    y: layoutFrame.origin.y + indicatorInsets.top,
+                    width: layoutIndicatorRect.size.width,
+                    height: trackLength
+                )
+            )
             return ScrollIndicatorTrack(
                 axis: .vertical,
-                origin: absoluteFrame.origin.y + indicatorInsets.top,
-                travel: max(0, trackLength - indicatorRect.size.height),
+                origin: trackRect.origin.y,
+                travel: max(0, trackRect.size.height - indicatorRect.size.height),
                 indicatorRect: indicatorRect
             )
 
         case .horizontal:
-            let trackLength = max(0, absoluteFrame.size.width - indicatorInsets.leading - indicatorInsets.trailing)
+            let trackLength = max(0, layoutFrame.size.width - indicatorInsets.leading - indicatorInsets.trailing)
+            let trackRect = painted(
+                Rect(
+                    x: layoutFrame.origin.x + indicatorInsets.leading,
+                    y: layoutIndicatorRect.origin.y,
+                    width: trackLength,
+                    height: layoutIndicatorRect.size.height
+                )
+            )
             return ScrollIndicatorTrack(
                 axis: .horizontal,
-                origin: absoluteFrame.origin.x + indicatorInsets.leading,
-                travel: max(0, trackLength - indicatorRect.size.width),
+                origin: trackRect.origin.x,
+                travel: max(0, trackRect.size.width - indicatorRect.size.width),
                 indicatorRect: indicatorRect
             )
         }
@@ -5994,6 +6080,10 @@ public final class RetainedViewRuntime {
     private var pendingDirtyNodes: [PendingNodeInvalidation] = []
     private var cachedFrame: RenderFrame?
     private var cachedScene: GPUIScene?
+    /// The glyph-atlas generation `cachedScene`'s glyph quads were addressed
+    /// against, or `nil` when it draws no native glyph. `nil` for a scene
+    /// without glyphs rather than "unknown": there is nothing to go stale.
+    private var cachedSceneAtlasGeneration: UInt64?
     private var prepaintState = RuntimePrepaintState()
 
     /// Access to current prepaint state for testing deferred scene-path behavior.
@@ -6177,6 +6267,7 @@ public final class RetainedViewRuntime {
         lastDeferredDrawSceneReplayCount = 0
         cachedFrame = frame
         cachedScene = nil
+        cachedSceneAtlasGeneration = nil
         if timestamp > 0 {
             lastRenderTime = timestamp
         }
@@ -6185,6 +6276,20 @@ public final class RetainedViewRuntime {
 
     /// Render the current view tree as a GPUIScene for batch rendering.
     public func renderScene(at timestamp: Double = 0) -> GPUIScene {
+        // WS-14's stale-UV rule, applied to the one holder that had escaped it.
+        // `shippable` staples the *current* shared atlas onto a scene whose
+        // glyph quads were addressed against an earlier one, and the atlas is
+        // process-wide: a clean, unchanged window that never repaints would
+        // have shipped pre-recovery UVs against a post-recovery atlas forever,
+        // because a clear triggered by some *other* window leaves nothing in
+        // this runtime dirty. Dropping the cache forces a real paint — which
+        // also drops the replay source, since replayed primitives carry the
+        // same dead UVs.
+        if let generation = cachedSceneAtlasGeneration, generation != NativeGlyphAtlas.shared.atlasGeneration {
+            cachedScene = nil
+            cachedSceneAtlasGeneration = nil
+        }
+
         if let cachedScene, !isDirty {
             lastSceneReplayCount = 0
             lastLayoutReuseCount = 0
@@ -6245,6 +6350,7 @@ public final class RetainedViewRuntime {
         lastDeferredDrawFrameReplayCount = 0
         lastScenePaintMetrics = scene.paintMetrics
         cachedScene = cachedSceneCopy
+        cachedSceneAtlasGeneration = cachedSceneCopy.usesGlyphs ? NativeGlyphAtlas.shared.atlasGeneration : nil
         cachedFrame = nil
         if timestamp > 0 {
             lastRenderTime = timestamp
@@ -7181,6 +7287,10 @@ public final class RetainedViewRuntime {
                     parentOrigin: payload.parentOrigin,
                     inheritedClip: payload.inheritedClip,
                     inheritedOpacity: payload.inheritedOpacity,
+                    // The payload's clip is already `.painted`, so its subtree
+                    // has to be too — the same argument `ScenePainter` passes
+                    // when it resumes a deferred subtree.
+                    inheritedTransform: payload.inheritedTransform,
                     previousRenderedFrame: previousFrame,
                     displayScale: displayScale,
                     replayCount: &replayCount

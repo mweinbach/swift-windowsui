@@ -87,6 +87,9 @@ public enum MacOSControlMetrics {
         public static let sidebarRowHeight: Double = 28
         /// Inset for the disclosure chevron on hierarchical rows.
         public static let chevronColumnInset: Double = 16
+        /// Leading/trailing inset from the list's own edge to row content
+        /// (NSTableView's standard content inset).
+        public static let contentInset: Double = 16
     }
 
     /// `NavigationStack` / `NavigationSplitView` toolbar (NSToolbar).

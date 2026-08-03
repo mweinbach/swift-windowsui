@@ -6468,7 +6468,10 @@ public struct EnvironmentValues: @unchecked Sendable {
         tint: Color? = nil,
         font: Font? = nil,
         fontWidth: Font.Width? = nil,
-        multilineTextAlignment: TextAlignment = .center,
+        // SwiftUI's default is `.leading` (layout-direction aware).
+        // Centering is the opt-in via `.multilineTextAlignment(.center)`;
+        // control chrome that centers its own label sets it explicitly.
+        multilineTextAlignment: TextAlignment = .leading,
         lineLimit: Int? = nil,
         minimumLineLimit: Int? = nil,
         lineLimitReservesSpace: Bool = false,
@@ -8846,6 +8849,44 @@ public struct ViewBuildContext {
         }
 
         return handler(value)
+    }
+
+    /// Derives a context whose canvas is the slot a container is about to
+    /// hand its content, rather than the whole window.
+    ///
+    /// `GeometryReader` reads its proxy from the canvas at build time, so a
+    /// container that consumes chrome above or beside its content (a tab
+    /// bar, a toolbar band) must subtract that chrome here or every reader
+    /// underneath over-reports by exactly the chrome extent and the page
+    /// runs off the window edge.
+    func withCanvasSize(_ size: Size) -> ViewBuildContext {
+        let clamped = Size(width: max(0, size.width), height: max(0, size.height))
+        return ViewBuildContext(
+            canvasSizeProvider: { clamped },
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
+            fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
+            fontWeightProvider: fontWeightProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider,
+            truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
+            textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
+            stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
+            environmentValuesProvider: environmentValuesProvider,
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
+            navigationValueHandlerProvider: navigationValueHandlerProvider,
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
+        )
     }
 
     func withEnabled(_ isEnabled: Bool) -> ViewBuildContext {
@@ -15119,7 +15160,19 @@ public struct ListStyle: Sendable, Equatable {
     var retainedChrome: RetainedListChrome {
         switch kind {
         case .automatic, .plain:
-            return RetainedListChrome()
+            // macOS plain/automatic lists inset their row content from the
+            // list edge and never draw a row shorter than the standard row
+            // box (MacOSControlMetrics.List.plainRowHeight).
+            return RetainedListChrome(
+                defaultSpacing: 0,
+                padding: EdgeInsets(
+                    top: 0,
+                    leading: MacOSControlMetrics.List.contentInset,
+                    bottom: 0,
+                    trailing: MacOSControlMetrics.List.contentInset
+                ),
+                rowMinHeight: MacOSControlMetrics.List.plainRowHeight
+            )
         case .bordered:
             return RetainedListChrome(
                 defaultSpacing: 0,
@@ -15174,7 +15227,8 @@ public struct ListStyle: Sendable, Equatable {
                 backgroundColor: Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.68),
                 borderColor: .clear,
                 borderWidth: 0,
-                cornerRadius: 10
+                cornerRadius: 10,
+                rowMinHeight: MacOSControlMetrics.List.sidebarRowHeight
             )
         }
     }
@@ -15310,6 +15364,10 @@ struct RetainedListChrome: Sendable, Equatable {
     var cornerRadius: Double = 0
     var alternatesRowBackgrounds: Bool = false
     var alternatingRowBackgroundColor: Color? = nil
+    /// Minimum height every row in this style gets, before its own
+    /// content or a `defaultMinListRowHeight` environment value.
+    /// Anchored to `MacOSControlMetrics.List`.
+    var rowMinHeight: Double = 0
 }
 public struct ScrollIndicatorVisibility: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
@@ -16548,7 +16606,15 @@ public struct ScrollDismissesKeyboardMode: Sendable, Equatable, Hashable {
 public struct ScrollViewStyle: Sendable {
     public var spacing: Double
     public var padding: EdgeInsets
-    public var alignment: HorizontalAlignment
+    /// Cross-axis alignment for content that does not take the whole
+    /// viewport. `nil` is the default and means "propose the viewport
+    /// across", which is what macOS does — a Form or a card column fills
+    /// the scroller's width instead of floating at its intrinsic width.
+    public var explicitAlignment: HorizontalAlignment?
+    public var alignment: HorizontalAlignment {
+        get { explicitAlignment ?? .leading }
+        set { explicitAlignment = newValue }
+    }
     public var backgroundColor: Color?
     public var borderColor: Color
     public var borderWidth: Double
@@ -16566,7 +16632,7 @@ public struct ScrollViewStyle: Sendable {
     public init(
         spacing: Double = 0,
         padding: EdgeInsets = .zero,
-        alignment: HorizontalAlignment = .leading,
+        alignment: HorizontalAlignment? = nil,
         backgroundColor: Color? = nil,
         borderColor: Color = .clear,
         borderWidth: Double = 0,
@@ -16583,7 +16649,7 @@ public struct ScrollViewStyle: Sendable {
     ) {
         self.spacing = spacing
         self.padding = padding
-        self.alignment = alignment
+        self.explicitAlignment = alignment
         self.backgroundColor = backgroundColor
         self.borderColor = borderColor
         self.borderWidth = borderWidth
@@ -19754,6 +19820,14 @@ extension View {
             height: normalizedFrameIdeal(idealHeight) ?? 0
         )
         let hasIdealSize = idealWidth != nil || idealHeight != nil
+        // `.frame(maxWidth: .infinity)` is SwiftUI's "be greedy on this
+        // axis": the view takes the whole proposal instead of its
+        // intrinsic width. An infinite maximum is not a clamp, so the
+        // runtime needs it as a fill axis, not as a constraint.
+        let fillAxes = LayoutFillAxes(
+            horizontal: maxWidth.map { !$0.isFinite } ?? false,
+            vertical: maxHeight.map { !$0.isFinite } ?? false
+        )
 
         return ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
@@ -19770,6 +19844,7 @@ extension View {
                     children: [childNode]
                 )
                 root.layoutConstraints = constraints
+                root.layoutFillAxes = fillAxes
                 return root
             }
         }

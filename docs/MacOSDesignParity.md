@@ -83,12 +83,24 @@ controlAccentColor when the user hasn't picked a custom accent.
 ## Control dimension reference
 
 Apple HIG-published target dimensions for standard macOS controls.
-These live as inert `public static let` constants in
-`MacOSControlMetrics` (Sources/WinSwiftUI/MacOSControlMetrics.swift)
-and are the *visual-parity target* WinSwiftUI converges toward.
-They are the documentation half of the contract — pinned by
+These live as `public static let` constants in `MacOSControlMetrics`
+(Sources/WinSwiftUI/MacOSControlMetrics.swift) and are the
+*visual-parity target* WinSwiftUI converges toward. They are the
+documentation half of the contract — pinned by
 `MacOSControlReferenceTests` so changing the constants here without
 updating the doc fails CI.
+
+The constants used to be inert (referenced by nothing outside their own
+file), which is how button padding, list rows, the toolbar band and the
+segmented track each drifted independently. The control builders now
+read them, and `MacOSControlMetricsWiringTests` asserts the constants
+reach real layout output rather than being compared against themselves.
+Wired today: `Button` content bezel and control-size heights,
+`List.plainRowHeight` / `List.sidebarRowHeight` / `List.contentInset`,
+`Toolbar.regularHeight` for the navigation title band,
+`PopUpButton.regularHeight` for the segmented track, and
+`Layout.defaultStackSpacing` for `VStack`/`HStack`/lazy stacks and
+grids.
 
 | Control                      | Constant                                  | Value     |
 |------------------------------|-------------------------------------------|-----------|
@@ -104,6 +116,7 @@ updating the doc fails CI.
 | Text field (.regular)        | `TextField.regularHeight`                 | 21 pt     |
 | List row (plain)             | `List.plainRowHeight`                     | 24 pt     |
 | List row (sidebar)           | `List.sidebarRowHeight`                   | 28 pt     |
+| List content inset           | `List.contentInset`                       | 16 pt     |
 | Toolbar (regular)            | `Toolbar.regularHeight`                   | 52 pt     |
 | Window corner radius         | `Window.cornerRadius`                     | 10 pt     |
 | Sheet corner radius          | `Window.sheetCornerRadius`                | 12 pt     |
@@ -117,6 +130,15 @@ values for several controls (toggle 52×32, slider 200×28, stepper
 deliberate divergences are not "drift" — they are recorded here as
 explicit Windows-side ergonomic choices. The reference constants
 remain the documented macOS target.
+
+Remaining recorded divergences, with rationale:
+
+| Surface                | Windows value                    | Rationale |
+|------------------------|----------------------------------|-----------|
+| Button content bezel   | 12/3 pt (regular), 16/6 pt (large) | Segoe UI renders wider than SF Pro at the same point size; the horizontal inset is the macOS push-bezel margin, the vertical one is what the control-size height leaves around the line box. |
+| Separator thickness    | `1 / displayScale`               | One physical pixel at any backing scale, like an AppKit separator — a 1pt rule would double to 2px at 2x. |
+| Tab band inset         | 12/16 pt around a centered group | macOS insets an `.automatic` tab view from the window edge and centres the segment group instead of distributing tabs across the full width. |
+| Toolbar band           | Full bleed + bottom hairline     | The navigation title reads as window chrome, not a rounded card floating over the content. |
 
 ## What's deliberately NOT pinned here
 

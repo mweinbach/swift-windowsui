@@ -213,9 +213,12 @@ struct SwiftWindowsUIGalleryTool {
             GallerySpec(
                 id: "button-disabled", title: "Button Disabled",
                 view: AnyView(
+                    // 140pt matches the other pinned button entries: a push
+                    // bezel reserves `MacOSControlMetrics.Button` content
+                    // insets, so a 120pt pill truncates this title.
                     Button("Unavailable") {}
                         .disabled(true)
-                        .frame(width: 120, height: 40)
+                        .frame(width: 140, height: 40)
                 )),
             GallerySpec(
                 id: "button-styles", title: "Button Styles",

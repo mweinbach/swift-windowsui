@@ -3657,18 +3657,32 @@ private struct RetainedNavigationViewChrome {
     var headerBorderWidth: Double
     var headerCornerRadius: Double
     var spacing: Double
+    /// Minimum band height. The `.automatic`/`.stack` styles read as
+    /// window chrome and use `MacOSControlMetrics.Toolbar.regularHeight`;
+    /// the split styles keep a compact card header.
+    var headerMinHeight: Double = MacOSControlMetrics.Toolbar.unifiedCompactHeight
+    var headerPadding: EdgeInsets = EdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14)
+    /// Hairline drawn under the band instead of a boxed border. Nil keeps
+    /// the bordered-card header.
+    var headerSeparatorColor: Color? = nil
 }
 private func retainedNavigationViewChrome(for style: NavigationViewStyle?) -> RetainedNavigationViewChrome {
+    // macOS parity: the navigation title band is a toolbar, not a card —
+    // full bleed, `MacOSControlMetrics.Toolbar.regularHeight` tall, one
+    // hairline along the bottom, and the body starts directly under it.
     let defaultChrome = RetainedNavigationViewChrome(
         containerBackground: nil,
         containerBorderColor: .clear,
         containerBorderWidth: 0,
         containerCornerRadius: 0,
         headerBackground: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.92),
-        headerBorderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.10),
-        headerBorderWidth: 1,
-        headerCornerRadius: 10,
-        spacing: 10
+        headerBorderColor: .clear,
+        headerBorderWidth: 0,
+        headerCornerRadius: 0,
+        spacing: 0,
+        headerMinHeight: MacOSControlMetrics.Toolbar.regularHeight,
+        headerPadding: EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20),
+        headerSeparatorColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14)
     )
 
     guard let style else {
@@ -3685,10 +3699,13 @@ private func retainedNavigationViewChrome(for style: NavigationViewStyle?) -> Re
             containerBorderWidth: 0,
             containerCornerRadius: 0,
             headerBackground: Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.96),
-            headerBorderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12),
-            headerBorderWidth: 1,
-            headerCornerRadius: 10,
-            spacing: 10
+            headerBorderColor: .clear,
+            headerBorderWidth: 0,
+            headerCornerRadius: 0,
+            spacing: 0,
+            headerMinHeight: MacOSControlMetrics.Toolbar.regularHeight,
+            headerPadding: EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20),
+            headerSeparatorColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14)
         )
     case .doubleColumn:
         return RetainedNavigationViewChrome(
@@ -3947,23 +3964,110 @@ private func navigationContainerComponent(
             cornerRadius: chrome.headerCornerRadius,
             stackLayout: .horizontal(
                 spacing: 8,
-                padding: EdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14),
+                padding: chrome.headerPadding,
                 alignment: .center
             ),
             isHitTestVisible: false,
             children: headerChildren
         )
+        headerNode.applyDefaultMinimumHeight(chrome.headerMinHeight)
 
-        return Controls.stackPanel(
+        // A toolbar band is a full-bleed strip closed by one hairline, not
+        // a bordered card floating over the content.
+        let bandNode: ViewNode
+        if let separatorColor = chrome.headerSeparatorColor {
+            bandNode = Controls.stackPanel(
+                stackLayout: .vertical(spacing: 0, alignment: .stretch),
+                isHitTestVisible: false,
+                children: [
+                    headerNode,
+                    Controls.panel(
+                        preferredSize: Size(width: 0, height: retainedHairlineThickness(for: context)),
+                        backgroundColor: separatorColor,
+                        isHitTestVisible: false
+                    ),
+                ]
+            )
+        } else {
+            bandNode = headerNode
+        }
+
+        let container = Controls.stackPanel(
             backgroundColor: chrome.containerBackground,
             borderColor: chrome.containerBorderColor,
             borderWidth: chrome.containerBorderWidth,
             cornerRadius: chrome.containerCornerRadius,
             stackLayout: .vertical(spacing: chrome.spacing, alignment: .stretch),
             isHitTestVisible: false,
-            children: [headerNode, effectiveBodyNode]
+            children: [bandNode, effectiveBodyNode]
+        )
+        // The navigation container is greedy, like an NSWindow content
+        // view: the title band spans the window and the body takes the
+        // rest of it rather than shrink-wrapping the widest screen.
+        container.layoutFillAxes = .both
+        return container
+    }
+}
+/// Content bezel of a push button: the insets between the button's
+/// chrome and its label, plus the minimum height of the pill.
+struct RetainedButtonContentMetrics {
+    var padding: EdgeInsets
+    var minimumHeight: Double
+
+    static let none = RetainedButtonContentMetrics(padding: .zero, minimumHeight: 0)
+}
+/// macOS push-button (NSButton, `.push` bezel) content metrics, anchored
+/// to `MacOSControlMetrics.Button`.
+///
+/// Bezelled styles (`.automatic`, `.bordered`, `.borderedProminent`,
+/// `.card`) get symmetric content insets and a control-size minimum
+/// height, so a label never paints outside its own chrome. The bezel-less
+/// styles (`.plain`, `.borderless`, `.link`, the accessory bars) opt out:
+/// on macOS they are bare labels with a hit region.
+func retainedButtonContentMetrics(
+    style: ButtonStyle,
+    controlSize: ControlSize
+) -> RetainedButtonContentMetrics {
+    switch style {
+    case .plain, .borderless, .link, .accessoryBar, .accessoryBarAction:
+        return .none
+    default:
+        break
+    }
+
+    switch controlSize {
+    case .mini:
+        return RetainedButtonContentMetrics(
+            padding: EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6),
+            minimumHeight: MacOSControlMetrics.Button.miniHeight
+        )
+    case .small:
+        return RetainedButtonContentMetrics(
+            padding: EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8),
+            minimumHeight: MacOSControlMetrics.Button.smallHeight
+        )
+    case .regular:
+        return RetainedButtonContentMetrics(
+            padding: EdgeInsets(top: 3, leading: 12, bottom: 3, trailing: 12),
+            minimumHeight: MacOSControlMetrics.Button.regularHeight
+        )
+    case .large, .extraLarge:
+        return RetainedButtonContentMetrics(
+            padding: EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16),
+            minimumHeight: MacOSControlMetrics.Button.largeHeight
         )
     }
+}
+/// One physical pixel in logical points — a macOS separator hairline
+/// stays a hairline at every backing-scale factor, rather than doubling
+/// to 2px at 2x the way a 1pt rule does.
+@MainActor
+func retainedHairlineThickness(for context: ViewBuildContext) -> Double {
+    let pixelLength = context.pixelLength
+    guard pixelLength.isFinite, pixelLength > 0 else {
+        return 1
+    }
+    return min(1, pixelLength)
 }
 @MainActor
 private func extractToolbarContent(from node: ViewNode) -> (toolbarContent: [ViewNode], remainingBody: ViewNode)? {
@@ -4537,16 +4641,43 @@ public struct TabView: View {
         }
 
         let selectedIndex = selectedPageIndex()
-        let page = composeComponent(
-            from: [content[selectedIndex]],
-            context: context,
-            fallbackLayout: .stack(.vertical(alignment: .stretch))
-        )
+        let selectedPage = content[selectedIndex]
         let tabBar = tabBarComponent(selectedIndex: selectedIndex, context: context)
 
         return Component { runtime in
-            let tabBarNode = tabBar.makeNode(runtime: runtime)
-            let pageNode = page.makeNode(runtime: runtime)
+            // macOS tab-view grammar: the tab group is a content-sized
+            // control centered in its own inset band, not a full-bleed
+            // strip of equal slabs jammed into the window corner.
+            let tabBarNode = Controls.stackPanel(
+                stackLayout: .horizontal(
+                    spacing: 0,
+                    padding: Self.retainedTabBandInsets,
+                    alignment: .center,
+                    mainAlignment: .center
+                ),
+                isHitTestVisible: false,
+                children: [tabBar.makeNode(runtime: runtime)]
+            )
+            tabBarNode.layoutFillAxes = .horizontalOnly
+            // The page is composed against the slot it will actually get,
+            // not the whole window: the bar is measured first and its band
+            // (plus the container's spacing) comes off the canvas a nested
+            // GeometryReader reads. Without this the page lays out one
+            // chrome-height too tall and runs off the bottom edge.
+            let bandHeight = tabBarNode.intrinsicContentSize().height + Self.retainedTabPageSpacing
+            let canvasSize = context.canvasSize
+            let pageContext = context.withCanvasSize(
+                Size(
+                    width: canvasSize.width,
+                    height: max(0, canvasSize.height - bandHeight)
+                )
+            )
+            let pageNode = composeComponent(
+                from: [selectedPage],
+                context: pageContext,
+                fallbackLayout: .stack(.vertical(alignment: .stretch))
+            )
+            .makeNode(runtime: runtime)
             var children = [tabBarNode, pageNode]
             if let pageIndexNode = Self.retainedPageIndexNode(
                 selectedIndex: selectedIndex,
@@ -4558,13 +4689,24 @@ public struct TabView: View {
                 children.append(pageIndexNode)
             }
 
-            return Controls.stackPanel(
-                stackLayout: .vertical(spacing: 10, alignment: .stretch),
+            let container = Controls.stackPanel(
+                stackLayout: .vertical(spacing: Self.retainedTabPageSpacing, alignment: .stretch),
                 isHitTestVisible: false,
                 children: children
             )
+            // The tab container is the window's content view: it takes the
+            // whole proposal so the bar's geometry stops depending on which
+            // page happens to be selected.
+            container.layoutFillAxes = .both
+            return container
         }
     }
+
+    /// Outer margin around the tab control. macOS insets a `.automatic`
+    /// tab view from the window edge instead of pinning it into the corner.
+    static let retainedTabBandInsets = EdgeInsets(top: 12, leading: 16, bottom: 0, trailing: 16)
+    /// Gap between the tab band and the page it selects.
+    static let retainedTabPageSpacing: Double = 10
 
     private func selectedPageIndex() -> Int {
         guard !content.isEmpty else {
@@ -4617,7 +4759,6 @@ public struct TabView: View {
 
                 return Controls.button(
                     runtime: runtime,
-                    layoutPriority: 1,
                     cornerRadius: chrome.tabCornerRadius,
                     palette: palette,
                     chrome: SurfaceChrome(
@@ -7649,15 +7790,23 @@ public struct Divider: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let isVertical = context.stackAxis == .horizontal
+        let thickness = retainedHairlineThickness(for: context)
         return Component { _ in
-            Controls.panel(
+            // A Divider has thickness on one axis and no extent of its own
+            // on the other: it fills whatever its container proposes across,
+            // exactly like a macOS separator. Leaving the cross axis at zero
+            // (rather than the old 16pt stub) is what lets a stretch stack —
+            // or the greedy cross-axis fill below — give it the full width.
+            let node = Controls.panel(
                 preferredSize: Size(
-                    width: isVertical ? 1 : 16,
-                    height: isVertical ? 16 : 1
+                    width: isVertical ? thickness : 0,
+                    height: isVertical ? 0 : thickness
                 ),
                 backgroundColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22),
                 isHitTestVisible: false
             )
+            node.layoutFillAxes = isVertical ? .verticalOnly : .horizontalOnly
+            return node
         }
     }
 }
@@ -7672,7 +7821,7 @@ public struct VStack: View {
     public init(alignment: HorizontalAlignment = .center, spacing: Double? = nil, @ViewBuilder content: () -> [AnyView])
     {
         self.alignment = alignment
-        self.spacing = spacing ?? 0
+        self.spacing = spacing ?? MacOSControlMetrics.Layout.defaultStackSpacing
         self.content = content()
     }
 
@@ -7704,7 +7853,7 @@ public struct HStack: View {
 
     public init(alignment: VerticalAlignment = .center, spacing: Double? = nil, @ViewBuilder content: () -> [AnyView]) {
         self.alignment = alignment
-        self.spacing = spacing ?? 0
+        self.spacing = spacing ?? MacOSControlMetrics.Layout.defaultStackSpacing
         self.content = content()
     }
 
@@ -7877,7 +8026,7 @@ public struct LazyVStack: View {
         @ViewBuilder content: () -> [AnyView]
     ) {
         self.alignment = alignment
-        self.spacing = spacing ?? 0
+        self.spacing = spacing ?? MacOSControlMetrics.Layout.defaultStackSpacing
         self.pinnedViews = pinnedViews
         self.content = content()
     }
@@ -7932,7 +8081,7 @@ public struct LazyHStack: View {
         @ViewBuilder content: () -> [AnyView]
     ) {
         self.alignment = alignment
-        self.spacing = spacing ?? 0
+        self.spacing = spacing ?? MacOSControlMetrics.Layout.defaultStackSpacing
         self.pinnedViews = pinnedViews
         self.content = content()
     }
@@ -8155,7 +8304,7 @@ public struct LazyVGrid: View {
     ) {
         self.columns = columns
         self.alignment = alignment
-        self.spacing = spacing ?? 0
+        self.spacing = spacing ?? MacOSControlMetrics.Layout.defaultStackSpacing
         self.pinnedViews = pinnedViews
         self.content = content()
     }
@@ -8238,7 +8387,7 @@ public struct LazyHGrid: View {
     ) {
         self.rows = rows
         self.alignment = alignment
-        self.spacing = spacing ?? 0
+        self.spacing = spacing ?? MacOSControlMetrics.Layout.defaultStackSpacing
         self.pinnedViews = pinnedViews
         self.content = content()
     }
@@ -8499,11 +8648,21 @@ public struct GeometryReader: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        composeComponent(
+        let composed = composeComponent(
             from: content(GeometryProxy(size: context.canvasSize)),
             context: context,
             fallbackLayout: .absolute
         )
+        return Component { runtime in
+            let node = composed.makeNode(runtime: runtime)
+            // A GeometryReader is greedy in its parent's proposal, and the
+            // proxy is supposed to describe exactly that slot. Containers
+            // that consume chrome narrow the canvas they hand down (see
+            // `ViewBuildContext.withCanvasSize`), so the reader reports the
+            // space it actually occupies rather than the whole window.
+            node.layoutFillAxes = .both
+            return node
+        }
     }
 }
 @MainActor
@@ -8569,6 +8728,11 @@ public struct ScrollView: View {
                 isHitTestVisible: style.isHitTestVisible,
                 children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
             )
+            // macOS parity: a scroll view is greedy. It takes the whole
+            // proposal on both axes and proposes its viewport across to
+            // its content, which is what keeps a form column attached to
+            // the scroller instead of floating at its intrinsic width.
+            node.layoutFillAxes = .both
             node.horizontalScrollBounceBehavior = context.horizontalScrollBounceBehavior.description
             node.verticalScrollBounceBehavior = context.verticalScrollBounceBehavior.description
             node.scrollTargetBehavior = context.scrollTargetBehavior?.description
@@ -8596,20 +8760,28 @@ public struct ScrollView: View {
         padding: EdgeInsets,
         alignmentAnchor: UnitPoint?
     ) -> StackLayout {
+        // The default cross axis is `.stretch` because a scroll view
+        // proposes its viewport across to its content, exactly as macOS
+        // does: a Form or a card column fills the width and the scroller
+        // stays attached to the content edge instead of standing off in
+        // bare background. An explicit `ScrollViewStyle.alignment` — or a
+        // `defaultScrollAnchor` — still wins.
+        let styleAlignment = style.explicitAlignment?.stackAlignment(layoutDirection: layoutDirection)
         switch axis {
         case .horizontal:
             return .horizontal(
                 spacing: style.spacing,
                 padding: padding,
-                alignment: alignmentAnchor.map { stackCrossAlignment(from: $0.y) } ?? .center,
+                // A horizontal scroller's cross axis is vertical, which
+                // `style.alignment` (a horizontal alignment) cannot describe.
+                alignment: alignmentAnchor.map { stackCrossAlignment(from: $0.y) } ?? .stretch,
                 mainAlignment: alignmentAnchor.map { stackMainAlignment(from: $0.x) } ?? .start
             )
         case .vertical:
             return .vertical(
                 spacing: style.spacing,
                 padding: padding,
-                alignment: alignmentAnchor.map { stackCrossAlignment(from: $0.x) }
-                    ?? style.alignment.stackAlignment(layoutDirection: layoutDirection),
+                alignment: alignmentAnchor.map { stackCrossAlignment(from: $0.x) } ?? styleAlignment ?? .stretch,
                 mainAlignment: alignmentAnchor.map { stackMainAlignment(from: $0.y) } ?? .start
             )
         }
@@ -9094,7 +9266,10 @@ public struct List: View {
                     let rowMinHeight =
                         context.defaultMinListRowHeight > 0
                         ? context.defaultMinListRowHeight
-                        : (isSelectionBoundRow ? Self.defaultSelectionRowMinHeight : 0)
+                        : max(
+                            listChrome.rowMinHeight,
+                            isSelectionBoundRow ? Self.defaultSelectionRowMinHeight : 0
+                        )
                     if rowMinHeight > 0 {
                         row.applyDefaultMinimumHeight(rowMinHeight)
                     }
@@ -9105,6 +9280,10 @@ public struct List: View {
                 }
             )
             navigationState.registerViewport(node: node)
+            // A List is greedy on macOS: it takes the space it is offered
+            // and proposes the row width across, instead of shrink-wrapping
+            // its widest row.
+            node.layoutFillAxes = .both
             node.horizontalScrollBounceBehavior = context.horizontalScrollBounceBehavior.description
             node.verticalScrollBounceBehavior = context.verticalScrollBounceBehavior.description
             node.scrollTargetBehavior = context.scrollTargetBehavior?.description
@@ -9880,7 +10059,7 @@ public struct Form: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
             let chrome = Self.retainedChrome(for: context.formStyle)
-            return Controls.stackPanel(
+            let node = Controls.stackPanel(
                 backgroundColor: chrome.backgroundColor,
                 borderColor: chrome.borderColor,
                 borderWidth: chrome.borderWidth,
@@ -9893,6 +10072,10 @@ public struct Form: View {
                 isHitTestVisible: false,
                 children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
             )
+            // A Form fills the width it is offered on macOS; its rows are
+            // what read as a column, not the container.
+            node.layoutFillAxes = .horizontalOnly
+            return node
         }
     }
 
@@ -15184,32 +15367,51 @@ public struct Picker<SelectionValue: Hashable>: View {
         selectedAnyValue: AnyHashable,
         options: [Option]
     ) -> ViewNode {
+        // macOS segmented controls own their label metrics: compact
+        // single-line labels, dark on the raised selected pill and
+        // primary-colored otherwise. Without the cap the default body
+        // scale starves the segment and the label collapses to zero
+        // height (previously rendered as invisible segment labels). The
+        // restyle happens before the pills are built because the label's
+        // line box is what the segment padding is derived from.
+        for option in options {
+            let isSelected = option.value.map { AnyHashable($0) == selectedAnyValue } ?? false
+            let isEnabled = context.isEnabled && option.value != nil
+            guard option.node.text != nil else {
+                continue
+            }
+            var style = option.node.textStyle
+            style.scale = min(style.scale, 1.3)
+            if let nativeSize = style.nativeFontSize {
+                style.nativeFontSize = min(nativeSize, 13)
+            }
+            style.lineSpacing = min(style.lineSpacing, 1)
+            style.maximumNumberOfLines = 1
+            style.lineBreakMode = .truncateTail
+            style.color =
+                isEnabled
+                ? (isSelected
+                    ? Color(red: 0.09, green: 0.09, blue: 0.11, alpha: 1.0)
+                    : Color(red: 0.92, green: 0.95, blue: 1.0, alpha: 0.88))
+                : Color(red: 0.55, green: 0.58, blue: 0.62, alpha: 0.70)
+            option.node.textStyle = style
+        }
+
+        // NSSegmentedControl, regular size: the track is
+        // `MacOSControlMetrics.PopUpButton.regularHeight` tall. The segment
+        // padding is what is left over around the tallest label rather than
+        // a hard-coded 2pt, so the control keeps its macOS height at any
+        // label metric — and still compresses when a parent squeezes it,
+        // because the pill clips its own bounds.
+        let segmentLabelHeight = options.map { Self.segmentLabelHeight(of: $0.node) }.max() ?? 0
+        let segmentVerticalPadding = max(
+            2,
+            (MacOSControlMetrics.PopUpButton.regularHeight - 2 * Self.segmentedTrackVerticalPadding
+                - segmentLabelHeight) / 2
+        )
         let optionNodes: [ViewNode] = options.map { option in
             let isSelected = option.value.map { AnyHashable($0) == selectedAnyValue } ?? false
             let isEnabled = context.isEnabled && option.value != nil
-
-            // macOS segmented controls own their label metrics: compact
-            // single-line labels, dark on the raised selected pill and
-            // primary-colored otherwise. Without the cap the default body
-            // scale starves the segment and the label collapses to zero
-            // height (previously rendered as invisible segment labels).
-            if option.node.text != nil {
-                var style = option.node.textStyle
-                style.scale = min(style.scale, 1.3)
-                if let nativeSize = style.nativeFontSize {
-                    style.nativeFontSize = min(nativeSize, 13)
-                }
-                style.lineSpacing = min(style.lineSpacing, 1)
-                style.maximumNumberOfLines = 1
-                style.lineBreakMode = .truncateTail
-                style.color =
-                    isEnabled
-                    ? (isSelected
-                        ? Color(red: 0.09, green: 0.09, blue: 0.11, alpha: 1.0)
-                        : Color(red: 0.92, green: 0.95, blue: 1.0, alpha: 0.88))
-                    : Color(red: 0.55, green: 0.58, blue: 0.62, alpha: 0.70)
-                option.node.textStyle = style
-            }
 
             // Selected segment: raised light pill with a soft shadow (the
             // standard button sheen supplies the top-lighter gradient).
@@ -15250,7 +15452,12 @@ public struct Picker<SelectionValue: Hashable>: View {
                 clipsToBounds: true,
                 layoutMode: .stack(
                     .vertical(
-                        padding: EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8),
+                        padding: EdgeInsets(
+                            top: segmentVerticalPadding,
+                            leading: 8,
+                            bottom: segmentVerticalPadding,
+                            trailing: 8
+                        ),
                         alignment: .center,
                         mainAlignment: .center
                     )),
@@ -15283,7 +15490,7 @@ public struct Picker<SelectionValue: Hashable>: View {
         // raised selected pill sits in. Track padding/spacing stay at the
         // pinned 4pt geometry.
         let trackColor = Color(red: 0.06, green: 0.08, blue: 0.12, alpha: 0.78)
-        return Controls.stackPanel(
+        let track = Controls.stackPanel(
             backgroundColor: trackColor,
             backgroundGradient: .linear(
                 SwiftWindowsGraphics.LinearGradient(
@@ -15295,13 +15502,32 @@ public struct Picker<SelectionValue: Hashable>: View {
             clipsToBounds: true,
             stackLayout: .horizontal(
                 spacing: 4,
-                padding: EdgeInsets(top: 1, leading: 4, bottom: 1, trailing: 4),
+                padding: EdgeInsets(
+                    top: Self.segmentedTrackVerticalPadding,
+                    leading: 4,
+                    bottom: Self.segmentedTrackVerticalPadding,
+                    trailing: 4
+                ),
                 alignment: .stretch,
                 distribution: .fillEqually
             ),
             isHitTestVisible: false,
             children: optionNodes
         )
+        // A segmented control fills the control column it is given (a Form
+        // row, a toolbar slot) and splits it equally between segments.
+        track.layoutFillAxes = .horizontalOnly
+        return track
+    }
+
+    /// Interior padding above and below the segment pills.
+    private static var segmentedTrackVerticalPadding: Double { 1 }
+
+    /// Line box of a segment's label, used to derive the segment padding
+    /// that lands the track on the macOS control height.
+    @MainActor
+    private static func segmentLabelHeight(of node: ViewNode) -> Double {
+        node.intrinsicContentSize().height
     }
 
     private static func inlinePickerNode(
@@ -16507,6 +16733,10 @@ public struct Slider: View {
                     onEditingChanged(isEditing)
                 }
             )
+            // macOS parity: a slider fills the width it is offered and only
+            // falls back to `sliderPreferredSize` as its ideal width when
+            // nothing proposes one (an intrinsic measure).
+            sliderNode.layoutFillAxes = .horizontalOnly
 
             guard !context.labelsHidden else {
                 return sliderNode
@@ -18092,9 +18322,13 @@ public struct Button: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        // A button centers its own label: the pill may be wider than the
+        // text (a bezel, a stretch stack, a segmented track), and macOS
+        // centers the title in it. The app-wide default alignment is
+        // leading, so the button states its own.
         let labelComponent = composeComponent(
             from: label,
-            context: context,
+            context: context.withEnvironmentValue(\.multilineTextAlignment, .center),
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center))
         )
 
@@ -18104,6 +18338,13 @@ public struct Button: View {
                 resolvedButtonStyle == .automatic && !hasCustomSurfaceStyle ? context.buttonStyle : resolvedButtonStyle
             let surfaceStyle = resolvedSurfaceStyle(for: buttonStyle, context: context)
             let buttonBorderShape = context.environmentValues.buttonBorderShape
+            // macOS push-bezel content metrics (MacOSControlMetrics.Button):
+            // the chrome is a bezel around the label, not the label's own
+            // advance box.
+            let contentMetrics = retainedButtonContentMetrics(
+                style: buttonStyle,
+                controlSize: context.controlSize
+            )
             let node = Controls.button(
                 runtime: runtime,
                 layoutPriority: context.environmentValues.buttonSizing.retainedLayoutPriority,
@@ -18111,7 +18352,12 @@ public struct Button: View {
                 palette: surfaceStyle.palette,
                 chrome: surfaceStyle.chrome,
                 clipsToBounds: surfaceStyle.clipsToBounds,
-                layoutMode: .stack(.vertical(alignment: .stretch, mainAlignment: .center)),
+                layoutMode: .stack(
+                    .vertical(
+                        padding: contentMetrics.padding,
+                        alignment: .stretch,
+                        mainAlignment: .center
+                    )),
                 isEnabled: context.isEnabled,
                 repeatBehavior: context.environmentValues.buttonRepeatBehavior.retainedBehavior,
                 animation: surfaceStyle.animation,
@@ -18124,6 +18370,9 @@ public struct Button: View {
                 },
                 children: [labelNode]
             )
+            if contentMetrics.minimumHeight > 0 {
+                node.applyDefaultMinimumHeight(contentMetrics.minimumHeight)
+            }
             buttonBorderShape.applyRetainedDynamicCornerRadius(to: node)
             // Default accessibility name from the label content; an explicit
             // `accessibilityLabel` modifier applies after this and wins. The

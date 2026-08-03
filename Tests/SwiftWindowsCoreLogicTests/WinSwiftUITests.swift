@@ -5856,22 +5856,32 @@ final class WinSwiftUITests: XCTestCase {
                 return XCTFail("Expected horizontal stack layout")
             }
 
-            XCTAssertEqual(vStackLayout, .vertical(spacing: 0, alignment: .trailing))
-            XCTAssertEqual(hStackLayout, .horizontal(spacing: 0, alignment: .trailing))
+            // `spacing: nil` means "use the platform default", which is
+            // macOS's 8pt (MacOSControlMetrics.Layout.defaultStackSpacing),
+            // not zero. `spacing: 0` is still an explicit choice.
+            let defaultSpacing = MacOSControlMetrics.Layout.defaultStackSpacing
+            XCTAssertEqual(vStackLayout, .vertical(spacing: defaultSpacing, alignment: .trailing))
+            XCTAssertEqual(hStackLayout, .horizontal(spacing: defaultSpacing, alignment: .trailing))
             XCTAssertEqual(
                 customVStackLayout,
                 .vertical(
-                    spacing: 0,
+                    spacing: defaultSpacing,
                     alignment: .customHorizontal("custom:\(String(reflecting: OneThirdHorizontalAlignmentID.self))"))
             )
             XCTAssertEqual(
                 customHStackLayout,
                 .horizontal(
-                    spacing: 0,
+                    spacing: defaultSpacing,
                     alignment: .customVertical("custom:\(String(reflecting: ThreeQuarterVerticalAlignmentID.self))"))
             )
-            XCTAssertEqual(firstBaselineHStackLayout, .horizontal(spacing: 0, alignment: .firstTextBaseline))
-            XCTAssertEqual(lastBaselineHStackLayout, .horizontal(spacing: 0, alignment: .lastTextBaseline))
+            XCTAssertEqual(
+                firstBaselineHStackLayout,
+                .horizontal(spacing: defaultSpacing, alignment: .firstTextBaseline)
+            )
+            XCTAssertEqual(
+                lastBaselineHStackLayout,
+                .horizontal(spacing: defaultSpacing, alignment: .lastTextBaseline)
+            )
         }
     }
 
@@ -5967,7 +5977,11 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
             let horizontalDivider = verticalStack.children[1]
-            XCTAssertEqual(horizontalDivider.preferredSize, Size(width: 16, height: 1))
+            // A separator has thickness on one axis and no extent of its own
+            // on the other: it fills whatever the container proposes across
+            // (the old 16pt stub made it an orphan tick in a wide card).
+            XCTAssertEqual(horizontalDivider.preferredSize, Size(width: 0, height: 1))
+            XCTAssertEqual(horizontalDivider.layoutFillAxes, .horizontalOnly)
             XCTAssertEqual(horizontalDivider.backgroundColor, Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22))
             XCTAssertFalse(horizontalDivider.isHitTestVisible)
 
@@ -5979,7 +5993,8 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
             let verticalDivider = horizontalStack.children[1]
-            XCTAssertEqual(verticalDivider.preferredSize, Size(width: 1, height: 16))
+            XCTAssertEqual(verticalDivider.preferredSize, Size(width: 1, height: 0))
+            XCTAssertEqual(verticalDivider.layoutFillAxes, .verticalOnly)
             XCTAssertEqual(verticalDivider.backgroundColor, Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22))
             XCTAssertFalse(verticalDivider.isHitTestVisible)
         }
@@ -7374,7 +7389,10 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(defaultLayout, .vertical(alignment: .center, mainAlignment: .end))
             XCTAssertEqual(roleLayout, .vertical(alignment: .center, mainAlignment: .center))
             XCTAssertEqual(horizontalLayout, .horizontal(alignment: .trailing, mainAlignment: .end))
-            XCTAssertEqual(listLayout, .vertical(alignment: .stretch, mainAlignment: .end))
+            XCTAssertEqual(
+                listLayout,
+                .vertical(padding: EdgeInsets(top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0, trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch, mainAlignment: .end)
+            )
             XCTAssertEqual(sectionLayout.mainAlignment, .center)
         }
     }
@@ -7394,7 +7412,10 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(node.scrollAxis, .vertical)
             XCTAssertTrue(node.showsScrollIndicator)
-            XCTAssertEqual(stackLayout, .vertical(spacing: 0, padding: .zero, alignment: .stretch))
+            XCTAssertEqual(
+                stackLayout,
+                .vertical(spacing: 0, padding: EdgeInsets(top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0, trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch)
+            )
             XCTAssertEqual(node.children.count, 2)
             XCTAssertEqual(node.children[0].text, "ONE")
             XCTAssertEqual(node.children[1].text, "TWO")
@@ -7740,8 +7761,14 @@ final class WinSwiftUITests: XCTestCase {
                 return XCTFail("Expected List to keep retained stack layout")
             }
 
-            XCTAssertEqual(spacedLayout, .vertical(spacing: 12, padding: .zero, alignment: .stretch))
-            XCTAssertEqual(resetLayout, .vertical(spacing: 0, padding: .zero, alignment: .stretch))
+            XCTAssertEqual(
+                spacedLayout,
+                .vertical(spacing: 12, padding: EdgeInsets(top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0, trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch)
+            )
+            XCTAssertEqual(
+                resetLayout,
+                .vertical(spacing: 0, padding: EdgeInsets(top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0, trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch)
+            )
         }
     }
 
@@ -7803,7 +7830,10 @@ final class WinSwiftUITests: XCTestCase {
                 return XCTFail("Expected List to keep retained stack layout")
             }
 
-            XCTAssertEqual(customLayout, .vertical(spacing: 14, padding: .zero, alignment: .stretch))
+            XCTAssertEqual(
+                customLayout,
+                .vertical(spacing: 14, padding: EdgeInsets(top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0, trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch)
+            )
             XCTAssertEqual(
                 compactLayout,
                 .vertical(
@@ -7820,7 +7850,10 @@ final class WinSwiftUITests: XCTestCase {
                     alignment: .stretch
                 )
             )
-            XCTAssertEqual(rowSpacingWinsLayout, .vertical(spacing: 9, padding: .zero, alignment: .stretch))
+            XCTAssertEqual(
+                rowSpacingWinsLayout,
+                .vertical(spacing: 9, padding: EdgeInsets(top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0, trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch)
+            )
             XCTAssertEqual(ListSectionSpacing.custom(12), .custom(12))
             XCTAssertNotEqual(ListSectionSpacing.compact, .default)
         }
@@ -7899,7 +7932,10 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertNil(plainNode.backgroundColor)
             XCTAssertEqual(plainNode.borderWidth, 0)
             XCTAssertEqual(plainNode.cornerRadius, 0)
-            XCTAssertEqual(plainLayout, .vertical(spacing: 0, padding: .zero, alignment: .stretch))
+            XCTAssertEqual(
+                plainLayout,
+                .vertical(spacing: 0, padding: EdgeInsets(top: 0, leading: MacOSControlMetrics.List.contentInset, bottom: 0, trailing: MacOSControlMetrics.List.contentInset), alignment: .stretch)
+            )
 
             XCTAssertNil(borderedNode.backgroundColor)
             XCTAssertEqual(borderedNode.borderWidth, 1)
@@ -9482,7 +9518,9 @@ final class WinSwiftUITests: XCTestCase {
             }
 
             XCTAssertTrue(path.isEmpty)
-            XCTAssertEqual(stackLayout, .vertical(spacing: 10, alignment: .stretch))
+            // The title band is window chrome: the body starts directly
+            // under its hairline, with no gap.
+            XCTAssertEqual(stackLayout, .vertical(spacing: 0, alignment: .stretch))
             XCTAssertEqual(stackNode.children.count, 2)
             XCTAssertTrue(allTexts(in: stackNode.children[0]).contains("HOME"))
             XCTAssertEqual(stackNode.children[1].children.count, 2)
@@ -9514,7 +9552,7 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertTrue(rootHeaderTexts.contains("ROOT TITLE"))
             XCTAssertTrue(rootHeaderTexts.contains("ROOT SUBTITLE"))
-            guard case .stack(let rootTitleLayout) = rootNode.children[0].children[0].layoutMode else {
+            guard case .stack(let rootTitleLayout) = rootNode.children[0].children[0].children[0].layoutMode else {
                 return XCTFail("Expected titled navigation header to stack title and subtitle")
             }
             XCTAssertEqual(rootTitleLayout, .vertical(spacing: 2, padding: .zero, alignment: .leading))
@@ -9701,9 +9739,13 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(automaticReaderNode.text, "AUTOMATIC")
             XCTAssertTrue(allTexts(in: navigationNode).contains("ROOT"))
             XCTAssertTrue(allTexts(in: navigationNode).contains("ROOT TITLE"))
+            // children[0] is the toolbar band; the header row is its first
+            // child and the bottom hairline its second.
             XCTAssertEqual(
-                navigationNode.children[0].backgroundColor, Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.96))
-            XCTAssertEqual(navigationNode.children[0].cornerRadius, 10)
+                navigationNode.children[0].children[0].backgroundColor,
+                Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.96)
+            )
+            XCTAssertEqual(navigationNode.children[0].children[0].cornerRadius, 0)
             XCTAssertEqual(
                 doubleColumnNavigationNode.backgroundColor, Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.28))
             XCTAssertEqual(doubleColumnNavigationNode.borderWidth, 1)
@@ -9829,7 +9871,9 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(allTexts(in: defaultNode.children[0]).contains("FIRST TAB"))
             XCTAssertTrue(allTexts(in: defaultNode.children[0]).contains("SECOND TAB"))
             XCTAssertEqual(defaultNode.children[1].text, "FIRST")
-            defaultNode.children[0].children[1].onActivate?()
+            // children[0] is the inset tab band; the bar itself is its
+            // only child (macOS insets the control from the window edge).
+            defaultNode.children[0].children[0].children[1].onActivate?()
             XCTAssertTrue(didInvalidate)
 
             let switchedNode = makeNode(tabView)
@@ -9859,7 +9903,7 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(node.children[1].text, "FIRST")
 
-            node.children[0].children[1].onActivate?()
+            node.children[0].children[0].children[1].onActivate?()
 
             XCTAssertEqual(selection, "second")
             XCTAssertEqual(makeNode(tabView).children[1].text, "SECOND")
@@ -9886,11 +9930,11 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(tabTexts.contains("SECOND TAB"))
             XCTAssertEqual(node.children[1].text, "FIRST")
 
-            let firstTabButton = node.children[0].children[0]
+            let firstTabButton = node.children[0].children[0].children[0]
             let firstTabContent = firstTabButton.children[0]
             XCTAssertEqual(
                 firstTabContent.children[1].backgroundColor, Color(red: 0.92, green: 0.18, blue: 0.24, alpha: 0.96))
-            XCTAssertEqual(node.children[0].children[1].children[0].text, "SECOND TAB")
+            XCTAssertEqual(node.children[0].children[0].children[1].children[0].text, "SECOND TAB")
         }
     }
 
@@ -9994,8 +10038,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(automaticReaderNode.text, "AUTOMATIC")
             XCTAssertTrue(allTexts(in: styledTabNode.children[0]).contains("FIRST TAB"))
             XCTAssertEqual(styledTabNode.children[1].text, "FIRST")
-            XCTAssertEqual(styledTabNode.children[0].cornerRadius, 20)
-            guard case .stack(let pageLayout) = styledTabNode.children[0].layoutMode else {
+            XCTAssertEqual(styledTabNode.children[0].children[0].cornerRadius, 20)
+            guard case .stack(let pageLayout) = styledTabNode.children[0].children[0].layoutMode else {
                 XCTFail("Expected page tab bar stack layout")
                 return
             }
@@ -10004,9 +10048,9 @@ final class WinSwiftUITests: XCTestCase {
                 .horizontal(
                     spacing: 6, padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3), alignment: .stretch))
 
-            XCTAssertEqual(groupedTabNode.children[0].cornerRadius, 16)
-            XCTAssertEqual(groupedTabNode.children[0].children[0].cornerRadius, 10)
-            guard case .stack(let groupedLayout) = groupedTabNode.children[0].layoutMode else {
+            XCTAssertEqual(groupedTabNode.children[0].children[0].cornerRadius, 16)
+            XCTAssertEqual(groupedTabNode.children[0].children[0].children[0].cornerRadius, 10)
+            guard case .stack(let groupedLayout) = groupedTabNode.children[0].children[0].layoutMode else {
                 XCTFail("Expected grouped tab bar stack layout")
                 return
             }
@@ -10015,12 +10059,12 @@ final class WinSwiftUITests: XCTestCase {
                 .horizontal(
                     spacing: 8, padding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8), alignment: .stretch))
 
-            XCTAssertEqual(sidebarTabNode.children[0].cornerRadius, 8)
-            XCTAssertEqual(sidebarTabNode.children[0].children[0].borderWidth, 2)
-            XCTAssertEqual(sidebarTabNode.children[0].children[1].borderWidth, 0)
+            XCTAssertEqual(sidebarTabNode.children[0].children[0].cornerRadius, 8)
+            XCTAssertEqual(sidebarTabNode.children[0].children[0].children[0].borderWidth, 2)
+            XCTAssertEqual(sidebarTabNode.children[0].children[0].children[1].borderWidth, 0)
 
-            XCTAssertEqual(carouselTabNode.children[0].cornerRadius, 18)
-            guard case .stack(let carouselLayout) = carouselTabNode.children[0].layoutMode else {
+            XCTAssertEqual(carouselTabNode.children[0].children[0].cornerRadius, 18)
+            guard case .stack(let carouselLayout) = carouselTabNode.children[0].children[0].layoutMode else {
                 XCTFail("Expected carousel tab bar stack layout")
                 return
             }
@@ -10201,7 +10245,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("DETAIL TITLE"))
             XCTAssertEqual(detailNode.children[1].text, "DETAIL")
 
-            detailNode.children[0].children[0].onActivate?()
+            detailNode.children[0].children[0].children[0].onActivate?()
 
             let poppedNode = makeNode(stack)
             XCTAssertTrue(allTexts(in: poppedNode.children[0]).contains("ROOT TITLE"))
@@ -10240,7 +10284,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("DETAIL TITLE"))
             XCTAssertEqual(detailNode.children[1].text, "DETAIL")
 
-            detailNode.children[0].children[0].onActivate?()
+            detailNode.children[0].children[0].children[0].onActivate?()
 
             XCTAssertFalse(isActive)
 
@@ -10325,7 +10369,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("DETAIL TITLE"))
             XCTAssertEqual(detailNode.children[1].text, "DETAIL")
 
-            detailNode.children[0].children[0].onActivate?()
+            detailNode.children[0].children[0].children[0].onActivate?()
 
             XCTAssertNil(selection)
         }
@@ -10399,7 +10443,7 @@ final class WinSwiftUITests: XCTestCase {
             selection = "external"
 
             let detailNode = makeNode(stack)
-            detailNode.children[0].children[0].onActivate?()
+            detailNode.children[0].children[0].children[0].onActivate?()
 
             XCTAssertEqual(selection, "external")
         }
@@ -10422,7 +10466,9 @@ final class WinSwiftUITests: XCTestCase {
 
             let detailNode = makeNode(stack)
             XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("DETAIL TITLE"))
-            XCTAssertEqual(detailNode.children[0].children.count, 1)
+            // The band is [header row, bottom hairline]; with the back
+            // control hidden the header row carries the title alone.
+            XCTAssertEqual(detailNode.children[0].children[0].children.count, 1)
             XCTAssertFalse(allTexts(in: detailNode.children[0]).contains("<"))
             XCTAssertEqual(detailNode.children[1].text, "DETAIL")
         }
@@ -10569,7 +10615,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("VALUE TITLE"))
             XCTAssertEqual(detailNode.children[1].text, "VALUE detail")
 
-            detailNode.children[0].children[0].onActivate?()
+            detailNode.children[0].children[0].children[0].onActivate?()
 
             XCTAssertTrue(path.isEmpty)
 
@@ -10720,7 +10766,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(allTexts(in: presentedNode.children[0]).contains("PRESENTED TITLE"))
             XCTAssertEqual(presentedNode.children[1].text, "PRESENTED")
 
-            presentedNode.children[0].children[0].onActivate?()
+            presentedNode.children[0].children[0].children[0].onActivate?()
 
             XCTAssertFalse(isPresented)
 
@@ -12250,7 +12296,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(allTexts(in: itemNode.children[0]).contains("ITEM TITLE"))
             XCTAssertEqual(itemNode.children[1].text, "ITEM selected")
 
-            itemNode.children[0].children[0].onActivate?()
+            itemNode.children[0].children[0].children[0].onActivate?()
 
             XCTAssertNil(selectedItem)
         }
@@ -17541,7 +17587,10 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(rtlTextNode.text, "RTL")
             XCTAssertEqual(rtlTextNode.textStyle.alignment, .trailing)
             if case .stack(let stackLayout) = rtlStackNode.layoutMode {
-                XCTAssertEqual(stackLayout, .vertical(alignment: .trailing))
+                XCTAssertEqual(
+                    stackLayout,
+                    .vertical(spacing: MacOSControlMetrics.Layout.defaultStackSpacing, alignment: .trailing)
+                )
             } else {
                 XCTFail("Expected retained stack layout")
             }

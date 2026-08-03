@@ -113,7 +113,7 @@ final class ListFormQualityTests: XCTestCase {
         }
     }
 
-    func testNonSelectionListRowsStayUnconstrained() async {
+    func testPlainListRowsCarryTheMacOSRowHeight() async {
         await MainActor.run {
             let node = makeListFormNode(
                 List {
@@ -122,8 +122,17 @@ final class ListFormQualityTests: XCTestCase {
                 }
             )
 
-            XCTAssertNil(node.children[0].layoutConstraints)
-            XCTAssertNil(node.children[1].layoutConstraints)
+            // Every row in a plain/automatic list is at least a standard
+            // macOS row box tall (MacOSControlMetrics.List.plainRowHeight),
+            // selection-bound or not — rows used to be exactly their label's
+            // line box, which is what made an unselected list read as loose
+            // text rather than a table.
+            for index in 0..<2 {
+                XCTAssertEqual(
+                    node.children[index].layoutConstraints?.minHeight,
+                    MacOSControlMetrics.List.plainRowHeight
+                )
+            }
         }
     }
 

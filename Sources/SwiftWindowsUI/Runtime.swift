@@ -1391,6 +1391,34 @@ public struct FixedSizeAxes: Equatable, Sendable {
         self.vertical = vertical
     }
 }
+/// Axes on which a node takes the whole extent its parent proposes
+/// instead of its intrinsic measurement.
+///
+/// This is the runtime's model of SwiftUI's *greedy* views — `Color`,
+/// `ScrollView`, `List`, `Form`, `Divider` across its cross axis, and
+/// anything given `.frame(maxWidth: .infinity)`. A greedy axis is
+/// meaningful only against a finite proposal: measured with an
+/// unconstrained axis (an intrinsic query, or the main axis of the
+/// enclosing stack) the node still reports its content size, so a
+/// greedy child never inflates an intrinsic measurement to infinity.
+/// Along a stack's main axis the fill is applied as growth out of the
+/// stack's leftover extent (`growMainSizes`), which is what keeps
+/// `VStack { Text; ScrollView }` from over-subscribing the track.
+public struct LayoutFillAxes: Equatable, Sendable {
+    public var horizontal: Bool
+    public var vertical: Bool
+
+    public init(horizontal: Bool = false, vertical: Bool = false) {
+        self.horizontal = horizontal
+        self.vertical = vertical
+    }
+
+    public static let both = LayoutFillAxes(horizontal: true, vertical: true)
+    public static let horizontalOnly = LayoutFillAxes(horizontal: true, vertical: false)
+    public static let verticalOnly = LayoutFillAxes(horizontal: false, vertical: true)
+
+    public var isEmpty: Bool { !horizontal && !vertical }
+}
 /// Per-corner rounding for a node's background/border, in points and
 /// absolute screen corners (the retained runtime has no layout-direction
 /// concept, so these are left/right rather than leading/trailing).
@@ -1546,6 +1574,12 @@ public final class ViewNode {
     }
 
     public var fixedSizeAxes: FixedSizeAxes? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    /// Axes on which this node accepts its parent's proposal instead of
+    /// its intrinsic size (SwiftUI's greedy views). See `LayoutFillAxes`.
+    public var layoutFillAxes: LayoutFillAxes = LayoutFillAxes() {
         didSet { invalidateRuntime(.layout) }
     }
 
@@ -3734,6 +3768,7 @@ public final class ViewNode {
                 allocatedMainSizes = allocateMainSizes(
                     desiredSizes: desiredMainSizes,
                     children: visibleChildren,
+                    axis: stackLayout.axis,
                     availableExtent: availableChildMainExtent,
                     shrinkFloors: shrinkFloors
                 )
@@ -5460,8 +5495,21 @@ public final class ViewNode {
     }
 
     private func applyingExplicitDimensions(to size: Size, constraints: LayoutConstraints) -> Size {
-        let measuredWidth = explicitWidth ?? size.width
-        let measuredHeight = explicitHeight ?? size.height
+        var measuredWidth = explicitWidth ?? size.width
+        var measuredHeight = explicitHeight ?? size.height
+
+        // Greedy axes take the proposal. A frame the author set is their
+        // own answer and always wins; a `preferredSize` is only an ideal,
+        // so a greedy node with one (a slider, a scroll panel) keeps it as
+        // the size it reports when nothing proposes an extent. An infinite
+        // proposal leaves the measurement alone, which is what keeps an
+        // unconstrained measure of a greedy subtree finite.
+        if frame.size.width <= 0, layoutFillAxes.horizontal, constraints.maxWidth.isFinite {
+            measuredWidth = max(measuredWidth, constraints.maxWidth)
+        }
+        if frame.size.height <= 0, layoutFillAxes.vertical, constraints.maxHeight.isFinite {
+            measuredHeight = max(measuredHeight, constraints.maxHeight)
+        }
 
         return Size(
             width: clampedExtent(measuredWidth, min: constraints.minWidth, max: constraints.maxWidth),
@@ -5536,6 +5584,7 @@ public final class ViewNode {
     private func allocateMainSizes(
         desiredSizes: [Double],
         children: [ViewNode],
+        axis: StackAxis,
         availableExtent: Double,
         shrinkFloors: [Double]
     ) -> [Double] {
@@ -5554,28 +5603,53 @@ public final class ViewNode {
             shrinkMainSizes(
                 &allocatedSizes,
                 children: children,
+                axis: axis,
                 floors: floors,
                 deficit: desiredExtent - availableExtent
             )
         } else if desiredExtent < availableExtent {
-            growMainSizes(&allocatedSizes, children: children, extraExtent: availableExtent - desiredExtent)
+            growMainSizes(
+                &allocatedSizes,
+                children: children,
+                axis: axis,
+                extraExtent: availableExtent - desiredExtent
+            )
         }
 
         return allocatedSizes
     }
 
-    private func growMainSizes(_ sizes: inout [Double], children: [ViewNode], extraExtent: Double) {
+    /// Weight this child carries when a stack shares out leftover main-axis
+    /// extent. A greedy child (`layoutFillAxes` along this axis) asked for
+    /// the whole proposal and gets a unit share; the historic
+    /// `layoutPriority`-as-flex-weight behaviour is preserved for the
+    /// controls built on it.
+    private static func mainAxisGrowthWeight(of child: ViewNode, axis: StackAxis) -> Double {
+        if child.layoutPriority > 0 {
+            return child.layoutPriority
+        }
+        return fillsMainAxis(child, axis: axis) ? 1 : 0
+    }
+
+    private func growMainSizes(
+        _ sizes: inout [Double],
+        children: [ViewNode],
+        axis: StackAxis,
+        extraExtent: Double
+    ) {
         guard sizes.count == children.count else {
             return
         }
 
-        let participantIndices = children.indices.filter { children[$0].layoutPriority > 0 }
+        let participantIndices = children.indices.filter {
+            ViewNode.mainAxisGrowthWeight(of: children[$0], axis: axis) > 0
+        }
         guard !participantIndices.isEmpty else {
             return
         }
 
         let totalPriority = participantIndices.reduce(0.0) { partialResult, index in
-            partialResult + children[index].layoutPriority
+            partialResult + ViewNode.mainAxisGrowthWeight(of: children[index], axis: axis)
         }
         guard totalPriority > 0 else {
             return
@@ -5587,7 +5661,9 @@ public final class ViewNode {
             if offset == participantIndices.count - 1 {
                 share = remainingExtent
             } else {
-                share = extraExtent * (children[index].layoutPriority / totalPriority)
+                share =
+                    extraExtent
+                    * (ViewNode.mainAxisGrowthWeight(of: children[index], axis: axis) / totalPriority)
                 remainingExtent -= share
             }
 
@@ -5598,6 +5674,7 @@ public final class ViewNode {
     private func shrinkMainSizes(
         _ sizes: inout [Double],
         children: [ViewNode],
+        axis: StackAxis,
         floors: [Double],
         deficit: Double
     ) {
@@ -5608,6 +5685,26 @@ public final class ViewNode {
         }
 
         var remainingDeficit = deficit
+
+        // A greedy child (a ScrollView, a List, `.frame(maxHeight: .infinity)`)
+        // asked for the whole track it was offered, so when the track is
+        // over-subscribed it gives the excess back before any sibling that
+        // asked only for the size of its content. Without this, a scroll
+        // view whose content is taller than the window squeezes the tab bar
+        // and toolbar it sits next to, and the chrome's metrics start
+        // depending on which page is selected.
+        let greedyIndices = children.indices.filter {
+            ViewNode.fillsMainAxis(children[$0], axis: axis) && sizes[$0] > floors[$0]
+        }
+        if !greedyIndices.isEmpty, remainingDeficit > 0 {
+            remainingDeficit -= reduce(
+                &sizes,
+                at: Array(greedyIndices),
+                floors: floors,
+                by: remainingDeficit
+            )
+        }
+
         let priorities = Array(Set(children.map(\.layoutPriority))).sorted()
 
         for priority in priorities where remainingDeficit > 0 {
@@ -5618,32 +5715,48 @@ public final class ViewNode {
                 continue
             }
 
-            let shrinkCapacity = indices.reduce(0.0) { partialResult, index in
-                partialResult + sizes[index] - floors[index]
-            }
-            guard shrinkCapacity > 0 else {
-                continue
-            }
-
-            let targetReduction = min(remainingDeficit, shrinkCapacity)
-            var remainingReduction = targetReduction
-
-            for (offset, index) in indices.enumerated() {
-                let capacity = sizes[index] - floors[index]
-                let reduction: Double
-                if offset == indices.count - 1 {
-                    reduction = remainingReduction
-                } else {
-                    reduction = targetReduction * (capacity / shrinkCapacity)
-                    remainingReduction -= reduction
-                }
-
-                let appliedReduction = min(capacity, reduction)
-                sizes[index] -= appliedReduction
-            }
-
-            remainingDeficit -= targetReduction
+            remainingDeficit -= reduce(&sizes, at: Array(indices), floors: floors, by: remainingDeficit)
         }
+    }
+
+    /// Shares `deficit` across `indices` in proportion to each entry's slack
+    /// above its floor, and answers how much was actually absorbed.
+    private func reduce(
+        _ sizes: inout [Double],
+        at indices: [Int],
+        floors: [Double],
+        by deficit: Double
+    ) -> Double {
+        let shrinkCapacity = indices.reduce(0.0) { partialResult, index in
+            partialResult + sizes[index] - floors[index]
+        }
+        guard shrinkCapacity > 0 else {
+            return 0
+        }
+
+        let targetReduction = min(deficit, shrinkCapacity)
+        var remainingReduction = targetReduction
+
+        for (offset, index) in indices.enumerated() {
+            let capacity = sizes[index] - floors[index]
+            let reduction: Double
+            if offset == indices.count - 1 {
+                reduction = remainingReduction
+            } else {
+                reduction = targetReduction * (capacity / shrinkCapacity)
+                remainingReduction -= reduction
+            }
+
+            let appliedReduction = min(capacity, reduction)
+            sizes[index] -= appliedReduction
+        }
+
+        return targetReduction
+    }
+
+    /// True when this node accepts its parent's proposal along `axis`.
+    fileprivate static func fillsMainAxis(_ node: ViewNode, axis: StackAxis) -> Bool {
+        axis == .vertical ? node.layoutFillAxes.vertical : node.layoutFillAxes.horizontal
     }
 
     /// Minimum main-axis extent a stack shrink pass may leave this node
@@ -5666,11 +5779,21 @@ public final class ViewNode {
         guard ViewNode.enterTraversal() else { return 0 }
         defer { ViewNode.leaveTraversal() }
 
+        // A declared minimum is a hard floor, whatever the content is: a
+        // control that states its macOS height (a 22pt segmented track, a
+        // 24pt list row) keeps it under pressure and the container
+        // overflows or scrolls instead, exactly as `.frame(minHeight:)`
+        // behaves in SwiftUI.
+        let declaredMinimum = max(
+            0,
+            axis == .vertical ? (layoutConstraints?.minHeight ?? 0) : (layoutConstraints?.minWidth ?? 0)
+        )
+
         // A clipping container is the declared "content may be cut here"
         // boundary: it absorbs squeeze (its interior clips or truncates)
-        // instead of resisting it, so it contributes no floor upward.
-        // Control chrome (buttons, segmented tracks) relies on this to
-        // keep pinned frames contained.
+        // instead of resisting it, so it contributes no floor upward — not
+        // even its own declared minimum. Control chrome (buttons, segmented
+        // tracks) relies on this to keep pinned frames contained.
         if clipsToBounds {
             return 0
         }
@@ -5681,19 +5804,19 @@ public final class ViewNode {
             // of resisting the squeeze, so it takes no width floor. The
             // vertical floor (line height) still applies.
             if axis == .horizontal, textStyle.maximumNumberOfLines == 1 {
-                return 0
+                return declaredMinimum
             }
             let measured = sizeThatFits(in: constraints)
-            return axis == .vertical ? measured.height : measured.width
+            return max(declaredMinimum, axis == .vertical ? measured.height : measured.width)
         }
 
         if bitmapSurface != nil {
             let measured = sizeThatFits(in: constraints)
-            return axis == .vertical ? measured.height : measured.width
+            return max(declaredMinimum, axis == .vertical ? measured.height : measured.width)
         }
 
         guard let stackLayout = layoutMode.stackLayout else {
-            return 0
+            return declaredMinimum
         }
 
         let contentConstraints = insetConstraints(
@@ -5717,10 +5840,10 @@ public final class ViewNode {
         // for a fixed size, so shrink resistance never exceeds it.
         let explicitMainExtent = axis == .vertical ? explicitHeight : explicitWidth
         if let explicitMainExtent {
-            return min(combinedFloor, explicitMainExtent)
+            return max(declaredMinimum, min(combinedFloor, explicitMainExtent))
         }
 
-        return combinedFloor
+        return max(declaredMinimum, combinedFloor)
     }
 
     fileprivate var isScrollable: Bool {

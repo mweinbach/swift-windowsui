@@ -26,8 +26,17 @@ final class ControlGeometryTests: XCTestCase {
                 let button = tryUnwrap(node.children.first)
                 assertDescendantFramesWithinBounds(node)
                 let label = tryUnwrap(firstTextNode(in: node))
-                // The button stretches its centered label to the pinned width.
-                XCTAssertEqual(label.resolvedFrame.width, width, accuracy: 0.51)
+                // The button stretches its centered label across the pinned
+                // width minus the macOS push-bezel content insets
+                // (MacOSControlMetrics.Button, regular: 12pt per side), so
+                // glyph ink stays inside the pill instead of spilling out of
+                // its own chrome.
+                let bezel = retainedButtonContentMetrics(style: .automatic, controlSize: .regular)
+                XCTAssertEqual(
+                    label.resolvedFrame.width,
+                    width - bezel.padding.leading - bezel.padding.trailing,
+                    accuracy: 0.51
+                )
                 // The focus/press/activate lifecycle hooks must stay intact.
                 XCTAssertTrue(button.isFocusable)
                 XCTAssertNotNil(button.onActivate)

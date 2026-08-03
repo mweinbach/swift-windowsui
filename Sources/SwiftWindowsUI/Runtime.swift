@@ -2757,6 +2757,25 @@ public final class ViewNode {
     /// on the repaint that recycle triggers rather than reused with someone
     /// else's glyphs in it.
     internal var cachedCompositingGroupAtlasGeneration: UInt64?
+    /// True when the last paint that *visited* this node resolved its
+    /// `.blur(radius:)` as an isolated offscreen pass — so the pixels the
+    /// scene carries for this subtree are a bitmap that already contains its
+    /// deferred descendants.
+    ///
+    /// "Last visited", not "this frame", is the whole point. A clean
+    /// **ancestor** of a blurred node replays its own cached paint range,
+    /// which carries the composited bitmap forward without the traversal ever
+    /// reaching the blur — so `claimDeferredDescendants` does not run, and
+    /// without this flag the deferred phase drew a second, sharp copy of every
+    /// pinned header on top of the bitmap that already had them. The node-local
+    /// replay refusal cannot see that: it is not the blurred node replaying.
+    /// `ScenePainter.appendDeferredDraws` consults the flag on the drain side
+    /// instead, up the entry's parent chain.
+    ///
+    /// Cleared on entry to every visit and set only when the pass composites,
+    /// so the degraded inline fallback — an isolation buffer that could not be
+    /// sized — still draws its headers in the deferred phase.
+    internal var lastPaintedViaContentBlurIsolation = false
     private var hasAppliedInitialScrollAnchor: Bool
     private var lastAnchoredScrollContentSize: Size
     private var lastAnchoredScrollFrameSize: Size

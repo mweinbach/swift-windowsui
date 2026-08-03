@@ -409,17 +409,41 @@ final class RenderPassAbstractionTests: XCTestCase {
     /// where they should have been smeared.
     ///
     /// The render-pass vocabulary did not change this and was wrongly
-    /// documented as having done so. Fixing it means seeding the sub-scene
-    /// with the already-painted backdrop under the group's frame (a read of
-    /// the outer surface the painter has no access to at that point, because
-    /// the outer scene is a *scene*, not pixels) or teaching the backend to
-    /// run the group as a real GPU pass. Both are larger than a
-    /// documentation fix, so this test states what happens today and skips
-    /// the assertion that will hold when it is closed.
+    /// documented as having done so. It holds for **every** offscreen pass,
+    /// not just `.drawingGroup()`: the `.blur(radius:)` isolation pass clears
+    /// to transparent for the same reason (that transparent margin is what
+    /// lets a blur fade out instead of smearing a neighbour), so a Material
+    /// inside a blurred subtree has no backdrop either. Both cases are
+    /// asserted below.
+    ///
+    /// Closing it was investigated and is not a local change; three things
+    /// have to give, and they are recorded in
+    /// `docs/GPURenderingPipeline.md` under the same heading:
+    ///
+    /// 1. the backdrop pixels do not exist at group paint time — the outer
+    ///    `scene` is a paint-record stream, and turning it into pixels means a
+    ///    full-surface CPU rasterization per group per frame, on a path
+    ///    (D3D11) that otherwise never rasterizes on the CPU at all;
+    /// 2. the group bitmap is cached on the node's paint key plus a clean
+    ///    subtree — both subtree-local — so a baked-in backdrop would go
+    ///    stale the moment anything *outside* the group moved;
+    /// 3. the composite is source-over, and only source-over, so a bitmap
+    ///    that already contained the backdrop would draw it twice wherever
+    ///    the group is not fully opaque.
+    ///
+    /// So this test states what happens today and skips the assertion that
+    /// will hold when it is closed.
     func testMaterialInsideADrawingGroupBlursNothing() async throws {
         let size = IntSize(width: 100, height: 100)
 
-        func scene(grouped: Bool) -> GPUIScene {
+        enum Isolation {
+            case none
+            case compositingGroup
+            /// `.blur(radius:)` — the other offscreen pass, same clear colour.
+            case contentBlur
+        }
+
+        func scene(_ isolation: Isolation) -> GPUIScene {
             var children: [ViewNode] = []
             for stripe in 0..<25 {
                 children.append(
@@ -434,19 +458,22 @@ final class RenderPassAbstractionTests: XCTestCase {
             children.append(
                 ViewNode(
                     frame: Rect(x: 0, y: 0, width: 100, height: 100),
-                    isCompositingGroup: grouped,
+                    contentBlurRadius: isolation == .contentBlur ? 3 : 0,
+                    isCompositingGroup: isolation == .compositingGroup,
                     children: [panel]))
             let root = ViewNode(frame: Rect(x: 0, y: 0, width: 100, height: 100), children: children)
             return ScenePainter.paint(
                 root: root, clearColor: .black, surfaceSize: Size(width: 100, height: 100))
         }
 
-        let inline = GPUIRawSceneRasterizer.rasterize(scene(grouped: false), size: size)
-        let grouped = GPUIRawSceneRasterizer.rasterize(scene(grouped: true), size: size)
+        let inline = GPUIRawSceneRasterizer.rasterize(scene(.none), size: size)
+        let grouped = GPUIRawSceneRasterizer.rasterize(scene(.compositingGroup), size: size)
+        let blurred = GPUIRawSceneRasterizer.rasterize(scene(.contentBlur), size: size)
 
         // Inside the panel, away from its edges.
         let inlineContrast = Self.maxNeighbourDelta(inline, rows: 40..<60, columns: 40..<60)
         let groupedContrast = Self.maxNeighbourDelta(grouped, rows: 40..<60, columns: 40..<60)
+        let blurredContrast = Self.maxNeighbourDelta(blurred, rows: 40..<60, columns: 40..<60)
         XCTAssertLessThan(
             inlineContrast, 20,
             "painted inline, the material blurs the stripes under it into a smooth field")
@@ -454,13 +481,19 @@ final class RenderPassAbstractionTests: XCTestCase {
             groupedContrast, 100,
             "inside a compositing group the same material has no backdrop to blur, so the stripes "
                 + "under it stay sharp — the divergence this test records")
+        XCTAssertGreaterThan(
+            blurredContrast, 100,
+            "and inside a `.blur()` isolation pass too: the pass clears to transparent for its own "
+                + "reasons, and the material finds nothing under it there either")
 
         throw XCTSkip(
             "Residual (documented in docs/GPURenderingPipeline.md, 'a Material inside an offscreen pass "
-                + "has no backdrop'): a compositing-group sub-scene clears to transparent, so a Material "
-                + "inside `.drawingGroup()` composites its tint over nothing and blurs nothing. Closing it "
-                + "needs the sub-scene seeded with the already-painted backdrop, or the group run as a "
-                + "real GPU pass.")
+                + "has no backdrop'): an offscreen sub-scene — `.drawingGroup()`, `.compositingGroup()` or "
+                + "the `.blur(radius:)` isolation pass — clears to transparent, so a Material inside one "
+                + "composites its tint over nothing and blurs nothing. Closing it needs the sub-scene "
+                + "seeded with the already-painted backdrop (which the painter does not have, and which "
+                + "would go stale in the group bitmap cache and be composited twice by a source-over "
+                + "blend), or the pass run as a real GPU pass.")
     }
 
     /// Largest channel step between neighbouring pixels in a window of the

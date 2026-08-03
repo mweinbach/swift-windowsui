@@ -1993,19 +1993,46 @@ same type saying different things.
 
 ### Residual: a Material inside an offscreen pass has no backdrop
 
-A compositing-group sub-scene clears to **transparent**, and a Material is
-a backdrop effect — it samples what is already painted under it. Inside
-`.drawingGroup()` that is nothing, so the material composites its tint
-over emptiness and the group's bitmap then lands over the wallpaper
-unblurred: the content under the panel stays razor sharp where it should
-have been smeared.
+An offscreen sub-scene clears to **transparent**, and a Material is a
+backdrop effect — it samples what is already painted under it. Inside one
+that is nothing, so the material composites its tint over emptiness and
+the pass's bitmap then lands over the wallpaper unblurred: the content
+under the panel stays razor sharp where it should have been smeared.
+
+This is a property of the *pass*, not of `.drawingGroup()`, so it holds
+for all three offscreen routes — `.drawingGroup()`, `.compositingGroup()`
+and the `.blur(radius:)` isolation pass. The isolation pass clears to
+transparent for a reason of its own: that transparent margin is what lets
+a blur fade out to nothing instead of smearing a neighbour into the
+subtree.
 
 Closing it means seeding the sub-scene with the already-painted backdrop
-under the group's frame — which the painter does not have, because at
-that point the outer scene is a *scene*, not pixels — or running the
-group as a real GPU pass. Recorded and skipped by
+under the pass's frame, and three separate things stand in the way:
+
+1. **The pixels do not exist yet.** At that point the outer scene is a
+   *scene* — a paint-record stream — not pixels. Turning it into pixels
+   costs a full-surface CPU rasterization per pass per frame, on a path
+   (D3D11) that otherwise never rasterizes on the CPU at all, and
+   `.drawingGroup()` exists to make a subtree cheaper, not to make the
+   whole surface expensive.
+2. **It fights the bitmap cache.** `cachedCompositingGroupBitmap` is
+   keyed on the node's paint key plus a clean subtree — both entirely
+   subtree-local. A backdrop baked into the bitmap goes stale the moment
+   anything *outside* the group moves, and the key cannot see that; the
+   alternative is making any group containing a Material uncacheable,
+   which is the exact case the cache is worth the most on.
+3. **The composite is source-over, and only source-over** (see
+   *Blend modes* above). A bitmap that already contained the backdrop
+   would draw that backdrop a second time everywhere the pass is not
+   fully opaque. Getting it right needs a replace/copy blend, which the
+   contract does not have.
+
+Running the pass as a real GPU pass — the backend rendering into a real
+offscreen target that the material's backdrop copy can read — sidesteps
+all three, and is the shape a fix would take. Recorded and skipped by
 `RenderPassAbstractionTests.testMaterialInsideADrawingGroupBlursNothing`,
-whose assertions pin what happens today.
+whose assertions pin what happens today for both the compositing-group
+and the content-blur route.
 
 ### `SubTextureRegion`: one clamp, and the stale-texel class
 

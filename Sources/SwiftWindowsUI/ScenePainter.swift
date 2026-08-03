@@ -418,6 +418,17 @@ public enum ScenePainter {
 
             let startPaintRecord = scene.paintRecordCount
 
+            // "Did this node's last visit paint via the isolation pass?" —
+            // cleared here so that every way of *not* isolating (a buffer that
+            // could not be sized, a culled or hidden subtree, a zero radius)
+            // leaves it false and the deferred phase draws the headers itself.
+            // Only the composite below sets it. The suppressed re-entry is the
+            // isolation pass painting this very node into its own buffer, and
+            // must not clear the answer it is in the middle of producing.
+            if node.contentBlurRadius > 0, !context.suppressesContentBlurIsolation {
+                node.lastPaintedViaContentBlurIsolation = false
+            }
+
             // Inside a compositing group nothing this node paints reaches the
             // scene the caches are measured against, so the cache it is
             // carrying from before the group existed has to go. Skipping the
@@ -680,6 +691,11 @@ public enum ScenePainter {
                     usedPixelGlyphs: &usedPixelGlyphs
                 )
             {
+                // The subtree's deferred descendants are inside the bitmap this
+                // just composited. Recorded on the node because the frame that
+                // *replays* this range from a clean ancestor never comes back
+                // here, and the deferred phase still has to know.
+                node.lastPaintedViaContentBlurIsolation = true
                 if !skipCacheUpdates {
                     node.cachedSceneKey = cacheKey
                     node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
@@ -1958,6 +1974,42 @@ public enum ScenePainter {
         }
     }
 
+    /// The drain-side half of `claimDeferredDescendants`: true when this
+    /// entry's owner sits under a content-blur node whose last visit painted
+    /// via the isolation pass, so the bitmap already in the scene contains it.
+    ///
+    /// Claiming can only speak for frames that *reach* the blurred node. A
+    /// clean ancestor replaying its own cached range carries the composited
+    /// bitmap forward and never re-enters the blur, so on that frame the entry
+    /// is unclaimed and would be drawn sharp on top of pixels that already have
+    /// it. Asking the node instead of the claim covers both.
+    ///
+    /// The rule is the claim's rule, exactly: the blur must be a *strict*
+    /// ancestor — a blurred scroll view's own indicator stays sharp above its
+    /// blurred content, and a deferred subtree rooted at the blurred node is
+    /// the thing being drained, not something inside it — so the walk starts at
+    /// the parent.
+    ///
+    /// Both payload kinds, deliberately. `DeferredDrawPayload` has exactly two,
+    /// and every producer of the subtree kind — sheets, full-screen covers,
+    /// popovers, inspectors, alerts, confirmation dialogs, context menus, menu
+    /// panels and pinned section headers/footers — carries the presented node,
+    /// so all of them are answered here by the same walk. Cost is the entry's
+    /// depth, and deferred entries are counted in ones.
+    private static func isDrawnByAnAncestorsContentBlurBitmap(_ payload: DeferredDrawPayload) -> Bool {
+        let owner: ViewNode?
+        switch payload {
+        case .subtree(let payload): owner = payload.node
+        case .scrollIndicator(let payload): owner = payload.node
+        }
+        var current = owner?.parent
+        while let node = current {
+            if node.contentBlurRadius > 0, node.lastPaintedViaContentBlurIsolation { return true }
+            current = node.parent
+        }
+        return false
+    }
+
     /// True when `candidate` is `root` or lives under it. Walks parents, so
     /// it costs the subtree's depth and nothing per frame otherwise.
     private static func isNode(_ candidate: ViewNode, insideSubtreeOf root: ViewNode) -> Bool {
@@ -2618,6 +2670,17 @@ public enum ScenePainter {
             // Drawing it again here would put a sharp copy on top of the
             // blurred one.
             guard !deferredDraws[deferredDrawIndex].isDrawnInline else { continue }
+            // …and the pass may have run on an *earlier* frame, with a clean
+            // ancestor replaying its cached range this one: the bitmap is in
+            // the scene, the blurred node was never visited, and nothing
+            // claimed this entry. Same conclusion, reached from the node side.
+            if isDrawnByAnAncestorsContentBlurBitmap(deferredDraws[deferredDrawIndex].payload) {
+                deferredDraws[deferredDrawIndex].isDrawnInline = true
+                // It did not draw into this scene, so any range it carries
+                // describes a scene it is not in.
+                deferredDraws[deferredDrawIndex].cachedScenePaintRange = nil
+                continue
+            }
             let startPaintRecord = scene.paintRecordCount
             if let previousScene, let cachedScenePaintRange = deferredDraws[deferredDrawIndex].cachedScenePaintRange {
                 switch scene.replay(cachedScenePaintRange, from: previousScene) {

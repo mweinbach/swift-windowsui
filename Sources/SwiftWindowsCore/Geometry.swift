@@ -445,6 +445,13 @@ public struct AffineMatrix: Equatable, Sendable {
         )
     }
 }
+/// `atan(numerator / denominator)` without the division: the sign of the
+/// denominator is normalised away first, so a negative scale reads back as a
+/// skew in `(-pi/2, pi/2)` rather than the half turn `atan2` would report, and
+/// a denominator near zero cannot blow the ratio up before the `atan`.
+private func _skewAngle(_ numerator: Double, over denominator: Double) -> Double {
+    denominator < 0 ? _atan2(-numerator, -denominator) : _atan2(numerator, denominator)
+}
 private func _snapDecomposedValue(_ value: Double) -> Double {
     let rounded = value.rounded()
     if abs(value - rounded) < 1e-12 {
@@ -553,7 +560,29 @@ public struct Transform2D: Equatable, Sendable {
         return Transform2D(fromMatrix: inv)
     }
 
-    /// Decomposes an affine matrix back into translation, scale, rotation, and skew.
+    /// Decomposes an affine matrix back into translation, scale, rotation, and
+    /// skew — the inverse of `matrix`, and a round trip: `matrix` composes
+    /// scale, then skew, then rotation, and this reads those same factors back
+    /// out, so `Transform2D(fromMatrix: m).matrix` reproduces `m` for every
+    /// non-singular `m`. That property is not decoration: `concatenating` and
+    /// `inverse` both come back through here, so anything this cannot express
+    /// is silently rewritten the first time a transform composes.
+    ///
+    /// **Reflections** are what it used to fail to express. A rotation
+    /// preserves orientation, so a negative determinant can only be carried by
+    /// a negative scale — and exactly two decompositions carry it, one with
+    /// `scaleX < 0` and one with `scaleY < 0`, a half turn of rotation apart.
+    /// Forcing non-negative scales chose neither, and the reflection came back
+    /// as a half turn, so `.scaleEffect(x: -1)` placed its content upside down
+    /// instead of mirrored. This takes whichever of the two branches is the
+    /// smaller turn: a horizontal mirror decomposes to `scaleX: -1` with no
+    /// rotation, a vertical one to `scaleY: -1` — the form the caller
+    /// authored, and the one component-wise interpolation should walk.
+    ///
+    /// **Skew** was the same failure in a quieter place: `scaleY` was read as
+    /// the norm of the second row, which is `scaleY / cos(skewX)`, so a shear
+    /// grew by a factor of `sec(skewX)` every time it composed. Reading the
+    /// derotated entries directly is exact for both.
     public init(fromMatrix m: AffineMatrix) {
         translationX = m.tx
         translationY = m.ty
@@ -569,34 +598,32 @@ public struct Transform2D: Equatable, Sendable {
             return
         }
 
-        rotation = _snapDecomposedValue(_atan2(m.b, m.a))
-        scaleX = _snapDecomposedValue(sx)
+        // `atan2(b, a)` is the turn that brings the first row back onto +x; the
+        // half turn away from it brings it onto -x, which reads the reflection
+        // as a negative `scaleX` instead of a negative `scaleY`. Both describe
+        // the same matrix, so take the smaller turn.
+        var angle = _atan2(m.b, m.a)
+        let mirrorsX = (m.a * m.d - m.b * m.c) < 0 && abs(angle) > Double.pi / 2
+        if mirrorsX {
+            angle += angle > 0 ? -Double.pi : Double.pi
+        }
+        rotation = _snapDecomposedValue(angle)
+        scaleX = _snapDecomposedValue(mirrorsX ? -sx : sx)
 
         let cosR = _cos(rotation)
         let sinR = _sin(rotation)
 
-        // Remove rotation to recover skew+scale
-        let r0 = m.a * cosR + m.b * sinR
-        let r1 = m.c * cosR + m.d * sinR
-        let r3 = m.c * (-sinR) + m.d * cosR
+        // Removing the rotation leaves exactly the scale-and-skew matrix
+        // `matrix` builds: (scaleX, scaleX·tanSkewY, scaleY·tanSkewX, scaleY).
+        // The first entry is `scaleX` above (±sx by construction, kept in that
+        // form so an unreflected decomposition is unchanged to the last bit).
+        let upperRight = m.a * (-sinR) + m.b * cosR
+        let lowerLeft = m.c * cosR + m.d * sinR
+        let lowerRight = m.c * (-sinR) + m.d * cosR
 
-        // r0 = scaleX (already known as sx)
-        // skewX = atan(r1 / r3) since r1 = scaleY * tan(skewX) and r3 = scaleY
-        scaleY = _snapDecomposedValue((r1 * r1 + r3 * r3).squareRoot())
-
-        if scaleY != 0 {
-            skewX = _snapDecomposedValue(_atan2(r1, r3))
-        } else {
-            skewX = 0
-        }
-
-        // Recover skewY from the upper-right element of the derotated matrix
-        let ur = m.a * (-sinR) + m.b * cosR
-        if r0 != 0 {
-            skewY = _snapDecomposedValue(_atan2(ur, r0))
-        } else {
-            skewY = 0
-        }
+        scaleY = _snapDecomposedValue(lowerRight)
+        skewX = scaleY == 0 ? 0 : _snapDecomposedValue(_skewAngle(lowerLeft, over: lowerRight))
+        skewY = _snapDecomposedValue(_skewAngle(upperRight, over: scaleX))
     }
 
     /// Interpolates between two transforms, using shortest rotation path.

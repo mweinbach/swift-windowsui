@@ -128,25 +128,44 @@ final class TransformLoweringTests: XCTestCase {
             "a non-uniform scale keeps the historic bounding box")
     }
 
-    /// Why `mirror` is missing from the list above: a reflection never reaches
-    /// the painter as one. `Transform2D` stores a QR-style decomposition with
-    /// non-negative scales, which cannot express a negative determinant — the
-    /// first `concatenating` (they all round-trip through the matrix) turns
-    /// `scaleX: -1` into a half-turn. `PaintPlacement` still rejects a
-    /// reflection defensively, because the matrix form is what it inspects,
-    /// but the degeneration happens one layer below it and is not this
-    /// workstream's to fix: correcting it changes hit testing and transform
-    /// interpolation as well as painting.
-    func testAReflectionDegeneratesToAHalfTurnBeforeItReachesThePainter() async {
-        let mirror = Transform2D(scaleX: -1, scaleY: 1).matrix
+    /// Why `mirror` is missing from the list above: it is in the list, it just
+    /// has to survive being composed before it can get here. It does now —
+    /// `Transform2D`'s decomposition carries the reflection as a negative
+    /// scale (R-MISC; `TransformReflectionTests` owns that fix), where it used
+    /// to come back from the first `concatenating` as a half turn, which the
+    /// painter *can* encode and would happily have lowered as a rotation.
+    /// A reflection that reaches the painter still degrades to its bounding
+    /// box: the scene contract has no reflection on its primitives.
+    func testAReflectionReachesThePainterAsOneAndFallsBackToTheBoundingBox() async throws {
+        let mirror = Transform2D(scaleX: -1, scaleY: 1)
         XCTAssertLessThan(
-            mirror.a * mirror.d - mirror.b * mirror.c, 0, "the matrix a mirror builds is a reflection")
+            mirror.matrix.a * mirror.matrix.d - mirror.matrix.b * mirror.matrix.c, 0,
+            "the matrix a mirror builds is a reflection")
 
-        let roundTripped = Transform2D(fromMatrix: mirror).matrix
-        XCTAssertGreaterThan(
-            roundTripped.a * roundTripped.d - roundTripped.b * roundTripped.c, 0,
-            "and the decomposition it has to survive turns it into a rotation")
-        XCTAssertEqual(roundTripped.d, -1, accuracy: 1e-9, "specifically a half-turn")
+        let composed = Transform2D.identity.concatenating(mirror)
+        XCTAssertLessThan(
+            composed.matrix.a * composed.matrix.d - composed.matrix.b * composed.matrix.c, 0,
+            "and composing it may not quietly turn it into a rotation")
+
+        // The painter applies a node's transform about the node's own centre,
+        // so this mirror is AABB-invariant: the rect is the discriminator's
+        // control, and the *angle* is the discriminator. A half turn is a
+        // similarity, so the degenerate form was lowered as `rotation = π` and
+        // the card drew upside down.
+        let mirrored = try painted(Transform2D(scaleX: -1, scaleY: 1))
+        XCTAssertEqual(mirrored.rotationRadians, 0, "a mirror is not a rotation")
+        assertRect(
+            rect(of: mirrored), Rect(x: 50, y: 50, width: 100, height: 40),
+            "a mirror about the node's own centre leaves its box alone")
+    }
+
+    private func painted(_ transform: Transform2D) throws -> QuadPrimitive {
+        try quad(
+            ViewNode(
+                frame: Rect(x: 50, y: 50, width: 100, height: 40),
+                backgroundColor: marker,
+                transform: transform
+            ), matching: marker)
     }
 
     /// Node decoration is a *ring* of quads laid out around the frame, not one

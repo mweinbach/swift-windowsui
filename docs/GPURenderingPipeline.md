@@ -381,6 +381,26 @@ mirrors and non-uniform scales fall back to the bounding box, which is
 what the painter did for everything before this existed; `rotation` is
 then exactly `0` and the emitted bytes are unchanged.
 
+**A mirror is a mirror all the way to that fallback.** `Transform2D` is
+stored decomposed and every composition (`concatenating`, `inverse`, and
+the centred transform above) goes out to the matrix and back through
+`init(fromMatrix:)`, so whatever that read-back cannot express is
+rewritten the first time a transform composes. It used to take
+non-negative scales, which cannot carry a negative determinant: a
+reflection came back as a **half turn**, which *is* separable, so
+`.scaleEffect(x: -1)` painted upside down and backwards and the pointer
+followed it there. The decomposition now carries the reflection as a
+negative scale — on `scaleX` or `scaleY`, whichever reading is the
+smaller rotation, so a horizontal mirror is `scaleX: -1` with no
+rotation — and is an exact round trip for every non-singular matrix
+(shears included; the second row's *norm* used to be read as `scaleY`,
+which grew a shear by `sec(skewX)` per composition). The residual is
+narrower and honest: a mirrored subtree's **placement** mirrors — its
+own box, its descendants' boxes, and the pointer inverse — while its
+**content** does not, because the scene contract carries an angle per
+primitive and no reflection. `TransformReflectionTests` pins both
+halves.
+
 `QuadPrimitive.contentMaskedBounds` is rotation-aware for the same
 reason: a rotated quad's footprint is the box of the *turned* rect, and
 comparing the unturned one against the clip dropped diagonal stroke

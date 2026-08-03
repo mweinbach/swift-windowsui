@@ -200,6 +200,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   leaves every bounding box unchanged and still has to repaint) and the two
   places the frame path resumed in the wrong state: a canvas drawn from its
   painted origin, a deferred subtree resumed with its inherited blend mode.
+- `TransformReflectionTests` — a reflection stays one. `Transform2D`'s
+  decomposition is an exact round trip (mirrors carried as a negative scale,
+  shears no longer growing by `sec(skewX)` per composition), so a mirrored
+  container places its child *across* it rather than upside down on both
+  paint paths, the pointer finds that child where it is painted, an
+  interpolation to a mirror flips rather than tumbles, and `PaintPlacement`
+  still degrades the reflection it now actually receives to its bounding box.
 - `ScrollIndicatorTransformSpaceTests` — the two spaces a scroll indicator
   lives in: thumb length is the layout-space visible fraction, thumb position
   and drag rate are painted space, and the untransformed geometry every other

@@ -60,13 +60,17 @@ struct PaintPlacement {
     /// breaks `b == -c`; all three fall back to the bounding box, which is
     /// what the painter did for everything before this existed.
     ///
-    /// The mirror case is defensive rather than reachable: `Transform2D`
-    /// stores a QR-style decomposition with non-negative scales, so it cannot
-    /// represent a negative determinant and a reflection has already
-    /// degenerated into a half-turn by the time it composes
-    /// (`TransformLoweringTests.testAReflectionDegeneratesToAHalfTurnBeforeItReachesThePainter`).
-    /// The check stays because the matrix is what this inspects, and the
-    /// matrix is where a future fix would put the reflection back.
+    /// The mirror case is reachable, and this is where it stops. `Transform2D`
+    /// carries a reflection through its decomposition as a negative scale
+    /// (R-MISC), so a mirror now arrives here as a mirror instead of as the
+    /// half turn it used to degenerate into — and a half turn *is* a
+    /// similarity, so the degenerate form was lowered as `rotation = π` and
+    /// drew upside down. The `a == d ∧ b == -c` test excludes reflections
+    /// structurally: it forces `det = a² + b² > 0`. A reflection therefore
+    /// paints into its bounding box, which is exact for the box and for every
+    /// descendant's placement, and unmirrored for the content inside it —
+    /// the scene contract has a rotation on its primitives and no reflection.
+    /// See `TransformReflectionTests`.
     static func lowering(_ localFrame: Rect, through transform: Transform2D) -> PaintPlacement {
         guard !transform.isIdentity else {
             return .axisAligned(localFrame)

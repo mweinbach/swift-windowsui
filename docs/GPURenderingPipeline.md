@@ -2292,10 +2292,57 @@ What deferral costs, and who pays it:
 Not done: lazy *node construction*. `LazyVStack`'s content arrives as an
 already-materialised `[AnyView]`, so every row's `ViewNode` is built even
 though most are never laid out — 500 rows are ~1,000 nodes whatever the
-viewport shows, pinned by `testLazyListStillConstructsANodePerRow`.
-Deferring construction needs a data-driven API
-(`LazyVStack(data:id:content:)`) plus an estimated row extent, which is a
-compatibility-surface change rather than a runtime one.
+viewport shows, pinned by `testLazyListStillConstructsANodePerRow` and, at
+the per-row slope, by
+`testLazyStackConstructionIsStillLinearInTheRowCount` and
+`testRowsTheViewportNeverReachesAreBuiltInFullAnyway`.
+
+##### Why lazy construction needs an API
+
+The tempting version of the fix is that `ForEach` over a range is the
+common case and already carries its data plus a per-element closure, so
+the runtime could call that closure only for rows inside the window
+without changing any call site. It cannot, and the reason is two lines
+of the compatibility layer:
+
+```swift
+// ForEach.init
+self.contentViews = Self.buildContentViews(data: data, id: id, content: content)
+
+// ViewBuilder
+public static func buildExpression<Data, ID>(_ e: ForEach<Data, ID>) -> [AnyView] { e.contentViews }
+```
+
+`ForEach` calls its element closure for every element **inside its own
+initializer** — the closure is consumed there and never stored — and
+`ViewBuilder` then flattens the resulting array into the enclosing block,
+so the enclosing `LazyVStack.init` receives one `AnyView` per row and no
+`ForEach` at all. Every row's view value exists before `makeComponent`
+runs, which is before the runtime, the scroll viewport, or the
+virtualization window are in the picture. `retainedLazyStackChildren`
+building a `ViewNode` per `AnyView` is the *second* linear cost, not the
+first.
+
+Deferring it means all of:
+
+- `ForEach` retaining `data` and an `@escaping` element closure instead of
+  a materialised array — which changes `onDelete`/`onMove`/`onInsert`,
+  which decorate `contentViews` today, and the `.id("\(elementID)#\(i)")`
+  identity each row is given at build time;
+- `ViewBuilder` keeping a `ForEach` whole instead of flattening it, i.e. a
+  currency other than `[AnyView]` for lazy containers — every consumer of
+  the flattened array (`Section`, `Group`, pinned-view hints,
+  `sectionHeaderChildCount`, `dynamicContentIndex`) indexes rows in it;
+- a runtime node whose children are materialised on demand during layout,
+  with the reconciliation identity, hit testing, accessibility projection
+  and replay-cache keys that a materialised child gets today;
+- an estimated row extent, because placement still needs to know where row
+  900 goes without building rows 0…899.
+
+That is a compatibility-surface change plus a new runtime node kind, not a
+seam that exists and is unused — so the honest state is: layout work is
+bounded by the viewport, construction is bounded by the data, and the
+budget tests say so in numbers.
 
 #### Why `List` is not virtualized yet
 

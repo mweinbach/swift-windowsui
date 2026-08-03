@@ -417,6 +417,80 @@ final class LazyStackVirtualizationTests: XCTestCase {
             displayScale: 1)
     }
 
+    // MARK: - What construction still costs
+
+    /// R-MISC. Layout is virtualized; **construction is not**, and this is the
+    /// number that says so out loud rather than in a doc.
+    ///
+    /// `ForEach` materializes one `AnyView` per element inside its own
+    /// initializer; `ViewBuilder.buildExpression(_: ForEach)` flattens that
+    /// array into the enclosing block before `LazyVStack.init` is even called;
+    /// `retainedLazyStackChildren` then builds one `ViewNode` subtree per
+    /// `AnyView`. The row count is paid in full — in view values, in nodes, in
+    /// allocations — before the runtime is in a position to notice that only
+    /// the viewport's worth of rows is reachable. Deferring it needs a
+    /// data-driven seam that does not exist yet (see
+    /// `docs/GPURenderingPipeline.md`, "Why lazy construction needs an API").
+    ///
+    /// So this pins the cost instead of pretending it away: the per-row *slope*
+    /// (two nodes, measured between two row counts so the scroll and stack
+    /// chrome cancels), and the fact that a lazy tree and an eager tree of the
+    /// same rows are exactly the same size.
+    /// `PerformanceBudgetGateTests.testLazyListStillConstructsANodePerRow`
+    /// already gates the same cost, but as an order of magnitude
+    /// (`< 2000` nodes for 500 rows) — it would not notice the per-row cost
+    /// going from two nodes to three. This one fails on that, and it fails if
+    /// construction ever does become lazy, at which point it is the test that
+    /// has to be rewritten to describe the new contract.
+    func testLazyStackConstructionIsStillLinearInTheRowCount() async {
+        let smallRows = 100
+        let largeRows = 400
+        let small = Self.nodeCount(in: Self.plainSnapshot(rowCount: smallRows, lazyStack: true).runtime.root)
+        let large = Self.nodeCount(in: Self.plainSnapshot(rowCount: largeRows, lazyStack: true).runtime.root)
+
+        let perRow = Double(large - small) / Double(largeRows - smallRows)
+        XCTAssertEqual(
+            perRow, 2, accuracy: 0.001,
+            "construction is linear in the row count at 2 nodes per row (frame wrapper + text); "
+                + "\(small) nodes at \(smallRows) rows, \(large) at \(largeRows)")
+
+        let eager = Self.nodeCount(in: Self.plainSnapshot(rowCount: largeRows, lazyStack: false).runtime.root)
+        XCTAssertEqual(
+            large, eager,
+            "a lazy stack builds exactly the tree an eager one does — the laziness is in the layout pass, "
+                + "not in the construction")
+    }
+
+    /// The same fact from the other side, and the one that would break first
+    /// if a future lazy-construction seam landed: a row the viewport has never
+    /// been able to reach is skipped by layout and still fully built. Its
+    /// subtree is there, in memory, node for node.
+    func testRowsTheViewportNeverReachesAreBuiltInFullAnyway() async {
+        let snapshotted = Self.plainSnapshot(rowCount: Self.rowCount, lazyStack: true)
+        guard let panel = Self.firstVirtualizingNode(in: snapshotted.runtime.root) else {
+            return XCTFail("the tree must contain a lazy stack")
+        }
+
+        XCTAssertGreaterThan(
+            snapshotted.runtime.virtualizedLayoutSkipCount, Self.rowCount / 2,
+            "the premise: most of these rows were never laid out")
+        XCTAssertEqual(
+            panel.children.count, Self.rowCount,
+            "and every one of them was built regardless")
+        let lastRow = try? XCTUnwrap(panel.children.last)
+        XCTAssertEqual(
+            Self.nodeCount(in: lastRow ?? ViewNode()), 2,
+            "including the subtree under the very last row, which no viewport has ever reached")
+    }
+
+    private static func nodeCount(in node: ViewNode) -> Int {
+        var total = 1
+        for child in node.children {
+            total += nodeCount(in: child)
+        }
+        return total
+    }
+
     // MARK: - The viewport window itself
 
     func testVirtualizationWindowIsInLocalSpaceAndFollowsTheScrollOffset() async {

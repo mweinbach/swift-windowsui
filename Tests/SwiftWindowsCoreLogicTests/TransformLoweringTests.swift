@@ -177,6 +177,22 @@ final class TransformLoweringTests: XCTestCase {
         let minX = segments.map { Double($0.x) }.min() ?? 0
         let maxX = segments.map { Double($0.x) + Double($0.width) }.max() ?? 0
         XCTAssertEqual((minX + maxX) / 2, 100, accuracy: 0.5, "the ring stays centred on the node")
+
+        // And one segment pinned absolutely: the angle and the symmetric
+        // centre both survive a `placement.rotating` that moves nothing, so
+        // neither can tell a turned ring from an axis-aligned one. The top
+        // edge is laid out at (60, 60, 80, 4), centre (100, 62); the 60°
+        // turn about the node's centre (100, 80) maps its offset (0, -18)
+        // to (9√3, -9), so the placed origin is (60 + 9√3, 69).
+        let edges = segments.filter { abs(Double($0.width) - 80) < 0.01 }
+        XCTAssertEqual(edges.count, 2, "an 80-wide ring has exactly a top and a bottom edge")
+        let topEdge = try XCTUnwrap(edges.min(by: { $0.y < $1.y }), "the ring must contain its top edge")
+        XCTAssertEqual(
+            Double(topEdge.x), 60 + 9 * 3.0.squareRoot(), accuracy: 1e-3,
+            "the top edge's placed origin must match the hand-computed turn about (100, 80)")
+        XCTAssertEqual(
+            Double(topEdge.y), 69, accuracy: 1e-3,
+            "the top edge's placed origin must match the hand-computed turn about (100, 80)")
     }
 
     /// `place` turns a rect's centre about the node's centre; `footprint` adds

@@ -1140,6 +1140,12 @@ struct ViewLayoutCacheKey: Equatable, Sendable {
 }
 @MainActor
 struct ScrollIndicatorDeferredDrawPayload {
+    /// The scroll view the indicator belongs to. The dispatch index below
+    /// is what interaction resolves; the node is what the isolation pass a
+    /// `.blur(radius:)` runs tests descent with — an indicator whose owner
+    /// is inside the blurred subtree is claimed and drawn into the bitmap
+    /// rather than painted sharp on top of it.
+    weak var node: ViewNode? = nil
     var dispatchIndex: Int
     var track: ScrollIndicatorTrack
     var color: Color
@@ -4509,6 +4515,7 @@ public final class ViewNode {
                     contentMask: effectiveClip,
                     payload: .scrollIndicator(
                         ScrollIndicatorDeferredDrawPayload(
+                            node: self,
                             dispatchIndex: dispatchIndex,
                             track: track,
                             color: effectiveScrollIndicatorColor,
@@ -6463,7 +6470,19 @@ public final class RetainedViewRuntime {
     /// "visited only the window". Visits are the direct measure of recursive
     /// layout work, so a list whose visit count grows with the row count has
     /// lost virtualization even while the skip count looks healthy.
+    ///
+    /// Lifetime-cumulative, so it measures passes-times-visits: an absolute
+    /// budget belongs on `maxLayoutVisitsInAnyPass` below, not on this.
     internal private(set) var layoutVisitCount = 0
+    /// The largest number of nodes any single layout pass has descended
+    /// into. The cumulative count above doubles under an extra settle pass
+    /// with no regression behind it — and a one-pass regression can hide in
+    /// the same slack — so a budget on descent cost reads this instead: per
+    /// pass, and immune to how many passes a render happened to run.
+    internal private(set) var maxLayoutVisitsInAnyPass = 0
+    /// Visits recorded by the pass currently running (or the last one that
+    /// ran). Reset in `updateResolvedLayout` beside `layoutPassID`.
+    private var currentPassLayoutVisitCount = 0
     /// Monotonic identity of the layout pass currently running (or the last
     /// one that ran). Bumped once per `updateResolvedLayout`, and used to
     /// tell state a pass produced from state a previous pass left behind —
@@ -7623,6 +7642,8 @@ public final class RetainedViewRuntime {
 
     fileprivate func recordLayoutVisit() {
         layoutVisitCount += 1
+        currentPassLayoutVisitCount += 1
+        maxLayoutVisitsInAnyPass = max(maxLayoutVisitsInAnyPass, currentPassLayoutVisitCount)
     }
 
     fileprivate func recordMeasureReuse() {
@@ -7974,6 +7995,7 @@ public final class RetainedViewRuntime {
         lastDeferredDrawFrameReplayCount = 0
         lastDeferredDrawSceneReplayCount = 0
         layoutPassID &+= 1
+        currentPassLayoutVisitCount = 0
         root.resolvedFrame = root.frame
         root.layoutSubtree(displayScale: displayScale)
         updatePrepaintState()

@@ -169,22 +169,31 @@ final class PerformanceBudgetGateTests: XCTestCase {
     /// descent was avoided; only a visit count says the walk was. Pinned at
     /// 5,000 rows, the size the virtualization work was specified against,
     /// so "skipped the descent but still visited every row" fails here.
+    ///
+    /// The bound is on `maxLayoutVisitsInAnyPass`, not the cumulative
+    /// `layoutVisitCount`: the cumulative count is passes-times-visits, so
+    /// an extra settle pass would trip an absolute bound with no regression
+    /// behind it — and a one-pass regression could hide in the same slack.
+    /// The worst single pass is the descent cost the budget means to pin.
     func testLazyListLayoutVisitsAreProportionalToTheViewport() async {
         await MainActor.run {
             let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
                 of: LazyListBudgetProbe(rowCount: 5000),
                 size: IntSize(width: 240, height: 200),
                 displayScale: 1)
-            // Measured 2026-08: 38 layout visits over 5,000 rows in a 200pt
-            // viewport — at offset 0 the window plus its overscan reaches
-            // rows 0…16, about two nodes each, plus the scroll/stack chrome.
-            // The bound carries wide headroom for overscan changes and is
-            // still two orders of magnitude below the 10,000+ a lost
+            XCTAssertGreaterThan(
+                snapshot.runtime.maxLayoutVisitsInAnyPass, 0,
+                "the probe must observe at least one layout pass, or the bound below is vacuous")
+            // Measured 2026-08: 38 layout visits per pass over 5,000 rows in
+            // a 200pt viewport — at offset 0 the window plus its overscan
+            // reaches rows 0…16, about two nodes each, plus the scroll/stack
+            // chrome. The bound carries wide headroom for overscan changes
+            // and is still two orders of magnitude below the 10,000+ a lost
             // virtualization would produce.
             XCTAssertLessThan(
-                snapshot.runtime.layoutVisitCount, 200,
-                "layout visits over a 5,000-row lazy list must stay proportional to the viewport; "
-                    + "got \(snapshot.runtime.layoutVisitCount)")
+                snapshot.runtime.maxLayoutVisitsInAnyPass, 200,
+                "layout visits per pass over a 5,000-row lazy list must stay proportional to the "
+                    + "viewport; got \(snapshot.runtime.maxLayoutVisitsInAnyPass)")
         }
     }
 

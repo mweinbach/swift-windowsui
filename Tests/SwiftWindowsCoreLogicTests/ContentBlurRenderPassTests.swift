@@ -368,6 +368,143 @@ final class ContentBlurRenderPassTests: XCTestCase {
             "the reused bitmap already contains the deferred child; the deferred phase must still skip it")
     }
 
+    /// The cache the test above cannot see: the *outer* scene replay. The
+    /// paint above passes `previousScene: nil`, so it exercises only the
+    /// bitmap cache. Through `renderScene()` a second frame has a real
+    /// previous scene, and a clean blurred node used to replay its cached
+    /// paint range — bitmap included — without ever reaching the isolation
+    /// branch, so nothing claimed its deferred child and the deferred phase
+    /// drew a second, sharp copy on top.
+    func testACleanBlurredSubtreeDoesNotReplayASharpCopyOfItsDeferredChild() async {
+        let header = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 60, height: 12),
+            backgroundColor: Color(red: 1, green: 0, blue: 0, alpha: 1))
+        header.paintsInDeferredPhase = true
+        let body = ViewNode(
+            frame: Rect(x: 0, y: 12, width: 60, height: 40),
+            backgroundColor: Color(red: 0, green: 0, blue: 1, alpha: 1))
+        let blurred = ViewNode(
+            frame: Rect(x: 10, y: 10, width: 60, height: 52),
+            contentBlurRadius: 4,
+            children: [header, body])
+        let sibling = ViewNode(
+            frame: Rect(x: 80, y: 10, width: 30, height: 30),
+            backgroundColor: Color(red: 0, green: 1, blue: 0, alpha: 1))
+        let root = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 120, height: 100),
+            children: [blurred, sibling])
+        let runtime = RetainedViewRuntime(root: root)
+
+        func headerQuadCount(_ scene: GPUIScene) -> Int {
+            scene.layers.reduce(0) {
+                $0 + $1.quads.filter { $0.startR > 0.9 && $0.startG < 0.1 && $0.startB < 0.1 }.count
+            }
+        }
+
+        let first = runtime.renderScene()
+        XCTAssertEqual(first.paintMetrics.contentBlurPasses, 1)
+        XCTAssertEqual(headerQuadCount(first), 0, "the deferred child belongs inside the blurred bitmap")
+
+        // Dirty the sibling, not the blurred subtree: the second frame must
+        // repaint at all — a fully clean runtime returns its cached scene and
+        // never reaches the deferred phase — while the blurred node itself
+        // stays clean, which is the exact shape that used to take the outer
+        // replay path.
+        sibling.backgroundColor = Color(red: 1, green: 1, blue: 0, alpha: 1)
+        let second = runtime.renderScene()
+        XCTAssertEqual(
+            second.paintMetrics.contentBlurPassesReused, 1,
+            "the clean subtree must composite its cached bitmap, or the fixture proves nothing")
+        XCTAssertEqual(
+            headerQuadCount(second), 0,
+            "a clean blurred node must keep its deferred child claimed; replaying the outer range "
+                + "without claiming painted a second, sharp copy on top from frame 2 onwards")
+    }
+
+    /// A scroll view *nested inside* a blurred subtree defers its indicator
+    /// exactly like a pinned header defers its subtree — and it used to stay
+    /// unclaimed because the payload carried only a dispatch index, so the
+    /// deferred phase painted the indicator sharp on top of the blurred
+    /// bitmap. (The blurred node's *own* indicator is deliberately not
+    /// claimed and stays sharp above its content, matching the subtree rule
+    /// that excludes the node itself.)
+    func testANestedScrollViewsIndicatorIsBlurredWithTheSubtree() async {
+        let indicatorColor = Color(red: 1, green: 0, blue: 1, alpha: 1)
+
+        func fixture(radius: Double) -> (root: ViewNode, deferredDraws: [DeferredDrawState]) {
+            let scroller = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 60, height: 52),
+                backgroundColor: Color(red: 0, green: 0, blue: 1, alpha: 1))
+            let blurred = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 60, height: 52),
+                contentBlurRadius: radius,
+                children: [scroller])
+            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 120, height: 100), children: [blurred])
+            // The deferred entry prepaint produces for the nested scroll
+            // view's indicator, drained after every node has painted.
+            let deferredDraws = [
+                DeferredDrawState(
+                    priority: 0,
+                    parentDispatchIndex: 0,
+                    contentMask: nil,
+                    payload: .scrollIndicator(
+                        ScrollIndicatorDeferredDrawPayload(
+                            node: scroller,
+                            dispatchIndex: 0,
+                            track: ScrollIndicatorTrack(
+                                axis: .vertical, origin: 12, travel: 30,
+                                indicatorRect: Rect(x: 62, y: 12, width: 6, height: 20)),
+                            color: indicatorColor,
+                            cornerRadius: 3
+                        ))
+                )
+            ]
+            return (root, deferredDraws)
+        }
+
+        func paint(_ fixture: (root: ViewNode, deferredDraws: [DeferredDrawState])) -> GPUIScene {
+            var deferredDraws = fixture.deferredDraws
+            var replay = 0
+            var deferredReplay = 0
+            return ScenePainter.paint(
+                root: fixture.root,
+                clearColor: .black,
+                surfaceSize: Size(width: 120, height: 100),
+                displayScale: 1,
+                textSystem: WindowTextSystem(),
+                previousScene: nil,
+                deferredDraws: &deferredDraws,
+                replayCount: &replay,
+                deferredReplayCount: &deferredReplay)
+        }
+
+        func indicatorQuadCount(_ scene: GPUIScene) -> Int {
+            scene.layers.reduce(0) {
+                $0 + $1.quads.filter { $0.startR > 0.9 && $0.startG < 0.1 && $0.startB > 0.9 }.count
+            }
+        }
+
+        let sharp = paint(fixture(radius: 0))
+        XCTAssertEqual(
+            indicatorQuadCount(sharp), 1,
+            "without a blur the deferred phase draws the indicator into the outer scene")
+
+        let blurred = paint(fixture(radius: 4))
+        XCTAssertEqual(blurred.paintMetrics.contentBlurPasses, 1)
+        XCTAssertEqual(
+            indicatorQuadCount(blurred), 0,
+            "a nested scroll view's indicator belongs inside the blurred bitmap, not sharp on top of it")
+
+        // And claimed means *drawn into the pass*, not dropped: the bitmap
+        // with the indicator differs from one painted without the entry.
+        var withoutEntry = fixture(radius: 4)
+        withoutEntry.deferredDraws = []
+        let without = paint(withoutEntry)
+        XCTAssertNotEqual(
+            blurred.imageResources.first?.bitmap, without.imageResources.first?.bitmap,
+            "the claimed indicator must be painted into the isolation pass's bitmap")
+    }
+
     // MARK: - Cost
 
     /// A blurred subtree costs a CPU rasterization plus a Gaussian when it

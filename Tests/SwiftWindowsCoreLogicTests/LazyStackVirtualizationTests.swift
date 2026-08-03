@@ -279,15 +279,18 @@ final class LazyStackVirtualizationTests: XCTestCase {
         XCTAssertGreaterThan(
             eagerVisits, rows,
             "an eager \(rows)-row list visits at least one node per row; the probe is wrong if it does not")
-        // Measured 2026-08: 38 visits. At offset 0 the 200pt window plus a
-        // viewport of overscan on each side reaches rows 0…16 of 24pt rows,
-        // about two nodes each, plus the scroll/stack chrome. The bound
-        // leaves room for overscan changes and is still two orders of
-        // magnitude below the row count.
+        // Measured 2026-08: 38 visits per pass. At offset 0 the 200pt window
+        // plus a viewport of overscan on each side reaches rows 0…16 of 24pt
+        // rows, about two nodes each, plus the scroll/stack chrome. The
+        // bound leaves room for overscan changes and is still two orders of
+        // magnitude below the row count. Per pass, not cumulative: the
+        // cumulative count is passes-times-visits, and the pass count is not
+        // what this budget is about (the comparative assertions below stay
+        // cumulative because both runtimes run the same passes).
         XCTAssertLessThan(
-            lazyVisits, 200,
-            "layout visits must be bounded by the viewport, not the row count; \(lazyVisits) visits "
-                + "over \(rows) rows")
+            lazyRuntime.maxLayoutVisitsInAnyPass, 200,
+            "layout visits per pass must be bounded by the viewport, not the row count; "
+                + "\(lazyRuntime.maxLayoutVisitsInAnyPass) visits over \(rows) rows")
         XCTAssertLessThan(
             lazyVisits * 10, eagerVisits,
             "virtualization must remove an order of magnitude of recursive layout work, not a constant "

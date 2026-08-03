@@ -581,7 +581,20 @@ public enum ScenePainter {
                 continue
             }
 
+            // A node `.blur(radius:)` isolates never replays its outer range.
+            // The isolation branch below is the only caller of
+            // `claimDeferredDescendants`, and a replayed range carries the
+            // composited bitmap forward while leaving the node's deferred
+            // descendants unclaimed — the deferred phase would then put a
+            // second, sharp copy of every pinned header on top of the bitmap
+            // that already contains it. The bitmap cache still carries the
+            // savings: a clean subtree re-composites its cached bitmap rather
+            // than re-rasterizing or re-blurring anything.
+            let refusesReplayForContentBlur =
+                node.contentBlurRadius > 0 && !context.suppressesContentBlurIsolation
+
             if !skipCacheUpdates,
+                !refusesReplayForContentBlur,
                 let previousScene,
                 !node.hasDirtySubtree,
                 node.cachedSceneKey == cacheKey,
@@ -1528,6 +1541,10 @@ public enum ScenePainter {
         // reused bitmap the deferred descendants are *already inside it*, and
         // leaving them unclaimed lets the deferred phase put a second, sharp
         // copy of every pinned header on top from the second frame onwards.
+        // The outer paint-record replay is refused for content-blur nodes
+        // (see `paintNode`) for the same reason: this claim is the only
+        // thing that keeps those entries out of the deferred phase, so every
+        // frame that composites the bitmap has to pass through here.
         let deferredDescendants = claimDeferredDescendants(of: isolation, in: &deferredDraws)
 
         let subSize = buffer.size
@@ -1601,7 +1618,7 @@ public enum ScenePainter {
     private static func rasterizeIsolatedSubtree(
         _ isolation: ContentBlurIsolation,
         buffer: OffscreenPassBuffer,
-        deferredDescendants: [DeferredSubtreePayload],
+        deferredDescendants: [ClaimedDeferredDraw],
         surfaceSize: Size,
         displayScale: Double,
         textSystem: WindowTextSystem,
@@ -1673,7 +1690,17 @@ public enum ScenePainter {
         return GPUIRawSceneRasterizer.rasterize(subScene, size: buffer.size)
     }
 
-    /// Takes the deferred subtrees that belong to the blurred subtree away
+    /// A deferred entry the isolation pass has taken away from the deferred
+    /// phase, in the order that phase would have drawn it.
+    private enum ClaimedDeferredDraw {
+        case subtree(DeferredSubtreePayload)
+        /// A nested scroll view's indicator, with the content mask its
+        /// deferred entry carried — the quad is built exactly as the
+        /// deferred drain builds it, just shifted into the pass's buffer.
+        case scrollIndicator(ScrollIndicatorDeferredDrawPayload, contentMask: RuntimeClipShape?)
+    }
+
+    /// Takes the deferred entries that belong to the blurred subtree away
     /// from the deferred phase, in the order that phase would have drawn
     /// them.
     ///
@@ -1682,17 +1709,19 @@ public enum ScenePainter {
     /// a `.blur()` on a `LazyVStack(pinnedViews:)` rendered blurred rows with
     /// perfectly sharp headers sitting on top of them. There is no ordering
     /// of one pass that fixes that — the pinned header has to be *inside* the
-    /// thing being blurred.
+    /// thing being blurred. A scroll view nested inside the subtree defers
+    /// its indicator the same way, so the indicator is claimed by owning
+    /// node exactly like a subtree is.
     ///
     /// Claiming is separate from drawing because the isolation pass may skip
-    /// the drawing entirely: a reused bitmap already contains these subtrees,
+    /// the drawing entirely: a reused bitmap already contains these entries,
     /// and the deferred phase must skip them on that frame too.
     private static func claimDeferredDescendants(
         of isolation: ContentBlurIsolation,
         in deferredDraws: inout [DeferredDrawState]
-    ) -> [DeferredSubtreePayload] {
+    ) -> [ClaimedDeferredDraw] {
         guard !deferredDraws.isEmpty else { return [] }
-        var claimed: [DeferredSubtreePayload] = []
+        var claimed: [ClaimedDeferredDraw] = []
         // Same order the deferred phase drains in: priority, then the order
         // prepaint recorded them.
         for index in deferredDraws.indices.sorted(by: { lhs, rhs in
@@ -1701,28 +1730,49 @@ public enum ScenePainter {
             if left.priority != right.priority { return left.priority < right.priority }
             return lhs < rhs
         }) {
-            guard !deferredDraws[index].isDrawnInline,
-                case .subtree(let payload) = deferredDraws[index].payload,
-                let deferredNode = payload.node,
+            guard !deferredDraws[index].isDrawnInline else { continue }
+            let claim: ClaimedDeferredDraw?
+            switch deferredDraws[index].payload {
+            case .subtree(let payload):
                 // Strictly *below* the blurred node: an entry for the node
                 // itself is the one being drained right now, and painting it
                 // here would recurse without end.
-                deferredNode !== isolation.node,
-                isNode(deferredNode, insideSubtreeOf: isolation.node)
-            else { continue }
+                if let deferredNode = payload.node,
+                    deferredNode !== isolation.node,
+                    isNode(deferredNode, insideSubtreeOf: isolation.node)
+                {
+                    claim = .subtree(payload)
+                } else {
+                    claim = nil
+                }
+            case .scrollIndicator(let payload):
+                // Same rule by the indicator's owning node. Strictly below
+                // again — not for recursion this time, but so the blurred
+                // node's *own* indicator keeps drawing sharp above its
+                // blurred content, matching the subtree exclusion.
+                if let owningNode = payload.node,
+                    owningNode !== isolation.node,
+                    isNode(owningNode, insideSubtreeOf: isolation.node)
+                {
+                    claim = .scrollIndicator(payload, contentMask: deferredDraws[index].contentMask)
+                } else {
+                    claim = nil
+                }
+            }
+            guard let claim else { continue }
 
             deferredDraws[index].isDrawnInline = true
             // The entry no longer draws into the outer scene, so any
             // paint-record range it carries describes a scene it is not in.
             deferredDraws[index].cachedScenePaintRange = nil
-            claimed.append(payload)
+            claimed.append(claim)
         }
         return claimed
     }
 
-    /// Draws the claimed deferred subtrees into the isolation pass's scene.
+    /// Draws the claimed deferred entries into the isolation pass's scene.
     private static func appendDeferredDescendants(
-        _ payloads: [DeferredSubtreePayload],
+        _ claims: [ClaimedDeferredDraw],
         of isolation: ContentBlurIsolation,
         into subScene: inout GPUIScene,
         subDeferredDraws: inout [DeferredDrawState],
@@ -1734,37 +1784,66 @@ public enum ScenePainter {
         usedPixelGlyphs: inout Bool,
         replayCount: inout Int
     ) {
-        for payload in payloads {
-            guard let deferredNode = payload.node else { continue }
-            paintNode(
-                deferredNode,
-                into: &subScene,
-                deferredDraws: &subDeferredDraws,
-                parentOrigin: payload.parentOrigin,
-                inheritedClip: nil,
-                layerIndex: 0,
-                surfaceSize: surfaceSize,
-                displayScale: displayScale,
-                textSystem: textSystem,
-                previousScene: nil,
-                // `inheritedOpacity` is accumulated from the root and so
-                // already contains the ancestors' opacity that the composited
-                // image applies again; divide it back out rather than
-                // multiplying it in twice.
-                primitiveOpacity: isolation.primitiveOpacity > 0
-                    ? payload.inheritedOpacity / isolation.primitiveOpacity
-                    : payload.inheritedOpacity,
-                inheritedColorEffects: payload.inheritedColorEffects,
-                inheritedBlendMode: payload.inheritedBlendMode,
-                usedNativeGlyphs: &usedNativeGlyphs,
-                usedPixelGlyphs: &usedPixelGlyphs,
-                replayCount: &replayCount,
-                // The deferred payload's transform is the outer screen space
-                // its parent handed it; the buffer shift composes last, as it
-                // does for the subtree painted above.
-                inheritedTransform: payload.inheritedTransform.concatenating(bufferShift),
-                skipCacheUpdates: true
-            )
+        for claim in claims {
+            switch claim {
+            case .subtree(let payload):
+                guard let deferredNode = payload.node else { continue }
+                paintNode(
+                    deferredNode,
+                    into: &subScene,
+                    deferredDraws: &subDeferredDraws,
+                    parentOrigin: payload.parentOrigin,
+                    inheritedClip: nil,
+                    layerIndex: 0,
+                    surfaceSize: surfaceSize,
+                    displayScale: displayScale,
+                    textSystem: textSystem,
+                    previousScene: nil,
+                    // `inheritedOpacity` is accumulated from the root and so
+                    // already contains the ancestors' opacity that the composited
+                    // image applies again; divide it back out rather than
+                    // multiplying it in twice.
+                    primitiveOpacity: isolation.primitiveOpacity > 0
+                        ? payload.inheritedOpacity / isolation.primitiveOpacity
+                        : payload.inheritedOpacity,
+                    inheritedColorEffects: payload.inheritedColorEffects,
+                    inheritedBlendMode: payload.inheritedBlendMode,
+                    usedNativeGlyphs: &usedNativeGlyphs,
+                    usedPixelGlyphs: &usedPixelGlyphs,
+                    replayCount: &replayCount,
+                    // The deferred payload's transform is the outer screen space
+                    // its parent handed it; the buffer shift composes last, as it
+                    // does for the subtree painted above.
+                    inheritedTransform: payload.inheritedTransform.concatenating(bufferShift),
+                    skipCacheUpdates: true
+                )
+            case .scrollIndicator(let payload, let contentMask):
+                // The deferred drain's spelling of the indicator quad — same
+                // command, same clip rounding — shifted into the buffer's
+                // origin. Track and mask are already in painted space and the
+                // buffer shift is a pure translation, so translating the two
+                // rects is exact; the corner rounding resolves against the
+                // *unshifted* pair, which is the same answer because both
+                // rects move together.
+                var command = payload.fillRectCommand(contentMask: contentMask?.rect)
+                let clipCornerRadius = contentMask.resolvedCornerRadius(forQuadRect: command.rect)
+                command.rect = Rect(origin: command.rect.origin.applying(bufferShift), size: command.rect.size)
+                command.clipRect = command.clipRect.map {
+                    Rect(origin: $0.origin.applying(bufferShift), size: $0.size)
+                }
+                // The payload's color was multiplied by the node's effective
+                // opacity at prepaint, which contains the ancestors' opacity
+                // the composited image applies again; divide it back out, as
+                // the subtree path above does.
+                if isolation.primitiveOpacity > 0 {
+                    command.color = command.color.multipliedAlpha(by: 1 / isolation.primitiveOpacity)
+                }
+                subScene.addQuad(
+                    quad(
+                        for: command, surfaceSize: surfaceSize, displayScale: displayScale,
+                        clipCornerRadius: clipCornerRadius),
+                    toLayer: 0)
+            }
         }
     }
 

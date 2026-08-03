@@ -2032,16 +2032,24 @@ every node has finished painting, which is after the blur. A blurred
 `LazyVStack(pinnedViews:)` therefore used to render blurred rows with a
 perfectly sharp header on top. The isolation pass claims the deferred
 entries that live under its node — marking them `isDrawnInline` so the
-deferred phase skips them — and draws them into its own scene. It claims
-them on the frames it *reuses* its bitmap too: those entries are already
+deferred phase skips them — and draws them into its own scene. Nested
+scroll views' indicators are claimed by the same rule: the indicator
+payload carries its owning node, and an owner strictly below the blurred
+node is drawn into the bitmap. (The blurred node's *own* indicator is
+deliberately not claimed — matching the subtree rule, which excludes the
+node itself — and stays sharp above its blurred content.) It claims them
+on the frames it *reuses* its bitmap too: those entries are already
 inside those pixels, and a claim tied to the rasterization would put a
-sharp copy back on top from the second frame onwards. The flag is reset
-at the top of every paint attempt, because the deferred list outlives the
-frame (it carries the replay ranges) and the decision does not. Scroll
-indicators are not claimed — they carry a dispatch index rather than a
-node, so there is nothing to test descent with — and stay sharp above a
-blurred scroll view. The frame path's own deferred drain ignores the flag
-entirely; it has no isolation pass, so it must still draw everything.
+sharp copy back on top from the second frame onwards. For the same
+reason a content-blur node never replays its outer paint-record range —
+replay is the one path that skips the isolation branch, and a replayed
+bitmap with unclaimed descendants is exactly that sharp copy; the bitmap
+cache below, not scene replay, is what makes an unchanged blurred
+subtree cheap. The `isDrawnInline` flag is reset at the top of every
+paint attempt, because the deferred list outlives the frame (it carries
+the replay ranges) and the decision does not. The frame path's own
+deferred drain ignores the flag entirely; it has no isolation pass, so
+it must still draw everything.
 
 **Cost.** One CPU rasterization plus one Gaussian when the subtree
 changes, and nothing at all when it does not: the bitmap is cached on the

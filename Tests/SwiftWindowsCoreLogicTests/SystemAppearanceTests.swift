@@ -186,6 +186,128 @@ final class SystemAppearanceTests: XCTestCase {
             .whenAppearanceChanged)
     }
 
+    // MARK: - WM_SETTINGCHANGE lParam is attacker-controlled
+
+    /// `PostMessage(HWND_BROADCAST, WM_SETTINGCHANGE, …)` delivers `lParam`
+    /// untouched, so every one of these values can reach the wndproc from a
+    /// process that wishes this one harm. None of them may fault: the
+    /// section classifies as absent and the routing table answers that case.
+    func testSettingChangeSectionRefusesLParamValuesItCannotRead() async {
+        XCTAssertNil(Win32Window.settingChangeSection(0), "null is not a section pointer")
+
+        // Reserved but never committed: the address is inside this process's
+        // address space and reading it is still an access violation.
+        let reserved = VirtualAlloc(nil, SIZE_T(Self.pageSize), DWORD(MEM_RESERVE), DWORD(PAGE_NOACCESS))
+        XCTAssertNotNil(reserved)
+        XCTAssertNil(Win32Window.settingChangeSection(Self.lParam(for: reserved!)))
+
+        // Committed but explicitly unreadable.
+        let noAccess = VirtualAlloc(
+            nil, SIZE_T(Self.pageSize), DWORD(MEM_RESERVE | MEM_COMMIT), DWORD(PAGE_NOACCESS))
+        XCTAssertNotNil(noAccess)
+        XCTAssertNil(Win32Window.settingChangeSection(Self.lParam(for: noAccess!)))
+
+        // A plausible-looking constant of the kind a fuzzer posts.
+        XCTAssertNil(Win32Window.settingChangeSection(LPARAM(bitPattern: UInt64(0x0000_0DEA_D000_0000))))
+
+        VirtualFree(reserved, 0, DWORD(MEM_RELEASE))
+        VirtualFree(noAccess, 0, DWORD(MEM_RELEASE))
+    }
+
+    /// A real `LPCWSTR` is `WCHAR`-aligned. An odd address is not one, and an
+    /// unaligned load is undefined behaviour before it is ever a fault.
+    func testSettingChangeSectionRefusesAMisalignedPointer() async {
+        let page = VirtualAlloc(
+            nil, SIZE_T(Self.pageSize), DWORD(MEM_RESERVE | MEM_COMMIT), DWORD(PAGE_READWRITE))
+        XCTAssertNotNil(page)
+        defer { VirtualFree(page, 0, DWORD(MEM_RELEASE)) }
+
+        XCTAssertNil(Win32Window.settingChangeSection(Self.lParam(for: page!) + 1))
+    }
+
+    /// The readable case still resolves, so hardening the base address did
+    /// not cost the classification the routing depends on.
+    func testSettingChangeSectionReadsAReadableSectionName() async {
+        let page = VirtualAlloc(
+            nil, SIZE_T(Self.pageSize), DWORD(MEM_RESERVE | MEM_COMMIT), DWORD(PAGE_READWRITE))
+        XCTAssertNotNil(page)
+        defer { VirtualFree(page, 0, DWORD(MEM_RELEASE)) }
+
+        let units = Array("ImmersiveColorSet".utf16) + [0]
+        let destination = page!.bindMemory(to: WCHAR.self, capacity: units.count)
+        for (index, unit) in units.enumerated() {
+            destination[index] = unit
+        }
+
+        let section = Win32Window.settingChangeSection(Self.lParam(for: page!))
+        XCTAssertEqual(section, "ImmersiveColorSet")
+        XCTAssertEqual(
+            Win32Window.settingChangeDelivery(wParam: 0, section: section), .unconditional,
+            "the theme broadcast still arrives with wParam == 0, which is why wParam is not the gate")
+    }
+
+    /// An unterminated name at the tail of a committed page whose successor
+    /// is only reserved: the scan must stop at the region edge instead of
+    /// walking into the hole.
+    func testSettingChangeSectionStopsAtAnUncommittedPageBoundary() async {
+        let span = VirtualAlloc(nil, SIZE_T(Self.pageSize * 2), DWORD(MEM_RESERVE), DWORD(PAGE_NOACCESS))
+        XCTAssertNotNil(span)
+        defer { VirtualFree(span, 0, DWORD(MEM_RELEASE)) }
+        XCTAssertNotNil(VirtualAlloc(span, SIZE_T(Self.pageSize), DWORD(MEM_COMMIT), DWORD(PAGE_READWRITE)))
+
+        // Four non-zero WCHARs flush against the end of the committed page.
+        let tail = span!.advanced(by: Self.pageSize - 8)
+        let letters = tail.bindMemory(to: WCHAR.self, capacity: 4)
+        for index in 0..<4 {
+            letters[index] = WCHAR(0x0041)
+        }
+
+        XCTAssertEqual(Win32Window.readableUnitCount(from: UInt(bitPattern: tail), limit: 64), 4)
+        XCTAssertNil(Win32Window.settingChangeSection(Self.lParam(for: tail)))
+    }
+
+    func testReadableUnitCountMeasuresRatherThanGuesses() async {
+        XCTAssertEqual(Win32Window.readableUnitCount(from: 0, limit: 64), 0)
+
+        let page = VirtualAlloc(
+            nil, SIZE_T(Self.pageSize), DWORD(MEM_RESERVE | MEM_COMMIT), DWORD(PAGE_READWRITE))
+        XCTAssertNotNil(page)
+        defer { VirtualFree(page, 0, DWORD(MEM_RELEASE)) }
+
+        XCTAssertEqual(Win32Window.readableUnitCount(from: UInt(bitPattern: page!), limit: 0), 0)
+        XCTAssertEqual(Win32Window.readableUnitCount(from: UInt(bitPattern: page!), limit: 64), 64)
+        XCTAssertEqual(
+            Win32Window.readableUnitCount(from: UInt.max - 1, limit: 64), 0,
+            "an address whose span overflows is not readable, it is arithmetic")
+    }
+
+    /// The wndproc pairs a possibly-unreadable `lParam` with `wParam`. When
+    /// the section cannot be read the classification falls back to `wParam`
+    /// alone, which is why the font/metrics broadcasts survive a hostile
+    /// pointer and the anonymous ones stay filtered.
+    func testSettingChangeClassificationSurvivesAnUnreadableLParam() async {
+        let hostile = LPARAM(bitPattern: UInt64(0x0000_0DEA_D000_0000))
+        XCTAssertEqual(
+            Win32Window.settingChangeDelivery(
+                wParam: WPARAM(SPI_SETNONCLIENTMETRICS),
+                section: Win32Window.settingChangeSection(hostile)),
+            .unconditional)
+        XCTAssertEqual(
+            Win32Window.settingChangeDelivery(
+                wParam: 0, section: Win32Window.settingChangeSection(hostile)),
+            .whenAppearanceChanged)
+        XCTAssertEqual(
+            Win32Window.settingChangeDelivery(
+                wParam: WPARAM(SPI_SETHIGHCONTRAST), section: Win32Window.settingChangeSection(0)),
+            .unconditional)
+    }
+
+    private static let pageSize = 4096
+
+    private static func lParam(for pointer: UnsafeMutableRawPointer) -> LPARAM {
+        LPARAM(bitPattern: UInt64(UInt(bitPattern: pointer)))
+    }
+
     // MARK: - Mapping tables
 
     func testHighContrastMapsToIncreasedContrast() async {

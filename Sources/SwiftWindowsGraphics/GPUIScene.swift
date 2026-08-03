@@ -518,23 +518,36 @@ public struct GPUIScene: Equatable, Sendable {
     /// Installs hand-built layers wholesale, bypassing `add*`.
     ///
     /// The named door for the residual hole `GPUILayer.init` documents: a
-    /// scene whose layers are built by hand is unsanitized and its
-    /// `paintRecords` describe the layers it *had*, so `validate()` — not
-    /// the type system — is what stands between one and a backend. That is
-    /// exactly what the malformed-scene tests need and what nothing else
-    /// should want, which is why it says so in its name.
+    /// scene whose layers are built by hand is unsanitized, so `validate()`
+    /// — not the type system — is what stands between one and a backend.
+    /// That is exactly what the malformed-scene tests need and what nothing
+    /// else should want, which is why it says so in its name.
+    ///
+    /// The replay log does not survive the swap. `paintRecords` is a list of
+    /// *references* into the family arrays, so records kept across a layer
+    /// replacement stay in bounds while pointing at primitives that are no
+    /// longer the ones they described — the in-bounds-but-wrong replay class
+    /// the painter's stale-range check closed on the other side. A hand-built
+    /// layer set has no valid log for the layers it just installed, and an
+    /// empty log replays as `.invalidRange` rather than as a wrong picture.
     public mutating func installHandBuiltLayers(_ newLayers: [GPUILayer]) {
         layers = newLayers
+        paintRecords.removeAll(keepingCapacity: true)
         isFinished = false
     }
 
     /// `installHandBuiltLayers` for a single layer, leaving the rest alone.
-    /// A no-op when `index` does not address an existing layer.
+    /// A no-op — log included — when `index` does not address an existing
+    /// layer. The log is dropped for the same reason as the wholesale
+    /// installer: every record naming this layer now references primitives
+    /// that were replaced, and the records naming the other layers cannot be
+    /// replayed on their own without the range spanning this one.
     public mutating func installHandBuiltLayer(_ layer: GPUILayer, at index: Int) {
         guard layers.indices.contains(index) else {
             return
         }
         layers[index] = layer
+        paintRecords.removeAll(keepingCapacity: true)
         isFinished = false
     }
 

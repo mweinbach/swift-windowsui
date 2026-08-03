@@ -262,6 +262,43 @@ final class ScenePresentationOrderTests: XCTestCase {
         XCTAssertEqual(target.paintRecordCount, 0, "a rejected replay must add nothing")
     }
 
+    /// The same in-bounds-but-wrong replay class, reached from the other
+    /// side: `installHandBuiltLayers` swaps the primitives out from under a
+    /// log that still names their indices. Every record stays in range, so
+    /// `.invalidRange` never fires and the replay reproduces whatever moved
+    /// into those slots. The log does not survive the swap.
+    func testInstallingHandBuiltLayersDropsTheStaleReplayLog() async throws {
+        var source = GPUIScene()
+        source.addQuad(QuadPrimitive(x: 0, y: 0, width: 10, height: 10))
+        source.addQuad(QuadPrimitive(x: 20, y: 0, width: 10, height: 10))
+        let recordedRange = 0..<source.paintRecordCount
+        XCTAssertEqual(recordedRange.count, 2)
+
+        source.installHandBuiltLayers([
+            GPUILayer(quads: [QuadPrimitive(x: 400, y: 400, width: 1, height: 1)])
+        ])
+        XCTAssertEqual(source.paintRecordCount, 0, "a hand-built layer set has no valid replay log")
+
+        var target = GPUIScene()
+        XCTAssertEqual(target.replay(recordedRange, from: source), .invalidRange(recordedRange, recordCount: 0))
+        XCTAssertTrue(target.layers[0].quads.isEmpty, "and a rejected replay must add nothing")
+    }
+
+    /// `installHandBuiltLayer(_:at:)` drops the log for the same reason; an
+    /// index that addresses no layer changes nothing at all, log included.
+    func testInstallingOneHandBuiltLayerDropsTheLogOnlyWhenItReplacesSomething() async throws {
+        var scene = GPUIScene()
+        scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 10, height: 10))
+        scene.addQuad(QuadPrimitive(x: 20, y: 0, width: 10, height: 10))
+        XCTAssertEqual(scene.paintRecordCount, 2)
+
+        scene.installHandBuiltLayer(GPUILayer(quads: [QuadPrimitive(x: 5, y: 5, width: 1, height: 1)]), at: 7)
+        XCTAssertEqual(scene.paintRecordCount, 2, "a no-op install must not discard a valid log")
+
+        scene.installHandBuiltLayer(GPUILayer(quads: [QuadPrimitive(x: 5, y: 5, width: 1, height: 1)]), at: 0)
+        XCTAssertEqual(scene.paintRecordCount, 0)
+    }
+
     /// One painted frame, threading `previousScene` the way the runtime does.
     private func paintFrame(_ root: ViewNode, previous: GPUIScene?, surfaceSize: Size) -> GPUIScene {
         var deferredDraws: [DeferredDrawState] = []

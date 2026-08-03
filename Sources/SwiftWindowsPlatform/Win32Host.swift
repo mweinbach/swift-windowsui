@@ -480,21 +480,45 @@ public final class Win32Window {
     }
 
     /// `WM_SETTINGCHANGE`'s `lParam` is either 0 or a pointer to a
-    /// null-terminated wide string naming the changed section; Windows
-    /// marshals that string into the receiving process for broadcasts. The
-    /// read is bounded because a sender that puts something else in `lParam`
-    /// must not walk this process off a page — every section name we match is
-    /// well under the limit.
-    private static func settingChangeSection(_ lParam: LPARAM) -> String? {
-        guard lParam != 0,
-            let pointer = UnsafePointer<WCHAR>(bitPattern: UInt(bitPattern: Int(lParam)))
-        else {
+    /// null-terminated wide string naming the changed section.
+    ///
+    /// Windows marshals that string into the receiving process only for the
+    /// `SendMessage` family; `PostMessage(HWND_BROADCAST, WM_SETTINGCHANGE,
+    /// 0, anything)` — which any process on the machine may do — arrives with
+    /// `lParam` exactly as the sender wrote it. Bounding the *length* of the
+    /// scan never made an invalid *base* safe: `pointer[0]` is the read that
+    /// faults, on the UI thread, and Swift has no structured exception
+    /// handling to catch it.
+    ///
+    /// So the address is checked before it is read. A `wParam` allow-list is
+    /// not the gate here and would be the wrong one: the sections this host
+    /// actually keys on (`ImmersiveColorSet`, `WindowsThemeElement`, `intl`)
+    /// all arrive with `wParam == 0`, so allow-listing `wParam` would drop
+    /// the dark-mode switch this routing exists to catch while still leaving
+    /// the forgeable `wParam == 0` case dereferencing a raw address. What
+    /// makes the read safe is `readableUnitCount`, and an unreadable `lParam`
+    /// classifies as "no section" — a case the routing table already answers.
+    internal static func settingChangeSection(_ lParam: LPARAM) -> String? {
+        guard lParam != 0 else {
+            return nil
+        }
+
+        let address = UInt(bitPattern: Int(lParam))
+        // A real `LPCWSTR` is `WCHAR`-aligned; an unaligned base is by
+        // definition not one, and an unaligned load is undefined behaviour
+        // before it is ever a fault.
+        guard address % UInt(MemoryLayout<WCHAR>.alignment) == 0 else {
+            return nil
+        }
+
+        let readableUnits = readableUnitCount(from: address, limit: maximumSettingChangeSectionLength)
+        guard readableUnits > 0, let pointer = UnsafePointer<WCHAR>(bitPattern: address) else {
             return nil
         }
 
         var units: [UTF16.CodeUnit] = []
-        units.reserveCapacity(Self.maximumSettingChangeSectionLength)
-        for index in 0..<Self.maximumSettingChangeSectionLength {
+        units.reserveCapacity(readableUnits)
+        for index in 0..<readableUnits {
             let unit = pointer[index]
             if unit == 0 {
                 return String(decoding: units, as: UTF16.self)
@@ -503,6 +527,67 @@ public final class Win32Window {
         }
 
         return nil
+    }
+
+    /// How many `WCHAR`s starting at `address` this process can read without
+    /// faulting, capped at `limit`.
+    ///
+    /// `VirtualQuery` rather than `IsBadReadPtr`: the latter probes by
+    /// *reading*, which trips the very guard pages it claims to test for and
+    /// permanently breaks the thread's stack growth. `VirtualQuery` reports
+    /// the region without touching it, and the walk continues into adjacent
+    /// regions so a name that straddles a page boundary still resolves while
+    /// one that runs off the end of a committed region stops at it. Anything
+    /// not committed, not readable, or guarded ends the span.
+    ///
+    /// Internal so a headless test can point it at reserved-but-uncommitted
+    /// and `PAGE_NOACCESS` pages without a live broadcast.
+    internal static func readableUnitCount(from address: UInt, limit: Int) -> Int {
+        let unitSize = UInt(MemoryLayout<WCHAR>.size)
+        guard address != 0, limit > 0 else {
+            return 0
+        }
+        let (wanted, overflowed) = UInt(limit).multipliedReportingOverflow(by: unitSize)
+        guard !overflowed, !address.addingReportingOverflow(wanted).overflow else {
+            return 0
+        }
+
+        var readableBytes: UInt = 0
+        let infoSize = SIZE_T(MemoryLayout<MEMORY_BASIC_INFORMATION>.size)
+        while readableBytes < wanted {
+            let probe = address + readableBytes
+            var info = MEMORY_BASIC_INFORMATION()
+            guard VirtualQuery(UnsafeRawPointer(bitPattern: probe), &info, infoSize) == infoSize,
+                info.State == DWORD(MEM_COMMIT),
+                protectionAllowsReads(info.Protect)
+            else {
+                break
+            }
+
+            let regionEnd = UInt(bitPattern: info.BaseAddress) + UInt(info.RegionSize)
+            guard regionEnd > probe else {
+                break
+            }
+            readableBytes = min(wanted, regionEnd - address)
+        }
+
+        return Int(readableBytes / unitSize)
+    }
+
+    /// Whether a `MEMORY_BASIC_INFORMATION.Protect` value permits reads. The
+    /// base protections occupy the low byte and are mutually exclusive;
+    /// `PAGE_GUARD` is a modifier bit above them and makes the first touch a
+    /// guard-page violation however readable the base protection looks.
+    private static func protectionAllowsReads(_ protection: DWORD) -> Bool {
+        guard protection & DWORD(PAGE_GUARD) == 0, protection & DWORD(PAGE_NOACCESS) == 0 else {
+            return false
+        }
+
+        let readable =
+            DWORD(PAGE_READONLY) | DWORD(PAGE_READWRITE) | DWORD(PAGE_WRITECOPY)
+            | DWORD(PAGE_EXECUTE_READ) | DWORD(PAGE_EXECUTE_READWRITE)
+            | DWORD(PAGE_EXECUTE_WRITECOPY)
+        return protection & readable != 0
     }
 
     private static let maximumSettingChangeSectionLength = 64

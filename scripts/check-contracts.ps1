@@ -189,6 +189,26 @@ Assert-NotContains `
     "Sources/SwiftWindowsGraphics/SceneRasterizer.swift" `
     "func\s+\w*(?:[rR]oundedRectDistance|[sS]ignedDistance|sdRoundBox|[sS]moothstep)\w*\s*[(<]" `
     "SceneRasterizer.swift must not define its own rounded-rect distance or smoothstep; that is GPUIQuadCoverage's job, and a second copy is a silent CPU/GPU divergence."
+# The declaration rule above only fires on a *named function* whose name it
+# already knows, so a second kernel inlined into `drawQuad` walked straight
+# past it. These two are structural rather than name-keyed: every SDF and
+# every antialiasing ramp in this file must be a call *into* GPUIQuadCoverage,
+# and coverage must never be answered by asking whether a rect contains a
+# sample point — which is the literal regression WS-08 fixed.
+#
+# Limitation, stated rather than pretended away: no regex can recognise fresh
+# distance math written from scratch (`max(abs(dx) - halfWidth, 0)` and
+# friends) under names nobody has thought of. What holds that line is the
+# CPU/GPU coherence tests, not this rule; these patterns exist so the obvious
+# regressions cannot land silently between test runs.
+Assert-NotContains `
+    "Sources/SwiftWindowsGraphics/SceneRasterizer.swift" `
+    "(?<!GPUIQuadCoverage\.)\b(?:smoothstep|smoothStep|sdRoundBox|signedDistance|roundedRectDistance)\s*\(" `
+    "SceneRasterizer.swift must call every signed-distance and smoothstep through GPUIQuadCoverage; an unqualified one is a second coverage kernel, inlined instead of declared."
+Assert-NotContains `
+    "Sources/SwiftWindowsGraphics/SceneRasterizer.swift" `
+    "\.contains\(\s*(?:[Pp]ixel|[Ss]ample|[Pp]oint|[Cc]ent(?:re|er))" `
+    "SceneRasterizer.swift must not answer pixel coverage with a containment test; GPUIQuadCoverage.geometryCovers/coverage is the one kernel, and rect.contains(pixelCentre) is exactly how square quads stopped matching the shader."
 
 # WS-16 — one clip shape, narrowed in one place. Clipping used to be a bare
 # Rect? threaded through five independently written intersection blocks, which
@@ -217,9 +237,18 @@ foreach ($clipConsumer in @("Sources/SwiftWindowsUI/Runtime.swift", "Sources/Swi
     # the five-copies regression. ScenePainter's RenderFrame replay keeps its
     # own bare-Rect `currentClip` stack because RenderCommand.pushClip carries
     # nothing but a rect — that stack is named `currentClip` and is exempt.
+    #
+    # The binding form is deliberately *not* enumerated. An earlier version
+    # anchored at line start and allowed only an optional `var`/`let` prefix,
+    # which meant it could not fire on `guard let`/`if let` — the form every
+    # real clip narrowing in this codebase uses, so the rule matched nothing
+    # it was written to catch. What identifies the regression is the shape
+    # `<clip-ish name> = <anything>.intersected(with:`, wherever on the line
+    # it sits; the lookbehind only keeps the name from starting mid-identifier
+    # or after a `.`, which is what keeps `self.currentClip` exempt too.
     Assert-NotContains `
         $clipConsumer `
-        "(?m)^\s*(?:(?:var|let)\s+)?(?!currentClip\b)\w*[Cc]lip\w*\s*=\s*[^=\r\n]*\.intersected\(with:" `
+        "(?<![.\w])(?!currentClip\b)\w*[Cc]lip\w*\s*=\s*[^=\r\n]*\.intersected\(with:" `
         "$clipConsumer must not narrow a clip with a bare Rect.intersected(with:); RuntimeClipShape.narrowed(to:) is the one narrowing rule (anchored rounding, cut corners squared, empty distinct from absent)."
 }
 

@@ -226,7 +226,17 @@ Structural bounds live alongside it:
   `paintRecords` describing primitives that were no longer there. The
   deliberate escape hatch is named — `installHandBuiltLayers(_:)` /
   `installHandBuiltLayer(_:at:)` — because building a malformed scene is
-  what proves `validate()` works, and nothing else should want it.
+  what proves `validate()` works, and nothing else should want it. Both
+  installers drop `paintRecords`: the log is a list of *references* into
+  the family arrays, so records kept across a layer swap stay in bounds
+  while naming primitives that are no longer the ones they described —
+  the same in-bounds-but-wrong replay the stale-range check closes on the
+  painter's side, and `.invalidRange` never fires on it. A hand-built
+  layer set has no valid log, and an empty log replays as `.invalidRange`
+  rather than as a wrong picture. Installing at an index that addresses no
+  layer changes nothing at all, log included.
+  (`ScenePresentationOrderTests.testInstallingHandBuiltLayersDropsTheStaleReplayLog`,
+  `…OneHandBuiltLayerDropsTheLogOnlyWhenItReplacesSomething`.)
 - `GPUIScene.validate() -> [SceneDefect]` checks what a hand-built layer
   can still break — layer count, every
   paint operation's range against its family array, and glyph-atlas
@@ -1313,9 +1323,16 @@ six measured end-to-end by `CrossBackendPixelParityTests`.
 **Coverage.** `GPUIQuadCoverage` is the single Swift transcription of
 `roundedRectDistance` + `saturate(0.5 - d/aa)`, used by the quad body, the
 rounded clip and the shadow envelope alike. `check-contracts.ps1` pins that
-single implementation: `SceneRasterizer.swift` must reference
-`GPUIQuadCoverage` and must not define a rounded-rect distance or smoothstep
-of its own. Three parts of the shader that are easy to lose in a paraphrase
+single implementation with three rules: `SceneRasterizer.swift` must reference
+`GPUIQuadCoverage`; it must not *declare* a rounded-rect distance or
+smoothstep of its own; and — because a second kernel can be inlined into
+`drawQuad` rather than declared — every `signedDistance`/`smoothstep` call in
+the file must be qualified with `GPUIQuadCoverage.`, and coverage may never be
+answered by a containment test against a sample point. The stated limitation:
+no regex recognises fresh distance math written from scratch under an
+unforeseen name. `SharedCoverageKernelTests` and `CrossBackendPixelParityTests`
+hold that line; the contract rules exist so the obvious regressions cannot
+land silently between test runs. Three parts of the shader that are easy to lose in a paraphrase
 and that the old `roundedRectCoverage` had lost:
 
 - There is **no `radius == 0` short circuit.** Square quads run the same
@@ -1624,7 +1641,11 @@ assign a clip from a bare `Rect.intersected(with:)`. `clip.intersected(with:)
 != nil` stays legal — that is the acceptance test every emitter shares, not a
 narrowing. The one exemption is `ScenePainter`'s `RenderFrame` replay, whose
 `currentClip` stack is bare rects because `RenderCommand.pushClip` carries
-nothing else.
+nothing else. The rule does not enumerate binding forms: an earlier version
+allowed only an optional `var`/`let` prefix at line start, which meant it
+could not fire on the `guard let` / `if let` form every real narrowing uses.
+What it matches is the shape `<clip-ish name> = <anything>.intersected(with:`
+wherever on the line it sits.
 
 ### One space, because one clip has more than one consumer
 

@@ -27,7 +27,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Qui
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Full
 ```
 
-- `check-contracts.ps1` fails fast on architecture regressions that generic lint cannot see. Besides the target dependency direction and the presentation-order rules, it pins the two single-implementation invariants a test cannot: `SceneRasterizer.swift` takes its coverage from `GPUIQuadCoverage` and defines no rounded-rect distance or smoothstep of its own (WS-08), and `Runtime.swift` / `ScenePainter.swift` narrow clips only through `RuntimeClipShape.narrowed(to:)`, never with a bare `Rect.intersected(with:)` (WS-16). A second copy of either rule is invisible to every pixel gate until it has already drifted.
+- `check-contracts.ps1` fails fast on architecture regressions that generic lint cannot see. Besides the target dependency direction and the presentation-order rules, it pins the two single-implementation invariants a test cannot: `SceneRasterizer.swift` takes its coverage from `GPUIQuadCoverage`, declares no rounded-rect distance or smoothstep of its own, calls neither unqualified, and never answers coverage with a containment test against a sample point (WS-08); and `Runtime.swift` / `ScenePainter.swift` narrow clips only through `RuntimeClipShape.narrowed(to:)`, never with a bare `Rect.intersected(with:)` in any binding form — `guard let` and `if let` included (WS-16). A second copy of either rule is invisible to every pixel gate until it has already drifted. When editing these two rules, prove the edited pattern still fires: break the guarded file with a synthetic violation, run `check-contracts.ps1`, then `git checkout` the file and confirm the check is clean again. A rule that matches nothing passes silently forever.
 - `lint.ps1` runs `check-contracts.ps1` and then toolchain `swift-format lint --strict` against changed Swift files. Use `-Path <file>` when the checkout already has unrelated dirty Swift files, and use `-AllSwift` before broad cleanup branches or CI-style validation.
 - `agent-check.ps1 -Quick` runs contract checks, focused scene/renderer/runtime tests (including the two WARP suites, `D3D11BatchRendererRenderTests` and `CrossBackendPixelParityTests`, the pixel-format contract `PixelFormatContractTests`, and the device-loss suites `DeviceLostPolicyTests` / `DeviceLossRecoveryTests` / `PresentationFailurePolicyTests`), and the demo executable build serially. Add `-GalleryCompare` to also run the gallery regression gate.
 - Four P1 invariant suites gate Quick as well: `ScenePresentationOrderTests` (the single draw-order authority), `SharedCoverageKernelTests` (the CPU/GPU coverage kernel), `CPUGPUBlendModeContractTests` (source-over on both paths) and `ClipAbstractionTests` (one clip value, one space). All four are cheap — 0.02 s to 0.4 s of test time each, ~2.5 s of wall clock apiece once the build is warm, since a `swift test` invocation dominates. The remaining P1 suites (`CPURasterizerGPUModelTests`, `PathRasterizationQualityTests`, `BorderCornerArcGeometryTests`, `TextShapingPipelineTests`) stay Full-only. Keep the Quick gate under ~10 minutes: measure a candidate before promoting it.
@@ -236,7 +236,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   move, while metrics/font/theme/locale broadcasts and `WM_SYSCOLORCHANGE`
   reach the delegate unconditionally — they change what the app draws from
   and the snapshot does not carry them. Every route re-samples, filtered or
-  not, so a filtered broadcast never leaves a stale snapshot cached.
+  not, so a filtered broadcast never leaves a stale snapshot cached. It also
+  covers the hostile side of `WM_SETTINGCHANGE`: `lParam` is a pointer only
+  by convention and is marshalled only for the `SendMessage` family, so any
+  process can `PostMessage(HWND_BROADCAST, …)` an arbitrary value into it.
+  `Win32Window.settingChangeSection` validates the address with
+  `VirtualQuery` before reading it — null, misaligned, reserved-but-
+  uncommitted, `PAGE_NOACCESS` and a name running off the end of a committed
+  page all classify as "no section" rather than faulting the UI thread — and
+  the tests drive each of those through `VirtualAlloc`. A `wParam` allow-list
+  is deliberately *not* the gate: `ImmersiveColorSet` arrives with
+  `wParam == 0`, so allow-listing would drop the dark-mode switch while
+  leaving the forgeable case dereferencing a raw address.
 - `IconDisplayScaleTests` — icon rasterization at a requested scale, scale-1
   byte-identity, and who may write the process-global
   `NativeTextRenderer.defaultIconDisplayScale`: the sole live host writes it

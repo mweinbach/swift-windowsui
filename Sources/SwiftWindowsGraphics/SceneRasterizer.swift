@@ -498,8 +498,8 @@ private struct RasterTarget {
 
     /// The GPU's shadow model, transcribed: the envelope is the rect grown
     /// by `2 · blurRadius`, the falloff is
-    /// `1 - smoothstep(-blur/2, blur, distance)`, and the peak alpha is
-    /// the requested alpha.
+    /// `1 - GPUIQuadCoverage.smoothstep(-blur/2, blur, distance)`, and the
+    /// peak alpha is the requested alpha.
     ///
     /// What this replaces was a different shadow, not a differently
     /// antialiased one: a rect grown by `blurRadius / 2` with a 1 px ramp

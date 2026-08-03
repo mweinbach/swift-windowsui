@@ -266,6 +266,11 @@ public enum ScenePainter {
         let hasChildren: Bool
         let borderColor: Color
         let paintFrame: Rect
+        /// WS-19. The rotation lowered out of the node's effective transform.
+        /// The ring is laid out in `placement.frame` and each segment is
+        /// turned about the node's centre, exactly like the pre-children
+        /// border.
+        let placement: PaintPlacement
         let effectiveClip: RuntimeClipShape?
         /// The ancestors' clip. The border overlay is part of the node's own
         /// decoration, so — like the background and border quads — it is
@@ -392,20 +397,40 @@ public enum ScenePainter {
             // transform, then apply the node's own transform centered around the
             // screen-space center so that scaleEffect/rotationEffect affect both
             // the node and all descendants consistently.
-            let centeredTransform: Transform2D
-            let paintFrame: Rect
+            let effectiveTransform: Transform2D
             if node.transform.isIdentity {
-                centeredTransform = .identity
-                paintFrame = nodeLocalFrame.applying(transform: inheritedTransform)
+                effectiveTransform = inheritedTransform
             } else {
                 let nodeScreenFrame = nodeLocalFrame.applying(transform: inheritedTransform)
                 let center = Point(x: nodeScreenFrame.midX, y: nodeScreenFrame.midY)
-                centeredTransform = Transform2D.translation(x: -center.x, y: -center.y)
+                let centeredTransform = Transform2D.translation(x: -center.x, y: -center.y)
                     .concatenating(node.transform)
                     .concatenating(.translation(x: center.x, y: center.y))
-                paintFrame = nodeScreenFrame.applying(transform: centeredTransform)
+                // WS-19. Ancestors first, then this node. `concatenating` is
+                // self-first (`a.concatenating(b)` maps a point through `a`
+                // then through `b`), and `centeredTransform` is built around
+                // the node's *screen-space* centre — it is a screen-space
+                // operator, so it has to be applied after the map that
+                // produced that screen space. The other order composed
+                // node-before-ancestors, which left the node's own frame and
+                // the frames its descendants inherited in different spaces:
+                // an ancestor `.offset(100, 0)` under a `.scaleEffect(2)`
+                // child moved the child by 100 and its grandchildren by 200.
+                // `concatenating` round-trips through the decomposition,
+                // which is not a fixed point for shears, so an identity
+                // ancestor short-circuits rather than paying a lossy compose.
+                effectiveTransform =
+                    inheritedTransform.isIdentity
+                    ? centeredTransform : inheritedTransform.concatenating(centeredTransform)
             }
-            let effectiveTransform = centeredTransform.concatenating(inheritedTransform)
+            // WS-19. `boundingBox` is what every predicate and every family
+            // without a rotation field uses (it is the value the whole painter
+            // used before rotation was lowered); `frame` plus the placement's
+            // rotation is what the quad families carry. The two are the same
+            // rect for any node that is not rotated.
+            let placement = PaintPlacement.lowering(nodeLocalFrame, through: effectiveTransform)
+            let paintFrame = placement.boundingBox
+            let quadFrame = placement.frame
 
             // A degenerate frame paints none of the node's own decoration, but
             // it is not a reason to drop the subtree: macOS SwiftUI does not
@@ -488,6 +513,7 @@ public enum ScenePainter {
             let resolvedHoverEffect = node.resolvedActiveHoverEffect
             let cacheKey = ViewPaintCacheKey(
                 bounds: paintFrame,
+                transform: effectiveTransform.matrix,
                 contentMask: effectiveClip,
                 opacity: opacity,
                 blurRadius: blurRadius,
@@ -551,7 +577,9 @@ public enum ScenePainter {
                 )
             {
                 scene.addQuad(
-                    quad(for: hoverShadow, surfaceSize: surfaceSize, displayScale: displayScale),
+                    placement.rotating(
+                        quad(for: hoverShadow, surfaceSize: surfaceSize, displayScale: displayScale),
+                        displayScale: displayScale),
                     toLayer: layerIndex
                 )
             }
@@ -596,7 +624,9 @@ public enum ScenePainter {
                 )
             {
                 scene.addQuad(
-                    quad(for: focusEffect, surfaceSize: surfaceSize, displayScale: displayScale),
+                    placement.rotating(
+                        quad(for: focusEffect, surfaceSize: surfaceSize, displayScale: displayScale),
+                        displayScale: displayScale),
                     toLayer: layerIndex
                 )
             }
@@ -605,16 +635,17 @@ public enum ScenePainter {
             if hasPaintableExtent, let outlineRect = ownOutlineRect {
                 if clipAllowsDrawing(clip: inheritedClip, rect: outlineRect) {
                     scene.addQuad(
-                        solidQuad(
-                            rect: outlineRect,
-                            cornerRadius: (node.cornerRadii?.maxRadius ?? node.cornerRadius) + node.outlineWidth,
-                            color: node.outlineColor,
-                            opacity: opacity,
-                            clip: inheritedClip?.rect,
-                            surfaceSize: surfaceSize,
-                            displayScale: displayScale,
-                            colorEffects: colorEffects
-                        ), toLayer: layerIndex)
+                        placement.rotating(
+                            solidQuad(
+                                rect: quadFrame.outset(by: node.outlineWidth),
+                                cornerRadius: (node.cornerRadii?.maxRadius ?? node.cornerRadius) + node.outlineWidth,
+                                color: node.outlineColor,
+                                opacity: opacity,
+                                clip: inheritedClip?.rect,
+                                surfaceSize: surfaceSize,
+                                displayScale: displayScale,
+                                colorEffects: colorEffects
+                            ), displayScale: displayScale), toLayer: layerIndex)
                 }
             }
 
@@ -633,30 +664,56 @@ public enum ScenePainter {
                 node.backgroundPath == nil,
                 clipAllowsDrawing(clip: effectiveClip, rect: paintFrame)
             {
+                // WS-19. Border segments are laid out in the node's *unrotated*
+                // paint space and each one is then turned about the node's
+                // centre by `placement.rotating`. Walking the bounding box
+                // instead would dash a ring around a rect the node does not
+                // occupy. The clip predicates keep using the axis-aligned
+                // footprint, which contains the rotated segment.
                 let dashedBorderSegments: [BorderSegment]?
                 if let cornerRadii = node.cornerRadii, cornerRadii.hasPositiveRadius {
                     // Per-corner dash walk: square corners get no arc
                     // segments (matches the solid overlay treatment).
                     dashedBorderSegments = BorderSegments.dashedSegments(
-                        frame: paintFrame,
+                        frame: quadFrame,
                         width: node.borderWidth,
                         cornerRadii: cornerRadii,
                         strokeStyle: node.borderStrokeStyle
                     )
                 } else {
                     dashedBorderSegments = BorderSegments.dashedSegments(
-                        frame: paintFrame,
+                        frame: quadFrame,
                         width: node.borderWidth,
                         cornerRadius: node.cornerRadius,
                         strokeStyle: node.borderStrokeStyle
                     )
                 }
                 if let borderSegments = dashedBorderSegments {
-                    for segment in borderSegments where clipAllowsDrawing(clip: effectiveClip, rect: segment.rect) {
+                    for segment in borderSegments
+                    where clipAllowsDrawing(clip: effectiveClip, rect: placement.footprint(of: segment.rect)) {
                         scene.addQuad(
+                            placement.rotating(
+                                fillQuad(
+                                    rect: segment.rect,
+                                    cornerRadius: segment.cornerRadius,
+                                    color: borderColor,
+                                    gradient: node.borderGradient,
+                                    opacity: opacity,
+                                    clip: effectiveClipRect,
+                                    surfaceSize: surfaceSize,
+                                    displayScale: displayScale,
+                                    colorEffects: colorEffects,
+                                    clipCornerRadius: ownClipCornerRadius(placement.footprint(of: segment.rect)),
+                                    blendMode: effectiveBlendMode
+                                ), displayScale: displayScale), toLayer: layerIndex)
+                    }
+                } else {
+                    scene.addQuad(
+                        placement.rotating(
                             fillQuad(
-                                rect: segment.rect,
-                                cornerRadius: segment.cornerRadius,
+                                rect: quadFrame,
+                                cornerRadius: node.cornerRadius,
+                                cornerRadii: node.cornerRadii,
                                 color: borderColor,
                                 gradient: node.borderGradient,
                                 opacity: opacity,
@@ -664,31 +721,20 @@ public enum ScenePainter {
                                 surfaceSize: surfaceSize,
                                 displayScale: displayScale,
                                 colorEffects: colorEffects,
-                                clipCornerRadius: ownClipCornerRadius(segment.rect),
+                                clipCornerRadius: ownClipCornerRadius(paintFrame),
                                 blendMode: effectiveBlendMode
-                            ), toLayer: layerIndex)
-                    }
-                } else {
-                    scene.addQuad(
-                        fillQuad(
-                            rect: paintFrame,
-                            cornerRadius: node.cornerRadius,
-                            cornerRadii: node.cornerRadii,
-                            color: borderColor,
-                            gradient: node.borderGradient,
-                            opacity: opacity,
-                            clip: effectiveClipRect,
-                            surfaceSize: surfaceSize,
-                            displayScale: displayScale,
-                            colorEffects: colorEffects,
-                            clipCornerRadius: ownClipCornerRadius(paintFrame),
-                            blendMode: effectiveBlendMode
-                        ), toLayer: layerIndex)
+                            ), displayScale: displayScale), toLayer: layerIndex)
                 }
             }
 
-            // Background fill (inset by border width)
+            // Background fill (inset by border width). `fillRect` is the
+            // axis-aligned footprint every non-rotatable family paints into
+            // (image, glyph, canvas, path); `quadFillRect` is the same
+            // inset taken in the node's unrotated paint space, which is what
+            // the rotation-carrying quad families use. They are the same rect
+            // whenever the node is not rotated.
             let fillRect = node.borderWidth > 0 ? paintFrame.inset(by: node.borderWidth) : paintFrame
+            let quadFillRect = node.borderWidth > 0 ? quadFrame.inset(by: node.borderWidth) : quadFrame
             let fillCornerRadius = max(0, node.cornerRadius - node.borderWidth)
             let fillCornerRadii =
                 node.borderWidth > 0 ? node.cornerRadii?.inset(by: node.borderWidth) : node.cornerRadii
@@ -700,22 +746,23 @@ public enum ScenePainter {
                 node.backgroundPath == nil
             {
                 scene.addQuad(
-                    fillQuad(
-                        rect: fillRect,
-                        cornerRadius: fillCornerRadius,
-                        cornerRadii: fillCornerRadii,
-                        color: bg,
-                        gradient: node.backgroundGradient,
-                        opacity: opacity,
-                        clip: effectiveClipRect,
-                        surfaceSize: surfaceSize,
-                        displayScale: displayScale,
-                        colorEffects: colorEffects,
-                        blurRadius: Float(blurRadius * displayScale),
-                        blurOpaque: blurOpaque ? 1 : 0,
-                        clipCornerRadius: ownClipCornerRadius(fillRect),
-                        blendMode: effectiveBlendMode
-                    ),
+                    placement.rotating(
+                        fillQuad(
+                            rect: quadFillRect,
+                            cornerRadius: fillCornerRadius,
+                            cornerRadii: fillCornerRadii,
+                            color: bg,
+                            gradient: node.backgroundGradient,
+                            opacity: opacity,
+                            clip: effectiveClipRect,
+                            surfaceSize: surfaceSize,
+                            displayScale: displayScale,
+                            colorEffects: colorEffects,
+                            blurRadius: Float(blurRadius * displayScale),
+                            blurOpaque: blurOpaque ? 1 : 0,
+                            clipCornerRadius: ownClipCornerRadius(fillRect),
+                            blendMode: effectiveBlendMode
+                        ), displayScale: displayScale),
                     toLayer: layerIndex
                 )
             }
@@ -797,7 +844,9 @@ public enum ScenePainter {
                 opacity: opacity
             ) {
                 scene.addQuad(
-                    quad(for: hoverOverlay, surfaceSize: surfaceSize, displayScale: displayScale),
+                    placement.rotating(
+                        quad(for: hoverOverlay, surfaceSize: surfaceSize, displayScale: displayScale),
+                        displayScale: displayScale),
                     toLayer: layerIndex
                 )
             }
@@ -811,17 +860,18 @@ public enum ScenePainter {
 
             if drawsRedactionPlaceholder {
                 scene.addQuad(
-                    solidQuad(
-                        rect: fillRect,
-                        cornerRadius: retainedRedactionPlaceholderCornerRadius(for: fillRect),
-                        color: retainedRedactionPlaceholderBaseColor,
-                        opacity: opacity,
-                        clip: effectiveClipRect,
-                        surfaceSize: surfaceSize,
-                        displayScale: displayScale,
-                        clipCornerRadius: ownClipCornerRadius(fillRect),
-                        blendMode: effectiveBlendMode
-                    ), toLayer: layerIndex)
+                    placement.rotating(
+                        solidQuad(
+                            rect: quadFillRect,
+                            cornerRadius: retainedRedactionPlaceholderCornerRadius(for: fillRect),
+                            color: retainedRedactionPlaceholderBaseColor,
+                            opacity: opacity,
+                            clip: effectiveClipRect,
+                            surfaceSize: surfaceSize,
+                            displayScale: displayScale,
+                            clipCornerRadius: ownClipCornerRadius(fillRect),
+                            blendMode: effectiveBlendMode
+                        ), displayScale: displayScale), toLayer: layerIndex)
             } else if let bitmapSurface = node.bitmapSurface,
                 fillRect.size.width > 0, fillRect.size.height > 0,
                 clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
@@ -950,7 +1000,14 @@ public enum ScenePainter {
                 // (non-finite frame, or past the area budget) `compositingGroupBuffer`
                 // returns nil and the group falls back to inline painting.
                 let subShift = Transform2D.translation(x: -buffer.frame.origin.x, y: -buffer.frame.origin.y)
-                let subInheritedTransform = subShift.concatenating(inheritedTransform)
+                // WS-19. The children map layout space through this node's
+                // *effective* transform into screen space, and only then get
+                // shifted into the buffer's own origin — the shift is a
+                // screen-space translation, so it composes last. Shifting
+                // first (and dropping the node's own transform entirely) put
+                // a `.drawingGroup()` under any transformed ancestor at the
+                // wrong offset inside its own bitmap.
+                let subInheritedTransform = effectiveTransform.concatenating(subShift)
                 let subSize = buffer.size
 
                 // Rasterizing the group means walking and CPU-rasterizing its
@@ -1069,6 +1126,7 @@ public enum ScenePainter {
                             hasChildren: hasChildren,
                             borderColor: borderColor,
                             paintFrame: paintFrame,
+                            placement: placement,
                             effectiveClip: effectiveClip,
                             inheritedClip: inheritedClip,
                             opacity: opacity,
@@ -1116,6 +1174,7 @@ public enum ScenePainter {
                     hasChildren: hasChildren,
                     borderColor: borderColor,
                     paintFrame: paintFrame,
+                    placement: placement,
                     effectiveClip: effectiveClip,
                     inheritedClip: inheritedClip,
                     opacity: opacity,
@@ -1147,18 +1206,23 @@ public enum ScenePainter {
             node.backgroundPath == nil,
             clipAllowsDrawing(clip: state.effectiveClip, rect: state.paintFrame)
         {
+            // WS-19. The ring is walked in the node's unrotated paint space
+            // and each segment is turned about the node's centre, matching
+            // the pre-children border exactly; the clip predicates keep using
+            // each segment's axis-aligned footprint.
+            let ringFrame = state.placement.frame
             let segments: [BorderSegment]
             let dashedSegments: [BorderSegment]?
             if let cornerRadii = node.cornerRadii, cornerRadii.hasPositiveRadius {
                 dashedSegments = BorderSegments.dashedSegments(
-                    frame: state.paintFrame,
+                    frame: ringFrame,
                     width: node.borderWidth,
                     cornerRadii: cornerRadii,
                     strokeStyle: node.borderStrokeStyle
                 )
             } else {
                 dashedSegments = BorderSegments.dashedSegments(
-                    frame: state.paintFrame,
+                    frame: ringFrame,
                     width: node.borderWidth,
                     cornerRadius: node.cornerRadius,
                     strokeStyle: node.borderStrokeStyle
@@ -1170,33 +1234,36 @@ public enum ScenePainter {
                 // Per-corner ring: square corners get no arc segments, so
                 // the overlay no longer paints faint arcs there.
                 segments = BorderSegments.solidSegments(
-                    frame: state.paintFrame,
+                    frame: ringFrame,
                     width: node.borderWidth,
                     cornerRadii: cornerRadii
                 )
             } else {
                 segments = BorderSegments.solidSegments(
-                    frame: state.paintFrame,
+                    frame: ringFrame,
                     width: node.borderWidth,
                     cornerRadius: node.cornerRadius
                 )
             }
-            for segment in segments where clipAllowsDrawing(clip: state.effectiveClip, rect: segment.rect) {
+            for segment in segments
+            where clipAllowsDrawing(clip: state.effectiveClip, rect: state.placement.footprint(of: segment.rect)) {
+                let segmentFootprint = state.placement.footprint(of: segment.rect)
                 scene.addQuad(
-                    fillQuad(
-                        rect: segment.rect,
-                        cornerRadius: segment.cornerRadius,
-                        color: state.borderColor,
-                        gradient: node.borderGradient,
-                        opacity: state.opacity,
-                        clip: state.effectiveClip?.rect,
-                        surfaceSize: surfaceSize,
-                        displayScale: displayScale,
-                        colorEffects: state.colorEffects,
-                        clipCornerRadius: state.inheritedClip.ancestorCornerRadius(
-                            forQuadRect: segment.rect, rejectingOutside: state.effectiveClip?.rect),
-                        blendMode: state.effectiveBlendMode
-                    ), toLayer: state.layerIndex)
+                    state.placement.rotating(
+                        fillQuad(
+                            rect: segment.rect,
+                            cornerRadius: segment.cornerRadius,
+                            color: state.borderColor,
+                            gradient: node.borderGradient,
+                            opacity: state.opacity,
+                            clip: state.effectiveClip?.rect,
+                            surfaceSize: surfaceSize,
+                            displayScale: displayScale,
+                            colorEffects: state.colorEffects,
+                            clipCornerRadius: state.inheritedClip.ancestorCornerRadius(
+                                forQuadRect: segmentFootprint, rejectingOutside: state.effectiveClip?.rect),
+                            blendMode: state.effectiveBlendMode
+                        ), displayScale: displayScale), toLayer: state.layerIndex)
             }
         }
 

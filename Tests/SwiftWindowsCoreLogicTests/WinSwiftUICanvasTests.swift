@@ -90,17 +90,20 @@ final class WinSwiftUICanvasTests: XCTestCase {
 
             let scene = snapshot(view)
             // A purely horizontal stroked line now bypasses CPU
-            // rasterization via PathToQuadTessellator. The emitted
-            // quad covers the segment plus half-lineWidth on each end.
+            // rasterization via PathToQuadTessellator. The emitted quad ends
+            // exactly at the segment's endpoints: `StrokeStyle`'s default
+            // `lineCap` is `.butt`, and WS-08b made the tessellator honour it
+            // instead of extending every segment by half the line width the
+            // way a `.square` cap does.
             XCTAssertEqual(scene.layers[0].paths.count, 0)
             let blueQuads = scene.layers[0].quads.filter {
                 $0.startB == 1 && $0.startR == 0 && $0.startG == 0
             }
             XCTAssertEqual(blueQuads.count, 1)
             XCTAssertEqual(blueQuads[0].height, 3, accuracy: 0.001)
-            // x = min(10,80) - lineWidth/2 = 8.5, width = 70 + 3 = 73
-            XCTAssertEqual(Double(blueQuads[0].x), 8.5, accuracy: 0.001)
-            XCTAssertEqual(Double(blueQuads[0].width), 73, accuracy: 0.001)
+            // Butt cap: x = min(10, 80) = 10, width = 80 - 10 = 70.
+            XCTAssertEqual(Double(blueQuads[0].x), 10, accuracy: 0.001)
+            XCTAssertEqual(Double(blueQuads[0].width), 70, accuracy: 0.001)
         }
     }
 

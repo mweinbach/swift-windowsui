@@ -179,6 +179,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   and scaled ancestor survives on the frame path — the case a single
   transform hides, because only there do "the node's own transform" and "the
   accumulated transform" differ.
+- `TransformLoweringTests` — the transform algebra, from both ends. Rotation
+  lowering: a rotated card emits its *unrotated* rect plus
+  `rotationRadians`, a uniform scale rides along, and shears / mirrors /
+  non-uniform scales fall back to the bounding box (rotation exactly `0`, so
+  the historic bytes are unchanged); the border ring turns with the node it
+  surrounds; a rotated quad is accepted by the scene contract on its rotated
+  footprint, where the unrotated one is rejected. Composition order:
+  hand-computed absolute placements for nested translate+scale and
+  translate+rotate on the scene path *and* the frame path, plus the pointer
+  landing where the content is painted — agreement alone would have kept both
+  paths wrong together. Plus the replay key (a half-turn of a square ancestor
+  leaves every bounding box unchanged and still has to repaint) and the two
+  places the frame path resumed in the wrong state: a canvas drawn from its
+  painted origin, a deferred subtree resumed with its inherited blend mode.
 - `ScrollIndicatorTransformSpaceTests` — the two spaces a scroll indicator
   lives in: thumb length is the layout-space visible fraction, thumb position
   and drag rate are painted space, and the untransformed geometry every other

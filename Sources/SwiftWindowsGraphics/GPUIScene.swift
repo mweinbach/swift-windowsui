@@ -995,8 +995,28 @@ func contentMaskedBounds(
 }
 extension QuadPrimitive {
     fileprivate var contentMaskedBounds: Rect? {
-        SwiftWindowsGraphics.contentMaskedBounds(
-            x: x, y: y, width: width, height: height,
+        // WS-19. A rotated quad's footprint is the bounding box of the turned
+        // rect, not the rect itself. Comparing the unrotated rect against the
+        // clip dropped diagonal stroke segments and rotated node decoration
+        // whose bodies were inside the clip all along — the quad's own
+        // origin/size pair describes it only before `rotationRadians` is
+        // applied. Zero rotation takes the historic path untouched.
+        guard rotationRadians != 0, rotationRadians.isFinite else {
+            return SwiftWindowsGraphics.contentMaskedBounds(
+                x: x, y: y, width: width, height: height,
+                clipX: clipX, clipY: clipY,
+                clipWidth: clipWidth, clipHeight: clipHeight, contentMask: contentMask)
+        }
+        let angle = Double(rotationRadians)
+        let halfW = Double(width) * 0.5
+        let halfH = Double(height) * 0.5
+        let extentX = abs(cos(angle)) * halfW + abs(sin(angle)) * halfH
+        let extentY = abs(sin(angle)) * halfW + abs(cos(angle)) * halfH
+        let centreX = Double(x) + halfW
+        let centreY = Double(y) + halfH
+        return SwiftWindowsGraphics.contentMaskedBounds(
+            x: Float(centreX - extentX), y: Float(centreY - extentY),
+            width: Float(extentX * 2), height: Float(extentY * 2),
             clipX: clipX, clipY: clipY,
             clipWidth: clipWidth, clipHeight: clipHeight, contentMask: contentMask)
     }

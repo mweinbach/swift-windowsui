@@ -309,6 +309,59 @@ to the frame renderer. Hit testing is
 deliberately *not* included: prepaint still prunes a zero-extent
 subtree, so overflow content renders without becoming newly clickable.
 
+**Transform lowering.** A node's transform reaches the scene as two
+values, not one. `PaintPlacement.lowering(_:through:)` splits the
+accumulated screen-space transform into an axis-aligned rect and an
+angle:
+
+- `frame` — the node's rect with translation and uniform scale applied
+  and the rotation factored out. This is what the quad families carry,
+  together with `QuadPrimitive.rotationRadians`, so a card rotated 45°
+  paints as a rotated card rather than the unrotated box `√2` too large
+  that `Rect.applying(transform:)` returns.
+- `boundingBox` — the axis-aligned footprint of the rotated rect. Every
+  *predicate* uses it (culling, clip narrowing, the cache key's
+  `bounds`), and so does every family with no rotation field: shadows,
+  images, glyphs, paths and canvas content still paint into the box.
+  Text inside a rotated card therefore stays upright — `GlyphPrimitive`
+  and `ImagePrimitive` have no rotation, and adding one is a scene-ABI
+  change against both HLSL and the CPU sampler.
+
+Only a **similarity** is separable — a rotation composed with a uniform
+scale, no reflection, no shear. In matrix terms (row-vector convention,
+the one `Point.applying` uses) that is `a == d` and `b == -c`. Shears,
+mirrors and non-uniform scales fall back to the bounding box, which is
+what the painter did for everything before this existed; `rotation` is
+then exactly `0` and the emitted bytes are unchanged.
+
+`QuadPrimitive.contentMaskedBounds` is rotation-aware for the same
+reason: a rotated quad's footprint is the box of the *turned* rect, and
+comparing the unturned one against the clip dropped diagonal stroke
+segments and rotated decoration whose bodies were inside the clip all
+along.
+
+**Transform composition order.** `Transform2D.concatenating` is
+self-first: `a.concatenating(b)` maps a point through `a` and then
+through `b`. A node's own transform is built around its **screen-space**
+centre (`T(-c) · M · T(c)`), so it is a screen-space operator and
+composes *after* the map that produced that screen space:
+
+```swift
+effectiveTransform = inheritedTransform.concatenating(centeredTransform)
+```
+
+The painter, prepaint (`appendPrepaintState`), the frame path
+(`accumulatedPaintGeometry`) and the compositing-group sub-scene all
+compose in that order, and the pointer inverse composes in the opposite
+one (`(A·B)⁻¹ = B⁻¹·A⁻¹`) so what is visible is what is clickable. The
+older order applied node-before-ancestors, which left a node's own frame
+and the frames its descendants inherited in two different spaces: a
+`.scaleEffect(2)` child of a `.offset(100, 0)` ancestor moved 100 points
+and its grandchildren 200. `TransformLoweringTests` pins absolute
+placements computed by hand from the tree — agreement between the two
+paint paths is necessary but not sufficient, because both were wrong
+together.
+
 **Borders** are emitted exactly once. A node with children draws its
 border as a ring of edge/arc segments *after* its children (so child
 content cannot cover it); a leaf draws the historic full-rect fill under
@@ -403,7 +456,7 @@ covers both directions of the toggle.
 **Tests:** `PainterDeviceSpaceTests`, `PainterZeroExtentSemanticsTests`,
 `PainterBorderRingCoverageTests`, `BorderCornerArcGeometryTests`,
 `CompositingGroupBitmapCacheTests`, `ScenePainterTests`,
-`PathTessellationBudgetTests`.
+`TransformLoweringTests`, `PathTessellationBudgetTests`.
 
 ## 3. Text: DirectWrite + native glyph atlas
 
@@ -1848,12 +1901,13 @@ Pinned by `ContentBlurRenderPassTests` and by the blur-pass budget in
 ### Residual: a rotated clip is still an AABB
 
 `ViewNode.accumulatedPaintGeometry` returns
-`screenFrame.applying(transform:)` — a `Rect`, i.e. the axis-aligned
-bounding box of the rotated footprint — and `RuntimeClipShape` narrows to
-that. WS-19 lowered rotation for quad *geometry*, so a rotated card draws
-rotated; a rotated `.clipped()` container still clips its children to the
-**bounding box** of the rotated frame, which is up to `√2` too large at
-45°.
+`frame.applying(transform:)` — a `Rect`, i.e. the axis-aligned bounding
+box of the rotated footprint — and `RuntimeClipShape` narrows to that;
+it is the same `PaintPlacement.boundingBox` the painter clips against
+(§2b). WS-19 lowered rotation for quad *geometry*, so a rotated card
+draws rotated; a rotated `.clipped()` container still clips its children
+to the **bounding box** of the rotated frame, which is up to `√2` too
+large at 45°.
 
 Fixing it needs a render pass whose result is composited through a
 rotated transform: render the subtree into an offscreen target, then draw

@@ -300,6 +300,13 @@ public struct RetainedAlignmentGuide: Sendable, Equatable, Hashable {
 }
 struct ViewPaintCacheKey: Equatable, Sendable {
     var bounds: Rect
+    /// WS-19. The accumulated screen-space transform, as its matrix — the
+    /// canonical form, so two decompositions of the same geometry compare
+    /// equal. `bounds` is an axis-aligned bounding box and a whole class of
+    /// transforms leaves it unchanged: a mirror, a 180° rotation, ±90° of a
+    /// square. Keying on bounds alone replayed the previous frame's
+    /// primitives for all of them.
+    var transform: AffineMatrix
     /// The full clip shape, not just its rejection rect: a clip that keeps its
     /// rect but changes its rounding (a rounded card scrolling until an
     /// ancestor cuts a corner away) has to invalidate the replay cache too.
@@ -4129,25 +4136,38 @@ public final class ViewNode {
         // clip below verbatim, and the interaction record inverse-maps a
         // pointer with `nodeInverseTransform`.
         let centeredTransform: Transform2D
-        let paintFrame: Rect
+        let effectiveTransform: Transform2D
         if transform.isIdentity {
             centeredTransform = .identity
-            paintFrame = absoluteFrame.applying(transform: inheritedTransform)
+            effectiveTransform = inheritedTransform
         } else {
             let screenFrame = absoluteFrame.applying(transform: inheritedTransform)
             let center = Point(x: screenFrame.midX, y: screenFrame.midY)
             centeredTransform = Transform2D.translation(x: -center.x, y: -center.y)
                 .concatenating(transform)
                 .concatenating(.translation(x: center.x, y: center.y))
-            paintFrame = screenFrame.applying(transform: centeredTransform)
+            // WS-19: ancestors first, then this node. See the note in
+            // `ScenePainter.paintNode` — the centred transform is a
+            // screen-space operator, so it composes after the map that
+            // produced the screen space it is centred in.
+            effectiveTransform =
+                inheritedTransform.isIdentity
+                ? centeredTransform : inheritedTransform.concatenating(centeredTransform)
         }
-        let effectiveTransform = centeredTransform.concatenating(inheritedTransform)
+        let paintFrame = absoluteFrame.applying(transform: effectiveTransform)
 
         let nodeInverseTransform: Transform2D?
         if transform.isIdentity {
             nodeInverseTransform = inheritedInverseTransform
         } else if let inverseTransform = centeredTransform.inverseOrNil() {
-            nodeInverseTransform = inheritedInverseTransform?.concatenating(inverseTransform) ?? inverseTransform
+            // `(A·B)⁻¹ = B⁻¹·A⁻¹`: the inverse composes in the opposite order
+            // to `effectiveTransform`, so a pointer is un-rotated by this node
+            // before it is un-mapped by its ancestors.
+            if let inheritedInverseTransform {
+                nodeInverseTransform = inverseTransform.concatenating(inheritedInverseTransform)
+            } else {
+                nodeInverseTransform = inverseTransform
+            }
         } else {
             nodeInverseTransform = inheritedInverseTransform
         }
@@ -4187,6 +4207,7 @@ public final class ViewNode {
         // untransformed frame — and so the old key — unchanged.
         let cacheKey = ViewPaintCacheKey(
             bounds: paintFrame,
+            transform: effectiveTransform.matrix,
             contentMask: effectiveClip,
             opacity: effectiveOpacity,
             blurRadius: blurRadius,
@@ -4459,10 +4480,15 @@ public final class ViewNode {
         let centeredTransform = Transform2D.translation(x: -center.x, y: -center.y)
             .concatenating(transform)
             .concatenating(.translation(x: center.x, y: center.y))
-        return (
-            screenFrame.applying(transform: centeredTransform),
-            centeredTransform.concatenating(inheritedTransform)
-        )
+        // WS-19: ancestors first, then this node — the same order the painter
+        // and prepaint compose in, for the same reason (the centred transform
+        // is built around a screen-space centre, so it applies to screen
+        // space). `paintFrame` is then the single application of the result
+        // rather than a bounding box of a bounding box.
+        let effectiveTransform =
+            inheritedTransform.isIdentity
+            ? centeredTransform : inheritedTransform.concatenating(centeredTransform)
+        return (frame.applying(transform: effectiveTransform), effectiveTransform)
     }
 
     fileprivate func appendCommands(
@@ -4572,6 +4598,7 @@ public final class ViewNode {
         let resolvedHoverEffect = resolvedActiveHoverEffect
         let cacheKey = ViewPaintCacheKey(
             bounds: paintFrame,
+            transform: effectiveTransform.matrix,
             contentMask: effectiveClip,
             opacity: effectiveOpacity,
             blurRadius: blurRadius,
@@ -4870,7 +4897,13 @@ public final class ViewNode {
             canvasDraw(&context, fillRect.size)
             context.appendCommands(
                 into: &commands,
-                origin: absoluteOrigin,
+                // The canvas closure draws in a space `fillRect.size` wide, so
+                // its origin is `fillRect`'s — the painted origin, inset by
+                // the border. `absoluteOrigin` is the *layout* origin and
+                // carries neither the accumulated transform nor the border
+                // inset, so a bordered or transformed canvas drew offset from
+                // where the scene path put it.
+                origin: fillRect.origin,
                 clipRect: effectiveClipRect,
                 opacity: effectiveOpacity,
                 displayScale: displayScale
@@ -7532,6 +7565,13 @@ public final class RetainedViewRuntime {
                     parentOrigin: payload.parentOrigin,
                     inheritedClip: payload.inheritedClip,
                     inheritedOpacity: payload.inheritedOpacity,
+                    // Resuming a deferred subtree restores the state it was
+                    // deferred from — all of it. The blend mode was dropped
+                    // here while `ScenePainter.appendDeferredDraws` passed it,
+                    // so an overlay inside a `.blendMode()` subtree composited
+                    // normally on the frame path and multiplied on the scene
+                    // path.
+                    inheritedBlendMode: payload.inheritedBlendMode,
                     // The payload's clip is already `.painted`, so its subtree
                     // has to be too — the same argument `ScenePainter` passes
                     // when it resumes a deferred subtree.

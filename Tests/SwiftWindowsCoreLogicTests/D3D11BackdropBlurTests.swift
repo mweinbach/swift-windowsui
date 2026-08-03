@@ -118,11 +118,18 @@ final class D3D11BackdropBlurTests: XCTestCase {
             batchMaterialQuadShaderSource.contains("Texture2D backdropTexture : register(t1)"),
             "Material composite shader must bind the blurred backdrop at t1")
         XCTAssertTrue(
-            batchMaterialQuadShaderSource.contains("backdropTexture.Sample(backdropSampler, uv)"),
-            "Material composite shader must sample the blurred backdrop")
+            batchMaterialQuadShaderSource.contains(
+                "backdropTexture.Sample(\n        backdropSampler, clamp(uv, backdropUVBounds.xy, backdropUVBounds.zw))"
+            ),
+            "Material composite shader must sample the blurred backdrop through the region's UV clamp; "
+                + "an unclamped sample lets the bilinear footprint at the region's right/bottom edge pull "
+                + "stale texels out of the grow-only ping-pong target")
         XCTAssertTrue(
             batchMaterialQuadShaderSource.contains("cbuffer BackdropRegion : register(b1)"),
             "Material composite shader must take the screen-space region mapping")
+        XCTAssertTrue(
+            batchMaterialQuadShaderSource.contains("float4 backdropUVBounds;"),
+            "Material composite shader's region cbuffer must carry the SubTextureRegion clamp bounds")
     }
 
     func testBlurShaderUsesSymmetricGaussianWeights() async {

@@ -307,6 +307,11 @@ struct ViewPaintCacheKey: Equatable, Sendable {
     var opacity: Float
     var blurRadius: Double
     var blurOpaque: Bool
+    /// Separate from `blurRadius`: a change to the subtree-wide content
+    /// blur has to invalidate the replay cache even when the node's own
+    /// backdrop blur is unchanged (and vice versa).
+    var contentBlurRadius: Double
+    var contentBlurOpaque: Bool
     var blendMode: BlendMode
     var isCompositingGroup: Bool
     var drawingGroup: RetainedDrawingGroup?
@@ -1155,8 +1160,9 @@ struct DeferredSubtreePayload {
     var inheritedInverseTransform: Transform2D?
     var inheritedTransform: Transform2D = .identity
     var inheritedColorEffects: [RetainedColorEffect]
-    var inheritedBlurRadius: Double
-    var inheritedBlurOpaque: Bool
+    // No inherited blur: `blurRadius` is the node's own backdrop effect and
+    // `contentBlurRadius` is resolved as a single pass over the subtree's
+    // painted bounds, so neither crosses a deferred-subtree boundary.
     var inheritedBlendMode: BlendMode = .normal
 }
 @MainActor
@@ -1521,12 +1527,43 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
-    // Gap/Fix: Blur radius — property for requesting a Gaussian blur over the view's content.
+    /// **Backdrop** blur radius, in points: the node's background quad
+    /// blurs what is already painted underneath it and composites its tint
+    /// over the result. This is what `.background(.regularMaterial)` sets,
+    /// and it is a property of *this node's background*, not of its
+    /// subtree — a card inside a frosted panel is not itself frosted.
+    ///
+    /// The distinction from `contentBlurRadius` used to not exist: one
+    /// field carried both meanings, so `.blur(radius:)` on a container
+    /// pushed a backdrop blur onto every descendant's background quad. That
+    /// produced one backbuffer copy plus two blur passes *per descendant*
+    /// (200 rows → 400 blur draws a frame) and still left the subtree's
+    /// text, images and borders perfectly sharp, because only background
+    /// quads carry the field.
     public var blurRadius: Double {
         didSet { invalidateRuntime(.paint) }
     }
 
     public var blurOpaque: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    /// **Content** blur radius, in points: SwiftUI's `.blur(radius:)`. The
+    /// subtree paints normally and one blur pass over its painted bounds
+    /// blurs the result — text and images included — instead of the blur
+    /// being smeared across every descendant background.
+    ///
+    /// Residual (documented in `docs/GPURenderingPipeline.md`): the pass is
+    /// expressed with the existing backdrop primitive, so it blurs
+    /// everything already painted inside the subtree's bounds rather than
+    /// the subtree in isolation over an unblurred background. For the
+    /// overwhelmingly common case — blurred content over a flat backdrop —
+    /// the two are the same picture.
+    public var contentBlurRadius: Double {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var contentBlurOpaque: Bool {
         didSet { invalidateRuntime(.paint) }
     }
 
@@ -2648,6 +2685,8 @@ public final class ViewNode {
         flexItemStyle: FlexItemStyle = FlexItemStyle(),
         blurRadius: Double = 0,
         blurOpaque: Bool = false,
+        contentBlurRadius: Double = 0,
+        contentBlurOpaque: Bool = false,
         geometryEffect: String? = nil,
         opacity: Double = 1.0,
         blendMode: BlendMode = .normal,
@@ -2900,6 +2939,8 @@ public final class ViewNode {
         self.flexItemStyle = flexItemStyle
         self.blurRadius = blurRadius
         self.blurOpaque = blurOpaque
+        self.contentBlurRadius = contentBlurRadius
+        self.contentBlurOpaque = contentBlurOpaque
         self.geometryEffect = geometryEffect
         self.opacity = opacity
         self.blendMode = blendMode
@@ -3868,8 +3909,6 @@ public final class ViewNode {
         inheritedInverseTransform: Transform2D? = nil,
         inheritedTransform: Transform2D = .identity,
         inheritedColorEffects: [RetainedColorEffect] = [],
-        inheritedBlurRadius: Double = 0,
-        inheritedBlurOpaque: Bool = false,
         inheritedBlendMode: BlendMode = .normal,
         previousState: RuntimePrepaintState? = nil,
         displayScale: Double = 1,
@@ -3960,8 +3999,6 @@ public final class ViewNode {
 
         let effectiveOpacity = inheritedOpacity * Float(opacity)
         let effectiveColorEffects = inheritedColorEffects + colorEffects
-        let effectiveBlurRadius = max(inheritedBlurRadius, blurRadius)
-        let effectiveBlurOpaque = inheritedBlurOpaque || blurOpaque
         let effectiveBlendMode = blendMode == .normal ? inheritedBlendMode : blendMode
         let resolvedHoverEffect = resolvedActiveHoverEffect
         // Keyed on the transformed frame, like the painter's: a replayed
@@ -3972,8 +4009,10 @@ public final class ViewNode {
             bounds: paintFrame,
             contentMask: effectiveClip,
             opacity: effectiveOpacity,
-            blurRadius: effectiveBlurRadius,
-            blurOpaque: effectiveBlurOpaque,
+            blurRadius: blurRadius,
+            blurOpaque: blurOpaque,
+            contentBlurRadius: contentBlurRadius,
+            contentBlurOpaque: contentBlurOpaque,
             blendMode: effectiveBlendMode,
             isCompositingGroup: isCompositingGroup,
             drawingGroup: drawingGroup,
@@ -4146,8 +4185,6 @@ public final class ViewNode {
                             inheritedInverseTransform: nodeInverseTransform,
                             inheritedTransform: effectiveTransform,
                             inheritedColorEffects: effectiveColorEffects,
-                            inheritedBlurRadius: effectiveBlurRadius,
-                            inheritedBlurOpaque: effectiveBlurOpaque,
                             inheritedBlendMode: effectiveBlendMode
                         )
                     )
@@ -4165,8 +4202,6 @@ public final class ViewNode {
                 inheritedInverseTransform: nodeInverseTransform,
                 inheritedTransform: effectiveTransform,
                 inheritedColorEffects: effectiveColorEffects,
-                inheritedBlurRadius: effectiveBlurRadius,
-                inheritedBlurOpaque: effectiveBlurOpaque,
                 inheritedBlendMode: effectiveBlendMode,
                 previousState: previousState,
                 displayScale: displayScale,
@@ -4361,6 +4396,8 @@ public final class ViewNode {
             opacity: effectiveOpacity,
             blurRadius: blurRadius,
             blurOpaque: blurOpaque,
+            contentBlurRadius: contentBlurRadius,
+            contentBlurOpaque: contentBlurOpaque,
             blendMode: effectiveBlendMode,
             isCompositingGroup: isCompositingGroup,
             drawingGroup: drawingGroup,
@@ -7665,8 +7702,6 @@ public final class RetainedViewRuntime {
                     inheritedInverseTransform: payload.inheritedInverseTransform,
                     inheritedTransform: payload.inheritedTransform,
                     inheritedColorEffects: payload.inheritedColorEffects,
-                    inheritedBlurRadius: payload.inheritedBlurRadius,
-                    inheritedBlurOpaque: payload.inheritedBlurOpaque,
                     inheritedBlendMode: payload.inheritedBlendMode,
                     previousState: previousState,
                     displayScale: displayScale,

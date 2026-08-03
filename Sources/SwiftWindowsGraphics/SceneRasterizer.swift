@@ -453,8 +453,116 @@ private struct RasterTarget {
         return region
     }
 
-    /// Two-pass separable Gaussian over an isolated region, with taps
-    /// beyond the region clamped to its outermost texel.
+    /// Blurs an isolated region according to the shared `BlurPassPlan`:
+    /// full resolution for ordinary radii, and successive 2× halvings +
+    /// a reduced-radius blur + a bilinear upsample once the radius passes
+    /// `BlurPassPlan.fullResolutionRadiusLimit`.
+    ///
+    /// Every step here is the CPU transcription of what the D3D11 blur
+    /// engine does, in the same order and at the same 8-bit precision:
+    /// the halving is the exact 2×2 box average the GPU's single bilinear
+    /// tap at a texel boundary computes, and the upsample is the bilinear
+    /// filter the composite draw performs when it divides by a texture
+    /// size scaled by the downsample factor. The plan is keyed on the
+    /// radius alone so the two backends can never disagree about how many
+    /// halvings to run.
+    private func blurPremultipliedRegion(_ region: inout [UInt8], width: Int, height: Int, radius: Int) {
+        guard radius > 0, width > 0, height > 0 else { return }
+        let plan = BlurPassPlan(radius: radius, regionWidth: width, regionHeight: height)
+        guard plan.isReduced else {
+            blurPremultipliedImage(&region, width: width, height: height, radius: radius)
+            return
+        }
+
+        var reduced = region
+        var reducedWidth = width
+        var reducedHeight = height
+        for _ in 0..<plan.halvingPassCount {
+            let halved = halvePremultipliedImage(reduced, width: reducedWidth, height: reducedHeight)
+            reduced = halved.pixels
+            reducedWidth = halved.width
+            reducedHeight = halved.height
+        }
+        blurPremultipliedImage(&reduced, width: reducedWidth, height: reducedHeight, radius: plan.reducedRadius)
+        upsamplePremultipliedImage(
+            reduced, sourceWidth: reducedWidth, sourceHeight: reducedHeight,
+            into: &region, width: width, height: height, factor: plan.downsampleFactor)
+    }
+
+    /// One 2× reduction: each output texel is the average of the 2×2
+    /// block below it, which is exactly what a bilinear tap placed on the
+    /// boundary between texels `2i` and `2i+1` returns on the GPU. An odd
+    /// trailing row or column is dropped, because the GPU's UV mapping
+    /// never reaches it either.
+    private func halvePremultipliedImage(
+        _ image: [UInt8], width: Int, height: Int
+    ) -> (pixels: [UInt8], width: Int, height: Int) {
+        let outputWidth = max(1, width / 2)
+        let outputHeight = max(1, height / 2)
+        var output = [UInt8](repeating: 0, count: outputWidth * outputHeight * 4)
+        for y in 0..<outputHeight {
+            let sourceY0 = min(y * 2, height - 1)
+            let sourceY1 = min(sourceY0 + 1, height - 1)
+            for x in 0..<outputWidth {
+                let sourceX0 = min(x * 2, width - 1)
+                let sourceX1 = min(sourceX0 + 1, width - 1)
+                let a = (sourceY0 * width + sourceX0) * 4
+                let b = (sourceY0 * width + sourceX1) * 4
+                let c = (sourceY1 * width + sourceX0) * 4
+                let d = (sourceY1 * width + sourceX1) * 4
+                let destination = (y * outputWidth + x) * 4
+                for channel in 0..<4 {
+                    let sum =
+                        Float(image[a + channel]) + Float(image[b + channel])
+                        + Float(image[c + channel]) + Float(image[d + channel])
+                    output[destination + channel] = byte(sum / (4 * 255))
+                }
+            }
+        }
+        return (output, outputWidth, outputHeight)
+    }
+
+    /// Bilinear upsample back to the region's resolution, sampling at the
+    /// same coordinates the composite pixel shader does: a full-resolution
+    /// pixel `p` reads the reduced image at `(p + 0.5) / factor`, and the
+    /// sample is clamped to the reduced image's outermost texel centres —
+    /// the CPU spelling of `SubTextureRegion.clampUV`.
+    private func upsamplePremultipliedImage(
+        _ source: [UInt8],
+        sourceWidth: Int,
+        sourceHeight: Int,
+        into destination: inout [UInt8],
+        width: Int,
+        height: Int,
+        factor: Int
+    ) {
+        let scale = Float(max(1, factor))
+        for y in 0..<height {
+            let sampleY = min(max((Float(y) + 0.5) / scale - 0.5, 0), Float(sourceHeight - 1))
+            let y0 = Int(sampleY)
+            let y1 = min(y0 + 1, sourceHeight - 1)
+            let fy = sampleY - Float(y0)
+            for x in 0..<width {
+                let sampleX = min(max((Float(x) + 0.5) / scale - 0.5, 0), Float(sourceWidth - 1))
+                let x0 = Int(sampleX)
+                let x1 = min(x0 + 1, sourceWidth - 1)
+                let fx = sampleX - Float(x0)
+                let a = (y0 * sourceWidth + x0) * 4
+                let b = (y0 * sourceWidth + x1) * 4
+                let c = (y1 * sourceWidth + x0) * 4
+                let d = (y1 * sourceWidth + x1) * 4
+                let offset = (y * width + x) * 4
+                for channel in 0..<4 {
+                    let top = Float(source[a + channel]) * (1 - fx) + Float(source[b + channel]) * fx
+                    let bottom = Float(source[c + channel]) * (1 - fx) + Float(source[d + channel]) * fx
+                    destination[offset + channel] = byte((top * (1 - fy) + bottom * fy) / 255)
+                }
+            }
+        }
+    }
+
+    /// Two-pass separable Gaussian over an isolated image, with taps
+    /// beyond the image clamped to its outermost texel.
     ///
     /// Clamp-to-edge rather than the truncated-kernel renormalisation
     /// this used to do, because clamping is what the GPU pass does (the
@@ -464,7 +572,7 @@ private struct RasterTarget {
     /// exactly the case a `.blur(radius: 80)` on a 2× display produces.
     /// Weights are quantised to bytes between the passes because the GPU's
     /// ping-pong targets are `B8G8R8A8_UNORM`.
-    private func blurPremultipliedRegion(_ region: inout [UInt8], width: Int, height: Int, radius: Int) {
+    private func blurPremultipliedImage(_ region: inout [UInt8], width: Int, height: Int, radius: Int) {
         guard radius > 0, width > 0, height > 0 else { return }
         let kernel = gaussianBlurKernel(radius: radius)
         // Prefix sums so the taps that all clamp to the same edge texel

@@ -15940,8 +15940,11 @@ private func applyRetainedVisualEffectOperations(_ operations: [RetainedVisualEf
         case .luminanceToAlpha:
             node.colorEffects.append(.luminanceToAlpha)
         case .blur(let radius, let opaque):
-            node.blurRadius = max(0, radius)
-            node.blurOpaque = opaque
+            // SwiftUI's `.blur()` is a CONTENT blur: the subtree renders and
+            // the result is blurred once. `blurRadius` is the separate
+            // backdrop effect a Material background asks for.
+            node.contentBlurRadius = max(0, radius)
+            node.contentBlurOpaque = opaque
         case .opacity(let value):
             node.opacity *= value
         case .scaleEffect(let x, let y):
@@ -27071,8 +27074,11 @@ extension View {
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
-                childNode.blurRadius = max(0, radius)
-                childNode.blurOpaque = opaque
+                // Content blur, not backdrop blur — see ViewNode's two
+                // fields. This blurs what the subtree drew, text included,
+                // in a single pass over its painted bounds.
+                childNode.contentBlurRadius = max(0, radius)
+                childNode.contentBlurOpaque = opaque
                 return childNode
             }
         }

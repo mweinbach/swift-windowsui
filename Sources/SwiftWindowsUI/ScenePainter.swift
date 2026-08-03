@@ -250,8 +250,9 @@ public enum ScenePainter {
         let layerIndex: Int
         let primitiveOpacity: Float
         let inheritedColorEffects: [RetainedColorEffect]
-        let inheritedBlurRadius: Double
-        let inheritedBlurOpaque: Bool
+        // No inherited blur. `blurRadius` is the node's OWN backdrop effect
+        // (Material) and `contentBlurRadius` is resolved once, after the
+        // subtree is painted, so neither is pushed down the traversal.
         let inheritedBlendMode: BlendMode
         let inheritedTransform: Transform2D
         let isInsideDrawingGroup: Bool
@@ -296,8 +297,6 @@ public enum ScenePainter {
         previousScene: GPUIScene?,
         primitiveOpacity: Float = 1,
         inheritedColorEffects: [RetainedColorEffect] = [],
-        inheritedBlurRadius: Double = 0,
-        inheritedBlurOpaque: Bool = false,
         inheritedBlendMode: BlendMode = .normal,
         usedNativeGlyphs: inout Bool,
         usedPixelGlyphs: inout Bool,
@@ -315,8 +314,6 @@ public enum ScenePainter {
                     layerIndex: layerIndex,
                     primitiveOpacity: primitiveOpacity,
                     inheritedColorEffects: inheritedColorEffects,
-                    inheritedBlurRadius: inheritedBlurRadius,
-                    inheritedBlurOpaque: inheritedBlurOpaque,
                     inheritedBlendMode: inheritedBlendMode,
                     inheritedTransform: inheritedTransform,
                     isInsideDrawingGroup: isInsideDrawingGroup,
@@ -347,8 +344,6 @@ public enum ScenePainter {
             let layerIndex = context.layerIndex
             let primitiveOpacity = context.primitiveOpacity
             let inheritedColorEffects = context.inheritedColorEffects
-            let inheritedBlurRadius = context.inheritedBlurRadius
-            let inheritedBlurOpaque = context.inheritedBlurOpaque
             let inheritedBlendMode = context.inheritedBlendMode
             let inheritedTransform = context.inheritedTransform
             let isInsideDrawingGroup = context.isInsideDrawingGroup
@@ -485,8 +480,11 @@ public enum ScenePainter {
             // GPUI/Zed carries opacity as an inherited paint scalar.
             let opacity = primitiveOpacity * Float(node.opacity)
             let colorEffects = inheritedColorEffects + node.colorEffects
-            let blurRadius = max(inheritedBlurRadius, node.blurRadius)
-            let blurOpaque = inheritedBlurOpaque || node.blurOpaque
+            // The node's own backdrop blur (Material). A subtree-wide
+            // `.blur()` is `contentBlurRadius` and is emitted as one pass in
+            // `finishPaintNode`, after everything below has painted.
+            let blurRadius = node.blurRadius
+            let blurOpaque = node.blurOpaque
             let resolvedHoverEffect = node.resolvedActiveHoverEffect
             let cacheKey = ViewPaintCacheKey(
                 bounds: paintFrame,
@@ -494,6 +492,8 @@ public enum ScenePainter {
                 opacity: opacity,
                 blurRadius: blurRadius,
                 blurOpaque: blurOpaque,
+                contentBlurRadius: node.contentBlurRadius,
+                contentBlurOpaque: node.contentBlurOpaque,
                 blendMode: effectiveBlendMode,
                 isCompositingGroup: node.isCompositingGroup,
                 drawingGroup: node.drawingGroup,
@@ -994,8 +994,6 @@ public enum ScenePainter {
                             previousScene: nil,
                             primitiveOpacity: 1.0,
                             inheritedColorEffects: [],
-                            inheritedBlurRadius: 0,
-                            inheritedBlurOpaque: false,
                             inheritedBlendMode: .normal,
                             usedNativeGlyphs: &subNative,
                             usedPixelGlyphs: &subPixel,
@@ -1091,8 +1089,6 @@ public enum ScenePainter {
                                 layerIndex: layerIndex,
                                 primitiveOpacity: opacity,
                                 inheritedColorEffects: colorEffects,
-                                inheritedBlurRadius: blurRadius,
-                                inheritedBlurOpaque: blurOpaque,
                                 inheritedBlendMode: effectiveBlendMode,
                                 inheritedTransform: effectiveTransform,
                                 // Both flags are inherited, not reset. Hard-coding
@@ -1204,11 +1200,78 @@ public enum ScenePainter {
             }
         }
 
+        appendContentBlurPass(
+            state, into: &scene, surfaceSize: surfaceSize, displayScale: displayScale)
+
         if !state.skipCacheUpdates {
             node.cachedSceneKey = state.cacheKey
             node.cachedScenePaintRange = state.startPaintRecord..<scene.paintRecordCount
         }
         node.markSubtreeRendered()
+    }
+
+    /// SwiftUI's `.blur(radius:)` as **one** pass over the subtree's painted
+    /// bounds, emitted after everything below this node has drawn.
+    ///
+    /// This is the render-pass lowering of a content blur. The primitive is
+    /// the existing backdrop-blur quad — both backends already know how to
+    /// snapshot what is painted so far under a rect, blur it, and composite
+    /// through the quad's coverage — with a fully transparent tint, so the
+    /// composite writes the blurred result alone.
+    ///
+    /// What it replaces: `.blur()` used to be pushed down as an inherited
+    /// radius and applied to every descendant's *background quad*. That was
+    /// wrong twice over. Cost: one backbuffer copy plus two blur passes per
+    /// descendant, and every one of them broke the quad batch, so a blurred
+    /// 200-row list issued 200 copies and 400 blur draws per frame. Fidelity:
+    /// only background quads carry the field, so the text, images, borders
+    /// and paths inside a `.blur()`ed subtree stayed perfectly sharp — the
+    /// one thing a user asking for a blur is certain to notice.
+    ///
+    /// Two deliberate approximations, both documented in
+    /// `docs/GPURenderingPipeline.md`:
+    ///
+    /// - The pass blurs everything already painted within the bounds, not
+    ///   the subtree in isolation composited over an unblurred background.
+    ///   Identical whenever the backdrop is flat, which is the common case.
+    /// - The bounds are the node's painted frame outset by the radius, so
+    ///   the blur fades out instead of ending at a hard rectangular edge.
+    ///   Content that overflows further than the radius is not included.
+    private static func appendContentBlurPass(
+        _ state: PaintNodeFinishState,
+        into scene: inout GPUIScene,
+        surfaceSize: Size,
+        displayScale: Double
+    ) {
+        let node = state.node
+        let radius = node.contentBlurRadius
+        guard radius > 0, state.paintFrame.size.width > 0, state.paintFrame.size.height > 0 else { return }
+
+        let bounds = state.paintFrame.inset(by: -radius)
+        guard clipAllowsDrawing(clip: state.effectiveClip, rect: bounds) else { return }
+
+        scene.addQuad(
+            fillQuad(
+                rect: bounds,
+                cornerRadius: 0,
+                cornerRadii: nil,
+                // Fully transparent tint: the composite is
+                // `tint over blurred backdrop`, so alpha 0 leaves the
+                // blurred subtree itself and nothing else.
+                color: .clear,
+                gradient: nil,
+                opacity: state.opacity,
+                clip: state.effectiveClip?.rect,
+                surfaceSize: surfaceSize,
+                displayScale: displayScale,
+                colorEffects: state.colorEffects,
+                blurRadius: Float(radius * displayScale),
+                blurOpaque: node.contentBlurOpaque ? 1 : 0,
+                clipCornerRadius: state.inheritedClip.ancestorCornerRadius(
+                    forQuadRect: bounds, rejectingOutside: state.effectiveClip?.rect),
+                blendMode: state.effectiveBlendMode
+            ),
+            toLayer: state.layerIndex)
     }
 
     // MARK: - Compositing groups
@@ -1820,8 +1883,6 @@ public enum ScenePainter {
                     previousScene: previousScene,
                     primitiveOpacity: payload.inheritedOpacity,
                     inheritedColorEffects: payload.inheritedColorEffects,
-                    inheritedBlurRadius: payload.inheritedBlurRadius,
-                    inheritedBlurOpaque: payload.inheritedBlurOpaque,
                     inheritedBlendMode: payload.inheritedBlendMode,
                     usedNativeGlyphs: &usedNativeGlyphs,
                     usedPixelGlyphs: &usedPixelGlyphs,

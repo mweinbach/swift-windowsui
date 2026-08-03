@@ -35,13 +35,19 @@ import WinSDK.DirectX
 ///    (source-over), then modulates by the rounded-rect coverage so the
 ///    edges anti-alias against the untouched backdrop.
 ///
-/// Performance shape (documented choice): full-resolution region-sized
-/// separable blur, one backbuffer copy per material quad. Material
-/// counts per scene are tiny (a handful of panels), and the blur is
-/// confined to the quad's bounds rather than the whole surface, so the
-/// cost is `2 * (2r + 1)` texture samples per region pixel — e.g. a
-/// 400×300 panel at r=22 ≈ 11M samples, trivial for any D3D11 GPU. No
-/// downsample chain is used; radii stay ≤ 40 for built-in materials.
+/// Performance shape: `BlurPassPlan` — the renderer-neutral cost model
+/// the CPU rasterizer shares — decides how the blur is executed. Ordinary
+/// radii (everything at or below `fullResolutionRadiusLimit`, which covers
+/// every built-in material and every pinned baseline) run at full
+/// resolution: `2 * (2r + 1)` texture samples per region pixel, e.g. a
+/// 400×300 panel at r=22 ≈ 11M samples. Past that the plan inserts 2×
+/// halving passes and blurs the reduced image with a reduced radius, so
+/// the cost of a wide `.blur(radius:)` stops scaling cubically with
+/// display scale (one halving is 8× cheaper, two are 64×). The halving
+/// pass is the ordinary blur shader with a zero radius: a single bilinear
+/// tap placed on a texel boundary *is* an exact 2×2 box average, so the
+/// reduction needs no shader of its own and the CPU can transcribe it
+/// exactly.
 ///
 /// The engine is self-contained (own shaders, constant buffers, sampler,
 /// blend/rasterizer state and a 1-instance quad buffer) so headless
@@ -63,6 +69,11 @@ final class D3D11BackdropBlurEngine {
     /// HLSL). Must match `batchBackdropBlurShaderSource`'s `BlurParams`
     /// exactly — `D3D11BackdropBlurTests` pins the two together.
     static let blurParamsFloatCount = 268
+
+    /// Float count of the composite draw's `BackdropRegion` cbuffer:
+    /// 4 (region origin + scaled texture size) + 4 (UV clamp bounds).
+    /// Must match `batchMaterialQuadShaderSource`'s cbuffer exactly.
+    static let regionParamsFloatCount = 8
 
     private var device: UnsafeMutablePointer<ID3D11Device>?
 
@@ -132,7 +143,10 @@ final class D3D11BackdropBlurEngine {
         blurParamsBuffer = try Self.createConstantBuffer(
             device: device, byteWidth: UINT(Self.blurParamsFloatCount * 4), label: "blurParams")
         frameUniformBuffer = try Self.createConstantBuffer(device: device, byteWidth: 16, label: "frameUniforms")
-        regionBuffer = try Self.createConstantBuffer(device: device, byteWidth: 16, label: "region")
+        // 32 bytes: `backdropRegion` plus the `backdropUVBounds` float4 the
+        // composite shader clamps its backdrop sample into.
+        regionBuffer = try Self.createConstantBuffer(
+            device: device, byteWidth: UINT(Self.regionParamsFloatCount * 4), label: "region")
         try createQuadInstanceBuffer(device: device)
 
         var samplerDescriptor = D3D11_SAMPLER_DESC()
@@ -365,64 +379,87 @@ final class D3D11BackdropBlurEngine {
             deviceContext, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST)
         deviceContext.pointee.lpVtbl.pointee.RSSetState(deviceContext, rasterizerState)
 
+        // The shared cost model decides the schedule. It is keyed on the
+        // radius alone, so the CPU rasterizer runs exactly the same number
+        // of halvings over exactly the same reduced sizes.
+        let plan = BlurPassPlan(radius: radius, regionWidth: regionW, regionHeight: regionH)
+
+        // The region always sits at the ping-pong textures' origin; what
+        // changes across the chain is how much of the texture the current
+        // image occupies. Every UV the passes use comes out of this value,
+        // so a tap can never reach the stale texels a larger previous
+        // region left behind.
+        var currentRegion = SubTextureRegion(
+            originX: 0, originY: 0, width: regionW, height: regionH,
+            textureWidth: textureCapacity.width, textureHeight: textureCapacity.height)
+        // `true` while the live image is in texture A. The copy landed in A.
+        var sourceIsA = true
+        var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+
+        // 2a. Halving passes. A zero-radius blur is one bilinear tap, and
+        // the viewport-to-UV mapping puts that tap exactly on the boundary
+        // between texels 2i and 2i+1 — an exact 2×2 box average, with no
+        // downsample shader to keep in sync.
+        for _ in 0..<plan.halvingPassCount {
+            let halved = SubTextureRegion(
+                originX: 0, originY: 0,
+                width: max(1, currentRegion.width / 2), height: max(1, currentRegion.height / 2),
+                textureWidth: textureCapacity.width, textureHeight: textureCapacity.height)
+            try uploadBlurParams(
+                deviceContext: deviceContext,
+                buffer: blurParamsBuffer,
+                direction: (0, 0),
+                region: currentRegion,
+                radius: 0,
+                kernel: [1]
+            )
+            var halvedViewport = D3D11_VIEWPORT(
+                TopLeftX: 0, TopLeftY: 0,
+                Width: FLOAT(halved.width), Height: FLOAT(halved.height),
+                MinDepth: 0, MaxDepth: 1)
+            try runBlurPass(
+                deviceContext: deviceContext,
+                target: sourceIsA ? rtvB : rtvA, source: sourceIsA ? srvA : srvB,
+                blurVS: blurVS, blurPS: blurPS,
+                paramsBuffer: blurParamsBuffer, sampler: samplerState,
+                viewport: &halvedViewport
+            )
+            deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 0, 1, &nullSRV)
+            sourceIsA.toggle()
+            currentRegion = halved
+        }
+
+        let kernel = gaussianBlurKernel(radius: plan.reducedRadius)
         var regionViewport = D3D11_VIEWPORT(
             TopLeftX: 0, TopLeftY: 0,
-            Width: FLOAT(regionW), Height: FLOAT(regionH),
+            Width: FLOAT(currentRegion.width), Height: FLOAT(currentRegion.height),
             MinDepth: 0, MaxDepth: 1)
 
-        let kernel = gaussianBlurKernel(radius: radius)
-
-        // Both passes read the same sub-rectangle of the grow-only
-        // ping-pong textures, so they share the region/texture UV scale
-        // and the half-texel inset that bounds every tap to it.
-        let uvScale = (
-            x: Float(regionW) / Float(textureCapacity.width),
-            y: Float(regionH) / Float(textureCapacity.height)
-        )
-        let uvClampInset = (
-            x: 0.5 / Float(textureCapacity.width),
-            y: 0.5 / Float(textureCapacity.height)
-        )
-
-        // 2a. Horizontal pass: A -> B.
-        try uploadBlurParams(
-            deviceContext: deviceContext,
-            buffer: blurParamsBuffer,
-            direction: (1 / Float(textureCapacity.width), 0),
-            uvScale: uvScale,
-            uvClampInset: uvClampInset,
-            radius: radius,
-            kernel: kernel
-        )
-        try runBlurPass(
-            deviceContext: deviceContext,
-            target: rtvB, source: srvA,
-            blurVS: blurVS, blurPS: blurPS,
-            paramsBuffer: blurParamsBuffer, sampler: samplerState,
-            viewport: &regionViewport
-        )
-
-        // 2b. Vertical pass: B -> A. A's SRV must be unbound before it
-        // becomes the render target again.
-        var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
-        deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 0, 1, &nullSRV)
-        try uploadBlurParams(
-            deviceContext: deviceContext,
-            buffer: blurParamsBuffer,
-            direction: (0, 1 / Float(textureCapacity.height)),
-            uvScale: uvScale,
-            uvClampInset: uvClampInset,
-            radius: radius,
-            kernel: kernel
-        )
-        try runBlurPass(
-            deviceContext: deviceContext,
-            target: rtvA, source: srvB,
-            blurVS: blurVS, blurPS: blurPS,
-            paramsBuffer: blurParamsBuffer, sampler: samplerState,
-            viewport: &regionViewport
-        )
-        deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 0, 1, &nullSRV)
+        // 2b. Horizontal pass, then vertical. The source texture's SRV is
+        // unbound after each pass because the next one makes it the render
+        // target.
+        for direction in [
+            (1 / Float(textureCapacity.width), Float(0)),
+            (Float(0), 1 / Float(textureCapacity.height)),
+        ] {
+            try uploadBlurParams(
+                deviceContext: deviceContext,
+                buffer: blurParamsBuffer,
+                direction: direction,
+                region: currentRegion,
+                radius: plan.reducedRadius,
+                kernel: kernel
+            )
+            try runBlurPass(
+                deviceContext: deviceContext,
+                target: sourceIsA ? rtvB : rtvA, source: sourceIsA ? srvA : srvB,
+                blurVS: blurVS, blurPS: blurPS,
+                paramsBuffer: blurParamsBuffer, sampler: samplerState,
+                viewport: &regionViewport
+            )
+            deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 0, 1, &nullSRV)
+            sourceIsA.toggle()
+        }
 
         // 3. Composite the tinted quad over the blurred backdrop.
         try uploadQuadInstance(deviceContext: deviceContext, buffer: quadInstanceBuffer, quad: quad)
@@ -431,9 +468,19 @@ final class D3D11BackdropBlurEngine {
         try uniforms.withUnsafeBytes { bytes in
             try updateSubresource(deviceContext: deviceContext, buffer: frameUniformBuffer, bytes: bytes)
         }
-        // zw carries the TEXTURE size, not the region size (see the
-        // BackdropRegion cbuffer comment in BatchShaders.swift).
-        var region: [Float] = [Float(x0), Float(y0), Float(textureCapacity.width), Float(textureCapacity.height)]
+        // zw carries the TEXTURE size scaled by the downsample factor, not
+        // the region size (see the BackdropRegion cbuffer comment in
+        // BatchShaders.swift): one divide does the region mapping and the
+        // bilinear upsample together. The second float4 is the clamp range
+        // that keeps the upsample's bilinear footprint inside the reduced
+        // region.
+        var region: [Float] = [
+            Float(x0), Float(y0),
+            Float(textureCapacity.width * plan.downsampleFactor),
+            Float(textureCapacity.height * plan.downsampleFactor),
+            currentRegion.uvMinU, currentRegion.uvMinV,
+            currentRegion.uvMaxU, currentRegion.uvMaxV,
+        ]
         try region.withUnsafeBytes { bytes in
             try updateSubresource(deviceContext: deviceContext, buffer: regionBuffer, bytes: bytes)
         }
@@ -462,7 +509,9 @@ final class D3D11BackdropBlurEngine {
 
         var instanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = quadInstanceSRV
         deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &instanceSRV)
-        var backdropSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = srvA
+        // The chain's parity decides which side holds the blurred result;
+        // an odd pass count leaves it in B.
+        var backdropSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = sourceIsA ? srvA : srvB
         deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &backdropSRV)
         var sampler: UnsafeMutablePointer<ID3D11SamplerState>? = samplerState
         deviceContext.pointee.lpVtbl.pointee.PSSetSamplers(deviceContext, 0, 1, &sampler)
@@ -607,8 +656,7 @@ final class D3D11BackdropBlurEngine {
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
         buffer: UnsafeMutablePointer<ID3D11Buffer>,
         direction: (x: Float, y: Float),
-        uvScale: (x: Float, y: Float),
-        uvClampInset: (x: Float, y: Float),
+        region: SubTextureRegion,
         radius: Int,
         kernel: [Float]
     ) throws {
@@ -616,14 +664,15 @@ final class D3D11BackdropBlurEngine {
         params[0] = direction.x
         params[1] = direction.y
         params[2] = Float(radius)
-        params[4] = uvScale.x
-        params[5] = uvScale.y
+        params[4] = region.uvWidth
+        params[5] = region.uvHeight
         // Half-texel inset: the shader clamps every tap to
         // [inset, uvScale - inset], the region's outermost texel centres,
         // so taps never reach the stale texels a larger previous region
-        // left in the grow-only targets.
-        params[6] = uvClampInset.x
-        params[7] = uvClampInset.y
+        // left in the grow-only targets. `SubTextureRegion` is where that
+        // inset is defined, for this and for the composite draw.
+        params[6] = region.halfTexelU
+        params[7] = region.halfTexelV
         // Symmetric kernel: entry i serves taps ±i, entry 0 the centre.
         for i in 0...radius {
             params[8 + i] = kernel[radius + i]

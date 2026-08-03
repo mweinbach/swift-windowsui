@@ -6939,8 +6939,11 @@ final class WinSwiftUITests: XCTestCase {
                     .colorMultiply(.red),
                     .luminanceToAlpha,
                 ])
-            XCTAssertEqual(node.blurRadius, 4)
-            XCTAssertTrue(node.blurOpaque)
+            // `.blur()` is the CONTENT blur; `blurRadius` stays reserved for
+            // the backdrop effect a Material background asks for.
+            XCTAssertEqual(node.contentBlurRadius, 4)
+            XCTAssertTrue(node.contentBlurOpaque)
+            XCTAssertEqual(node.blurRadius, 0)
             XCTAssertEqual(node.opacity, 0.8)
             XCTAssertEqual(node.blendMode, .screen)
             XCTAssertFalse(node.transform.isIdentity)
@@ -16785,15 +16788,20 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
-    func testBlurModifierMapsToRetainedNodeBlurRadius() async {
+    /// `.blur()` is a *content* blur: the subtree renders and the result is
+    /// blurred once. It must not land on `blurRadius`, which is the node's
+    /// own backdrop effect — that field on a `Text` would blur what is
+    /// behind the label and leave the glyphs sharp.
+    func testBlurModifierMapsToRetainedNodeContentBlurRadius() async {
         await MainActor.run {
             let blurredNode = makeNode(Text("SOFT").blur(radius: 12, opaque: true))
             let clampedNode = makeNode(Text("SHARP").blur(radius: -3))
 
-            XCTAssertEqual(blurredNode.blurRadius, 12)
-            XCTAssertEqual(blurredNode.blurOpaque, true)
-            XCTAssertEqual(clampedNode.blurRadius, 0)
-            XCTAssertEqual(clampedNode.blurOpaque, false)
+            XCTAssertEqual(blurredNode.contentBlurRadius, 12)
+            XCTAssertEqual(blurredNode.contentBlurOpaque, true)
+            XCTAssertEqual(blurredNode.blurRadius, 0, "a content blur must not become a backdrop blur")
+            XCTAssertEqual(clampedNode.contentBlurRadius, 0)
+            XCTAssertEqual(clampedNode.contentBlurOpaque, false)
         }
     }
 

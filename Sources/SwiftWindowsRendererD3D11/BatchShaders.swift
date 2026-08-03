@@ -315,12 +315,21 @@ SamplerState backdropSampler : register(s0);
 
 cbuffer BackdropRegion : register(b1)
 {
-    // xy = region origin in surface pixels, zw = size of the backdrop
-    // TEXTURE in pixels (the texture may be larger than the region:
-    // ping-pong targets grow-only, and the region always sits at the
-    // texture's origin, so dividing by texture size lands the sample on
-    // the right texel).
+    // xy = region origin in surface pixels, zw = the backdrop texture size
+    // in pixels MULTIPLIED BY the blur plan's downsample factor. The
+    // texture may be larger than the region (ping-pong targets are
+    // grow-only and the region always sits at the texture's origin), and
+    // a reduced blur leaves its result occupying only
+    // region / factor texels — folding the factor into the divisor makes
+    // this one divide both the region mapping and the bilinear upsample.
     float4 backdropRegion;
+    // xy = minimum UV, zw = maximum UV: the outermost texel CENTRES of the
+    // blurred region. Without this clamp the region's right and bottom
+    // edge pixels land exactly on the region boundary, where the bilinear
+    // filter mixes in the first texel outside the region — stale content
+    // from whatever larger region last used the grow-only target.
+    // SubTextureRegion produces both bounds.
+    float4 backdropUVBounds;
 };
 
 float4 psMain(VSOutput input) : SV_Target
@@ -378,10 +387,13 @@ float4 psMain(VSOutput input) : SV_Target
         color.rgb = saturate(applyColorEffect(color.rgb, input.effectType, input.effectIntensity, input.effectParam1, input.effectParam2, input.effectParam3, input.effectParam4));
     }
 
-    // Sample the blurred backdrop at this pixel's screen position.
-    // Pixels outside the region clamp to the region's edge texels.
+    // Sample the blurred backdrop at this pixel's screen position, then
+    // clamp into the region's texel-centre range so neither a pixel past
+    // the region nor the bilinear footprint of an edge pixel can reach
+    // texels the blur never wrote.
     float2 uv = (input.pixelPosition - backdropRegion.xy) / backdropRegion.zw;
-    float4 backdrop = backdropTexture.Sample(backdropSampler, uv);
+    float4 backdrop = backdropTexture.Sample(
+        backdropSampler, clamp(uv, backdropUVBounds.xy, backdropUVBounds.zw));
 
     // Source-over composite of the tint over the blurred backdrop,
     // matching what the CPU rasterizer's in-place blur + blend yields.

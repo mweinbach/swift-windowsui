@@ -133,15 +133,27 @@ final class StrokeStyleContractTests: XCTestCase {
                 forElements: rightAngle, lineWidth: 8, lineCap: .butt, lineJoin: .round, miterLimit: 10),
             4, accuracy: 0.001, "a round join never leaves the half width")
 
-        // A spike sharper than the bounds ratio is cropped rather than sizing
-        // a bitmap off an app-supplied limit.
+        // A spike sharper than the bounds ratio bevels rather than sizing a
+        // bitmap off an app-supplied limit — and a bevel never leaves the
+        // half width, so the bounds it needs are a half width.
         let needle: [PathElement] = [
             .moveTo(.zero), .lineTo(Point(x: 100, y: 1)), .lineTo(Point(x: 0, y: 2)),
         ]
         XCTAssertEqual(
             StrokeOutlineGeometry.boundsOutset(
                 forElements: needle, lineWidth: 8, lineCap: .butt, lineJoin: .miter, miterLimit: 1_000),
-            4 * StrokeOutlineGeometry.maxMiterBoundsRatio, accuracy: 0.001)
+            4, accuracy: 0.001)
+
+        // A corner inside the ratio still sizes its own miter exactly: a 60°
+        // included angle is 1 / cos 60° = 2 half widths.
+        let sixtyDegrees: [PathElement] = [
+            .moveTo(.zero), .lineTo(Point(x: 100, y: 0)),
+            .lineTo(Point(x: 100 - 50, y: 50 * 3.0.squareRoot())),
+        ]
+        XCTAssertEqual(
+            StrokeOutlineGeometry.boundsOutset(
+                forElements: sixtyDegrees, lineWidth: 8, lineCap: .butt, lineJoin: .miter, miterLimit: 10),
+            8, accuracy: 0.01)
     }
 
     // MARK: - The lowerings
@@ -309,7 +321,8 @@ final class StrokeStyleContractTests: XCTestCase {
     }
 
     /// And when it cannot draw the style exactly, it says so instead of
-    /// drawing something else: a sharp miter goes to the rasterizer whole.
+    /// drawing something else: a sharp miter's *wedge* goes to the
+    /// rasterizer, and the two bodies it joins do not.
     func testTessellatorRefusesAJoinItCannotDrawExactly() async {
         var sharp = PathPrimitive(
             elements: [
@@ -320,9 +333,72 @@ final class StrokeStyleContractTests: XCTestCase {
             bounds: Rect(x: 4, y: 0, width: 112, height: 112),
             strokeColor: .white,
             lineWidth: 12)
-        XCTAssertNil(PathToQuadTessellator.tessellateMixed(sharp), "a 53° miter is a kite, not a rectangle")
+        let mixed = PathToQuadTessellator.tessellateMixed(sharp)
+        XCTAssertEqual(mixed?.quads.count, 2, "a 53° miter is a kite, not a rectangle — but its bodies are")
+        XCTAssertEqual(mixed?.residualPath?.elements.count, 3, "one wedge on the CPU, not the whole chart")
 
         sharp.lineJoin = .round
-        XCTAssertNotNil(PathToQuadTessellator.tessellateMixed(sharp), "a round join is a disc, which is a quad")
+        let rounded = PathToQuadTessellator.tessellateMixed(sharp)
+        XCTAssertNotNil(rounded, "a round join is a disc, which is a quad")
+        XCTAssertNil(rounded?.residualPath)
+    }
+
+    /// The drawn miter and the declared `bounds` read the same limit, so a
+    /// spike sharper than a raster can hold bevels instead of being drawn and
+    /// then cropped flat by the buffer edge.
+    func testSharpMiterBevelsRatherThanOverflowingItsBounds() async {
+        // A ~15° included angle: 1 / cos(turn / 2) ≈ 7.7 half widths, well
+        // past `maxMiterBoundsRatio` and well inside `StrokeStyle`'s default
+        // `miterLimit` of 10.
+        let dot = cos(.pi - 15.0 * .pi / 180)
+        let ratio = StrokeOutlineGeometry.miterRatio(directionDot: dot) ?? 0
+        XCTAssertGreaterThan(ratio, StrokeOutlineGeometry.maxMiterBoundsRatio)
+        XCTAssertLessThan(ratio, 10)
+        XCTAssertEqual(
+            StrokeOutlineGeometry.resolvedJoin(.miter, directionDot: dot, miterLimit: 10), .bevel,
+            "a miter the bounds cannot hold is drawn as the bevel it degrades to")
+        XCTAssertEqual(StrokeOutlineGeometry.effectiveMiterLimit(10), StrokeOutlineGeometry.maxMiterBoundsRatio)
+        XCTAssertEqual(StrokeOutlineGeometry.effectiveMiterLimit(2), 2, "a tighter app limit still wins")
+        XCTAssertEqual(StrokeOutlineGeometry.effectiveMiterLimit(0), 1)
+
+        // Both stroke routes read `resolvedJoin`, so agreeing with it is what
+        // "both backends agree" means here. What the raster then has to show
+        // is that the drawn tip stays inside the outset an emitter declared:
+        // given deliberately generous bounds, an unclamped miter would still
+        // paint ~7.7 half widths past the vertex and a bevel paints none.
+        let needle: [PathElement] = [
+            .moveTo(Point(x: 20, y: 60)),
+            .lineTo(Point(x: 120, y: 46.8)),
+            .lineTo(Point(x: 20, y: 33.6)),
+        ]
+        let outset = StrokeOutlineGeometry.boundsOutset(
+            forElements: needle, lineWidth: 8, lineCap: .butt, lineJoin: .miter, miterLimit: 10)
+        let slack = 40.0
+        let bounds = Rect(
+            x: 20 - slack, y: 33.6 - slack, width: 100 + 2 * slack, height: 26.4 + 2 * slack)
+        let path = PathPrimitive(
+            elements: needle,
+            bounds: bounds,
+            strokeColor: .white,
+            lineWidth: 8,
+            lineJoin: .miter,
+            miterLimit: 10)
+        guard let bitmap = GPUIRawSceneRasterizer.rasterizePath(path) else {
+            return XCTFail("the needle rasterized to nothing")
+        }
+        let width = Int(bitmap.width)
+        let height = Int(bitmap.height)
+        var furthestInkX = 0
+        for y in 0..<height {
+            for x in stride(from: width - 1, through: furthestInkX, by: -1)
+            where bitmap.pixels[(y * width + x) * 4 + 3] > 8 {
+                furthestInkX = max(furthestInkX, x)
+                break
+            }
+        }
+        let tipX = 120 - bounds.origin.x
+        XCTAssertLessThanOrEqual(
+            Double(furthestInkX), tipX + outset + 1,
+            "the drawn spike reached past the bounds its own emitter declared")
     }
 }

@@ -294,8 +294,8 @@ final class PathToQuadTessellatorTests: XCTestCase {
 
     /// A right-angle miter is exactly the square the two extended bodies
     /// cover, so an L stays on the GPU; a 45° one is a kite no rectangle can
-    /// be, so the whole path goes to the CPU stroker rather than rendering a
-    /// join nobody asked for.
+    /// be, so *that one join* goes to the CPU stroker while both bodies stay
+    /// on the GPU.
     func testMiterJoinPromotesOnlyWhenTheQuadFamilyCanDrawItExactly() {
         let rightAngle = makeStrokedPath(
             elements: [
@@ -313,9 +313,14 @@ final class PathToQuadTessellatorTests: XCTestCase {
                 .lineTo(Point(x: 90, y: 40)),
             ],
             lineWidth: 6)
+        let mixed = PathToQuadTessellator.tessellateMixed(sharp)
+        XCTAssertEqual(mixed?.quads.count, 2, "both bodies still promote")
+        XCTAssertEqual(
+            mixed?.residualPath?.elements.count, 3,
+            "a 45° miter is not a rectangle; the CPU stroker draws that wedge alone")
         XCTAssertNil(
-            PathToQuadTessellator.tessellateMixed(sharp),
-            "a 45° miter is not a rectangle; the CPU stroker draws it")
+            PathToQuadTessellator.tessellate(sharp),
+            "the all-or-nothing entry point still refuses a path with a residual")
 
         var rounded = sharp
         rounded.lineJoin = .round
@@ -324,8 +329,9 @@ final class PathToQuadTessellatorTests: XCTestCase {
         XCTAssertEqual(roundedQuads?.filter { $0.cornerRadius > 0 }.count, 1)
     }
 
-    /// A bevel is a triangle whatever the angle, so a visible one always
-    /// falls back — and a turn too shallow to show a join still promotes.
+    /// A bevel is a triangle whatever the angle, so a visible one is always a
+    /// residual wedge — and a turn too shallow to show a join still promotes
+    /// whole.
     func testBevelJoinFallsBackOnlyWhenTheJoinIsVisible() {
         var sharp = makeStrokedPath(
             elements: [
@@ -335,7 +341,9 @@ final class PathToQuadTessellatorTests: XCTestCase {
             ],
             lineWidth: 6)
         sharp.lineJoin = .bevel
-        XCTAssertNil(PathToQuadTessellator.tessellateMixed(sharp))
+        let mixed = PathToQuadTessellator.tessellateMixed(sharp)
+        XCTAssertEqual(mixed?.quads.count, 2)
+        XCTAssertEqual(mixed?.residualPath?.elements.count, 3, "one wedge, not the whole path")
 
         var shallow = makeStrokedPath(
             elements: [
@@ -346,6 +354,50 @@ final class PathToQuadTessellatorTests: XCTestCase {
             lineWidth: 2)
         shallow.lineJoin = .bevel
         XCTAssertEqual(PathToQuadTessellator.tessellate(shallow)?.count, 2)
+    }
+
+    /// The wedge route overlaps the bodies it joins, which only an opaque
+    /// stroke can absorb. A translucent one keeps the whole-path CPU raster,
+    /// where every pixel is blended exactly once.
+    func testTranslucentStrokeKeepsTheWholePathFallback() {
+        var sharp = makeStrokedPath(
+            elements: [
+                .moveTo(Point(x: 10, y: 10)),
+                .lineTo(Point(x: 60, y: 10)),
+                .lineTo(Point(x: 60, y: 60)),
+            ],
+            lineWidth: 6)
+        sharp.lineJoin = .bevel
+        sharp.strokeColor = Color(red: 1, green: 1, blue: 1, alpha: 0.5)
+        XCTAssertNil(PathToQuadTessellator.tessellateMixed(sharp))
+    }
+
+    /// The point of the per-vertex route: a polyline chart with several
+    /// bevelled corners keeps every body on the GPU and sends only the
+    /// corners to the rasterizer, instead of uploading a full-extent texture
+    /// every frame.
+    func testThreeCornerBevelPolylinePromotesSegmentsWithASmallResidual() {
+        var polyline = makeStrokedPath(
+            elements: [
+                .moveTo(Point(x: 10, y: 10)),
+                .lineTo(Point(x: 60, y: 10)),
+                .lineTo(Point(x: 60, y: 60)),
+                .lineTo(Point(x: 120, y: 60)),
+                .lineTo(Point(x: 120, y: 120)),
+            ],
+            lineWidth: 6)
+        polyline.lineJoin = .bevel
+
+        let mixed = PathToQuadTessellator.tessellateMixed(polyline)
+        XCTAssertEqual(mixed?.quads.count, 4, "one quad per axis-aligned body")
+        // Three interior corners, three moveTo + lineTo + lineTo wedges.
+        XCTAssertEqual(mixed?.residualPath?.elements.count, 9)
+        let residualBounds = mixed?.residualPath?.bounds
+        XCTAssertNotNil(residualBounds)
+        XCTAssertLessThan(
+            (residualBounds?.size.width ?? 0) * (residualBounds?.size.height ?? 0),
+            polyline.bounds.size.width * polyline.bounds.size.height,
+            "the residual covers the corners, not the chart")
     }
 
     func testMultipleAxisAlignedSegmentsProduceOneQuadPerSegment() {

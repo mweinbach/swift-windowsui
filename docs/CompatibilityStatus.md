@@ -92,6 +92,7 @@ dashboard composition on a single custom-rendered window.
 | `Image(_:)` named / file / resource | **Partial** | WIC PNG/JPEG/BMP; no full asset-catalog pipeline |
 | `AsyncImage` | **Partial** | URL load into retained image phases; not a full network image stack |
 | Basic shapes (`Rectangle`, `RoundedRectangle`, `Capsule`, `Circle`, `Ellipse`, …) | **Implemented** | Fill/stroke/border through retained primitives |
+| `StrokeStyle` on any outline | **Implemented** | `lineWidth`, `lineCap`, `lineJoin`, `miterLimit`, `dashPattern`, `dashOffset` reach both stroke routes. Rect and rounded-rect borders resolve dashes through `BorderSegments`; every other outline (custom `Shape`, trimmed shape, `Canvas` `strokePath`) through `PathDashing`. A miter sharper than 4 half-widths degrades to a bevel so the drawn spike cannot exceed the raster sized for it |
 | `UnevenRoundedRectangle` | **Implemented** | Per-corner radii end-to-end (RTL-aware); uniform-only consumers (shadow/outline/clip) fall back to max radius |
 | `Canvas` + `GraphicsContext` | **Partial** | Scene-path drawing; `symbols:` / `resolveSymbol`, blendMode, `withCGContext` not wired |
 | `ContentUnavailableView` | **Implemented** | Retained empty-state chrome |

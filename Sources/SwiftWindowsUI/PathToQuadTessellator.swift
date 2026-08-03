@@ -17,8 +17,10 @@ import SwiftWindowsGraphics
 ///   when the segment is axis-aligned and rotated otherwise. Caps and joins
 ///   are honoured exactly — butt, square and round ends, right-angle miters
 ///   and round joins — and a join the quad family cannot draw exactly (a
-///   bevel, or a miter at any other angle) sends the whole path to the CPU
-///   stroker, which draws every style.
+///   bevel, or a miter at any other angle) becomes one wedge in
+///   `residualPath` for the CPU stroker, which draws every style. Only a
+///   *translucent* stroke still sends the whole path there, because a wedge
+///   overlaps the bodies it joins.
 /// - **Filled paths** that describe exactly one axis-aligned rectangle
 ///   (`moveTo + 3×lineTo + close` forming a closed rect). The rect
 ///   becomes a single quad.
@@ -575,7 +577,18 @@ enum PathToQuadTessellator {
         /// A disc centred on the point, which a `lineWidth × lineWidth` quad
         /// with a half-width corner radius draws exactly.
         case disc
+        /// A shape the quad family has no primitive for — a bevel triangle,
+        /// or a miter kite at anything but a right angle. The bodies stop
+        /// flush and this one wedge goes to the CPU stroker through
+        /// ``Result/residualPath``.
+        case wedge
     }
+
+    /// How far along each adjacent segment a wedge stub reaches, in half
+    /// widths. The stub only has to be long enough for the stroker to see two
+    /// real directions at the vertex; everything past that is body the quads
+    /// already drew.
+    private static let joinWedgeStubHalfWidths: Double = 1
 
     /// Mixed-output stroked-line tessellator. Walks the path subpath by
     /// subpath; axis-aligned segments become unrotated GPU quads and
@@ -596,16 +609,16 @@ enum PathToQuadTessellator {
         guard !subpaths.isEmpty else { return nil }
 
         var quads: [QuadPrimitive] = []
-        var residualSegments: [(from: Point, to: Point)] = []
+        var residualPolylines: [[Point]] = []
 
         for subpath in subpaths {
             let points = subpath.points
             guard points.count >= 2 else { continue }
             let segmentCount = points.count - 1
 
-            // Resolve every vertex first: one unsupported join abandons GPU
-            // promotion for the path as a whole, so there is no half-drawn
-            // stroke to unwind.
+            // Resolve every vertex first: a vertex the quads cannot draw
+            // becomes one residual wedge, not a discarded path, so there is
+            // never a half-drawn stroke to unwind either way.
             var terminals = [StrokeTerminal](repeating: .extend, count: points.count)
             for index in 1..<segmentCount {
                 guard
@@ -613,6 +626,13 @@ enum PathToQuadTessellator {
                         at: index, points: points, halfWidth: halfWidth, path: path)
                 else { return nil }
                 terminals[index] = terminal
+                if terminal == .wedge,
+                    let stub = joinWedgeStub(
+                        before: points[index - 1], at: points[index], after: points[index + 1],
+                        halfWidth: halfWidth)
+                {
+                    residualPolylines.append(stub)
+                }
             }
             if subpath.isClosed {
                 // The start/end vertex is a corner like any other.
@@ -621,6 +641,13 @@ enum PathToQuadTessellator {
                 else { return nil }
                 terminals[0] = terminal
                 terminals[segmentCount] = terminal
+                if terminal == .wedge,
+                    let stub = joinWedgeStub(
+                        before: points[points.count - 2], at: points[0], after: points[1],
+                        halfWidth: halfWidth)
+                {
+                    residualPolylines.append(stub)
+                }
             } else {
                 let capTerminal: StrokeTerminal
                 switch path.lineCap {
@@ -643,7 +670,7 @@ enum PathToQuadTessellator {
                 {
                     quads.append(segment)
                 } else {
-                    residualSegments.append((from, to))
+                    residualPolylines.append([from, to])
                 }
             }
             for index in 0...segmentCount where terminals[index] == .disc {
@@ -657,27 +684,31 @@ enum PathToQuadTessellator {
             }
         }
 
-        if quads.isEmpty && residualSegments.isEmpty {
+        if quads.isEmpty && residualPolylines.isEmpty {
             return nil
         }
 
-        // Build the residual path from the leftover diagonal/curved
-        // fragments. Each fragment becomes a moveTo + lineTo; the
-        // residual is rendered by the CPU rasterizer with the same
-        // stroke style and clip as the original.
+        // Build the residual path from the leftover fragments: diagonal or
+        // curved bodies the quad family declined, and the join wedges it has
+        // no primitive for. Each becomes a moveTo + lineTo…; the residual is
+        // rendered by the CPU rasterizer with the same stroke style and clip
+        // as the original.
         let residualPath: PathPrimitive?
-        if residualSegments.isEmpty {
+        if residualPolylines.isEmpty {
             residualPath = nil
         } else {
             var elements: [PathElement] = []
-            for segment in residualSegments {
-                elements.append(.moveTo(segment.from))
-                elements.append(.lineTo(segment.to))
+            for polyline in residualPolylines {
+                guard let first = polyline.first else { continue }
+                elements.append(.moveTo(first))
+                for point in polyline.dropFirst() {
+                    elements.append(.lineTo(point))
+                }
             }
             // Compute residual bounds for the painter's clip/visibility
             // checks; outset by half-lineWidth so a zero-thickness
             // diagonal bounding box still has area.
-            let allPoints = residualSegments.flatMap { [$0.from, $0.to] }
+            let allPoints = residualPolylines.flatMap { $0 }
             let minX = allPoints.map(\.x).min() ?? 0
             let minY = allPoints.map(\.y).min() ?? 0
             let maxX = allPoints.map(\.x).max() ?? 0
@@ -820,12 +851,55 @@ enum PathToQuadTessellator {
             // axis-aligned or rotated rectangle is, and the extension's
             // error grows as `halfWidth · |cos(turn)|`: it under-fills the
             // long spike of a shallow turn and over-fills a sharp one. Past
-            // the same tolerance the CPU stroker uses, the path goes there.
-            return halfWidth * abs(dot) <= StrokeOutlineGeometry.joinTolerance ? .extend : nil
+            // the same tolerance the CPU stroker uses, the wedge goes there.
+            if halfWidth * abs(dot) <= StrokeOutlineGeometry.joinTolerance { return .extend }
+            return wedgeOrWholePathFallback(for: path)
         case .bevel:
             // A bevel is a triangle. Nothing in the quad family is.
-            return nil
+            return wedgeOrWholePathFallback(for: path)
         }
+    }
+
+    /// A join the quads cannot draw is one wedge on the CPU — unless the
+    /// stroke is translucent, in which case it is the whole path.
+    ///
+    /// A wedge stub overlaps the two segment bodies the quads already drew,
+    /// because a stroker draws a join by stroking the corner it belongs to.
+    /// Painting an opaque colour twice is invisible; painting a translucent
+    /// one twice is a dark notch at every corner. So the fast route is taken
+    /// only where it cannot be seen, and everything else keeps the
+    /// whole-path CPU raster that was the only behaviour before — a
+    /// three-corner bevelled polyline used to abandon GPU promotion for
+    /// *every* segment over three wedges' worth of geometry.
+    private static func wedgeOrWholePathFallback(for path: PathPrimitive) -> StrokeTerminal? {
+        path.strokeColor.alpha >= 1 ? .wedge : nil
+    }
+
+    /// The short polyline whose stroke *is* one join: a stub back along the
+    /// incoming segment, the vertex, and a stub forward along the outgoing
+    /// one. The stroker draws the bevel triangle or the miter kite from the
+    /// two directions it sees there.
+    private static func joinWedgeStub(
+        before: Point, at vertex: Point, after: Point, halfWidth: Double
+    ) -> [Point]? {
+        guard let incoming = unitDirection(from: before, to: vertex),
+            let outgoing = unitDirection(from: vertex, to: after)
+        else { return nil }
+        let reach = halfWidth * joinWedgeStubHalfWidths
+        let back = min(reach, distance(from: before, to: vertex))
+        let forward = min(reach, distance(from: vertex, to: after))
+        guard back > 0, forward > 0 else { return nil }
+        return [
+            Point(x: vertex.x - incoming.x * back, y: vertex.y - incoming.y * back),
+            vertex,
+            Point(x: vertex.x + outgoing.x * forward, y: vertex.y + outgoing.y * forward),
+        ]
+    }
+
+    private static func distance(from start: Point, to end: Point) -> Double {
+        let deltaX = end.x - start.x
+        let deltaY = end.y - start.y
+        return (deltaX * deltaX + deltaY * deltaY).squareRoot()
     }
 
     private static func unitDirection(from start: Point, to end: Point) -> (x: Double, y: Double)? {

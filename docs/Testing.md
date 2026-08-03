@@ -289,6 +289,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   and drop the rest (`Canvas` stroke, shape outline, frame
   `StrokePathCommand`, scene bridge), and the agreement between the
   promoted-to-quads and CPU-rasterized routes for the styles both can draw.
+  Since P2F-PATH it also pins `effectiveMiterLimit`: a corner sharper than
+  the bounds ratio bevels rather than drawing a spike past the `bounds`
+  that sized its own raster.
+- `PathDashingTests` — dashes as geometry, resolved before the path
+  contract. The walk itself (even spans, phase offset, an odd pattern
+  doubling, a dash keeping the corner it spans, a fine pattern on a curve
+  staying bounded) and the three lowerings that used to drop
+  `dashPattern` outright: a `Shape` outline arriving as a
+  `backgroundPath`, a `Canvas` `strokePath`, and the frame-path bridge.
+  `BorderSegments` still owns the rect and rounded-rect case.
+- `D3D11PathCacheTests` — the path raster cache. Translation invariance
+  and the digest key that replaced a per-frame translated copy, that two
+  shapes with the same extent stay two entries, that a huge path inside a
+  small clip rasterizes bounded (and still hits while scrolling inside one
+  tile), and that a raster too large for the byte budget is denied a slot
+  rather than flushing every other entry. Needs a D3D11 device; the
+  device-backed cases `XCTSkip` without one.
 - `RenderPassAbstractionTests` — the render-pass vocabulary
   (`RenderTargetDescriptor`, `RenderPassDescriptor`, `SubTextureRegion`,
   `BlurPassPlan`) and the two things it exists to prevent: a sub-texture

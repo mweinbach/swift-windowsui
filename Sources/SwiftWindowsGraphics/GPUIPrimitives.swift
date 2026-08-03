@@ -454,10 +454,159 @@ public struct PathPrimitive: Equatable, Sendable {
 
     /// The stroke style this primitive carries, for callers that speak
     /// `StrokeStyle` (the frame path's `StrokePathCommand`, the painter's
-    /// `Canvas` lowering). `dashPattern` is not part of the path contract —
-    /// dashes are resolved upstream, by `BorderSegments` — so it stays empty.
+    /// `Canvas` lowering). `dashPattern` is not part of the path contract, so
+    /// it stays empty: dashes are resolved into geometry upstream, by
+    /// `BorderSegments` for a rect or rounded-rect border and by
+    /// ``PathDashing`` for every other outline — a `Shape` stroke, a `Canvas`
+    /// `strokePath`, a frame-path stroke command.
     public var strokeStyle: StrokeStyle {
         StrokeStyle(lineWidth: lineWidth, lineCap: lineCap, lineJoin: lineJoin, miterLimit: miterLimit)
+    }
+
+    /// A digest of everything that decides what this path *looks like*: its
+    /// element stream taken relative to its own `bounds` origin, its extent,
+    /// and its paint. Clip state is excluded, and so is position — the digest
+    /// is invariant under ``translated(by:)``.
+    ///
+    /// CPU-only data. Paths never cross the GPU as typed primitives (both
+    /// backends rasterize them), so this stays a renderer-neutral scalar with
+    /// no layout to keep in sync with HLSL.
+    ///
+    /// It exists so a raster cache can key on a path without *copying* one.
+    /// The D3D11 path cache used to build `path.translated(by: -origin)` on
+    /// every frame for every path just to have a key to hash — an element
+    /// array allocated and copied per path per frame, which is precisely the
+    /// work the cache was added to avoid.
+    public var shapeHash: Int {
+        var hasher = Hasher()
+        hasher.combine(elements.count)
+        hasher.combine(bounds.size.width)
+        hasher.combine(bounds.size.height)
+        hasher.combine(lineWidth)
+        // `LineCap`/`LineJoin` are `Equatable` in Core with no `Hashable` to
+        // inherit; two strokes differing only in cap are different rasters.
+        hasher.combine(Self.discriminator(lineCap))
+        hasher.combine(Self.discriminator(lineJoin))
+        hasher.combine(miterLimit)
+        Self.combine(color: fillColor, into: &hasher)
+        Self.combine(color: strokeColor, into: &hasher)
+        let originX = bounds.origin.x
+        let originY = bounds.origin.y
+        for element in elements {
+            Self.combine(element: element, originX: originX, originY: originY, into: &hasher)
+        }
+        return hasher.finalize()
+    }
+
+    /// Exact structural comparison of shape and paint against `other` shifted
+    /// by `offset`, without materializing the shifted copy.
+    ///
+    /// The tie-break behind ``shapeHash``: a digest collision must cost one
+    /// comparison, never a wrong texture. Clip state is deliberately not
+    /// compared — a raster cache strips it, because the clip rides along as a
+    /// draw parameter rather than baking into the pixels.
+    public func matchesShapeAndPaint(of other: PathPrimitive, translatedBy offset: Point) -> Bool {
+        guard elements.count == other.elements.count,
+            lineWidth == other.lineWidth,
+            lineCap == other.lineCap,
+            lineJoin == other.lineJoin,
+            miterLimit == other.miterLimit,
+            fillColor == other.fillColor,
+            strokeColor == other.strokeColor,
+            bounds.size.width == other.bounds.size.width,
+            bounds.size.height == other.bounds.size.height,
+            bounds.origin.x == other.bounds.origin.x + offset.x,
+            bounds.origin.y == other.bounds.origin.y + offset.y
+        else { return false }
+        for index in elements.indices {
+            guard Self.matches(elements[index], other.elements[index], offset: offset) else {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func discriminator(_ cap: StrokeStyle.LineCap) -> Int {
+        switch cap {
+        case .butt: return 0
+        case .round: return 1
+        case .square: return 2
+        }
+    }
+
+    private static func discriminator(_ join: StrokeStyle.LineJoin) -> Int {
+        switch join {
+        case .miter: return 0
+        case .round: return 1
+        case .bevel: return 2
+        }
+    }
+
+    private static func combine(color: Color, into hasher: inout Hasher) {
+        hasher.combine(color.red)
+        hasher.combine(color.green)
+        hasher.combine(color.blue)
+        hasher.combine(color.alpha)
+    }
+
+    private static func combine(
+        element: PathElement, originX: Double, originY: Double, into hasher: inout Hasher
+    ) {
+        func combine(_ point: Point) {
+            hasher.combine(point.x - originX)
+            hasher.combine(point.y - originY)
+        }
+        switch element {
+        case .moveTo(let point):
+            hasher.combine(0)
+            combine(point)
+        case .lineTo(let point):
+            hasher.combine(1)
+            combine(point)
+        case .quadraticCurveTo(let control, let end):
+            hasher.combine(2)
+            combine(control)
+            combine(end)
+        case .cubicCurveTo(let control1, let control2, let end):
+            hasher.combine(3)
+            combine(control1)
+            combine(control2)
+            combine(end)
+        case .arc(let centre, let radius, let startAngle, let endAngle, let clockwise):
+            hasher.combine(4)
+            combine(centre)
+            hasher.combine(radius)
+            hasher.combine(startAngle)
+            hasher.combine(endAngle)
+            hasher.combine(clockwise)
+        case .close:
+            hasher.combine(5)
+        }
+    }
+
+    private static func matches(_ lhs: PathElement, _ rhs: PathElement, offset: Point) -> Bool {
+        func same(_ shifted: Point, _ unshifted: Point) -> Bool {
+            shifted.x == unshifted.x + offset.x && shifted.y == unshifted.y + offset.y
+        }
+        switch (lhs, rhs) {
+        case (.moveTo(let a), .moveTo(let b)):
+            return same(a, b)
+        case (.lineTo(let a), .lineTo(let b)):
+            return same(a, b)
+        case (.quadraticCurveTo(let ac, let ae), .quadraticCurveTo(let bc, let be)):
+            return same(ac, bc) && same(ae, be)
+        case (.cubicCurveTo(let a1, let a2, let ae), .cubicCurveTo(let b1, let b2, let be)):
+            return same(a1, b1) && same(a2, b2) && same(ae, be)
+        case (
+            .arc(let ac, let ar, let as1, let ae1, let acw),
+            .arc(let bc, let br, let bs1, let be1, let bcw)
+        ):
+            return same(ac, bc) && ar == br && as1 == bs1 && ae1 == be1 && acw == bcw
+        case (.close, .close):
+            return true
+        default:
+            return false
+        }
     }
 
     public var contentMask: GPUIContentMask {

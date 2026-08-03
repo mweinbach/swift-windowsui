@@ -41,22 +41,46 @@ public enum StrokeOutlineGeometry {
     }
 
     /// The join a renderer actually draws at this turn: a `.miter` whose
-    /// length exceeds `miterLimit` half-widths degrades to `.bevel`, which is
+    /// length exceeds the limit in half-widths degrades to `.bevel`, which is
     /// what SwiftUI, Core Graphics and Direct2D all do. `.round` and
     /// `.bevel` are unconditional.
+    ///
+    /// The limit applied is ``effectiveMiterLimit(_:)``, not the app's raw
+    /// number, so the drawn spike can never reach past the `bounds` that
+    /// sized its own raster.
     public static func resolvedJoin(
         _ join: StrokeStyle.LineJoin,
         directionDot dot: Double,
         miterLimit: Double
     ) -> StrokeStyle.LineJoin {
         guard join == .miter else { return join }
-        // A limit below 1 would bevel even a straight run, which no stroker
-        // means; `StrokeStyle` defaults to 10 and Core Graphics floors at 1.
-        let limit = miterLimit.isFinite ? max(1, miterLimit) : .infinity
+        let limit = effectiveMiterLimit(miterLimit)
         guard let ratio = miterRatio(directionDot: dot), ratio <= limit else {
             return .bevel
         }
         return .miter
+    }
+
+    /// The miter limit a renderer actually applies: the app's own limit,
+    /// floored at 1 and capped at ``maxMiterBoundsRatio``.
+    ///
+    /// `boundsOutset` refuses to size a raster off an app-supplied number —
+    /// a `miterLimit` of 10, which is `StrokeStyle`'s default, would let a
+    /// stroke's footprint be twenty times its width — so it clamped the
+    /// outset at four half-widths. `resolvedJoin` did not clamp, so a corner
+    /// sharper than ~29° drew a spike reaching past the `bounds` that sized
+    /// its own bitmap, and shipped sheared flat by the buffer edge.
+    ///
+    /// Bounds and geometry now read the same number, and the resolution is
+    /// to degrade rather than to grow: past the ratio a raster can hold, the
+    /// miter becomes the bevel it would have become at a tighter
+    /// `miterLimit`. A bevel is a shape SwiftUI also draws; a cropped spike
+    /// is not.
+    public static func effectiveMiterLimit(_ miterLimit: Double) -> Double {
+        // A limit below 1 would bevel even a straight run, which no stroker
+        // means; `StrokeStyle` defaults to 10 and Core Graphics floors at 1.
+        let limit = miterLimit.isFinite ? max(1, miterLimit) : maxMiterBoundsRatio
+        return min(limit, maxMiterBoundsRatio)
     }
 
     /// How far the join's own geometry reaches beyond the two segment bodies:
@@ -91,15 +115,15 @@ public enum StrokeOutlineGeometry {
         omittedJoinError(halfWidth: halfWidth, directionDot: dot, join: join) > joinTolerance
     }
 
-    /// Largest miter, in half-widths, that an emitter will grow a stroke's
-    /// declared `bounds` for.
+    /// Largest miter, in half-widths, that either an emitter's `bounds` or a
+    /// renderer's geometry will reach.
     ///
     /// `bounds` sizes a CPU raster buffer and a GPU texture, so letting it
     /// track `miterLimit` — which defaults to 10 and is an app-supplied
     /// number — would let a stroke's footprint be 20× its width. Four
     /// half-widths covers every corner down to a 29° included angle; a
-    /// spike sharper than that is cropped at `bounds` like any other
-    /// overflow.
+    /// spike sharper than that bevels (see ``effectiveMiterLimit(_:)``)
+    /// rather than being drawn and then cropped at `bounds`.
     public static let maxMiterBoundsRatio: Double = 4
 
     /// How far outside the path's own geometry the stroke outline can reach,
@@ -123,6 +147,9 @@ public enum StrokeOutlineGeometry {
         // either axis.
         let capFactor: Double = lineCap == .square ? 2.0.squareRoot() : 1
         let joinFactor = lineJoin == .miter ? sharpestMiterRatio(forElements: elements, miterLimit: miterLimit) : 1
+        // `sharpestMiterRatio` only counts corners `resolvedJoin` keeps as
+        // miters, so it is already bounded by `maxMiterBoundsRatio`; the
+        // clamp stays as the belt to that braces.
         return halfWidth * max(capFactor, min(joinFactor, maxMiterBoundsRatio))
     }
 

@@ -845,25 +845,62 @@ is a rectangle and only some stroke geometry is:
 - **Joins.** A round join is the same disc. A miter across a right angle is
   exactly the square the two extended bodies already cover, so an L or a
   stroked rect promotes unchanged; at any other angle the wedge is a kite,
-  and a bevel is a triangle. Neither is a rectangle, so the *whole path*
-  goes to `PathCoverageRasterizer`, which draws every style. That is a
-  deliberate trade: a `Canvas` polyline with sharp miter corners now
-  CPU-rasterizes (once per shape, via the path-texture cache) instead of
-  promoting to quads that draw a join nobody asked for.
+  and a bevel is a triangle. Neither is a rectangle, so *that one wedge*
+  goes to `PathCoverageRasterizer` through `Result.residualPath` — a short
+  stub back along the incoming segment, the vertex, and a stub forward
+  along the outgoing one — while both segment bodies stay on the GPU. A
+  three-corner bevelled polyline is four quads plus three wedges, not a
+  full-extent CPU raster and texture upload.
+- **Translucent strokes still fall back whole.** A wedge stub overlaps the
+  two bodies it joins, because a stroker draws a join by stroking the
+  corner it belongs to. Painting an opaque colour twice is invisible;
+  painting a translucent one twice is a dark notch at every corner, so a
+  stroke with `alpha < 1` keeps the whole-path CPU raster.
 - **Tolerance.** "Sharp enough to matter" is
   `StrokeOutlineGeometry.joinIsVisible`, shared with the CPU stroker, so
   the flattened steps of a stroked circle stay on the GPU and a real corner
   does not.
+- **Miter limit.** `StrokeOutlineGeometry.effectiveMiterLimit` caps the
+  app's `miterLimit` at `maxMiterBoundsRatio` (4 half-widths), and both
+  `resolvedJoin` and `boundsOutset` read it. `boundsOutset` sizes a raster
+  buffer, so it refuses to track an app-supplied 10; `resolvedJoin` used
+  not to, which meant a corner sharper than ~29° drew a spike past the
+  `bounds` that sized its own bitmap and shipped sheared flat by the buffer
+  edge. Past the ratio the miter now degrades to the bevel a tighter
+  `miterLimit` would have produced — a shape SwiftUI also draws, unlike a
+  cropped spike (`testSharpMiterBevelsRatherThanOverflowingItsBounds`).
 
 For paths that still take the CPU route, `PathPrimitive` is rasterized
 into a `BitmapSurface` and reused across frames:
 
 1. The D3D11 backend caches the rasterized texture + SRV per *normalized*
    path (origin translated to `(0, 0)`), so simply moving the path
-   doesn't bust the cache.
-2. Entries idle more than 60 frames are evicted; the cache is capped at
-   256 entries with LRU eviction.
-3. On `attach` and on `detach` the cache is fully drained so no stale
+   doesn't bust the cache. The key is a scalar struct —
+   `PathPrimitive.shapeHash` (a translation-invariant digest of the whole
+   element stream and the paint), the element count, the extent and the
+   raster window — so a lookup hashes and compares in constant time. It
+   used to hold a whole normalized `PathPrimitive`, which meant building
+   `path.translated(by: -origin)` on every frame for every path purely to
+   have something to hash, plus a full element-array `==` on every hit.
+   The exact comparison survives as `matchesShapeAndPaint(of:translatedBy:)`
+   against the entry's stored path, run only when the digest matches, so a
+   collision costs one comparison and never a wrong texture.
+2. **The raster is bounded by what can be seen.** Below
+   `pathWholeRasterByteBudget` (8 MB) the raster covers the whole path and
+   the key stays clip-invariant, which is what makes a scrolling chart one
+   entry and one upload. Above it the raster covers the visible region
+   only — the clip intersected with the surface, snapped out to a 128 px
+   tile grid so a small scroll still hits — because sizing a raster off
+   unclipped bounds allocated coverage, bitmap and texture for every row a
+   viewport will never show, up to the 16 384 px surface clamp.
+3. Entries idle more than 60 frames are evicted; the cache is capped at
+   256 entries and 64 MB with LRU eviction, and eviction runs *before* the
+   texture is allocated. An entry larger than the whole byte budget is
+   denied a slot and owned by the caller for the one draw: it used to
+   evict every other entry (the loop cannot satisfy a condition one entry
+   alone violates) and then be inserted anyway, so the next frame found an
+   empty cache and did it again.
+4. On `attach` and on `detach` the cache is fully drained so no stale
    device-bound SRVs are reused.
 
 **Invariants**
@@ -873,11 +910,39 @@ into a `BitmapSurface` and reused across frames:
   *unclipped* bounds, so an invisible path still burned a paint
   operation, a cached path texture and a draw call.
 - Translation-invariant cache key works
-  (`testTranslatedPathsNormalizeToIdenticalKeys`).
+  (`testTranslatedPathsNormalizeToIdenticalKeys`,
+  `testShapeDigestIsTranslationInvariantAndMatchesWithoutCopying`).
 - Shape/color changes produce distinct keys
-  (`testPathsDifferingInShapeStayDistinct` etc.).
+  (`testPathsDifferingInShapeStayDistinct`,
+  `testDigestSeparatesPathsThatDifferAtAnUnsampledVertex`,
+  `testTwoShapesWithTheSameExtentStayTwoEntries`).
+- A huge path inside a small clip rasterizes bounded, and scrolling inside
+  one tile still hits (`testAHugePathInsideASmallClipRasterizesBounded`,
+  `testAWindowedPathStillHitsWhileScrollingInsideOneTile`).
+- An over-budget raster is denied rather than flushing the cache
+  (`testAnOversizedRasterIsDeniedRatherThanFlushingTheCache`).
 - Fresh renderer reports empty cache and zero hit/miss counters
   (`testFreshRendererHasEmptyPathCache`).
+
+### 4b. Dashes are geometry before the path contract
+
+`PathPrimitive` carries no `dashPattern`: both stroke rasterizers draw
+every element solid, and `strokeStyle` reports an empty pattern. Dashes are
+resolved *into* geometry upstream, by whichever lowering owns the outline:
+
+- `BorderSegments.dashedSegments` for a rect or rounded-rect border, which
+  walks the perimeter and emits one quad per dash.
+- `PathDashing.dashed` for every other outline — a `Shape` that arrives as
+  a `backgroundPath`, a `Canvas` `strokePath`, a frame-path stroke command.
+  It flattens curves (a dash is a length along the outline, which a curve
+  does not give in closed form), walks each subpath, and returns the "on"
+  runs as open subpaths so the existing solid stroker draws them, cap and
+  all. The walk is bounded at `maxDashSteps` so a pattern finer than the
+  path is long cannot emit millions of subpaths.
+
+Those three lowerings used to drop the pattern outright — a dashed custom
+`Shape` outline and a dashed `Canvas` stroke shipped solid
+(`PathDashingTests`).
 
 ## 4a. Pixel format and alpha convention
 

@@ -161,7 +161,7 @@ extension GPUIScene {
                 guard !effectiveClip.isEmpty else {
                     continue
                 }
-                let strokeElements: [PathElement] = cmd.path.segments.map { segment in
+                let solidElements: [PathElement] = cmd.path.segments.map { segment in
                     switch segment {
                     case .moveTo(let p): return .moveTo(p)
                     case .lineTo(let p): return .lineTo(p)
@@ -173,6 +173,12 @@ extension GPUIScene {
                     case .close: return .close
                     }
                 }
+                // Dashes are geometry by the time a path primitive sees them,
+                // in this lowering as in the painter's.
+                let strokeElements =
+                    PathDashing.dashed(
+                        solidElements, pattern: cmd.style.dashPattern, offset: cmd.style.dashOffset)
+                    ?? solidElements
                 // The command's whole `StrokeStyle` reaches the primitive
                 // now: taking only `lineWidth` made every frame-path stroke
                 // butt-capped and miter-joined whatever it asked for.

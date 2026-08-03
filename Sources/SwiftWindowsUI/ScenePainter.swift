@@ -28,6 +28,10 @@ public enum ScenePainter {
         layerIndex: Int,
         displayScale: Double
     ) {
+        // A dash pattern can resolve to no geometry at all — every run of a
+        // short outline landing in an "off" span — and an empty `Path` is a
+        // no-op the same way. Neither should cost a paint operation.
+        guard !logicalPath.elements.isEmpty else { return }
         let path = logicalPath.scaled(by: displayScale)
         guard let mixed = PathToQuadTessellator.tessellateMixed(path) else {
             scene.addPath(path, toLayer: layerIndex)
@@ -800,7 +804,7 @@ public enum ScenePainter {
                 let effectiveStrokeColor = node.borderColor.multipliedAlpha(by: opacity)
                 if effectiveStrokeColor.alpha > 0, node.borderWidth > 0 {
                     let strokeStyle = node.borderStrokeStyle ?? StrokeStyle(lineWidth: node.borderWidth)
-                    let strokeElements: [PathElement] = scaledPath.segments.map { segment in
+                    let solidElements: [PathElement] = scaledPath.segments.map { segment in
                         switch segment {
                         case .moveTo(let p): return .moveTo(p)
                         case .lineTo(let p): return .lineTo(p)
@@ -812,6 +816,16 @@ public enum ScenePainter {
                         case .close: return .close
                         }
                     }
+                    // A shape outline is not a rounded rect, so `BorderSegments`
+                    // — which resolves dashes by walking a rect perimeter —
+                    // cannot see it. `Circle().stroke(style: .init(dash:))`
+                    // therefore shipped solid. `PathDashing` is the same walk
+                    // over an arbitrary outline, and it runs here so the path
+                    // contract stays dash-free for everyone below.
+                    let strokeElements =
+                        PathDashing.dashed(
+                            solidElements, pattern: strokeStyle.dashPattern,
+                            offset: strokeStyle.dashOffset) ?? solidElements
                     // A stroke straddles its path, so its footprint is wider
                     // than the path's own bounding rect. The primitive used
                     // to be handed `pathBounds` unchanged, which cropped the
@@ -1669,7 +1683,16 @@ public enum ScenePainter {
                 // single horizontal line), so outset before the empty check
                 // and use the inflated rect for clip/visibility tests.
                 guard let pathBounds = translated.segments.boundingRect else { continue }
-                let strokeElements = pathElements(from: translated.segments)
+                let solidElements = pathElements(from: translated.segments)
+                // `context.stroke(path, with: .color(c), style: .init(dash:
+                // [4, 4]))` used to draw solid: the dash pattern had nowhere
+                // to go, because the path contract carries no dashes and the
+                // only dash resolver walked a rect perimeter. Resolve it into
+                // geometry here, where the outline is still a `Path`.
+                let strokeElements =
+                    PathDashing.dashed(
+                        solidElements, pattern: style.dashPattern, offset: style.dashOffset)
+                    ?? solidElements
                 let strokeBounds = pathBounds.outset(
                     by: StrokeOutlineGeometry.boundsOutset(
                         forElements: strokeElements, lineWidth: style.lineWidth, lineCap: style.lineCap,

@@ -2680,14 +2680,44 @@ public final class ViewNode {
     internal var cachedMeasuredSize: Size?
     internal var cachedLayoutKey: ViewLayoutCacheKey?
 
-    /// Set on a scrollable node once a `.lazyStack` beneath it has deferred
-    /// a child's layout. It is what turns a scroll — normally a paint-only
+    /// Set on a scrollable node when a `.lazyStack` beneath it defers a
+    /// child's layout. It is what turns a scroll — normally a paint-only
     /// change — into a layout invalidation for virtualized content only.
+    ///
+    /// Recomputed per pass, not latched: cleared when the scrollable node is
+    /// visited by `layoutSubtree` and re-set only by deferrals observed
+    /// after that, so a lazy stack reconciled into an eager one stops
+    /// charging every subsequent scroll frame a layout invalidation.
     internal var hasVirtualizedDescendants = false
 
     /// The scrollable ancestor `layoutVirtualizationWindow()` last resolved
     /// against, so deferring a child can mark it without a second walk.
     internal weak var virtualizationScrollAncestor: ViewNode?
+
+    /// The layout pass in which a `.lazyStack` beneath this node resolved
+    /// its virtualization window *through* this node, stamped by
+    /// `layoutVirtualizationWindow()`'s existing upward walk.
+    internal var virtualizationDescentPassID: UInt64 = 0
+
+    /// The layout pass in which `layoutSubtree` last descended into this
+    /// node, stamped as that visit finishes.
+    internal var lastLayoutVisitPassID: UInt64 = 0
+
+    /// True when a `.lazyStack` below this node resolved its window through
+    /// it no earlier than this node's own last visit — that is, when the
+    /// last pass that reached here also reached a lazy stack.
+    ///
+    /// This is what keeps a lazy stack reachable through *clean* ancestors.
+    /// A scroll dirties only the scrollable node and its ancestors, so an
+    /// intermediate node between the scroll view and the lazy stack takes
+    /// `layoutSubtree`'s early return and, without this, would never descend
+    /// — leaving rows that scrolled into view laid out at whatever geometry
+    /// they last had. Comparing the two stamps rather than trusting a latch
+    /// also makes the path self-limiting: once a pass reaches here and finds
+    /// no lazy stack below, the next pass stops descending.
+    fileprivate var isOnVirtualizationDescentPath: Bool {
+        virtualizationDescentPassID != 0 && virtualizationDescentPassID >= lastLayoutVisitPassID
+    }
 
     /// True while a `.lazyStack` ancestor has skipped this node's recursive
     /// layout because the scroll viewport could not reach it.
@@ -3521,6 +3551,14 @@ public final class ViewNode {
     fileprivate func layoutSubtree(displayScale: Double) {
         guard ViewNode.enterTraversal() else { return }
         defer { ViewNode.leaveTraversal() }
+        runtime?.recordLayoutVisit()
+
+        // Recomputed, never latched: a scrollable node's virtualization flag
+        // is only as true as the deferrals this pass is about to observe
+        // below it. Cleared here — before any descendant can defer — so the
+        // pass that reconciles a lazy stack into an eager one is also the
+        // pass that stops charging every later scroll a layout invalidation.
+        if scrollAxis != nil { hasVirtualizedDescendants = false }
 
         // Sanitize before the cache key is minted so the key, the geometry the
         // painter reads, and the geometry the next pass compares against are
@@ -3553,11 +3591,16 @@ public final class ViewNode {
                         child.layoutSubtree(displayScale: displayScale)
                     }
                 }
-            } else if hasDirtySubtree {
-                for child in children where child.hasDirtySubtree {
+            } else if hasDirtySubtree || isOnVirtualizationDescentPath {
+                // The descent-path term is what keeps a lazy stack reachable
+                // through a clean ancestor: a scroll dirties the scrollable
+                // node, not the panel between it and the stack, and a stack
+                // never reached is a stack that never resumes its rows.
+                for child in children where child.hasDirtySubtree || child.isOnVirtualizationDescentPath {
                     child.layoutSubtree(displayScale: displayScale)
                 }
             }
+            lastLayoutVisitPassID = runtime?.layoutPassID ?? 0
             return
         }
 
@@ -3966,6 +4009,7 @@ public final class ViewNode {
         applyDefaultScrollAnchorAfterLayout()
         cachedLayoutKey = layoutKey
         resolvedScrollOffset = effectiveScrollOffset
+        lastLayoutVisitPassID = runtime?.layoutPassID ?? 0
     }
 
     /// The region of this node's own coordinate space — the space its
@@ -3995,6 +4039,10 @@ public final class ViewNode {
                 // scroll can invalidate layout for virtualized content and
                 // only for virtualized content.
                 virtualizationScrollAncestor = current
+                // And record the path itself, so a later pass that would
+                // early-return at a clean node between here and there
+                // descends far enough to reach this stack instead.
+                stampVirtualizationDescentPath(upTo: current)
                 // The ancestor's visible window lives in ITS content space;
                 // subtracting the accumulated offset restates it in ours.
                 let window = Rect(
@@ -4010,6 +4058,24 @@ public final class ViewNode {
             depth += 1
         }
         return nil
+    }
+
+    /// Stamps this pass onto every node from this stack up to and including
+    /// `ancestor`, the scrollable node its virtualization window came from.
+    ///
+    /// Only that span is marked. A lazy stack with nothing scrollable above
+    /// it virtualizes nothing, so nothing above it needs to be kept
+    /// reachable on its account.
+    private func stampVirtualizationDescentPath(upTo ancestor: ViewNode) {
+        let passID = runtime?.layoutPassID ?? 0
+        var node: ViewNode? = self
+        var depth = 0
+        while let current = node, depth < ViewNode.maximumTraversalDepth {
+            current.virtualizationDescentPassID = passID
+            if current === ancestor { return }
+            node = current.parent
+            depth += 1
+        }
     }
 
     /// True when `frame` sits entirely outside `viewport` along `axis`, with
@@ -6388,6 +6454,21 @@ public final class RetainedViewRuntime {
     /// is the structural measure of virtualization — the difference between
     /// O(rows) and O(visible rows) of recursive layout work.
     internal private(set) var virtualizedLayoutSkipCount = 0
+    /// How many nodes `layoutSubtree` actually descended into, across every
+    /// pass this runtime has run.
+    ///
+    /// The companion to `virtualizedLayoutSkipCount`, and the one that can
+    /// tell the two failure modes apart: a skip counter alone cannot
+    /// distinguish "skipped the descent but still walked every row" from
+    /// "visited only the window". Visits are the direct measure of recursive
+    /// layout work, so a list whose visit count grows with the row count has
+    /// lost virtualization even while the skip count looks healthy.
+    internal private(set) var layoutVisitCount = 0
+    /// Monotonic identity of the layout pass currently running (or the last
+    /// one that ran). Bumped once per `updateResolvedLayout`, and used to
+    /// tell state a pass produced from state a previous pass left behind —
+    /// see `ViewNode.isOnVirtualizationDescentPath`.
+    internal private(set) var layoutPassID: UInt64 = 0
     internal private(set) var lastPrepaintReplayCount = 0
     internal private(set) var lastDeferredOverlayReplayCount = 0
     internal private(set) var lastDeferredDrawFrameReplayCount = 0
@@ -7540,6 +7621,10 @@ public final class RetainedViewRuntime {
         virtualizedLayoutSkipCount += 1
     }
 
+    fileprivate func recordLayoutVisit() {
+        layoutVisitCount += 1
+    }
+
     fileprivate func recordMeasureReuse() {
         lastMeasureReuseCount += 1
     }
@@ -7888,6 +7973,7 @@ public final class RetainedViewRuntime {
         lastDeferredOverlayReplayCount = 0
         lastDeferredDrawFrameReplayCount = 0
         lastDeferredDrawSceneReplayCount = 0
+        layoutPassID &+= 1
         root.resolvedFrame = root.frame
         root.layoutSubtree(displayScale: displayScale)
         updatePrepaintState()

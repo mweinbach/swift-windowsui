@@ -2099,25 +2099,87 @@ every row on every layout pass.
   deferred child also clears its `cachedLayoutKey`, so `layoutSubtree`
   cannot take its early-return path over a subtree that was never laid
   out.
-- **Scrolling invalidates layout only over virtualized content.** The
-  first `.lazyStack` that defers a child sets `hasVirtualizedDescendants`
-  on its scroll ancestor; that node's `scrollOffset` then invalidates
+- **Scrolling invalidates layout only over virtualized content.** A
+  `.lazyStack` that defers a child sets `hasVirtualizedDescendants` on its
+  scroll ancestor; that node's `scrollOffset` then invalidates
   `[.paint, .layout]` instead of `.paint`. An ordinary scroll view keeps
-  its paint-only invalidation and pays nothing for the concept.
+  its paint-only invalidation and pays nothing for the concept. The flag
+  is **recomputed per pass, never latched**: a scrollable node clears it
+  as `layoutSubtree` enters it, and only deferrals observed after that set
+  it again, so a lazy stack reconciled into an eager one stops charging
+  every later scroll a layout pass it has no use for.
+- **The path to a lazy stack is kept reachable.** A scroll dirties the
+  scrollable node and its *ancestors*, never the panel between it and the
+  stack, so that panel takes `layoutSubtree`'s early return and the stack
+  below it is never visited — leaving rows that scrolled into range laid
+  out at whatever geometry they last had. `layoutVirtualizationWindow()`'s
+  upward walk therefore stamps `virtualizationDescentPassID` on every node
+  from the stack up to its scroll ancestor, and the early return descends
+  into children on that path as well as dirty ones. Comparing that stamp
+  against the node's own `lastLayoutVisitPassID` makes the path
+  self-limiting: once a pass reaches a node and finds no lazy stack below
+  it, the next pass stops descending.
 - **`resolvedScrollOffset` is published before children lay out** as well
   as after, so a descendant lazy stack resolves its window against this
   frame's offset rather than last frame's.
 
+What deferral costs, and who pays it:
+
+- **Accessibility does not read a deferred subtree.** A deferred row's own
+  frame is real — the stack placed it — but everything inside it is zero,
+  and bounds are the one thing a UIA client is entitled to trust.
+  `AccessibilityProjection` therefore projects such a row as a single
+  childless element flagged `isVirtualizedPlaceholder`, keeping its real
+  rectangle and a name folded from its descendants' labels (structure, not
+  layout). The provider wave maps that onto the `VirtualizedItem` pattern;
+  realizing a row is a scroll and a layout pass away.
+- **`onLayout` stops firing** for a row outside the overscan, because it
+  is the layout pass that publishes it. This is the semantic that keeps
+  `List` out of virtualization for now — see below.
+
 Not done: lazy *node construction*. `LazyVStack`'s content arrives as an
 already-materialised `[AnyView]`, so every row's `ViewNode` is built even
-though most are never laid out. Deferring construction needs a
-data-driven API (`LazyVStack(data:id:content:)`) plus an estimated row
-extent, which is a compatibility-surface change rather than a runtime one.
+though most are never laid out — 500 rows are ~1,000 nodes whatever the
+viewport shows, pinned by `testLazyListStillConstructsANodePerRow`.
+Deferring construction needs a data-driven API
+(`LazyVStack(data:id:content:)`) plus an estimated row extent, which is a
+compatibility-surface change rather than a runtime one.
+
+#### Why `List` is not virtualized yet
+
+`List` is the dominant long-list surface and its scroll panel *is* its
+vertical stack, so `.lazyStack` would drop onto it with no structural
+change. It has not, for one concrete reason: `List` rows do not have
+uniform semantics with `LazyVStack` rows.
+
+`ViewNode.resolvedFrame` and `resolvedContentSize` are internal to
+`SwiftWindowsUI`, so `WinSwiftUI` cannot read a row's geometry directly.
+`ListKeyboardNavigationState` therefore mirrors every row's frame through
+`node.onLayout`, and `scrollRowIntoView(tag:)` — the arrow-key
+scroll-into-view — reads that mirror plus the maximum `maxY` across all
+rows to clamp the offset. Deferral silences `onLayout` for exactly the
+rows that selection would most need to scroll to, and truncates the
+content extent to the rows that happen to be in range: arrow-key
+navigation could not reach past the overscan, and the clamp would be
+computed from a fraction of the list. `LazyVStack` has no such mirror, so
+it does not have the problem.
+
+Adopting `.lazyStack` for `List` is therefore gated on giving the
+compatibility layer a supported way to read placed-but-deferred row
+geometry — either widening the resolved-layout surface or a runtime-side
+scroll-into-view that works on a placed row — not on the virtualization
+machinery, which is ready. The deferral semantic itself is pinned by
+`testALazyStackPublishesLayoutOnlyForRowsWithinRange`.
 
 Pinned by `LazyStackVirtualizationTests` — including the property that
 matters most, that a virtualized list is **pixel-identical** to the eager
-one both before and after scrolling — and by the layout-work budget in
-`PerformanceBudgetGateTests`.
+one both before and after scrolling, and the same property with a plain
+panel between the scroll view and the stack — and by the layout-work,
+layout-visit and node-count budgets in `PerformanceBudgetGateTests`.
+`virtualizedLayoutSkipCount` counts descents avoided;
+`layoutVisitCount` counts nodes `layoutSubtree` actually descended into,
+which is the only one of the two that can tell "skipped the descent" from
+"still walked every row".
 
 ## Per-corner radii
 

@@ -103,6 +103,18 @@ public final class AccessibilityElementProjection {
     /// The retained node this element was projected from. Weak: the retained
     /// tree owns node lifetimes, and projections are short-lived reads.
     public private(set) weak var sourceNode: ViewNode?
+    /// True when this element stands in for a subtree a lazy stack has not
+    /// laid out yet — an off-screen row of a virtualized list.
+    ///
+    /// Its own `bounds` are real: a virtualizing stack still *places* every
+    /// child, so the row rectangle is the same one an eager stack would
+    /// produce. What does not exist yet is the geometry of anything inside
+    /// it, so the element is projected childless rather than with a subtree
+    /// of stale or zero-size rectangles — bounds are the one thing a UIA
+    /// client is entitled to trust. The provider wave maps this onto the
+    /// `VirtualizedItem` pattern; `Realize` is a layout pass away, because
+    /// scrolling the row into view lays it out.
+    public let isVirtualizedPlaceholder: Bool
 
     public init(
         bounds: Rect,
@@ -119,7 +131,8 @@ public final class AccessibilityElementProjection {
         sortPriority: Double,
         actions: [AccessibilityProjectedAction],
         children: [AccessibilityElementProjection],
-        sourceNode: ViewNode?
+        sourceNode: ViewNode?,
+        isVirtualizedPlaceholder: Bool = false
     ) {
         self.bounds = bounds
         self.name = name
@@ -136,6 +149,7 @@ public final class AccessibilityElementProjection {
         self.actions = actions
         self.children = children
         self.sourceNode = sourceNode
+        self.isVirtualizedPlaceholder = isVirtualizedPlaceholder
     }
 
     /// Invokes the node's default action — the stored action of kind
@@ -332,6 +346,15 @@ public enum AccessibilityProjection {
         var projected: [AccessibilityElementProjection] = []
         for child in childNodes {
             guard !isSubtreeHidden(child) else { continue }
+            // A row a lazy stack has not laid out has a real frame of its own
+            // and nothing but zeroes below it. Descending would report a
+            // rectangle per descendant that a UIA client would take as real
+            // screen geometry, so the row is projected as one placeholder
+            // instead.
+            if child.isLayoutDeferredByVirtualization {
+                projected.append(projectVirtualizedPlaceholder(child, parentOrigin: parentOrigin))
+                continue
+            }
             let absoluteOrigin = Point(
                 x: parentOrigin.x + child.resolvedFrame.origin.x,
                 y: parentOrigin.y + child.resolvedFrame.origin.y
@@ -348,6 +371,47 @@ public enum AccessibilityProjection {
             }
         }
         return projected.stableSortedByDescendingSortPriority()
+    }
+
+    /// Projects a subtree whose recursive layout a lazy stack deferred as a
+    /// single childless element.
+    ///
+    /// Everything here is geometry-free except the node's own frame, which a
+    /// virtualizing stack keeps correct: the name still folds in descendant
+    /// labels and text (structure, not layout), so an off-screen row is
+    /// findable and correctly placed without a rectangle being invented for
+    /// anything inside it.
+    private static func projectVirtualizedPlaceholder(
+        _ node: ViewNode,
+        parentOrigin: Point
+    ) -> AccessibilityElementProjection {
+        let absoluteOrigin = Point(
+            x: parentOrigin.x + node.resolvedFrame.origin.x,
+            y: parentOrigin.y + node.resolvedFrame.origin.y
+        )
+        let ownName = node.accessibilityLabel ?? node.text
+        let name =
+            node.accessibilityChildBehavior == .ignore
+            ? (ownName ?? "")
+            : (ownName ?? combinedDescendantName(of: node))
+        return AccessibilityElementProjection(
+            bounds: Rect(origin: absoluteOrigin, size: node.resolvedFrame.size),
+            name: name,
+            value: node.accessibilityValue,
+            hint: node.accessibilityHint,
+            identifier: node.accessibilityIdentifier,
+            controlType: isAccessibilityElement(node) ? resolveControlType(for: node) : .group,
+            traits: node.accessibilityTraits,
+            headingLevel: node.accessibilityHeadingLevel,
+            isEnabled: node.accessibilityRespondsToUserInteraction ?? true,
+            isFocused: node.isFocused,
+            isSelected: node.accessibilityTraits.contains(.isSelected),
+            sortPriority: node.accessibilitySortPriority,
+            actions: node.accessibilityActions.map(projectedAction(from:)),
+            children: [],
+            sourceNode: node,
+            isVirtualizedPlaceholder: true
+        )
     }
 
     /// Child-content origin for a node, mirroring the painter/hit-test math:

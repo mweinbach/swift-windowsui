@@ -165,6 +165,57 @@ final class PerformanceBudgetGateTests: XCTestCase {
         }
     }
 
+    /// The same budget on the axis a skip counter cannot see. A skip says a
+    /// descent was avoided; only a visit count says the walk was. Pinned at
+    /// 5,000 rows, the size the virtualization work was specified against,
+    /// so "skipped the descent but still visited every row" fails here.
+    func testLazyListLayoutVisitsAreProportionalToTheViewport() async {
+        await MainActor.run {
+            let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
+                of: LazyListBudgetProbe(rowCount: 5000),
+                size: IntSize(width: 240, height: 200),
+                displayScale: 1)
+            // Measured 2026-08: 38 layout visits over 5,000 rows in a 200pt
+            // viewport — at offset 0 the window plus its overscan reaches
+            // rows 0…16, about two nodes each, plus the scroll/stack chrome.
+            // The bound carries wide headroom for overscan changes and is
+            // still two orders of magnitude below the 10,000+ a lost
+            // virtualization would produce.
+            XCTAssertLessThan(
+                snapshot.runtime.layoutVisitCount, 200,
+                "layout visits over a 5,000-row lazy list must stay proportional to the viewport; "
+                    + "got \(snapshot.runtime.layoutVisitCount)")
+        }
+    }
+
+    /// The honest other half: `.lazyStack` virtualizes *layout*, not
+    /// *construction*. Every row is still built into a retained node before
+    /// the first pass can decide it is out of range, so a long list costs
+    /// O(rows) nodes and O(rows) measurements no matter where the viewport
+    /// is. Pinned rather than hidden, so the day construction is deferred
+    /// too this number moves and someone has to look at it.
+    func testLazyListStillConstructsANodePerRow() async {
+        await MainActor.run {
+            let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
+                of: LazyListBudgetProbe(rowCount: 500),
+                size: IntSize(width: 240, height: 200),
+                displayScale: 1)
+            let nodes = Self.nodeCount(snapshot.runtime.root)
+            // Measured 2026-08: 1,003 nodes for 500 rows — two per row plus
+            // the scroll/stack chrome.
+            XCTAssertGreaterThan(
+                nodes, 500,
+                "construction is not virtualized; a row per node is the documented cost")
+            XCTAssertLessThan(
+                nodes, 2000,
+                "row construction must stay a small constant per row; got \(nodes) nodes for 500 rows")
+        }
+    }
+
+    private static func nodeCount(_ node: ViewNode) -> Int {
+        node.children.reduce(1) { $0 + nodeCount($1) }
+    }
+
     private struct BlurBudgetProbe: View {
         let rowCount: Int
         var body: some View {

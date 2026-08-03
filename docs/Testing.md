@@ -337,13 +337,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   and a lazy stack with nothing scrollable above it skip nothing, the
   virtualization window follows the resolved scroll offset, and the
   virtualized list is **pixel-identical** to the eager one both before
-  and after scrolling.
+  and after scrolling — including with a plain panel between the scroll
+  view and the stack, the shape a scroll dirties *around* and where a
+  stack that is never reached leaves rows painting at stale geometry.
+  Also pins the integrity properties: layout **visits** (not just skips)
+  stay proportional to the viewport at 5,000 rows, a deferred row projects
+  to accessibility as one flagged placeholder with its real bounds rather
+  than a subtree of zero-size rectangles, reconciling a lazy stack into an
+  eager one stops charging every later scroll a layout pass, and `onLayout`
+  is published only for rows within range — the semantic that keeps `List`
+  out of virtualization.
 - `PerformanceBudgetGateTests` — since WS-20 it bounds *work*, not only
   scene size: render-plan draw-step counts for the demo screens (with a
   minimum primitives-per-step ratio, so a batch that breaks shows up), a
   second identical render uploading no atlas bytes, blur passes for a
-  blurred 50-row subtree, and layout work for a 500-row lazy list.
-  Structural counts only — the suite still asserts no wall-clock time.
+  blurred 50-row subtree, layout work for a 500-row lazy list, layout
+  **visits** for a 5,000-row one (a skip counter cannot tell "skipped the
+  descent" from "still walked every row"; a visit counter can), and the
+  node count for a 500-row list, which pins the O(rows) construction cost
+  virtualization does *not* remove. Structural counts only — the suite
+  still asserts no wall-clock time.
 - `BorderCornerArcGeometryTests` — the corner-arc geometry `BorderSegments`
   emits for a rounded border, measured in all four quadrants rather than
   the one whose maths was right. The annular-sector bounding box used to be

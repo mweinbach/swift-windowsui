@@ -530,6 +530,26 @@ function Assert-SwapChainWindowAssociation {
     }
 }
 
+# The blur runs on two backends and they are only "exact transcriptions of
+# each other" while they read the same derivations. Two of them are shared
+# values on SubTextureRegion, and both sides have to be seen reading them:
+# the halving span (an odd extent has a trailing texel to decide about, and
+# the GPU's UV scale and the CPU's block average must decide the same way),
+# and the texel-centre clamp (the shader clamps in UVs, the CPU sampler in
+# texels; one bound, two spellings).
+Assert-Contains `
+    "Sources/SwiftWindowsGraphics/PremultipliedImageBlur.swift" `
+    "SubTextureRegion\.halvingSourceExtent" `
+    "The CPU blur must derive its halving span from SubTextureRegion.halvingSourceExtent; a local `"width / 2`" is how the two backends' taps drifted apart at odd extents."
+Assert-Contains `
+    "Sources/SwiftWindowsGraphics/PremultipliedImageBlur.swift" `
+    "clampTexelCentre" `
+    "The CPU blur's upsample must clamp through SubTextureRegion.clampTexelCentre, so `"one clamp every sub-texture sampler goes through`" is true of the CPU sampler too."
+Assert-Contains `
+    "Sources/SwiftWindowsRendererD3D11/BackdropBlurEngine.swift" `
+    "currentRegion\.halvingSource" `
+    "The GPU halving pass must take its UV scale from SubTextureRegion.halvingSource; derived from the full region it samples between texels at odd extents and reaches the column the CPU drops."
+
 # DXGI installs its own window hooks the moment a swap chain is bound to an
 # HWND: Alt+Enter becomes a fullscreen mode switch and Print Screen becomes a
 # DXGI capture, neither of which this stack implements. Every swap-chain owner

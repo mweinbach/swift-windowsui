@@ -6,8 +6,8 @@ import XCTest
 @testable import SwiftWindowsUI
 @testable import WinSwiftUI
 
-/// WS-20: `.blur(radius:)` and `.background(.regularMaterial)` used to be the
-/// same field on `ViewNode`, which made both of them wrong.
+/// `.blur(radius:)` and `.background(.regularMaterial)` used to be the same
+/// field on `ViewNode`, which made both of them wrong.
 ///
 /// - As a *cost* bug, the radius was inherited by every descendant and
 ///   landed on every descendant background quad. Each such quad breaks the
@@ -19,7 +19,10 @@ import XCTest
 ///
 /// The two meanings are now separate: `blurRadius` is the node's own
 /// backdrop effect and does not inherit; `contentBlurRadius` is resolved as
-/// a single render pass over the subtree's painted bounds.
+/// an **isolated** render pass — the subtree painted into its own offscreen
+/// buffer, blurred there, composited back — because a backdrop pass blurs
+/// whatever is already painted under it, and a `.blur()` on one view is not
+/// allowed to change the pixels of another.
 @MainActor
 final class ContentBlurRenderPassTests: XCTestCase {
 
@@ -31,6 +34,10 @@ final class ContentBlurRenderPassTests: XCTestCase {
 
     private func blurredQuads(_ snapshot: WinSwiftUIRenderSnapshot) -> [QuadPrimitive] {
         snapshot.scene.layers.flatMap { $0.quads.filter { $0.blurRadius > 0 } }
+    }
+
+    private func images(_ snapshot: WinSwiftUIRenderSnapshot) -> [ImagePrimitive] {
+        snapshot.scene.layers.flatMap { $0.images }
     }
 
     private struct RowList: View {
@@ -50,14 +57,18 @@ final class ContentBlurRenderPassTests: XCTestCase {
 
     func testBlurOverManyBackgroundedChildrenEmitsOnePass() async {
         let blurred = snapshot(RowList(count: 50).blur(radius: 8))
-        let quads = blurredQuads(blurred)
         XCTAssertEqual(
-            quads.count, 1,
+            blurred.scene.paintMetrics.contentBlurPasses, 1,
             "a `.blur()` on a container is one render pass over the subtree, not one backdrop blur per "
-                + "descendant background; got \(quads.count) blurred quads")
+                + "descendant")
+        XCTAssertTrue(
+            blurredQuads(blurred).isEmpty,
+            "an isolated content blur composites a bitmap; it must not also leave a backdrop-blur quad "
+                + "behind, which would blur the scene under the panel a second time")
 
         // And the pass covers the subtree, so nothing inside it stays sharp.
         let plain = snapshot(RowList(count: 50))
+        XCTAssertEqual(plain.scene.paintMetrics.contentBlurPasses, 0)
         XCTAssertTrue(
             blurredQuads(plain).isEmpty,
             "the same tree without `.blur()` must emit no blurred quads at all")
@@ -72,18 +83,31 @@ final class ContentBlurRenderPassTests: XCTestCase {
             blurredQuads(materialPanel).count, 1,
             "a Material background is the panel's own backdrop effect; the cards inside it are not "
                 + "each a frosted panel")
+        XCTAssertEqual(
+            materialPanel.scene.paintMetrics.contentBlurPasses, 0,
+            "a Material is a backdrop pass, not a content-blur isolation")
     }
 
-    /// The radius reaching the scene is the device-pixel radius, and it is
-    /// the radius the app asked for — not something an ancestor merged in.
+    /// The radius reaching the pass is the device-pixel radius, and it is the
+    /// radius the app asked for. The isolation buffer is the subtree's frame
+    /// outset by exactly that radius, so the blur fades out past the frame
+    /// instead of ending at a hard edge — which is the observable the
+    /// composited image's extent pins.
     func testContentBlurRadiusReachesTheSceneScaledByDisplayScale() async {
         let snapshotAt2x = WinSwiftUIRendererSnapshotter.snapshot(
-            of: RowList(count: 4).blur(radius: 6),
+            // Padded away from the surface edge: the buffer is clamped to the
+            // clip, and a subtree at the origin would have its left and top
+            // margin clipped away — correctly, but it would make the extent
+            // below say less than it means to.
+            of: RowList(count: 4).frame(width: 200, height: 32).blur(radius: 6).padding(20),
             size: IntSize(width: 320, height: 240),
             displayScale: 2)
-        let quads = snapshotAt2x.scene.layers.flatMap { $0.quads.filter { $0.blurRadius > 0 } }
-        XCTAssertEqual(quads.count, 1)
-        XCTAssertEqual(quads.first?.blurRadius ?? 0, 12, accuracy: 0.001)
+        let blurImages = images(snapshotAt2x)
+        XCTAssertEqual(blurImages.count, 1)
+        XCTAssertEqual(
+            blurImages.first?.screenW ?? 0, Float(200 * 2 + 2 * 12), accuracy: 1.5,
+            "at 2x a radius-6 blur is 12 device pixels, and the pass is the frame outset by that much")
+        XCTAssertEqual(blurImages.first?.screenH ?? 0, Float(32 * 2 + 2 * 12), accuracy: 1.5)
     }
 
     func testNestedBlursEachEmitTheirOwnPass() async {
@@ -92,10 +116,98 @@ final class ContentBlurRenderPassTests: XCTestCase {
                 RowList(count: 5).blur(radius: 4)
                 RowList(count: 5).blur(radius: 9)
             }
+            .padding(20)
         )
-        let radii = blurredQuads(nested).map { $0.blurRadius }.sorted()
-        XCTAssertEqual(radii.count, 2, "two independent `.blur()` subtrees are two passes")
-        XCTAssertEqual(radii, [4, 9])
+        XCTAssertEqual(
+            nested.scene.paintMetrics.contentBlurPasses, 2,
+            "two independent `.blur()` subtrees are two passes")
+        let widths = images(nested).map { $0.screenW }.sorted()
+        XCTAssertEqual(widths.count, 2)
+        guard widths.count == 2 else { return }
+        // Same subtree width, different margins: 2 * (9 - 4) = 10 points.
+        XCTAssertEqual(widths[1] - widths[0], 10, accuracy: 1.5)
+    }
+
+    // MARK: - Isolation: a blur changes the view it is on, and nothing else
+
+    /// The regression this pass exists to prevent. A backdrop blur over the
+    /// subtree's outset bounds composites *the blurred backdrop* across that
+    /// whole rectangle, so blurring the middle row of a stack replaced a band
+    /// of the rows above and below with a smeared copy of themselves.
+    ///
+    /// Blurring a view that draws nothing is the sharpest statement of it:
+    /// the render must be pixel-for-pixel what it was without the modifier.
+    func testBlurringAnEmptyViewLeavesEverySiblingPixelIdentical() async {
+        let size = IntSize(width: 160, height: 150)
+
+        struct Stack: View {
+            let radius: Double
+            var body: some View {
+                VStack(spacing: 0) {
+                    Stripes()
+                    Color.clear.frame(width: 120, height: 50).blur(radius: radius)
+                    Stripes()
+                }
+            }
+        }
+
+        let sharp = GPUIRawSceneRasterizer.rasterize(
+            WinSwiftUIRendererSnapshotter.snapshot(of: Stack(radius: 0), size: size, displayScale: 1).scene,
+            size: size)
+        let blurred = GPUIRawSceneRasterizer.rasterize(
+            WinSwiftUIRendererSnapshotter.snapshot(of: Stack(radius: 10), size: size, displayScale: 1).scene,
+            size: size)
+
+        let report = comparePixels(blurred, sharp, tolerance: 0)
+        XCTAssertEqual(
+            report.matchRatio, 1.0,
+            "blurring a view that paints nothing must change nothing; a blur that reaches its siblings "
+                + "is a backdrop pass wearing a content blur's name (max channel delta "
+                + "\(report.maxChannelDelta), first failure \(String(describing: report.firstFailure)))")
+    }
+
+    /// And with something to blur: the wallpaper behind a blurred badge stays
+    /// sharp. Sampled just outside the badge, where the badge's own falloff
+    /// has almost no alpha left — the backdrop lowering smeared the stripes
+    /// there because it blurred everything already painted under its bounds.
+    ///
+    /// Built from retained nodes rather than views so the geometry is exact:
+    /// the badge is at (50, 50) 40×40, and rows 42…47 under columns 45…95 are
+    /// wallpaper inside the radius-10 ring.
+    func testABlurredBadgeDoesNotBlurTheWallpaperAroundIt() async {
+        let size = IntSize(width: 140, height: 140)
+
+        func scene(radius: Double) -> GPUIScene {
+            var children: [ViewNode] = []
+            for stripe in 0..<35 {
+                children.append(
+                    ViewNode(
+                        frame: Rect(x: 0, y: Double(stripe) * 4, width: 140, height: 2),
+                        backgroundColor: Color(red: 1, green: 1, blue: 1, alpha: 1)))
+            }
+            children.append(
+                ViewNode(
+                    frame: Rect(x: 50, y: 50, width: 40, height: 40),
+                    backgroundColor: Color(red: 0.1, green: 0.8, blue: 0.3, alpha: 1),
+                    contentBlurRadius: radius))
+            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 140, height: 140), children: children)
+            return ScenePainter.paint(
+                root: root, clearColor: .black, surfaceSize: Size(width: 140, height: 140))
+        }
+
+        let sharp = GPUIRawSceneRasterizer.rasterize(scene(radius: 0), size: size)
+        let blurred = GPUIRawSceneRasterizer.rasterize(scene(radius: 10), size: size)
+
+        let sharpContrast = Self.maxNeighbourDelta(sharp, rows: 42..<48, columns: 45..<95)
+        let blurredContrast = Self.maxNeighbourDelta(blurred, rows: 42..<48, columns: 45..<95)
+        XCTAssertGreaterThan(
+            sharpContrast, 200,
+            "the fixture must have high-contrast stripes there for the comparison to mean anything")
+        XCTAssertGreaterThan(
+            Double(blurredContrast), Double(sharpContrast) * 0.75,
+            "the wallpaper around a blurred badge must stay sharp: the badge's own falloff is nearly "
+                + "transparent this far out, so the stripes must survive it (measured \(blurredContrast) "
+                + "against \(sharpContrast))")
     }
 
     // MARK: - Fidelity: the subtree's content is what gets blurred
@@ -130,6 +242,190 @@ final class ContentBlurRenderPassTests: XCTestCase {
             "the blurred render must be locally smoother than the sharp one")
     }
 
+    // MARK: - Deferred children are inside the blur, not on top of it
+
+    /// A pinned section header is a *deferred* subtree: prepaint collects it
+    /// and the painter drains it after every node has finished painting —
+    /// which is after the blur. So a blurred pinned list used to render
+    /// blurred rows with a perfectly sharp header sitting on top of them.
+    /// There is no ordering of one pass that fixes that; the header has to be
+    /// inside the thing being blurred.
+    func testPinnedHeaderInsideABlurredSubtreeIsBlurredWithIt() async {
+        let size = IntSize(width: 240, height: 200)
+
+        struct PinnedList: View {
+            let radius: Double
+            var body: some View {
+                ScrollView {
+                    LazyVStack(pinnedViews: [.sectionHeaders]) {
+                        Section {
+                            ForEach(0..<6, id: \.self) { index in
+                                Text("row \(index)").frame(width: 200, height: 20)
+                            }
+                        } header: {
+                            Text("HEADER")
+                                .frame(width: 200, height: 24)
+                                .background(Color(red: 1, green: 0, blue: 0, alpha: 1))
+                        }
+                    }
+                }
+                .frame(width: 220, height: 160)
+                .blur(radius: radius)
+            }
+        }
+
+        func headerQuadCount(_ snapshot: WinSwiftUIRenderSnapshot) -> Int {
+            snapshot.scene.layers.reduce(0) {
+                $0 + $1.quads.filter { $0.startR > 0.9 && $0.startG < 0.1 && $0.startB < 0.1 }.count
+            }
+        }
+
+        let sharp = WinSwiftUIRendererSnapshotter.snapshot(
+            of: PinnedList(radius: 0), size: size, displayScale: 1)
+        XCTAssertGreaterThan(
+            headerQuadCount(sharp), 0,
+            "the fixture must actually pin a header, or the blurred case proves nothing")
+
+        let blurred = WinSwiftUIRendererSnapshotter.snapshot(
+            of: PinnedList(radius: 6), size: size, displayScale: 1)
+        XCTAssertEqual(blurred.scene.paintMetrics.contentBlurPasses, 1)
+        XCTAssertEqual(
+            headerQuadCount(blurred), 0,
+            "the pinned header must be painted inside the blurred subtree's bitmap, not drawn sharp on "
+                + "top of it by the deferred phase")
+    }
+
+    /// And it stays claimed when the pass reuses its bitmap. The deferred
+    /// entry is already inside those pixels; drawing it again because this
+    /// frame skipped the rasterization would put a sharp copy on top from the
+    /// second frame onwards — a bug that only appears once the cache warms,
+    /// which is exactly the kind a single-frame test misses.
+    func testDeferredDescendantStaysClaimedWhenTheBlurBitmapIsReused() async {
+        let header = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 60, height: 12),
+            backgroundColor: Color(red: 1, green: 0, blue: 0, alpha: 1))
+        header.paintsInDeferredPhase = true
+        let body = ViewNode(
+            frame: Rect(x: 0, y: 12, width: 60, height: 40),
+            backgroundColor: Color(red: 0, green: 0, blue: 1, alpha: 1))
+        let blurred = ViewNode(
+            frame: Rect(x: 10, y: 10, width: 60, height: 52),
+            contentBlurRadius: 4,
+            children: [header, body])
+        let root = ViewNode(frame: Rect(x: 0, y: 0, width: 120, height: 100), children: [blurred])
+
+        // The deferred entry prepaint would have produced for the pinned
+        // child, drained after every node has painted.
+        var deferredDraws = [
+            DeferredDrawState(
+                priority: 0,
+                parentDispatchIndex: 0,
+                contentMask: nil,
+                payload: .subtree(
+                    DeferredSubtreePayload(
+                        node: header,
+                        parentOrigin: Point(x: 10, y: 10),
+                        inheritedClip: nil,
+                        inheritedOpacity: 1,
+                        inheritedInverseTransform: nil,
+                        inheritedColorEffects: []
+                    )
+                )
+            )
+        ]
+
+        func paint() -> GPUIScene {
+            var replay = 0
+            var deferredReplay = 0
+            return ScenePainter.paint(
+                root: root,
+                clearColor: .black,
+                surfaceSize: Size(width: 120, height: 100),
+                displayScale: 1,
+                textSystem: WindowTextSystem(),
+                previousScene: nil,
+                deferredDraws: &deferredDraws,
+                replayCount: &replay,
+                deferredReplayCount: &deferredReplay)
+        }
+
+        func headerQuadCount(_ scene: GPUIScene) -> Int {
+            scene.layers.reduce(0) {
+                $0 + $1.quads.filter { $0.startR > 0.9 && $0.startG < 0.1 && $0.startB < 0.1 }.count
+            }
+        }
+
+        let first = paint()
+        XCTAssertEqual(first.paintMetrics.contentBlurPasses, 1)
+        XCTAssertEqual(headerQuadCount(first), 0, "the deferred child belongs inside the blurred bitmap")
+
+        let second = paint()
+        XCTAssertEqual(
+            second.paintMetrics.contentBlurPassesReused, 1,
+            "the fixture must actually hit the bitmap cache, or it proves nothing")
+        XCTAssertEqual(
+            headerQuadCount(second), 0,
+            "the reused bitmap already contains the deferred child; the deferred phase must still skip it")
+    }
+
+    // MARK: - Cost
+
+    /// A blurred subtree costs a CPU rasterization plus a Gaussian when it
+    /// changes and nothing when it does not.
+    func testUnchangedBlurredSubtreeReusesItsBitmap() async {
+        let child = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 60, height: 40),
+            backgroundColor: Color(red: 0, green: 0, blue: 1, alpha: 1))
+        let blurred = ViewNode(
+            frame: Rect(x: 10, y: 10, width: 100, height: 60),
+            contentBlurRadius: 5,
+            children: [child])
+        func paint() -> GPUIScene {
+            ScenePainter.paint(root: blurred, clearColor: .black, surfaceSize: Size(width: 200, height: 120))
+        }
+
+        let first = paint()
+        XCTAssertEqual(first.paintMetrics.contentBlurPasses, 1)
+        XCTAssertEqual(first.paintMetrics.contentBlurPassesReused, 0)
+
+        let second = paint()
+        XCTAssertEqual(
+            second.paintMetrics.contentBlurPasses, 1,
+            "an unchanged blurred subtree still composites its pass")
+        XCTAssertEqual(
+            second.paintMetrics.contentBlurPassesReused, 1,
+            "…but it must not rasterize and blur the subtree again")
+        XCTAssertEqual(
+            second.imageResources.first?.bitmap, first.imageResources.first?.bitmap,
+            "and the composited image must be the same pixels, not just the same count")
+
+        child.backgroundColor = Color(red: 1, green: 0, blue: 0, alpha: 1)
+        let third = paint()
+        XCTAssertEqual(
+            third.paintMetrics.contentBlurPassesReused, 0,
+            "a dirty descendant must invalidate the blurred bitmap")
+        XCTAssertNotEqual(
+            third.imageResources.first?.bitmap, first.imageResources.first?.bitmap,
+            "the reblurred bitmap must carry the change")
+    }
+
+    // MARK: - Fixtures
+
+    /// High-contrast 2-point stripes: a pattern a Gaussian destroys and a
+    /// composite leaves alone.
+    private struct Stripes: View {
+        var body: some View {
+            VStack(spacing: 0) {
+                ForEach(0..<25, id: \.self) { index in
+                    (index % 2 == 0
+                        ? Color(red: 1, green: 1, blue: 1, alpha: 1)
+                        : Color(red: 0, green: 0, blue: 0, alpha: 1))
+                        .frame(width: 140, height: 2)
+                }
+            }
+        }
+    }
+
     /// Sum of non-background coverage, as a crude "is anything drawn" probe.
     private static func inkCoverage(_ surface: BitmapSurface) -> Int {
         var total = 0
@@ -145,19 +441,27 @@ final class ContentBlurRenderPassTests: XCTestCase {
         return total
     }
 
-    /// Largest horizontal channel step between neighbouring pixels — high
-    /// for crisp glyph edges, low once a Gaussian has run over them.
-    private static func maxNeighbourDelta(_ surface: BitmapSurface) -> Int {
+    /// Largest channel step between neighbouring pixels, in either axis —
+    /// high for crisp glyph edges or a stripe pattern, low once a Gaussian
+    /// has run over them.
+    private static func maxNeighbourDelta(
+        _ surface: BitmapSurface, rows: Range<Int>? = nil, columns: Range<Int>? = nil
+    ) -> Int {
         var worst = 0
-        for y in 0..<Int(surface.height) {
-            for x in 1..<Int(surface.width) {
-                let offset = y * Int(surface.bytesPerRow) + x * 4
-                let previous = offset - 4
+        let stride = Int(surface.bytesPerRow)
+        let range = rows ?? 1..<Int(surface.height)
+        let columnRange = columns ?? 1..<Int(surface.width)
+        for y in range where y >= 1 && y < Int(surface.height) {
+            for x in columnRange where x >= 1 && x < Int(surface.width) {
+                let offset = y * stride + x * 4
                 guard offset + 3 < surface.pixels.count else { continue }
-                for channel in 0..<3 {
-                    worst = max(
-                        worst,
-                        abs(Int(surface.pixels[offset + channel]) - Int(surface.pixels[previous + channel])))
+                for neighbour in [offset - 4, offset - stride] {
+                    guard neighbour >= 0 else { continue }
+                    for channel in 0..<3 {
+                        worst = max(
+                            worst,
+                            abs(Int(surface.pixels[offset + channel]) - Int(surface.pixels[neighbour + channel])))
+                    }
                 }
             }
         }

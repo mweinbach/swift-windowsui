@@ -311,17 +311,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   `BlurPassPlan`) and the two things it exists to prevent: a sub-texture
   tap that reaches outside its region (the grow-only ping-pong pair's
   stale texels), and a blur schedule the two backends compute differently.
-  Also covers the downsample chain — that it is invisible across its
-  threshold, that it still honours the radius, and that a
-  quarter-resolution blur agrees across backends at the suite parity
-  floor. Carries the recorded residual for rotated clipping as an
-  `XCTSkip`.
-- `ContentBlurRenderPassTests` — `.blur()` as a content blur, not a
-  per-descendant backdrop blur: one blurred quad over 50 backgrounded
-  rows rather than 50, a Material background that does not frost the
-  cards inside it, nested blurs as independent passes, the device-scale
-  radius reaching the scene, and — the regression that matters — a
-  blurred label whose glyphs actually change.
+  Also covers the **halving rule** — that the span a 2× reduction reads is
+  exactly twice the output extent, so every tap lands on a texel boundary
+  at odd extents too; that the CPU drops the same trailing column the
+  GPU's UVs never reach; and that the blur shader still maps viewport to
+  UV the way the tap model assumes. Plus the downsample chain — invisible
+  across its threshold, still honouring the radius, and agreeing across
+  backends at the suite parity floor both at quarter resolution and over
+  an odd (5 device pixel) region. Carries two recorded residuals as
+  `XCTSkip`s: rotated clipping, and a Material inside a `drawingGroup`
+  having no backdrop to blur.
+- `ContentBlurRenderPassTests` — `.blur()` as an **isolated** content
+  blur: one pass over 50 backgrounded rows rather than 50 backdrop blurs,
+  a Material background that does not frost the cards inside it, nested
+  blurs as independent passes, the device-scale radius sizing the pass,
+  the regression that matters (a blurred label whose glyphs actually
+  change), and the two isolation properties — blurring a view that paints
+  nothing leaves every pixel of the render identical, and the wallpaper
+  around a blurred badge stays sharp. Also pins that a pinned section
+  header inside a blurred subtree is drawn *inside* the pass rather than
+  sharp on top of it by the deferred phase, and that an unchanged blurred
+  subtree reuses its bitmap instead of re-blurring per frame.
 - `LazyStackVirtualizationTests` — `.lazyStack`: rows the viewport plus
   overscan cannot reach skip their recursive layout, an eager `VStack`
   and a lazy stack with nothing scrollable above it skip nothing, the

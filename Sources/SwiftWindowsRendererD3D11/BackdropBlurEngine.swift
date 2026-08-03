@@ -401,16 +401,23 @@ final class D3D11BackdropBlurEngine {
         // the viewport-to-UV mapping puts that tap exactly on the boundary
         // between texels 2i and 2i+1 — an exact 2×2 box average, with no
         // downsample shader to keep in sync.
+        //
+        // The UV scale comes from `halvingSource`, not from the region: the
+        // shader maps a [0,1] viewport coordinate through `uv = input.uv *
+        // blurUVScale.xy`, so the tap for output texel `i` lands at
+        // `(i + 0.5) · span / halvedWidth`. That is `2i + 1` — the texel
+        // boundary — only when the span is exactly twice the output width.
+        // Deriving it from the full region instead made an odd extent drift
+        // by up to a whole texel across the pass and pick up the trailing
+        // column the CPU's block average drops, in both cases while the two
+        // backends documented each other as exact transcriptions.
         for _ in 0..<plan.halvingPassCount {
-            let halved = SubTextureRegion(
-                originX: 0, originY: 0,
-                width: max(1, currentRegion.width / 2), height: max(1, currentRegion.height / 2),
-                textureWidth: textureCapacity.width, textureHeight: textureCapacity.height)
+            let halved = currentRegion.halved
             try uploadBlurParams(
                 deviceContext: deviceContext,
                 buffer: blurParamsBuffer,
                 direction: (0, 0),
-                region: currentRegion,
+                region: currentRegion.halvingSource,
                 radius: 0,
                 kernel: [1]
             )

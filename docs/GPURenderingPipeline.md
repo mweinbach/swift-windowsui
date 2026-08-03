@@ -387,8 +387,8 @@ now union to the full `radius × radius` corner square.
 
 **Compositing groups** (`.drawingGroup()`, `.compositingGroup()`)
 rasterize their children into an offscreen `BitmapSurface` and composite
-it as one `ImagePrimitive`. `compositingGroupBuffer` decides whether that
-is possible at all:
+it as one `ImagePrimitive`. `offscreenPassBuffer` — shared with the
+content-blur isolation pass — decides whether that is possible at all:
 
 - the group's frame is **clamped to the effective clip** before sizing —
   pixels outside it could not survive the clip anyway, and sizing from the
@@ -1876,18 +1876,36 @@ Two properties are load-bearing:
 
 The GPU halving pass is the ordinary blur shader with a **zero radius**.
 The blur shader maps a `[0,1]` viewport coordinate through
-`uv = input.uv * blurUVScale.xy`, so rendering into a half-size viewport
-puts each tap exactly on the boundary between texels `2i` and `2i+1` —
-which is an exact 2×2 box average under bilinear filtering. There is
-therefore no downsample shader to keep in sync, and
-`GPUIRawSceneRasterizer` transcribes the same average byte-for-byte. The
-upsample is folded into the composite draw: `backdropRegion.zw` carries
-the texture size *multiplied by the downsample factor*, so one divide
-does the region mapping and the bilinear magnification together.
+`uv = input.uv * blurUVScale.xy`, so output texel `i` taps the source at
+`(i + 0.5) · span / outputExtent` texels. That is the boundary between
+texels `2i` and `2i+1` — an exact 2×2 box average under bilinear
+filtering — **only when the span is exactly twice the output extent**,
+which is why the span comes from `SubTextureRegion.halvingSource` and not
+from the region. The engine used to pass the whole region: at an even
+extent those are the same number, and at an odd one the taps drifted by
+`(i + 0.5) / outputExtent` texels, reaching a full texel of offset at the
+far edge and picking up the trailing column the CPU's block average
+drops. Both implementations documented the other as an exact
+transcription while disagreeing at every odd extent, and two halvings
+compounded it.
+
+`SubTextureRegion.halvedExtent` / `halvingSourceExtent` are that one
+derivation, and `PremultipliedImageBlur` — the CPU chain, shared with the
+painter's content-blur pass — reads them too, so the reduction is one
+rule with two spellings rather than two rules that agree on the cases
+anyone happened to test. The upsample is folded into the composite draw:
+`backdropRegion.zw` carries the texture size *multiplied by the
+downsample factor*, so one divide does the region mapping and the
+bilinear magnification together, and the CPU's upsample clamps through
+`SubTextureRegion.clampTexelCentre` — the texel-space spelling of
+`clampUV`, from the same bounds.
 
 Pinned by `RenderPassAbstractionTests` (schedule, cost, continuity across
-the threshold, and a quarter-resolution cross-backend parity scene) and
-by `D3D11BackdropBlurTests.testBothBackendsHonourABlurRadiusAboveTheOldCap`.
+the threshold, the halving tap model, the CPU's dropped column, and
+cross-backend parity scenes at quarter resolution and over an odd-width
+region), by the contract check (both backends must be seen reading the
+shared derivations), and by
+`D3D11BackdropBlurTests.testBothBackendsHonourABlurRadiusAboveTheOldCap`.
 
 ### The render-pass vocabulary
 
@@ -1900,11 +1918,31 @@ and are read by all three places that used to have their own idea of
 |----------|-------------------------------|
 | `D3D11BatchRenderer` | `currentRenderTargetDescriptor` — one statement of what and how big the current surface is, `.presentation` or `.offscreen` |
 | `D3D11BackdropBlurEngine` | takes that target instead of a pair of loose surface ints, and expresses every blur pass's source rectangle as a `SubTextureRegion` |
-| `ScenePainter` compositing groups | `CompositingGroupBuffer.pass` — an `.offscreen` target cleared to transparent, viewport = whole target, `isCacheable: true` |
+| `ScenePainter` offscreen passes | `OffscreenPassBuffer.pass` — an `.offscreen` target with a clear colour, viewport = whole target. Every field is read: the extent sizes the bitmap, `target.clearColor` is what the sub-scene clears to, `isCacheable` decides whether last frame's bitmap may stand in (a compositing group and a content-blur isolation ask for different answers) |
 
-The blur engine reading the renderer's target rather than a caller's idea
-of the surface size is what makes a material blur correctly inside an
-offscreen snapshot, not only against a swap-chain buffer.
+It is a **consolidation, not a capability**. Nothing here made an effect
+possible that was impossible before: the blur engine was already told the
+same surface size, by two loose ints off the same target, so a material
+blurred inside an offscreen snapshot before this too. What the vocabulary
+buys is that the kind travels with the size, that there is one place to
+read it from, and that a pass which clears and a pass which loads are the
+same type saying different things.
+
+### Residual: a Material inside an offscreen pass has no backdrop
+
+A compositing-group sub-scene clears to **transparent**, and a Material is
+a backdrop effect — it samples what is already painted under it. Inside
+`.drawingGroup()` that is nothing, so the material composites its tint
+over emptiness and the group's bitmap then lands over the wallpaper
+unblurred: the content under the panel stays razor sharp where it should
+have been smeared.
+
+Closing it means seeding the sub-scene with the already-painted backdrop
+under the group's frame — which the painter does not have, because at
+that point the outer scene is a *scene*, not pixels — or running the
+group as a real GPU pass. Recorded and skipped by
+`RenderPassAbstractionTests.testMaterialInsideADrawingGroupBlursNothing`,
+whose assertions pin what happens today.
 
 ### `SubTextureRegion`: one clamp, and the stale-texel class
 
@@ -1944,18 +1982,64 @@ The two meanings are now separate fields:
 | `ViewNode.blurRadius` | `.background(.regularMaterial)` | the node's own backdrop effect; not inherited |
 | `ViewNode.contentBlurRadius` | `.blur(radius:)` | blur the subtree's rendered result; resolved as one pass |
 
-`ScenePainter.finishPaintNode` lowers a content blur to a single render
-pass over the subtree's painted bounds, emitted after everything below
-has drawn: one blur quad with a fully transparent tint, so the composite
-(`tint over blurred backdrop`) writes the blurred subtree and nothing
-else. Two documented approximations:
+There was a third wrong lowering in between, and it is worth naming
+because it looked right: one backdrop-blur quad over the subtree's bounds
+**outset by the radius**, emitted after the subtree had drawn. That fixed
+both bullets above and broke a rule that matters more — *blurring one
+view is not allowed to change the pixels of another*. A backdrop pass
+blurs whatever is already painted under it, so `VStack { a; b.blur(10); c }`
+composited a blurred copy of `a` and `c` across a 10-point band of each,
+and `.blur()` on a view that painted nothing at all still smeared its
+neighbours.
 
-- The pass blurs everything already painted within the bounds rather than
-  the subtree in isolation composited over an unblurred background.
-  Identical whenever the backdrop is flat, which is the common case.
-- The bounds are the node's painted frame **outset by the radius**, so the
-  blur fades out instead of ending at a hard rectangular edge. Content
-  that overflows further than the radius is not included.
+`ScenePainter.appendIsolatedContentBlur` is the lowering that holds:
+
+1. size an `.offscreen` pass over the node's painted frame outset by the
+   (capped, device-space) radius, clamped to the clip and to the offscreen
+   area budget — the same `OffscreenPassBuffer` a compositing group uses;
+2. paint the node *and its subtree* into that buffer, shifted to its
+   origin, cleared to transparent;
+3. blur the bitmap with `PremultipliedImageBlur` — the same chain, plan
+   and kernel the backends run, so there is nothing per-backend to keep in
+   step;
+4. composite it as an `ImagePrimitive` at ancestor opacity.
+
+The margin is transparent in the bitmap, so the blur still fades out past
+the frame — it just fades to *nothing* rather than to a neighbour. The
+node's own opacity is applied inside the pass and ancestors' opacity to
+the image, so nothing frame-specific is baked into a bitmap that outlives
+the frame.
+
+**Deferred descendants come with it.** A pinned section header is a
+deferred subtree: prepaint collects it and the painter drains it after
+every node has finished painting, which is after the blur. A blurred
+`LazyVStack(pinnedViews:)` therefore used to render blurred rows with a
+perfectly sharp header on top. The isolation pass claims the deferred
+entries that live under its node — marking them `isDrawnInline` so the
+deferred phase skips them — and draws them into its own scene. It claims
+them on the frames it *reuses* its bitmap too: those entries are already
+inside those pixels, and a claim tied to the rasterization would put a
+sharp copy back on top from the second frame onwards. The flag is reset
+at the top of every paint attempt, because the deferred list outlives the
+frame (it carries the replay ranges) and the decision does not. Scroll
+indicators are not claimed — they carry a dispatch index rather than a
+node, so there is nothing to test descent with — and stay sharp above a
+blurred scroll view. The frame path's own deferred drain ignores the flag
+entirely; it has no isolation pass, so it must still draw everything.
+
+**Cost.** One CPU rasterization plus one Gaussian when the subtree
+changes, and nothing at all when it does not: the bitmap is cached on the
+node's paint key, which includes the radius and the display scale.
+`ScenePaintMetrics.contentBlurPasses` / `contentBlurPassesReused` report
+which happened.
+
+**Fallback.** When the buffer cannot be sized — a non-finite frame, or an
+outset area past the offscreen budget — `appendContentBlurPass` still
+emits the backdrop quad, now over the **un-outset** frame. It blurs the
+backdrop under the subtree rather than the subtree alone and ends at a
+hard edge, which is a visible approximation; the outset that would soften
+it is exactly what smeared the neighbours, and a hard edge is wrong in a
+way the user can see belongs to the blurred view.
 
 The frame path (`RenderCommand`) has no blur primitive and degrades a
 content blur to sharp content, as it already did for materials.

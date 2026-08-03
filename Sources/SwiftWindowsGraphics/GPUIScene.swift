@@ -467,6 +467,17 @@ public struct ScenePaintMetrics: Equatable, Sendable {
     /// walks and rasterizes its whole subtree on the main actor, so this is the
     /// counter that says whether a `.drawingGroup()` is amortized or not.
     public var compositingGroupsReused: Int = 0
+    /// `.blur(radius:)` subtrees resolved as an isolated offscreen pass —
+    /// rendered into their own bitmap, blurred there, and composited — as
+    /// opposed to the backdrop-quad fallback the painter takes when the
+    /// isolation buffer cannot be sized. One per blurred subtree, however
+    /// many descendants it has.
+    public var contentBlurPasses: Int = 0
+    /// Isolated content-blur passes that reused the bitmap an earlier paint
+    /// produced. A blurred subtree costs a CPU rasterization plus a Gaussian
+    /// when it changes and nothing at all when it does not, so this is the
+    /// counter that says whether a `.blur()` is amortized.
+    public var contentBlurPassesReused: Int = 0
     /// Text-pipeline degradations observed while painting this scene.
     public var textDiagnostics: TextRenderDiagnostics = TextRenderDiagnostics()
 

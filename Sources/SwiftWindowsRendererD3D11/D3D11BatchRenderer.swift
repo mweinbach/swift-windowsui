@@ -1380,7 +1380,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// The surface this renderer is currently drawing into, as the shared
     /// render-pass value. One statement of "what and how big", read by the
     /// backdrop blur engine instead of each caller passing its own idea of
-    /// the surface size.
+    /// the surface size. The engine was already told the same *size* before
+    /// this existed — what is new is that the kind travels with it and that
+    /// there is one place to read it from.
     ///
     /// `clearColor` is nil — a frame's draws composite over what the clear
     /// already put there; the clear itself is not a pass in this model.
@@ -2818,11 +2820,13 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             backBuffer: backBuffer,
             backBufferRTV: renderTargetView,
             // The renderer states which surface this is once, and the blur
-            // engine reads that rather than a pair of loose ints: the
-            // engine's copy box is bounded by the target it was told about,
-            // and a `.offscreen` target is as valid a backdrop source as a
-            // swap-chain buffer. That is what lets a material blur inside an
-            // offscreen snapshot at all.
+            // engine reads that rather than a pair of loose ints. This is a
+            // vocabulary consolidation, not a capability: the engine used to
+            // be handed `surfaceWidth`/`surfaceHeight` off the same target,
+            // so a material blurred inside an offscreen snapshot before this
+            // too. What the descriptor buys is that the *kind* travels with
+            // the size, so a consumer can no longer be told how big the
+            // surface is without being told what it is.
             target: currentRenderTargetDescriptor,
             quad: quad
         )

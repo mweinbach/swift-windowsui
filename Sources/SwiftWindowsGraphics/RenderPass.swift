@@ -10,9 +10,14 @@ import SwiftWindowsCore
 /// offscreen texture), the backdrop blur engine's ping-pong pair, and the
 /// painter's compositing-group CPU round trip. None of them shared a
 /// vocabulary, so each grew its own rules about size, clearing and what
-/// inherited state survives the boundary — which is why a material could
-/// not blur inside a `drawingGroup` and why the group used to drop the
-/// inherited clip.
+/// inherited state survives the boundary.
+///
+/// It is a consolidation, not a capability: nothing here made an effect
+/// possible that was impossible before. A Material still does not blur
+/// inside a `drawingGroup`, because that pass clears to transparent and a
+/// backdrop effect has nothing to sample — the divergence is stated in
+/// `docs/GPURenderingPipeline.md` and pinned by
+/// `RenderPassAbstractionTests.testMaterialInsideADrawingGroupBlursNothing`.
 ///
 /// `RenderTargetKind` is the first word of the shared vocabulary. It is
 /// deliberately renderer-neutral: a `.presentation` target is whatever the
@@ -178,15 +183,26 @@ public struct SubTextureRegion: Equatable, Sendable {
     public var halfTexelU: Float { textureWidth > 0 ? 0.5 / Float(textureWidth) : 0 }
     public var halfTexelV: Float { textureHeight > 0 ? 0.5 / Float(textureHeight) : 0 }
 
+    /// The clamp bounds in **texel** coordinates — the centres of the
+    /// region's first and last texel. This is the single derivation; the
+    /// UV bounds below are these divided by the texture size, so a CPU
+    /// sampler that works in texels and a shader that works in UVs clamp
+    /// to the same place by construction rather than by two transcriptions
+    /// of the same arithmetic.
+    public var texelCentreMinX: Float { Float(originX) + 0.5 }
+    public var texelCentreMinY: Float { Float(originY) + 0.5 }
+    public var texelCentreMaxX: Float { max(Float(maxX) - 0.5, texelCentreMinX) }
+    public var texelCentreMaxY: Float { max(Float(maxY) - 0.5, texelCentreMinY) }
+
     /// Lower UV clamp bound: the centre of the region's first texel.
-    public var uvMinU: Float { uvOriginX + halfTexelU }
-    public var uvMinV: Float { uvOriginY + halfTexelV }
+    public var uvMinU: Float { textureWidth > 0 ? texelCentreMinX / Float(textureWidth) : 0 }
+    public var uvMinV: Float { textureHeight > 0 ? texelCentreMinY / Float(textureHeight) : 0 }
 
     /// Upper UV clamp bound: the centre of the region's last texel. Never
     /// below the lower bound — a one-texel region clamps every tap to that
     /// texel rather than inverting the interval.
-    public var uvMaxU: Float { max(uvOriginX + uvWidth - halfTexelU, uvMinU) }
-    public var uvMaxV: Float { max(uvOriginY + uvHeight - halfTexelV, uvMinV) }
+    public var uvMaxU: Float { textureWidth > 0 ? texelCentreMaxX / Float(textureWidth) : 0 }
+    public var uvMaxV: Float { textureHeight > 0 ? texelCentreMaxY / Float(textureHeight) : 0 }
 
     /// The one clamp every sub-texture sampler goes through. A tap outside
     /// the region snaps to the nearest in-region texel centre instead of
@@ -196,6 +212,16 @@ public struct SubTextureRegion: Equatable, Sendable {
     /// NaN into a texture fetch.
     public func clampUV(_ u: Float, _ v: Float) -> (u: Float, v: Float) {
         (Self.clamp(u, uvMinU, uvMaxU), Self.clamp(v, uvMinV, uvMaxV))
+    }
+
+    /// `clampUV` for a sampler that addresses texels rather than UVs — the
+    /// CPU rasterizer's upsample taps, which have no texture size to divide
+    /// by. Same bounds, same rule, one derivation.
+    public func clampTexelCentre(_ x: Float, _ y: Float) -> (x: Float, y: Float) {
+        (
+            Self.clamp(x, texelCentreMinX, texelCentreMaxX),
+            Self.clamp(y, texelCentreMinY, texelCentreMaxY)
+        )
     }
 
     private static func clamp(_ value: Float, _ lower: Float, _ upper: Float) -> Float {
@@ -217,6 +243,60 @@ public struct SubTextureRegion: Equatable, Sendable {
             originY: originY / factor,
             width: max(1, width / factor),
             height: max(1, height / factor),
+            textureWidth: textureWidth,
+            textureHeight: textureHeight)
+    }
+
+    // MARK: - The 2× halving rule, shared by both backends
+
+    /// Extent of an image after one 2× halving. Never zero, so a one-texel
+    /// axis stays samplable instead of collapsing the pass.
+    public static func halvedExtent(_ extent: Int) -> Int { max(1, extent / 2) }
+
+    /// Extent of the span a 2× halving pass **reads**: the source truncated
+    /// to an even number of texels.
+    ///
+    /// A halving is an exact 2×2 box average, and an odd trailing row or
+    /// column has nothing to pair with, so it is dropped. Both backends
+    /// used to say that and only one meant it: the CPU averaged the first
+    /// `2 · halvedExtent` texels while the GPU derived its UVs from the
+    /// *full* region, sampling at `(i + 0.5) · width / halvedWidth`. At an
+    /// even extent those are the same texels at the same weights; at an odd
+    /// one the GPU's taps drift, reaching a full texel of offset by the far
+    /// edge and picking up the trailing texel the CPU dropped. Deriving the
+    /// source span here — `2 · halvedExtent`, which is what this returns —
+    /// is what makes both backends' taps land on the boundary between
+    /// texels `2i` and `2i + 1`.
+    /// Never larger than the source itself: a one-texel axis halves to one
+    /// texel and reads that one texel twice, which is what the CPU's
+    /// clamped block average does.
+    public static func halvingSourceExtent(_ extent: Int) -> Int {
+        min(extent, 2 * halvedExtent(extent))
+    }
+
+    /// The image this region becomes after one 2× halving. Rendered into
+    /// the same grow-only texture, so only the extent shrinks.
+    public var halved: SubTextureRegion {
+        SubTextureRegion(
+            originX: originX,
+            originY: originY,
+            width: Self.halvedExtent(width),
+            height: Self.halvedExtent(height),
+            textureWidth: textureWidth,
+            textureHeight: textureHeight)
+    }
+
+    /// The sub-span a 2× halving pass samples out of this region: this
+    /// region truncated to an even extent in each axis (see
+    /// `halvingSourceExtent`). Always a subset of `self`, so the clamp
+    /// bounds it produces are at least as tight as the region's own and can
+    /// never reach the stale texels around it.
+    public var halvingSource: SubTextureRegion {
+        SubTextureRegion(
+            originX: originX,
+            originY: originY,
+            width: Self.halvingSourceExtent(width),
+            height: Self.halvingSourceExtent(height),
             textureWidth: textureWidth,
             textureHeight: textureHeight)
     }

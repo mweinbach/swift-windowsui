@@ -117,7 +117,14 @@ public enum ScenePainter {
             TextRenderDiagnosticsCounters.beginPass(preservingAtlasRecoveries: attempt > 0)
 
             var scene = GPUIScene(clearColor: clearColor)
-            var attemptDeferredDraws = originalDeferredDraws
+            // The list outlives the frame (it carries the replay ranges);
+            // "an earlier pass already drew this" does not. Every attempt
+            // starts with every deferred entry undrawn.
+            var attemptDeferredDraws = originalDeferredDraws.map { entry -> DeferredDrawState in
+                var entry = entry
+                entry.isDrawnInline = false
+                return entry
+            }
             var attemptReplayCount = 0
             var attemptDeferredReplayCount = 0
             var usedNativeGlyphs = false
@@ -261,6 +268,11 @@ public enum ScenePainter {
         let inheritedTransform: Transform2D
         let isInsideDrawingGroup: Bool
         let skipCacheUpdates: Bool
+        /// True only for the node an isolation pass re-enters, so that the
+        /// pass paints the subtree instead of recursing into itself. It is
+        /// deliberately *not* inherited: a nested `.blur()` inside a blurred
+        /// subtree is its own isolation, exactly as it is in SwiftUI.
+        let suppressesContentBlurIsolation: Bool
     }
 
     private struct PaintNodeFinishState {
@@ -312,7 +324,8 @@ public enum ScenePainter {
         replayCount: inout Int,
         inheritedTransform: Transform2D = .identity,
         isInsideDrawingGroup: Bool = false,
-        skipCacheUpdates: Bool = false
+        skipCacheUpdates: Bool = false,
+        suppressesContentBlurIsolation: Bool = false
     ) {
         var traversal: [PaintTraversalStep] = [
             .enter(
@@ -326,7 +339,8 @@ public enum ScenePainter {
                     inheritedBlendMode: inheritedBlendMode,
                     inheritedTransform: inheritedTransform,
                     isInsideDrawingGroup: isInsideDrawingGroup,
-                    skipCacheUpdates: skipCacheUpdates
+                    skipCacheUpdates: skipCacheUpdates,
+                    suppressesContentBlurIsolation: suppressesContentBlurIsolation
                 )
             )
         ]
@@ -571,6 +585,48 @@ public enum ScenePainter {
                     node.cachedSceneKey = nil
                     node.cachedScenePaintRange = nil
                 }
+            }
+
+            // `.blur(radius:)` blurs *this subtree*, and nothing else. The
+            // subtree renders into its own offscreen buffer, is blurred
+            // there, and is composited back — so a sibling one pixel outside
+            // the frame is untouched, while the blur still fades out past the
+            // frame rather than ending at a hard edge.
+            //
+            // This runs before any of the node's own decoration is emitted,
+            // because the node's background and border are part of what a
+            // `.blur()` on it blurs.
+            if node.contentBlurRadius > 0, !context.suppressesContentBlurIsolation, hasPaintableExtent,
+                appendIsolatedContentBlur(
+                    ContentBlurIsolation(
+                        node: node,
+                        parentOrigin: parentOrigin,
+                        inheritedTransform: inheritedTransform,
+                        inheritedColorEffects: inheritedColorEffects,
+                        inheritedBlendMode: inheritedBlendMode,
+                        paintFrame: paintFrame,
+                        effectiveClip: effectiveClip,
+                        cacheKey: cacheKey,
+                        primitiveOpacity: primitiveOpacity,
+                        layerIndex: layerIndex,
+                        isInsideDrawingGroup: isInsideDrawingGroup,
+                        skipCacheUpdates: skipCacheUpdates
+                    ),
+                    into: &scene,
+                    deferredDraws: &deferredDraws,
+                    surfaceSize: surfaceSize,
+                    displayScale: displayScale,
+                    textSystem: textSystem,
+                    usedNativeGlyphs: &usedNativeGlyphs,
+                    usedPixelGlyphs: &usedPixelGlyphs
+                )
+            {
+                if !skipCacheUpdates {
+                    node.cachedSceneKey = cacheKey
+                    node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
+                }
+                node.markSubtreeRendered()
+                continue
             }
 
             if hasPaintableExtent,
@@ -1001,8 +1057,9 @@ public enum ScenePainter {
             let isCompositingGroup = node.drawingGroup != nil || node.isCompositingGroup
             if isCompositingGroup, !isInsideDrawingGroup, hasPaintableExtent,
                 !sortedChildren.isEmpty,
-                let buffer = compositingGroupBuffer(
-                    paintFrame: paintFrame, clip: effectiveClipRect, displayScale: displayScale)
+                let buffer = offscreenPassBuffer(
+                    label: "compositingGroup", paintFrame: paintFrame, clip: effectiveClipRect,
+                    displayScale: displayScale, isCacheable: true)
             {
                 // Compositing group: render children into an offscreen buffer so
                 // overlapping content is blended together before ancestor opacity
@@ -1031,7 +1088,7 @@ public enum ScenePainter {
                 // because the key covers everything about the group itself and
                 // `subtreeDirtyFlags` covers everything about its descendants.
                 let bitmap: BitmapSurface
-                if !skipCacheUpdates, !node.hasDirtySubtree,
+                if buffer.pass.isCacheable, !skipCacheUpdates, !node.hasDirtySubtree,
                     node.cachedCompositingGroupKey == cacheKey,
                     let cached = node.cachedCompositingGroupBitmap,
                     cached.width == subSize.width, cached.height == subSize.height,
@@ -1042,7 +1099,7 @@ public enum ScenePainter {
                     bitmap = cached
                     scene.paintMetrics.compositingGroupsReused += 1
                 } else {
-                    var subScene = GPUIScene(clearColor: .clear)
+                    var subScene = GPUIScene(clearColor: buffer.clearColor)
                     var subDeferred: [DeferredDrawState] = []
                     var subNative = false
                     var subPixel = false
@@ -1098,7 +1155,7 @@ public enum ScenePainter {
 
                     bitmap = GPUIRawSceneRasterizer.rasterize(subScene, size: subSize)
                     scene.paintMetrics.compositingGroupsRasterized += 1
-                    if !skipCacheUpdates {
+                    if buffer.pass.isCacheable, !skipCacheUpdates {
                         node.cachedCompositingGroupKey = cacheKey
                         node.cachedCompositingGroupBitmap = bitmap
                         // Only text ties the bitmap to the atlas; a group without
@@ -1172,7 +1229,8 @@ public enum ScenePainter {
                                 // `previousScene` reads someone else's primitives, or
                                 // walks past the end of the record log.
                                 isInsideDrawingGroup: isInsideDrawingGroup,
-                                skipCacheUpdates: skipCacheUpdates
+                                skipCacheUpdates: skipCacheUpdates,
+                                suppressesContentBlurIsolation: false
                             )
                         )
                     )
@@ -1291,33 +1349,29 @@ public enum ScenePainter {
         node.markSubtreeRendered()
     }
 
-    /// SwiftUI's `.blur(radius:)` as **one** pass over the subtree's painted
-    /// bounds, emitted after everything below this node has drawn.
+    /// The **fallback** lowering of `.blur(radius:)`: a backdrop-blur quad
+    /// over the node's painted frame, taken only when the isolation pass
+    /// (`appendIsolatedContentBlur`) could not size its buffer — a
+    /// non-finite frame, or one whose outset area is past the offscreen
+    /// budget.
     ///
-    /// This is the render-pass lowering of a content blur. The primitive is
-    /// the existing backdrop-blur quad — both backends already know how to
-    /// snapshot what is painted so far under a rect, blur it, and composite
-    /// through the quad's coverage — with a fully transparent tint, so the
-    /// composite writes the blurred result alone.
+    /// The primitive is the existing backdrop-blur quad — both backends
+    /// already know how to snapshot what is painted so far under a rect,
+    /// blur it, and composite through the quad's coverage — with a fully
+    /// transparent tint, so the composite writes the blurred result alone.
     ///
-    /// What it replaces: `.blur()` used to be pushed down as an inherited
-    /// radius and applied to every descendant's *background quad*. That was
-    /// wrong twice over. Cost: one backbuffer copy plus two blur passes per
-    /// descendant, and every one of them broke the quad batch, so a blurred
-    /// 200-row list issued 200 copies and 400 blur draws per frame. Fidelity:
-    /// only background quads carry the field, so the text, images, borders
-    /// and paths inside a `.blur()`ed subtree stayed perfectly sharp — the
-    /// one thing a user asking for a blur is certain to notice.
-    ///
-    /// Two deliberate approximations, both documented in
+    /// Two divergences from the isolation pass, both documented in
     /// `docs/GPURenderingPipeline.md`:
     ///
-    /// - The pass blurs everything already painted within the bounds, not
-    ///   the subtree in isolation composited over an unblurred background.
-    ///   Identical whenever the backdrop is flat, which is the common case.
-    /// - The bounds are the node's painted frame outset by the radius, so
-    ///   the blur fades out instead of ending at a hard rectangular edge.
-    ///   Content that overflows further than the radius is not included.
+    /// - It blurs everything already painted within the bounds, not the
+    ///   subtree alone. Identical whenever the backdrop is flat.
+    /// - The bounds are the painted frame with **no outset**, so the blur
+    ///   ends at a hard rectangular edge instead of fading out. That is
+    ///   deliberate: the outset this used to apply is what made a `.blur()`
+    ///   smear its siblings. `VStack { a; b.blur(10); c }` composited the
+    ///   blurred backdrop over a band of `a` and `c` too, so blurring one
+    ///   view changed the pixels of two others — a hard edge is wrong in a
+    ///   way the user can see is theirs, a smeared neighbour is not.
     private static func appendContentBlurPass(
         _ state: PaintNodeFinishState,
         into scene: inout GPUIScene,
@@ -1328,7 +1382,7 @@ public enum ScenePainter {
         let radius = node.contentBlurRadius
         guard radius > 0, state.paintFrame.size.width > 0, state.paintFrame.size.height > 0 else { return }
 
-        let bounds = state.paintFrame.inset(by: -radius)
+        let bounds = state.paintFrame
         guard clipAllowsDrawing(clip: state.effectiveClip, rect: bounds) else { return }
 
         scene.addQuad(
@@ -1355,35 +1409,395 @@ public enum ScenePainter {
             toLayer: state.layerIndex)
     }
 
-    // MARK: - Compositing groups
+    // MARK: - Content blur as an isolated pass
 
-    /// The offscreen buffer a compositing group will rasterize into.
-    private struct CompositingGroupBuffer {
-        /// The group's frame clamped to the effective clip, in logical points.
+    /// Everything the isolation pass needs from the traversal. It travels as
+    /// one value so the branch in `paintNode` — a function that recurses —
+    /// costs one argument rather than a dozen more live locals.
+    private struct ContentBlurIsolation {
+        let node: ViewNode
+        let parentOrigin: Point
+        let inheritedTransform: Transform2D
+        let inheritedColorEffects: [RetainedColorEffect]
+        let inheritedBlendMode: BlendMode
+        let paintFrame: Rect
+        let effectiveClip: RuntimeClipShape?
+        let cacheKey: ViewPaintCacheKey
+        /// Ancestors' opacity only. The node's own opacity is applied inside
+        /// the bitmap, because the sub-paint enters the node itself.
+        let primitiveOpacity: Float
+        let layerIndex: Int
+        let isInsideDrawingGroup: Bool
+        let skipCacheUpdates: Bool
+    }
+
+    /// SwiftUI's `.blur(radius:)`: render the subtree in isolation, blur
+    /// *that*, and composite the result.
+    ///
+    /// What it replaces, in two steps. First `.blur()` was an inherited
+    /// radius applied to every descendant *background quad* — one backbuffer
+    /// copy and two blur passes per descendant, and text, images, borders
+    /// and paths stayed perfectly sharp because they carry no such field.
+    /// Then it became a single backdrop-blur quad over the subtree's bounds
+    /// **outset by the radius**, which fixed both of those and introduced a
+    /// third: a backdrop pass blurs whatever is already painted under it, so
+    /// `VStack { a; b.blur(10); c }` blurred a 10-point band of `a` and `c`
+    /// into `b`'s panel. Blurring one view is not allowed to change the
+    /// pixels of another.
+    ///
+    /// Isolation is the fix, and it is the same offscreen machinery a
+    /// compositing group uses: an `.offscreen` target cleared to transparent,
+    /// the subtree painted into it shifted to the buffer's origin, the result
+    /// blurred by `PremultipliedImageBlur` — the CPU spelling of the blur
+    /// both backends run — and placed as an `ImagePrimitive`. The buffer is
+    /// the frame outset by the radius, so the blur still fades out past the
+    /// frame; that margin is transparent in the bitmap, so it fades to
+    /// nothing rather than to a neighbour.
+    ///
+    /// Returns false when the buffer cannot be sized (non-finite frame, or
+    /// past the offscreen area budget); the caller then paints inline and
+    /// `appendContentBlurPass` degrades to the backdrop quad.
+    ///
+    /// Cost: a blurred subtree is one CPU rasterization plus one Gaussian
+    /// when it changes and nothing at all when it does not — the bitmap is
+    /// keyed on the node's paint key, and the key includes the radius.
+    private static func appendIsolatedContentBlur(
+        _ isolation: ContentBlurIsolation,
+        into scene: inout GPUIScene,
+        deferredDraws: inout [DeferredDrawState],
+        surfaceSize: Size,
+        displayScale: Double,
+        textSystem: WindowTextSystem,
+        usedNativeGlyphs: inout Bool,
+        usedPixelGlyphs: inout Bool
+    ) -> Bool {
+        let node = isolation.node
+        // The radius the blur actually runs at, capped exactly where the
+        // backdrop path caps it. The buffer is outset by the *capped* radius:
+        // outsetting by an uncapped one would size a buffer for a blur that
+        // cannot happen, and push it past the area budget on the way.
+        //
+        // `contentBlurOpaque` — SwiftUI's `.blur(radius:opaque:)` hint — is
+        // not modelled here. It says the blurred result may be treated as
+        // opaque, and an isolated pass has a transparent margin by
+        // construction: that margin is what lets the blur fade out instead of
+        // smearing a neighbour. It survives as node metadata and still
+        // reaches the backdrop-quad fallback.
+        let deviceRadius = min(
+            GPUISceneValue.int((node.contentBlurRadius * displayScale).rounded()),
+            Int(GPUISceneLimits.maxBlurRadius))
+        guard deviceRadius > 0 else { return false }
+
+        guard
+            let buffer = offscreenPassBuffer(
+                label: "contentBlur",
+                paintFrame: isolation.paintFrame.inset(by: -Double(deviceRadius) / displayScale),
+                clip: isolation.effectiveClip?.rect,
+                displayScale: displayScale,
+                // A pass whose caches are suppressed (inside a compositing
+                // group) cannot key its result on anything the next frame
+                // will still recognise, so it must not try.
+                isCacheable: !isolation.skipCacheUpdates)
+        else {
+            return false
+        }
+
+        // Claimed before the cache is consulted, and on both paths: with a
+        // reused bitmap the deferred descendants are *already inside it*, and
+        // leaving them unclaimed lets the deferred phase put a second, sharp
+        // copy of every pinned header on top from the second frame onwards.
+        let deferredDescendants = claimDeferredDescendants(of: isolation, in: &deferredDraws)
+
+        let subSize = buffer.size
+        let bitmap: BitmapSurface
+        if buffer.pass.isCacheable, !node.hasDirtySubtree,
+            node.cachedCompositingGroupKey == isolation.cacheKey,
+            let cached = node.cachedCompositingGroupBitmap,
+            cached.width == subSize.width, cached.height == subSize.height,
+            node.cachedCompositingGroupAtlasGeneration.map({
+                $0 == NativeGlyphAtlas.shared.atlasGeneration
+            }) ?? true
+        {
+            bitmap = cached
+            scene.paintMetrics.contentBlurPassesReused += 1
+        } else {
+            var subNative = false
+            var subPixel = false
+            let rasterized = rasterizeIsolatedSubtree(
+                isolation,
+                buffer: buffer,
+                deferredDescendants: deferredDescendants,
+                surfaceSize: surfaceSize,
+                displayScale: displayScale,
+                textSystem: textSystem,
+                usedNativeGlyphs: &subNative,
+                usedPixelGlyphs: &subPixel)
+            // Glyph usage inside the pass is glyph usage for the frame: the
+            // atlas-recovery retry and the outer snapshot both key off it. A
+            // reused bitmap has its glyphs baked in and needs neither.
+            usedNativeGlyphs = usedNativeGlyphs || subNative
+            usedPixelGlyphs = usedPixelGlyphs || subPixel
+
+            bitmap = PremultipliedImageBlur.blurred(rasterized, radius: deviceRadius)
+            if buffer.pass.isCacheable {
+                node.cachedCompositingGroupKey = isolation.cacheKey
+                node.cachedCompositingGroupBitmap = bitmap
+                // Only text ties the bitmap to the atlas; a pass without
+                // glyphs stays valid across every recycle.
+                node.cachedCompositingGroupAtlasGeneration =
+                    subNative ? NativeGlyphAtlas.shared.atlasGeneration : nil
+            }
+        }
+        scene.paintMetrics.contentBlurPasses += 1
+
+        let textureID = scene.registerImageResource(bitmap)
+        let scaledFrame = scaleRect(buffer.frame, by: displayScale)
+        let clipR = clipRectFloats(isolation.effectiveClip, surfaceSize: surfaceSize, displayScale: displayScale)
+        scene.addImage(
+            ImagePrimitive(
+                screenX: Float(scaledFrame.origin.x),
+                screenY: Float(scaledFrame.origin.y),
+                screenW: Float(scaledFrame.size.width),
+                screenH: Float(scaledFrame.size.height),
+                opacity: isolation.primitiveOpacity,
+                clipX: clipR.0,
+                clipY: clipR.1,
+                clipWidth: clipR.2,
+                clipHeight: clipR.3,
+                clipCornerRadius: Float(
+                    isolation.effectiveClip.resolvedCornerRadius(forQuadRect: buffer.frame) * displayScale),
+                textureID: textureID
+            ), toLayer: isolation.layerIndex)
+        return true
+    }
+
+    /// Paints the blurred subtree into its own scene and rasterizes it.
+    ///
+    /// Out of line, and returning the bitmap rather than taking the sub-scene
+    /// as an `inout`, so none of it is live in the caller's frame while the
+    /// rasterizer runs.
+    private static func rasterizeIsolatedSubtree(
+        _ isolation: ContentBlurIsolation,
+        buffer: OffscreenPassBuffer,
+        deferredDescendants: [DeferredSubtreePayload],
+        surfaceSize: Size,
+        displayScale: Double,
+        textSystem: WindowTextSystem,
+        usedNativeGlyphs: inout Bool,
+        usedPixelGlyphs: inout Bool
+    ) -> BitmapSurface {
+        var subScene = GPUIScene(clearColor: buffer.clearColor)
+        var subDeferred: [DeferredDrawState] = []
+        var subReplay = 0
+        // The children map layout space through the node's inherited
+        // transform into screen space and are only then shifted into the
+        // buffer's origin, so the shift composes last — the same order a
+        // compositing group uses, and the reason a blurred subtree under a
+        // transformed ancestor lands in the right place inside its bitmap.
+        let bufferShift = Transform2D.translation(
+            x: -buffer.frame.origin.x, y: -buffer.frame.origin.y)
+        let subTransform = isolation.inheritedTransform.concatenating(bufferShift)
+
+        paintNode(
+            isolation.node,
+            into: &subScene,
+            deferredDraws: &subDeferred,
+            parentOrigin: isolation.parentOrigin,
+            inheritedClip: nil,
+            layerIndex: 0,
+            surfaceSize: surfaceSize,
+            displayScale: displayScale,
+            textSystem: textSystem,
+            previousScene: nil,
+            // The node's own opacity is applied by the node; ancestors'
+            // opacity is applied to the composited image instead, so it is
+            // not baked into a bitmap that outlives this frame.
+            primitiveOpacity: 1,
+            inheritedColorEffects: isolation.inheritedColorEffects,
+            inheritedBlendMode: isolation.inheritedBlendMode,
+            usedNativeGlyphs: &usedNativeGlyphs,
+            usedPixelGlyphs: &usedPixelGlyphs,
+            replayCount: &subReplay,
+            inheritedTransform: subTransform,
+            isInsideDrawingGroup: isolation.isInsideDrawingGroup,
+            skipCacheUpdates: true,
+            suppressesContentBlurIsolation: true
+        )
+
+        appendDeferredDescendants(
+            deferredDescendants,
+            of: isolation,
+            into: &subScene,
+            subDeferredDraws: &subDeferred,
+            bufferShift: bufferShift,
+            surfaceSize: surfaceSize,
+            displayScale: displayScale,
+            textSystem: textSystem,
+            usedNativeGlyphs: &usedNativeGlyphs,
+            usedPixelGlyphs: &usedPixelGlyphs,
+            replayCount: &subReplay)
+
+        subScene.finish()
+        // The sub-scene is CPU-rasterized here, and `RasterTarget.drawGlyph`
+        // returns immediately when its atlas is nil. The peek deliberately
+        // does not consume the atlas dirty region: the frame has a single
+        // consumer at the end of `paint`.
+        if usedNativeGlyphs {
+            subScene.glyphAtlas = NativeGlyphAtlas.shared.currentSnapshot()
+        }
+        if usedPixelGlyphs {
+            subScene.pixelGlyphAtlas = pixelGlyphAtlasSnapshot()
+        }
+        return GPUIRawSceneRasterizer.rasterize(subScene, size: buffer.size)
+    }
+
+    /// Takes the deferred subtrees that belong to the blurred subtree away
+    /// from the deferred phase, in the order that phase would have drawn
+    /// them.
+    ///
+    /// A pinned header is a deferred subtree of its scroll view: it is
+    /// collected during prepaint and drained after every node has painted, so
+    /// a `.blur()` on a `LazyVStack(pinnedViews:)` rendered blurred rows with
+    /// perfectly sharp headers sitting on top of them. There is no ordering
+    /// of one pass that fixes that — the pinned header has to be *inside* the
+    /// thing being blurred.
+    ///
+    /// Claiming is separate from drawing because the isolation pass may skip
+    /// the drawing entirely: a reused bitmap already contains these subtrees,
+    /// and the deferred phase must skip them on that frame too.
+    private static func claimDeferredDescendants(
+        of isolation: ContentBlurIsolation,
+        in deferredDraws: inout [DeferredDrawState]
+    ) -> [DeferredSubtreePayload] {
+        guard !deferredDraws.isEmpty else { return [] }
+        var claimed: [DeferredSubtreePayload] = []
+        // Same order the deferred phase drains in: priority, then the order
+        // prepaint recorded them.
+        for index in deferredDraws.indices.sorted(by: { lhs, rhs in
+            let left = deferredDraws[lhs]
+            let right = deferredDraws[rhs]
+            if left.priority != right.priority { return left.priority < right.priority }
+            return lhs < rhs
+        }) {
+            guard !deferredDraws[index].isDrawnInline,
+                case .subtree(let payload) = deferredDraws[index].payload,
+                let deferredNode = payload.node,
+                // Strictly *below* the blurred node: an entry for the node
+                // itself is the one being drained right now, and painting it
+                // here would recurse without end.
+                deferredNode !== isolation.node,
+                isNode(deferredNode, insideSubtreeOf: isolation.node)
+            else { continue }
+
+            deferredDraws[index].isDrawnInline = true
+            // The entry no longer draws into the outer scene, so any
+            // paint-record range it carries describes a scene it is not in.
+            deferredDraws[index].cachedScenePaintRange = nil
+            claimed.append(payload)
+        }
+        return claimed
+    }
+
+    /// Draws the claimed deferred subtrees into the isolation pass's scene.
+    private static func appendDeferredDescendants(
+        _ payloads: [DeferredSubtreePayload],
+        of isolation: ContentBlurIsolation,
+        into subScene: inout GPUIScene,
+        subDeferredDraws: inout [DeferredDrawState],
+        bufferShift: Transform2D,
+        surfaceSize: Size,
+        displayScale: Double,
+        textSystem: WindowTextSystem,
+        usedNativeGlyphs: inout Bool,
+        usedPixelGlyphs: inout Bool,
+        replayCount: inout Int
+    ) {
+        for payload in payloads {
+            guard let deferredNode = payload.node else { continue }
+            paintNode(
+                deferredNode,
+                into: &subScene,
+                deferredDraws: &subDeferredDraws,
+                parentOrigin: payload.parentOrigin,
+                inheritedClip: nil,
+                layerIndex: 0,
+                surfaceSize: surfaceSize,
+                displayScale: displayScale,
+                textSystem: textSystem,
+                previousScene: nil,
+                // `inheritedOpacity` is accumulated from the root and so
+                // already contains the ancestors' opacity that the composited
+                // image applies again; divide it back out rather than
+                // multiplying it in twice.
+                primitiveOpacity: isolation.primitiveOpacity > 0
+                    ? payload.inheritedOpacity / isolation.primitiveOpacity
+                    : payload.inheritedOpacity,
+                inheritedColorEffects: payload.inheritedColorEffects,
+                inheritedBlendMode: payload.inheritedBlendMode,
+                usedNativeGlyphs: &usedNativeGlyphs,
+                usedPixelGlyphs: &usedPixelGlyphs,
+                replayCount: &replayCount,
+                // The deferred payload's transform is the outer screen space
+                // its parent handed it; the buffer shift composes last, as it
+                // does for the subtree painted above.
+                inheritedTransform: payload.inheritedTransform.concatenating(bufferShift),
+                skipCacheUpdates: true
+            )
+        }
+    }
+
+    /// True when `candidate` is `root` or lives under it. Walks parents, so
+    /// it costs the subtree's depth and nothing per frame otherwise.
+    private static func isNode(_ candidate: ViewNode, insideSubtreeOf root: ViewNode) -> Bool {
+        var current: ViewNode? = candidate
+        while let node = current {
+            if node === root { return true }
+            current = node.parent
+        }
+        return false
+    }
+
+    // MARK: - Offscreen subtree passes
+
+    /// The offscreen buffer a subtree pass rasterizes into.
+    ///
+    /// Two passes use it: a compositing group (`.drawingGroup()`,
+    /// `.compositingGroup()`) and the isolation pass a `.blur(radius:)`
+    /// subtree runs. They differ only in the descriptor they ask for, which
+    /// is the point of describing them in one vocabulary.
+    private struct OffscreenPassBuffer {
+        /// The pass's frame clamped to the effective clip, in logical points.
         /// The sub-scene is shifted by this origin and the composited image is
         /// placed here, so the two always agree.
         let frame: Rect
-        /// The offscreen pass this group runs, in the render-pass vocabulary
-        /// the batch renderer and the blur engine also speak: an `.offscreen`
-        /// target cleared to transparent, whose viewport is the whole target.
-        /// The size lives here rather than in a bare `IntSize` so a group and
-        /// a blur pass describe their scratch surface the same way.
+        /// The offscreen pass, in the render-pass vocabulary the batch
+        /// renderer and the blur engine also speak: an `.offscreen` target
+        /// with a clear colour, whose viewport is the whole target. Every
+        /// field on it is read — `target.width/height` size the bitmap,
+        /// `target.clearColor` is what the sub-scene clears to, and
+        /// `isCacheable` decides whether last frame's bitmap may stand in.
         let pass: RenderPassDescriptor
 
         /// Buffer extent in device pixels.
         var size: IntSize {
             IntSize(width: Int32(pass.target.width), height: Int32(pass.target.height))
         }
+
+        /// What the sub-scene clears to. A transparent clear is what makes
+        /// the pass an *isolation*: nothing painted before it is in the
+        /// bitmap, which is exactly why a Material inside one blurs nothing
+        /// (see `docs/GPURenderingPipeline.md`).
+        var clearColor: Color { pass.target.clearColor ?? .clear }
     }
 
-    /// Largest offscreen compositing buffer, in device pixels. A 4K window is
+    /// Largest offscreen buffer, in device pixels. A 4K window is
     /// ~8.3 M pixels, so this leaves generous headroom while keeping a single
-    /// group's allocation under 64 MB — past it inline painting is both cheaper
+    /// pass's allocation under 64 MB — past it inline painting is both cheaper
     /// and more correct than a buffer the machine cannot afford every frame.
     private static let maxCompositingGroupPixels = 16_777_216
 
-    /// Sizes the offscreen buffer for a compositing group, or returns nil when
-    /// the group must be painted inline instead.
+    /// Sizes the offscreen buffer for a subtree pass, or returns nil when the
+    /// subtree must be painted inline instead.
     ///
     /// Three things used to be missing here and each was reachable from app
     /// code: the frame was not clamped to the clip (so `.drawingGroup()` on tall
@@ -1391,11 +1805,13 @@ public enum ScenePainter {
     /// `Double → Int → Int32` conversions trapped on a non-finite or huge frame
     /// (`maxWidth: .infinity` resolving badly is a process kill, not a glitch),
     /// and there was no upper bound at all.
-    private static func compositingGroupBuffer(
+    private static func offscreenPassBuffer(
+        label: String,
         paintFrame: Rect,
         clip: Rect?,
-        displayScale: Double
-    ) -> CompositingGroupBuffer? {
+        displayScale: Double,
+        isCacheable: Bool
+    ) -> OffscreenPassBuffer? {
         guard paintFrame.origin.x.isFinite, paintFrame.origin.y.isFinite,
             paintFrame.size.width.isFinite, paintFrame.size.height.isFinite,
             displayScale.isFinite, displayScale > 0
@@ -1426,16 +1842,17 @@ public enum ScenePainter {
 
         let target = RenderTargetDescriptor(
             kind: .offscreen, width: width, height: height, clearColor: .clear)
-        return CompositingGroupBuffer(
+        return OffscreenPassBuffer(
             frame: frame,
             pass: RenderPassDescriptor(
-                label: "compositingGroup",
+                label: label,
                 target: target,
                 viewport: SubTextureRegion(textureWidth: width, textureHeight: height),
                 inheritedOpacity: 1,
-                // The bitmap is keyed on the group's paint cache key and
-                // reused across frames while nothing beneath it changed.
-                isCacheable: true
+                // The bitmap is keyed on the subtree's paint cache key and
+                // reused across frames while nothing beneath it changed —
+                // except where the caller says the result cannot be reused.
+                isCacheable: isCacheable
             )
         )
     }
@@ -1946,6 +2363,11 @@ public enum ScenePainter {
             }
             return lhs < rhs
         }) {
+            // An isolation pass may have drawn this entry into its own
+            // bitmap already (a pinned header inside a `.blur()`ed subtree).
+            // Drawing it again here would put a sharp copy on top of the
+            // blurred one.
+            guard !deferredDraws[deferredDrawIndex].isDrawnInline else { continue }
             let startPaintRecord = scene.paintRecordCount
             if let previousScene, let cachedScenePaintRange = deferredDraws[deferredDrawIndex].cachedScenePaintRange {
                 switch scene.replay(cachedScenePaintRange, from: previousScene) {

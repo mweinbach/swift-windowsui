@@ -1,9 +1,10 @@
 import Foundation
 import SwiftWindowsCore
-import SwiftWindowsGraphics
 import XCTest
 
+@testable import SwiftWindowsGraphics
 @testable import SwiftWindowsRendererD3D11
+@testable import SwiftWindowsUI
 
 /// WS-20: the render-pass vocabulary — `RenderTargetDescriptor`,
 /// `RenderPassDescriptor`, `SubTextureRegion` and `BlurPassPlan` — plus the
@@ -106,6 +107,73 @@ final class RenderPassAbstractionTests: XCTestCase {
         XCTAssertEqual(halved.textureWidth, 128, "the scratch texture does not shrink with the image")
         XCTAssertEqual(halved.textureHeight, 128)
         XCTAssertEqual(region.reduced(byFactor: 1), region)
+    }
+
+    // MARK: - The halving rule both backends run
+
+    /// The rule that makes a 2× halving an exact 2×2 box average on both
+    /// backends, and the one place it is written down.
+    ///
+    /// The GPU halving pass is the blur shader at radius 0, and the shader
+    /// maps a `[0,1]` viewport coordinate through `uv = input.uv *
+    /// blurUVScale.xy`. Output texel `i` therefore taps the source at
+    /// `(i + 0.5) · span / outputExtent` texels, and that is the boundary
+    /// between texels `2i` and `2i+1` — where bilinear filtering returns
+    /// their exact average — only if `span == 2 · outputExtent`.
+    ///
+    /// The engine used to hand the shader the **whole region** as the span.
+    /// At an even extent that is the same number; at an odd one the taps
+    /// drift by `(i + 0.5) / outputExtent` texels, reaching a full texel of
+    /// offset at the far edge and pulling in the trailing column the CPU's
+    /// block average drops — while both implementations documented each
+    /// other as exact transcriptions.
+    func testHalvingReadsASpanExactlyTwiceTheOutputExtent() async {
+        for extent in 1...33 {
+            let region = SubTextureRegion(
+                originX: 0, originY: 0, width: extent, height: extent,
+                textureWidth: 64, textureHeight: 64)
+            let output = region.halved.width
+            let span = region.halvingSource.width
+            XCTAssertLessThanOrEqual(span, extent, "the halving may only read texels the region holds")
+
+            for i in 0..<output {
+                let tap = (Float(i) + 0.5) * Float(span) / Float(output)
+                let expected = extent == 1 ? Float(0.5) : Float(2 * i + 1)
+                XCTAssertEqual(
+                    tap, expected, accuracy: 1e-4,
+                    "extent \(extent), output texel \(i): the halving tap must land on the boundary "
+                        + "between texels \(2 * i) and \(2 * i + 1), not at \(tap)")
+            }
+        }
+    }
+
+    /// The model above is only worth anything while the shader still maps
+    /// viewport to UV that way.
+    func testBlurShaderStillScalesTheViewportCoordinateByTheRegionUVScale() async {
+        XCTAssertTrue(
+            batchBackdropBlurShaderSource.contains("float2 uv = input.uv * blurUVScale.xy;"),
+            "the halving pass's exactness is a property of this mapping; if it changes, "
+                + "`SubTextureRegion.halvingSource` has to change with it")
+    }
+
+    /// And the CPU runs the same rule: the odd trailing column is dropped,
+    /// not folded in, because the GPU's taps never reach it.
+    func testCPUHalvingAveragesTheEvenSpanAndDropsTheOddColumn() async {
+        // One row, five columns: 0, 64, 128, 192, 255 in every channel.
+        let levels: [UInt8] = [0, 64, 128, 192, 255]
+        var image = [UInt8]()
+        for level in levels { image.append(contentsOf: [level, level, level, 255]) }
+
+        let halved = PremultipliedImageBlur.halved(image, width: 5, height: 1)
+        XCTAssertEqual(halved.width, 2)
+        XCTAssertEqual(halved.height, 1)
+        XCTAssertEqual(
+            halved.pixels[0], 32,
+            "output texel 0 is the average of source texels 0 and 1")
+        XCTAssertEqual(
+            halved.pixels[4], 160,
+            "output texel 1 is the average of source texels 2 and 3; texel 4 is dropped, because the "
+                + "GPU's UV mapping does not reach it either")
     }
 
     // MARK: - Render targets and passes
@@ -311,6 +379,113 @@ final class RenderPassAbstractionTests: XCTestCase {
         )
     }
 
+    /// The same parity bar over an **odd** region, which is where the two
+    /// halvings had nothing keeping them together: 5 device pixels wide, so
+    /// the first reduction has a trailing column to decide about and the
+    /// second runs on the result. Vertical stripes underneath, so which
+    /// column each backend averages is visible in the output rather than
+    /// hidden by a uniform backdrop.
+    func testOddWidthDownsampleAgreesAcrossBackends() async throws {
+        let size = IntSize(width: 96, height: 96)
+        let scene = Self.stripedNarrowBlurScene(radius: 220, size: size)
+        let gpu = try WARPBatchRenderer.render(scene, size: size)
+        let cpu = GPUIRawSceneRasterizer.rasterize(scene, size: size)
+
+        let report = comparePixels(gpu, cpu, tolerance: 4)
+        XCTAssertGreaterThan(
+            report.matchRatio, 0.995,
+            "an odd-extent downsample must agree across backends within the suite's parity floor; "
+                + "max channel delta \(report.maxChannelDelta), first failure \(String(describing: report.firstFailure))"
+        )
+    }
+
+    // MARK: - Residual: a Material inside an offscreen pass has no backdrop
+
+    /// An offscreen subtree pass clears to transparent, and a Material is a
+    /// *backdrop* effect: it samples what is already painted under it. Inside
+    /// a `.drawingGroup()` that is nothing at all, so the material composites
+    /// its tint over emptiness and the group's bitmap then lands over the
+    /// wallpaper unblurred — the stripes under the panel stay razor sharp
+    /// where they should have been smeared.
+    ///
+    /// The render-pass vocabulary did not change this and was wrongly
+    /// documented as having done so. Fixing it means seeding the sub-scene
+    /// with the already-painted backdrop under the group's frame (a read of
+    /// the outer surface the painter has no access to at that point, because
+    /// the outer scene is a *scene*, not pixels) or teaching the backend to
+    /// run the group as a real GPU pass. Both are larger than a
+    /// documentation fix, so this test states what happens today and skips
+    /// the assertion that will hold when it is closed.
+    func testMaterialInsideADrawingGroupBlursNothing() async throws {
+        let size = IntSize(width: 100, height: 100)
+
+        func scene(grouped: Bool) -> GPUIScene {
+            var children: [ViewNode] = []
+            for stripe in 0..<25 {
+                children.append(
+                    ViewNode(
+                        frame: Rect(x: 0, y: Double(stripe) * 4, width: 100, height: 2),
+                        backgroundColor: Color(red: 1, green: 1, blue: 1, alpha: 1)))
+            }
+            let panel = ViewNode(
+                frame: Rect(x: 20, y: 20, width: 60, height: 60),
+                backgroundColor: Color(red: 1, green: 1, blue: 1, alpha: 0.35),
+                blurRadius: 12)
+            children.append(
+                ViewNode(
+                    frame: Rect(x: 0, y: 0, width: 100, height: 100),
+                    isCompositingGroup: grouped,
+                    children: [panel]))
+            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 100, height: 100), children: children)
+            return ScenePainter.paint(
+                root: root, clearColor: .black, surfaceSize: Size(width: 100, height: 100))
+        }
+
+        let inline = GPUIRawSceneRasterizer.rasterize(scene(grouped: false), size: size)
+        let grouped = GPUIRawSceneRasterizer.rasterize(scene(grouped: true), size: size)
+
+        // Inside the panel, away from its edges.
+        let inlineContrast = Self.maxNeighbourDelta(inline, rows: 40..<60, columns: 40..<60)
+        let groupedContrast = Self.maxNeighbourDelta(grouped, rows: 40..<60, columns: 40..<60)
+        XCTAssertLessThan(
+            inlineContrast, 20,
+            "painted inline, the material blurs the stripes under it into a smooth field")
+        XCTAssertGreaterThan(
+            groupedContrast, 100,
+            "inside a compositing group the same material has no backdrop to blur, so the stripes "
+                + "under it stay sharp — the divergence this test records")
+
+        throw XCTSkip(
+            "Residual (documented in docs/GPURenderingPipeline.md, 'a Material inside an offscreen pass "
+                + "has no backdrop'): a compositing-group sub-scene clears to transparent, so a Material "
+                + "inside `.drawingGroup()` composites its tint over nothing and blurs nothing. Closing it "
+                + "needs the sub-scene seeded with the already-painted backdrop, or the group run as a "
+                + "real GPU pass.")
+    }
+
+    /// Largest channel step between neighbouring pixels in a window of the
+    /// surface — high for a stripe pattern, low once a Gaussian has run.
+    private static func maxNeighbourDelta(
+        _ surface: BitmapSurface, rows: Range<Int>, columns: Range<Int>
+    ) -> Int {
+        var worst = 0
+        let stride = Int(surface.bytesPerRow)
+        for y in rows where y >= 1 && y < Int(surface.height) {
+            for x in columns where x >= 1 && x < Int(surface.width) {
+                let offset = y * stride + x * 4
+                guard offset + 3 < surface.pixels.count else { continue }
+                for neighbour in [offset - 4, offset - stride] where neighbour >= 0 {
+                    for channel in 0..<3 {
+                        worst = max(
+                            worst,
+                            abs(Int(surface.pixels[offset + channel]) - Int(surface.pixels[neighbour + channel])))
+                    }
+                }
+            }
+        }
+        return worst
+    }
+
     // MARK: - Residual: rotated clipping
 
     /// WS-19 lowered rotation for quad *geometry*; a rotated `.clipped()`
@@ -349,6 +524,29 @@ final class RenderPassAbstractionTests: XCTestCase {
     /// the large-radius parity scene uses, for the same reason: a wide
     /// kernel averages a gradient into uniform grey, which any two
     /// implementations agree on for the wrong reason.
+    /// Vertical stripes with a 5-pixel-wide material strip over them: an odd
+    /// blur region whose source columns are all different, so a halving that
+    /// samples the wrong ones shows up in the composite.
+    private static func stripedNarrowBlurScene(radius: Float, size: IntSize) -> GPUIScene {
+        var scene = GPUIScene(clearColor: Color(red: 0.08, green: 0.10, blue: 0.14, alpha: 1))
+        for column in 0..<Int(size.width) {
+            let level = Float(column % 5) / 4
+            scene.addQuad(
+                QuadPrimitive(
+                    x: Float(column), y: 0, width: 1, height: Float(size.height),
+                    startR: level, startG: 1 - level, startB: 0.5, startA: 1,
+                    endR: level, endG: 1 - level, endB: 0.5, endA: 1))
+        }
+        scene.addQuad(
+            QuadPrimitive(
+                x: 8, y: 8, width: 5, height: Float(size.height) - 16,
+                startR: 1, startG: 1, startB: 1, startA: 0.35,
+                endR: 1, endG: 1, endB: 1, endA: 0.35,
+                blurRadius: radius))
+        scene.finish()
+        return scene
+    }
+
     private static func bandedBlurScene(radius: Float, size: IntSize) -> GPUIScene {
         var scene = GPUIScene(clearColor: Color(red: 0.08, green: 0.10, blue: 0.14, alpha: 1))
         let half = Float(size.height) / 2

@@ -1243,6 +1243,20 @@ struct DeferredDrawState {
     var payload: DeferredDrawPayload
     var cachedFrameCommandRange: Range<Int>?
     var cachedScenePaintRange: Range<Int>?
+    /// Set when a pass earlier in the frame already drew this entry, so the
+    /// deferred phase must not draw it again.
+    ///
+    /// One thing sets it: the isolation pass a `.blur(radius:)` subtree runs.
+    /// A pinned header is a deferred subtree of the scroll view it is pinned
+    /// in, so a blurred `LazyVStack(pinnedViews:)` used to render its rows
+    /// blurred and its headers perfectly sharp on top of them — the deferred
+    /// phase drains after every node has finished painting, which is after
+    /// the blur. The isolation pass pulls its own descendants in instead, so
+    /// they are inside the bitmap that gets blurred.
+    ///
+    /// Reset at the top of every paint attempt: the array outlives the frame
+    /// (it carries the replay ranges), the decision does not.
+    var isDrawnInline: Bool = false
 
     var rect: Rect {
         payload.rect

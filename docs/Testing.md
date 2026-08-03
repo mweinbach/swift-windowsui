@@ -84,12 +84,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   ratio, and they also fail with "promote me" if they reach the required
   ratio and should be gating like the rest. Re-measure a floor only when a
   deliberate change moves it, and record the new value with the reason; see
-  `docs/GPURenderingPipeline.md` § 7 for the current divergence list — today
-  that list is the two magnified sampler scenes (`magnified gradient glyph
-  cell` at 0.835, `magnified high-contrast image` at 0.753), both owned by
-  WS-18. Fixtures for the sampler families are deliberately hostile: a
-  uniform opaque atlas cell or a gentle image gradient cannot observe a
-  filtering difference at all.
+  `docs/GPURenderingPipeline.md` § 7 for the current divergence list — which
+  is **empty**: every scene gates at the standard ratio since WS-18 gave the
+  CPU rasterizer the shaders' bilinear sampler. Fixtures for the sampler
+  families are deliberately hostile: a uniform opaque atlas cell or a gentle
+  image gradient cannot observe a filtering difference at all, so the suite
+  keeps an 8× magnified alpha ramp and an 8× magnified checkerboard whose
+  only signal *is* the filter.
 - `PixelFormatContractTests` — the `BitmapSurface` format contract: the
   named default (BGRA, straight), the straight ↔ premultiplied conversions
   and their opaque fast path, the validation that rejects a truncated or
@@ -230,8 +231,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   matches the *running* shader is pinned by `CrossBackendPixelParityTests`.
 - `CPURasterizerGPUModelTests` — what the reference renderer models: the
   shadow envelope and falloff, the material composite and its shared blur
-  cap, `luminanceToAlpha` ordering, and the glyph sampler's alpha
-  convention (coverage is `.a`, exactly as the shader reads it).
+  cap, `luminanceToAlpha` ordering, the glyph sampler's alpha convention
+  (coverage is `.a`, exactly as the shader reads it), and texture filtering
+  — a magnified glyph must ramp rather than staircase, a 1:1 glyph must be
+  bit-for-bit what nearest sampling produced, and image filtering must
+  interpolate *premultiplied* texels so a transparent neighbour cannot
+  darken an opaque one.
+- `CacheComplexityAndReclamationTests` — the render path's caches as
+  *caches*: warm lookup cost that does not scale with cache size (a
+  4,096-entry cache under a wall-clock budget, and a 64× size difference
+  that may not become an 8× time difference), eviction returning atlas space
+  to a per-shelf free list instead of marching the frontier into a full
+  `clear()`, free-span coalescing and double-free rejection, the generation
+  bump that must accompany reclaimed-space reuse and *only* that, the
+  rewritten region still reaching the upload protocol, intra-frame recency
+  ordering, and the two caches that were dead or unbounded —
+  `TextRasterCache` (now what `Controls.icon` rasterizes through) and
+  `NativeFontAvailability`'s probe cache.
 - `PathRasterizationQualityTests` — path fill and stroke quality, which is
   not a fallback-only concern: the D3D11 path texture cache calls
   `GPUIRawSceneRasterizer.rasterizePath` and uploads the result, so this is

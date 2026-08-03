@@ -1008,9 +1008,19 @@ public enum Controls {
             // logical rect either way, and scale 1 keeps the deterministic
             // screenshot output byte-identical.
             let rasterScale = max(1, displayScale)
-            if let bitmap = NativeTextRenderer.rasterize(symbol.rawValue, style: rasterStyle, scaleFactor: rasterScale),
+            // Icons are rebuilt with the view tree, so the same glyph goes
+            // through DirectWrite again on every state change; the raster is a
+            // pure function of (text, style, scale), which is exactly what the
+            // key says. A cache miss is the only path that touches DirectWrite.
+            let rasterKey = TextRasterCacheKey(
+                text: symbol.rawValue, style: rasterStyle, size: targetSize, renderScale: rasterScale)
+            if let cached = TextRasterCache.shared.get(for: rasterKey) {
+                node.bitmapSurface = cached
+            } else if let bitmap = NativeTextRenderer.rasterize(
+                symbol.rawValue, style: rasterStyle, scaleFactor: rasterScale),
                 bitmapHasVisiblePixels(bitmap)
             {
+                TextRasterCache.shared.insert(bitmap, for: rasterKey)
                 node.bitmapSurface = bitmap
             }
         }

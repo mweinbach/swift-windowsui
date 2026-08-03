@@ -179,21 +179,43 @@ public final class GlyphAtlas {
         return .region(dirtyRegion, since: dirtyBaseVersion)
     }
 
-    /// Bumped every time `clear()` recycles the shelf allocator.
+    /// Bumped every time the allocator hands out space that was already
+    /// handed out once — `clear()` recycling every shelf, or `allocate`
+    /// satisfying a request from a span `deallocate` returned.
     ///
     /// Atlas rects are only meaningful within the generation that handed them
-    /// out: after a clear, the same rect addresses a *different* glyph. Anyone
-    /// holding a rect across a paint pass (`ScenePainter` holds one per emitted
-    /// `GlyphPrimitive`) must compare this before shipping it, or the scene
-    /// draws — and caches — the wrong characters.
+    /// out: after a recycle, the same rect addresses a *different* glyph.
+    /// Anyone holding a rect across a paint pass (`ScenePainter` holds one per
+    /// emitted `GlyphPrimitive`) must compare this before shipping it, or the
+    /// scene draws — and caches — the wrong characters.
     public private(set) var generation: UInt64 = 0
 
     private var shelves: [Shelf] = []
+    /// `shelves` index by shelf `y`. Every allocation on a shelf sits at that
+    /// shelf's `y`, so a freed rect's `atlasY` identifies its shelf exactly.
+    private var shelfIndexByY: [Int32: Int] = [:]
 
     struct Shelf {
         var y: Int32
         var height: Int32
+        /// Frontier: the width of this shelf that has *ever* been handed out.
+        /// It only grows. Space comes back through `freeSpans`, never by
+        /// rewinding this, so "below the frontier" always means "a rect for
+        /// this space was minted at some point".
         var usedWidth: Int32
+        /// Space returned by `deallocate`, sorted by `x` and coalesced.
+        ///
+        /// Reusing one of these is the only allocation that can alias a rect
+        /// someone else is still holding, which is why it — and only it —
+        /// bumps `generation`. Keeping reclaimed space in its own list rather
+        /// than rewinding `usedWidth` is what makes that distinction
+        /// expressible: virgin frontier space is free to hand out silently.
+        var freeSpans: [FreeSpan] = []
+    }
+
+    struct FreeSpan {
+        var x: Int32
+        var width: Int32
     }
 
     public init(width: Int32 = 2048, height: Int32 = 2048) {
@@ -231,13 +253,93 @@ public final class GlyphAtlas {
             newShelfY = 0
         }
 
-        guard newShelfY + glyphHeight <= self.height else {
-            return nil
+        if newShelfY + glyphHeight <= self.height {
+            let newShelf = Shelf(y: newShelfY, height: glyphHeight, usedWidth: glyphWidth)
+            shelves.append(newShelf)
+            shelfIndexByY[newShelfY] = shelves.count - 1
+            return (x: 0, y: newShelfY)
         }
 
-        let newShelf = Shelf(y: newShelfY, height: glyphHeight, usedWidth: glyphWidth)
-        shelves.append(newShelf)
-        return (x: 0, y: newShelfY)
+        // Virgin space is gone. Before declaring exhaustion — which costs the
+        // caller a full `clear()` and every glyph in the atlas — hand back
+        // space an eviction returned. This is the one allocation that can
+        // alias a live rect, so it bumps `generation`; the painter's retry
+        // and the runtime's cached-scene check are exactly the machinery that
+        // already handles that, and paying it beats re-rasterizing the whole
+        // atlas.
+        return allocateFromFreeSpan(width: glyphWidth, height: glyphHeight)
+    }
+
+    private func allocateFromFreeSpan(width glyphWidth: Int32, height glyphHeight: Int32) -> (x: Int32, y: Int32)? {
+        for i in shelves.indices where glyphHeight <= shelves[i].height {
+            guard let spanIndex = shelves[i].freeSpans.firstIndex(where: { $0.width >= glyphWidth }) else {
+                continue
+            }
+            let span = shelves[i].freeSpans[spanIndex]
+            if span.width == glyphWidth {
+                shelves[i].freeSpans.remove(at: spanIndex)
+            } else {
+                shelves[i].freeSpans[spanIndex] = FreeSpan(x: span.x + glyphWidth, width: span.width - glyphWidth)
+            }
+            generation &+= 1
+            return (x: span.x, y: shelves[i].y)
+        }
+        return nil
+    }
+
+    /// Returns a rect to the allocator. The pixels are deliberately left
+    /// alone: nothing addresses them until the space is handed out again, and
+    /// zeroing here would dirty a region no consumer needs to see. The
+    /// rewrite that *does* matter goes through `writePixels`, which bumps
+    /// `contentVersion` and unions the region like any other write.
+    ///
+    /// A rect this atlas never handed out, or one already free, is ignored:
+    /// merging it would corrupt the free list, and the caller that
+    /// double-freed has a bug that a silent corruption would hide.
+    public func deallocate(x: Int32, y: Int32, width freedWidth: Int32, height freedHeight: Int32) {
+        guard freedWidth > 0, freedHeight > 0, x >= 0, freedWidth <= self.width - x,
+            let shelfIndex = shelfIndexByY[y],
+            freedHeight <= shelves[shelfIndex].height,
+            x + freedWidth <= shelves[shelfIndex].usedWidth
+        else {
+            return
+        }
+
+        var spans = shelves[shelfIndex].freeSpans
+        let overlapsExistingSpan = spans.contains { $0.x < x + freedWidth && x < $0.x + $0.width }
+        guard !overlapsExistingSpan else {
+            return
+        }
+
+        let insertionIndex = spans.firstIndex { $0.x > x } ?? spans.count
+        spans.insert(FreeSpan(x: x, width: freedWidth), at: insertionIndex)
+
+        // Coalesce with the neighbours so two adjacent single-glyph frees can
+        // satisfy one double-width glyph; without this, fragmentation makes
+        // reclamation useless well before the space runs out.
+        var coalesced: [FreeSpan] = []
+        coalesced.reserveCapacity(spans.count)
+        for span in spans {
+            if var last = coalesced.last, last.x + last.width == span.x {
+                last.width += span.width
+                coalesced[coalesced.count - 1] = last
+            } else {
+                coalesced.append(span)
+            }
+        }
+        shelves[shelfIndex].freeSpans = coalesced
+    }
+
+    /// Total reclaimed-but-unallocated width across every shelf. Test seam for
+    /// "eviction actually returned the space".
+    var reclaimableWidthForTesting: Int32 {
+        shelves.reduce(0) { total, shelf in
+            total + shelf.freeSpans.reduce(0) { $0 + $1.width }
+        }
+    }
+
+    var shelfCountForTesting: Int {
+        shelves.count
     }
 
     public func writePixels(
@@ -284,6 +386,7 @@ public final class GlyphAtlas {
     public func clear() {
         pixels = Data(count: Int(width) * Int(height) * 4)
         shelves.removeAll()
+        shelfIndexByY.removeAll()
         isDirty = true
         dirtyRegion = GlyphAtlasRegion(x: 0, y: 0, width: width, height: height)
         contentVersion = RenderContentVersion.next()

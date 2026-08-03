@@ -110,21 +110,36 @@ final class WindowTextSystem {
         }
     }
 
-    private var layouts: [LayoutKey: NativeTextLayoutResult] = [:]
-    private var accessOrder: [LayoutKey] = []
+    private struct CachedLayout {
+        var layout: NativeTextLayoutResult
+        /// Value of `accessClock` at the last tap; see `GlyphAtlasCache` for
+        /// why recency is a stamp here rather than a position in an array.
+        /// `LayoutKey` equality walks a string, a span list and twenty-odd
+        /// style fields, so the old `accessOrder.firstIndex(of:)` was the most
+        /// expensive linear scan in the stack — once per measured layout.
+        var lastAccessed: UInt64
+    }
+
+    private var layouts: [LayoutKey: CachedLayout] = [:]
+    private var accessClock: UInt64 = 0
     private let maxEntryCount: Int
 
     init(maxEntryCount: Int = 512) {
         self.maxEntryCount = maxEntryCount
     }
 
+    private func nextAccessStamp() -> UInt64 {
+        accessClock &+= 1
+        return accessClock
+    }
+
     func layout(_ text: String, style: PixelTextStyle, maxWidth: Double? = nil, scaleFactor: Double)
         -> NativeTextLayoutResult?
     {
         let key = LayoutKey(text: text, style: style, maxWidth: maxWidth)
-        if let cached = layouts[key] {
-            touch(key)
-            return snappedLayout(cached, scaleFactor: scaleFactor)
+        if let index = layouts.index(forKey: key) {
+            layouts.values[index].lastAccessed = nextAccessStamp()
+            return snappedLayout(layouts.values[index].layout, scaleFactor: scaleFactor)
         }
 
         guard let layout = NativeTextRenderer.layout(text, style: style, scaleFactor: 1.0, maxWidth: maxWidth) else {
@@ -141,7 +156,6 @@ final class WindowTextSystem {
 
     func clear() {
         layouts.removeAll()
-        accessOrder.removeAll()
     }
 
     var cachedLayoutCount: Int {
@@ -149,28 +163,13 @@ final class WindowTextSystem {
     }
 
     private func insert(_ layout: NativeTextLayoutResult, for key: LayoutKey) {
-        if layouts[key] != nil {
-            touch(key)
-            layouts[key] = layout
-            return
+        if layouts[key] == nil, layouts.count >= maxEntryCount,
+            let oldest = layouts.min(by: { $0.value.lastAccessed < $1.value.lastAccessed })
+        {
+            layouts.removeValue(forKey: oldest.key)
         }
 
-        if layouts.count >= maxEntryCount, let oldest = accessOrder.first {
-            accessOrder.removeFirst()
-            layouts.removeValue(forKey: oldest)
-        }
-
-        layouts[key] = layout
-        accessOrder.append(key)
-    }
-
-    private func touch(_ key: LayoutKey) {
-        guard let index = accessOrder.firstIndex(of: key) else {
-            return
-        }
-
-        accessOrder.remove(at: index)
-        accessOrder.append(key)
+        layouts[key] = CachedLayout(layout: layout, lastAccessed: nextAccessStamp())
     }
 
     private func snappedLayout(_ layout: NativeTextLayoutResult, scaleFactor: Double) -> NativeTextLayoutResult {

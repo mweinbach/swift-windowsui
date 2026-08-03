@@ -359,6 +359,39 @@ final class CrossBackendPixelParityTests: XCTestCase {
         )
     }
 
+    /// The same shipping path route with a rounded clip over it.
+    ///
+    /// The clip used to be baked into the raster: the D3D11 backend
+    /// CPU-rasterized the path *cropped to its masked bounds*, which made the
+    /// clip part of the cache key and squared off every corner arc. WS-18
+    /// moved it to a draw parameter — a UV sub-rect for the rectangle, the
+    /// shader's clip rect and radius for the arc — so this scene is what
+    /// checks the two backends still cut the path in the same place.
+    private static func clippedPathTextureScene() -> ParityScene {
+        ParityScene(
+            name: "clipped path texture",
+            size: surface,
+            scene: makeScene { scene in
+                scene.addPath(
+                    PathPrimitive(
+                        elements: [
+                            .moveTo(Point(x: 16, y: 16)),
+                            .lineTo(Point(x: 112, y: 16)),
+                            .lineTo(Point(x: 112, y: 112)),
+                            .lineTo(Point(x: 16, y: 112)),
+                            .close,
+                        ],
+                        bounds: Rect(x: 16, y: 16, width: 96, height: 96),
+                        fillColor: Color(red: 0.95, green: 0.55, blue: 0.20, alpha: 1),
+                        clipBounds: Rect(x: 32, y: 32, width: 64, height: 64),
+                        clipCornerRadius: 16
+                    ),
+                    toLayer: 0
+                )
+            }
+        )
+    }
+
     /// A Material: an opaque backdrop with a blurred, tinted panel over it.
     ///
     /// Both backends now compose the effect the same way — snapshot the
@@ -547,6 +580,10 @@ final class CrossBackendPixelParityTests: XCTestCase {
     /// reads only `.a`, and so does the rasterizer now, but a fixture that
     /// disagreed with the real producer would be testing a shape nothing
     /// ships.
+    ///
+    /// This scene carried a `knownDivergence` floor of 0.835 until WS-18 gave
+    /// `RasterTarget.drawGlyph` a bilinear tap; it gates like every other
+    /// scene now.
     private static func rampGlyphAtlas() -> GlyphAtlasSnapshot {
         let side = 8
         var pixels = [UInt8]()
@@ -566,13 +603,6 @@ final class CrossBackendPixelParityTests: XCTestCase {
         ParityScene(
             name: "magnified gradient glyph cell",
             size: surface,
-            knownDivergence: KnownDivergence(
-                reason:
-                    "The CPU rasterizer point-samples the glyph atlas; the GPU samples it bilinearly "
-                    + "(D3D11_FILTER_MIN_MAG_MIP_LINEAR). Owner: WS-18 (bilinear CPU sampler). Until then "
-                    + "this scene records how far apart the two filters are under magnification instead of "
-                    + "hiding it behind a uniform fixture. Measured 0.8359, max channel delta 14.",
-                matchRatioFloor: 0.835),
             scene: makeScene { scene in
                 scene.glyphAtlas = rampGlyphAtlas()
                 scene.addGlyph(
@@ -595,6 +625,10 @@ final class CrossBackendPixelParityTests: XCTestCase {
     /// is invisible by construction. A checkerboard is the opposite fixture:
     /// every texel boundary is a full-range step, so the gap is the whole
     /// signal.
+    ///
+    /// It carried a `knownDivergence` floor of 0.753 (max channel delta 116)
+    /// until WS-18 taught `RasterTarget.drawImage` to filter *premultiplied*
+    /// texels the way `imageTexture.Sample` does.
     private static func checkerImageFixture(size: Int) -> BitmapSurface {
         var pixels = Data()
         for y in 0..<size {
@@ -617,12 +651,6 @@ final class CrossBackendPixelParityTests: XCTestCase {
         return ParityScene(
             name: "magnified high-contrast image",
             size: surface,
-            knownDivergence: KnownDivergence(
-                reason:
-                    "`RasterTarget.drawImage` picks the nearest texel; the GPU image sampler is linear. "
-                    + "Owner: WS-18 (bilinear CPU sampler), same fix as the glyph atlas. Measured 0.7539, "
-                    + "max channel delta 116 — the filter gap is the whole signal here, which is the point.",
-                matchRatioFloor: 0.753),
             scene: makeScene { scene in
                 scene.bindImageResource(bitmap, for: 22)
                 scene.addImage(
@@ -822,6 +850,8 @@ final class CrossBackendPixelParityTests: XCTestCase {
     func testScaledImageParity() async throws { try assertParity(Self.scaledImageScene()) }
 
     func testPathTextureParity() async throws { try assertParity(Self.pathTextureScene()) }
+
+    func testClippedPathTextureParity() async throws { try assertParity(Self.clippedPathTextureScene()) }
 
     func testMagnifiedGlyphGradientParity() async throws { try assertParity(Self.magnifiedGlyphGradientScene()) }
 

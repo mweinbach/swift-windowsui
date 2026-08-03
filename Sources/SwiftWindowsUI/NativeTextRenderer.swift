@@ -672,7 +672,8 @@ func framePathTextRasterSize(frameSize: Size, measured: Size?, style: PixelTextS
     let contentHeight = max(0, measuredHeight - style.insets.top - style.insets.bottom)
     let horizontalInsetCap = max(sanitizedFrame.width, contentWidth)
     let verticalInsetCap = max(sanitizedFrame.height, contentHeight)
-    let horizontalInsets = min(style.insets.leading, horizontalInsetCap) + min(style.insets.trailing, horizontalInsetCap)
+    let horizontalInsets =
+        min(style.insets.leading, horizontalInsetCap) + min(style.insets.trailing, horizontalInsetCap)
     let verticalInsets = min(style.insets.top, verticalInsetCap) + min(style.insets.bottom, verticalInsetCap)
     return Size(
         width: max(sanitizedFrame.width, min(measuredWidth, horizontalInsets + contentWidth, maxRasterExtent)),
@@ -760,13 +761,32 @@ private func withWideString<Result>(_ string: String, _ body: (UnsafePointer<WCH
 @MainActor
 enum NativeFontAvailability {
     struct TestingOverrides {
+        /// Answers `hasGlyph` *before* the cache, so a test can force a
+        /// verdict regardless of what earlier probes recorded.
         var hasGlyph: ((Character, String) -> Bool)?
+        /// Replaces only the DirectWrite probe, *after* the cache. A probe is
+        /// two rasterizations, so this is how a test can fill the cache
+        /// hundreds of entries deep to check its bound.
+        var probe: ((Character, String) -> Bool)?
     }
 
     static var testingOverrides = TestingOverrides()
 
     static func resetTestingOverrides() {
         testingOverrides = TestingOverrides()
+    }
+
+    static func resetProbeCacheForTesting() {
+        cache.removeAll()
+        accessClock = 0
+    }
+
+    static var probeCacheCountForTesting: Int {
+        cache.count
+    }
+
+    static var probeCacheLimitForTesting: Int {
+        maxCacheEntries
     }
 
     /// Returns the first family in `preferred` that is installed and contains
@@ -794,15 +814,39 @@ enum NativeFontAvailability {
             return false
         }
         let cacheKey = "\(fontFamily.lowercased())|\(String(character).utf16.map { String($0) }.joined(separator: ","))"
-        if let cached = cache[cacheKey] {
-            return cached
+        if let index = cache.index(forKey: cacheKey) {
+            cache.values[index].lastAccessed = nextAccessStamp()
+            return cache.values[index].hasGlyph
         }
-        let result = probeHasGlyph(character, fontFamily: fontFamily)
-        cache[cacheKey] = result
+        let result = testingOverrides.probe?(character, fontFamily) ?? probeHasGlyph(character, fontFamily: fontFamily)
+        if cache.count >= maxCacheEntries,
+            let oldest = cache.min(by: { $0.value.lastAccessed < $1.value.lastAccessed })
+        {
+            cache.removeValue(forKey: oldest.key)
+        }
+        cache[cacheKey] = ProbeResult(hasGlyph: result, lastAccessed: nextAccessStamp())
         return result
     }
 
-    private static var cache: [String: Bool] = [:]
+    private struct ProbeResult {
+        var hasGlyph: Bool
+        var lastAccessed: UInt64
+    }
+
+    /// A probe costs two DirectWrite rasterizations, so this cache earns its
+    /// keep — but the key is `(family, character)` over an *app-supplied*
+    /// alphabet, so it is unbounded by construction: text rendered through
+    /// `SymbolIcon` fallbacks across a large character set grows it forever.
+    /// 512 entries covers every icon set the fallback chain has, and the LRU
+    /// eviction below keeps the hot ones.
+    private static let maxCacheEntries = 512
+    private static var cache: [String: ProbeResult] = [:]
+    private static var accessClock: UInt64 = 0
+
+    private static func nextAccessStamp() -> UInt64 {
+        accessClock &+= 1
+        return accessClock
+    }
 
     /// A private-use codepoint from plane 16 that no shipping font contains;
     /// its rasterization is the `.notdef` reference for glyph-presence checks.

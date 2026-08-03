@@ -197,18 +197,106 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     // per path shape". Keys are normalized to a (0,0) origin so translating
     // the path doesn't bust the cache; the draw call still positions the
     // resulting texture at the original bounds.origin.
+    /// What identifies a cached path *raster*: its shape, its paint and its
+    /// extent — and nothing about where it is on screen or what is clipping
+    /// it. The clip is applied at draw time (see `renderPathBatch`), so a
+    /// chart scrolling inside a `ScrollView` keeps one entry and one upload
+    /// instead of missing on every frame the clip moves.
+    ///
+    /// `Hashable` by hand because `Point`/`Color`/`PathElement` are `Equatable`
+    /// value types in Core with no `Hashable` conformance to inherit.
+    /// Equality stays exact (`PathPrimitive: Equatable`); the hash is a
+    /// bounded digest, so a collision costs one extra comparison and never a
+    /// wrong texture.
+    private struct PathRasterKey: Hashable {
+        /// Normalized to a (0, 0) origin and stripped of clip state.
+        let path: PathPrimitive
+
+        static func == (lhs: PathRasterKey, rhs: PathRasterKey) -> Bool {
+            lhs.path == rhs.path
+        }
+
+        /// At most `sampleLimit` elements feed the hash: a 5,000-segment
+        /// `Canvas` path would otherwise pay an O(elements) walk per lookup,
+        /// which is the cost this cache exists to avoid.
+        private static let sampleLimit = 32
+
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(path.elements.count)
+            hasher.combine(path.bounds.size.width)
+            hasher.combine(path.bounds.size.height)
+            hasher.combine(path.lineWidth)
+            combine(color: path.fillColor, into: &hasher)
+            combine(color: path.strokeColor, into: &hasher)
+
+            let stride = max(1, path.elements.count / Self.sampleLimit)
+            var index = 0
+            while index < path.elements.count {
+                combine(element: path.elements[index], into: &hasher)
+                index += stride
+            }
+        }
+
+        private func combine(color: Color, into hasher: inout Hasher) {
+            hasher.combine(color.red)
+            hasher.combine(color.green)
+            hasher.combine(color.blue)
+            hasher.combine(color.alpha)
+        }
+
+        private func combine(element: PathElement, into hasher: inout Hasher) {
+            switch element {
+            case .moveTo(let point):
+                hasher.combine(0)
+                combine(point: point, into: &hasher)
+            case .lineTo(let point):
+                hasher.combine(1)
+                combine(point: point, into: &hasher)
+            case .quadraticCurveTo(let control, let end):
+                hasher.combine(2)
+                combine(point: control, into: &hasher)
+                combine(point: end, into: &hasher)
+            case .cubicCurveTo(let control1, let control2, let end):
+                hasher.combine(3)
+                combine(point: control1, into: &hasher)
+                combine(point: control2, into: &hasher)
+                combine(point: end, into: &hasher)
+            case .arc(let center, let radius, let startAngle, let endAngle, let clockwise):
+                hasher.combine(4)
+                combine(point: center, into: &hasher)
+                hasher.combine(radius)
+                hasher.combine(startAngle)
+                hasher.combine(endAngle)
+                hasher.combine(clockwise)
+            case .close:
+                hasher.combine(5)
+            }
+        }
+
+        private func combine(point: Point, into hasher: inout Hasher) {
+            hasher.combine(point.x)
+            hasher.combine(point.y)
+        }
+    }
+
     private struct CachedPathRender {
-        let key: PathPrimitive
         var texture: UnsafeMutablePointer<ID3D11Texture2D>
         var srv: UnsafeMutablePointer<ID3D11ShaderResourceView>
         var bitmapSize: IntSize
         var lastUsedFrame: UInt64
+        var memoryBytes: Int
     }
 
-    private var pathRenderCache: [CachedPathRender] = []
+    private var pathRenderCache: [PathRasterKey: CachedPathRender] = [:]
+    private var pathRenderCacheBytes = 0
     private var frameCounter: UInt64 = 0
     private static let pathCacheStaleFrames: UInt64 = 60
     private static let pathCacheMaxEntries = 256
+    /// Path rasters are bounded by count *and* by bytes for the same reason
+    /// image textures are: dropping the clip from the key means an entry now
+    /// covers the path's whole extent, so one off-screen 4K chart is a 64 MB
+    /// entry that 256 of would be unbounded in any useful sense.
+    private static let pathCacheByteBudget = 64 * 1024 * 1024
     // Test-observable counters so we can verify the cache is actually being
     // hit across frames.
     internal private(set) var pathCacheHits: UInt64 = 0
@@ -326,7 +414,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             tally(entry.texture.map(UnsafeMutableRawPointer.init))
             tally(entry.srv.map(UnsafeMutableRawPointer.init))
         }
-        for entry in pathRenderCache {
+        for entry in pathRenderCache.values {
             tally(UnsafeMutableRawPointer(entry.texture))
             tally(UnsafeMutableRawPointer(entry.srv))
         }
@@ -2404,28 +2492,59 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
         for index in range {
             let path = instances[index]
-            let bounds = path.contentMaskedBounds ?? path.bounds
+            guard let maskedBounds = path.contentMaskedBounds else { continue }
             // Normalize the path to its own origin so the cache key is
-            // translation-invariant. A static path that simply moves with
-            // its parent view stays a cache hit.
+            // translation-invariant, and strip the clip so a *moving* clip is
+            // not a different path. A static chart scrolling under a viewport
+            // used to miss on every frame and CPU-rasterize on the main
+            // actor; now it rasterizes once and the clip rides along as a
+            // draw parameter.
             let translation = Point(x: -path.bounds.origin.x, y: -path.bounds.origin.y)
-            let normalizedPath = path.translated(by: translation)
+            var normalizedPath = path.translated(by: translation)
+            normalizedPath.clipBounds = nil
+            normalizedPath.clipCornerRadius = 0
 
-            let (srv, bitmapSize) = try ensureCachedPathTexture(for: normalizedPath, fallbackBounds: bounds)
-            guard let srv else { continue }
+            let (srv, bitmapSize) = try ensureCachedPathTexture(for: normalizedPath)
+            guard let srv, bitmapSize.width > 0, bitmapSize.height > 0 else { continue }
 
-            let drawWidth = max(Float(bounds.size.width), Float(bitmapSize.width))
-            let drawHeight = max(Float(bounds.size.height), Float(bitmapSize.height))
-            let syntheticImage = ImagePrimitive(
-                screenX: Float(bounds.origin.x),
-                screenY: Float(bounds.origin.y),
-                screenW: drawWidth,
-                screenH: drawHeight,
-                uvX: 0, uvY: 0, uvW: 1, uvH: 1,
+            // The texture holds the whole unclipped path, so it maps onto the
+            // screen rect anchored at the path's own origin. Drawing only the
+            // visible sub-rect of it keeps a tall path inside a short
+            // viewport from running a full-height pixel shader that discards
+            // almost everything.
+            let textureScreenRect = Rect(
+                origin: path.bounds.origin,
+                size: Size(width: Double(bitmapSize.width), height: Double(bitmapSize.height))
+            )
+            guard let visible = textureScreenRect.intersected(with: maskedBounds),
+                visible.size.width > 0, visible.size.height > 0
+            else { continue }
+
+            let uvX = (visible.minX - textureScreenRect.minX) / textureScreenRect.size.width
+            let uvY = (visible.minY - textureScreenRect.minY) / textureScreenRect.size.height
+            let uvW = visible.size.width / textureScreenRect.size.width
+            let uvH = visible.size.height / textureScreenRect.size.height
+
+            var syntheticImage = ImagePrimitive(
+                screenX: Float(visible.minX),
+                screenY: Float(visible.minY),
+                screenW: Float(visible.size.width),
+                screenH: Float(visible.size.height),
+                uvX: Float(uvX), uvY: Float(uvY), uvW: Float(uvW), uvH: Float(uvH),
                 opacity: 1,
                 clipX: 0, clipY: 0, clipWidth: 0, clipHeight: 0,
+                clipCornerRadius: Float(path.clipCornerRadius),
                 textureID: -1
             )
+            // The rounded part of the clip has to reach the shader: the
+            // rectangular part is already folded into `visible`, but a corner
+            // arc is not expressible as a sub-rect.
+            if let clipBounds = path.clipBounds {
+                GPUIClipEncoding.encode(
+                    clipBounds,
+                    into: &syntheticImage.clipX, &syntheticImage.clipY,
+                    &syntheticImage.clipWidth, &syntheticImage.clipHeight)
+            }
 
             try renderImageBatch(
                 [syntheticImage],
@@ -2437,17 +2556,18 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     }
 
     /// Returns a GPU texture for `normalizedPath`. The path is normalized to
-    /// origin (0, 0); the caller is responsible for placing the resulting
-    /// quad at the original screen coordinates. Reuses cached textures when
-    /// the path shape/colors/stroke match an entry from a recent frame.
+    /// origin (0, 0) and carries no clip; the caller places the resulting
+    /// quad at the original screen coordinates and applies the clip there.
+    /// Reuses cached textures when the path shape/colors/stroke match an
+    /// entry from a recent frame.
     private func ensureCachedPathTexture(
-        for normalizedPath: PathPrimitive,
-        fallbackBounds: Rect
+        for normalizedPath: PathPrimitive
     ) throws -> (srv: UnsafeMutablePointer<ID3D11ShaderResourceView>?, bitmapSize: IntSize) {
-        if let hitIndex = pathRenderCache.firstIndex(where: { $0.key == normalizedPath }) {
-            pathRenderCache[hitIndex].lastUsedFrame = frameCounter
+        let key = PathRasterKey(path: normalizedPath)
+        if let index = pathRenderCache.index(forKey: key) {
+            pathRenderCache.values[index].lastUsedFrame = frameCounter
             pathCacheHits &+= 1
-            return (pathRenderCache[hitIndex].srv, pathRenderCache[hitIndex].bitmapSize)
+            return (pathRenderCache.values[index].srv, pathRenderCache.values[index].bitmapSize)
         }
 
         pathCacheMisses &+= 1
@@ -2455,47 +2575,48 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             return (nil, IntSize.zero)
         }
         let (texture, srv) = try createImageTextureResource(for: bitmap)
+        let entryBytes = Int(bitmap.width) * Int(bitmap.height) * 4
         // Bound the cache so unbounded canvas content doesn't accumulate
-        // textures forever. Evict the oldest entry when full.
-        if pathRenderCache.count >= Self.pathCacheMaxEntries {
+        // textures forever. Evict least-recently-used until both the entry
+        // count and the byte budget hold with this entry counted.
+        while !pathRenderCache.isEmpty
+            && (pathRenderCache.count >= Self.pathCacheMaxEntries
+                || pathRenderCacheBytes + entryBytes > Self.pathCacheByteBudget)
+        {
             evictOldestCachedPathEntry()
         }
         let entry = CachedPathRender(
-            key: normalizedPath,
             texture: texture,
             srv: srv,
             bitmapSize: IntSize(width: Int32(bitmap.width), height: Int32(bitmap.height)),
-            lastUsedFrame: frameCounter
+            lastUsedFrame: frameCounter,
+            memoryBytes: entryBytes
         )
-        pathRenderCache.append(entry)
-        _ = fallbackBounds  // currently unused; kept for future debug instrumentation
+        pathRenderCache[key] = entry
+        pathRenderCacheBytes += entryBytes
         return (srv, entry.bitmapSize)
     }
 
     private func evictStaleCachedPaths() {
         guard frameCounter > Self.pathCacheStaleFrames else { return }
         let staleThreshold = frameCounter - Self.pathCacheStaleFrames
-        var index = 0
-        while index < pathRenderCache.count {
-            if pathRenderCache[index].lastUsedFrame < staleThreshold {
-                releaseCachedPathEntry(at: index)
-            } else {
-                index += 1
-            }
+        let staleKeys = pathRenderCache.compactMap { element in
+            element.value.lastUsedFrame < staleThreshold ? element.key : nil
+        }
+        for key in staleKeys {
+            releaseCachedPathEntry(forKey: key)
         }
     }
 
     private func evictOldestCachedPathEntry() {
-        guard
-            let oldestIndex = pathRenderCache.indices.min(by: {
-                pathRenderCache[$0].lastUsedFrame < pathRenderCache[$1].lastUsedFrame
-            })
+        guard let oldest = pathRenderCache.min(by: { $0.value.lastUsedFrame < $1.value.lastUsedFrame })
         else { return }
-        releaseCachedPathEntry(at: oldestIndex)
+        releaseCachedPathEntry(forKey: oldest.key)
     }
 
-    private func releaseCachedPathEntry(at index: Int) {
-        let entry = pathRenderCache.remove(at: index)
+    private func releaseCachedPathEntry(forKey key: PathRasterKey) {
+        guard let entry = pathRenderCache.removeValue(forKey: key) else { return }
+        pathRenderCacheBytes -= entry.memoryBytes
         var srvOpt: UnsafeMutablePointer<ID3D11ShaderResourceView>? = entry.srv
         releaseCOM(&srvOpt)
         var textureOpt: UnsafeMutablePointer<ID3D11Texture2D>? = entry.texture
@@ -2503,9 +2624,10 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     }
 
     private func releaseAllCachedPaths() {
-        while !pathRenderCache.isEmpty {
-            releaseCachedPathEntry(at: pathRenderCache.count - 1)
+        for key in pathRenderCache.keys {
+            releaseCachedPathEntry(forKey: key)
         }
+        pathRenderCacheBytes = 0
     }
 
     // MARK: - Backdrop Blur (Material quads)

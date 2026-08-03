@@ -126,6 +126,55 @@ public enum GPUIRawSceneRasterizer {
         }
     }
 }
+/// One axis of a bilinear tap, matching `D3D11_FILTER_MIN_MAG_MIP_LINEAR`
+/// with `D3D11_TEXTURE_ADDRESS_CLAMP` — the sampler both the glyph and the
+/// image pipeline bind (`D3D11BatchRenderer.createSamplerState`).
+///
+/// Texel centres sit at `(i + 0.5) / size`, so a normalized coordinate maps to
+/// texel space as `u * size - 0.5`; the two taps are that value's floor and
+/// floor + 1, clamped into range, weighted by its fraction. Clamping `u` into
+/// `[0, 1]` first is equivalent to the hardware's index clamping and keeps the
+/// `Double → Int` conversion in range for any scene value.
+///
+/// At a texel-aligned 1:1 draw the fraction is 0 and this returns exactly the
+/// texel nearest sampling would have picked, which is why unmagnified glyph
+/// and image output is unchanged by the switch.
+private struct BilinearAxisTap {
+    let low: Int
+    let high: Int
+    let fraction: Double
+
+    init(normalized: Double, size: Int) {
+        let bounded = clamp(normalized, lower: 0, upper: 1)
+        let texel = bounded * Double(size) - 0.5
+        let floored = texel.rounded(.down)
+        fraction = texel - floored
+        let lowIndex = GPUISceneValue.int(floored)
+        low = clamp(lowIndex, lower: 0, upper: size - 1)
+        high = clamp(lowIndex + 1, lower: 0, upper: size - 1)
+    }
+}
+
+/// A texel in the space the GPU image sampler filters in.
+private struct PremultipliedTexel {
+    var red: Double
+    var green: Double
+    var blue: Double
+    var alpha: Double
+}
+
+/// Bilinear blend of four taps, laid out as the hardware does it: lerp along
+/// x on each row, then lerp the two rows along y.
+@inline(__always)
+private func bilinearMix(
+    _ topLeft: Double, _ topRight: Double, _ bottomLeft: Double, _ bottomRight: Double,
+    fractionX: Double, fractionY: Double
+) -> Double {
+    let top = topLeft + (topRight - topLeft) * fractionX
+    let bottom = bottomLeft + (bottomRight - bottomLeft) * fractionX
+    return top + (bottom - top) * fractionY
+}
+
 private struct RasterTarget {
     var width: Int
     var height: Int
@@ -619,33 +668,74 @@ private struct RasterTarget {
                 else { continue }
                 let tx = clamp((pixelCenterX - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1)
                 let ty = clamp((pixelCenterY - rect.minY) / max(rect.size.height, 1), lower: 0, upper: 1)
-                let sourceX = clamp(
-                    GPUISceneValue.int(((u0 + (u1 - u0) * tx) * Double(atlasWidth)).rounded(.down)),
-                    lower: 0, upper: atlasWidth - 1)
-                let sourceY = clamp(
-                    GPUISceneValue.int(((v0 + (v1 - v0) * ty) * Double(atlasHeight)).rounded(.down)),
-                    lower: 0, upper: atlasHeight - 1)
-                let offset = (sourceY * atlasWidth + sourceX) * 4
-                guard offset + 3 < atlas.pixels.count else {
-                    continue
-                }
+                let tapX = BilinearAxisTap(normalized: u0 + (u1 - u0) * tx, size: atlasWidth)
+                let tapY = BilinearAxisTap(normalized: v0 + (v1 - v0) * ty, size: atlasHeight)
 
                 // Alpha only, exactly like the glyph shader
-                // (`glyphAtlas.Sample(...).a`). This used to substitute
-                // `max(r, g, b)` wherever alpha was zero, which no atlas
-                // producer needs — every one of them writes coverage into
-                // alpha (`NativeTextRenderer.tint` writes premultiplied
-                // BGRA, `PixelFontAtlas` writes 255 in all four channels) —
-                // and which the GPU has no equivalent of. A cell that
-                // arrives with coverage in RGB and none in alpha is a
-                // producer bug, and the CPU rasterizer drawing it anyway
-                // hid that bug from the parity suite.
-                let coverage = Float(atlas.pixels[offset + 3]) / 255.0 * Float(clipAlpha)
+                // (`glyphAtlas.Sample(...).a`) — and *bilinear*, also exactly
+                // like the glyph shader, which binds a
+                // `MIN_MAG_MIP_LINEAR` sampler. Point-sampling here made
+                // every magnified glyph a staircase on the reference
+                // renderer and a smooth ramp on screen, which is the gap
+                // `CrossBackendPixelParityTests` recorded as a known
+                // divergence until this line.
+                //
+                // Sampling alpha used to substitute `max(r, g, b)` wherever
+                // alpha was zero, which no atlas producer needs — every one
+                // of them writes coverage into alpha
+                // (`NativeTextRenderer.tint` writes premultiplied BGRA,
+                // `PixelFontAtlas` writes 255 in all four channels) — and
+                // which the GPU has no equivalent of.
+                guard
+                    let alphaTopLeft = atlasAlpha(atlas, x: tapX.low, y: tapY.low, width: atlasWidth),
+                    let alphaTopRight = atlasAlpha(atlas, x: tapX.high, y: tapY.low, width: atlasWidth),
+                    let alphaBottomLeft = atlasAlpha(atlas, x: tapX.low, y: tapY.high, width: atlasWidth),
+                    let alphaBottomRight = atlasAlpha(atlas, x: tapX.high, y: tapY.high, width: atlasWidth)
+                else {
+                    continue
+                }
+                let sampledAlpha = bilinearMix(
+                    alphaTopLeft, alphaTopRight, alphaBottomLeft, alphaBottomRight,
+                    fractionX: tapX.fraction, fractionY: tapY.fraction)
+                let coverage = Float(sampledAlpha) * Float(clipAlpha)
                 if coverage > 0 {
                     blend(color.withAlphaMultiplier(coverage), x: x, y: y)
                 }
             }
         }
+    }
+
+    /// One image texel in the space the GPU sampler filters in: premultiplied,
+    /// 0…1 per channel. Straight-alpha sources are premultiplied here because
+    /// `createImageTextureResource` premultiplies them before upload, so a
+    /// straight source and a premultiplied one must filter identically.
+    /// `nil` when the buffer is shorter than the rect it claims.
+    private func premultipliedTexel(
+        _ bitmap: BitmapSurface, x: Int, y: Int, bytesPerRow: Int, isPremultiplied: Bool
+    ) -> PremultipliedTexel? {
+        let offset = y * bytesPerRow + x * 4
+        guard offset >= 0, offset + 3 < bitmap.pixels.count else {
+            return nil
+        }
+        let alpha = Double(bitmap.pixels[offset + 3]) / 255
+        let premultiplier = isPremultiplied ? 1 : alpha
+        return PremultipliedTexel(
+            red: Double(bitmap.pixels[offset + 2]) / 255 * premultiplier,
+            green: Double(bitmap.pixels[offset + 1]) / 255 * premultiplier,
+            blue: Double(bitmap.pixels[offset]) / 255 * premultiplier,
+            alpha: alpha
+        )
+    }
+
+    /// One atlas texel's alpha as 0…1, or `nil` when the snapshot is shorter
+    /// than the rect it claims to hold — a truncated upload must skip the
+    /// pixel, not read whatever the buffer's tail happens to contain.
+    private func atlasAlpha(_ atlas: GlyphAtlasSnapshot, x: Int, y: Int, width atlasWidth: Int) -> Double? {
+        let offset = (y * atlasWidth + x) * 4
+        guard offset >= 0, offset + 3 < atlas.pixels.count else {
+            return nil
+        }
+        return Double(atlas.pixels[offset + 3]) / 255.0
     }
 
     mutating func drawImage(_ image: ImagePrimitive, bitmap: BitmapSurface) {
@@ -687,25 +777,49 @@ private struct RasterTarget {
                 else { continue }
                 let tx = clamp((pixelCenterX - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1)
                 let ty = clamp((pixelCenterY - rect.minY) / max(rect.size.height, 1), lower: 0, upper: 1)
-                let sourceX = clamp(
-                    GPUISceneValue.int((Double(image.uvX) + Double(image.uvW) * tx) * Double(sourceWidth)), lower: 0,
-                    upper: sourceWidth - 1)
-                let sourceY = clamp(
-                    GPUISceneValue.int((Double(image.uvY) + Double(image.uvH) * ty) * Double(sourceHeight)), lower: 0,
-                    upper: sourceHeight - 1)
-                let offset = sourceY * bytesPerRow + sourceX * 4
-                guard offset + 3 < bitmap.pixels.count else {
+                let tapX = BilinearAxisTap(
+                    normalized: Double(image.uvX) + Double(image.uvW) * tx, size: sourceWidth)
+                let tapY = BilinearAxisTap(
+                    normalized: Double(image.uvY) + Double(image.uvH) * ty, size: sourceHeight)
+
+                // The GPU filters *premultiplied* texels — every upload is
+                // normalized to premultiplied BGRA before it reaches the
+                // sampler, which is what makes linear filtering correct at a
+                // transparent edge (interpolating straight-alpha colour
+                // against a transparent texel drags the wrong hue in). So
+                // interpolate premultiplied here too, and un-premultiply the
+                // *result*; `blend` composites in straight alpha.
+                guard
+                    let topLeft = premultipliedTexel(
+                        bitmap, x: tapX.low, y: tapY.low, bytesPerRow: bytesPerRow, isPremultiplied: isPremultiplied),
+                    let topRight = premultipliedTexel(
+                        bitmap, x: tapX.high, y: tapY.low, bytesPerRow: bytesPerRow, isPremultiplied: isPremultiplied),
+                    let bottomLeft = premultipliedTexel(
+                        bitmap, x: tapX.low, y: tapY.high, bytesPerRow: bytesPerRow, isPremultiplied: isPremultiplied),
+                    let bottomRight = premultipliedTexel(
+                        bitmap, x: tapX.high, y: tapY.high, bytesPerRow: bytesPerRow, isPremultiplied: isPremultiplied)
+                else {
                     continue
                 }
-
-                let sourceAlpha = Float(bitmap.pixels[offset + 3]) / 255
-                let divisor = isPremultiplied && sourceAlpha > 0 ? sourceAlpha : 1
+                let sampledAlpha = bilinearMix(
+                    topLeft.alpha, topRight.alpha, bottomLeft.alpha, bottomRight.alpha,
+                    fractionX: tapX.fraction, fractionY: tapY.fraction)
+                let divisor = sampledAlpha > 0 ? sampledAlpha : 1
+                let sampledRed = bilinearMix(
+                    topLeft.red, topRight.red, bottomLeft.red, bottomRight.red,
+                    fractionX: tapX.fraction, fractionY: tapY.fraction)
+                let sampledGreen = bilinearMix(
+                    topLeft.green, topRight.green, bottomLeft.green, bottomRight.green,
+                    fractionX: tapX.fraction, fractionY: tapY.fraction)
+                let sampledBlue = bilinearMix(
+                    topLeft.blue, topRight.blue, bottomLeft.blue, bottomRight.blue,
+                    fractionX: tapX.fraction, fractionY: tapY.fraction)
                 blend(
                     RasterColor(
-                        red: Float(bitmap.pixels[offset + 2]) / 255 / divisor,
-                        green: Float(bitmap.pixels[offset + 1]) / 255 / divisor,
-                        blue: Float(bitmap.pixels[offset]) / 255 / divisor,
-                        alpha: sourceAlpha * image.opacity * Float(clipAlpha)
+                        red: Float(sampledRed / divisor),
+                        green: Float(sampledGreen / divisor),
+                        blue: Float(sampledBlue / divisor),
+                        alpha: Float(sampledAlpha) * image.opacity * Float(clipAlpha)
                     ),
                     x: x,
                     y: y

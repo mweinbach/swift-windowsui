@@ -6015,12 +6015,11 @@ public final class RetainedViewRuntime {
 
     public var displayScale: Double {
         didSet {
-            // Gap/Fix: Text cache granular invalidation — only invalidate the
-            // text raster cache when the scale factor actually changed, rather
-            // than clearing it on every dirty pass.
-            if oldValue != displayScale {
-                textRasterCache?.clear()
-            }
+            // No text-cache invalidation here: `TextRasterCache`'s key carries
+            // the scale the raster was produced at, so a scale change asks a
+            // different question rather than invalidating an answer. This used
+            // to clear a `textRasterCache` property that nothing ever
+            // assigned — the hook was live, the cache was `nil`.
             invalidate()
         }
     }
@@ -6172,9 +6171,6 @@ public final class RetainedViewRuntime {
 
     internal var pendingMatchedGeometryOldNodes: [String: [String: MatchedGeometryOldNode]] = [:]
     internal var pendingMatchedGeometryCheck = false
-
-    /// Optional text raster cache for scale-aware invalidation.
-    public var textRasterCache: TextRasterCache?
 
     // Gap/Fix: Frame pacing enforcement — minimum interval between renders.
     public var minimumFrameInterval: Double?

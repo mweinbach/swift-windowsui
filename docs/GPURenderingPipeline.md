@@ -592,14 +592,32 @@ image texture/SRV pointer identity across rebinds and renumbering.
 
 ### 3.3 Atlas exhaustion: the generation token
 
-The atlas is a shelf allocator with no free list, so its only recovery
-from a full atlas is `clear()` — which recycles every shelf *under the
-UVs the current paint pass has already emitted*. An atlas rect is
-therefore only meaningful within the generation that handed it out:
-after a clear, the same rect addresses a different glyph.
+The atlas is a shelf allocator, and recycling space *under the UVs the
+current paint pass has already emitted* is the hazard. An atlas rect is
+only meaningful within the generation that handed it out: after a recycle,
+the same rect addresses a different glyph.
 
-`GlyphAtlas.generation` is bumped on every `clear()`, and
-`ScenePainter.paint` compares it across each paint attempt:
+There are two ways space gets recycled, and both bump
+`GlyphAtlas.generation`:
+
+- **`clear()`** — every shelf at once, the last resort.
+- **A reclaimed free span.** `GlyphAtlasCache.evictLRU` returns the evicted
+  entry's rect to a per-shelf free list (`GlyphAtlas.deallocate`, with
+  adjacent spans coalesced so two 8-wide frees satisfy one 16-wide glyph).
+  `allocate` prefers *virgin* frontier space and only falls back to the free
+  list, so the generation moves exactly when reclaimed space is handed out —
+  never for an allocation that can alias nobody. Before the free list
+  existed, eviction released nothing and a rolling working set larger than
+  `maxEntries` marched the frontier to the edge of the atlas and then took
+  the full `clear()`, dropping every cached glyph.
+
+Freed pixels are deliberately left in place: nothing addresses them until
+the space is handed out again, and the rewrite that *does* matter goes
+through `writePixels`, which bumps `contentVersion` and unions the dirty
+region like any other write — so § 3.2's upload protocol stays correct over
+reclaimed space.
+
+`ScenePainter.paint` compares the generation across each paint attempt:
 
 1. Attempt 0 paints normally. If the generation moved, every UV it
    emitted is suspect and the scene is thrown away.
@@ -1309,12 +1327,13 @@ scene from both sides:
 Skipping after computing the comparison, which is what the suite did first,
 bought neither: it built the report and threw it away.
 
-**The deferred list holds exactly one divergence, with one owner: texture
-filtering.** Seven scenes used to carry floors — corner antialiasing at
-0.990–0.994, the shadow at 0.967, a large-radius material at 0.620 — and
-§ 7a closed all of them; every scene in the suite gates at the standard
-ratio, with a maximum per-channel delta of 1, except the two that exist to
-hold the filtering number.
+**The deferred list is empty.** Nine scenes have carried floors over the
+life of this suite — corner antialiasing at 0.990–0.994, the shadow at
+0.967, a large-radius material at 0.620, and last the two magnified sampler
+scenes at 0.835 and 0.753. § 7a closed the first seven; WS-18 closed the
+sampler pair. Every scene in the suite now gates at the standard ratio, and
+`KnownDivergence` is machinery kept for the next real gap rather than a
+list with entries in it.
 
 Images and CPU-rasterized path textures used to be on that list — the batch
 renderer uploaded BGRA `BitmapSurface` bytes as `R8G8B8A8_UNORM` and blended
@@ -1322,22 +1341,41 @@ straight alpha through a premultiplied blend state, so every image and every
 path fill rendered with red and blue swapped and an over-bright edge. They
 now agree, because the pixel format is part of the surface (§ 4a).
 
-The residual sampling difference is real and is now **measured rather than
-avoided**. The GPU samples every texture — glyph atlas and image alike —
-through `D3D11_FILTER_MIN_MAG_MIP_LINEAR`; `RasterTarget` picks the nearest
-texel. At 1:1 that is invisible, which is why the `scaled image` scene's
-gentle gradient and the uniform opaque `solidGlyphAtlas` cell both passed
-without saying anything about the filters. Two scenes now magnify 8× over
-fixtures built to expose them:
+**Texture filtering is shared, not approximated.** The GPU samples every
+texture — glyph atlas and image alike — through
+`D3D11_FILTER_MIN_MAG_MIP_LINEAR` with `D3D11_TEXTURE_ADDRESS_CLAMP`.
+`RasterTarget` used to pick the nearest texel, which is invisible at 1:1 —
+why the `scaled image` scene's gentle gradient and the uniform opaque
+`solidGlyphAtlas` cell both passed without saying anything about the
+filters — and a visible staircase under magnification. It now takes the
+same bilinear tap: `BilinearAxisTap` maps a normalized coordinate to
+`u · size − 0.5`, takes that value's floor and floor + 1 clamped into range,
+and weights them by its fraction, exactly as the hardware addresses a
+clamped linear sample.
 
-| Scene | Fixture | Measured ratio | Max channel delta |
+Two things make it a transcription rather than a lookalike:
+
+- **Glyphs filter alpha only** (`glyphAtlas.Sample(...).a`), so the four
+  taps are alpha and the mix is one number.
+- **Images filter premultiplied texels**, because every upload is
+  normalized to premultiplied before it reaches the sampler
+  (§ 4a). Straight-alpha sources are premultiplied per texel, mixed, and
+  un-premultiplied once at the end — `blend` composites in straight alpha.
+  Interpolating straight-alpha colour instead drags a transparent texel's
+  hue into its opaque neighbour, which is a halo the GPU never draws.
+
+The two scenes built to expose the gap now measure it closed:
+
+| Scene | Fixture | Before | After |
 | --- | --- | --- | --- |
-| `magnified gradient glyph cell` | 8×8 atlas cell, alpha ramping across texels | 0.8359 | 14 |
-| `magnified high-contrast image` | 8×8 checkerboard | 0.7539 | 116 |
+| `magnified gradient glyph cell` | 8×8 atlas cell, alpha ramping across texels | 0.8359 (Δ 14) | 1.0000 (Δ 1) |
+| `magnified high-contrast image` | 8×8 checkerboard | 0.7539 (Δ 116) | 1.0000 (Δ 0) |
 
-Both carry a `KnownDivergence` naming **WS-18 (bilinear CPU sampler)** as
-the owner. The floors are pinned from both sides like any other deferred
-scene, so the gap can shrink deliberately but cannot widen quietly.
+At a texel-aligned 1:1 draw the fraction is 0 and bilinear returns exactly
+the texel nearest sampling picked, so no unmagnified glyph or icon baseline
+moved — `CPURasterizerGPUModelTests.testUnmagnifiedGlyphSamplingIsUnchangedByFiltering`
+pins that half of the claim, and
+`…testMagnifiedGlyphIsFilteredNotStaircased` the other half.
 
 **Glyph coverage is alpha, on both backends.** The glyph shader reads
 `glyphAtlas.Sample(glyphSampler, uv).a` and nothing else. The rasterizer
@@ -1461,6 +1499,30 @@ live. The frame half is pinned by
 the bitmap, so path quality here is not a fallback concern — it is the
 shipping appearance of `Canvas`, `Shape` strokes, chart lines and the
 SF-symbol vector fallback.
+
+**What identifies a cached raster.** The key (`PathRasterKey`) is the path
+normalized to a (0, 0) origin, with its clip stripped: shape, paint, stroke
+width and extent, and nothing about where it sits or what is cutting it.
+The clip is applied at *draw* time instead — the rectangular part as a UV
+sub-rect of the cached texture (so a tall path under a short viewport does
+not run a full-height pixel shader that discards almost everything), the
+corner arc through the synthetic `ImagePrimitive`'s `clipCornerRadius`,
+which is a shape a sub-rect cannot express. Two consequences:
+
+- A chart inside a `ScrollView` is one entry and one upload. The key used
+  to be the whole `PathPrimitive`, clip included, so a moving clip produced
+  a fresh key every frame: a miss, a main-actor CPU rasterization and a
+  texture upload, sixty times a second, for a shape that never changed.
+- The clip is antialiased by the shader rather than cropped at integer
+  bitmap edges, which is what `CrossBackendPixelParityTests`'
+  `clipped path texture` scene gates.
+
+Lookup is a dictionary hit. `PathRasterKey` hashes a bounded digest (count,
+extent, paint, and up to 32 sampled elements) while `==` stays exact, so a
+5,000-segment `Canvas` path costs a constant-size hash and a collision costs
+one extra comparison rather than a wrong texture. The cache is bounded by
+entries *and* bytes (`docs/PerformanceBudgets.md`), because dropping the
+clip from the key means an entry now covers the path's whole extent.
 
 Fill and stroke each accumulate into one per-path coverage buffer
 (`PathCoverageRasterizer`, exact in x and 8× supersampled in y) and

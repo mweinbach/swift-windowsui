@@ -256,4 +256,121 @@ final class CPURasterizerGPUModelTests: XCTestCase {
             Array(bitmap.pixels[offset..<(offset + 4)]), [0, 0, 0, 255],
             "an atlas cell with no alpha must draw nothing, whatever its colour channels hold")
     }
+
+    // MARK: - Texture filtering (WS-18)
+
+    /// An 8×8 cell whose alpha ramps left to right, one step of 255/7 per
+    /// texel.
+    private static func rampAtlas(side: Int = 8) -> GlyphAtlasSnapshot {
+        var pixels = [UInt8]()
+        for _ in 0..<side {
+            for column in 0..<side {
+                let coverage = UInt8(column * 255 / (side - 1))
+                pixels.append(contentsOf: [coverage, coverage, coverage, coverage])
+            }
+        }
+        return GlyphAtlasSnapshot(
+            width: Int32(side), height: Int32(side), pixels: Data(pixels),
+            contentVersion: RenderContentVersion.next(), update: .full)
+    }
+
+    private func blue(_ bitmap: BitmapSurface, x: Int, y: Int) -> Int {
+        Int(bitmap.pixels[y * Int(bitmap.bytesPerRow) + x * 4])
+    }
+
+    /// The rasterizer binds the same sampler the shaders do
+    /// (`MIN_MAG_MIP_LINEAR`), so a magnified glyph is a ramp, not a
+    /// staircase. Nearest sampling on this fixture steps by 36 at every texel
+    /// boundary and holds flat in between; bilinear moves by ~4-5 per pixel
+    /// across the whole span.
+    func testMagnifiedGlyphIsFilteredNotStaircased() async {
+        let bitmap = render(
+            { scene in
+                scene.glyphAtlas = Self.rampAtlas()
+                scene.addGlyph(
+                    GlyphPrimitive(
+                        screenX: 32, screenY: 32, screenW: 64, screenH: 64,
+                        atlasU0: 0, atlasV0: 0, atlasU1: 1, atlasV1: 1,
+                        colorR: 1, colorG: 1, colorB: 1, colorA: 1))
+            }, clearColor: .black)
+
+        var worstStep = 0
+        var flatRuns = 0
+        for x in 33..<95 {
+            let step = abs(blue(bitmap, x: x, y: 64) - blue(bitmap, x: x - 1, y: 64))
+            worstStep = max(worstStep, step)
+            if step == 0 { flatRuns += 1 }
+        }
+
+        XCTAssertLessThanOrEqual(
+            worstStep, 12, "a jump this large across one pixel is a nearest-texel edge, not a filtered ramp")
+        XCTAssertLessThan(
+            flatRuns, 20,
+            "\(flatRuns) of 62 pixels repeated their neighbour — that is the plateau shape of point sampling")
+    }
+
+    /// The other half of the claim: filtering must not move a 1:1 draw. At a
+    /// texel-aligned magnification of 1 the sample lands exactly on a texel
+    /// centre, the fraction is 0, and bilinear degenerates to nearest — which
+    /// is why no unmagnified glyph baseline shifted when the sampler changed.
+    func testUnmagnifiedGlyphSamplingIsUnchangedByFiltering() async {
+        let bitmap = render(
+            { scene in
+                scene.glyphAtlas = Self.rampAtlas()
+                scene.addGlyph(
+                    GlyphPrimitive(
+                        screenX: 16, screenY: 16, screenW: 8, screenH: 8,
+                        atlasU0: 0, atlasV0: 0, atlasU1: 1, atlasV1: 1,
+                        colorR: 1, colorG: 1, colorB: 1, colorA: 1))
+            }, clearColor: .black)
+
+        // White ink at coverage `c` over black: the channel reads `255 · c`,
+        // and `c` is the texel's own alpha with no neighbour mixed in.
+        for column in 0..<8 {
+            let expected = column * 255 / 7
+            XCTAssertEqual(
+                blue(bitmap, x: 16 + column, y: 20), expected, accuracy: 1,
+                "texel \(column) at 1:1 must sample itself alone")
+        }
+    }
+
+    /// Images filter in *premultiplied* space, because that is what the GPU
+    /// samples: `createImageTextureResource` premultiplies every upload. A
+    /// straight-alpha source interpolated straight would drag the colour of a
+    /// fully transparent texel into its opaque neighbour — here, a black halo
+    /// along the edge of a red square on a white background.
+    func testImageFilteringInterpolatesPremultipliedTexels() async {
+        // 2×2: one opaque red texel, three transparent *black* ones. Straight
+        // interpolation would smear the black; premultiplied cannot.
+        var pixels = Data()
+        pixels.append(contentsOf: [0, 0, 255, 255])  // BGRA opaque red
+        pixels.append(contentsOf: [0, 0, 0, 0])
+        pixels.append(contentsOf: [0, 0, 0, 0])
+        pixels.append(contentsOf: [0, 0, 0, 0])
+        let source = BitmapSurface(
+            width: 2, height: 2, bytesPerRow: 8, pixels: pixels, format: .bgra8Straight)
+
+        let bitmap = render(
+            { scene in
+                scene.bindImageResource(source, for: 71)
+                scene.addImage(
+                    ImagePrimitive(
+                        screenX: 32, screenY: 32, screenW: 64, screenH: 64,
+                        uvX: 0, uvY: 0, uvW: 1, uvH: 1,
+                        opacity: 1,
+                        textureID: 71))
+            }, clearColor: .white)
+
+        // Halfway between the opaque red texel and its transparent
+        // neighbour: red stays red at partial coverage over white, so the
+        // green and blue channels rise together toward 255 and the red
+        // channel stays pinned.
+        let midOffset = 64 * Int(bitmap.bytesPerRow) + 48 * 4
+        let midBlue = Int(bitmap.pixels[midOffset])
+        let midGreen = Int(bitmap.pixels[midOffset + 1])
+        let midRed = Int(bitmap.pixels[midOffset + 2])
+        XCTAssertEqual(midBlue, midGreen, accuracy: 2, "a hue shift means the alpha convention slipped")
+        XCTAssertGreaterThan(midRed, midBlue, "the surviving colour has to be the opaque texel's red")
+        XCTAssertGreaterThan(midBlue, 40, "a fully transparent neighbour must not darken its opaque partner")
+    }
 }

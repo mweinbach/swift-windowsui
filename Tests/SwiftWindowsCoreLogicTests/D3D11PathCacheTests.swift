@@ -64,4 +64,80 @@ final class D3D11PathCacheTests: XCTestCase {
             XCTAssertEqual(renderer.pathCacheMisses, 0)
         }
     }
+
+    /// The clip is not part of the raster.
+    ///
+    /// The key used to be the whole `PathPrimitive`, clip included, so a chart
+    /// inside a `ScrollView` produced a different key on every frame the clip
+    /// moved: a miss, a CPU rasterization on the main actor and a texture
+    /// upload, sixty times a second, for a shape that never changed. The clip
+    /// now rides along as a draw parameter — a visible UV sub-rect plus the
+    /// shader's clip rect — so it cannot reach the key at all.
+    @MainActor
+    func testOnePathUnderTwoClipsIsOneEntryOneMissOneHit() async throws {
+        let renderer = try makeIsolatedOffscreenRenderer()
+        defer { renderer.detach() }
+
+        try render(pathClippedTo: Rect(x: 0, y: 0, width: 96, height: 96), through: renderer)
+        XCTAssertEqual(renderer.pathCacheMisses, 1)
+        XCTAssertEqual(renderer.pathCacheHits, 0)
+
+        try render(pathClippedTo: Rect(x: 16, y: 16, width: 96, height: 96), through: renderer)
+
+        XCTAssertEqual(renderer.pathCacheMisses, 1, "a moved clip is not a new path")
+        XCTAssertEqual(renderer.pathCacheHits, 1)
+        XCTAssertEqual(renderer.pathCacheEntryCountForTesting, 1)
+    }
+
+    /// Sixty frames of the scroll case: the clip translates every frame and
+    /// the path translates with it. One rasterization, fifty-nine hits.
+    @MainActor
+    func testATranslatingClippedPathStaysOneRasterizationAcrossSixtyFrames() async throws {
+        let renderer = try makeIsolatedOffscreenRenderer()
+        defer { renderer.detach() }
+
+        for frame in 0..<60 {
+            let offset = Double(frame % 24)
+            try render(
+                pathClippedTo: Rect(x: 8, y: offset, width: 96, height: 80),
+                pathOrigin: Point(x: 16, y: offset),
+                through: renderer)
+        }
+
+        XCTAssertEqual(renderer.pathCacheMisses, 1, "sixty frames of scrolling must rasterize once")
+        XCTAssertEqual(renderer.pathCacheHits, 59)
+        XCTAssertEqual(renderer.pathCacheEntryCountForTesting, 1)
+    }
+
+    // MARK: - Helpers
+
+    @MainActor
+    private func makeIsolatedOffscreenRenderer() throws -> D3D11BatchRenderer {
+        // Not `WARPBatchRenderer.shared`: that instance is reused across the
+        // whole target, so its path-cache counters carry other tests' history.
+        let renderer = D3D11BatchRenderer()
+        do {
+            try renderer.attachOffscreen(size: Self.surface, driver: .warpFirst)
+        } catch {
+            throw XCTSkip("D3D11 batch renderer unavailable on this machine: \(error)")
+        }
+        return renderer
+    }
+
+    private static let surface = IntSize(width: 128, height: 128)
+
+    @MainActor
+    private func render(
+        pathClippedTo clip: Rect,
+        pathOrigin: Point = Point(x: 16, y: 16),
+        through renderer: D3D11BatchRenderer
+    ) throws {
+        var path = makePath(at: pathOrigin)
+        path.clipBounds = clip
+        var scene = GPUIScene(clearColor: Color(red: 0.08, green: 0.10, blue: 0.14, alpha: 1))
+        scene.addPath(path, toLayer: 0)
+        scene.finish()
+        renderer.bindResources(for: scene)
+        try renderer.render(scene: scene)
+    }
 }

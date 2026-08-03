@@ -968,6 +968,11 @@ public enum Controls {
         weight: TextWeight = .regular,
         alignment: TextHorizontalAlignment = .center,
         fontFamily: String = "Segoe Fluent Icons",
+        // Last-resort default for callers with no view environment. `WinSwiftUI`
+        // always passes `ViewBuildContext.iconRasterDisplayScale`; this global
+        // is the first live window's scale, which is the wrong answer for every
+        // other window in a multi-window mixed-DPI process. See
+        // `NativeTextRenderer.claimDefaultIconDisplayScale(_:owner:)`.
         displayScale: Double = NativeTextRenderer.defaultIconDisplayScale
     ) -> ViewNode {
         let node = label(

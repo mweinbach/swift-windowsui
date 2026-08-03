@@ -401,6 +401,112 @@ public final class Win32Window {
         return systemAppearance != previous
     }
 
+    /// Whether a `WM_SETTINGCHANGE` broadcast reaches the delegate on its own
+    /// or only when the sampled appearance actually moved.
+    internal enum SettingChangeDelivery: Equatable {
+        /// Fonts, non-client metrics, locale, and the theme/accessibility
+        /// broadcasts: forwarded whether or not `SystemAppearanceSnapshot`
+        /// changed. The snapshot carries four fields; these broadcasts change
+        /// things the app draws from that the snapshot does not carry, and
+        /// `ImmersiveColorSet` in particular arrives *before* the theme
+        /// registry value it announces is guaranteed readable — gating it on a
+        /// re-sample dropped real dark-mode switches on the floor.
+        case unconditional
+        /// Everything else: the environment-variable, policy and per-app
+        /// broadcasts any process on the machine can raise at any rate.
+        /// Forwarding those tore down and re-registered every observed-object
+        /// token, rebuilt the whole tree and raised a UIA structure change —
+        /// which makes screen readers re-announce — for settings the app does
+        /// not read.
+        case whenAppearanceChanged
+    }
+
+    /// `SystemParametersInfo` actions whose broadcast is always delivered.
+    private static let unconditionalSettingChangeActions: Set<WPARAM> = [
+        WPARAM(SPI_SETNONCLIENTMETRICS),
+        WPARAM(SPI_SETICONTITLELOGFONT),
+        WPARAM(SPI_SETICONMETRICS),
+        WPARAM(SPI_SETHIGHCONTRAST),
+        WPARAM(SPI_SETCLIENTAREAANIMATION),
+        WPARAM(SPI_SETFONTSMOOTHING),
+        WPARAM(SPI_SETFONTSMOOTHINGTYPE),
+        WPARAM(SPI_SETFONTSMOOTHINGCONTRAST),
+    ]
+
+    /// `lParam` section names whose broadcast is always delivered, lowercased
+    /// because senders are not consistent about case.
+    private static let unconditionalSettingChangeSections: Set<String> = [
+        "immersivecolorset",
+        "windowsthemeelement",
+        "intl",
+    ]
+
+    /// Classification only — no sampling, no delegate call — so the routing
+    /// table is testable without a live broadcast.
+    internal static func settingChangeDelivery(wParam: WPARAM, section: String?) -> SettingChangeDelivery {
+        if unconditionalSettingChangeActions.contains(wParam) {
+            return .unconditional
+        }
+
+        if let section, unconditionalSettingChangeSections.contains(section.lowercased()) {
+            return .unconditional
+        }
+
+        return .whenAppearanceChanged
+    }
+
+    /// Re-samples the appearance and forwards the broadcast when either the
+    /// snapshot moved or the broadcast is one of the unconditional kinds.
+    /// Returns whether the delegate was called; internal so a headless test can
+    /// drive the same routing the wndproc does.
+    @discardableResult
+    internal func routeSettingChange(wParam: WPARAM, section: String?) -> Bool {
+        let appearanceChanged = refreshSystemAppearanceIfChanged()
+        guard appearanceChanged || Self.settingChangeDelivery(wParam: wParam, section: section) == .unconditional
+        else {
+            return false
+        }
+
+        delegate?.windowDidChangeSystemSettings(self)
+        return true
+    }
+
+    /// `WM_SYSCOLORCHANGE` is rare and carries no payload to filter on, and
+    /// the system colour palette is not in the snapshot at all — so this stays
+    /// the cheap unconditional path it always was, minus the stale cache.
+    internal func routeSystemColorChange() {
+        refreshSystemAppearanceIfChanged()
+        delegate?.windowDidChangeSystemSettings(self)
+    }
+
+    /// `WM_SETTINGCHANGE`'s `lParam` is either 0 or a pointer to a
+    /// null-terminated wide string naming the changed section; Windows
+    /// marshals that string into the receiving process for broadcasts. The
+    /// read is bounded because a sender that puts something else in `lParam`
+    /// must not walk this process off a page — every section name we match is
+    /// well under the limit.
+    private static func settingChangeSection(_ lParam: LPARAM) -> String? {
+        guard lParam != 0,
+            let pointer = UnsafePointer<WCHAR>(bitPattern: UInt(bitPattern: Int(lParam)))
+        else {
+            return nil
+        }
+
+        var units: [UTF16.CodeUnit] = []
+        units.reserveCapacity(Self.maximumSettingChangeSectionLength)
+        for index in 0..<Self.maximumSettingChangeSectionLength {
+            let unit = pointer[index]
+            if unit == 0 {
+                return String(decoding: units, as: UTF16.self)
+            }
+            units.append(unit)
+        }
+
+        return nil
+    }
+
+    private static let maximumSettingChangeSectionLength = 64
+
     /// Invalidates the refresh-rate cache only when the window's monitor
     /// actually changed. Internal so a headless test can drive a drag.
     internal func noteWindowMayHaveChangedMonitor() {
@@ -1297,23 +1403,11 @@ public final class Win32Window {
             return 0
 
         case UINT(WM_SETTINGCHANGE):
-            // `WM_SETTINGCHANGE` is a broadcast: an environment-variable
-            // change, a policy refresh, any `SystemParametersInfo` write by
-            // any process on the machine. Forwarding all of them tore down and
-            // re-registered every observed-object token, rebuilt the whole
-            // tree and raised a UIA structure change — which makes screen
-            // readers re-announce — for settings the app does not read.
-            if refreshSystemAppearanceIfChanged() {
-                delegate?.windowDidChangeSystemSettings(self)
-            }
+            routeSettingChange(wParam: wParam, section: Self.settingChangeSection(lParam))
             return 0
 
         case UINT(WM_SYSCOLORCHANGE):
-            // High-contrast theme switches broadcast WM_SYSCOLORCHANGE;
-            // route them through the same settings invalidation path.
-            if refreshSystemAppearanceIfChanged() {
-                delegate?.windowDidChangeSystemSettings(self)
-            }
+            routeSystemColorChange()
             return 0
 
         case UINT(WM_SETCURSOR):

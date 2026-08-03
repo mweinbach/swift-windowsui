@@ -1378,6 +1378,18 @@ swapping `ID3D11BlendState` (multiply, screen and plusLighter are
 expressible as fixed-function states; overlay is not);
 `CPUGPUBlendModeContractTests` is what that work would delete.
 
+The **frame path makes the same decision**, because a presenter swap must
+not change how a tree looks. `RetainedViewRuntime.appendCommands` lowers
+non-normal modes onto `FillRectCommand.blendMode` exactly as the painter
+lowers them onto the primitive, `GPUISceneBridge` forwards the field onto
+the quad (it used to drop it, which lost the data the reversibility
+argument depends on), and nothing reads it: the fallback `D3D11Renderer`
+owns exactly one `ID3D11BlendState`. It used to build an additive and a
+multiply state too, plus an `activateBlendMode` helper to swap between
+them — never called, so the divergence was one call site away rather than
+live. The frame half is pinned by
+`CPUGPUBlendModeContractTests.testEveryBlendModeRendersAsSourceOverOnTheFramePath`.
+
 ## 7b. Path fill and stroke
 
 `ensureCachedPathTexture` CPU-rasterizes every `PathPrimitive` and uploads

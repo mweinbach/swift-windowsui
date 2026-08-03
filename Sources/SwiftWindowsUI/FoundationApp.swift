@@ -86,7 +86,7 @@ public final class FoundationApp: WindowDelegate {
             refreshRendererStatus()
             isRendererReady = true
             runtime.displayScale = surface.scaleFactor
-            NativeTextRenderer.defaultIconDisplayScale = surface.scaleFactor
+            NativeTextRenderer.claimDefaultIconDisplayScale(surface.scaleFactor, owner: self)
             runtime.setRootSize(logicalSize(for: surface))
             refreshDemoLayoutProfileIfNeeded(for: runtime.root.frame.size)
             syncAnimationDriver(for: window)
@@ -99,7 +99,7 @@ public final class FoundationApp: WindowDelegate {
     public func window(_ window: Win32Window, didResizeTo size: IntSize) {
         do {
             runtime.displayScale = window.scaleFactor
-            NativeTextRenderer.defaultIconDisplayScale = window.scaleFactor
+            NativeTextRenderer.claimDefaultIconDisplayScale(window.scaleFactor, owner: self)
             runtime.setRootSize(logicalSize(for: size, scaleFactor: window.scaleFactor))
             refreshDemoLayoutProfileIfNeeded(for: runtime.root.frame.size)
             try renderer.resize(to: size)

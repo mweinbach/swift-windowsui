@@ -88,4 +88,52 @@ final class CPUGPUBlendModeContractTests: XCTestCase {
                 format: "a .multiply overlay must render identically on both backends: %.4f within tolerance",
                 report.matchRatio))
     }
+
+    // MARK: - The frame path makes the same decision
+
+    /// The same overlay as a `RenderFrame`, which is what the fallback
+    /// presenter and `GPUISceneBridge` consume.
+    private static func overlayFrame(mode: BlendMode) -> RenderFrame {
+        var frame = RenderFrame(clearColor: Color(red: 0.08, green: 0.10, blue: 0.14, alpha: 1))
+        frame.commands.append(
+            .fillRect(
+                FillRectCommand(
+                    rect: Rect(x: 0, y: 0, width: 64, height: 64),
+                    color: Color(red: 0.9, green: 0.2, blue: 0.4, alpha: 1))))
+        frame.commands.append(
+            .fillRect(
+                FillRectCommand(
+                    rect: Rect(x: 8, y: 8, width: 48, height: 48),
+                    color: Color(red: 0.3, green: 0.7, blue: 0.9, alpha: 0.75),
+                    blendMode: mode)))
+        return frame
+    }
+
+    /// A presenter swap must not change how `.blendMode(.multiply)` looks.
+    /// The runtime lowers non-normal modes onto the frame commands as well as
+    /// onto the primitives, so the frame path needs the same source-over
+    /// guarantee the scene path has — the fallback renderer owns exactly one
+    /// `ID3D11BlendState` and nothing selects another.
+    func testEveryBlendModeRendersAsSourceOverOnTheFramePath() async {
+        let reference = GPUIRawSceneRasterizer.rasterize(
+            Self.overlayFrame(mode: .normal), size: Self.surface)
+        for mode in [BlendMode.multiply, .screen, .overlay, .additive] {
+            let rendered = GPUIRawSceneRasterizer.rasterize(Self.overlayFrame(mode: mode), size: Self.surface)
+            XCTAssertEqual(
+                rendered.pixels, reference.pixels,
+                "\(mode) on a frame command must composite exactly as .normal does, or the fallback "
+                    + "presenter and the batch presenter disagree about the same tree")
+        }
+    }
+
+    /// And the frame path carries what the scene path carries: the bridge used
+    /// to drop the mode outright, so converting a frame to a scene lost the
+    /// data the reversibility argument depends on.
+    func testTheModeSurvivesTheFrameToSceneBridge() async {
+        let scene = GPUIScene(from: Self.overlayFrame(mode: .multiply), surfaceSize: Size(width: 64, height: 64))
+        let modes = scene.layers.flatMap { $0.quads.map(\.blendMode) }
+        XCTAssertTrue(
+            modes.contains(Float(BlendMode.multiply.rawValue)),
+            "the frame path must carry the mode exactly as the painter does")
+    }
 }

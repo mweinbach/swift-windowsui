@@ -1,4 +1,5 @@
 import SwiftWindowsCore
+import WinSDK
 
 @preconcurrency import XCTest
 
@@ -19,6 +20,15 @@ final class FakeSystemAppearanceProvider: SystemAppearanceProvider, @unchecked S
     func sampleSystemAppearance() -> SystemAppearanceSnapshot {
         sampleCount += 1
         return snapshot
+    }
+}
+/// Counts settings-change deliveries so the filter can be measured rather
+/// than argued about.
+final class SettingsChangeCountingDelegate: WindowDelegate {
+    private(set) var settingsChangeCount = 0
+
+    func windowDidChangeSystemSettings(_ window: Win32Window) {
+        settingsChangeCount += 1
     }
 }
 @MainActor
@@ -64,6 +74,116 @@ final class SystemAppearanceTests: XCTestCase {
         window.invalidateSystemAppearanceCache()
         XCTAssertEqual(window.systemAppearance.colorSchemePreference, .dark)
         XCTAssertEqual(provider.sampleCount, 2)
+    }
+
+    // MARK: - Settings-change routing
+
+    /// Builds a headless window wired to a fake provider and a counting
+    /// delegate. The delegate is returned so the caller keeps it alive —
+    /// `Win32Window.delegate` is weak.
+    private func makeSettingsChangeWindow(
+        snapshot: SystemAppearanceSnapshot = .unavailable
+    ) -> (Win32Window, FakeSystemAppearanceProvider, SettingsChangeCountingDelegate) {
+        let provider = FakeSystemAppearanceProvider(snapshot: snapshot)
+        let delegate = SettingsChangeCountingDelegate()
+        let window = Win32Window(title: "Test", clientSize: IntSize(width: 100, height: 100))
+        window.systemAppearanceProvider = provider
+        window.delegate = delegate
+        _ = window.systemAppearance
+        return (window, provider, delegate)
+    }
+
+    /// The high-frequency generic broadcasts — environment variables, policy
+    /// refreshes, any `SystemParametersInfo` write by any process — stay
+    /// filtered when nothing the app can see moved.
+    func testGenericBroadcastStaysFilteredWhenAppearanceIsUnchanged() async {
+        let (window, _, delegate) = makeSettingsChangeWindow()
+
+        XCTAssertFalse(window.routeSettingChange(wParam: 0, section: "Environment"))
+        XCTAssertFalse(window.routeSettingChange(wParam: 0, section: "Policy"))
+        XCTAssertFalse(window.routeSettingChange(wParam: 0, section: nil))
+        XCTAssertEqual(delegate.settingsChangeCount, 0)
+    }
+
+    func testGenericBroadcastIsDeliveredWhenAppearanceActuallyChanged() async {
+        let (window, provider, delegate) = makeSettingsChangeWindow(
+            snapshot: SystemAppearanceSnapshot(colorSchemePreference: .light))
+
+        provider.snapshot = SystemAppearanceSnapshot(colorSchemePreference: .dark)
+        XCTAssertTrue(window.routeSettingChange(wParam: 0, section: "Environment"))
+        XCTAssertEqual(delegate.settingsChangeCount, 1)
+    }
+
+    /// Metrics and font broadcasts change what the app draws and are not in
+    /// the four-field snapshot, so gating them on it silenced them entirely.
+    func testMetricsAndFontBroadcastsReachTheDelegateWithoutASnapshotChange() async {
+        let (window, _, delegate) = makeSettingsChangeWindow()
+
+        XCTAssertTrue(window.routeSettingChange(wParam: WPARAM(SPI_SETNONCLIENTMETRICS), section: nil))
+        XCTAssertTrue(window.routeSettingChange(wParam: WPARAM(SPI_SETICONTITLELOGFONT), section: nil))
+        XCTAssertTrue(window.routeSettingChange(wParam: WPARAM(SPI_SETFONTSMOOTHINGTYPE), section: nil))
+        XCTAssertEqual(delegate.settingsChangeCount, 3)
+    }
+
+    /// `ImmersiveColorSet` is the dark-mode switch, and it can arrive before
+    /// the registry value it announces reads back changed — so it must not
+    /// depend on the re-sample moving.
+    func testThemeAndLocaleSectionsReachTheDelegateWithoutASnapshotChange() async {
+        let (window, _, delegate) = makeSettingsChangeWindow()
+
+        XCTAssertTrue(window.routeSettingChange(wParam: 0, section: "ImmersiveColorSet"))
+        XCTAssertTrue(window.routeSettingChange(wParam: 0, section: "immersivecolorset"))
+        XCTAssertTrue(window.routeSettingChange(wParam: 0, section: "WindowsThemeElement"))
+        XCTAssertTrue(window.routeSettingChange(wParam: 0, section: "intl"))
+        XCTAssertEqual(delegate.settingsChangeCount, 4)
+    }
+
+    /// High contrast is in the snapshot, but the sampler degrades to `false`
+    /// when `SystemParametersInfo` fails; an unconditional route means a
+    /// failed sample cannot swallow the switch.
+    func testHighContrastBroadcastReachesTheDelegateEvenWhenSamplingFails() async {
+        let (window, _, delegate) = makeSettingsChangeWindow()
+
+        XCTAssertTrue(window.routeSettingChange(wParam: WPARAM(SPI_SETHIGHCONTRAST), section: nil))
+        XCTAssertEqual(delegate.settingsChangeCount, 1)
+    }
+
+    /// System colours are not in the snapshot at all, and the message is rare:
+    /// it keeps the cheap unconditional path.
+    func testSystemColorChangeAlwaysReachesTheDelegate() async {
+        let (window, _, delegate) = makeSettingsChangeWindow()
+
+        window.routeSystemColorChange()
+        window.routeSystemColorChange()
+        XCTAssertEqual(delegate.settingsChangeCount, 2)
+    }
+
+    /// Every route re-samples, whether or not it forwards: a filtered
+    /// broadcast must not leave a stale snapshot cached.
+    func testFilteredBroadcastStillReSamplesTheSnapshot() async {
+        let (window, provider, _) = makeSettingsChangeWindow(
+            snapshot: SystemAppearanceSnapshot(colorSchemePreference: .light))
+        XCTAssertEqual(provider.sampleCount, 1)
+
+        XCTAssertFalse(window.routeSettingChange(wParam: 0, section: "Environment"))
+        XCTAssertEqual(provider.sampleCount, 2, "a filtered broadcast still refreshes the cache")
+        XCTAssertEqual(window.systemAppearance.colorSchemePreference, .light)
+        XCTAssertEqual(provider.sampleCount, 2, "and the refreshed value is cached again")
+    }
+
+    func testSettingChangeClassificationTable() async {
+        XCTAssertEqual(
+            Win32Window.settingChangeDelivery(wParam: WPARAM(SPI_SETNONCLIENTMETRICS), section: nil),
+            .unconditional)
+        XCTAssertEqual(
+            Win32Window.settingChangeDelivery(wParam: 0, section: "ImmersiveColorSet"),
+            .unconditional)
+        XCTAssertEqual(
+            Win32Window.settingChangeDelivery(wParam: 0, section: "Environment"),
+            .whenAppearanceChanged)
+        XCTAssertEqual(
+            Win32Window.settingChangeDelivery(wParam: 0, section: nil),
+            .whenAppearanceChanged)
     }
 
     // MARK: - Mapping tables

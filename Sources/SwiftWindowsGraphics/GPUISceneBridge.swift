@@ -41,8 +41,11 @@ extension GPUIScene {
     /// - Ellipse clips: Fallback to bounding rect of the ellipse
     /// - Path clips: Fallback to full surface (no-op)
     /// - Radial/conic gradients: Fallback to base color (`cmd.color`)
-    /// - Per-command blend modes: Ignored (uses default compositing; blend modes
-    ///   like .multiply, .screen, .overlay, .additive fall back to normal blending)
+    /// - Per-command blend modes: Carried onto `QuadPrimitive.blendMode` and
+    ///   never interpreted. The scene contract composites source-over on every
+    ///   backend (`CPUGPUBlendModeContractTests`); the field survives the
+    ///   conversion only so the decision stays reversible, which is also why
+    ///   the frame path must not drop what the scene path keeps.
     ///
     /// - Parameters:
     ///   - frame: The backend-neutral render frame to convert.
@@ -284,7 +287,9 @@ extension GPUIScene {
             clipX: Float(effectiveClip.origin.x),
             clipY: Float(effectiveClip.origin.y),
             clipWidth: Float(effectiveClip.size.width),
-            clipHeight: Float(effectiveClip.size.height)
+            clipHeight: Float(effectiveClip.size.height),
+            // Carried, not interpreted — same as the painter's direct lowering.
+            blendMode: Float(cmd.blendMode.rawValue)
         )
     }
 

@@ -6,6 +6,13 @@ import SwiftWindowsGraphics
 
 import WinSDK
 
+/// Weak box for ``NativeTextRenderer/claimDefaultIconDisplayScale(_:owner:)``:
+/// the claim list must never keep a window host alive.
+@MainActor
+private struct WeakIconDisplayScaleClaimant {
+    weak var object: AnyObject?
+}
+
 @MainActor
 public enum NativeTextRenderer {
     /// Display scale applied to icon bitmaps rasterized without an explicit
@@ -19,7 +26,68 @@ public enum NativeTextRenderer {
     /// decided the icon raster scale for all of them at mixed DPI.
     /// It defaults to 1 — the deterministic screenshot value — and offscreen
     /// scale-1 tools leave it untouched, keeping their output byte-identical.
+    ///
+    /// Hosts must not write this directly: use
+    /// ``claimDefaultIconDisplayScale(_:owner:)``, which refuses to let a
+    /// second window stomp the first. Direct writes remain available for
+    /// scoped, restored overrides (`RenderSnapshot`) and tests.
     public static var defaultIconDisplayScale: Double = 1
+
+    /// Hosts that have claimed the process-global default, held weakly so a
+    /// closed window drops out without needing a matching release call
+    /// (and so a recycled address can never be mistaken for a live host).
+    private static var iconDisplayScaleClaimants: [WeakIconDisplayScaleClaimant] = []
+
+    /// Live hosts currently claiming ``defaultIconDisplayScale``.
+    public static var iconDisplayScaleClaimantCount: Int {
+        compactIconDisplayScaleClaimants()
+        return iconDisplayScaleClaimants.count
+    }
+
+    /// Claims the process-global icon raster scale on behalf of `owner`.
+    ///
+    /// The write lands only while there is exactly one live claimant — the
+    /// single-window case, where the scale is unambiguous, including after a
+    /// DPI change or a monitor move. A second window opening leaves the value
+    /// where the first window put it instead of overwriting it, because with
+    /// two windows on different monitors there is no correct process-wide
+    /// answer: the last host to activate or resize would otherwise decide the
+    /// icon raster scale for every other window.
+    ///
+    /// This is a hazard *bound*, not a fix. `WinSwiftUI` icons never read the
+    /// global — they take `ViewBuildContext.iconRasterDisplayScale`, which
+    /// reads `EnvironmentValues.displayScale` and is therefore per-window
+    /// correct at mixed DPI. What is left exposed is the last-resort default
+    /// of `Controls.icon` for callers with no view environment
+    /// (`DeclarativeUI`, tools, tests); in a multi-window process those
+    /// callers get the first window's scale. De-globalizing that default is
+    /// the real fix and is not attempted here.
+    ///
+    /// - Returns: whether ``defaultIconDisplayScale`` was written.
+    @discardableResult
+    public static func claimDefaultIconDisplayScale(_ scale: Double, owner: AnyObject) -> Bool {
+        compactIconDisplayScaleClaimants()
+        if !iconDisplayScaleClaimants.contains(where: { $0.object === owner }) {
+            iconDisplayScaleClaimants.append(WeakIconDisplayScaleClaimant(object: owner))
+        }
+
+        guard iconDisplayScaleClaimants.count == 1 else {
+            return false
+        }
+
+        defaultIconDisplayScale = scale
+        return true
+    }
+
+    private static func compactIconDisplayScaleClaimants() {
+        iconDisplayScaleClaimants.removeAll { $0.object == nil }
+    }
+
+    /// Drops every claim so a test starts from the single-window case
+    /// regardless of what a host in an earlier test left alive.
+    internal static func resetIconDisplayScaleClaimsForTesting() {
+        iconDisplayScaleClaimants.removeAll()
+    }
 
     /// Whether `layoutLine` resolves glyph runs through DirectWrite shaping
     /// (glyph IDs, shaped advances, cluster map) instead of the per-character

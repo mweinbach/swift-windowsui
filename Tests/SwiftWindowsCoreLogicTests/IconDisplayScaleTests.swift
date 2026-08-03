@@ -8,8 +8,19 @@ import XCTest
 /// size stays in logical points. Scale 1 (the deterministic screenshot path)
 /// must stay byte-identical to the pre-DPI-aware behavior.
 final class IconDisplayScaleTests: XCTestCase {
+    /// Stand-in for a window host: the claim list only needs object identity.
+    private final class FakeIconScaleHost {}
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await MainActor.run {
+            NativeTextRenderer.resetIconDisplayScaleClaimsForTesting()
+        }
+    }
+
     override func tearDown() async throws {
         await MainActor.run {
+            NativeTextRenderer.resetIconDisplayScaleClaimsForTesting()
             NativeTextRenderer.defaultIconDisplayScale = 1
         }
         try await super.tearDown()
@@ -85,6 +96,62 @@ final class IconDisplayScaleTests: XCTestCase {
                 hostedBitmap.pixels, explicitBitmap.pixels,
                 "unspecified displayScale must behave like an explicit host-set scale")
             XCTAssertEqual(hostedNode.preferredSize, Size(width: 24, height: 24))
+        }
+    }
+
+    // MARK: - Process-global default: who is allowed to write it
+
+    /// The sole live host owns the global, including across a DPI change:
+    /// activation and every resize re-claim, and the value follows.
+    func testSoleHostKeepsWritingTheDefaultAcrossResizes() async throws {
+        try await MainActor.run {
+            let host = FakeIconScaleHost()
+            XCTAssertTrue(NativeTextRenderer.claimDefaultIconDisplayScale(1.5, owner: host))
+            XCTAssertEqual(NativeTextRenderer.defaultIconDisplayScale, 1.5)
+
+            // Monitor move: same host, new scale, still unambiguous.
+            XCTAssertTrue(NativeTextRenderer.claimDefaultIconDisplayScale(2, owner: host))
+            XCTAssertEqual(NativeTextRenderer.defaultIconDisplayScale, 2)
+            XCTAssertEqual(NativeTextRenderer.iconDisplayScaleClaimantCount, 1)
+        }
+    }
+
+    /// Two windows at different DPI have no correct process-wide answer, so
+    /// the second one does not get to overwrite the first — which is what
+    /// "the last window to activate or resize decides for everybody" was.
+    func testSecondLiveHostCannotStompTheFirstHostsScale() async throws {
+        try await MainActor.run {
+            let first = FakeIconScaleHost()
+            let second = FakeIconScaleHost()
+
+            XCTAssertTrue(NativeTextRenderer.claimDefaultIconDisplayScale(1, owner: first))
+            XCTAssertFalse(
+                NativeTextRenderer.claimDefaultIconDisplayScale(2, owner: second),
+                "a second window must not claim the process-global icon scale")
+            XCTAssertEqual(NativeTextRenderer.defaultIconDisplayScale, 1)
+
+            // Not even the first host: with two windows live, every write is
+            // wrong for one of them, so the value freezes where it was.
+            XCTAssertFalse(NativeTextRenderer.claimDefaultIconDisplayScale(3, owner: first))
+            XCTAssertEqual(NativeTextRenderer.defaultIconDisplayScale, 1)
+            XCTAssertEqual(NativeTextRenderer.iconDisplayScaleClaimantCount, 2)
+        }
+    }
+
+    /// Claims are held weakly: a closed window releases the global without
+    /// needing the host to remember to hand it back.
+    func testClosedHostReleasesTheClaimForTheNextWindow() async throws {
+        try await MainActor.run {
+            let survivor = FakeIconScaleHost()
+            do {
+                let closing = FakeIconScaleHost()
+                XCTAssertTrue(NativeTextRenderer.claimDefaultIconDisplayScale(1, owner: closing))
+                XCTAssertFalse(NativeTextRenderer.claimDefaultIconDisplayScale(2, owner: survivor))
+            }
+
+            XCTAssertEqual(NativeTextRenderer.iconDisplayScaleClaimantCount, 1)
+            XCTAssertTrue(NativeTextRenderer.claimDefaultIconDisplayScale(2, owner: survivor))
+            XCTAssertEqual(NativeTextRenderer.defaultIconDisplayScale, 2)
         }
     }
 }

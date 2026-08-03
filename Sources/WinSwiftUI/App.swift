@@ -2062,7 +2062,9 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         nextPresenterAttachAttemptAt = nil
         let scaleFactor = Win32Window.effectiveScaleFactor(for: surface.scaleFactor)
         runtime.displayScale = scaleFactor
-        NativeTextRenderer.defaultIconDisplayScale = scaleFactor
+        // Claim, not assign: with a second window open this host's scale is not
+        // the process's answer. See `claimDefaultIconDisplayScale`.
+        NativeTextRenderer.claimDefaultIconDisplayScale(scaleFactor, owner: self)
         runtime.setRootSize(logicalSize(for: surface))
         componentHost.reload()
         uiaBridge?.raiseStructureChanged()
@@ -2162,7 +2164,10 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         do {
             let scaleFactor = window.effectiveScaleFactor
             runtime.displayScale = scaleFactor
-            NativeTextRenderer.defaultIconDisplayScale = scaleFactor
+            // A resize can be a DPI change (monitor move), so the sole-window
+            // claim is refreshed here too — and refused just the same once a
+            // second window is live.
+            NativeTextRenderer.claimDefaultIconDisplayScale(scaleFactor, owner: self)
             surfaceDescriptor?.pixelSize = size
             surfaceDescriptor?.scaleFactor = scaleFactor
             runtime.setRootSize(logicalSize(for: size, scaleFactor: scaleFactor))

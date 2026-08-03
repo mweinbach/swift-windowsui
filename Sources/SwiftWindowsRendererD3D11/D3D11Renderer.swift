@@ -70,13 +70,6 @@ private struct FrameClipStackEntry {
     var operation: ClipOperation
 }
 
-/// Blend modes supported by the D3D11 fallback renderer.
-public enum D3D11BlendMode: Hashable, Sendable {
-    case normal
-    case additive
-    case multiply
-}
-
 public final class D3D11Renderer: RenderBackend {
     public private(set) var isAttached = false {
         didSet { isAttachedMirror = isAttached }
@@ -123,9 +116,9 @@ public final class D3D11Renderer: RenderBackend {
     private var bitmapPixelShader: UnsafeMutablePointer<ID3D11PixelShader>?
     private var bitmapConstantBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var bitmapSamplerState: UnsafeMutablePointer<ID3D11SamplerState>?
+    /// The one blend state this presenter owns: `ONE / INV_SRC_ALPHA`.
+    /// See ``createPipelineIfNeeded()`` for why there is exactly one.
     private var blendState: UnsafeMutablePointer<ID3D11BlendState>?
-    private var blendStates: [D3D11BlendMode: UnsafeMutablePointer<ID3D11BlendState>] = [:]
-    private var currentBlendMode: D3D11BlendMode = .normal
     private var rasterizerState: UnsafeMutablePointer<ID3D11RasterizerState>?
     private var direct2DFactory: UnsafeMutableRawPointer?
     private var direct2DDevice: UnsafeMutableRawPointer?
@@ -244,19 +237,7 @@ public final class D3D11Renderer: RenderBackend {
         }
 
         releaseCOM(&rasterizerState)
-        // `blendState` and `blendStates[.normal]` are the same object stored
-        // twice under one reference, so the dictionary owns the release and
-        // the property is only cleared.
-        if let normal = blendStates[.normal], normal == blendState {
-            blendState = nil
-        }
-        for state in blendStates.values {
-            var releasable: UnsafeMutablePointer<ID3D11BlendState>? = state
-            releaseCOM(&releasable)
-        }
-        blendStates.removeAll()
         releaseCOM(&blendState)
-        currentBlendMode = .normal
 
         releaseCOM(&bitmapSamplerState)
         releaseCOM(&bitmapConstantBuffer)
@@ -451,8 +432,7 @@ public final class D3D11Renderer: RenderBackend {
         deviceContext.pointee.lpVtbl.pointee.VSSetConstantBuffers(deviceContext, 0, 1, &shaderConstantBuffer)
         deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 0, 1, &shaderConstantBuffer)
 
-        // Reset blend mode to normal at each frame boundary.
-        currentBlendMode = .normal
+        // Bind the only blend state there is at each frame boundary.
         let blendFactor: [FLOAT] = [0, 0, 0, 0]
         blendFactor.withUnsafeBufferPointer { buffer in
             deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(deviceContext, blendState, buffer.baseAddress, UINT.max)
@@ -768,6 +748,15 @@ public final class D3D11Renderer: RenderBackend {
         }
         try throwIfFailed(samplerStateHR, operation: "ID3D11Device.CreateSamplerState")
 
+        // Source-over, and only source-over — the same contract the scene
+        // path ships (`CPUGPUBlendModeContractTests`). This used to build an
+        // additive and a multiply state as well, with an `activateBlendMode`
+        // helper to swap between them; nothing ever called it, so the two
+        // extra states were a per-attach allocation and a standing invitation
+        // to make the fallback presenter composite differently from the
+        // batch presenter for the same tree. `FillRectCommand.blendMode` is
+        // still carried through this renderer for reversibility, exactly as
+        // `QuadPrimitive.blendMode` is; neither is interpreted.
         var blendDescriptor = D3D11_BLEND_DESC()
         blendDescriptor.AlphaToCoverageEnable = false
         blendDescriptor.IndependentBlendEnable = false
@@ -784,49 +773,6 @@ public final class D3D11Renderer: RenderBackend {
             device.pointee.lpVtbl.pointee.CreateBlendState(device, &blendDescriptor, &state)
         }
         try throwIfFailed(blendStateHR, operation: "ID3D11Device.CreateBlendState")
-        if let blendState {
-            blendStates[.normal] = blendState
-        }
-
-        // Additive blend state: SrcBlend=ONE, DestBlend=ONE
-        var additiveBlendDescriptor = D3D11_BLEND_DESC()
-        additiveBlendDescriptor.AlphaToCoverageEnable = false
-        additiveBlendDescriptor.IndependentBlendEnable = false
-        additiveBlendDescriptor.RenderTarget.0.BlendEnable = true
-        additiveBlendDescriptor.RenderTarget.0.SrcBlend = D3D11_BLEND_ONE
-        additiveBlendDescriptor.RenderTarget.0.DestBlend = D3D11_BLEND_ONE
-        additiveBlendDescriptor.RenderTarget.0.BlendOp = D3D11_BLEND_OP_ADD
-        additiveBlendDescriptor.RenderTarget.0.SrcBlendAlpha = D3D11_BLEND_ONE
-        additiveBlendDescriptor.RenderTarget.0.DestBlendAlpha = D3D11_BLEND_ONE
-        additiveBlendDescriptor.RenderTarget.0.BlendOpAlpha = D3D11_BLEND_OP_ADD
-        additiveBlendDescriptor.RenderTarget.0.RenderTargetWriteMask = UINT8(D3D11_COLOR_WRITE_ENABLE_ALL.rawValue)
-
-        var additiveBlendState: UnsafeMutablePointer<ID3D11BlendState>?
-        let additiveBlendStateHR = device.pointee.lpVtbl.pointee.CreateBlendState(device, &additiveBlendDescriptor, &additiveBlendState)
-        try throwIfFailed(additiveBlendStateHR, operation: "ID3D11Device.CreateBlendState(additive)")
-        if let additiveBlendState {
-            blendStates[.additive] = additiveBlendState
-        }
-
-        // Multiply blend state: SrcBlend=DEST_COLOR, DestBlend=INV_SRC_ALPHA
-        var multiplyBlendDescriptor = D3D11_BLEND_DESC()
-        multiplyBlendDescriptor.AlphaToCoverageEnable = false
-        multiplyBlendDescriptor.IndependentBlendEnable = false
-        multiplyBlendDescriptor.RenderTarget.0.BlendEnable = true
-        multiplyBlendDescriptor.RenderTarget.0.SrcBlend = D3D11_BLEND_DEST_COLOR
-        multiplyBlendDescriptor.RenderTarget.0.DestBlend = D3D11_BLEND_INV_SRC_ALPHA
-        multiplyBlendDescriptor.RenderTarget.0.BlendOp = D3D11_BLEND_OP_ADD
-        multiplyBlendDescriptor.RenderTarget.0.SrcBlendAlpha = D3D11_BLEND_ONE
-        multiplyBlendDescriptor.RenderTarget.0.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA
-        multiplyBlendDescriptor.RenderTarget.0.BlendOpAlpha = D3D11_BLEND_OP_ADD
-        multiplyBlendDescriptor.RenderTarget.0.RenderTargetWriteMask = UINT8(D3D11_COLOR_WRITE_ENABLE_ALL.rawValue)
-
-        var multiplyBlendState: UnsafeMutablePointer<ID3D11BlendState>?
-        let multiplyBlendStateHR = device.pointee.lpVtbl.pointee.CreateBlendState(device, &multiplyBlendDescriptor, &multiplyBlendState)
-        try throwIfFailed(multiplyBlendStateHR, operation: "ID3D11Device.CreateBlendState(multiply)")
-        if let multiplyBlendState {
-            blendStates[.multiply] = multiplyBlendState
-        }
 
         var rasterizerDescriptor = D3D11_RASTERIZER_DESC()
         rasterizerDescriptor.FillMode = D3D11_FILL_SOLID
@@ -1524,22 +1470,6 @@ public final class D3D11Renderer: RenderBackend {
         }
 
         return max(surface?.scaleFactor ?? 1.0, 1.0)
-    }
-
-    /// Activates the given blend mode on the device context if it differs
-    /// from the currently active blend mode.
-    private func activateBlendMode(
-        _ mode: D3D11BlendMode,
-        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>
-    ) {
-        guard mode != currentBlendMode, let state = blendStates[mode] else {
-            return
-        }
-        currentBlendMode = mode
-        let blendFactor: [FLOAT] = [0, 0, 0, 0]
-        blendFactor.withUnsafeBufferPointer { buffer in
-            deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(deviceContext, state, buffer.baseAddress, UINT.max)
-        }
     }
 
     /// Turns a Present HRESULT into a decision instead of a sign test.

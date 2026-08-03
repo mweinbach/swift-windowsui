@@ -178,6 +178,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   shadow envelope and falloff, the material composite and its shared blur
   cap, `luminanceToAlpha` ordering, and the glyph sampler's alpha
   convention (coverage is `.a`, exactly as the shader reads it).
+- `CPUGPUBlendModeContractTests` — source-over, and only source-over, on
+  **both** paths: every mode rasterizes as `.normal` on the scene path and
+  on the frame path, a `.multiply` overlay matches on WARP, and the mode
+  still survives onto `QuadPrimitive.blendMode` — through the painter and
+  through `GPUISceneBridge` — so the decision stays reversible. Landing the
+  opposite decision means implementing the modes on the GPU and deleting
+  this suite.
+- `SystemAppearanceTests` — sampling, the mapping tables, and the
+  settings-change routing: the generic high-frequency broadcasts
+  (environment, policy) are filtered when the four-field snapshot did not
+  move, while metrics/font/theme/locale broadcasts and `WM_SYSCOLORCHANGE`
+  reach the delegate unconditionally — they change what the app draws from
+  and the snapshot does not carry them. Every route re-samples, filtered or
+  not, so a filtered broadcast never leaves a stale snapshot cached.
+- `IconDisplayScaleTests` — icon rasterization at a requested scale, scale-1
+  byte-identity, and who may write the process-global
+  `NativeTextRenderer.defaultIconDisplayScale`: the sole live host writes it
+  on activation and on every resize, a second live host cannot stomp it, and
+  claims are weak so a closed window releases it.
 
 Test runs never write images into the source tree: `check-contracts.ps1`
 fails if a `ReferenceImages` directory appears under `Tests/`. Reviewed

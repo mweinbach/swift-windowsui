@@ -4628,6 +4628,14 @@ public final class ViewNode {
         // views should be added at the root level or to a dedicated
         // overlay container rather than relying on zIndex across
         // different subtrees.
+        // Blend modes are carried on the frame commands, never interpreted —
+        // the same decision the painter makes for `QuadPrimitive.blendMode`.
+        // Every presenter composites source-over (the fallback renderer owns
+        // exactly one `ID3D11BlendState`, `GPUISceneBridge` forwards the field
+        // onto the quad without reading it, and the CPU rasterizer matches),
+        // so a presenter swap cannot change how `.blendMode(.multiply)` looks.
+        // Dropping the lowering instead would make the decision irreversible.
+        // See `CPUGPUBlendModeContractTests`.
         if effectiveBlendMode != .normal {
             for index in directCommandStartIndex..<commands.count {
                 commands[index].applyBlendMode(effectiveBlendMode)

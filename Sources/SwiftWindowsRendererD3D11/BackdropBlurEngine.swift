@@ -310,10 +310,11 @@ final class D3D11BackdropBlurEngine {
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
         backBuffer: UnsafeMutablePointer<ID3D11Texture2D>,
         backBufferRTV: UnsafeMutablePointer<ID3D11RenderTargetView>,
-        surfaceWidth: Int,
-        surfaceHeight: Int,
+        target: RenderTargetDescriptor,
         quad: QuadPrimitive
     ) throws {
+        let surfaceWidth = target.width
+        let surfaceHeight = target.height
         // Same truncation as the CPU rasterizer, and saturating for the
         // same reason it is there: a non-finite radius must round to no
         // blur, not trap.

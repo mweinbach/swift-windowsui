@@ -1367,6 +1367,20 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
     }
 
+    /// The surface this renderer is currently drawing into, as the shared
+    /// render-pass value. One statement of "what and how big", read by the
+    /// backdrop blur engine instead of each caller passing its own idea of
+    /// the surface size.
+    ///
+    /// `clearColor` is nil — a frame's draws composite over what the clear
+    /// already put there; the clear itself is not a pass in this model.
+    internal var currentRenderTargetDescriptor: RenderTargetDescriptor {
+        RenderTargetDescriptor(
+            kind: renderTargetKind == .offscreen ? .offscreen : .presentation,
+            width: Int(targetPixelSize.width),
+            height: Int(targetPixelSize.height))
+    }
+
     private func createOffscreenTarget(size: IntSize) throws {
         guard let device else {
             throw BatchRendererError(
@@ -2689,8 +2703,13 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             deviceContext: deviceContext,
             backBuffer: backBuffer,
             backBufferRTV: renderTargetView,
-            surfaceWidth: Int(surfaceSize.width),
-            surfaceHeight: Int(surfaceSize.height),
+            // The renderer states which surface this is once, and the blur
+            // engine reads that rather than a pair of loose ints: the
+            // engine's copy box is bounded by the target it was told about,
+            // and a `.offscreen` target is as valid a backdrop source as a
+            // swap-chain buffer. That is what lets a material blur inside an
+            // offscreen snapshot at all.
+            target: currentRenderTargetDescriptor,
             quad: quad
         )
     }

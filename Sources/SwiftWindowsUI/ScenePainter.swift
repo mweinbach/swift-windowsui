@@ -1282,8 +1282,17 @@ public enum ScenePainter {
         /// The sub-scene is shifted by this origin and the composited image is
         /// placed here, so the two always agree.
         let frame: Rect
+        /// The offscreen pass this group runs, in the render-pass vocabulary
+        /// the batch renderer and the blur engine also speak: an `.offscreen`
+        /// target cleared to transparent, whose viewport is the whole target.
+        /// The size lives here rather than in a bare `IntSize` so a group and
+        /// a blur pass describe their scratch surface the same way.
+        let pass: RenderPassDescriptor
+
         /// Buffer extent in device pixels.
-        let size: IntSize
+        var size: IntSize {
+            IntSize(width: Int32(pass.target.width), height: Int32(pass.target.height))
+        }
     }
 
     /// Largest offscreen compositing buffer, in device pixels. A 4K window is
@@ -1334,9 +1343,19 @@ public enum ScenePainter {
         )
         guard width * height <= maxCompositingGroupPixels else { return nil }
 
+        let target = RenderTargetDescriptor(
+            kind: .offscreen, width: width, height: height, clearColor: .clear)
         return CompositingGroupBuffer(
             frame: frame,
-            size: IntSize(width: Int32(width), height: Int32(height))
+            pass: RenderPassDescriptor(
+                label: "compositingGroup",
+                target: target,
+                viewport: SubTextureRegion(textureWidth: width, textureHeight: height),
+                inheritedOpacity: 1,
+                // The bitmap is keyed on the group's paint cache key and
+                // reused across frames while nothing beneath it changed.
+                isCacheable: true
+            )
         )
     }
 

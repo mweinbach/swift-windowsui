@@ -157,6 +157,29 @@ final class RenderPassAbstractionTests: XCTestCase {
         XCTAssertEqual(pass.inheritedOpacity, 0, "a non-finite inherited opacity must not reach a shader")
     }
 
+    /// The vocabulary is only worth having if the three consumers actually
+    /// speak it. The batch renderer states which surface it is drawing into
+    /// once, and the blur engine reads that rather than a pair of loose
+    /// surface ints — which is what makes a material blur correctly inside
+    /// an offscreen snapshot rather than only against a swap-chain buffer.
+    func testBatchRendererDescribesItsCurrentTargetAsARenderTarget() async throws {
+        let renderer = D3D11BatchRenderer()
+        defer { renderer.detach() }
+        do {
+            try renderer.attachOffscreen(size: IntSize(width: 128, height: 96), driver: .warpFirst)
+        } catch {
+            throw XCTSkip("No D3D11 device available: \(error)")
+        }
+
+        let target = renderer.currentRenderTargetDescriptor
+        XCTAssertEqual(target.kind, .offscreen)
+        XCTAssertEqual(target.width, 128)
+        XCTAssertEqual(target.height, 96)
+        XCTAssertTrue(
+            target.loadsExistingContents,
+            "a frame's draws composite over what the clear already put there; the clear is not a pass")
+    }
+
     // MARK: - BlurPassPlan
 
     func testOrdinaryRadiiStayAtFullResolution() async {

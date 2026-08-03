@@ -107,7 +107,7 @@ final class BackdropBlurRegionSafetyTests: XCTestCase {
         //    targets to 200×200 and leaves them holding blurred white.
         try engine.drawBlurredQuad(
             deviceContext: context, backBuffer: backBuffer, backBufferRTV: rtv,
-            surfaceWidth: width, surfaceHeight: height,
+            target: RenderTargetDescriptor(kind: .offscreen, width: width, height: height),
             quad: makeMaterial(x: 0, y: 0, size: 200, radius: 10))
         XCTAssertGreaterThanOrEqual(engine.textureCapacity.width, 200)
         XCTAssertGreaterThanOrEqual(engine.textureCapacity.height, 200)
@@ -117,7 +117,7 @@ final class BackdropBlurRegionSafetyTests: XCTestCase {
         //    white. Its taps must not reach them.
         try engine.drawBlurredQuad(
             deviceContext: context, backBuffer: backBuffer, backBufferRTV: rtv,
-            surfaceWidth: width, surfaceHeight: height,
+            target: RenderTargetDescriptor(kind: .offscreen, width: width, height: height),
             quad: makeMaterial(x: 208, y: 208, size: 40, radius: 12))
 
         let result = try readWARPPixels(device: device, target: target)
@@ -177,7 +177,7 @@ final class BackdropBlurRegionSafetyTests: XCTestCase {
         defer { oversized.detach() }
         try oversized.drawBlurredQuad(
             deviceContext: context, backBuffer: backBuffer, backBufferRTV: rtv,
-            surfaceWidth: 256, surfaceHeight: 256,
+            target: RenderTargetDescriptor(kind: .offscreen, width: 256, height: 256),
             quad: makeMaterial(x: 0, y: 0, size: 200, radius: 8))
         XCTAssertLessThanOrEqual(
             oversized.textureCapacity.width, 64,
@@ -193,7 +193,7 @@ final class BackdropBlurRegionSafetyTests: XCTestCase {
         defer { outside.detach() }
         try outside.drawBlurredQuad(
             deviceContext: context, backBuffer: backBuffer, backBufferRTV: rtv,
-            surfaceWidth: 256, surfaceHeight: 256,
+            target: RenderTargetDescriptor(kind: .offscreen, width: 256, height: 256),
             quad: makeMaterial(x: 128, y: 128, size: 40, radius: 8))
         XCTAssertEqual(
             outside.textureCapacity.width, 0,

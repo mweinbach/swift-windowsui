@@ -186,8 +186,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
             deviceContext: try XCTUnwrap(device.context),
             backBuffer: try XCTUnwrap(target.texture),
             backBufferRTV: try XCTUnwrap(target.rtv),
-            surfaceWidth: width,
-            surfaceHeight: height,
+            target: RenderTargetDescriptor(kind: .offscreen, width: width, height: height),
             quad: quad
         )
 
@@ -242,8 +241,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
             deviceContext: try XCTUnwrap(device.context),
             backBuffer: try XCTUnwrap(target.texture),
             backBufferRTV: try XCTUnwrap(target.rtv),
-            surfaceWidth: width,
-            surfaceHeight: height,
+            target: RenderTargetDescriptor(kind: .offscreen, width: width, height: height),
             quad: quad
         )
 
@@ -277,8 +275,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
             deviceContext: try XCTUnwrap(device.context),
             backBuffer: try XCTUnwrap(target.texture),
             backBufferRTV: try XCTUnwrap(target.rtv),
-            surfaceWidth: width,
-            surfaceHeight: height,
+            target: RenderTargetDescriptor(kind: .offscreen, width: width, height: height),
             quad: quad
         )
 
@@ -312,7 +309,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
         )
         try engine.drawBlurredQuad(
             deviceContext: context, backBuffer: backBuffer, backBufferRTV: rtv,
-            surfaceWidth: width, surfaceHeight: height, quad: materialA)
+            target: RenderTargetDescriptor(kind: .offscreen, width: width, height: height), quad: materialA)
 
         // Material B: blue tint overlapping A's right edge. It must blur
         // the scene WITH A's tint already composited — never the pristine
@@ -326,7 +323,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
         )
         try engine.drawBlurredQuad(
             deviceContext: context, backBuffer: backBuffer, backBufferRTV: rtv,
-            surfaceWidth: width, surfaceHeight: height, quad: materialB)
+            target: RenderTargetDescriptor(kind: .offscreen, width: width, height: height), quad: materialB)
 
         let result = try readWARPPixels(device: device, target: target)
 
@@ -374,8 +371,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
                 deviceContext: try XCTUnwrap(device.context),
                 backBuffer: try XCTUnwrap(target.texture),
                 backBufferRTV: try XCTUnwrap(target.rtv),
-                surfaceWidth: width,
-                surfaceHeight: height,
+                target: RenderTargetDescriptor(kind: .offscreen, width: width, height: height),
                 quad: quad
             )
             return try readWARPPixels(device: device, target: target)
@@ -414,7 +410,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
             endR: 1, endG: 1, endB: 1, endA: 0.4, blurRadius: 4)
         try engine.drawBlurredQuad(
             deviceContext: context, backBuffer: backBuffer, backBufferRTV: rtv,
-            surfaceWidth: width, surfaceHeight: height, quad: small)
+            target: RenderTargetDescriptor(kind: .offscreen, width: width, height: height), quad: small)
         let smallCapacity = engine.textureCapacity
         XCTAssertGreaterThanOrEqual(smallCapacity.width, 16)
         XCTAssertGreaterThanOrEqual(smallCapacity.height, 16)
@@ -425,7 +421,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
             endR: 1, endG: 1, endB: 1, endA: 0.4, blurRadius: 8)
         try engine.drawBlurredQuad(
             deviceContext: context, backBuffer: backBuffer, backBufferRTV: rtv,
-            surfaceWidth: width, surfaceHeight: height, quad: large)
+            target: RenderTargetDescriptor(kind: .offscreen, width: width, height: height), quad: large)
         XCTAssertGreaterThanOrEqual(engine.textureCapacity.width, 64)
         XCTAssertGreaterThanOrEqual(engine.textureCapacity.height, 48)
 
@@ -488,7 +484,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
         // .regularMaterial-like: white tint α 0.40, radius 22.
         try engine.drawBlurredQuad(
             deviceContext: context, backBuffer: backBuffer, backBufferRTV: rtv,
-            surfaceWidth: width, surfaceHeight: height,
+            target: RenderTargetDescriptor(kind: .offscreen, width: width, height: height),
             quad: QuadPrimitive(
                 x: 24, y: 32, width: 128, height: 192,
                 cornerRadius: 12,
@@ -499,7 +495,7 @@ final class D3D11BackdropBlurTests: XCTestCase {
         // tint α 0.58, radius 30.
         try engine.drawBlurredQuad(
             deviceContext: context, backBuffer: backBuffer, backBufferRTV: rtv,
-            surfaceWidth: width, surfaceHeight: height,
+            target: RenderTargetDescriptor(kind: .offscreen, width: width, height: height),
             quad: QuadPrimitive(
                 x: 104, y: 96, width: 128, height: 128,
                 cornerRadius: 12,

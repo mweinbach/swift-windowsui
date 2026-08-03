@@ -1771,6 +1771,23 @@ Pinned by `RenderPassAbstractionTests` (schedule, cost, continuity across
 the threshold, and a quarter-resolution cross-backend parity scene) and
 by `D3D11BackdropBlurTests.testBothBackendsHonourABlurRadiusAboveTheOldCap`.
 
+### The render-pass vocabulary
+
+`RenderTargetKind` / `RenderTargetDescriptor` / `RenderPassDescriptor` /
+`SubTextureRegion` live in `Sources/SwiftWindowsGraphics/RenderPass.swift`
+and are read by all three places that used to have their own idea of
+"draw somewhere that is not the window":
+
+| Consumer | What it says in the vocabulary |
+|----------|-------------------------------|
+| `D3D11BatchRenderer` | `currentRenderTargetDescriptor` — one statement of what and how big the current surface is, `.presentation` or `.offscreen` |
+| `D3D11BackdropBlurEngine` | takes that target instead of a pair of loose surface ints, and expresses every blur pass's source rectangle as a `SubTextureRegion` |
+| `ScenePainter` compositing groups | `CompositingGroupBuffer.pass` — an `.offscreen` target cleared to transparent, viewport = whole target, `isCacheable: true` |
+
+The blur engine reading the renderer's target rather than a caller's idea
+of the surface size is what makes a material blur correctly inside an
+offscreen snapshot, not only against a swap-chain buffer.
+
 ### `SubTextureRegion`: one clamp, and the stale-texel class
 
 Scratch textures in this stack are grow-only: the blur ping-pong pair and

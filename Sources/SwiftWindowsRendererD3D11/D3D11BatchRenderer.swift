@@ -226,6 +226,12 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             hasher.combine(path.bounds.size.width)
             hasher.combine(path.bounds.size.height)
             hasher.combine(path.lineWidth)
+            // Two strokes that differ only in cap or join are different
+            // rasters; equality already separates them, this keeps them from
+            // sharing a bucket.
+            hasher.combine(path.lineCap == .butt ? 0 : (path.lineCap == .round ? 1 : 2))
+            hasher.combine(path.lineJoin == .miter ? 0 : (path.lineJoin == .round ? 1 : 2))
+            hasher.combine(path.miterLimit)
             combine(color: path.fillColor, into: &hasher)
             combine(color: path.strokeColor, into: &hasher)
 

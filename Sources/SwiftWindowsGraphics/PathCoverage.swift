@@ -245,21 +245,27 @@ struct FlattenedPath {
         return edges
     }
 
-    /// The stroke's *outline* as one polygon set: a quad per segment plus
-    /// a round join wherever consecutive segments turn enough for the
-    /// wedge between their quads to be visible. Every polygon is wound the
-    /// same way, so filling the set with the non-zero rule is exactly
-    /// their union — one coverage value per pixel, one blend, no seams at
-    /// the joints.
+    /// The stroke's *outline* as one polygon set: a quad per segment, a join
+    /// wherever consecutive segments turn enough for the wedge between their
+    /// quads to be visible, and a cap at each end of an open subpath. Every
+    /// polygon is wound the same way, so filling the set with the non-zero
+    /// rule is exactly their union — one coverage value per pixel, one
+    /// blend, no seams at the joints.
     ///
-    /// Joins are round and caps are butt because `PathPrimitive` carries
-    /// neither: it has a `lineWidth` and nothing else. Butt is SwiftUI's
-    /// default cap; round is a conservative stand-in for its default miter
-    /// join, indistinguishable on the fractions of a degree a flattened
-    /// curve turns by and degrading to a rounded corner rather than an
-    /// unbounded spike on a sharp one. Carrying `StrokeStyle` through the
-    /// contract is what a real miter needs.
-    func strokeOutlineEdges(lineWidth: Double) -> [CoverageEdge] {
+    /// Caps and joins used to be fixed at butt and round because
+    /// `PathPrimitive` carried a `lineWidth` and nothing else, so a stroke
+    /// asking for `StrokeStyle(lineCap: .round)` silently got neither the
+    /// cap it asked for nor the miter join SwiftUI defaults to. The
+    /// primitive carries all three now, and the visibility rule below is
+    /// `StrokeOutlineGeometry`'s, shared with the painter's quad
+    /// tessellator so a promoted stroke and a rasterized one are the same
+    /// shape.
+    func strokeOutlineEdges(
+        lineWidth: Double,
+        lineCap: StrokeStyle.LineCap = .butt,
+        lineJoin: StrokeStyle.LineJoin = .miter,
+        miterLimit: Double = 10
+    ) -> [CoverageEdge] {
         let halfWidth = lineWidth / 2
         guard halfWidth > 0 else { return [] }
         var edges: [CoverageEdge] = []
@@ -271,6 +277,9 @@ struct FlattenedPath {
             }
             guard points.count >= 2 else { continue }
 
+            var leadingDirection: (x: Double, y: Double)?
+            var leadingPoint = points[0]
+            var trailingPoint = points[0]
             var previousDirection: (x: Double, y: Double)?
             for index in 0..<(points.count - 1) {
                 let start = points[index]
@@ -292,52 +301,143 @@ struct FlattenedPath {
                 let direction = (x: deltaX / length, y: deltaY / length)
                 if let previous = previousDirection {
                     appendJoinIfNeeded(
-                        at: start, from: previous, to: direction, halfWidth: halfWidth, into: &edges)
+                        at: start, from: previous, to: direction, halfWidth: halfWidth,
+                        join: lineJoin, miterLimit: miterLimit, into: &edges)
+                } else {
+                    leadingDirection = direction
+                    leadingPoint = start
                 }
                 previousDirection = direction
+                trailingPoint = end
             }
 
-            // A closed subpath also turns at its start/end vertex.
-            if subpath.isClosed, points.count >= 3, let last = previousDirection {
-                let start = points[0]
-                let next = points[1]
-                let deltaX = next.x - start.x
-                let deltaY = next.y - start.y
-                let length = (deltaX * deltaX + deltaY * deltaY).squareRoot()
-                if length > 0 {
-                    appendJoinIfNeeded(
-                        at: start, from: last, to: (x: deltaX / length, y: deltaY / length),
-                        halfWidth: halfWidth, into: &edges)
-                }
+            guard let lastDirection = previousDirection, let firstDirection = leadingDirection else {
+                continue
+            }
+            if subpath.isClosed {
+                // A closed subpath turns at its start/end vertex too, and has
+                // no ends to cap.
+                appendJoinIfNeeded(
+                    at: leadingPoint, from: lastDirection, to: firstDirection, halfWidth: halfWidth,
+                    join: lineJoin, miterLimit: miterLimit, into: &edges)
+            } else {
+                appendCap(
+                    at: leadingPoint, facing: (x: -firstDirection.x, y: -firstDirection.y),
+                    halfWidth: halfWidth, cap: lineCap, into: &edges)
+                appendCap(
+                    at: trailingPoint, facing: lastDirection, halfWidth: halfWidth, cap: lineCap,
+                    into: &edges)
             }
         }
         return edges
     }
 
-    /// Round join, emitted only when the turn is sharp enough to leave a
-    /// gap wider than a tenth of a pixel. Flattened curves turn by
-    /// fractions of a degree per segment, so skipping the negligible ones
-    /// keeps a 2,000-segment curve from paying for 2,000 discs.
+    /// The join geometry for one turn, emitted only when omitting it would
+    /// move the stroke boundary by more than `StrokeOutlineGeometry`'s
+    /// tolerance. Flattened curves turn by fractions of a degree per
+    /// segment, so skipping the negligible ones keeps a 2,000-segment curve
+    /// from paying for 2,000 wedges.
     private func appendJoinIfNeeded(
         at vertex: Point,
         from previous: (x: Double, y: Double),
         to next: (x: Double, y: Double),
         halfWidth: Double,
+        join: StrokeStyle.LineJoin,
+        miterLimit: Double,
         into edges: inout [CoverageEdge]
     ) {
-        let cross = previous.x * next.y - previous.y * next.x
         let dot = previous.x * next.x + previous.y * next.y
-        // `dot < 0` covers the reversal case, where the sine is small
-        // again but the gap is a half-disc.
-        guard abs(cross) * halfWidth > 0.1 || dot < 0 else { return }
-        let sides = min(32, max(8, Int((halfWidth * 2).rounded(.up))))
+        let resolved = StrokeOutlineGeometry.resolvedJoin(join, directionDot: dot, miterLimit: miterLimit)
+        guard
+            StrokeOutlineGeometry.joinIsVisible(halfWidth: halfWidth, directionDot: dot, join: resolved)
+        else { return }
+
+        if resolved == .round {
+            appendDisc(at: vertex, radius: halfWidth, into: &edges)
+            return
+        }
+
+        // Screen space has y growing downward and the segment quads offset
+        // along `(-dy, dx)`; the wedge the two quads leave open is on the
+        // side away from the turn.
+        let cross = previous.x * next.y - previous.y * next.x
+        let outerSign: Double = cross > 0 ? -1 : 1
+        let firstNormal = Point(
+            x: -previous.y * halfWidth * outerSign, y: previous.x * halfWidth * outerSign)
+        let secondNormal = Point(x: -next.y * halfWidth * outerSign, y: next.x * halfWidth * outerSign)
+        let firstCorner = Point(x: vertex.x + firstNormal.x, y: vertex.y + firstNormal.y)
+        let secondCorner = Point(x: vertex.x + secondNormal.x, y: vertex.y + secondNormal.y)
+
+        if resolved == .miter {
+            // The two outer offset lines meet at `(n1 + n2) / (1 + dot)` from
+            // the vertex; `resolvedJoin` already rejected the reversal that
+            // makes that denominator vanish.
+            let denominator = 1 + dot
+            if denominator > 0 {
+                let tip = Point(
+                    x: vertex.x + (firstNormal.x + secondNormal.x) / denominator,
+                    y: vertex.y + (firstNormal.y + secondNormal.y) / denominator)
+                appendPolygon([vertex, firstCorner, tip, secondCorner], to: &edges)
+                return
+            }
+        }
+
+        appendPolygon([vertex, firstCorner, secondCorner], to: &edges)
+    }
+
+    /// The cap at one end of an open subpath. `facing` points *out* of the
+    /// stroke, so the start of a subpath passes its reversed direction.
+    private func appendCap(
+        at point: Point,
+        facing direction: (x: Double, y: Double),
+        halfWidth: Double,
+        cap: StrokeStyle.LineCap,
+        into edges: inout [CoverageEdge]
+    ) {
+        switch cap {
+        case .butt:
+            return
+        case .round:
+            appendDisc(at: point, radius: halfWidth, into: &edges)
+        case .square:
+            let normalX = -direction.y * halfWidth
+            let normalY = direction.x * halfWidth
+            let reachX = direction.x * halfWidth
+            let reachY = direction.y * halfWidth
+            appendPolygon(
+                [
+                    Point(x: point.x + normalX, y: point.y + normalY),
+                    Point(x: point.x + normalX + reachX, y: point.y + normalY + reachY),
+                    Point(x: point.x - normalX + reachX, y: point.y - normalY + reachY),
+                    Point(x: point.x - normalX, y: point.y - normalY),
+                ], to: &edges)
+        }
+    }
+
+    /// A polygon approximating the disc a round cap or round join fills.
+    ///
+    /// The side count follows the radius so the chord sagitta stays under
+    /// `StrokeOutlineGeometry.joinTolerance`: a round cap is now visible
+    /// geometry an app asked for, not an internal stand-in for a corner
+    /// nobody sees.
+    private func appendDisc(at centre: Point, radius: Double, into edges: inout [CoverageEdge]) {
+        let sides = Self.discSideCount(radius: radius)
         var disc: [Point] = []
         disc.reserveCapacity(sides)
         for index in 0..<sides {
             let angle = 2 * Double.pi * Double(index) / Double(sides)
-            disc.append(Point(x: vertex.x + cos(angle) * halfWidth, y: vertex.y + sin(angle) * halfWidth))
+            disc.append(Point(x: centre.x + cos(angle) * radius, y: centre.y + sin(angle) * radius))
         }
         appendPolygon(disc, to: &edges)
+    }
+
+    /// Sides of an inscribed regular polygon whose sagitta, `r · (1 − cos(π/n))`,
+    /// is at most the join tolerance.
+    static func discSideCount(radius: Double) -> Int {
+        guard radius.isFinite, radius > StrokeOutlineGeometry.joinTolerance else { return 8 }
+        let step = acos(max(-1, min(1, 1 - StrokeOutlineGeometry.joinTolerance / radius)))
+        guard step > 0 else { return 64 }
+        return min(64, max(8, Int((Double.pi / step).rounded(.up))))
     }
 
     /// Appends a polygon with a normalized orientation. Consistent winding

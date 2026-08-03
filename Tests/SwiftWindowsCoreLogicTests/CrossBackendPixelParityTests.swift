@@ -762,6 +762,96 @@ final class CrossBackendPixelParityTests: XCTestCase {
         )
     }
 
+    /// A thick open polyline with one of the three caps, on the shipping GPU
+    /// path route (CPU-rasterized, uploaded as a texture).
+    ///
+    /// The primitive used to carry a `lineWidth` and nothing else, so both
+    /// stroke rasterizers invented the rest and a `Canvas` stroke asking for
+    /// a round cap got a butt one here and a square one through the painter's
+    /// tessellator. Each cap is its own scene because a cap is the only place
+    /// the three differ, and a single fixture would let two of them hide.
+    private static func cappedPolylineScene(_ cap: StrokeStyle.LineCap, name: String) -> ParityScene {
+        ParityScene(
+            name: name,
+            size: surface,
+            scene: makeScene { scene in
+                scene.addPath(
+                    PathPrimitive(
+                        elements: [
+                            .moveTo(Point(x: 28, y: 36)),
+                            .lineTo(Point(x: 96, y: 36)),
+                            .lineTo(Point(x: 96, y: 92)),
+                        ],
+                        bounds: Rect(x: 8, y: 16, width: 112, height: 96),
+                        strokeColor: Color(red: 0.95, green: 0.65, blue: 0.20, alpha: 1),
+                        lineWidth: 14,
+                        lineCap: cap
+                    ),
+                    toLayer: 0
+                )
+            }
+        )
+    }
+
+    /// A sharp corner with one of the three joins, plus the miter-limit
+    /// exceedance that turns a miter into a bevel. `miterLimit` is the one
+    /// stroke scalar that changes the drawn shape without changing any
+    /// coordinate, so it needs its own scene.
+    private static func joinedCornerScene(
+        _ join: StrokeStyle.LineJoin, miterLimit: Double = 10, name: String
+    ) -> ParityScene {
+        ParityScene(
+            name: name,
+            size: surface,
+            scene: makeScene { scene in
+                scene.addPath(
+                    PathPrimitive(
+                        elements: [
+                            .moveTo(Point(x: 24, y: 108)),
+                            .lineTo(Point(x: 64, y: 24)),
+                            .lineTo(Point(x: 104, y: 108)),
+                        ],
+                        bounds: Rect(x: 8, y: 0, width: 112, height: 128),
+                        strokeColor: Color(red: 0.35, green: 0.80, blue: 0.95, alpha: 1),
+                        lineWidth: 12,
+                        lineJoin: join,
+                        miterLimit: miterLimit
+                    ),
+                    toLayer: 0
+                )
+            }
+        )
+    }
+
+    /// The same round-capped, round-joined polyline the painter promotes to
+    /// quads — segment bodies plus a disc per cap and join. This is the route
+    /// every SF-symbol vector icon takes, and the one where a cap is a
+    /// `cornerRadius` rather than a coverage polygon.
+    private static func roundCappedPolylineAsQuadsScene() -> ParityScene {
+        let polyline = PathPrimitive(
+            elements: [
+                .moveTo(Point(x: 28, y: 40)),
+                .lineTo(Point(x: 72, y: 40)),
+                .lineTo(Point(x: 100, y: 96)),
+            ],
+            bounds: Rect(x: 8, y: 20, width: 112, height: 96),
+            strokeColor: Color(red: 0.90, green: 0.35, blue: 0.55, alpha: 1),
+            lineWidth: 12,
+            lineCap: .round,
+            lineJoin: .round
+        )
+        let quads = PathToQuadTessellator.tessellate(polyline) ?? []
+        XCTAssertEqual(quads.count, 5, "two bodies, two cap discs and one join disc")
+
+        return ParityScene(
+            name: "round-capped polyline as quads",
+            size: surface,
+            scene: makeScene { scene in
+                for quad in quads { scene.addQuad(quad) }
+            }
+        )
+    }
+
     // MARK: - Assertion
 
     private func assertParity(_ parityScene: ParityScene, file: StaticString = #filePath, line: UInt = #line) throws {
@@ -852,6 +942,39 @@ final class CrossBackendPixelParityTests: XCTestCase {
     func testPathTextureParity() async throws { try assertParity(Self.pathTextureScene()) }
 
     func testClippedPathTextureParity() async throws { try assertParity(Self.clippedPathTextureScene()) }
+
+    func testButtCappedPolylineParity() async throws {
+        try assertParity(Self.cappedPolylineScene(.butt, name: "butt-capped polyline"))
+    }
+
+    func testRoundCappedPolylineParity() async throws {
+        try assertParity(Self.cappedPolylineScene(.round, name: "round-capped polyline"))
+    }
+
+    func testSquareCappedPolylineParity() async throws {
+        try assertParity(Self.cappedPolylineScene(.square, name: "square-capped polyline"))
+    }
+
+    func testMiterJoinedCornerParity() async throws {
+        try assertParity(Self.joinedCornerScene(.miter, name: "miter-joined corner"))
+    }
+
+    func testRoundJoinedCornerParity() async throws {
+        try assertParity(Self.joinedCornerScene(.round, name: "round-joined corner"))
+    }
+
+    func testBevelJoinedCornerParity() async throws {
+        try assertParity(Self.joinedCornerScene(.bevel, name: "bevel-joined corner"))
+    }
+
+    func testMiterLimitExceededCornerParity() async throws {
+        try assertParity(
+            Self.joinedCornerScene(.miter, miterLimit: 1.5, name: "miter past its limit"))
+    }
+
+    func testRoundCappedPolylineAsQuadsParity() async throws {
+        try assertParity(Self.roundCappedPolylineAsQuadsScene())
+    }
 
     func testMagnifiedGlyphGradientParity() async throws { try assertParity(Self.magnifiedGlyphGradientScene()) }
 

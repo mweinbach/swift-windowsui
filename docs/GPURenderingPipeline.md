@@ -775,10 +775,32 @@ coordinates (corner radius, gradient axis) computed in unrotated
 local space; the CPU rasterizer scans the rotated bounding box and
 inverse-rotates each pixel back to local space for the same coverage
 maths. Stroked paths of any shape — chart lines, hand-drawn Beziers,
-arc arms — now route through the GPU instance pipeline. The
+arc arms — route through the GPU instance pipeline. The
 tessellator's decision table is locked by `PathToQuadTessellatorTests`
 and the rotated rasterization itself is locked by
 `RotatedQuadRasterTests`.
+
+Caps and joins decide *whether* a stroke promotes at all, because a quad
+is a rectangle and only some stroke geometry is:
+
+- **Caps.** A butt end stops flush, a square end extends the body by half
+  a line width, and a round end stops flush and adds a disc — a
+  `lineWidth × lineWidth` quad whose corner radius is half its side, which
+  both backends' rounded-rect coverage resolves to a circle. Every segment
+  used to be extended by half a width at both ends whatever the style said,
+  which is a square cap on every open stroke.
+- **Joins.** A round join is the same disc. A miter across a right angle is
+  exactly the square the two extended bodies already cover, so an L or a
+  stroked rect promotes unchanged; at any other angle the wedge is a kite,
+  and a bevel is a triangle. Neither is a rectangle, so the *whole path*
+  goes to `PathCoverageRasterizer`, which draws every style. That is a
+  deliberate trade: a `Canvas` polyline with sharp miter corners now
+  CPU-rasterizes (once per shape, via the path-texture cache) instead of
+  promoting to quads that draw a join nobody asked for.
+- **Tolerance.** "Sharp enough to matter" is
+  `StrokeOutlineGeometry.joinIsVisible`, shared with the CPU stroker, so
+  the flattened steps of a stroked circle stay on the GPU and a real corner
+  does not.
 
 For paths that still take the CPU route, `PathPrimitive` is rasterized
 into a `BitmapSurface` and reused across frames:
@@ -1534,14 +1556,31 @@ composite with a **single blend per pixel**. Four things that buys:
   scanline-filled as its own quad with the right edge rounded out and the
   left rounded in, so adjacent segments overlapped and a translucent
   polyline came out blotchy and progressively darker at every vertex.
-- **Joins.** The stroke outline is a quad per segment plus a round join
-  wherever consecutive segments turn enough for the wedge between them to
-  show, all wound the same way so a non-zero fill of the set is exactly
-  their union. `PathPrimitive` carries only a `lineWidth`, so caps are butt
-  (SwiftUI's default) and joins are round — a stand-in for SwiftUI's
-  default miter that is indistinguishable on a flattened curve and degrades
-  to a rounded corner rather than an unbounded spike on a sharp one.
-  Carrying `StrokeStyle` through the contract is what a real miter needs.
+- **Caps and joins.** The stroke outline is a quad per segment, plus the
+  join at every turn sharp enough for its wedge to show, plus a cap at each
+  end of an open subpath — all wound the same way so a non-zero fill of the
+  set is exactly their union. `PathPrimitive` carries `lineCap`, `lineJoin`
+  and `miterLimit` alongside `lineWidth` (defaulting to `StrokeStyle`'s own
+  butt / miter / 10), so butt, round and square caps and round, miter and
+  bevel joins are all drawn, and a miter past its limit degrades to a bevel
+  the way SwiftUI, Core Graphics and Direct2D all do. It used to carry a
+  width and nothing else, so this rasterizer butt-capped and round-joined
+  everything while the painter's tessellator square-capped everything: a
+  `Canvas` stroke asking for `StrokeStyle(lineCap: .round)` — which is what
+  the SF-symbol vector fallback asks for on every icon — got neither, and
+  which wrong answer it got depended on whether the path promoted.
+  `StrokeOutlineGeometry` owns the rules both routes apply: the miter
+  ratio, the limit resolution, and how much error an omitted join is worth
+  (0.1 px, so a 2 000-segment flattened curve does not pay for 2 000
+  wedges).
+- **Stroke bounds.** A stroke straddles its path, so an emitter sizes
+  `bounds` through `StrokeOutlineGeometry.boundsOutset(forElements:…)`
+  rather than by half a line width: a square cap reaches √2 half-widths on
+  a diagonal and a miter reaches as far as its corner asks, bounded at
+  `maxMiterBoundsRatio` so an app-supplied limit cannot size a bitmap. The
+  shape-outline lowering used to hand the primitive the path's own bounding
+  rect, which cropped the outer half of every outline that reached CPU
+  rasterization.
 - **SwiftUI fill semantics.** Every subpath is implicitly closed for
   filling (a three-point triangle without `.close` used to be *invisible*:
   most scanlines produced one crossing and the pairing loop discarded it)

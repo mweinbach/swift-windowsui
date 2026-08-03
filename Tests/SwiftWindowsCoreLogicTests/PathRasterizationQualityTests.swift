@@ -208,6 +208,121 @@ final class PathRasterizationQualityTests: XCTestCase {
         XCTAssertGreaterThan(red(closed, x: 32, y: 32), 200)
     }
 
+    // MARK: - Caps
+
+    private static let strokeRed = Color(red: 1, green: 0, blue: 0, alpha: 1)
+
+    /// A horizontal stroke ending at x = 48, six points of half width, with
+    /// each cap. The primitive used to carry a `lineWidth` and nothing else,
+    /// so every stroke ended butt whatever its `StrokeStyle` said — including
+    /// the round-capped ones the SF-symbol vector fallback draws every icon
+    /// with.
+    private func cappedStroke(_ cap: StrokeStyle.LineCap) -> BitmapSurface {
+        render(
+            PathPrimitive(
+                elements: [.moveTo(Point(x: 16, y: 32)), .lineTo(Point(x: 48, y: 32))],
+                bounds: Rect(x: 4, y: 20, width: 56, height: 24),
+                strokeColor: Self.strokeRed,
+                lineWidth: 12,
+                lineCap: cap))
+    }
+
+    /// A butt cap stops at the endpoint: nothing past x = 48.
+    func testButtCapDoesNotReachPastTheEndpoint() async {
+        let bitmap = cappedStroke(.butt)
+        XCTAssertGreaterThan(red(bitmap, x: 47, y: 32), 200, "the body reaches the endpoint")
+        XCTAssertLessThan(red(bitmap, x: 49, y: 32), 40, "and stops there")
+    }
+
+    /// A round cap reaches exactly half a line width past the endpoint, and
+    /// its corner is missing because the boundary is an arc.
+    func testRoundCapExtendsHalfALineWidthAsAnArc() async {
+        let bitmap = cappedStroke(.round)
+        XCTAssertGreaterThan(red(bitmap, x: 52, y: 32), 200, "4.5 past the end is inside the disc")
+        XCTAssertLessThan(red(bitmap, x: 55, y: 32), 40, "7.5 past it is outside a 6-point radius")
+        XCTAssertLessThan(
+            red(bitmap, x: 52, y: 26), 40,
+            "the corner of the cap box is 7.1 from the endpoint, so an arc leaves it empty")
+    }
+
+    /// A square cap reaches the same distance, squarely: the corner the round
+    /// cap leaves empty is ink.
+    func testSquareCapExtendsHalfALineWidthSquarely() async {
+        let bitmap = cappedStroke(.square)
+        XCTAssertGreaterThan(red(bitmap, x: 52, y: 32), 200)
+        XCTAssertGreaterThan(red(bitmap, x: 52, y: 26), 200, "the cap is a box, corner included")
+        XCTAssertLessThan(red(bitmap, x: 55, y: 32), 40, "and it still stops at half a line width")
+    }
+
+    // MARK: - Joins
+
+    /// A 67° corner with each join. The apex is at (32, 12); the two butt
+    /// ends meet along a chord 2.24 above it, the round join fills to a
+    /// 5-point radius, and the miter runs 11.2 past it.
+    private func joinedCorner(_ join: StrokeStyle.LineJoin, miterLimit: Double = 10) -> BitmapSurface {
+        render(
+            PathPrimitive(
+                elements: [
+                    .moveTo(Point(x: 12, y: 52)),
+                    .lineTo(Point(x: 32, y: 12)),
+                    .lineTo(Point(x: 52, y: 52)),
+                ],
+                bounds: Rect(x: 2, y: 0, width: 60, height: 60),
+                strokeColor: Self.strokeRed,
+                lineWidth: 10,
+                lineJoin: join,
+                miterLimit: miterLimit))
+    }
+
+    func testMiterJoinFillsTheSpikePastTheCorner() async {
+        let bitmap = joinedCorner(.miter)
+        XCTAssertGreaterThan(red(bitmap, x: 32, y: 3), 200, "the miter runs 11.2 past the apex")
+        XCTAssertGreaterThan(red(bitmap, x: 32, y: 9), 200)
+    }
+
+    func testRoundJoinFillsToTheHalfWidthAndNoFurther() async {
+        let bitmap = joinedCorner(.round)
+        XCTAssertGreaterThan(red(bitmap, x: 32, y: 9), 200, "2.6 from the apex is inside the disc")
+        XCTAssertLessThan(red(bitmap, x: 32, y: 6), 40, "5.5 from it is outside a 5-point radius")
+    }
+
+    func testBevelJoinStopsAtTheChordBetweenTheTwoEnds() async {
+        let bitmap = joinedCorner(.bevel)
+        XCTAssertGreaterThan(red(bitmap, x: 32, y: 11), 200, "the wedge below the chord is filled")
+        XCTAssertLessThan(red(bitmap, x: 32, y: 8), 40, "and the first row clear of the chord is empty")
+    }
+
+    /// The corner's miter is 2.24 half-widths long, so a limit of 2 degrades
+    /// it to a bevel — pixel for pixel the bevel this suite already pins.
+    func testMiterPastItsLimitIsExactlyABevel() async {
+        let limited = joinedCorner(.miter, miterLimit: 2)
+        let bevel = joinedCorner(.bevel)
+        XCTAssertLessThan(red(limited, x: 32, y: 3), 40, "the spike is gone")
+        XCTAssertEqual(limited.pixels, bevel.pixels, "and what is left is a bevel, not a shorter miter")
+    }
+
+    /// A closed subpath has no ends, so its cap is irrelevant — the same
+    /// asymmetry `testStrokeDoesNotCloseAnOpenSubpath` pins for closure.
+    func testCapStyleDoesNotChangeAClosedSubpath() async {
+        func square(_ cap: StrokeStyle.LineCap) -> BitmapSurface {
+            render(
+                PathPrimitive(
+                    elements: [
+                        .moveTo(Point(x: 16, y: 16)),
+                        .lineTo(Point(x: 48, y: 16)),
+                        .lineTo(Point(x: 48, y: 48)),
+                        .lineTo(Point(x: 16, y: 48)),
+                        .close,
+                    ],
+                    bounds: Rect(x: 10, y: 10, width: 44, height: 44),
+                    strokeColor: Self.strokeRed,
+                    lineWidth: 6,
+                    lineCap: cap))
+        }
+        XCTAssertEqual(square(.round).pixels, square(.butt).pixels)
+        XCTAssertEqual(square(.square).pixels, square(.butt).pixels)
+    }
+
     // MARK: - Clipping
 
     /// Path clipping rejects per pixel centre against the float rect, like

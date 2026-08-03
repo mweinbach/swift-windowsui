@@ -90,7 +90,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   families are deliberately hostile: a uniform opaque atlas cell or a gentle
   image gradient cannot observe a filtering difference at all, so the suite
   keeps an 8× magnified alpha ramp and an 8× magnified checkerboard whose
-  only signal *is* the filter.
+  only signal *is* the filter. WS-08b added eight stroke scenes — a thick
+  open polyline with each of the three caps, a sharp corner with each of
+  the three joins, the same corner with a miter past its limit, and a
+  round-capped polyline taken through the tessellator so the cap is a
+  `cornerRadius` rather than a coverage polygon. All eight gate at the
+  standard ratio.
 - `PixelFormatContractTests` — the `BitmapSurface` format contract: the
   named default (BGRA, straight), the straight ↔ premultiplied conversions
   and their opaque fast path, the validation that rejects a truncated or
@@ -256,7 +261,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   semantics), non-zero winding on a self-overlapping shape, fractional
   coverage on a diagonal edge, a translucent polyline never exceeding its
   single-segment alpha, no gap at a thick join, a stroke *not* closing an
-  open subpath, and the path clip rejecting per pixel centre.
+  open subpath, and the path clip rejecting per pixel centre. Since WS-08b
+  it also pins cap and join *geometry*: a butt cap stopping at the
+  endpoint, a round cap reaching half a line width as an arc, a square cap
+  reaching the same distance squarely, the miter spike, the round join's
+  radius, the bevel's chord, a miter past its limit being pixel-for-pixel a
+  bevel, and a closed subpath ignoring its cap entirely.
+- `StrokeStyleContractTests` — `StrokeStyle` as a contract rather than a
+  suggestion: the primitive's defaults, the scale invariance of
+  `miterLimit`, the sanitizer's bounds on it, the shared
+  `StrokeOutlineGeometry` rules (miter ratio, limit resolution, join
+  visibility, bounds outset), each lowering that used to keep `lineWidth`
+  and drop the rest (`Canvas` stroke, shape outline, frame
+  `StrokePathCommand`, scene bridge), and the agreement between the
+  promoted-to-quads and CPU-rasterized routes for the styles both can draw.
 - `BorderCornerArcGeometryTests` — the corner-arc geometry `BorderSegments`
   emits for a rounded border, measured in all four quadrants rather than
   the one whose maths was right. The annular-sector bounding box used to be

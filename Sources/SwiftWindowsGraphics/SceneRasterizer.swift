@@ -858,7 +858,12 @@ private struct RasterTarget {
         if strokeColor.alpha > 0, path.lineWidth > 0 {
             var coverage = [Float](repeating: 0, count: bounds.width * bounds.height)
             PathCoverageRasterizer.accumulate(
-                edges: flattened.strokeOutlineEdges(lineWidth: path.lineWidth), bounds: bounds, into: &coverage)
+                edges: flattened.strokeOutlineEdges(
+                    lineWidth: path.lineWidth,
+                    lineCap: path.lineCap,
+                    lineJoin: path.lineJoin,
+                    miterLimit: path.miterLimit),
+                bounds: bounds, into: &coverage)
             blendCoverage(coverage, bounds: bounds, color: strokeColor, clip: clip)
         }
     }

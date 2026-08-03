@@ -161,22 +161,37 @@ extension GPUIScene {
                 guard !effectiveClip.isEmpty else {
                     continue
                 }
+                let strokeElements: [PathElement] = cmd.path.segments.map { segment in
+                    switch segment {
+                    case .moveTo(let p): return .moveTo(p)
+                    case .lineTo(let p): return .lineTo(p)
+                    case .quadCurveTo(let c, let e): return .quadraticCurveTo(control: c, end: e)
+                    case .cubicCurveTo(let c1, let c2, let e):
+                        return .cubicCurveTo(control1: c1, control2: c2, end: e)
+                    case .arc(let c, let r, let s, let e, let cw):
+                        return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
+                    case .close: return .close
+                    }
+                }
+                // The command's whole `StrokeStyle` reaches the primitive
+                // now: taking only `lineWidth` made every frame-path stroke
+                // butt-capped and miter-joined whatever it asked for.
+                let strokeOutset = StrokeOutlineGeometry.boundsOutset(
+                    forElements: strokeElements,
+                    lineWidth: cmd.style.lineWidth,
+                    lineCap: cmd.style.lineCap,
+                    lineJoin: cmd.style.lineJoin,
+                    miterLimit: cmd.style.miterLimit)
+                let strokeBounds =
+                    cmd.path.segments.boundingRect?.outset(by: strokeOutset) ?? effectiveClip
                 let path = PathPrimitive(
-                    elements: cmd.path.segments.map { segment in
-                        switch segment {
-                        case .moveTo(let p): return .moveTo(p)
-                        case .lineTo(let p): return .lineTo(p)
-                        case .quadCurveTo(let c, let e): return .quadraticCurveTo(control: c, end: e)
-                        case .cubicCurveTo(let c1, let c2, let e):
-                            return .cubicCurveTo(control1: c1, control2: c2, end: e)
-                        case .arc(let c, let r, let s, let e, let cw):
-                            return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
-                        case .close: return .close
-                        }
-                    },
-                    bounds: cmd.path.segments.boundingRect ?? effectiveClip,
+                    elements: strokeElements,
+                    bounds: strokeBounds,
                     strokeColor: cmd.color,
                     lineWidth: cmd.style.lineWidth,
+                    lineCap: cmd.style.lineCap,
+                    lineJoin: cmd.style.lineJoin,
+                    miterLimit: cmd.style.miterLimit,
                     clipBounds: effectiveClip
                 )
                 self.addPath(path, toLayer: 0)

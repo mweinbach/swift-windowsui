@@ -404,6 +404,23 @@ public struct PathPrimitive: Equatable, Sendable {
     public var fillColor: Color
     public var strokeColor: Color
     public var lineWidth: Double
+    /// How the stroke ends an *open* subpath, how it turns a corner, and how
+    /// long a miter may get before it degrades to a bevel.
+    ///
+    /// The primitive used to carry `lineWidth` and nothing else, so both
+    /// stroke rasterizers had to invent the rest: the CPU coverage path
+    /// butt-capped and round-joined everything, and the painter's quad
+    /// tessellator square-capped everything. A `Canvas` stroke asking for
+    /// `StrokeStyle(lineCap: .round)` — which is what the SF-symbol vector
+    /// fallback asks for on every icon it draws — got neither.
+    ///
+    /// Defaults match `StrokeStyle`'s own, so a path built without an
+    /// opinion renders like a `StrokeStyle` built without one.
+    public var lineCap: StrokeStyle.LineCap
+    public var lineJoin: StrokeStyle.LineJoin
+    /// A ratio of miter length to half width, so — unlike every other scalar
+    /// on this primitive — it is invariant under `scaled(by:)`.
+    public var miterLimit: Double
     public var clipBounds: Rect?
     /// Rounding of `clipBounds`, so a `Shape`, `Canvas` drawing or vector icon
     /// inside a rounded container is cut by the container arc rather than by
@@ -417,6 +434,9 @@ public struct PathPrimitive: Equatable, Sendable {
         fillColor: Color = .clear,
         strokeColor: Color = .clear,
         lineWidth: Double = 0,
+        lineCap: StrokeStyle.LineCap = .butt,
+        lineJoin: StrokeStyle.LineJoin = .miter,
+        miterLimit: Double = 10,
         clipBounds: Rect? = nil,
         clipCornerRadius: Double = 0
     ) {
@@ -425,8 +445,19 @@ public struct PathPrimitive: Equatable, Sendable {
         self.fillColor = fillColor
         self.strokeColor = strokeColor
         self.lineWidth = lineWidth
+        self.lineCap = lineCap
+        self.lineJoin = lineJoin
+        self.miterLimit = miterLimit
         self.clipBounds = clipBounds
         self.clipCornerRadius = clipCornerRadius
+    }
+
+    /// The stroke style this primitive carries, for callers that speak
+    /// `StrokeStyle` (the frame path's `StrokePathCommand`, the painter's
+    /// `Canvas` lowering). `dashPattern` is not part of the path contract —
+    /// dashes are resolved upstream, by `BorderSegments` — so it stays empty.
+    public var strokeStyle: StrokeStyle {
+        StrokeStyle(lineWidth: lineWidth, lineCap: lineCap, lineJoin: lineJoin, miterLimit: miterLimit)
     }
 
     public var contentMask: GPUIContentMask {
@@ -518,6 +549,9 @@ public struct PathPrimitive: Equatable, Sendable {
             fillColor: fillColor,
             strokeColor: strokeColor,
             lineWidth: lineWidth,
+            lineCap: lineCap,
+            lineJoin: lineJoin,
+            miterLimit: miterLimit,
             clipBounds: translatedClip,
             clipCornerRadius: clipCornerRadius
         )
@@ -566,6 +600,11 @@ public struct PathPrimitive: Equatable, Sendable {
             fillColor: fillColor,
             strokeColor: strokeColor,
             lineWidth: lineWidth * factor,
+            lineCap: lineCap,
+            lineJoin: lineJoin,
+            // A ratio, not a length: scaling both the miter and the width
+            // leaves the limit it is measured against unchanged.
+            miterLimit: miterLimit,
             clipBounds: clipBounds.map { $0.scaled(by: factor) },
             clipCornerRadius: clipCornerRadius * factor
         )

@@ -351,6 +351,13 @@ public enum GPUISceneSanitizer {
         result.clipBounds = path.clipBounds.map(clampedRect)
         result.lineWidth = GPUISceneValue.clamped(
             path.lineWidth.isFinite ? max(0, path.lineWidth) : 0, to: Double(coordinateLimit))
+        // A limit below 1 would bevel a straight run, and a non-finite one
+        // reaches `1 / cos(turn/2) <= limit` as "always miter", which is an
+        // unbounded spike from an app-supplied number.
+        result.miterLimit =
+            path.miterLimit.isFinite
+            ? max(1, min(path.miterLimit, Double(coordinateLimit)))
+            : 10
         result.clipCornerRadius = GPUISceneValue.clamped(
             path.clipCornerRadius.isFinite ? max(0, path.clipCornerRadius) : 0, to: Double(coordinateLimit))
         result.elements = clampedElements(path.elements)

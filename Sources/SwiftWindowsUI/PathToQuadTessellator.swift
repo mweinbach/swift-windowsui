@@ -13,10 +13,12 @@ import SwiftWindowsGraphics
 ///
 /// - **Stroked paths** consisting of `.moveTo` + `.lineTo` + `.close` plus
 ///   `.quadraticCurveTo` / `.cubicCurveTo` / `.arc`. Curves and arcs are
-///   adaptively subdivided into short line segments; if every resulting
-///   line segment is axis-aligned (purely horizontal or vertical) the
-///   path is emitted as one quad per segment. Curves whose subdivisions
-///   produce diagonal pieces fall through to CPU.
+///   subdivided into short line segments; each becomes one quad, unrotated
+///   when the segment is axis-aligned and rotated otherwise. Caps and joins
+///   are honoured exactly — butt, square and round ends, right-angle miters
+///   and round joins — and a join the quad family cannot draw exactly (a
+///   bevel, or a miter at any other angle) sends the whole path to the CPU
+///   stroker, which draws every style.
 /// - **Filled paths** that describe exactly one axis-aligned rectangle
 ///   (`moveTo + 3×lineTo + close` forming a closed rect). The rect
 ///   becomes a single quad.
@@ -555,66 +557,103 @@ enum PathToQuadTessellator {
         return [quad(for: rect, color: path.fillColor, clip: path.clipBounds, clipCornerRadius: path.clipCornerRadius)]
     }
 
-    /// Mixed-output stroked-line tessellator. Walks the path
-    /// segment-by-segment; axis-aligned segments become GPU quads,
-    /// diagonal/curved segments are collected into a residual stroked
-    /// `PathPrimitive`. Returns the combined result, or nil if neither
-    /// a quad nor a residual segment was produced.
+    /// One flattened subpath of a stroked path, with the closure flag the
+    /// caps depend on: an open subpath has two ends to cap, a closed one has
+    /// none.
+    private struct StrokeSubpath {
+        var points: [Point]
+        var isClosed: Bool
+    }
+
+    /// What the quad family has to draw at one vertex or one end.
+    private enum StrokeTerminal {
+        /// Covered by the segment bodies alone — extending both across the
+        /// vertex is free and leaves no seam.
+        case extend
+        /// A butt end: the body stops exactly at the point.
+        case flush
+        /// A disc centred on the point, which a `lineWidth × lineWidth` quad
+        /// with a half-width corner radius draws exactly.
+        case disc
+    }
+
+    /// Mixed-output stroked-line tessellator. Walks the path subpath by
+    /// subpath; axis-aligned segments become unrotated GPU quads and
+    /// diagonal ones rotated quads, with caps and joins honoured exactly or
+    /// not at all.
+    ///
+    /// "Exactly or not at all" is the rule that changed here. Every segment
+    /// used to be extended by half a line width at both ends, which is a
+    /// square cap on every open end and a right-angle miter at every corner
+    /// — whatever the `StrokeStyle` said. Now a butt end stops flush, a
+    /// square end extends, a round end (or a round join) gets its disc, and
+    /// a join the quad family cannot draw exactly sends the *whole* path to
+    /// `PathCoverageRasterizer`, which can.
     private static func axisAlignedStrokedLinesMixed(for path: PathPrimitive) -> Result? {
-        var cursor: Point?
-        var subpathStart: Point?
+        let halfWidth = path.lineWidth / 2
+        guard halfWidth > 0 else { return nil }
+        let subpaths = strokeSubpaths(for: path.elements)
+        guard !subpaths.isEmpty else { return nil }
+
         var quads: [QuadPrimitive] = []
         var residualSegments: [(from: Point, to: Point)] = []
 
-        func appendStraightSegments(through points: [Point]) {
-            guard let start = cursor else { return }
-            var previous = start
-            for next in points {
-                if previous == next { continue }
+        for subpath in subpaths {
+            let points = subpath.points
+            guard points.count >= 2 else { continue }
+            let segmentCount = points.count - 1
+
+            // Resolve every vertex first: one unsupported join abandons GPU
+            // promotion for the path as a whole, so there is no half-drawn
+            // stroke to unwind.
+            var terminals = [StrokeTerminal](repeating: .extend, count: points.count)
+            for index in 1..<segmentCount {
+                guard
+                    let terminal = joinTerminal(
+                        at: index, points: points, halfWidth: halfWidth, path: path)
+                else { return nil }
+                terminals[index] = terminal
+            }
+            if subpath.isClosed {
+                // The start/end vertex is a corner like any other.
+                guard
+                    let terminal = closingJoinTerminal(points: points, halfWidth: halfWidth, path: path)
+                else { return nil }
+                terminals[0] = terminal
+                terminals[segmentCount] = terminal
+            } else {
+                let capTerminal: StrokeTerminal
+                switch path.lineCap {
+                case .butt: capTerminal = .flush
+                case .square: capTerminal = .extend
+                case .round: capTerminal = .disc
+                }
+                terminals[0] = capTerminal
+                terminals[segmentCount] = capTerminal
+            }
+
+            for index in 0..<segmentCount {
+                let from = points[index]
+                let to = points[index + 1]
                 if let segment = strokedSegmentQuad(
-                    from: previous, to: next, lineWidth: path.lineWidth,
+                    from: from, to: to, lineWidth: path.lineWidth,
+                    startExtension: terminals[index] == .extend ? halfWidth : 0,
+                    endExtension: terminals[index + 1] == .extend ? halfWidth : 0,
                     color: path.strokeColor, clip: path.clipBounds, clipCornerRadius: path.clipCornerRadius)
                 {
                     quads.append(segment)
                 } else {
-                    residualSegments.append((previous, next))
+                    residualSegments.append((from, to))
                 }
-                previous = next
             }
-            cursor = previous
-        }
-
-        for element in path.elements {
-            switch element {
-            case .moveTo(let p):
-                cursor = p
-                subpathStart = p
-            case .lineTo(let p):
-                appendStraightSegments(through: [p])
-            case .close:
-                guard let from = cursor, let start = subpathStart, from != start else {
-                    continue
-                }
-                appendStraightSegments(through: [start])
-            case .quadraticCurveTo(let control, let end):
-                guard cursor != nil else { return nil }
-                let samples = sampleQuadratic(from: cursor!, control: control, end: end)
-                appendStraightSegments(through: samples)
-            case .cubicCurveTo(let c1, let c2, let end):
-                guard cursor != nil else { return nil }
-                let samples = sampleCubic(
-                    from: cursor!, control1: c1, control2: c2, end: end)
-                appendStraightSegments(through: samples)
-            case .arc(let center, let radius, let startAngle, let endAngle, let clockwise):
-                let samples = sampleArc(
-                    center: center, radius: radius,
-                    startAngle: startAngle, endAngle: endAngle,
-                    clockwise: clockwise)
-                if cursor == nil, let first = samples.first {
-                    cursor = first
-                    subpathStart = first
-                }
-                appendStraightSegments(through: samples)
+            for index in 0...segmentCount where terminals[index] == .disc {
+                // A closed subpath repeats its first point last; one disc is
+                // enough for the vertex they share.
+                if subpath.isClosed, index == segmentCount { continue }
+                quads.append(
+                    discQuad(
+                        at: points[index], halfWidth: halfWidth, color: path.strokeColor,
+                        clip: path.clipBounds, clipCornerRadius: path.clipCornerRadius))
             }
         }
 
@@ -648,15 +687,167 @@ enum PathToQuadTessellator {
                 width: max(0, maxX - minX), height: max(0, maxY - minY))
             residualPath = PathPrimitive(
                 elements: elements,
-                bounds: rawBounds.outset(by: path.lineWidth / 2),
+                bounds: rawBounds.outset(
+                    by: StrokeOutlineGeometry.boundsOutset(
+                        forElements: elements, lineWidth: path.lineWidth, lineCap: path.lineCap,
+                        lineJoin: path.lineJoin, miterLimit: path.miterLimit)),
                 strokeColor: path.strokeColor,
                 lineWidth: path.lineWidth,
+                lineCap: path.lineCap,
+                lineJoin: path.lineJoin,
+                miterLimit: path.miterLimit,
                 clipBounds: path.clipBounds,
                 clipCornerRadius: path.clipCornerRadius
             )
         }
 
         return Result(quads: quads, residualPath: residualPath)
+    }
+
+    // MARK: - Stroke subpaths, joins and caps
+
+    /// Flattens `elements` into the polylines the stroker walks, keeping
+    /// subpath identity: filling closes every subpath, stroking only closes
+    /// the ones that asked to be closed, and caps only exist on the rest.
+    private static func strokeSubpaths(for elements: [PathElement]) -> [StrokeSubpath] {
+        var result: [StrokeSubpath] = []
+        var current: [Point] = []
+        var subpathStart: Point?
+
+        func append(_ points: [Point]) {
+            for point in points where current.last != point {
+                current.append(point)
+            }
+        }
+
+        func flush(closed: Bool) {
+            if current.count >= 2 {
+                result.append(StrokeSubpath(points: current, isClosed: closed))
+            }
+            current = []
+        }
+
+        for element in elements {
+            switch element {
+            case .moveTo(let point):
+                flush(closed: false)
+                subpathStart = point
+                current = [point]
+            case .lineTo(let point):
+                guard !current.isEmpty else { continue }
+                append([point])
+            case .close:
+                if let start = subpathStart, current.count >= 2 {
+                    append([start])
+                    flush(closed: true)
+                } else {
+                    flush(closed: false)
+                }
+                // A `close` returns the pen to the subpath origin; anything
+                // that follows without a `moveTo` continues from there.
+                current = subpathStart.map { [$0] } ?? []
+            case .quadraticCurveTo(let control, let end):
+                guard let from = current.last else { continue }
+                append(sampleQuadratic(from: from, control: control, end: end))
+            case .cubicCurveTo(let control1, let control2, let end):
+                guard let from = current.last else { continue }
+                append(sampleCubic(from: from, control1: control1, control2: control2, end: end))
+            case .arc(let center, let radius, let startAngle, let endAngle, let clockwise):
+                let samples = sampleArc(
+                    center: center, radius: radius, startAngle: startAngle, endAngle: endAngle,
+                    clockwise: clockwise)
+                if current.isEmpty, let first = samples.first {
+                    subpathStart = first
+                    current = [first]
+                }
+                append(samples)
+            }
+        }
+        flush(closed: false)
+        return result
+    }
+
+    /// What the quad family has to draw at the interior vertex `index`, or
+    /// `nil` when it cannot draw that join exactly.
+    private static func joinTerminal(
+        at index: Int, points: [Point], halfWidth: Double, path: PathPrimitive
+    ) -> StrokeTerminal? {
+        guard
+            let incoming = unitDirection(from: points[index - 1], to: points[index]),
+            let outgoing = unitDirection(from: points[index], to: points[index + 1])
+        else {
+            return .extend
+        }
+        return joinTerminal(from: incoming, to: outgoing, halfWidth: halfWidth, path: path)
+    }
+
+    /// The same decision at the vertex a closed subpath starts and ends on.
+    private static func closingJoinTerminal(
+        points: [Point], halfWidth: Double, path: PathPrimitive
+    ) -> StrokeTerminal? {
+        guard
+            let incoming = unitDirection(from: points[points.count - 2], to: points[points.count - 1]),
+            let outgoing = unitDirection(from: points[0], to: points[1])
+        else {
+            return .extend
+        }
+        return joinTerminal(from: incoming, to: outgoing, halfWidth: halfWidth, path: path)
+    }
+
+    private static func joinTerminal(
+        from incoming: (x: Double, y: Double),
+        to outgoing: (x: Double, y: Double),
+        halfWidth: Double,
+        path: PathPrimitive
+    ) -> StrokeTerminal? {
+        let dot = incoming.x * outgoing.x + incoming.y * outgoing.y
+        let resolved = StrokeOutlineGeometry.resolvedJoin(
+            path.lineJoin, directionDot: dot, miterLimit: path.miterLimit)
+        guard
+            StrokeOutlineGeometry.joinIsVisible(halfWidth: halfWidth, directionDot: dot, join: resolved)
+        else {
+            // Below the tolerance the two bodies already cover the wedge;
+            // overlapping them keeps the seam closed at no extra cost.
+            return .extend
+        }
+        switch resolved {
+        case .round:
+            return .disc
+        case .miter:
+            // Two bodies extended across a *right-angle* turn cover exactly
+            // the miter wedge — the outer half-width square — and nothing
+            // else. At any other angle the wedge is a kite, which no
+            // axis-aligned or rotated rectangle is, and the extension's
+            // error grows as `halfWidth · |cos(turn)|`: it under-fills the
+            // long spike of a shallow turn and over-fills a sharp one. Past
+            // the same tolerance the CPU stroker uses, the path goes there.
+            return halfWidth * abs(dot) <= StrokeOutlineGeometry.joinTolerance ? .extend : nil
+        case .bevel:
+            // A bevel is a triangle. Nothing in the quad family is.
+            return nil
+        }
+    }
+
+    private static func unitDirection(from start: Point, to end: Point) -> (x: Double, y: Double)? {
+        let deltaX = end.x - start.x
+        let deltaY = end.y - start.y
+        let length = (deltaX * deltaX + deltaY * deltaY).squareRoot()
+        guard length > 0.0001, length.isFinite else { return nil }
+        return (x: deltaX / length, y: deltaY / length)
+    }
+
+    /// A disc as a quad: a `lineWidth × lineWidth` square whose corner radius
+    /// is half its side, which both backends' rounded-rect coverage resolves
+    /// to a circle.
+    private static func discQuad(
+        at centre: Point, halfWidth: Double, color: Color, clip: Rect?, clipCornerRadius: Double
+    ) -> QuadPrimitive {
+        let rect = Rect(
+            x: centre.x - halfWidth, y: centre.y - halfWidth,
+            width: halfWidth * 2, height: halfWidth * 2)
+        return quad(
+            for: rect, color: color, clip: clip, clipCornerRadius: clipCornerRadius,
+            cornerRadius: Float(halfWidth))
     }
 
     // MARK: - Curve sampling
@@ -714,8 +905,21 @@ enum PathToQuadTessellator {
         return points
     }
 
+    /// The body of one stroke segment, grown past `from` by `startExtension`
+    /// and past `to` by `endExtension`.
+    ///
+    /// The extensions are what a join or a square cap needs and a butt cap
+    /// must not have, so they are per-end and directed: the segment runs
+    /// `from → to`, and swapping the endpoints swaps which end grows.
     private static func strokedSegmentQuad(
-        from: Point, to: Point, lineWidth: Double, color: Color, clip: Rect?, clipCornerRadius: Double = 0
+        from: Point,
+        to: Point,
+        lineWidth: Double,
+        startExtension: Double,
+        endExtension: Double,
+        color: Color,
+        clip: Rect?,
+        clipCornerRadius: Double = 0
     ) -> QuadPrimitive? {
         let dx = to.x - from.x
         let dy = to.y - from.y
@@ -728,39 +932,49 @@ enum PathToQuadTessellator {
         let isVertical = abs(dx) < 0.001 && abs(dy) >= 0.001
 
         let halfWidth = lineWidth / 2
+        // The extensions follow the segment's own direction, so on a
+        // right-to-left or bottom-to-top run the *end* extension is the one
+        // that grows the min side.
         if isHorizontal {
+            let minExtension = dx > 0 ? startExtension : endExtension
+            let maxExtension = dx > 0 ? endExtension : startExtension
             let minX = min(from.x, to.x)
             let maxX = max(from.x, to.x)
             let rect = Rect(
-                x: minX - halfWidth,
+                x: minX - minExtension,
                 y: from.y - halfWidth,
-                width: (maxX - minX) + lineWidth,
+                width: (maxX - minX) + minExtension + maxExtension,
                 height: lineWidth
             )
             return quad(for: rect, color: color, clip: clip, clipCornerRadius: clipCornerRadius)
         }
         if isVertical {
+            let minExtension = dy > 0 ? startExtension : endExtension
+            let maxExtension = dy > 0 ? endExtension : startExtension
             let minY = min(from.y, to.y)
             let maxY = max(from.y, to.y)
             let rect = Rect(
                 x: from.x - halfWidth,
-                y: minY - halfWidth,
+                y: minY - minExtension,
                 width: lineWidth,
-                height: (maxY - minY) + lineWidth
+                height: (maxY - minY) + minExtension + maxExtension
             )
             return quad(for: rect, color: color, clip: clip, clipCornerRadius: clipCornerRadius)
         }
 
-        // Diagonal segment: emit a rotated quad. The unrotated rect
-        // covers `length + lineWidth` along the x-axis with `lineWidth`
-        // thickness; rotating around its centre by atan2(dy, dx) aligns
-        // it with the segment.
-        let midX = (from.x + to.x) * 0.5
-        let midY = (from.y + to.y) * 0.5
-        let extendedLength = length + lineWidth
+        // Diagonal segment: emit a rotated quad. The unrotated rect covers
+        // `length + extensions` along the x-axis with `lineWidth` thickness;
+        // rotating around its centre by atan2(dy, dx) aligns it with the
+        // segment. An asymmetric pair of extensions moves the centre, so the
+        // midpoint is taken after they are applied.
+        let extendedLength = length + startExtension + endExtension
+        let unitX = dx / length
+        let unitY = dy / length
+        let centreX = (from.x + to.x) * 0.5 + unitX * (endExtension - startExtension) * 0.5
+        let centreY = (from.y + to.y) * 0.5 + unitY * (endExtension - startExtension) * 0.5
         let rect = Rect(
-            x: midX - extendedLength * 0.5,
-            y: midY - halfWidth,
+            x: centreX - extendedLength * 0.5,
+            y: centreY - halfWidth,
             width: extendedLength,
             height: lineWidth
         )
@@ -769,7 +983,8 @@ enum PathToQuadTessellator {
     }
 
     private static func quad(
-        for rect: Rect, color: Color, clip: Rect?, clipCornerRadius: Double = 0, rotation: Float = 0
+        for rect: Rect, color: Color, clip: Rect?, clipCornerRadius: Double = 0, rotation: Float = 0,
+        cornerRadius: Float = 0
     ) -> QuadPrimitive {
         let clipRect = clip ?? Rect(x: 0, y: 0, width: 0, height: 0)
         return QuadPrimitive(
@@ -777,7 +992,7 @@ enum PathToQuadTessellator {
             y: Float(rect.origin.y),
             width: Float(rect.size.width),
             height: Float(rect.size.height),
-            cornerRadius: 0,
+            cornerRadius: cornerRadius,
             startR: color.red, startG: color.green, startB: color.blue, startA: color.alpha,
             endR: color.red, endG: color.green, endB: color.blue, endA: color.alpha,
             gradientAxis: 0,

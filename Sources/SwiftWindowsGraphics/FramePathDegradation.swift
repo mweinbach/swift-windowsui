@@ -43,7 +43,7 @@ public enum FramePathDegradation {
                     path: fill.path,
                     fillColor: fill.color,
                     strokeColor: .clear,
-                    lineWidth: 0,
+                    strokeStyle: StrokeStyle(lineWidth: 0),
                     clipRect: fill.clipRect,
                     scaleFactor: scale
                 ) {
@@ -55,7 +55,7 @@ public enum FramePathDegradation {
                     path: stroke.path,
                     fillColor: .clear,
                     strokeColor: stroke.color,
-                    lineWidth: stroke.style.lineWidth,
+                    strokeStyle: stroke.style,
                     clipRect: stroke.clipRect,
                     scaleFactor: scale
                 ) {
@@ -91,10 +91,11 @@ public enum FramePathDegradation {
         path: RenderPath,
         fillColor: Color,
         strokeColor: Color,
-        lineWidth: Double,
+        strokeStyle: StrokeStyle,
         clipRect: Rect?,
         scaleFactor: Double
     ) -> DrawBitmapCommand? {
+        let lineWidth = strokeStyle.lineWidth
         // A stroke with no width paints nothing (matches ScenePainter's
         // `style.lineWidth > 0` guard); a clear fill likewise.
         guard fillColor.alpha > 0 || (strokeColor.alpha > 0 && lineWidth > 0) else {
@@ -104,20 +105,34 @@ public enum FramePathDegradation {
             return nil
         }
 
+        // `pathBounds` is logical, so the outset is measured on logical
+        // elements and the whole rect is scaled once, below.
+        let logicalElements = path.segments.map { $0.asPathElement(scaledBy: 1) }
+        let elements = path.segments.map { $0.asPathElement(scaledBy: scaleFactor) }
         // Strokes can have zero-thickness bounds (e.g. a straight line), so
-        // outset before the empty check — mirrors ScenePainter's strokeBounds.
-        let strokeOutset = strokeColor.alpha > 0 ? max(lineWidth, 0) / 2 : 0
+        // outset before the empty check — mirrors ScenePainter's strokeBounds,
+        // caps and joins included.
+        let strokeOutset =
+            strokeColor.alpha > 0
+            ? StrokeOutlineGeometry.boundsOutset(
+                forElements: logicalElements,
+                lineWidth: max(lineWidth, 0), lineCap: strokeStyle.lineCap,
+                lineJoin: strokeStyle.lineJoin, miterLimit: strokeStyle.miterLimit)
+            : 0
         let logicalBounds = pathBounds.outset(by: strokeOutset)
         guard !logicalBounds.isEmpty else {
             return nil
         }
 
         let primitive = PathPrimitive(
-            elements: path.segments.map { $0.asPathElement(scaledBy: scaleFactor) },
+            elements: elements,
             bounds: logicalBounds.scaled(by: scaleFactor),
             fillColor: fillColor,
             strokeColor: strokeColor,
             lineWidth: lineWidth * scaleFactor,
+            lineCap: strokeStyle.lineCap,
+            lineJoin: strokeStyle.lineJoin,
+            miterLimit: strokeStyle.miterLimit,
             clipBounds: clipRect?.scaled(by: scaleFactor)
         )
         guard let maskedBounds = primitive.contentMaskedBounds, !maskedBounds.isEmpty,

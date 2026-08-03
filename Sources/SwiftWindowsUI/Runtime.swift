@@ -4569,7 +4569,15 @@ public final class ViewNode {
                         StrokePathCommand(
                             path: scaledPath,
                             color: effectiveStrokeColor,
-                            style: StrokeStyle(lineWidth: borderWidth),
+                            // The node's own stroke style, not a fresh one:
+                            // rebuilding it from `borderWidth` dropped the
+                            // cap and join the shape asked for, so the frame
+                            // path and the scene path drew different shapes.
+                            style: StrokeStyle(
+                                lineWidth: borderWidth,
+                                lineCap: borderStrokeStyle?.lineCap ?? .butt,
+                                lineJoin: borderStrokeStyle?.lineJoin ?? .miter,
+                                miterLimit: borderStrokeStyle?.miterLimit ?? 10),
                             clipRect: effectiveClipRect
                         )
                     )

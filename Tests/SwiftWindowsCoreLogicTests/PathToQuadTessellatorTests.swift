@@ -227,10 +227,12 @@ final class PathToQuadTessellatorTests: XCTestCase {
         let quads = PathToQuadTessellator.tessellate(path)
         XCTAssertEqual(quads?.count, 1)
         guard let quad = quads?.first else { return XCTFail() }
-        // x = min(10,90) - lineWidth/2 = 8; width = 80 + lineWidth = 84.
-        XCTAssertEqual(quad.x, 8, accuracy: 0.001)
+        // The default cap is butt, so the body stops flush at both endpoints.
+        // Every segment used to be extended by half a line width whatever the
+        // style said, which drew a square cap on a stroke that asked for none.
+        XCTAssertEqual(quad.x, 10, accuracy: 0.001)
         XCTAssertEqual(quad.y, 48, accuracy: 0.001)
-        XCTAssertEqual(quad.width, 84, accuracy: 0.001)
+        XCTAssertEqual(quad.width, 80, accuracy: 0.001)
         XCTAssertEqual(quad.height, 4, accuracy: 0.001)
         XCTAssertEqual(quad.startB, 1)
     }
@@ -247,8 +249,103 @@ final class PathToQuadTessellatorTests: XCTestCase {
         XCTAssertEqual(quads?.count, 1)
         guard let quad = quads?.first else { return XCTFail() }
         XCTAssertEqual(quad.x, 49, accuracy: 0.001)
+        XCTAssertEqual(quad.y, 10, accuracy: 0.001)
         XCTAssertEqual(quad.width, 2, accuracy: 0.001)
-        XCTAssertEqual(quad.height, 82, accuracy: 0.001)
+        XCTAssertEqual(quad.height, 80, accuracy: 0.001)
+    }
+
+    /// The same vertical stroke with each of the three caps: butt stops
+    /// flush, square extends by half a line width at both ends, round stops
+    /// flush and gets a disc — a `lineWidth × lineWidth` quad whose corner
+    /// radius is half its side.
+    func testCapStyleDecidesHowFarTheBodyReaches() {
+        func body(_ cap: StrokeStyle.LineCap) -> [QuadPrimitive] {
+            var path = makeStrokedPath(
+                elements: [.moveTo(Point(x: 50, y: 10)), .lineTo(Point(x: 50, y: 90))],
+                lineWidth: 4)
+            path.lineCap = cap
+            return PathToQuadTessellator.tessellate(path) ?? []
+        }
+
+        let butt = body(.butt)
+        XCTAssertEqual(butt.count, 1)
+        XCTAssertEqual(butt.first?.y ?? -1, 10, accuracy: 0.001)
+        XCTAssertEqual(butt.first?.height ?? -1, 80, accuracy: 0.001)
+
+        let square = body(.square)
+        XCTAssertEqual(square.count, 1)
+        XCTAssertEqual(square.first?.y ?? -1, 8, accuracy: 0.001)
+        XCTAssertEqual(square.first?.height ?? -1, 84, accuracy: 0.001)
+
+        let round = body(.round)
+        XCTAssertEqual(round.count, 3, "one body plus one disc per end")
+        let stem = round.first { $0.height > 10 }
+        XCTAssertEqual(stem?.y ?? -1, 10, accuracy: 0.001)
+        XCTAssertEqual(stem?.height ?? -1, 80, accuracy: 0.001)
+        let discs = round.filter { $0.cornerRadius > 0 }
+        XCTAssertEqual(discs.count, 2)
+        for disc in discs {
+            XCTAssertEqual(disc.width, 4, accuracy: 0.001)
+            XCTAssertEqual(disc.height, 4, accuracy: 0.001)
+            XCTAssertEqual(disc.cornerRadius, 2, accuracy: 0.001)
+        }
+        XCTAssertEqual(discs.map(\.y).sorted(), [8, 88])
+    }
+
+    /// A right-angle miter is exactly the square the two extended bodies
+    /// cover, so an L stays on the GPU; a 45° one is a kite no rectangle can
+    /// be, so the whole path goes to the CPU stroker rather than rendering a
+    /// join nobody asked for.
+    func testMiterJoinPromotesOnlyWhenTheQuadFamilyCanDrawItExactly() {
+        let rightAngle = makeStrokedPath(
+            elements: [
+                .moveTo(Point(x: 10, y: 10)),
+                .lineTo(Point(x: 60, y: 10)),
+                .lineTo(Point(x: 60, y: 60)),
+            ],
+            lineWidth: 6)
+        XCTAssertEqual(PathToQuadTessellator.tessellate(rightAngle)?.count, 2)
+
+        let sharp = makeStrokedPath(
+            elements: [
+                .moveTo(Point(x: 10, y: 10)),
+                .lineTo(Point(x: 60, y: 10)),
+                .lineTo(Point(x: 90, y: 40)),
+            ],
+            lineWidth: 6)
+        XCTAssertNil(
+            PathToQuadTessellator.tessellateMixed(sharp),
+            "a 45° miter is not a rectangle; the CPU stroker draws it")
+
+        var rounded = sharp
+        rounded.lineJoin = .round
+        let roundedQuads = PathToQuadTessellator.tessellate(rounded)
+        XCTAssertEqual(roundedQuads?.count, 3, "two bodies plus the join disc")
+        XCTAssertEqual(roundedQuads?.filter { $0.cornerRadius > 0 }.count, 1)
+    }
+
+    /// A bevel is a triangle whatever the angle, so a visible one always
+    /// falls back — and a turn too shallow to show a join still promotes.
+    func testBevelJoinFallsBackOnlyWhenTheJoinIsVisible() {
+        var sharp = makeStrokedPath(
+            elements: [
+                .moveTo(Point(x: 10, y: 10)),
+                .lineTo(Point(x: 60, y: 10)),
+                .lineTo(Point(x: 60, y: 60)),
+            ],
+            lineWidth: 6)
+        sharp.lineJoin = .bevel
+        XCTAssertNil(PathToQuadTessellator.tessellateMixed(sharp))
+
+        var shallow = makeStrokedPath(
+            elements: [
+                .moveTo(Point(x: 10, y: 10)),
+                .lineTo(Point(x: 60, y: 10)),
+                .lineTo(Point(x: 110, y: 10.2)),
+            ],
+            lineWidth: 2)
+        shallow.lineJoin = .bevel
+        XCTAssertEqual(PathToQuadTessellator.tessellate(shallow)?.count, 2)
     }
 
     func testMultipleAxisAlignedSegmentsProduceOneQuadPerSegment() {
@@ -388,30 +485,38 @@ final class PathToQuadTessellatorTests: XCTestCase {
 
     // MARK: - Mixed-output: partial GPU promotion
 
-    /// A polyline of mixed axis-aligned and diagonal segments now
-    /// puts every segment on the GPU — axis-aligned ones as fast-path
-    /// quads, diagonal ones as rotated quads. The CPU residual path
-    /// is empty.
+    /// A polyline of mixed axis-aligned and diagonal segments puts every
+    /// segment on the GPU — axis-aligned ones as fast-path quads, diagonal
+    /// ones as rotated quads — as long as the joins between them are ones
+    /// the quad family can draw. The CPU residual path is empty.
     func testMixedAxisAlignedAndDiagonalSegmentsAllReachGPU() {
-        let path = makeStrokedPath(
+        var path = makeStrokedPath(
             elements: [
                 .moveTo(Point(x: 10, y: 10)),
                 .lineTo(Point(x: 50, y: 10)),  // horizontal — quad rotation 0
                 .lineTo(Point(x: 70, y: 30)),  // diagonal — rotated quad
                 .lineTo(Point(x: 70, y: 80)),  // vertical — quad rotation 0
             ],
-            lineWidth: 2
+            // Thick enough for a 45° join to be worth drawing at all: at two
+            // points wide the wedge is 0.076 px deep, below the tolerance
+            // both stroke rasterizers share.
+            lineWidth: 6
         )
+        // The two 45° corners are round joins, which are discs; with the
+        // default miter they would be kites and the path would go to the CPU
+        // stroker instead of rendering a join nobody asked for.
+        path.lineJoin = .round
         guard let result = PathToQuadTessellator.tessellateMixed(path) else {
             return XCTFail("Mixed result should be returned")
         }
-        XCTAssertEqual(result.quads.count, 3, "Three segments → three GPU quads")
+        XCTAssertEqual(result.quads.count, 5, "three segment bodies plus two join discs")
         XCTAssertNil(
             result.residualPath, "Rotated-quad support eliminates the CPU residual path")
-        // Exactly one segment is diagonal — exactly one quad must
+        // Exactly one segment is diagonal — exactly one body quad must
         // carry a non-zero rotation.
         let rotated = result.quads.filter { abs($0.rotationRadians) > 0.01 }
         XCTAssertEqual(rotated.count, 1)
+        XCTAssertEqual(result.quads.filter { $0.cornerRadius > 0 }.count, 2)
     }
 
     /// All axis-aligned: every quad has rotation 0.
@@ -433,9 +538,9 @@ final class PathToQuadTessellatorTests: XCTestCase {
         XCTAssertNil(result?.residualPath)
     }
 
-    /// All diagonal: every quad is rotated.
+    /// All diagonal: every segment body is rotated.
     func testAllDiagonalSegmentsProduceRotatedQuads() {
-        let path = makeStrokedPath(
+        var path = makeStrokedPath(
             elements: [
                 .moveTo(Point(x: 10, y: 10)),
                 .lineTo(Point(x: 40, y: 50)),
@@ -443,10 +548,11 @@ final class PathToQuadTessellatorTests: XCTestCase {
             ],
             lineWidth: 2
         )
+        path.lineJoin = .round
         let result = PathToQuadTessellator.tessellateMixed(path)
-        XCTAssertEqual(result?.quads.count, 2)
+        XCTAssertEqual(result?.quads.count, 3, "two rotated bodies plus the join disc")
         XCTAssertTrue(
-            result?.quads.allSatisfy { abs($0.rotationRadians) > 0.01 } == true,
+            result?.quads.filter { $0.cornerRadius == 0 }.allSatisfy { abs($0.rotationRadians) > 0.01 } == true,
             "Diagonal segments must produce rotated quads"
         )
         XCTAssertNil(result?.residualPath)

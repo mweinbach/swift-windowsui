@@ -752,25 +752,40 @@ public enum ScenePainter {
                 }
                 let effectiveStrokeColor = node.borderColor.multipliedAlpha(by: opacity)
                 if effectiveStrokeColor.alpha > 0, node.borderWidth > 0 {
+                    let strokeStyle = node.borderStrokeStyle ?? StrokeStyle(lineWidth: node.borderWidth)
+                    let strokeElements: [PathElement] = scaledPath.segments.map { segment in
+                        switch segment {
+                        case .moveTo(let p): return .moveTo(p)
+                        case .lineTo(let p): return .lineTo(p)
+                        case .quadCurveTo(let c, let e): return .quadraticCurveTo(control: c, end: e)
+                        case .cubicCurveTo(let c1, let c2, let e):
+                            return .cubicCurveTo(control1: c1, control2: c2, end: e)
+                        case .arc(let c, let r, let s, let e, let cw):
+                            return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
+                        case .close: return .close
+                        }
+                    }
+                    // A stroke straddles its path, so its footprint is wider
+                    // than the path's own bounding rect. The primitive used
+                    // to be handed `pathBounds` unchanged, which cropped the
+                    // outer half of every shape outline the tessellator sent
+                    // to CPU rasterization.
+                    let strokeBounds = pathBounds.outset(
+                        by: StrokeOutlineGeometry.boundsOutset(
+                            forElements: strokeElements, lineWidth: node.borderWidth,
+                            lineCap: strokeStyle.lineCap, lineJoin: strokeStyle.lineJoin,
+                            miterLimit: strokeStyle.miterLimit))
                     Self.emit(
                         path: PathPrimitive(
-                            elements: scaledPath.segments.map { segment in
-                                switch segment {
-                                case .moveTo(let p): return .moveTo(p)
-                                case .lineTo(let p): return .lineTo(p)
-                                case .quadCurveTo(let c, let e): return .quadraticCurveTo(control: c, end: e)
-                                case .cubicCurveTo(let c1, let c2, let e):
-                                    return .cubicCurveTo(control1: c1, control2: c2, end: e)
-                                case .arc(let c, let r, let s, let e, let cw):
-                                    return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
-                                case .close: return .close
-                                }
-                            },
-                            bounds: pathBounds,
+                            elements: strokeElements,
+                            bounds: strokeBounds,
                             strokeColor: effectiveStrokeColor,
                             lineWidth: node.borderWidth,
+                            lineCap: strokeStyle.lineCap,
+                            lineJoin: strokeStyle.lineJoin,
+                            miterLimit: strokeStyle.miterLimit,
                             clipBounds: effectiveClipRect,
-                            clipCornerRadius: effectiveClip.resolvedCornerRadius(forQuadRect: pathBounds)
+                            clipCornerRadius: effectiveClip.resolvedCornerRadius(forQuadRect: strokeBounds)
                         ), into: &scene, layerIndex: layerIndex, displayScale: displayScale)
                 }
             }
@@ -1505,15 +1520,22 @@ public enum ScenePainter {
                 // single horizontal line), so outset before the empty check
                 // and use the inflated rect for clip/visibility tests.
                 guard let pathBounds = translated.segments.boundingRect else { continue }
-                let strokeBounds = pathBounds.outset(by: style.lineWidth / 2)
+                let strokeElements = pathElements(from: translated.segments)
+                let strokeBounds = pathBounds.outset(
+                    by: StrokeOutlineGeometry.boundsOutset(
+                        forElements: strokeElements, lineWidth: style.lineWidth, lineCap: style.lineCap,
+                        lineJoin: style.lineJoin, miterLimit: style.miterLimit))
                 guard !strokeBounds.isEmpty else { continue }
                 guard clipAllowsDrawing(clip: currentClip, rect: strokeBounds) else { continue }
                 Self.emit(
                     path: PathPrimitive(
-                        elements: pathElements(from: translated.segments),
+                        elements: strokeElements,
                         bounds: strokeBounds,
                         strokeColor: effectiveColor,
                         lineWidth: style.lineWidth,
+                        lineCap: style.lineCap,
+                        lineJoin: style.lineJoin,
+                        miterLimit: style.miterLimit,
                         clipBounds: currentClip,
                         clipCornerRadius: clipRadius(strokeBounds)
                     ), into: &scene, layerIndex: layerIndex, displayScale: displayScale)
@@ -1555,6 +1577,9 @@ public enum ScenePainter {
                 let effectiveColor = color.multipliedAlpha(by: opacity)
                 guard effectiveColor.alpha > 0, lineWidth > 0 else { continue }
                 let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
+                // A closed rect outline's miters reach exactly half a line
+                // width past each corner on each axis, which is what the
+                // outset already is.
                 let strokeBounds = effectiveRect.outset(by: lineWidth / 2)
                 guard clipAllowsDrawing(clip: currentClip, rect: strokeBounds) else { continue }
                 let outline: [RenderPath.Segment] = [

@@ -1318,7 +1318,38 @@ struct RuntimePrepaintState {
 public enum ViewLayoutMode: Sendable {
     case absolute
     case stack(StackLayout)
+    /// A stack that only lays its children's *subtrees* out when the scroll
+    /// viewport can reach them.
+    ///
+    /// Placement is identical to `.stack` — every child is still measured
+    /// (through the per-node measurement cache) and given a frame, because a
+    /// stack cannot know where row 900 goes without knowing how tall rows
+    /// 0…899 are. What virtualization removes is the recursive
+    /// `layoutSubtree` walk into each child, which is where the depth is: a
+    /// 5,000-row list is 5,000 shallow placements plus a deep layout of the
+    /// handful of rows the viewport plus its overscan margin covers.
+    ///
+    /// A skipped child keeps its dirty flags and gets no new
+    /// `cachedLayoutKey`, so the first pass that finds it in range lays it
+    /// out in full. Nothing observes a half-laid-out subtree, because a
+    /// child outside the viewport is also outside the clip the painter culls
+    /// against.
+    case lazyStack(StackLayout)
     case flex(FlexStyle)
+
+    /// The stack layout children are placed with, for both stack variants.
+    public var stackLayout: StackLayout? {
+        switch self {
+        case .stack(let layout), .lazyStack(let layout): return layout
+        case .absolute, .flex: return nil
+        }
+    }
+
+    /// True when out-of-viewport children may skip their recursive layout.
+    public var virtualizesChildren: Bool {
+        if case .lazyStack = self { return true }
+        return false
+    }
 }
 public enum ScrollAxis: Sendable {
     case horizontal
@@ -1837,7 +1868,13 @@ public final class ViewNode {
     }
 
     public var scrollOffset: Double {
-        didSet { invalidateRuntime(.paint) }
+        // Scrolling is a paint change — except over virtualized content,
+        // where it is also the only signal that a row has come into range
+        // and needs its subtree laid out. `hasVirtualizedDescendants` is set
+        // by the first `.lazyStack` below this node that actually defers a
+        // child, so an ordinary scroll view keeps its paint-only
+        // invalidation and pays nothing for the concept.
+        didSet { invalidateRuntime(hasVirtualizedDescendants ? [.paint, .layout] : .paint) }
     }
 
     public var scrollStep: Double {
@@ -2621,6 +2658,27 @@ public final class ViewNode {
     internal var cachedMeasureKey: ViewMeasureCacheKey?
     internal var cachedMeasuredSize: Size?
     internal var cachedLayoutKey: ViewLayoutCacheKey?
+
+    /// Set on a scrollable node once a `.lazyStack` beneath it has deferred
+    /// a child's layout. It is what turns a scroll — normally a paint-only
+    /// change — into a layout invalidation for virtualized content only.
+    internal var hasVirtualizedDescendants = false
+
+    /// The scrollable ancestor `layoutVirtualizationWindow()` last resolved
+    /// against, so deferring a child can mark it without a second walk.
+    internal weak var virtualizationScrollAncestor: ViewNode?
+
+    /// True while a `.lazyStack` ancestor has skipped this node's recursive
+    /// layout because the scroll viewport could not reach it.
+    ///
+    /// Needed because dirty flags are not a reliable record of "still needs
+    /// laying out": the painter culls an out-of-viewport subtree and calls
+    /// `markSubtreeRendered()` on it, which clears the aggregate flag. A row
+    /// skipped at layout and then culled at paint would therefore look clean
+    /// the moment it scrolled back into view, and would paint at whatever
+    /// geometry it last had — the exact failure a virtualization scheme must
+    /// not have.
+    internal var isLayoutDeferredByVirtualization = false
     internal var cachedPrepaintKey: ViewPaintCacheKey?
     internal var cachedPrepaintRange: PrepaintStateRange?
     internal var cachedFrameKey: ViewPaintCacheKey?
@@ -3453,7 +3511,28 @@ public final class ViewNode {
             runtime?.recordLayoutReuse()
             resolvedScrollOffset = effectiveScrollOffset
 
-            if hasDirtySubtree {
+            // A scroll frame dirties `.paint`, not `.layout`, so this early
+            // return — not the placement loop — is the path a scrolling list
+            // actually takes, and it is where rows that have just come into
+            // range have to be laid out. The window is recomputed here rather
+            // than carried, and every child is tested rather than only the
+            // dirty ones, because a deferred row's dirty flags were cleared
+            // by the painter's cull while it was off-screen.
+            if layoutMode.virtualizesChildren, let mainAxis = layoutMode.stackLayout?.axis {
+                let window = layoutVirtualizationWindow()
+                for child in children {
+                    if Self.isOutsideLayoutViewport(child.resolvedFrame, viewport: window, axis: mainAxis) {
+                        child.isLayoutDeferredByVirtualization = true
+                        virtualizationScrollAncestor?.hasVirtualizedDescendants = true
+                        runtime?.recordVirtualizedLayoutSkip()
+                        continue
+                    }
+                    let resumed = child.resumeVirtualizedLayout()
+                    if resumed || child.hasDirtySubtree {
+                        child.layoutSubtree(displayScale: displayScale)
+                    }
+                }
+            } else if hasDirtySubtree {
                 for child in children where child.hasDirtySubtree {
                     child.layoutSubtree(displayScale: displayScale)
                 }
@@ -3472,6 +3551,15 @@ public final class ViewNode {
                 height: size.height
             )
         }
+
+        // Published before the children lay out, not only after: a
+        // descendant `.lazyStack` resolves its viewport against this value,
+        // and reading last pass's offset means it virtualizes against the
+        // rows the user was looking at a frame ago. Clamping needs
+        // `resolvedContentSize`, which this pass is about to recompute, so
+        // the assignment at the end of the pass stands as the authoritative
+        // one and this is the best estimate available before it.
+        resolvedScrollOffset = effectiveScrollOffset
 
         switch layoutMode {
         case .absolute:
@@ -3499,7 +3587,7 @@ public final class ViewNode {
                 height: max(resolvedFrame.size.height, maxChildY)
             )
 
-        case .stack(let stackLayout):
+        case .stack(let stackLayout), .lazyStack(let stackLayout):
             let contentRect = Rect(origin: .zero, size: resolvedFrame.size).inset(by: stackLayout.padding)
             let visibleChildren = children.filter { !$0.isHidden }
             let childConstraints = stackChildConstraints(for: contentRect.size, axis: stackLayout.axis)
@@ -3661,6 +3749,10 @@ public final class ViewNode {
                     stackLayout.axis == .vertical ? resolvedFrame.size.height : resolvedFrame.size.width
                 mainCursor = max(0, min(mainCursorStart, fullMainExtent - occupiedMainExtent))
             }
+            // nil for a plain `.stack` and for a `.lazyStack` with nothing
+            // scrollable above it, which is what makes virtualization opt-in
+            // and bounded rather than a guess.
+            let virtualizationWindow = layoutVirtualizationWindow()
             var visibleIndex = 0
             var maxCrossExtent: Double = 0
 
@@ -3782,7 +3874,14 @@ public final class ViewNode {
                 }
 
                 child.resolvedFrame = childFrame
-                child.layoutSubtree(displayScale: displayScale)
+                if Self.isOutsideLayoutViewport(childFrame, viewport: virtualizationWindow, axis: stackLayout.axis) {
+                    child.isLayoutDeferredByVirtualization = true
+                    virtualizationScrollAncestor?.hasVirtualizedDescendants = true
+                    runtime?.recordVirtualizedLayoutSkip()
+                } else {
+                    _ = child.resumeVirtualizedLayout()
+                    child.layoutSubtree(displayScale: displayScale)
+                }
                 visibleIndex += 1
             }
 
@@ -3846,6 +3945,87 @@ public final class ViewNode {
         applyDefaultScrollAnchorAfterLayout()
         cachedLayoutKey = layoutKey
         resolvedScrollOffset = effectiveScrollOffset
+    }
+
+    /// The region of this node's own coordinate space — the space its
+    /// children's frames live in — that a scrollable ancestor can show,
+    /// or `nil` when this node does not virtualize or nothing above it
+    /// scrolls.
+    ///
+    /// Computed by walking *up* to the nearest scrollable ancestor rather
+    /// than pushed down during layout, for one reason: a scroll frame
+    /// dirties `.paint`, not `.layout`, so most layout passes over a
+    /// scrolling list never reach the code that would refresh a pushed-down
+    /// value. A stale window is not a slow list, it is rows that scrolled
+    /// into view and were never laid out. The walk is O(depth), once per
+    /// lazy stack per pass.
+    ///
+    /// Kept out of line so `layoutSubtree`'s stack frame — one of the two
+    /// deepest recursions in the stack — gains a call and not a rectangle.
+    internal func layoutVirtualizationWindow() -> Rect? {
+        guard layoutMode.virtualizesChildren else { return nil }
+        var offsetX: Double = 0
+        var offsetY: Double = 0
+        var node: ViewNode? = self
+        var depth = 0
+        while let current = node, depth < ViewNode.maximumTraversalDepth {
+            if let axis = current.scrollAxis {
+                // Remember which node's offset governs this window, so a
+                // scroll can invalidate layout for virtualized content and
+                // only for virtualized content.
+                virtualizationScrollAncestor = current
+                // The ancestor's visible window lives in ITS content space;
+                // subtracting the accumulated offset restates it in ours.
+                let window = Rect(
+                    x: (axis == .horizontal ? current.resolvedScrollOffset : 0) - offsetX,
+                    y: (axis == .vertical ? current.resolvedScrollOffset : 0) - offsetY,
+                    width: current.resolvedFrame.size.width,
+                    height: current.resolvedFrame.size.height)
+                return window.origin.x.isFinite && window.origin.y.isFinite ? window : nil
+            }
+            offsetX += current.resolvedFrame.origin.x
+            offsetY += current.resolvedFrame.origin.y
+            node = current.parent
+            depth += 1
+        }
+        return nil
+    }
+
+    /// True when `frame` sits entirely outside `viewport` along `axis`, with
+    /// a full viewport extent of overscan on each side.
+    ///
+    /// The overscan is what makes the skip safe rather than merely fast. A
+    /// row's subtree may draw outside the row (a shadow, an overlay, a
+    /// negative offset), and layout is not the place that knows how far;
+    /// putting a whole viewport of slack on each side means anything that
+    /// could plausibly reach the visible area was laid out anyway, while the
+    /// work still stays proportional to the viewport rather than to the list.
+    /// A nil viewport (no scrollable ancestor) virtualizes nothing.
+    private static func isOutsideLayoutViewport(
+        _ frame: Rect, viewport: Rect?, axis: StackAxis
+    ) -> Bool {
+        guard let viewport else { return false }
+        let overscan: Double
+        let start: Double
+        let end: Double
+        let frameStart: Double
+        let frameEnd: Double
+        switch axis {
+        case .vertical:
+            overscan = max(viewport.size.height, 0)
+            start = viewport.origin.y - overscan
+            end = viewport.origin.y + viewport.size.height + overscan
+            frameStart = frame.origin.y
+            frameEnd = frame.maxY
+        case .horizontal:
+            overscan = max(viewport.size.width, 0)
+            start = viewport.origin.x - overscan
+            end = viewport.origin.x + viewport.size.width + overscan
+            frameStart = frame.origin.x
+            frameEnd = frame.maxX
+        }
+        guard start.isFinite, end.isFinite, frameStart.isFinite, frameEnd.isFinite else { return false }
+        return frameEnd < start || frameStart > end
     }
 
     private func applyDefaultScrollAnchorAfterLayout() {
@@ -4903,6 +5083,17 @@ public final class ViewNode {
         subtreeDirtyFlags = []
     }
 
+    /// Clears the deferred-layout mark and, if it was set, the cached layout
+    /// key with it, so the caller's `layoutSubtree` cannot take its
+    /// early-return path over a subtree that was never laid out. Returns
+    /// whether the node had been deferred.
+    fileprivate func resumeVirtualizedLayout() -> Bool {
+        guard isLayoutDeferredByVirtualization else { return false }
+        isLayoutDeferredByVirtualization = false
+        cachedLayoutKey = nil
+        return true
+    }
+
     fileprivate func markDirty(_ flags: DirtyFlags) {
         var currentNode: ViewNode? = self
         while let node = currentNode {
@@ -5024,7 +5215,7 @@ public final class ViewNode {
 
             measuredSize = Size(width: maxChildX, height: maxChildY)
 
-        case .stack(let stackLayout):
+        case .stack(let stackLayout), .lazyStack(let stackLayout):
             let contentConstraints = insetConstraints(effectiveConstraints, by: stackLayout.padding)
             let childConstraints = stackChildConstraints(for: contentConstraints, axis: stackLayout.axis)
             let visibleChildren = children.filter { !$0.isHidden }
@@ -5335,7 +5526,7 @@ public final class ViewNode {
             return axis == .vertical ? measured.height : measured.width
         }
 
-        guard case .stack(let stackLayout) = layoutMode else {
+        guard let stackLayout = layoutMode.stackLayout else {
             return 0
         }
 
@@ -6141,6 +6332,15 @@ public final class RetainedViewRuntime {
     public private(set) var lastScenePaintMetrics: ScenePaintMetrics = ScenePaintMetrics()
     internal private(set) var lastLayoutReuseCount = 0
     internal private(set) var lastMeasureReuseCount = 0
+    /// How many child subtrees a `.lazyStack` has skipped laying out because
+    /// the scroll viewport (plus overscan) could not reach them.
+    ///
+    /// Monotonic, not per-pass: one `renderScene` + `renderFrame` pair runs
+    /// two layout passes and the second correctly does nothing, so a
+    /// per-pass counter reads zero exactly when the work was avoided. This
+    /// is the structural measure of virtualization — the difference between
+    /// O(rows) and O(visible rows) of recursive layout work.
+    internal private(set) var virtualizedLayoutSkipCount = 0
     internal private(set) var lastPrepaintReplayCount = 0
     internal private(set) var lastDeferredOverlayReplayCount = 0
     internal private(set) var lastDeferredDrawFrameReplayCount = 0
@@ -7287,6 +7487,10 @@ public final class RetainedViewRuntime {
 
     fileprivate func recordLayoutReuse() {
         lastLayoutReuseCount += 1
+    }
+
+    fileprivate func recordVirtualizedLayoutSkip() {
+        virtualizedLayoutSkipCount += 1
     }
 
     fileprivate func recordMeasureReuse() {

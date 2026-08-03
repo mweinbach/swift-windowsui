@@ -5527,12 +5527,18 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            guard case .stack(let verticalLayout) = lazyVStack.layoutMode else {
-                return XCTFail("Expected LazyVStack to use retained stack layout")
+            // Lazy stacks place children exactly like eager ones and differ
+            // only in whether an out-of-viewport child's subtree is laid out
+            // recursively, so the layout value is the same and the mode is
+            // the virtualizing variant.
+            guard case .lazyStack(let verticalLayout) = lazyVStack.layoutMode else {
+                return XCTFail("Expected LazyVStack to use the virtualizing retained stack layout")
             }
-            guard case .stack(let horizontalLayout) = lazyHStack.layoutMode else {
-                return XCTFail("Expected LazyHStack to use retained stack layout")
+            guard case .lazyStack(let horizontalLayout) = lazyHStack.layoutMode else {
+                return XCTFail("Expected LazyHStack to use the virtualizing retained stack layout")
             }
+            XCTAssertTrue(lazyVStack.layoutMode.virtualizesChildren)
+            XCTAssertTrue(lazyHStack.layoutMode.virtualizesChildren)
 
             XCTAssertEqual(verticalLayout, .vertical(spacing: 7, alignment: .trailing))
             XCTAssertEqual(horizontalLayout, .horizontal(spacing: 5, alignment: .trailing))

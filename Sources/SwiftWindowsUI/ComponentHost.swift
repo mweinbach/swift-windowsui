@@ -237,6 +237,13 @@ public final class ComponentHost {
             case .horizontal:
                 return "stack.h"
             }
+        case .lazyStack(let layout):
+            switch layout.axis {
+            case .vertical:
+                return "lazyStack.v"
+            case .horizontal:
+                return "lazyStack.h"
+            }
         case .flex:
             return "flex"
         }

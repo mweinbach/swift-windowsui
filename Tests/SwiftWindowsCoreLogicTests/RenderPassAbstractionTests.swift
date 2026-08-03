@@ -288,6 +288,40 @@ final class RenderPassAbstractionTests: XCTestCase {
         )
     }
 
+    // MARK: - Residual: rotated clipping
+
+    /// WS-19 lowered rotation for quad *geometry*; a rotated `.clipped()`
+    /// container still clips to the axis-aligned bounding box of its rotated
+    /// frame, which at 45° is `√2` too large on each axis.
+    ///
+    /// The fix is a render pass whose result is composited through a rotated
+    /// transform. The offscreen half already exists — a compositing group
+    /// rasterizes a subtree into a bitmap and places it as an
+    /// `ImagePrimitive` — but `ImagePrimitive` carries no rotation, so the
+    /// composite would clip as an AABB again, one layer down. Closing it is
+    /// a scene-ABI change (rotation on `ImagePrimitive`, matching HLSL,
+    /// matching the CPU sampler), which is larger than this workstream.
+    ///
+    /// This test records the residual: the first assertion is what the code
+    /// does today, and the skip names what it should do instead.
+    func testRotatedClipStillNarrowsToAnAxisAlignedBox() async throws {
+        let frame = Rect(x: 0, y: 0, width: 100, height: 40)
+        let rotated = frame.applying(transform: Transform2D(rotation: .pi / 4))
+
+        // Today: the clip narrows to this box.
+        XCTAssertGreaterThan(
+            rotated.size.height, frame.size.height * 1.5,
+            "a 45° rotation of a wide rect has a much taller bounding box; that box is what the clip "
+                + "narrows to today")
+
+        throw XCTSkip(
+            "Residual (documented in docs/GPURenderingPipeline.md, 'a rotated clip is still an AABB'): "
+                + "RuntimeClipShape narrows to the AABB of the rotated frame, so a rotated clipsToBounds "
+                + "container lets children draw in the corners the rotated rect does not cover. Routing "
+                + "the subtree through an offscreen pass does not fix it until ImagePrimitive can be "
+                + "composited rotated.")
+    }
+
     /// Two flat bands under a translucent material panel — the same shape
     /// the large-radius parity scene uses, for the same reason: a wide
     /// kernel averages a gradient into uniform grey, which any two

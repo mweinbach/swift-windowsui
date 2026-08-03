@@ -7895,7 +7895,7 @@ public struct LazyVStack: View {
                 runtime: runtime,
                 pinnedViews: pinnedViews
             )
-            return Controls.stackPanel(
+            let panel = Controls.stackPanel(
                 stackLayout: .vertical(
                     spacing: spacing,
                     alignment: alignment.stackAlignment(layoutDirection: context.layoutDirection)
@@ -7903,6 +7903,16 @@ public struct LazyVStack: View {
                 isHitTestVisible: false,
                 children: children
             )
+            // The "lazy" in LazyVStack: rows the scroll viewport (plus a
+            // viewport of overscan) cannot reach are placed but not laid out
+            // recursively. Falls back to eager behaviour verbatim when there
+            // is no scrollable ancestor to bound the work.
+            panel.layoutMode = .lazyStack(
+                .vertical(
+                    spacing: spacing,
+                    alignment: alignment.stackAlignment(layoutDirection: context.layoutDirection)
+                ))
+            return panel
         }
     }
 }
@@ -7940,11 +7950,14 @@ public struct LazyHStack: View {
                 runtime: runtime,
                 pinnedViews: pinnedViews
             )
-            return Controls.stackPanel(
+            let panel = Controls.stackPanel(
                 stackLayout: .horizontal(spacing: spacing, alignment: alignment.stackAlignment),
                 isHitTestVisible: false,
                 children: children
             )
+            panel.layoutMode = .lazyStack(
+                .horizontal(spacing: spacing, alignment: alignment.stackAlignment))
+            return panel
         }
     }
 }

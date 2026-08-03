@@ -1726,6 +1726,179 @@ batch loop's state contract an invariant rather than a prose
 post-condition that happens to hold while the two frame-uniform layouts
 stay byte-identical.
 
+### Blur cost model and the downsample chain
+
+A two-pass separable Gaussian costs `2 · w · h · (2r + 1)` texture
+samples, and the painter emits `radius × displayScale`, so both the
+region and the radius grow with the display: **blur cost is cubic in
+display scale**. A `.blur(radius: 100)` panel that costs 20 M samples at
+1× costs 160 M at 2×.
+
+`BlurPassPlan` (`Sources/SwiftWindowsGraphics/RenderPass.swift`) is the
+one place that decides what to do about it, and both backends read it:
+
+| Requested radius (device px) | Halvings | Reduced radius | Cost vs full |
+|------------------------------|----------|----------------|--------------|
+| ≤ 128                        | 0        | unchanged      | 1×           |
+| 129 … 192                    | 1        | r / 2          | ~8× cheaper  |
+| 193 … 256 (`maxBlurRadius`)  | 2        | r / 4          | ~64× cheaper |
+
+Two properties are load-bearing:
+
+- **The schedule depends on the radius alone.** The CPU rasterizer's scan
+  bounds and `D3D11BackdropBlurEngine.blurRegion` are written to agree,
+  but "agree" is not "are provably identical"; keying the plan on the
+  region size would let a one-pixel disagreement at a threshold flip one
+  backend to a different number of halvings, which is a cross-backend
+  parity failure with no local cause.
+- **Everything a baseline pins is below the threshold.** Built-in
+  materials top out at 40 device pixels, so the reduced path is reachable
+  only from app-supplied wide `.blur(radius:)`. Turning it on moved no
+  reference render.
+
+The GPU halving pass is the ordinary blur shader with a **zero radius**.
+The blur shader maps a `[0,1]` viewport coordinate through
+`uv = input.uv * blurUVScale.xy`, so rendering into a half-size viewport
+puts each tap exactly on the boundary between texels `2i` and `2i+1` —
+which is an exact 2×2 box average under bilinear filtering. There is
+therefore no downsample shader to keep in sync, and
+`GPUIRawSceneRasterizer` transcribes the same average byte-for-byte. The
+upsample is folded into the composite draw: `backdropRegion.zw` carries
+the texture size *multiplied by the downsample factor*, so one divide
+does the region mapping and the bilinear magnification together.
+
+Pinned by `RenderPassAbstractionTests` (schedule, cost, continuity across
+the threshold, and a quarter-resolution cross-backend parity scene) and
+by `D3D11BackdropBlurTests.testBothBackendsHonourABlurRadiusAboveTheOldCap`.
+
+### `SubTextureRegion`: one clamp, and the stale-texel class
+
+Scratch textures in this stack are grow-only: the blur ping-pong pair and
+the path cache hold a region smaller than the texture, and every texel
+past the region is whatever the previous, larger region left there.
+Sampling `region / textureSize` directly reaches those texels at the
+region's far edge, because bilinear filtering *at the region boundary*
+blends the last in-region texel with the first out-of-region one.
+
+`SubTextureRegion` makes that unrepresentable. It clips itself into its
+texture, and every UV it hands out — `uvMinU/uvMaxU`, `uvMinV/uvMaxV`,
+`clampUV` — is already inset to the region's outermost texel **centres**.
+The blur passes clamp through it, and so does the composite draw: the
+`BackdropRegion` cbuffer's second `float4` is that clamp range. Before
+this the composite sampled unclamped, so the right and bottom edge pixels
+of every material panel blended in a texel the blur had never written.
+
+### Content blur vs backdrop blur
+
+`QuadPrimitive.blurRadius` means one thing — *blur what is already
+painted under this quad* — but `ViewNode` used to spell two things with
+it, and both came out wrong:
+
+- **Cost.** `.blur(radius:)` was inherited down the tree and applied to
+  every descendant *background quad*. Each such quad breaks the quad
+  batch and costs one backbuffer copy plus two blur passes, so a blurred
+  50-row list issued 50 copies and 100 blur draws a frame.
+- **Fidelity.** Only background quads carry the field, so the text,
+  images, borders and paths inside a `.blur()`ed subtree came out
+  perfectly sharp. `.blur()` on a `Text` did nothing whatsoever.
+
+The two meanings are now separate fields:
+
+| Field | Set by | Meaning |
+|-------|--------|---------|
+| `ViewNode.blurRadius` | `.background(.regularMaterial)` | the node's own backdrop effect; not inherited |
+| `ViewNode.contentBlurRadius` | `.blur(radius:)` | blur the subtree's rendered result; resolved as one pass |
+
+`ScenePainter.finishPaintNode` lowers a content blur to a single render
+pass over the subtree's painted bounds, emitted after everything below
+has drawn: one blur quad with a fully transparent tint, so the composite
+(`tint over blurred backdrop`) writes the blurred subtree and nothing
+else. Two documented approximations:
+
+- The pass blurs everything already painted within the bounds rather than
+  the subtree in isolation composited over an unblurred background.
+  Identical whenever the backdrop is flat, which is the common case.
+- The bounds are the node's painted frame **outset by the radius**, so the
+  blur fades out instead of ending at a hard rectangular edge. Content
+  that overflows further than the radius is not included.
+
+The frame path (`RenderCommand`) has no blur primitive and degrades a
+content blur to sharp content, as it already did for materials.
+
+Pinned by `ContentBlurRenderPassTests` and by the blur-pass budget in
+`PerformanceBudgetGateTests`.
+
+### Residual: a rotated clip is still an AABB
+
+`ViewNode.accumulatedPaintGeometry` returns
+`screenFrame.applying(transform:)` — a `Rect`, i.e. the axis-aligned
+bounding box of the rotated footprint — and `RuntimeClipShape` narrows to
+that. WS-19 lowered rotation for quad *geometry*, so a rotated card draws
+rotated; a rotated `.clipped()` container still clips its children to the
+**bounding box** of the rotated frame, which is up to `√2` too large at
+45°.
+
+Fixing it needs a render pass whose result is composited through a
+rotated transform: render the subtree into an offscreen target, then draw
+that target rotated. The offscreen half exists (compositing groups
+rasterize a subtree into a bitmap and place it as an `ImagePrimitive`),
+but `ImagePrimitive` has no rotation field, so the composite would clip
+as an AABB again — the same bug one layer down. Closing it is a scene-ABI
+change (a rotation on `ImagePrimitive`, matching HLSL, matching CPU
+sampler) and is left as follow-on work.
+`RenderPassAbstractionTests.testRotatedClipStillNarrowsToAnAxisAlignedBox`
+records the residual and skips the assertion that would hold once the
+rotated composite exists.
+
+### Virtualization: `.lazyStack`
+
+`LazyVStack` was lazy in name only — the runtime had no virtualization
+concept, so a 5,000-row list ran a full recursive `layoutSubtree` into
+every row on every layout pass.
+
+`ViewLayoutMode.lazyStack(StackLayout)` is that concept:
+
+- **Placement is unchanged.** Every child is still measured and given a
+  frame, because a stack cannot know where row 900 goes without knowing
+  how tall rows 0…899 are. `sizeThatFits` is cached per node, so that
+  half stays shallow.
+- **The recursive descent is skipped** while the scroll viewport, plus a
+  full viewport of overscan on each side, cannot reach the child. The
+  overscan is what makes the skip safe: a row's subtree may draw outside
+  the row and layout is not the place that knows how far.
+- **The window is computed by walking up** to the nearest scrollable
+  ancestor (`ViewNode.layoutVirtualizationWindow()`), not pushed down.
+  A scroll frame dirties `.paint`, not `.layout`, so most layout passes
+  over a scrolling list never reach code that would refresh a pushed-down
+  value — and a stale window is not a slow list, it is rows that scrolled
+  into view and were never laid out.
+- **Deferral is recorded explicitly** (`isLayoutDeferredByVirtualization`)
+  because dirty flags are not a reliable record of "still needs laying
+  out": the painter culls an out-of-viewport subtree and calls
+  `markSubtreeRendered()` on it, clearing the aggregate flag. Resuming a
+  deferred child also clears its `cachedLayoutKey`, so `layoutSubtree`
+  cannot take its early-return path over a subtree that was never laid
+  out.
+- **Scrolling invalidates layout only over virtualized content.** The
+  first `.lazyStack` that defers a child sets `hasVirtualizedDescendants`
+  on its scroll ancestor; that node's `scrollOffset` then invalidates
+  `[.paint, .layout]` instead of `.paint`. An ordinary scroll view keeps
+  its paint-only invalidation and pays nothing for the concept.
+- **`resolvedScrollOffset` is published before children lay out** as well
+  as after, so a descendant lazy stack resolves its window against this
+  frame's offset rather than last frame's.
+
+Not done: lazy *node construction*. `LazyVStack`'s content arrives as an
+already-materialised `[AnyView]`, so every row's `ViewNode` is built even
+though most are never laid out. Deferring construction needs a
+data-driven API (`LazyVStack(data:id:content:)`) plus an estimated row
+extent, which is a compatibility-surface change rather than a runtime one.
+
+Pinned by `LazyStackVirtualizationTests` — including the property that
+matters most, that a virtualized list is **pixel-identical** to the eager
+one both before and after scrolling — and by the layout-work budget in
+`PerformanceBudgetGateTests`.
+
 ## Per-corner radii
 
 `ViewNode.cornerRadii` (`RetainedCornerRadii`, absolute TL/TR/BR/BL)

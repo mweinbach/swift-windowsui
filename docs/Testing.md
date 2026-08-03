@@ -275,6 +275,34 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   and drop the rest (`Canvas` stroke, shape outline, frame
   `StrokePathCommand`, scene bridge), and the agreement between the
   promoted-to-quads and CPU-rasterized routes for the styles both can draw.
+- `RenderPassAbstractionTests` — the render-pass vocabulary
+  (`RenderTargetDescriptor`, `RenderPassDescriptor`, `SubTextureRegion`,
+  `BlurPassPlan`) and the two things it exists to prevent: a sub-texture
+  tap that reaches outside its region (the grow-only ping-pong pair's
+  stale texels), and a blur schedule the two backends compute differently.
+  Also covers the downsample chain — that it is invisible across its
+  threshold, that it still honours the radius, and that a
+  quarter-resolution blur agrees across backends at the suite parity
+  floor. Carries the recorded residual for rotated clipping as an
+  `XCTSkip`.
+- `ContentBlurRenderPassTests` — `.blur()` as a content blur, not a
+  per-descendant backdrop blur: one blurred quad over 50 backgrounded
+  rows rather than 50, a Material background that does not frost the
+  cards inside it, nested blurs as independent passes, the device-scale
+  radius reaching the scene, and — the regression that matters — a
+  blurred label whose glyphs actually change.
+- `LazyStackVirtualizationTests` — `.lazyStack`: rows the viewport plus
+  overscan cannot reach skip their recursive layout, an eager `VStack`
+  and a lazy stack with nothing scrollable above it skip nothing, the
+  virtualization window follows the resolved scroll offset, and the
+  virtualized list is **pixel-identical** to the eager one both before
+  and after scrolling.
+- `PerformanceBudgetGateTests` — since WS-20 it bounds *work*, not only
+  scene size: render-plan draw-step counts for the demo screens (with a
+  minimum primitives-per-step ratio, so a batch that breaks shows up), a
+  second identical render uploading no atlas bytes, blur passes for a
+  blurred 50-row subtree, and layout work for a 500-row lazy list.
+  Structural counts only — the suite still asserts no wall-clock time.
 - `BorderCornerArcGeometryTests` — the corner-arc geometry `BorderSegments`
   emits for a rounded border, measured in all four quadrants rather than
   the one whose maths was right. The annular-sector bounding box used to be

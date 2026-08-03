@@ -137,6 +137,7 @@ Assert-Contains "AGENTS.md" "SwiftUI on Windows" "AGENTS.md must state the Swift
 Assert-Contains "AGENTS.md" "GPUI" "AGENTS.md must state the GPUI-inspired rendering target."
 Assert-Contains "AGENTS.md" "RetainedViewRuntime" "AGENTS.md must anchor agents on the retained runtime."
 Assert-Contains "AGENTS.md" "paintOperations" "AGENTS.md must preserve the paintOperations presentation contract."
+Assert-Contains "AGENTS.md" "presentationOrder\(\)" "AGENTS.md must name GPUIScene.presentationOrder() as the single draw-order authority."
 Assert-Contains "AGENTS.md" "agent-check\.ps1" "AGENTS.md must document the agent validation loop."
 Assert-Contains "README.md" "scripts/agent-check\.ps1" "README.md must point contributors to the agent check script."
 Assert-Contains "docs/Testing.md" "agent-check\.ps1" "docs/Testing.md must document the agent check script."
@@ -173,6 +174,54 @@ Assert-Contains `
     "Sources/SwiftWindowsUI/ScenePainter.swift" `
     "if !skipCacheUpdates" `
     "ScenePainter cache writes must be guarded by skipCacheUpdates."
+
+# WS-08 — one coverage kernel. "How much of this pixel does a rounded rect
+# cover" exists twice on purpose: as HLSL in BatchShaders.swift, and as Swift
+# in GPUIQuadCoverage. A third copy inside the CPU rasterizer is how the
+# reference renderer stopped drawing what ships — square quads answered with
+# `rect.contains(pixelCentre) ? 1 : 0` while the shader ran the same box SDF
+# for radius 0 as for radius 18.
+Assert-Contains `
+    "Sources/SwiftWindowsGraphics/SceneRasterizer.swift" `
+    "GPUIQuadCoverage\." `
+    "GPUIRawSceneRasterizer must take its coverage from GPUIQuadCoverage, the one Swift transcription of the quad shader."
+Assert-NotContains `
+    "Sources/SwiftWindowsGraphics/SceneRasterizer.swift" `
+    "func\s+\w*(?:[rR]oundedRectDistance|[sS]ignedDistance|sdRoundBox|[sS]moothstep)\w*\s*[(<]" `
+    "SceneRasterizer.swift must not define its own rounded-rect distance or smoothstep; that is GPUIQuadCoverage's job, and a second copy is a silent CPU/GPU divergence."
+
+# WS-16 — one clip shape, narrowed in one place. Clipping used to be a bare
+# Rect? threaded through five independently written intersection blocks, which
+# drifted. RuntimeClipShape owns the rule; the traversals call `narrowed(to:)`
+# (the optional-aware wrapper that also handles "no ancestor clip") and never
+# re-derive a clip from a raw rect intersection.
+Assert-Contains `
+    "Sources/SwiftWindowsUI/ClipShape.swift" `
+    "func intersecting\(" `
+    "RuntimeClipShape must keep intersecting(_:radii:uniformRadius:space:) as the single clip-narrowing implementation."
+Assert-Contains `
+    "Sources/SwiftWindowsUI/Runtime.swift" `
+    "\.narrowed\(" `
+    "Runtime.swift must narrow inherited clips through RuntimeClipShape.narrowed(to:radii:uniformRadius:space:)."
+Assert-Contains `
+    "Sources/SwiftWindowsUI/ScenePainter.swift" `
+    "\.narrowed\(" `
+    "ScenePainter must narrow inherited clips through RuntimeClipShape.narrowed(to:radii:uniformRadius:space:)."
+foreach ($clipConsumer in @("Sources/SwiftWindowsUI/Runtime.swift", "Sources/SwiftWindowsUI/ScenePainter.swift")) {
+    Assert-NotContains `
+        $clipConsumer `
+        "\.intersecting\(" `
+        "$clipConsumer must not call RuntimeClipShape.intersecting directly; narrowed(to:) is the entry point that also answers the absent-clip case."
+    # `clip.intersected(with:) != nil` is the acceptance test every emitter
+    # shares and stays legal; assigning a clip *from* a rect intersection is
+    # the five-copies regression. ScenePainter's RenderFrame replay keeps its
+    # own bare-Rect `currentClip` stack because RenderCommand.pushClip carries
+    # nothing but a rect — that stack is named `currentClip` and is exempt.
+    Assert-NotContains `
+        $clipConsumer `
+        "(?m)^\s*(?:(?:var|let)\s+)?(?!currentClip\b)\w*[Cc]lip\w*\s*=\s*[^=\r\n]*\.intersected\(with:" `
+        "$clipConsumer must not narrow a clip with a bare Rect.intersected(with:); RuntimeClipShape.narrowed(to:) is the one narrowing rule (anchored rounding, cut corners squared, empty distinct from absent)."
+}
 
 Assert-Contains `
     "Sources/SwiftWindowsDemo/DemoDashboard.swift" `

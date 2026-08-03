@@ -97,8 +97,21 @@ if ($Full) {
     Invoke-Step "GPUISceneTests" {
         & $testScript -Filter "GPUISceneTests"
     }
+    # The single draw-order authority and the replay log behind it. Cheap
+    # (~0.4 s of tests) and the only gate on the invariant that the CPU
+    # rasterizer and the D3D11 plan builder read one presentation order.
+    Invoke-Step "ScenePresentationOrderTests" {
+        & $testScript -Filter "ScenePresentationOrderTests"
+    }
     Invoke-Step "SceneRasterizerTests" {
         & $testScript -Filter "SceneRasterizerTests"
+    }
+    # The coverage kernel the CPU rasterizer shares with the quad shader,
+    # checked against an independent transcription of the HLSL (~0.02 s).
+    # A divergence here is invisible to every screenshot gate, because every
+    # screenshot comes through the CPU side of it.
+    Invoke-Step "SharedCoverageKernelTests" {
+        & $testScript -Filter "SharedCoverageKernelTests"
     }
     Invoke-Step "D3D11BatchRendererTests" {
         & $testScript -Filter "D3D11BatchRendererTests"
@@ -111,6 +124,12 @@ if ($Full) {
     }
     Invoke-Step "CrossBackendPixelParityTests" {
         & $testScript -Filter "CrossBackendPixelParityTests"
+    }
+    # One blend decision on both paths: source-over everywhere, asserted on
+    # the scene path, the frame path and WARP (~0.15 s). Landing the opposite
+    # decision means implementing the modes on the GPU, not editing this step.
+    Invoke-Step "CPUGPUBlendModeContractTests" {
+        & $testScript -Filter "CPUGPUBlendModeContractTests"
     }
     # The pixel-format contract: BGRA channel order, the straight vs
     # premultiplied alpha convention each producer declares, and the
@@ -137,6 +156,12 @@ if ($Full) {
     }
     Invoke-Step "MalformedInputResilienceTests" {
         & $testScript -Filter "MalformedInputResilienceTests"
+    }
+    # One clip value in one space: the narrowing rule, the in-band encoding,
+    # rounded clips on every family, and the coherence of the painted and the
+    # interactive region under a transform (~0.06 s).
+    Invoke-Step "ClipAbstractionTests" {
+        & $testScript -Filter "ClipAbstractionTests"
     }
     Invoke-Step "RetainedViewRuntimeTests" {
         & $testScript -Filter "RetainedViewRuntimeTests"

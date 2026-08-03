@@ -25,7 +25,7 @@ before and after architecture-sensitive edits; if a change fights a contract,
 rethink the change, not the contract. In addition:
 
 - App rendering goes through `WinSwiftUIWindowHost` and `RetainedViewRuntime`; `SwiftWindowsScene` and `FoundationApp` are not the primary path.
-- `GPUIScene.paintOperations` is the presentation-order paint stream; family batches are data-layout optimizations, never presentation order.
+- `GPUIScene.presentationOrder()` is the single draw-order authority, and every backend plans from it: layers present in z-order, `paintOperations` is the presentation order *within* a layer, `paintRecords` is a replay log (not an order to draw in), and family batches are data-layout optimizations, never presentation order.
 - UI-facing code (runtime, controls, host, `WinSwiftUI`) is main-actor-centric.
 - Screenshots are raw retained-runtime output via `swift-windowsui-snapshot`; never desktop or window capture.
 - Demo source stays SwiftUI-shaped and same-source with macOS; fix Windows rendering bugs in the stack, not with platform-only APIs in demo code.

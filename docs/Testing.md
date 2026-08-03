@@ -27,9 +27,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Qui
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Full
 ```
 
-- `check-contracts.ps1` fails fast on architecture regressions that generic lint cannot see.
+- `check-contracts.ps1` fails fast on architecture regressions that generic lint cannot see. Besides the target dependency direction and the presentation-order rules, it pins the two single-implementation invariants a test cannot: `SceneRasterizer.swift` takes its coverage from `GPUIQuadCoverage` and defines no rounded-rect distance or smoothstep of its own (WS-08), and `Runtime.swift` / `ScenePainter.swift` narrow clips only through `RuntimeClipShape.narrowed(to:)`, never with a bare `Rect.intersected(with:)` (WS-16). A second copy of either rule is invisible to every pixel gate until it has already drifted.
 - `lint.ps1` runs `check-contracts.ps1` and then toolchain `swift-format lint --strict` against changed Swift files. Use `-Path <file>` when the checkout already has unrelated dirty Swift files, and use `-AllSwift` before broad cleanup branches or CI-style validation.
 - `agent-check.ps1 -Quick` runs contract checks, focused scene/renderer/runtime tests (including the two WARP suites, `D3D11BatchRendererRenderTests` and `CrossBackendPixelParityTests`, the pixel-format contract `PixelFormatContractTests`, and the device-loss suites `DeviceLostPolicyTests` / `DeviceLossRecoveryTests` / `PresentationFailurePolicyTests`), and the demo executable build serially. Add `-GalleryCompare` to also run the gallery regression gate.
+- Four P1 invariant suites gate Quick as well: `ScenePresentationOrderTests` (the single draw-order authority), `SharedCoverageKernelTests` (the CPU/GPU coverage kernel), `CPUGPUBlendModeContractTests` (source-over on both paths) and `ClipAbstractionTests` (one clip value, one space). All four are cheap — 0.02 s to 0.4 s of test time each, ~2.5 s of wall clock apiece once the build is warm, since a `swift test` invocation dominates. The remaining P1 suites (`CPURasterizerGPUModelTests`, `PathRasterizationQualityTests`, `BorderCornerArcGeometryTests`, `TextShapingPipelineTests`) stay Full-only. Keep the Quick gate under ~10 minutes: measure a candidate before promoting it.
 - `agent-check.ps1 -Full` runs full tests, builds the demo, regenerates scene plus frame fallback screenshots, and runs the gallery regression gate.
 - Do not run multiple SwiftPM test/build commands against this checkout in parallel; they share `.build/build.db`.
 - Do not leave root-level logs or screenshots behind. Generated screenshots belong under `artifacts/`, and temporary logs should be deleted before handoff.
@@ -167,17 +168,61 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   primitives rather than whatever moved into its old indices, and a fully
   replayed text frame CPU-rasterizing to the same pixels as the frame it
   replays (it has to ship the atlas its glyph quads address, even though it
-  rasterized no glyph).
+  rasterized no glyph). Also the cost of the ordering machinery: a paint
+  record stays a reference rather than a second copy of the primitive, and
+  sealing plus planning a 5,000-quad / 10,000-glyph scene stays under an
+  eighth of what inserting the same primitives cost — a *relative* budget,
+  so a slow runner moves both sides together instead of flaking. It rejects
+  even one heap allocation per primitive in the sealed phase, so the retired
+  per-primitive sort in `finish()` cannot come back unnoticed.
 - `TextMeasurePaintFidelityTests` — measured width == painted width for
   native text at fractional scales, and the same equality for *tracked*
   text, where measurement and painting have to count the same inter-glyph
   gaps. Its combining-mark fixture asserts that it still shapes into a
   different glyph count than character count, so it fails loudly rather
   than passing for the wrong reason.
+- `TextShapingPipelineTests` — WS-17's pipeline end to end: shaped glyph
+  identity (a real `DWRITE_GLYPH_RUN`, not a per-character hit-test walk),
+  the two glyph coordinate frames and the raster declaring which one it
+  measured ink from, the `Double → Int32` conversions that return `nil`
+  instead of trapping on a non-finite frame, `FontFaceRegistry` handing out
+  stable monotonic identifiers and reporting when its retained set stops
+  being bounded, tracking moving measurement and paint together, and the
+  galloping wrap probe staying linear on a 20,000-character space-less
+  paragraph. Needs a real DirectWrite; the cases that would silently pass
+  without one assert the layout came back first.
+- `SharedCoverageKernelTests` — `GPUIQuadCoverage`, the one Swift
+  transcription of the quad shader's coverage math, compared on a dense
+  sample grid against a *third* copy transcribed line-by-line from the HLSL
+  in the test itself. Uniform and per-corner radii, the box-SDF ramp a
+  square quad must get (there is deliberately no `radius == 0` short
+  circuit), the rasterizer's own centre-coverage rule, and a rounded clip
+  producing fractional alpha where an exact rect rejection would not.
+  Editing one side of the pair without the other fails here; that the pair
+  matches the *running* shader is pinned by `CrossBackendPixelParityTests`.
 - `CPURasterizerGPUModelTests` — what the reference renderer models: the
   shadow envelope and falloff, the material composite and its shared blur
   cap, `luminanceToAlpha` ordering, and the glyph sampler's alpha
   convention (coverage is `.a`, exactly as the shader reads it).
+- `PathRasterizationQualityTests` — path fill and stroke quality, which is
+  not a fallback-only concern: the D3D11 path texture cache calls
+  `GPUIRawSceneRasterizer.rasterizePath` and uploads the result, so this is
+  the shipping appearance of `Canvas`, `Shape` strokes, chart lines and the
+  SF-symbol vector fallback. Implicit per-subpath closure (SwiftUI's fill
+  semantics), non-zero winding on a self-overlapping shape, fractional
+  coverage on a diagonal edge, a translucent polyline never exceeding its
+  single-segment alpha, no gap at a thick join, a stroke *not* closing an
+  open subpath, and the path clip rejecting per pixel centre.
+- `BorderCornerArcGeometryTests` — the corner-arc geometry `BorderSegments`
+  emits for a rounded border, measured in all four quadrants rather than
+  the one whose maths was right. The annular-sector bounding box used to be
+  computed as if the ring's outer edge always lay at `+x`/`-y`, so three
+  corners came out narrower than the ring by the border width and the
+  sub-boxes nearest the straight edges inverted and were dropped: a rounded
+  border on a container with children rendered thin or gapped. Asserts ring
+  coverage at each 45° midpoint, the arc union spanning the whole corner
+  square, areas and counts agreeing across quadrants, no sub-arc inverting,
+  and full-width and dashed borders still emitting every corner.
 - `CPUGPUBlendModeContractTests` — source-over, and only source-over, on
   **both** paths: every mode rasterizes as `.normal` on the scene path and
   on the frame path, a `.multiply` overlay matches on WARP, and the mode

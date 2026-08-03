@@ -147,6 +147,13 @@ re-coalesces paint operations, and `paintRecords` is a reference log of
   source of presentation order; no family-level sort may bypass it, and
   family arrays are never reordered after insertion (which is what makes
   a paint record's index a stable reference).
+- Sealing and planning a scene is O(runs), not O(primitives). A
+  single-family scene collapses to one run and one render step however
+  many primitives it holds, and `finish()` + `makeRenderPlan` together
+  stay under an eighth of what inserting the same primitives cost —
+  measured at 0.1–0.3 %, where injecting a *single* heap allocation per
+  primitive into the sealed phase reaches 20–27 %
+  (`testSealingAndPlanningIsNotPerPrimitiveWork`).
 - Glyphs at body-text font sizes never fall back to PixelText
   (`ViewTaxonomyParityTests`, `CrossViewRenderingParityTests`,
   `DynamicListStressTests`).
@@ -228,7 +235,7 @@ Structural bounds live alongside it:
   nothing on a clean scene) and throws a `.sceneContent`
   `BatchRendererError` rather than trapping on a malformed layer.
 - `GlyphAtlasSnapshot.uploadDecision(for:)` is what consumers upload
-  from (see §3.1): regions are producer-supplied, and a negative origin
+  from (see §3.2): regions are producer-supplied, and a negative origin
   traps at `UINT(_:)` while an over-hanging region reads past the end of
   `pixels`, so the decision clamps first. A region that clamps to nothing
   degrades to the always-in-bounds full-atlas upload.
@@ -394,7 +401,7 @@ Text rendering is the most complex part of the pipeline.
    and emits a `GlyphPrimitive` with UVs into the atlas.
 4. `NativeGlyphAtlas.snapshotIfUsedInCurrentFrame()` attaches the atlas
    to the scene, carrying its content version and what changed since the
-   previous snapshot (§3.1).
+   previous snapshot (§3.2).
 5. The painter forces leading text alignment when laying out a *single
    line* through DirectWrite, so glyph origins return relative to the
    line's natural start. The actual horizontal alignment of the line
@@ -405,7 +412,7 @@ layout box at 4096 px wide. Letting it center inside that box produces
 glyph origins around `x ≈ 2000`, which then failed the painter's
 visible-clip preflight check and silently fell back to PixelText.
 
-### 3.0 Shaping, and the two glyph coordinate frames
+### 3.1 Shaping, and the two glyph coordinate frames
 
 Step 1 resolves a line into glyphs two ways, and which one runs decides
 whether the text is *shaped*:
@@ -455,58 +462,7 @@ sets `hasExceededReportThreshold` and reports once to stderr. The
 registry keeps working — a threshold is a report, not a policy — but an
 unbounded retained set stops being silent.
 
-### 3.2 Text diagnostics
-
-`ScenePaintMetrics.textDiagnostics` (`TextRenderDiagnostics`) counts what
-degraded while painting: `pixelFontFallbacks` (strings pushed onto the
-5×7 bitmap atlas, which uppercases and maps most codepoints to `?`),
-`glyphRasterFailures`, `atlasRecoveries`, `shapedGlyphRuns` /
-`unshapedGlyphRuns`, and `letterSpacingDroppedRasterizations`. The text
-layer reports failure as `nil` from a dozen places with no scene in
-scope, so `ScenePainter` brackets each attempt with
-`TextRenderDiagnosticsCounters.beginPass()` and copies the snapshot onto
-the scene it ships. Nothing branches on the counters — `isClean` is a
-reporting convenience, not a gate.
-
-### 3.3 Conversions, tracking and wrap cost
-
-- Every `Double → Int32/UInt32` in the text layer goes through
-  `roundedUpInt32` / `roundedUpUInt32`, which return `nil` on non-finite
-  or out-of-range input instead of trapping. `framePathTextRasterSize`
-  clamps both axes first: an unbounded frame extent contributes *no*
-  floor (so `.frame(width: .infinity)` rasterizes at the measured width,
-  not at the 4096 ceiling), and a non-finite draw *origin* makes
-  `appendCommands` decline rather than invent a pixel.
-- `PixelTextStyle.letterSpacing` is the 5×7 atlas's inter-glyph gap in
-  atlas units — its default of 1 is that font's normal spacing, not a
-  point value. Typographic tracking is `nativeLetterSpacing`, set only by
-  `.kerning` / `.tracking`, and the DirectWrite path applies it to both
-  measurement and painted glyph positions. The legacy bitmap raster path
-  cannot express it (that needs `IDWriteTextLayout1`) and says so through
-  `letterSpacingDroppedRasterizations`.
-- Tracking is counted in **inter-glyph gaps on both sides**.
-  `applyLetterSpacing` walks the shaped run, so the painted line is
-  `base + (glyphs − 1) × tracking`; `makeLineMeasurer` used to add
-  `(characters − 1) × tracking`, which agrees only while shaping is a
-  no-op. It is not: one Swift `Character` carrying two combining marks is
-  three glyphs, and a ligature is two characters in one glyph. The
-  measurer now derives its gap count from the same shaping capture the
-  painter uses (`shapedGlyphCount`, built from a layout configured
-  exactly like `layoutLine`'s), falling back to the character count only
-  where the paint path itself falls back to the per-character walk. The
-  shaping capture runs only for text that actually carries
-  `nativeLetterSpacing`. `TextMeasurePaintFidelityTests` pins measured ==
-  painted for a tracked string whose glyph and character counts differ.
-- `longestFittingPrefixLength` gallops up from a short prefix before
-  binary-searching. A plain binary search probes at n/2 first, and on the
-  DirectWrite path each probe builds and shapes a whole
-  `IDWriteTextLayout`; space-less scripts have no other break
-  opportunity, so a 20,000-character CJK paragraph is one token and
-  wrapping it was O(n² log n) character shaping on the main actor.
-  `DirectWriteSystem.makeLineMeasurer` additionally memoises each call's
-  probes, which the minimum-scale-factor pass and the wrap pass share.
-
-### 3.1 The atlas and texture upload protocol
+### 3.2 The atlas and texture upload protocol
 
 An atlas snapshot is a *versioned* value, not a bag of pixels with a
 dirty rect. Three pieces, all in `AtlasUploadProtocol.swift`:
@@ -591,16 +547,13 @@ that renumbers is mid-rewrite during the binding loop, and releasing there
 would drop the texture the next binding is about to ask for again
 (`D3D11BatchRendererRenderTests` pins both halves).
 
-**Tests:** `TextShapingPipelineTests` — shaped glyph identity, the frame
-plumbing (a shaped scene and an unshaped scene paint glyphs at the same
-height), the conversion guards, the registry, tracking, and the wrap
-probe budget. `AtlasUploadProtocolTests` — the decision table, the
+**Tests:** `AtlasUploadProtocolTests` — the decision table, the
 producers' versioning, and the real upload counts on WARP (frame 1
 fresh = one full upload, frame 2 unchanged = zero, frame 3 with a small
 region = one boxed upload, a region into a nil texture = full) plus
 image texture/SRV pointer identity across rebinds and renumbering.
 
-### Atlas exhaustion: the generation token
+### 3.3 Atlas exhaustion: the generation token
 
 The atlas is a shelf allocator with no free list, so its only recovery
 from a full atlas is `clear()` — which recycles every shelf *under the
@@ -644,6 +597,62 @@ age glyphs the frame is still using.
   this is reachable without a four-thousand-glyph working set.
 - `nativeFontSize` flows from `Font.body`/`.system(size:)` into
   `PixelTextStyle` correctly across all built-in view types.
+
+### 3.4 Text diagnostics
+
+`ScenePaintMetrics.textDiagnostics` (`TextRenderDiagnostics`) counts what
+degraded while painting: `pixelFontFallbacks` (strings pushed onto the
+5×7 bitmap atlas, which uppercases and maps most codepoints to `?`),
+`glyphRasterFailures`, `atlasRecoveries`, `shapedGlyphRuns` /
+`unshapedGlyphRuns`, and `letterSpacingDroppedRasterizations`. The text
+layer reports failure as `nil` from a dozen places with no scene in
+scope, so `ScenePainter` brackets each attempt with
+`TextRenderDiagnosticsCounters.beginPass()` and copies the snapshot onto
+the scene it ships. Nothing branches on the counters — `isClean` is a
+reporting convenience, not a gate.
+
+### 3.5 Conversions, tracking and wrap cost
+
+- Every `Double → Int32/UInt32` in the text layer goes through
+  `roundedUpInt32` / `roundedUpUInt32`, which return `nil` on non-finite
+  or out-of-range input instead of trapping. `framePathTextRasterSize`
+  clamps both axes first: an unbounded frame extent contributes *no*
+  floor (so `.frame(width: .infinity)` rasterizes at the measured width,
+  not at the 4096 ceiling), and a non-finite draw *origin* makes
+  `appendCommands` decline rather than invent a pixel.
+- `PixelTextStyle.letterSpacing` is the 5×7 atlas's inter-glyph gap in
+  atlas units — its default of 1 is that font's normal spacing, not a
+  point value. Typographic tracking is `nativeLetterSpacing`, set only by
+  `.kerning` / `.tracking`, and the DirectWrite path applies it to both
+  measurement and painted glyph positions. The legacy bitmap raster path
+  cannot express it (that needs `IDWriteTextLayout1`) and says so through
+  `letterSpacingDroppedRasterizations`.
+- Tracking is counted in **inter-glyph gaps on both sides**.
+  `applyLetterSpacing` walks the shaped run, so the painted line is
+  `base + (glyphs − 1) × tracking`; `makeLineMeasurer` used to add
+  `(characters − 1) × tracking`, which agrees only while shaping is a
+  no-op. It is not: one Swift `Character` carrying two combining marks is
+  three glyphs, and a ligature is two characters in one glyph. The
+  measurer now derives its gap count from the same shaping capture the
+  painter uses (`shapedGlyphCount`, built from a layout configured
+  exactly like `layoutLine`'s), falling back to the character count only
+  where the paint path itself falls back to the per-character walk. The
+  shaping capture runs only for text that actually carries
+  `nativeLetterSpacing`. `TextMeasurePaintFidelityTests` pins measured ==
+  painted for a tracked string whose glyph and character counts differ.
+- `longestFittingPrefixLength` gallops up from a short prefix before
+  binary-searching. A plain binary search probes at n/2 first, and on the
+  DirectWrite path each probe builds and shapes a whole
+  `IDWriteTextLayout`; space-less scripts have no other break
+  opportunity, so a 20,000-character CJK paragraph is one token and
+  wrapping it was O(n² log n) character shaping on the main actor.
+  `DirectWriteSystem.makeLineMeasurer` additionally memoises each call's
+  probes, which the minimum-scale-factor pass and the wrap pass share.
+
+**Tests:** `TextShapingPipelineTests` covers §3.1 and §3.5 — shaped glyph
+identity, the frame plumbing (a shaped scene and an unshaped scene paint
+glyphs at the same height), the conversion guards, the registry, tracking,
+and the wrap probe budget.
 
 ## 4. Paths: GPU short-circuit + cached CPU rasterization
 
@@ -785,7 +794,7 @@ The rules that follow from that:
    image, so a frame-stable `Image` or `.drawingGroup()` bitmap paid a
    full-surface conversion plus a `CreateTexture2D` on the main thread on
    every frame. Binding is now pure bookkeeping and the GPU texture is
-   resolved from `BitmapSurface.contentKey` at draw time (§3.1), which is
+   resolved from `BitmapSurface.contentKey` at draw time (§3.2), which is
    sound because `detach()` — which every device rebuild goes through —
    empties the texture cache outright.
 
@@ -1303,9 +1312,11 @@ six measured end-to-end by `CrossBackendPixelParityTests`.
 
 **Coverage.** `GPUIQuadCoverage` is the single Swift transcription of
 `roundedRectDistance` + `saturate(0.5 - d/aa)`, used by the quad body, the
-rounded clip and the shadow envelope alike. Three parts of the shader that
-are easy to lose in a paraphrase and that the old `roundedRectCoverage`
-had lost:
+rounded clip and the shadow envelope alike. `check-contracts.ps1` pins that
+single implementation: `SceneRasterizer.swift` must reference
+`GPUIQuadCoverage` and must not define a rounded-rect distance or smoothstep
+of its own. Three parts of the shader that are easy to lose in a paraphrase
+and that the old `roundedRectCoverage` had lost:
 
 - There is **no `radius == 0` short circuit.** Square quads run the same
   box SDF as rounded ones; answering `rect.contains(pixelCentre) ? 1 : 0`
@@ -1605,6 +1616,15 @@ loose scalars could not:
   `intersecting(_:radii:uniformRadius:space:)` takes the incoming frame's
   space and asserts it matches, because intersecting two rects from different
   spaces is arithmetically fine and geometrically meaningless.
+
+`check-contracts.ps1` keeps the narrowing single: `Runtime.swift` and
+`ScenePainter.swift` call `narrowed(to:radii:uniformRadius:space:)` (the
+optional-aware wrapper that also answers the absent-clip case) and may not
+assign a clip from a bare `Rect.intersected(with:)`. `clip.intersected(with:)
+!= nil` stays legal — that is the acceptance test every emitter shares, not a
+narrowing. The one exemption is `ScenePainter`'s `RenderFrame` replay, whose
+`currentClip` stack is bare rects because `RenderCommand.pushClip` carries
+nothing else.
 
 ### One space, because one clip has more than one consumer
 

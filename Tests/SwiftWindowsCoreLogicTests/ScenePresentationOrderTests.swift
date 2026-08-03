@@ -1,3 +1,4 @@
+import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import XCTest
@@ -467,33 +468,133 @@ final class ScenePresentationOrderTests: XCTestCase {
             "a record must be cheaper than the primitive it points at")
     }
 
-    func testLargeSingleFamilyScenesCollapseToOneRunAndOneStep() async throws {
-        var quadScene = GPUIScene()
-        for index in 0..<5_000 {
-            quadScene.addQuad(
+    /// An *unsealed* single-family scene, so a caller can time insertion
+    /// separately from `finish()`.
+    private static func makeQuadScene(count: Int) -> GPUIScene {
+        var scene = GPUIScene()
+        for index in 0..<count {
+            scene.addQuad(
                 QuadPrimitive(x: Float(index % 500), y: Float(index / 500), width: 2, height: 2))
         }
+        return scene
+    }
+
+    private static func makeGlyphScene(count: Int) -> GPUIScene {
+        var scene = GPUIScene()
+        for index in 0..<count {
+            scene.addGlyph(
+                GlyphPrimitive(
+                    screenX: Float(index % 500), screenY: Float(index / 500), screenW: 4, screenH: 6))
+        }
+        return scene
+    }
+
+    func testLargeSingleFamilyScenesCollapseToOneRunAndOneStep() async throws {
+        var quadScene = Self.makeQuadScene(count: 5_000)
         quadScene.finish()
 
         XCTAssertEqual(quadScene.layers[0].quads.count, 5_000)
+        XCTAssertEqual(quadScene.layers[0].paintOperations.count, 1)
         XCTAssertEqual(Array(quadScene.presentationOrder()).count, 1)
         let quadPlan = try D3D11BatchRenderer.makeRenderPlan(
             for: quadScene, cachedResources: Self.residentResources)
         XCTAssertEqual(quadPlan.steps, [.quads(layerIndex: 0, range: 0..<5_000)])
 
-        var glyphScene = GPUIScene()
-        for index in 0..<10_000 {
-            glyphScene.addGlyph(
-                GlyphPrimitive(
-                    screenX: Float(index % 500), screenY: Float(index / 500), screenW: 4, screenH: 6))
-        }
+        var glyphScene = Self.makeGlyphScene(count: 10_000)
         glyphScene.finish()
 
         XCTAssertEqual(glyphScene.layers[0].glyphs.count, 10_000)
+        XCTAssertEqual(glyphScene.layers[0].paintOperations.count, 1)
         XCTAssertEqual(Array(glyphScene.presentationOrder()).count, 1)
         let glyphPlan = try D3D11BatchRenderer.makeRenderPlan(
             for: glyphScene, cachedResources: Self.residentResources)
         XCTAssertEqual(
             glyphPlan.steps, [.glyphs(layerIndex: 0, range: 0..<10_000, atlasSource: .cached)])
+    }
+
+    /// Seconds spent inserting primitives, and seconds spent sealing and
+    /// planning them, accumulated over `rounds` independently built scenes.
+    ///
+    /// Accumulating rather than taking a single sample is deliberate: one
+    /// round of either phase can land inside a system tick, and the sum of
+    /// many rounds converges on the real total whatever the clock's
+    /// granularity is.
+    private func measureSealAndPlanCost(
+        rounds: Int,
+        build: () -> GPUIScene
+    ) throws -> (insertion: TimeInterval, sealAndPlan: TimeInterval) {
+        var insertion: TimeInterval = 0
+        var sealAndPlan: TimeInterval = 0
+        for _ in 0..<rounds {
+            let buildStart = Date()
+            var scene = build()
+            let sealStart = Date()
+            scene.finish()
+            _ = try D3D11BatchRenderer.makeRenderPlan(
+                for: scene, cachedResources: Self.residentResources)
+            let planEnd = Date()
+            insertion += sealStart.timeIntervalSince(buildStart)
+            sealAndPlan += planEnd.timeIntervalSince(sealStart)
+        }
+        return (insertion, sealAndPlan)
+    }
+
+    /// The ceiling `finish()` + `makeRenderPlan` must stay under: an eighth
+    /// of what inserting the same primitives cost, floored at 5 ms so a
+    /// clock too coarse to see the baseline cannot fail the test outright.
+    private func sealAndPlanBudget(insertion: TimeInterval) -> TimeInterval {
+        max(insertion / 8, 0.005)
+    }
+
+    /// WS-07's cost claim, made falsifiable.
+    ///
+    /// `GPUILayer.finish()` used to sort every family into a bounds-tree
+    /// draw order and remap `paintOperations` back onto it — ~12 heap
+    /// allocations per primitive per frame — to produce an ordering only
+    /// `orderedBatches()` read. Today it re-coalesces an already-canonical
+    /// run list and `makeRenderPlan` walks runs rather than primitives, so
+    /// both are O(runs); the scenes above collapse to one run each. The
+    /// structural half of that is asserted directly, but a per-primitive
+    /// pass could be reintroduced *inside* `finish()` without moving a
+    /// single run count, so the cost needs its own budget.
+    ///
+    /// The budget is stated relative to the insertion loop that built the
+    /// same scene rather than as an absolute wall-clock ceiling. One `add*`
+    /// call is the cheapest per-primitive work a scene can do — an array
+    /// append plus a paint record — so measuring against it turns "not
+    /// per-primitive" into a number, and it self-calibrates: a slow or
+    /// contended runner moves both sides together instead of tripping a
+    /// fixed millisecond figure.
+    ///
+    /// Measured 2026-08 on this tree: sealing and planning costs 0.1–0.3 %
+    /// of insertion. Injecting a *single* heap allocation per primitive
+    /// into the sealed phase takes it to 20–27 %, so the eighth-of-insertion
+    /// ceiling rejects even the mildest per-primitive regression, and the
+    /// retired sort — a dozen allocations per primitive plus a sort per
+    /// family — misses it by two orders of magnitude. The remaining ~50×
+    /// headroom on the passing side is what absorbs a scheduler stall
+    /// landing inside the measured window.
+    func testSealingAndPlanningIsNotPerPrimitiveWork() async throws {
+        let quads = try measureSealAndPlanCost(rounds: 80) {
+            Self.makeQuadScene(count: 5_000)
+        }
+        XCTAssertLessThan(
+            quads.sealAndPlan, sealAndPlanBudget(insertion: quads.insertion),
+            """
+            sealing and planning 80 x 5,000 quads cost \(quads.sealAndPlan) s against an \
+            insertion cost of \(quads.insertion) s; finish() and makeRenderPlan are O(runs), \
+            so something in them went per-primitive
+            """)
+
+        let glyphs = try measureSealAndPlanCost(rounds: 40) {
+            Self.makeGlyphScene(count: 10_000)
+        }
+        XCTAssertLessThan(
+            glyphs.sealAndPlan, sealAndPlanBudget(insertion: glyphs.insertion),
+            """
+            sealing and planning 40 x 10,000 glyphs cost \(glyphs.sealAndPlan) s against an \
+            insertion cost of \(glyphs.insertion) s; finish() and makeRenderPlan are O(runs), \
+            so something in them went per-primitive
+            """)
     }
 }

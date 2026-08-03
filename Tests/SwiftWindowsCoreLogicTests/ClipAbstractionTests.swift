@@ -67,6 +67,42 @@ final class ClipAbstractionTests: XCTestCase {
             "an intact uniform clip keeps the pre-existing rule: the zone analysis only engages once a corner is cut")
     }
 
+    /// The uniform radius has always been floored at 0; per-corner radii were
+    /// copied verbatim, so a negative or non-finite corner survived into
+    /// `resolvedCornerRadius` and from there into a primitive's
+    /// `clipCornerRadius` — a NaN that erases the primitive in both backends'
+    /// distance term, and an infinity that also sizes the corner-zone rects
+    /// the analysis is built from.
+    func testPerCornerRadiiAreFlooredLikeTheUniformScalar() async {
+        let clip = RuntimeClipShape.bounds(
+            of: Rect(x: 0, y: 0, width: 100, height: 100),
+            radii: RetainedCornerRadii(topLeft: 12, topRight: -4, bottomRight: .nan, bottomLeft: .infinity),
+            uniformRadius: 0,
+            space: .layout)
+
+        let corners = try? XCTUnwrap(clip.radii)
+        XCTAssertEqual(corners?.topLeft, 12)
+        XCTAssertEqual(corners?.topRight, 0)
+        XCTAssertEqual(corners?.bottomRight, 0)
+        XCTAssertEqual(corners?.bottomLeft, 0)
+        XCTAssertEqual(clip.uniformRadius, 12)
+
+        for quadRect in [
+            Rect(x: 0, y: 0, width: 8, height: 8),
+            Rect(x: 92, y: 0, width: 8, height: 8),
+            Rect(x: 92, y: 92, width: 8, height: 8),
+            Rect(x: 0, y: 92, width: 8, height: 8),
+        ] {
+            let radius = clip.resolvedCornerRadius(forQuadRect: quadRect)
+            XCTAssertTrue(radius.isFinite, "\(quadRect) resolved to \(radius)")
+            XCTAssertGreaterThanOrEqual(radius, 0)
+        }
+
+        let nonFiniteUniform = RuntimeClipShape.bounds(
+            of: Rect(x: 0, y: 0, width: 40, height: 40), radii: nil, uniformRadius: .infinity, space: .layout)
+        XCTAssertEqual(nonFiniteUniform.uniformRadius, 0, "a square corner is the degradation every consumer handles")
+    }
+
     // MARK: - Nested clips (the square-inside-rounded bite)
 
     private func paintedQuads(root: ViewNode, size: Size = Size(width: 200, height: 200)) -> [QuadPrimitive] {
@@ -266,6 +302,38 @@ final class ClipAbstractionTests: XCTestCase {
                 clipHeight: GPUIClipEncoding.emptyExtent),
             "the negative sentinel lets a producer say 'clips everything' even at the origin")
         XCTAssertTrue(GPUIClipEncoding.isEmpty(clipX: 0, clipY: 0, clipWidth: 0, clipHeight: 10))
+    }
+
+    /// `encode` is the writer half of the same encoding, and it used to copy a
+    /// collapsed rect through field for field. `Rect(0, 0, 0, 0)` written that
+    /// way reads back as *absent* — the in-band sentinel this type exists to
+    /// kill, reintroduced by the one function whose job is to avoid it.
+    func testEncodingACollapsedClipSaysEmptyNotAbsent() async {
+        var quad = QuadPrimitive(x: 0, y: 0, width: 40, height: 40, startA: 1, endA: 1)
+        quad.contentMask = GPUIContentMask(bounds: Rect(x: 0, y: 0, width: 0, height: 0))
+
+        XCTAssertFalse(
+            GPUIClipEncoding.isAbsent(
+                clipX: quad.clipX, clipY: quad.clipY, clipWidth: quad.clipWidth, clipHeight: quad.clipHeight),
+            "an origin-anchored collapsed clip must not encode as 'unclipped'")
+        XCTAssertTrue(
+            GPUIClipEncoding.isEmpty(
+                clipX: quad.clipX, clipY: quad.clipY, clipWidth: quad.clipWidth, clipHeight: quad.clipHeight))
+
+        var scene = GPUIScene(clearColor: .black)
+        scene.addQuad(quad)
+        XCTAssertTrue(scene.layers[0].quads.isEmpty, "and the scene boundary must reject it")
+
+        // A positioned collapse encodes the same way, and a real clip is
+        // untouched.
+        var positioned = quad
+        positioned.contentMask = GPUIContentMask(bounds: Rect(x: 10, y: 10, width: 20, height: 0))
+        XCTAssertEqual(positioned.clipWidth, GPUIClipEncoding.emptyExtent)
+        XCTAssertEqual(positioned.clipHeight, GPUIClipEncoding.emptyExtent)
+
+        var real = quad
+        real.contentMask = GPUIContentMask(bounds: Rect(x: 4, y: 5, width: 6, height: 7))
+        XCTAssertEqual([real.clipX, real.clipY, real.clipWidth, real.clipHeight], [4, 5, 6, 7])
     }
 
     func testPathWithACollapsedClipIsDropped() async {

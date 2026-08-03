@@ -304,7 +304,7 @@ final class GPUISceneTests: XCTestCase {
 
     func testFinishCoalescesHandBuiltPaintOperations() {
         var scene = GPUIScene()
-        scene.layers = [
+        scene.installHandBuiltLayers([
             GPUILayer(
                 quads: [
                     QuadPrimitive(x: 0, y: 0, width: 10, height: 10),
@@ -314,7 +314,7 @@ final class GPUISceneTests: XCTestCase {
                     GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
                     GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
                 ])
-        ]
+        ])
         scene.finish()
 
         XCTAssertEqual(

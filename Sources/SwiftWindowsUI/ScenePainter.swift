@@ -184,6 +184,7 @@ public enum ScenePainter {
             if usedPixelGlyphs {
                 scene.pixelGlyphAtlas = pixelGlyphAtlasSnapshot()
             }
+            attachCachedGlyphAtlases(to: &scene)
 
             deferredDraws = attemptDeferredDraws
             replayCount = attemptReplayCount
@@ -354,6 +355,21 @@ public enum ScenePainter {
             let skipCacheUpdates = context.skipCacheUpdates
 
             let startPaintRecord = scene.paintRecordCount
+
+            // Inside a compositing group nothing this node paints reaches the
+            // scene the caches are measured against, so the cache it is
+            // carrying from before the group existed has to go. Skipping the
+            // *write* is not enough: a range measured against a real earlier
+            // frame stays in bounds of the next one, so removing the group
+            // replayed whatever primitives happen to live at those indices
+            // now. `.invalidRange` only catches the out-of-bounds half of
+            // that. Clearing on entry also covers the reverse toggle, since
+            // the frame a group appears on walks its whole subtree.
+            if skipCacheUpdates {
+                node.cachedSceneKey = nil
+                node.cachedScenePaintRange = nil
+            }
+
             guard !node.isHidden else {
                 if !skipCacheUpdates {
                     node.cachedSceneKey = nil
@@ -1244,6 +1260,29 @@ public enum ScenePainter {
             frame: frame,
             size: IntSize(width: Int32(width), height: Int32(height))
         )
+    }
+
+    /// Attaches the atlases a scene's glyph quads address when the pass that
+    /// produced it rasterized no glyph of its own.
+    ///
+    /// Which atlases a frame ships is decided by the primitives in it, not by
+    /// what the painter happened to do this pass. A frame that replayed all of
+    /// its text — or a cached scene the runtime returns without painting at
+    /// all — emits no glyph, and used to ship no atlas because of it: D3D11
+    /// covered for that by resolving `.cached`, while the CPU rasterizer (every
+    /// screenshot, gallery baseline and macOS parity render) got `nil` and drew
+    /// no text at all, for a frame the user sees text in.
+    ///
+    /// Cheap by construction: the snapshot carries the atlas `Data` by
+    /// reference and declares `.unchanged` at the version the consumer already
+    /// holds, so a GPU backend skips the upload.
+    static func attachCachedGlyphAtlases(to scene: inout GPUIScene) {
+        if scene.usesGlyphs, scene.glyphAtlas == nil {
+            scene.glyphAtlas = NativeGlyphAtlas.shared.snapshotForCachedGlyphs()
+        }
+        if scene.usesPixelGlyphs, scene.pixelGlyphAtlas == nil {
+            scene.pixelGlyphAtlas = pixelGlyphAtlasSnapshot()
+        }
     }
 
     /// Snapshot of the shared pixel-font atlas. The pixel atlas is built

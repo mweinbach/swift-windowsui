@@ -229,14 +229,14 @@ final class ScenePresentationOrderTests: XCTestCase {
 
     func testOutOfRangePaintOperationIsSkippedOnCPUAndRefusedByThePlan() async throws {
         var scene = GPUIScene()
-        scene.layers = [
+        scene.installHandBuiltLayers([
             GPUILayer(
                 quads: [QuadPrimitive(x: 0, y: 0, width: 10, height: 10)],
                 paintOperations: [
                     GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
                     GPUIPaintOperation(kind: .quad, startIndex: 1, count: 4),
                 ])
-        ]
+        ])
 
         // The CPU walk drops the bad run rather than trapping on the range.
         XCTAssertEqual(presentationSequence(scene), ["0/quad/0"])
@@ -259,6 +259,119 @@ final class ScenePresentationOrderTests: XCTestCase {
 
         XCTAssertEqual(result, .invalidRange(40..<60, recordCount: source.paintRecordCount))
         XCTAssertEqual(target.paintRecordCount, 0, "a rejected replay must add nothing")
+    }
+
+    /// One painted frame, threading `previousScene` the way the runtime does.
+    private func paintFrame(_ root: ViewNode, previous: GPUIScene?, surfaceSize: Size) -> GPUIScene {
+        var deferredDraws: [DeferredDrawState] = []
+        var replayCount = 0
+        var deferredReplayCount = 0
+        return ScenePainter.paint(
+            root: root,
+            clearColor: .black,
+            surfaceSize: surfaceSize,
+            textSystem: WindowTextSystem(),
+            previousScene: previous,
+            deferredDraws: &deferredDraws,
+            replayCount: &replayCount,
+            deferredReplayCount: &deferredReplayCount
+        )
+    }
+
+    /// A cached paint range describes the scene it was measured against, and
+    /// a subtree inside a compositing group does not paint into that scene at
+    /// all — its primitives go into a sub-scene that is rasterized into a
+    /// bitmap and discarded. Descendants were told to skip cache *writes*
+    /// while in there, which left the range they were carrying from before
+    /// the group was applied in place: still keyed the same, still in bounds
+    /// of the next real scene, so removing the group replayed whichever
+    /// primitives had since moved into those indices. Here that is the
+    /// group's own composited image, in place of the leaf's quad —
+    /// `.invalidRange` never sees it, because the range is perfectly valid.
+    func testUnwrappingADrawingGroupDoesNotReplayItsSubtreesStaleRange() async throws {
+        let surfaceSize = Size(width: 100, height: 100)
+
+        func makeTree() -> (root: ViewNode, group: ViewNode) {
+            let leaf = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 20, height: 20),
+                backgroundColor: Color(red: 0, green: 0, blue: 1, alpha: 1))
+            let group = ViewNode(frame: Rect(x: 0, y: 40, width: 40, height: 40), children: [leaf])
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 100),
+                children: [
+                    ViewNode(
+                        frame: Rect(x: 0, y: 0, width: 20, height: 20),
+                        backgroundColor: Color(red: 1, green: 0, blue: 0, alpha: 1)),
+                    ViewNode(
+                        frame: Rect(x: 0, y: 20, width: 20, height: 20),
+                        backgroundColor: Color(red: 0, green: 1, blue: 0, alpha: 1)),
+                    group,
+                ])
+            return (root, group)
+        }
+
+        let (root, group) = makeTree()
+
+        // Frame 1, inline: three quads, and the leaf caches the third.
+        let inlineScene = paintFrame(root, previous: nil, surfaceSize: surfaceSize)
+        XCTAssertEqual(inlineScene.layers[0].quads.count, 3)
+
+        // Frame 2, grouped: the leaf's quad moves into the discarded
+        // sub-scene and an image takes its place at record index 2.
+        group.isCompositingGroup = true
+        let groupedScene = paintFrame(root, previous: inlineScene, surfaceSize: surfaceSize)
+        XCTAssertEqual(groupedScene.layers[0].quads.count, 2)
+        XCTAssertEqual(groupedScene.layers[0].images.count, 1)
+
+        // Frame 3, inline again.
+        group.isCompositingGroup = false
+        let unwrappedScene = paintFrame(root, previous: groupedScene, surfaceSize: surfaceSize)
+
+        let (freshRoot, _) = makeTree()
+        let freshScene = paintFrame(freshRoot, previous: nil, surfaceSize: surfaceSize)
+
+        XCTAssertTrue(
+            unwrappedScene.layers[0].images.isEmpty,
+            "the leaf replayed the group's composited image out of a range that no longer describes it")
+        XCTAssertEqual(unwrappedScene.layers[0].quads, freshScene.layers[0].quads)
+        XCTAssertEqual(unwrappedScene.paintRecords, freshScene.paintRecords)
+    }
+
+    /// A frame that replays all of its text rasterizes no glyph, and the
+    /// painter used to read that as "this frame does not use the atlas" and
+    /// ship none. D3D11 covered for it by resolving `.cached`; the CPU
+    /// rasterizer — every screenshot, gallery baseline and macOS parity
+    /// render — got `nil` and drew no text at all, for a frame the user sees
+    /// text in.
+    func testFullyReplayedTextFrameStillShipsTheAtlasItDrawsFrom() async throws {
+        let surfaceSize = Size(width: 200, height: 60)
+        let root = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 200, height: 60),
+            text: "REPLAY",
+            textStyle: PixelTextStyle(
+                color: .white, alignment: .leading, verticalAlignment: .top, nativeFontSize: 18)
+        )
+
+        let firstScene = paintFrame(root, previous: nil, surfaceSize: surfaceSize)
+        let glyphCount = firstScene.layers[0].glyphs.count + firstScene.layers[0].pixelGlyphs.count
+        XCTAssertGreaterThan(glyphCount, 0, "this test only means something if the frame draws text")
+
+        let replayedScene = paintFrame(root, previous: firstScene, surfaceSize: surfaceSize)
+        XCTAssertEqual(
+            replayedScene.layers[0].glyphs, firstScene.layers[0].glyphs,
+            "the replayed frame must carry the same glyph quads")
+        XCTAssertEqual(replayedScene.layers[0].pixelGlyphs, firstScene.layers[0].pixelGlyphs)
+        XCTAssertEqual(replayedScene.usesGlyphs, replayedScene.glyphAtlas != nil)
+        XCTAssertEqual(replayedScene.usesPixelGlyphs, replayedScene.pixelGlyphAtlas != nil)
+
+        // The claim that matters is pixels, not payload presence.
+        let size = IntSize(width: 200, height: 60)
+        let firstPixels = GPUIRawSceneRasterizer.rasterize(firstScene, size: size).pixels
+        let replayedPixels = GPUIRawSceneRasterizer.rasterize(replayedScene, size: size).pixels
+        XCTAssertTrue(firstPixels.contains { $0 != 0 }, "the first frame must actually draw something")
+        XCTAssertEqual(
+            replayedPixels, firstPixels,
+            "the CPU rasterizer must draw the replayed frame exactly like the frame it replays")
     }
 
     /// The painter's answer to a rejection: repaint, do not cache the

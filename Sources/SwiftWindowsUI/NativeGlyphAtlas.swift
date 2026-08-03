@@ -89,6 +89,30 @@ final class NativeGlyphAtlas {
         usedInCurrentFrame && cache.count > 0
     }
 
+    /// Snapshot for a frame that draws from the atlas without having asked it
+    /// for a glyph: text replayed out of the previous scene, or a cached scene
+    /// shipped without a paint at all.
+    ///
+    /// `wasUsedInCurrentFrame` is the wrong question for those frames — their
+    /// glyph quads address cells allocated on an earlier frame, and the pixels
+    /// are still this frame's input. Like `currentSnapshot()` it leaves the
+    /// dirty region for the painted frame's single consumer. `nil` only when
+    /// the atlas holds no glyph at all, in which case there is nothing the
+    /// quads could be addressing.
+    func snapshotForCachedGlyphs() -> GlyphAtlasSnapshot? {
+        guard cache.count > 0 else {
+            return nil
+        }
+
+        return GlyphAtlasSnapshot(
+            width: atlas.width,
+            height: atlas.height,
+            pixels: atlas.pixels,
+            contentVersion: atlas.contentVersion,
+            update: atlas.update
+        )
+    }
+
     /// Snapshot of the atlas as it stands right now, leaving the dirty region
     /// intact.
     ///

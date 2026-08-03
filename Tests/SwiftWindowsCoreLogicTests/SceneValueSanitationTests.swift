@@ -139,6 +139,59 @@ final class SceneValueSanitationTests: XCTestCase {
         XCTAssertTrue(glyph?.atlasU1.isFinite ?? false)
     }
 
+    /// WS-16 gave every family a rounded clip, but only `sanitized(quad:)`
+    /// learned to clamp the radius it added. The other four copied it
+    /// verbatim, and `clipIsRepresentable` — which is what rejects an
+    /// unrepresentable clip — never looked at it, so a NaN or negative
+    /// rounding reached both backends' distance term unchallenged.
+    func testClipCornerRadiusIsClampedInEveryFamily() throws {
+        for radius in [Float.nan, .infinity, -.infinity, -8, 1e30] {
+            var scene = GPUIScene()
+            scene.addQuad(
+                QuadPrimitive(
+                    x: 0, y: 0, width: 10, height: 10,
+                    clipX: 0, clipY: 0, clipWidth: 100, clipHeight: 100,
+                    clipCornerRadius: radius))
+            scene.addGlyph(
+                GlyphPrimitive(
+                    screenX: 0, screenY: 0, screenW: 10, screenH: 10,
+                    clipX: 0, clipY: 0, clipWidth: 100, clipHeight: 100,
+                    clipCornerRadius: radius))
+            scene.addImage(
+                ImagePrimitive(
+                    screenX: 0, screenY: 0, screenW: 10, screenH: 10,
+                    clipX: 0, clipY: 0, clipWidth: 100, clipHeight: 100,
+                    clipCornerRadius: radius))
+            scene.addShadow(
+                ShadowPrimitive(
+                    x: 0, y: 0, width: 10, height: 10,
+                    clipX: 0, clipY: 0, clipWidth: 100, clipHeight: 100,
+                    clipCornerRadius: radius))
+            scene.addPath(
+                PathPrimitive(
+                    elements: [.moveTo(Point(x: 0, y: 0)), .lineTo(Point(x: 10, y: 10)), .close],
+                    bounds: Rect(x: 0, y: 0, width: 10, height: 10),
+                    fillColor: .white,
+                    clipBounds: Rect(x: 0, y: 0, width: 100, height: 100),
+                    clipCornerRadius: Double(radius)
+                ), toLayer: 0)
+
+            let layer = scene.layers[0]
+            let stored: [Double] = [
+                Double(try XCTUnwrap(layer.quads.first).clipCornerRadius),
+                Double(try XCTUnwrap(layer.glyphs.first).clipCornerRadius),
+                Double(try XCTUnwrap(layer.images.first).clipCornerRadius),
+                Double(try XCTUnwrap(layer.shadows.first).clipCornerRadius),
+                try XCTUnwrap(layer.paths.first).clipCornerRadius,
+            ]
+            for value in stored {
+                XCTAssertTrue(value.isFinite, "clipCornerRadius \(radius) survived as \(value)")
+                XCTAssertGreaterThanOrEqual(value, 0)
+                XCTAssertLessThanOrEqual(value, Double(GPUISceneLimits.maxCoordinate))
+            }
+        }
+    }
+
     // MARK: - Path sanitation
 
     func testInfiniteAndNaNPathGeometryIsClampedAndRasterizesWithoutHanging() {
@@ -414,7 +467,7 @@ final class SceneStructuralValidationTests: XCTestCase {
     /// the residual hole `validate()` exists to cover.
     private static func sceneWithHandBuiltLayer(_ layer: GPUILayer) -> GPUIScene {
         var scene = GPUIScene()
-        scene.layers[0] = layer
+        scene.installHandBuiltLayer(layer, at: 0)
         return scene
     }
 
@@ -466,9 +519,11 @@ final class SceneStructuralValidationTests: XCTestCase {
             var scene = GPUIScene()
             let bitmap = BitmapSurface(width: 1, height: 1, bytesPerRow: 4, pixels: Data([255, 255, 255, 255]))
             let textureID = scene.registerImageResource(bitmap)
-            scene.layers[0] = GPUILayer(
-                images: [ImagePrimitive(screenX: 0, screenY: 0, screenW: 4, screenH: 4, textureID: textureID)],
-                paintOperations: [GPUIPaintOperation(kind: .image, startIndex: 0, count: 3)])
+            scene.installHandBuiltLayer(
+                GPUILayer(
+                    images: [ImagePrimitive(screenX: 0, screenY: 0, screenW: 4, screenH: 4, textureID: textureID)],
+                    paintOperations: [GPUIPaintOperation(kind: .image, startIndex: 0, count: 3)]),
+                at: 0)
             XCTAssertThrowsError(
                 try D3D11BatchRenderer.makeRenderPlan(
                     for: scene,

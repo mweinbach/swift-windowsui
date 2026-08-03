@@ -214,7 +214,15 @@ final class IntegrationTests: XCTestCase {
         }
     }
 
-    func testCachedRenderSceneDropsAtlasSnapshotsAfterInitialBuild() async {
+    /// The second frame replays its text wholesale and rasterizes no glyph,
+    /// and it used to ship no atlas because of it. That is a claim about the
+    /// *painter's* work, not about the frame: the glyph quads are still in
+    /// the scene, so a consumer with no atlas texture of its own — the CPU
+    /// rasterizer, which is every screenshot, gallery baseline and macOS
+    /// parity render — drew a frame of blank text under text the user could
+    /// see. What the GPU *uploads* stays the upload protocol's business, and
+    /// the assertion below is that it uploads nothing.
+    func testCachedRenderSceneStillShipsTheAtlasItsReplayedGlyphsAddress() async {
         await MainActor.run {
             let root = ViewNode(
                 frame: Rect(x: 0, y: 0, width: 240, height: 80),
@@ -227,12 +235,18 @@ final class IntegrationTests: XCTestCase {
             let cachedScene = runtime.renderScene()
 
             XCTAssertTrue(firstScene.glyphAtlas != nil || firstScene.pixelGlyphAtlas != nil)
-            XCTAssertNil(cachedScene.glyphAtlas)
-            XCTAssertNil(cachedScene.pixelGlyphAtlas)
+            XCTAssertEqual(cachedScene.usesGlyphs, cachedScene.glyphAtlas != nil)
+            XCTAssertEqual(cachedScene.usesPixelGlyphs, cachedScene.pixelGlyphAtlas != nil)
+
+            if let first = firstScene.glyphAtlas, let cached = cachedScene.glyphAtlas {
+                XCTAssertEqual(
+                    cached.uploadDecision(for: first.uploadedState), .skip,
+                    "shipping the snapshot must not cost an upload for pixels that did not change")
+            }
         }
     }
 
-    func testRebuiltSceneWithoutTextMutationOmitsAtlasPayloadButPreservesGlyphOutput() async {
+    func testRebuiltSceneWithoutTextMutationPreservesGlyphOutputAndItsAtlas() async {
         await MainActor.run {
             let textNode = ViewNode(
                 frame: Rect(x: 10, y: 10, width: 180, height: 40),
@@ -256,10 +270,13 @@ final class IntegrationTests: XCTestCase {
             let rebuiltGlyphs = Self.flattenedGlyphs(in: rebuiltScene)
 
             XCTAssertFalse(initialGlyphs.native.isEmpty && initialGlyphs.pixel.isEmpty)
-            XCTAssertNil(rebuiltScene.glyphAtlas)
-            XCTAssertNil(rebuiltScene.pixelGlyphAtlas)
             XCTAssertEqual(initialGlyphs.native, rebuiltGlyphs.native)
             XCTAssertEqual(initialGlyphs.pixel, rebuiltGlyphs.pixel)
+            // Same glyphs, so the same atlas has to come with them: a frame
+            // whose text was replayed rather than rasterized is still a frame
+            // that draws text.
+            XCTAssertEqual(rebuiltScene.usesGlyphs, rebuiltScene.glyphAtlas != nil)
+            XCTAssertEqual(rebuiltScene.usesPixelGlyphs, rebuiltScene.pixelGlyphAtlas != nil)
         }
     }
 
@@ -276,8 +293,6 @@ final class IntegrationTests: XCTestCase {
             let cachedScene = runtime.renderScene()
 
             XCTAssertTrue(freshScene.glyphAtlas != nil || freshScene.pixelGlyphAtlas != nil)
-            XCTAssertNil(cachedScene.glyphAtlas)
-            XCTAssertNil(cachedScene.pixelGlyphAtlas)
 
             let freshPlan = try D3D11BatchRenderer.makeRenderPlan(for: freshScene)
             let cachedPlan = try D3D11BatchRenderer.makeRenderPlan(
@@ -285,15 +300,25 @@ final class IntegrationTests: XCTestCase {
                 cachedResources: freshPlan.resultingResources
             )
 
-            let cachedGlyphReplaySteps = cachedPlan.steps.filter {
+            let cachedGlyphSteps = cachedPlan.steps.filter {
                 switch $0 {
-                case .glyphs(_, _, .cached), .pixelGlyphs(_, _, .cached):
+                case .glyphs, .pixelGlyphs:
                     return true
                 default:
                     return false
                 }
             }
-            XCTAssertFalse(cachedGlyphReplaySteps.isEmpty)
+            XCTAssertFalse(cachedGlyphSteps.isEmpty, "the replayed frame still draws its text")
+
+            // The discipline is about the *upload*, not about withholding the
+            // snapshot: the texture already holds these pixels, so the
+            // protocol answers `.skip` and nothing crosses the bus.
+            if let fresh = freshScene.glyphAtlas, let cached = cachedScene.glyphAtlas {
+                XCTAssertEqual(cached.uploadDecision(for: fresh.uploadedState), .skip)
+            }
+            if let fresh = freshScene.pixelGlyphAtlas, let cached = cachedScene.pixelGlyphAtlas {
+                XCTAssertEqual(cached.uploadDecision(for: fresh.uploadedState), .skip)
+            }
         }
     }
 

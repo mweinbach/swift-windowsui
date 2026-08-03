@@ -143,12 +143,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   query, and an unchanged appearance snapshot triggering no reload.
 - `ClipAbstractionTests` — the one clip value and the one space it lives in:
   the narrowing rule (anchored rounding, cut corners squared, an empty clip
-  distinct from an absent one), rounded clips reaching the glyph / image /
+  distinct from an absent one, per-corner radii floored like the uniform
+  scalar), both halves of the in-band encoding (`encode` emits `emptyExtent`
+  for a collapsed rect instead of the all-zero *absent* sentinel), rounded
+  clips reaching the glyph / image /
   shadow / path families, and clip-space coherence under a transform — the
   interactive region of a rotated clip pixel-for-pixel equals its painted
   region, a deferred subtree under a translating clip paints where its clip
   moved, the frame path's border gate is the frame it paints, and every clip
   prepaint records is `.painted`.
+- `ScenePresentationOrderTests` — the single draw-order authority, plus
+  replay integrity at the painter: a range rejected rather than trapped, a
+  rejection answered by repainting instead of caching the emptiness, a
+  subtree wrapped and then unwrapped from a `drawingGroup` replaying its own
+  primitives rather than whatever moved into its old indices, and a fully
+  replayed text frame CPU-rasterizing to the same pixels as the frame it
+  replays (it has to ship the atlas its glyph quads address, even though it
+  rasterized no glyph).
 
 Test runs never write images into the source tree: `check-contracts.ps1`
 fails if a `ReferenceImages` directory appears under `Tests/`. Reviewed

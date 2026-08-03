@@ -176,7 +176,11 @@ every replay inherit the guarantee:
 - A non-finite clip extent ⇒ **dropped**. Treating an unknowable clip as
   "unclipped" would paint the subtree across the whole window.
 - Every other field is **clamped**: coordinates and radii to
-  `GPUISceneLimits.maxCoordinate`, colours and opacity to `[0, 1]`,
+  `GPUISceneLimits.maxCoordinate` — including `clipCornerRadius`, which is
+  part of the clip but not part of the "drop it" test, in every family
+  rather than only in quads: both backends feed it into a signed-distance
+  term where NaN erases the primitive and a negative inverts the arc —
+  colours and opacity to `[0, 1]`,
   atlas/image UVs to `maxTextureCoordinate`, `effectType` to `[0, 8]`,
   `blendMode` to `[0, 4]`, backdrop `blurRadius` to `maxBlurRadius`
   (256 device pixels, shared by both backends so they agree above the cap
@@ -208,8 +212,16 @@ Structural bounds live alongside it:
 - `ensureLayer` returns `false` without allocating for a negative index
   or one at/above `GPUISceneLimits.maxLayers`; it used to grow the array
   to whatever index it was handed.
-- `GPUIScene.validate() -> [SceneDefect]` checks what direct mutation of
-  the scene's `public var` surface can still break — layer count, every
+- `GPUIScene.layers` and `paintRecords` are `public private(set)`, like
+  the family arrays inside `GPUILayer`: `add*` is the one door sanitation,
+  the family arrays and `paintRecords` all agree behind, and a
+  `scene.layers[0] = GPUILayer(...)` skipped it entirely while leaving
+  `paintRecords` describing primitives that were no longer there. The
+  deliberate escape hatch is named — `installHandBuiltLayers(_:)` /
+  `installHandBuiltLayer(_:at:)` — because building a malformed scene is
+  what proves `validate()` works, and nothing else should want it.
+- `GPUIScene.validate() -> [SceneDefect]` checks what a hand-built layer
+  can still break — layer count, every
   paint operation's range against its family array, and glyph-atlas
   buffer size. `D3D11BatchRenderer.makeRenderPlan` calls it
   unconditionally (it is O(layers + paint operations) and allocates
@@ -353,6 +365,17 @@ subtree (counted in `ScenePainter.rejectedReplayCount`, reported once on
 stderr). Discarding the replay result with `_ =`, which is what both call
 sites did, turned a rejection into a permanently blank subtree: the empty
 range was written straight back into the cache.
+
+Inheriting `skipCacheUpdates` stops the *write*; entering a group also
+**clears** `cachedSceneKey` / `cachedScenePaintRange` on every node it
+walks. Skipping the write alone left a descendant holding the range it had
+from before the group was applied — measured against a real earlier scene,
+so still in bounds of the next one and still keyed the same. Removing the
+group then replayed whichever primitives had since moved into those
+indices (the group's own composited image, in the test case);
+`.invalidRange` never fires, because the range is perfectly valid. The
+frame a group appears on walks its whole subtree, so clearing on entry
+covers both directions of the toggle.
 
 **Tests:** `PainterDeviceSpaceTests`, `PainterZeroExtentSemanticsTests`,
 `PainterBorderRingCoverageTests`, `BorderCornerArcGeometryTests`,
@@ -502,6 +525,25 @@ atlas, or after a device reset.
 The pixel-font atlas is built once and never written, so its snapshot
 reports the same version and `.unchanged` on every frame; it used to
 declare itself fully dirty on each one.
+
+**Which frames ship an atlas** is decided by the primitives in the scene
+(`GPUIScene.usesGlyphs` / `usesPixelGlyphs`), not by what the painter
+rasterized. A frame that replayed all of its text asks the atlas for
+nothing, and a frame the runtime serves from `cachedScene` is not painted
+at all; both used to ship `glyphAtlas == nil` while carrying glyph quads.
+D3D11 covered for that by resolving `AtlasSource.cached` against the
+texture it still held, so the defect was invisible on the GPU — but the
+CPU rasterizer has no such texture, `RasterTarget.drawGlyph` returns on a
+nil atlas, and *every* screenshot, gallery baseline and macOS parity
+render comes through it. `ScenePainter.attachCachedGlyphAtlases` closes
+it at both ends (the painter's own output, and the runtime's cached-scene
+returns) via `NativeGlyphAtlas.snapshotForCachedGlyphs()`. It is nearly
+free: the snapshot carries the atlas `Data` by reference and declares
+`.unchanged` at the version the consumer already holds, so
+`uploadDecision` answers `skip`. The runtime still stores `cachedScene`
+*without* its atlases — that copy outlives the frame, and pinning the
+buffer across frames turns the next glyph write into a copy of the whole
+2048² atlas.
 
 Image textures follow the same idea with a different key.
 `BitmapSurface.contentToken` is minted when a buffer is created and
@@ -1585,6 +1627,20 @@ the symmetric one as "unclipped", so a container whose clip collapsed to
 nothing did not hide its children — it removed their clip.
 `PathPrimitive` needs none of this: its `clipBounds` is an optional `Rect`,
 where `nil` already means unclipped.
+
+The writer half has to agree: `GPUIClipEncoding.encode` emits
+`emptyExtent` for a non-positive width or height rather than copying the
+rect through field for field, or a `Rect(0, 0, 0, 0)` written by the
+public `contentMask` setter reads back as *absent* — the in-band sentinel
+the encoding exists to kill, reintroduced by the one function whose job is
+to avoid it.
+
+Producing the radius is held to the same standard as encoding the rect:
+`RuntimeClipShape.init` floors per-corner `RetainedCornerRadii` the way it
+has always floored the uniform scalar (negative and non-finite become 0, a
+square corner), because a corner radius flows through
+`resolvedCornerRadius(forQuadRect:)` into `clipCornerRadius` *and* sizes
+the corner-zone rects that analysis is built from.
 
 Locked by `ClipAbstractionTests`.
 

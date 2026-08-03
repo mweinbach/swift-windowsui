@@ -6185,7 +6185,7 @@ public final class RetainedViewRuntime {
             lastDeferredOverlayReplayCount = 0
             lastDeferredDrawFrameReplayCount = 0
             lastDeferredDrawSceneReplayCount = 0
-            return cachedScene
+            return shippable(cachedScene)
         }
 
         if let interval = minimumFrameInterval, timestamp > 0, lastRenderTime > 0 {
@@ -6198,7 +6198,7 @@ public final class RetainedViewRuntime {
                 lastDeferredOverlayReplayCount = 0
                 lastDeferredDrawFrameReplayCount = 0
                 lastDeferredDrawSceneReplayCount = 0
-                return cachedScene
+                return shippable(cachedScene)
             }
         }
 
@@ -6225,6 +6225,10 @@ public final class RetainedViewRuntime {
         )
         prepaintState.deferredDraws = deferredDraws
 
+        // The retained copy drops the atlases on purpose: it outlives the
+        // frame, and a snapshot holding the atlas `Data` across frames turns
+        // the next glyph write into a copy of the whole 2048² buffer. It is a
+        // replay source, and replay reads primitives, never atlases.
         var cachedSceneCopy = scene
         cachedSceneCopy.glyphAtlas = nil
         cachedSceneCopy.pixelGlyphAtlas = nil
@@ -6238,6 +6242,19 @@ public final class RetainedViewRuntime {
             lastRenderTime = timestamp
         }
         return scene
+    }
+
+    /// A cached scene made shippable again.
+    ///
+    /// `cachedScene` is stored without its atlases (see above), and both
+    /// early returns above hand it straight to the host as this frame's
+    /// scene. A frame that ships has to carry the atlas its glyph quads
+    /// address, or every consumer without an atlas texture of its own draws
+    /// blank text where the user sees text.
+    private func shippable(_ scene: GPUIScene) -> GPUIScene {
+        var shipped = scene
+        ScenePainter.attachCachedGlyphAtlases(to: &shipped)
+        return shipped
     }
 
     public func pointerMoved(to point: Point) {

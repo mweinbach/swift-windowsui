@@ -65,6 +65,12 @@ public enum GPUIClipEncoding {
     }
 
     /// Writes a content mask into a primitive's four clip fields.
+    ///
+    /// A collapsed rect is written as `emptyExtent`, never verbatim: a clip of
+    /// `Rect(0, 0, 0, 0)` copied field for field is the in-band sentinel this
+    /// type exists to kill — `isAbsent` reads it back as *unclipped* and the
+    /// primitive escapes onto the whole window. Emptiness is a property of the
+    /// extent, so it is decided here rather than left to the reader.
     public static func encode(
         _ bounds: Rect?, into clipX: inout Float, _ clipY: inout Float, _ clipWidth: inout Float,
         _ clipHeight: inout Float
@@ -78,6 +84,11 @@ public enum GPUIClipEncoding {
         }
         clipX = Float(bounds.origin.x)
         clipY = Float(bounds.origin.y)
+        guard bounds.size.width > 0, bounds.size.height > 0 else {
+            clipWidth = emptyExtent
+            clipHeight = emptyExtent
+            return
+        }
         clipWidth = Float(bounds.size.width)
         clipHeight = Float(bounds.size.height)
     }

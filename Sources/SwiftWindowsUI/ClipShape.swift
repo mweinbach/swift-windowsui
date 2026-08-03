@@ -102,10 +102,35 @@ final class RuntimeClipShape: Equatable, Sendable {
     ) {
         self.rect = rect
         self.shapeRect = shapeRect ?? rect
-        let positiveRadii = (radii?.hasPositiveRadius ?? false) ? radii : nil
+        // Per-corner radii get the floor the uniform scalar has always had.
+        // They used to be copied verbatim, so a negative or non-finite corner
+        // survived into `resolvedCornerRadius(forQuadRect:)` and from there
+        // into a primitive's `clipCornerRadius` — the one clip field the
+        // scene contract clamps but no emitter had to produce sanely. An
+        // infinite radius is worse than a wrong one here: it is also the
+        // `zone` the corner analysis below builds its rects from.
+        let flooredRadii = radii.map(Self.floored)
+        let positiveRadii = (flooredRadii?.hasPositiveRadius ?? false) ? flooredRadii : nil
         self.radii = positiveRadii
-        self.uniformRadius = positiveRadii?.maxRadius ?? max(0, uniformRadius)
+        self.uniformRadius = positiveRadii?.maxRadius ?? Self.floored(uniformRadius)
         self.space = space
+    }
+
+    /// A radius floored at 0, with non-finite mapped to 0 — a square corner
+    /// is the degradation every consumer already handles. A radius larger
+    /// than its rect is not a defect: both backends clamp rounding to half
+    /// the shorter side.
+    private static func floored(_ radius: Double) -> Double {
+        radius.isFinite ? max(0, radius) : 0
+    }
+
+    private static func floored(_ radii: RetainedCornerRadii) -> RetainedCornerRadii {
+        RetainedCornerRadii(
+            topLeft: floored(radii.topLeft),
+            topRight: floored(radii.topRight),
+            bottomRight: floored(radii.bottomRight),
+            bottomLeft: floored(radii.bottomLeft)
+        )
     }
 
     static func == (lhs: RuntimeClipShape, rhs: RuntimeClipShape) -> Bool {

@@ -175,6 +175,13 @@ public enum GPUISceneSanitizer {
     /// Clip fields are all-or-nothing: a non-finite clip extent means the
     /// visible region is unknown, and rendering unclipped would paint the
     /// subtree across the whole window.
+    ///
+    /// `clipCornerRadius` is deliberately not part of this test — an
+    /// unrepresentable *rounding* still leaves the rejection rect known — but
+    /// it is not exempt from sanitation either: every family clamps it into
+    /// `[0, coordinateLimit]` (NaN and negatives become 0, i.e. a square
+    /// clip), because both backends feed it straight into a signed-distance
+    /// term where a NaN erases the primitive and a negative inverts the arc.
     @inline(__always)
     private static func clipIsRepresentable(_ x: Float, _ y: Float, _ width: Float, _ height: Float) -> Bool {
         x.isFinite && y.isFinite && width.isFinite && height.isFinite
@@ -251,6 +258,7 @@ public enum GPUISceneSanitizer {
         result.clipY = GPUISceneValue.clamped(glyph.clipY, to: coordinateLimit)
         result.clipWidth = GPUISceneValue.clamped(glyph.clipWidth, to: coordinateLimit)
         result.clipHeight = GPUISceneValue.clamped(glyph.clipHeight, to: coordinateLimit)
+        result.clipCornerRadius = GPUISceneValue.clamped(glyph.clipCornerRadius, lower: 0, upper: coordinateLimit)
         result.atlasU0 = GPUISceneValue.clamped(glyph.atlasU0, to: GPUISceneLimits.maxTextureCoordinate)
         result.atlasV0 = GPUISceneValue.clamped(glyph.atlasV0, to: GPUISceneLimits.maxTextureCoordinate)
         result.atlasU1 = GPUISceneValue.clamped(glyph.atlasU1, to: GPUISceneLimits.maxTextureCoordinate)
@@ -279,6 +287,7 @@ public enum GPUISceneSanitizer {
         result.clipY = GPUISceneValue.clamped(image.clipY, to: coordinateLimit)
         result.clipWidth = GPUISceneValue.clamped(image.clipWidth, to: coordinateLimit)
         result.clipHeight = GPUISceneValue.clamped(image.clipHeight, to: coordinateLimit)
+        result.clipCornerRadius = GPUISceneValue.clamped(image.clipCornerRadius, lower: 0, upper: coordinateLimit)
         result.uvX = GPUISceneValue.clamped(image.uvX, to: GPUISceneLimits.maxTextureCoordinate)
         result.uvY = GPUISceneValue.clamped(image.uvY, to: GPUISceneLimits.maxTextureCoordinate)
         result.uvW = GPUISceneValue.clamped(image.uvW, to: GPUISceneLimits.maxTextureCoordinate)
@@ -312,6 +321,7 @@ public enum GPUISceneSanitizer {
         result.clipY = GPUISceneValue.clamped(shadow.clipY, to: coordinateLimit)
         result.clipWidth = GPUISceneValue.clamped(shadow.clipWidth, to: coordinateLimit)
         result.clipHeight = GPUISceneValue.clamped(shadow.clipHeight, to: coordinateLimit)
+        result.clipCornerRadius = GPUISceneValue.clamped(shadow.clipCornerRadius, lower: 0, upper: coordinateLimit)
         result.colorR = GPUISceneValue.clamped(shadow.colorR, lower: 0, upper: 1)
         result.colorG = GPUISceneValue.clamped(shadow.colorG, lower: 0, upper: 1)
         result.colorB = GPUISceneValue.clamped(shadow.colorB, lower: 0, upper: 1)
@@ -341,6 +351,8 @@ public enum GPUISceneSanitizer {
         result.clipBounds = path.clipBounds.map(clampedRect)
         result.lineWidth = GPUISceneValue.clamped(
             path.lineWidth.isFinite ? max(0, path.lineWidth) : 0, to: Double(coordinateLimit))
+        result.clipCornerRadius = GPUISceneValue.clamped(
+            path.clipCornerRadius.isFinite ? max(0, path.clipCornerRadius) : 0, to: Double(coordinateLimit))
         result.elements = clampedElements(path.elements)
         return result
     }

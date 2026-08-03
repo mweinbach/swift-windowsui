@@ -562,8 +562,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             )
         }
 
-        let usesGlyphs = scene.layers.contains { !$0.glyphs.isEmpty }
-        let usesPixelGlyphs = scene.layers.contains { !$0.pixelGlyphs.isEmpty }
+        let usesGlyphs = scene.usesGlyphs
+        let usesPixelGlyphs = scene.usesPixelGlyphs
 
         let glyphAtlasSource: AtlasSource?
         if usesGlyphs {

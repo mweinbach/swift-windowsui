@@ -483,8 +483,15 @@ public struct ScenePaintMetrics: Equatable, Sendable {
 
 public struct GPUIScene: Equatable, Sendable {
     public var clearColor: Color
-    public var layers: [GPUILayer]
-    public var paintRecords: [GPUIScenePaintRecord]
+    // Readable everywhere, writable only here, for the reason `GPUILayer`
+    // spells out above: `add*` is the one door sanitation, the family
+    // arrays and `paintRecords` all agree behind. `layers` being a `public
+    // var` while the arrays inside it were `private(set)` reinstated the
+    // whole bypass one subscript assignment at a time —
+    // `scene.layers[0] = GPUILayer(...)` skips sanitation *and* leaves
+    // `paintRecords` describing primitives that are no longer there.
+    public private(set) var layers: [GPUILayer]
+    public private(set) var paintRecords: [GPUIScenePaintRecord]
     public var glyphAtlas: GlyphAtlasSnapshot?
     public var pixelGlyphAtlas: GlyphAtlasSnapshot?
     public var imageResources: [ImageResourceBinding]
@@ -507,6 +514,29 @@ public struct GPUIScene: Equatable, Sendable {
     }
 
     // MARK: - Layer management
+
+    /// Installs hand-built layers wholesale, bypassing `add*`.
+    ///
+    /// The named door for the residual hole `GPUILayer.init` documents: a
+    /// scene whose layers are built by hand is unsanitized and its
+    /// `paintRecords` describe the layers it *had*, so `validate()` — not
+    /// the type system — is what stands between one and a backend. That is
+    /// exactly what the malformed-scene tests need and what nothing else
+    /// should want, which is why it says so in its name.
+    public mutating func installHandBuiltLayers(_ newLayers: [GPUILayer]) {
+        layers = newLayers
+        isFinished = false
+    }
+
+    /// `installHandBuiltLayers` for a single layer, leaving the rest alone.
+    /// A no-op when `index` does not address an existing layer.
+    public mutating func installHandBuiltLayer(_ layer: GPUILayer, at index: Int) {
+        guard layers.indices.contains(index) else {
+            return
+        }
+        layers[index] = layer
+        isFinished = false
+    }
 
     /// Push a new empty layer onto the stack.
     @discardableResult
@@ -707,6 +737,20 @@ public struct GPUIScene: Equatable, Sendable {
     /// Both backends consume this: it is the only draw-order authority.
     public func presentationOrder() -> GPUIPresentationOrder {
         GPUIPresentationOrder(layers: layers)
+    }
+
+    /// True when any layer draws from the native glyph atlas — which is the
+    /// predicate that decides whether the scene has to *ship* one. It is a
+    /// property of the primitives, not of what the painter rasterized this
+    /// frame: a frame that replayed all of its text emitted no glyph and
+    /// still draws every one of them.
+    public var usesGlyphs: Bool {
+        layers.contains { !$0.glyphs.isEmpty }
+    }
+
+    /// `usesGlyphs` for the pixel-font atlas.
+    public var usesPixelGlyphs: Bool {
+        layers.contains { !$0.pixelGlyphs.isEmpty }
     }
 
     /// Represents the result of a replay operation.

@@ -418,48 +418,62 @@ final class SystemAppearanceTests: XCTestCase {
     }
 
     // MARK: - Contrast-response palette
+    //
+    // Resolution now takes the appearance as well as the contrast: the
+    // semantic label colours are one alpha ladder over a base that the
+    // colour scheme picks. `resolvedForContrast` on its own could not
+    // express that and is gone.
 
-    func testStandardContrastLeavesColorsUntouched() async {
-        XCTAssertEqual(Color.secondary.resolvedForContrast(.standard), .secondary)
-        XCTAssertEqual(tertiaryFallback.resolvedForContrast(.standard), tertiaryFallback)
-        XCTAssertEqual(Color.red.resolvedForContrast(.standard), .red)
+    func testStandardContrastLeavesAppAuthoredColorsUntouched() async {
+        XCTAssertEqual(Color.red.resolved(.dark, .standard), .red)
+        XCTAssertEqual(Color.accentColor.resolved(.dark, .standard), .accentColor)
+        XCTAssertEqual(Color.black.opacity(0.4).resolved(.light, .standard), Color.black.opacity(0.4))
     }
 
-    func testIncreasedContrastBrightensSecondary() async {
-        let resolved = Color.secondary.resolvedForContrast(.increased)
-        XCTAssertEqual(resolved.red, Color.highContrastSecondary.red)
-        XCTAssertEqual(resolved.green, Color.highContrastSecondary.green)
-        XCTAssertEqual(resolved.blue, Color.highContrastSecondary.blue)
+    func testIncreasedContrastBrightensSecondaryInDarkAppearance() async {
+        let standard = Color.secondary.resolved(.dark, .standard)
+        let increased = Color.secondary.resolved(.dark, .increased)
+        XCTAssertGreaterThan(increased.alpha, standard.alpha)
+        XCTAssertEqual(increased, ControlPalette.darkIncreased.secondaryLabel)
     }
 
-    func testIncreasedContrastRaisesHierarchicalGreyRamp() async {
-        let tertiary = tertiaryFallback.resolvedForContrast(.increased)
-        let quaternary = HierarchicalShapeStyle.quaternary.retainedFallbackColor.resolvedForContrast(.increased)
-
-        // The ramp moves every level closer to the high-contrast secondary
-        // target so low-contrast greys do not survive HC mode.
-        XCTAssertGreaterThan(tertiary.red, tertiaryFallback.red)
-        XCTAssertGreaterThan(quaternary.red, HierarchicalShapeStyle.quaternary.retainedFallbackColor.red)
-        XCTAssertGreaterThanOrEqual(tertiary.red, quaternary.red)
+    func testIncreasedContrastDarkensSecondaryInLightAppearance() async {
+        let standard = Color.secondary.resolved(.light, .standard)
+        let increased = Color.secondary.resolved(.light, .increased)
+        XCTAssertGreaterThan(increased.alpha, standard.alpha)
+        XCTAssertEqual(increased, ControlPalette.lightIncreased.secondaryLabel)
     }
 
-    func testIncreasedContrastPreservesSourceAlphaOnRamp() async {
-        let translucent = Color(
-            red: tertiaryFallback.red,
-            green: tertiaryFallback.green,
-            blue: tertiaryFallback.blue,
-            alpha: 0.5
-        )
-        XCTAssertEqual(translucent.resolvedForContrast(.increased).alpha, 0.5)
+    func testIncreasedContrastRaisesTheWholeHierarchicalRamp() async {
+        for scheme in [ColorScheme.dark, ColorScheme.light] {
+            let tertiaryStandard = tertiaryFallback.resolved(scheme, .standard)
+            let tertiaryIncreased = tertiaryFallback.resolved(scheme, .increased)
+            XCTAssertGreaterThan(
+                tertiaryIncreased.alpha, tertiaryStandard.alpha,
+                "\(scheme): low-contrast greys must not survive HC mode")
+        }
+    }
+
+    func testIncreasedContrastKeepsTheRampOrdered() async {
+        let secondary = Color.secondary.resolved(.dark, .increased)
+        let tertiary = tertiaryFallback.resolved(.dark, .increased)
+        XCTAssertGreaterThanOrEqual(secondary.alpha, tertiary.alpha)
     }
 
     func testIncreasedContrastLeavesNonSemanticColorsUntouched() async {
-        XCTAssertEqual(Color.red.resolvedForContrast(.increased), .red)
-        XCTAssertEqual(Color.accentColor.resolvedForContrast(.increased), .accentColor)
-        XCTAssertEqual(Color.black.opacity(0.4).resolvedForContrast(.increased), Color.black.opacity(0.4))
+        XCTAssertEqual(Color.red.resolved(.dark, .increased), .red)
+        XCTAssertEqual(Color.accentColor.resolved(.dark, .increased), .accentColor)
+        XCTAssertEqual(Color.black.opacity(0.4).resolved(.dark, .increased), Color.black.opacity(0.4))
     }
 
     private var tertiaryFallback: Color {
         HierarchicalShapeStyle.tertiary.retainedFallbackColor
+    }
+}
+
+extension Color {
+    fileprivate func resolved(_ scheme: ColorScheme, _ contrast: ColorSchemeContrast) -> Color {
+        resolvedForVisualEnvironment(
+            colorScheme: scheme, contrast: contrast, backgroundProminence: .standard)
     }
 }

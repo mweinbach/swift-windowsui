@@ -28,14 +28,25 @@ public struct WinSwiftUIRenderSnapshot {
 }
 @MainActor
 public enum WinSwiftUIRendererSnapshotter {
+    /// - Parameters:
+    ///   - colorScheme: the appearance the snapshot window is in. This is
+    ///     the *window's* appearance, as `NSWindow.effectiveAppearance` is
+    ///     on macOS: it seeds the root environment and picks the backdrop.
+    ///     A fixed navy clear colour meant a light-mode render still had a
+    ///     dark page behind it.
+    ///   - clearColor: overrides the appearance's window background.
     public static func snapshot<V: View>(
         of view: V,
         size: IntSize = IntSize(width: 1280, height: 720),
         displayScale: Double = 1,
-        clearColor: Color = Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+        colorScheme: ColorScheme = .dark,
+        clearColor: Color? = nil,
         timestamp: Double = 0
     ) -> WinSwiftUIRenderSnapshot {
-        let runtime = RetainedViewRuntime(clearColor: clearColor, root: ViewNode(), displayScale: displayScale)
+        let palette = ControlPalette.resolve(colorScheme: colorScheme)
+        let resolvedClearColor = clearColor ?? palette.windowBackground
+        let runtime = RetainedViewRuntime(
+            clearColor: resolvedClearColor, root: ViewNode(), displayScale: displayScale)
         runtime.setRootSize(size)
         // Icons rasterize eagerly at build time; point them at this render's
         // scale (1 for the deterministic screenshot path), then restore.
@@ -50,6 +61,7 @@ public enum WinSwiftUIRendererSnapshotter {
             invalidateHandler: {},
             environmentValuesProvider: {
                 EnvironmentValues(
+                    colorScheme: colorScheme,
                     displayScale: displayScale,
                     pixelLength: displayScale > 0 ? 1 / displayScale : 1
                 )

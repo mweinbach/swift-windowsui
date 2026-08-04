@@ -120,7 +120,6 @@ private func polishRunLabeledControlScenario<V: View>(
     _ labelName: String,
     spacing: Double,
     gallerySize: Size,
-    squeezedHeight: Double,
     makeView: @MainActor () -> V
 ) {
     let runtime = polishMakeRuntime()
@@ -144,6 +143,11 @@ private func polishRunLabeledControlScenario<V: View>(
         labelName
     )
     let naturalTrackHeight = relaxedTrack.height
+    // Squeeze relative to what the control actually measured, not to a
+    // constant: the pinned heights here were calibrated against a 17.6px
+    // semibold label and stopped producing a deficit at all once the type
+    // ramp became macOS''s.
+    let squeezedHeight = (relaxedTrack.maxY - relaxedLabel.minY) - 4
 
     // Constrained canvas: not enough room for everything. The track must
     // absorb the deficit; the label keeps its natural height and stays
@@ -178,8 +182,7 @@ final class PolishWaveTests: XCTestCase {
             polishRunLabeledControlScenario(
                 "Slider",
                 spacing: 6,
-                gallerySize: Size(width: 230, height: 80),
-                squeezedHeight: 34
+                gallerySize: Size(width: 230, height: 80)
             ) {
                 Slider(value: .constant(0.65), in: 0...1) {
                     Text("Volume")
@@ -193,8 +196,7 @@ final class PolishWaveTests: XCTestCase {
             polishRunLabeledControlScenario(
                 "Slider(min/max)",
                 spacing: 6,
-                gallerySize: Size(width: 230, height: 80),
-                squeezedHeight: 34
+                gallerySize: Size(width: 230, height: 80)
             ) {
                 Slider(value: .constant(0.65), in: 0...1) {
                     Text("Volume")
@@ -212,8 +214,7 @@ final class PolishWaveTests: XCTestCase {
             polishRunLabeledControlScenario(
                 "ProgressView",
                 spacing: 8,
-                gallerySize: Size(width: 160, height: 50),
-                squeezedHeight: 30
+                gallerySize: Size(width: 160, height: 50)
             ) {
                 ProgressView("Loading", value: 0.4)
             }
@@ -225,8 +226,7 @@ final class PolishWaveTests: XCTestCase {
             polishRunLabeledControlScenario(
                 "Gauge",
                 spacing: 8,
-                gallerySize: Size(width: 200, height: 60),
-                squeezedHeight: 32
+                gallerySize: Size(width: 200, height: 60)
             ) {
                 Gauge(value: 0.5, in: 0...1) {
                     Text("Storage")

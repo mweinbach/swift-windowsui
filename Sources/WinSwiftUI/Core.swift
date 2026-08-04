@@ -8164,31 +8164,37 @@ public struct ViewBuildContext {
         switch environmentValuesProvider().foregroundStyle {
         case .color(let color):
             return color.resolvedForVisualEnvironment(
+                colorScheme: colorScheme,
                 contrast: colorSchemeContrast,
                 backgroundProminence: backgroundProminence
             )
         case .linearGradient(let gradient):
             return gradient.startColor.resolvedForVisualEnvironment(
+                colorScheme: colorScheme,
                 contrast: colorSchemeContrast,
                 backgroundProminence: backgroundProminence
             )
         case .radialGradient(let gradient):
             return gradient.stops.first?.color.resolvedForVisualEnvironment(
+                colorScheme: colorScheme,
                 contrast: colorSchemeContrast,
                 backgroundProminence: backgroundProminence
             ) ?? .clear
         case .conicGradient(let gradient):
             return gradient.stops.first?.color.resolvedForVisualEnvironment(
+                colorScheme: colorScheme,
                 contrast: colorSchemeContrast,
                 backgroundProminence: backgroundProminence
             ) ?? .clear
         case .materialFill(let tint, _):
             return tint.resolvedForVisualEnvironment(
+                colorScheme: colorScheme,
                 contrast: colorSchemeContrast,
                 backgroundProminence: backgroundProminence
             )
         case nil:
             return foregroundColorProvider().resolvedForVisualEnvironment(
+                colorScheme: colorScheme,
                 contrast: colorSchemeContrast,
                 backgroundProminence: backgroundProminence
             )
@@ -8198,6 +8204,7 @@ public struct ViewBuildContext {
     var foregroundStyle: ForegroundStyle {
         (environmentValuesProvider().foregroundStyle ?? .color(foregroundColorProvider()))
             .resolvedForVisualEnvironment(
+                colorScheme: colorScheme,
                 contrast: colorSchemeContrast,
                 backgroundProminence: backgroundProminence
             )
@@ -8206,6 +8213,7 @@ public struct ViewBuildContext {
     var backgroundStyle: ForegroundStyle {
         (environmentValuesProvider().backgroundStyle ?? BackgroundStyle.background.retainedForegroundStyle)
             .resolvedForVisualEnvironment(
+                colorScheme: colorScheme,
                 contrast: colorSchemeContrast,
                 backgroundProminence: backgroundProminence
             )
@@ -8787,7 +8795,12 @@ public struct ViewBuildContext {
         invalidateHandler: @escaping () -> Void,
         observedObjectHandler: @escaping (any ObservableObject) -> Void = { _ in },
         isEnabledProvider: @escaping () -> Bool = { true },
-        foregroundColorProvider: @escaping () -> Color = { .white },
+        // `.primary`, not `.white`. The ambient foreground is the semantic
+        // label colour, which the appearance resolver turns into
+        // near-white or near-black. A literal white default is why every
+        // inherited label vanished the moment the app was rendered in the
+        // light appearance.
+        foregroundColorProvider: @escaping () -> Color = { .primary },
         tintProvider: @escaping () -> Color = { ViewBuildContext.defaultTint },
         fontProvider: @escaping () -> Font = { .body },
         fontDesignProvider: @escaping () -> Font.Design? = { nil },
@@ -13489,17 +13502,22 @@ public struct Font: Sendable, Equatable {
         )
     }
 
-    public static let largeTitle = Font(size: 34)
-    public static let title = Font(size: 28)
-    public static let title2 = Font(size: 22)
-    public static let title3 = Font(size: 20)
-    public static let headline = Font(size: 17, weight: .semibold)
-    public static let subheadline = Font(size: 15)
-    public static let body = Font(size: 17)
-    public static let callout = Font(size: 16)
-    public static let footnote = Font(size: 13)
-    public static let caption = Font(size: 12)
-    public static let caption2 = Font(size: 11)
+    // The macOS system ramp, read from `MacOSControlMetrics.Typography` so
+    // the type and the control boxes it has to fit in are pinned by one
+    // module. These used to be the iOS Dynamic Type table at `.large`
+    // (body 17, largeTitle 34) under the name "macOS parity", which is why
+    // a 17pt label was being asked to sit in a 21pt text field.
+    public static let largeTitle = Font(size: MacOSControlMetrics.Typography.largeTitleSize)
+    public static let title = Font(size: MacOSControlMetrics.Typography.titleSize)
+    public static let title2 = Font(size: MacOSControlMetrics.Typography.title2Size)
+    public static let title3 = Font(size: MacOSControlMetrics.Typography.title3Size)
+    public static let headline = Font(size: MacOSControlMetrics.Typography.headlineSize, weight: .semibold)
+    public static let subheadline = Font(size: MacOSControlMetrics.Typography.subheadlineSize)
+    public static let body = Font(size: MacOSControlMetrics.Typography.bodySize)
+    public static let callout = Font(size: MacOSControlMetrics.Typography.calloutSize)
+    public static let footnote = Font(size: MacOSControlMetrics.Typography.footnoteSize)
+    public static let caption = Font(size: MacOSControlMetrics.Typography.captionSize)
+    public static let caption2 = Font(size: MacOSControlMetrics.Typography.caption2Size)
 
     public func weight(_ weight: Weight) -> Font {
         Font(
@@ -14631,7 +14649,7 @@ public struct BackgroundStyle: ShapeStyle, Sendable, Equatable {
     }
 
     var retainedFallbackColor: Color {
-        Color(red: 0.10, green: 0.14, blue: 0.22, alpha: 0.78)
+        Color(red: 0.137, green: 0.137, blue: 0.137, alpha: 0.78)
     }
 }
 public struct SelectionShapeStyle: ShapeStyle, Sendable, Equatable {
@@ -14653,7 +14671,7 @@ public struct SeparatorShapeStyle: ShapeStyle, Sendable, Equatable {
     }
 
     var retainedFallbackColor: Color {
-        Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 0.36)
+        Color(red: 0.736, green: 0.736, blue: 0.736, alpha: 0.36)
     }
 }
 public struct TintShapeStyle: ShapeStyle, Sendable, Equatable {
@@ -14675,7 +14693,7 @@ public struct PlaceholderTextShapeStyle: ShapeStyle, Sendable, Equatable {
     }
 
     var retainedFallbackColor: Color {
-        Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 0.62)
+        Color(red: 0.736, green: 0.736, blue: 0.736, alpha: 0.62)
     }
 }
 public struct LinkShapeStyle: ShapeStyle, Sendable, Equatable {
@@ -14708,7 +14726,7 @@ public struct WindowBackgroundShapeStyle: ShapeStyle, Sendable, Equatable {
     }
 
     var retainedFallbackColor: Color {
-        Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 1)
+        Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 1)
     }
 }
 extension ForegroundStyle: ShapeStyle {
@@ -14737,7 +14755,7 @@ extension SwiftWindowsGraphics.ConicGradient: ShapeStyle {
     }
 }
 public struct HierarchicalShapeStyle: ShapeStyle, Sendable, Equatable {
-    enum Level: Sendable, Equatable {
+    enum Level: Sendable, Equatable, CaseIterable {
         case primary
         case secondary
         case tertiary
@@ -14761,6 +14779,11 @@ public struct HierarchicalShapeStyle: ShapeStyle, Sendable, Equatable {
         .color(retainedFallbackColor)
     }
 
+    /// The hierarchy's rungs *are* the semantic label colours, so a
+    /// `.foregroundStyle(.tertiary)` survives as something the appearance
+    /// resolver can still recognise. These used to be three opaque
+    /// blue-slate literals with no relationship to `.primary`/`.secondary`
+    /// and no light counterpart.
     var retainedFallbackColor: Color {
         switch level {
         case .primary:
@@ -14768,11 +14791,11 @@ public struct HierarchicalShapeStyle: ShapeStyle, Sendable, Equatable {
         case .secondary:
             return .secondary
         case .tertiary:
-            return Color(red: 0.56, green: 0.61, blue: 0.69, alpha: 1)
+            return .tertiary
         case .quaternary:
-            return Color(red: 0.44, green: 0.49, blue: 0.58, alpha: 1)
+            return .quaternary
         case .quinary:
-            return Color(red: 0.34, green: 0.38, blue: 0.46, alpha: 1)
+            return .quinary
         }
     }
 }
@@ -15180,7 +15203,10 @@ public struct ListStyle: Sendable, Equatable {
         lhs.kind == rhs.kind
     }
 
-    var retainedChrome: RetainedListChrome {
+    /// A list''s body, hairline and alternating stripe are appearance
+    /// roles. They used to be dark literals, so `.preferredColorScheme(
+    /// .light)` produced light rows on a dark list body.
+    func retainedChrome(palette: ControlPalette) -> RetainedListChrome {
         switch kind {
         case .automatic, .plain:
             // macOS plain/automatic lists inset their row content from the
@@ -15203,7 +15229,7 @@ public struct ListStyle: Sendable, Equatable {
                 defaultSpacing: 0,
                 padding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
                 backgroundColor: nil,
-                borderColor: Color(red: 0.72, green: 0.80, blue: 0.92, alpha: 0.28),
+                borderColor: palette.controlBorder,
                 borderWidth: 1,
                 cornerRadius: 6
             )
@@ -15211,8 +15237,8 @@ public struct ListStyle: Sendable, Equatable {
             return RetainedListChrome(
                 defaultSpacing: 6,
                 padding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8),
-                backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.68),
-                borderColor: Color(red: 0.72, green: 0.80, blue: 0.92, alpha: 0.14),
+                backgroundColor: palette.controlBackground,
+                borderColor: palette.separator,
                 borderWidth: 1,
                 cornerRadius: 16
             )
@@ -15220,8 +15246,8 @@ public struct ListStyle: Sendable, Equatable {
             return RetainedListChrome(
                 defaultSpacing: 8,
                 padding: EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0),
-                backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.72),
-                borderColor: Color(red: 0.72, green: 0.80, blue: 0.92, alpha: 0.16),
+                backgroundColor: palette.controlBackground,
+                borderColor: palette.separator,
                 borderWidth: 1,
                 cornerRadius: 12
             )
@@ -15234,14 +15260,14 @@ public struct ListStyle: Sendable, Equatable {
                 borderWidth: 0,
                 cornerRadius: 0,
                 alternatesRowBackgrounds: alternatesRowBackgrounds == true,
-                alternatingRowBackgroundColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08)
+                alternatingRowBackgroundColor: palette.quinaryFill
             )
         case .insetGrouped:
             return RetainedListChrome(
                 defaultSpacing: 8,
                 padding: EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12),
-                backgroundColor: Color(red: 0.09, green: 0.12, blue: 0.18, alpha: 0.78),
-                borderColor: Color(red: 0.76, green: 0.84, blue: 0.96, alpha: 0.18),
+                backgroundColor: palette.controlBackground,
+                borderColor: palette.separator,
                 borderWidth: 1,
                 cornerRadius: 14
             )
@@ -15249,7 +15275,7 @@ public struct ListStyle: Sendable, Equatable {
             return RetainedListChrome(
                 defaultSpacing: 4,
                 padding: EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6),
-                backgroundColor: Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.68),
+                backgroundColor: palette.controlBackground,
                 borderColor: .clear,
                 borderWidth: 0,
                 cornerRadius: 10,
@@ -15315,7 +15341,7 @@ public struct ListItemTint: Sendable, Equatable {
             return RetainedListItemTint(color: color, kind: .preferred)
         case .monochrome:
             return RetainedListItemTint(
-                color: Color(red: 0.86, green: 0.90, blue: 0.96, alpha: 0.78),
+                color: Color(red: 0.896, green: 0.896, blue: 0.896, alpha: 0.78),
                 kind: .monochrome
             )
         }
@@ -16677,9 +16703,9 @@ public struct ScrollViewStyle: Sendable {
         shadowSpread: Double = 0,
         cornerRadius: Double = 0,
         scrollStep: Double = 64,
-        indicatorColor: Color = Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16),
-        indicatorHoverColor: Color = Color(red: 0.97, green: 0.99, blue: 1.0, alpha: 0.30),
-        indicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.46),
+        indicatorColor: Color = Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.16),
+        indicatorHoverColor: Color = Color(red: 0.986, green: 0.986, blue: 0.986, alpha: 0.30),
+        indicatorActiveColor: Color = Color(red: 0.996, green: 0.996, blue: 0.996, alpha: 0.46),
         indicatorThickness: Double = 5,
         isHitTestVisible: Bool = true
     ) {
@@ -16707,38 +16733,50 @@ public struct SectionStyle: Sendable {
     public var spacing: Double
     public var padding: EdgeInsets
     public var alignment: HorizontalAlignment
-    public var backgroundColor: Color
+    /// `nil` resolves to the appearance's raised-surface colour at build
+    /// time; a grouped section box cannot be a fixed literal and still be
+    /// correct in both appearances.
+    public var backgroundColor: Color?
     public var backgroundGradient: GradientType?
-    public var borderColor: Color
+    /// `nil` resolves to the appearance's separator hairline.
+    public var borderColor: Color?
     public var shadowColor: Color
     public var cornerRadius: Double
     public var scrollAxis: Axis?
     public var scrollStep: Double
-    public var indicatorColor: Color
-    public var indicatorHoverColor: Color
-    public var indicatorActiveColor: Color
+    /// `nil` resolves the scroller thumb out of the appearance's label
+    /// ramp, so it is visible on a light backdrop as well as a dark one.
+    public var indicatorColor: Color?
+    public var indicatorHoverColor: Color?
+    public var indicatorActiveColor: Color?
     public var indicatorThickness: Double
-    public var headerColor: Color
-    public var headerFont: Font
+    /// `nil` resolves to the appearance''s secondary label at build time.
+    /// A section header cannot be a fixed literal and still be correct in
+    /// both appearances.
+    public var headerColor: Color?
+    /// `nil` resolves to the macOS grouped-form header — 11pt semibold.
+    /// A header at body size differs from its own rows only by weight,
+    /// which is not hierarchy.
+    public var headerFont: Font?
     public var isHitTestVisible: Bool
 
     public init(
         spacing: Double = 16,
         padding: EdgeInsets = EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
         alignment: HorizontalAlignment = .leading,
-        backgroundColor: Color = Color(red: 0.10, green: 0.14, blue: 0.22, alpha: 0.78),
+        backgroundColor: Color? = nil,
         backgroundGradient: GradientType? = nil,
-        borderColor: Color = Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10),
-        shadowColor: Color = Color(red: 0.02, green: 0.05, blue: 0.10, alpha: 0.16),
+        borderColor: Color? = nil,
+        shadowColor: Color = ControlPalette.ambientShadow,
         cornerRadius: Double = 28,
         scrollAxis: Axis? = nil,
         scrollStep: Double = 64,
-        indicatorColor: Color = Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16),
-        indicatorHoverColor: Color = Color(red: 0.97, green: 0.99, blue: 1.0, alpha: 0.30),
-        indicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.46),
+        indicatorColor: Color? = nil,
+        indicatorHoverColor: Color? = nil,
+        indicatorActiveColor: Color? = nil,
         indicatorThickness: Double = 5,
-        headerColor: Color = Color(red: 0.93, green: 0.97, blue: 1.0, alpha: 0.94),
-        headerFont: Font = .system(size: 1.5, weight: .semibold),
+        headerColor: Color? = nil,
+        headerFont: Font? = nil,
         isHitTestVisible: Bool = false
     ) {
         self.spacing = spacing
@@ -17208,12 +17246,24 @@ extension Font {
         )
     }
 
+    /// Scale factor for the 5x7 bitmap fallback atlas, whose cell is
+    /// authored at scale 1. The conversion from points lives here and
+    /// *only* here — `Font.size` is always points.
     var resolvedScale: Double {
-        size >= 8 ? size / 10.0 : size
+        max(size / 10.0, 0.1)
     }
 
+    /// The point size handed to the native (DirectWrite) text path.
+    ///
+    /// This used to be `size >= 8 ? size : max(12, size * 6 + 8)`: any
+    /// value below 8 was silently reinterpreted as a 5x7 atlas scale unit,
+    /// so `.system(size: 3)` rendered at 26px and `.system(size: 8)` at 8px
+    /// — a public points API that was not monotonic in its own argument.
+    /// The stack authored its own chrome in those legacy units, which is
+    /// how 1.5, 1.6 and 1.9 all landed within 2px of body and the app ended
+    /// up with one type size. Points are points.
     var resolvedNativeTextSize: Double {
-        size >= 8 ? size : max(12, size * 6 + 8)
+        size
     }
 
     var resolvedFamily: String {
@@ -17231,15 +17281,24 @@ extension Font {
         }
     }
 
+    /// Extra leading between lines, proportional to the point size.
+    ///
+    /// The text renderer lays out at a uniform line height of
+    /// `size + lineSpacing`, so `standardLeadingRatio` is what puts 13pt
+    /// body on macOS's 16pt line and 26pt largeTitle on its 32pt line. The
+    /// previous flat 2px at every size gave a 26pt headline the same gap as
+    /// a 10pt caption.
     var resolvedLineSpacing: Double {
+        let ratio: Double
         switch leading {
         case .standard:
-            return 2
+            ratio = MacOSControlMetrics.Typography.standardLeadingRatio
         case .tight:
-            return 0
+            ratio = MacOSControlMetrics.Typography.tightLeadingRatio
         case .loose:
-            return 6
+            ratio = MacOSControlMetrics.Typography.looseLeadingRatio
         }
+        return max(size * ratio, MacOSControlMetrics.Typography.minimumLeading)
     }
 }
 extension Font.Width {
@@ -17315,80 +17374,74 @@ extension SwiftWindowsCore.Color {
         )
     }
 
-    public nonisolated func resolvedForContrast(_ contrast: ColorSchemeContrast) -> SwiftWindowsCore.Color {
-        guard contrast == .increased else {
-            return self
+    /// Which rung of the `labelColor` hierarchy this colour *is*, if any.
+    ///
+    /// The semantic colours are sentinels: `Color.primary` and friends are
+    /// the dark-appearance rungs of `LabelHierarchy`, and recognising one
+    /// here is what lets a flat RGBA struct still carry an appearance.
+    /// Everything else — a literal the app wrote, an accent, an image
+    /// sample — is returned untouched.
+    nonisolated var labelHierarchyLevel: HierarchicalShapeStyle.Level? {
+        let (red, green, blue, alpha) = rgba
+        guard red == 1, green == 1, blue == 1 else {
+            return nil
         }
-
-        if self == .secondary {
-            return resolvedHighContrastSecondary()
+        switch alpha {
+        case LabelHierarchy.primaryAlpha:
+            return .primary
+        case LabelHierarchy.secondaryAlpha, LabelHierarchy.increasedContrastSecondaryAlpha:
+            return .secondary
+        case LabelHierarchy.tertiaryAlpha, LabelHierarchy.increasedContrastTertiaryAlpha:
+            return .tertiary
+        case LabelHierarchy.quaternaryAlpha:
+            return .quaternary
+        case LabelHierarchy.quinaryAlpha:
+            return .quinary
+        default:
+            return nil
         }
-
-        // Snap the low-contrast hierarchical fallback greys
-        // (`.tertiary` / `.quaternary` / `.quinary`) onto a legible
-        // high-contrast ramp so text and chrome using them stay readable.
-        // Colors outside the ramp pass through untouched.
-        for (source, target) in Self.highContrastGreyRamp where self == source {
-            let components = target.rgba
-            return SwiftWindowsCore.Color(
-                red: components.0,
-                green: components.1,
-                blue: components.2,
-                alpha: rgba.3
-            )
-        }
-
-        return self
     }
 
-    /// High-contrast equivalents for the hierarchical fallback greys, dimmest
-    /// last. Alpha is taken from the source color at resolution time.
-    nonisolated private static var highContrastGreyRamp:
-        [(source: SwiftWindowsCore.Color, target: SwiftWindowsCore.Color)]
-    {
-        [
-            (
-                HierarchicalShapeStyle.tertiary.retainedFallbackColor,
-                SwiftWindowsCore.Color(red: 0.84, green: 0.88, blue: 0.94, alpha: 1)
-            ),
-            (
-                HierarchicalShapeStyle.quaternary.retainedFallbackColor,
-                SwiftWindowsCore.Color(red: 0.78, green: 0.82, blue: 0.89, alpha: 1)
-            ),
-            (
-                HierarchicalShapeStyle.quinary.retainedFallbackColor,
-                SwiftWindowsCore.Color(red: 0.72, green: 0.77, blue: 0.85, alpha: 1)
-            ),
-        ]
-    }
-
-    public nonisolated func resolvedForBackgroundProminence(_ prominence: BackgroundProminence)
-        -> SwiftWindowsCore.Color
-    {
-        guard prominence == .increased, self == .secondary else {
-            return self
-        }
-
-        return resolvedHighContrastSecondary()
-    }
-
+    /// Resolves a semantic label colour for one appearance and contrast.
+    ///
+    /// Before this existed, `resolvedForVisualEnvironment` took contrast
+    /// and background prominence but never the colour scheme, so
+    /// `Color.primary` was a literal white and light mode was not merely
+    /// unwired — it could not be expressed. The appearance now selects the
+    /// base (white or black) and the contrast selects the rung, both out of
+    /// the same `ControlPalette` the control chrome reads.
     public nonisolated func resolvedForVisualEnvironment(
+        colorScheme: ColorScheme,
         contrast: ColorSchemeContrast,
         backgroundProminence: BackgroundProminence
     ) -> SwiftWindowsCore.Color {
-        resolvedForContrast(contrast)
-            .resolvedForBackgroundProminence(backgroundProminence)
-    }
+        // `.increased` background prominence is AppKit's "this sits on a
+        // filled selection" signal: secondary text stops being secondary.
+        let effectiveLevel: HierarchicalShapeStyle.Level?
+        if backgroundProminence == .increased, labelHierarchyLevel == .secondary {
+            effectiveLevel = .primary
+        } else {
+            effectiveLevel = labelHierarchyLevel
+        }
+        guard let effectiveLevel else {
+            return self
+        }
 
-    nonisolated private func resolvedHighContrastSecondary() -> SwiftWindowsCore.Color {
-        let alpha = rgba.3
-        let highContrastComponents = SwiftWindowsCore.Color.highContrastSecondary.rgba
-        return SwiftWindowsCore.Color(
-            red: highContrastComponents.0,
-            green: highContrastComponents.1,
-            blue: highContrastComponents.2,
-            alpha: alpha
-        )
+        let palette = ControlPalette.resolve(colorScheme: colorScheme, contrast: contrast)
+        switch effectiveLevel {
+        case .primary:
+            return palette.label
+        case .secondary:
+            return palette.secondaryLabel
+        case .tertiary:
+            return palette.tertiaryLabel
+        case .quaternary:
+            return palette.quaternaryLabel
+        case .quinary:
+            // AppKit has no fifth published rung; SwiftUI's quinary sits
+            // just under quaternary.
+            return palette.quaternaryLabel.retainedWithMultipliedOpacity(0.6)
+        }
     }
 }
 extension ForegroundStyle {
@@ -17407,22 +17460,8 @@ extension ForegroundStyle {
         }
     }
 
-    func resolvedForContrast(_ contrast: ColorSchemeContrast) -> ForegroundStyle {
-        switch self {
-        case .color(let color):
-            return .color(color.resolvedForContrast(contrast))
-        case .linearGradient(let gradient):
-            return .linearGradient(gradient.resolvedForContrast(contrast))
-        case .radialGradient(let gradient):
-            return .radialGradient(gradient.resolvedForContrast(contrast))
-        case .conicGradient(let gradient):
-            return .conicGradient(gradient.resolvedForContrast(contrast))
-        case .materialFill(let tint, let blurRadius):
-            return .materialFill(tint: tint.resolvedForContrast(contrast), blurRadius: blurRadius)
-        }
-    }
-
     func resolvedForVisualEnvironment(
+        colorScheme: ColorScheme,
         contrast: ColorSchemeContrast,
         backgroundProminence: BackgroundProminence
     ) -> ForegroundStyle {
@@ -17430,6 +17469,7 @@ extension ForegroundStyle {
         case .color(let color):
             return .color(
                 color.resolvedForVisualEnvironment(
+                    colorScheme: colorScheme,
                     contrast: contrast,
                     backgroundProminence: backgroundProminence
                 )
@@ -17437,6 +17477,7 @@ extension ForegroundStyle {
         case .linearGradient(let gradient):
             return .linearGradient(
                 gradient.resolvedForVisualEnvironment(
+                    colorScheme: colorScheme,
                     contrast: contrast,
                     backgroundProminence: backgroundProminence
                 )
@@ -17444,6 +17485,7 @@ extension ForegroundStyle {
         case .radialGradient(let gradient):
             return .radialGradient(
                 gradient.resolvedForVisualEnvironment(
+                    colorScheme: colorScheme,
                     contrast: contrast,
                     backgroundProminence: backgroundProminence
                 )
@@ -17451,6 +17493,7 @@ extension ForegroundStyle {
         case .conicGradient(let gradient):
             return .conicGradient(
                 gradient.resolvedForVisualEnvironment(
+                    colorScheme: colorScheme,
                     contrast: contrast,
                     backgroundProminence: backgroundProminence
                 )
@@ -17458,6 +17501,7 @@ extension ForegroundStyle {
         case .materialFill(let tint, let blurRadius):
             return .materialFill(
                 tint: tint.resolvedForVisualEnvironment(
+                    colorScheme: colorScheme,
                     contrast: contrast,
                     backgroundProminence: backgroundProminence
                 ),
@@ -17481,21 +17525,8 @@ extension LinearGradient {
         )
     }
 
-    nonisolated func resolvedForContrast(_ contrast: ColorSchemeContrast) -> LinearGradient {
-        LinearGradient(
-            gradient: Gradient(
-                stops: stops.map { stop in
-                    GradientStop(
-                        color: stop.color.resolvedForContrast(contrast),
-                        position: stop.position
-                    )
-                }),
-            startPoint: startPoint,
-            endPoint: endPoint
-        )
-    }
-
     nonisolated func resolvedForVisualEnvironment(
+        colorScheme: ColorScheme,
         contrast: ColorSchemeContrast,
         backgroundProminence: BackgroundProminence
     ) -> LinearGradient {
@@ -17504,6 +17535,7 @@ extension LinearGradient {
                 stops: stops.map { stop in
                     GradientStop(
                         color: stop.color.resolvedForVisualEnvironment(
+                            colorScheme: colorScheme,
                             contrast: contrast,
                             backgroundProminence: backgroundProminence
                         ),
@@ -17531,22 +17563,8 @@ extension RadialGradient {
         )
     }
 
-    nonisolated func resolvedForContrast(_ contrast: ColorSchemeContrast) -> RadialGradient {
-        RadialGradient(
-            gradient: Gradient(
-                stops: stops.map { stop in
-                    GradientStop(
-                        color: stop.color.resolvedForContrast(contrast),
-                        position: stop.position
-                    )
-                }),
-            center: center,
-            startRadius: startRadius,
-            endRadius: endRadius
-        )
-    }
-
     nonisolated func resolvedForVisualEnvironment(
+        colorScheme: ColorScheme,
         contrast: ColorSchemeContrast,
         backgroundProminence: BackgroundProminence
     ) -> RadialGradient {
@@ -17555,6 +17573,7 @@ extension RadialGradient {
                 stops: stops.map { stop in
                     GradientStop(
                         color: stop.color.resolvedForVisualEnvironment(
+                            colorScheme: colorScheme,
                             contrast: contrast,
                             backgroundProminence: backgroundProminence
                         ),
@@ -17583,22 +17602,8 @@ extension ConicGradient {
         )
     }
 
-    nonisolated func resolvedForContrast(_ contrast: ColorSchemeContrast) -> ConicGradient {
-        AngularGradient(
-            gradient: Gradient(
-                stops: stops.map { stop in
-                    GradientStop(
-                        color: stop.color.resolvedForContrast(contrast),
-                        position: stop.position
-                    )
-                }),
-            center: center,
-            startAngle: startAngle,
-            endAngle: endAngle
-        )
-    }
-
     nonisolated func resolvedForVisualEnvironment(
+        colorScheme: ColorScheme,
         contrast: ColorSchemeContrast,
         backgroundProminence: BackgroundProminence
     ) -> ConicGradient {
@@ -17607,6 +17612,7 @@ extension ConicGradient {
                 stops: stops.map { stop in
                     GradientStop(
                         color: stop.color.resolvedForVisualEnvironment(
+                            colorScheme: colorScheme,
                             contrast: contrast,
                             backgroundProminence: backgroundProminence
                         ),
@@ -17813,9 +17819,9 @@ extension BadgeProminence {
     var retainedBadgeBackgroundColor: Color {
         switch level {
         case .decreased:
-            return Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12)
+            return Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.12)
         case .standard:
-            return Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22)
+            return Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.22)
         case .increased:
             return Color(red: 0.92, green: 0.18, blue: 0.24, alpha: 0.96)
         }
@@ -17824,7 +17830,7 @@ extension BadgeProminence {
     var retainedBadgeTextColor: Color {
         switch level {
         case .decreased:
-            return Color(red: 0.86, green: 0.92, blue: 0.98, alpha: 0.78)
+            return Color(red: 0.912, green: 0.912, blue: 0.912, alpha: 0.78)
         case .standard, .increased:
             return .white
         }
@@ -18093,16 +18099,16 @@ private func applyToolbarColorScheme(
     if node.isToolbarContainer, retainedToolbarMatches(node.toolbarPlacementTags, bars: bars) {
         if colorScheme == .light {
             if node.backgroundGradient == nil {
-                node.backgroundColor = Color(red: 0.93, green: 0.96, blue: 1.0, alpha: 0.95)
+                node.backgroundColor = Color(red: 0.957, green: 0.957, blue: 0.957, alpha: 0.95)
             }
-            node.borderColor = Color(red: 0.12, green: 0.16, blue: 0.24, alpha: 0.16)
-            applyToolbarForegroundColor(to: node, color: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 1))
+            node.borderColor = Color(red: 0.157, green: 0.157, blue: 0.157, alpha: 0.16)
+            applyToolbarForegroundColor(to: node, color: Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 1))
         } else {
             if node.backgroundGradient == nil {
-                node.backgroundColor = Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.92)
+                node.backgroundColor = Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 0.92)
             }
-            node.borderColor = Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08)
-            applyToolbarForegroundColor(to: node, color: Color(red: 0.94, green: 0.97, blue: 1.0, alpha: 1))
+            node.borderColor = Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.08)
+            applyToolbarForegroundColor(to: node, color: Color(red: 0.966, green: 0.966, blue: 0.966, alpha: 1))
         }
         return
     }
@@ -18130,20 +18136,20 @@ private func applyToolbarRoleChrome(to node: ViewNode, role: ToolbarRole) {
             node.cornerRadius = 6
             node.borderWidth = 1
             node.borderColor = Color(red: 0.44, green: 0.60, blue: 0.86, alpha: 0.30)
-            node.shadowColor = Color(red: 0.04, green: 0.06, blue: 0.10, alpha: 0.18)
+            node.shadowColor = Color(red: 0.059, green: 0.059, blue: 0.059, alpha: 0.18)
             node.shadowOffset = Point(x: 0, y: 1)
             node.shadowSpread = 6
         } else if role == .browser {
             node.cornerRadius = 10
             node.borderWidth = 1
-            node.borderColor = Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12)
-            node.shadowColor = Color(red: 0.02, green: 0.03, blue: 0.06, alpha: 0.24)
+            node.borderColor = Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.12)
+            node.shadowColor = Color(red: 0.03, green: 0.03, blue: 0.03, alpha: 0.24)
             node.shadowOffset = Point(x: 0, y: 2)
             node.shadowSpread = 10
         } else if role == .navigationStack {
             node.cornerRadius = 0
             node.borderWidth = 1
-            node.borderColor = Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.10)
+            node.borderColor = Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.10)
             node.shadowColor = .clear
             node.shadowOffset = .zero
             node.shadowSpread = 0
@@ -18516,7 +18522,7 @@ private func normalizedPresentationCornerRadius(_ value: Double?, defaultValue: 
 private func retainedPresentationDragIndicatorNode() -> ViewNode {
     let handle = Controls.panel(
         preferredSize: Size(width: 36, height: 5),
-        backgroundColor: Color(red: 0.95, green: 0.97, blue: 1.0, alpha: 0.44),
+        backgroundColor: Color(red: 0.968, green: 0.968, blue: 0.968, alpha: 0.44),
         cornerRadius: 2.5,
         isHitTestVisible: false
     )
@@ -18552,9 +18558,9 @@ private func retainedPresentationScrollContentNode(_ contentNode: ViewNode) -> V
             mainAlignment: .start
         ),
         scrollStep: 64,
-        scrollIndicatorColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.18),
-        scrollIndicatorHoverColor: Color(red: 0.97, green: 0.99, blue: 1.0, alpha: 0.34),
-        scrollIndicatorActiveColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.56),
+        scrollIndicatorColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.18),
+        scrollIndicatorHoverColor: Color(red: 0.986, green: 0.986, blue: 0.986, alpha: 0.34),
+        scrollIndicatorActiveColor: Color(red: 0.996, green: 0.996, blue: 0.996, alpha: 0.56),
         scrollIndicatorThickness: 5,
         isHitTestVisible: true,
         children: [contentNode]
@@ -18687,7 +18693,7 @@ private func retainedSheetPresentation(
             !allowsBackgroundInteraction
             && !presentationChrome.interactiveDismissDisabled
         let scrimNode = Controls.panel(
-            backgroundColor: Color(red: 0.02, green: 0.03, blue: 0.05, alpha: 0.48),
+            backgroundColor: Color(red: 0.029, green: 0.029, blue: 0.029, alpha: 0.48),
             isHitTestVisible: scrimDismissesSheet
         )
         if allowsBackgroundInteraction {
@@ -18700,7 +18706,7 @@ private func retainedSheetPresentation(
         let sheetBackgroundColor =
             presentationChrome.hasBackgroundOverride
             ? presentationChrome.backgroundColor
-            : Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98)
+            : Color(red: 0.146, green: 0.146, blue: 0.146, alpha: 0.98)
         let sheetBackgroundGradient =
             presentationChrome.hasBackgroundOverride
             ? presentationChrome.backgroundGradient
@@ -18712,7 +18718,7 @@ private func retainedSheetPresentation(
         let sheetNode = Controls.stackPanel(
             backgroundColor: sheetBackgroundColor,
             backgroundGradient: sheetBackgroundGradient,
-            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.14),
             borderWidth: 1,
             cornerRadius: sheetCornerRadius,
             clipsToBounds: true,
@@ -18810,7 +18816,7 @@ private func retainedFullScreenCoverPresentation(
         let coverBackgroundColor =
             presentationChrome.hasBackgroundOverride
             ? presentationChrome.backgroundColor
-            : Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 1.0)
+            : Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 1.0)
         let coverBackgroundGradient =
             presentationChrome.hasBackgroundOverride
             ? presentationChrome.backgroundGradient
@@ -18880,7 +18886,7 @@ private func retainedPopoverPresentation(
         let popoverBackgroundColor =
             presentationChrome.hasBackgroundOverride
             ? presentationChrome.backgroundColor
-            : Color(red: 0.12, green: 0.16, blue: 0.22, alpha: 0.98)
+            : Color(red: 0.156, green: 0.156, blue: 0.156, alpha: 0.98)
         let popoverBackgroundGradient =
             presentationChrome.hasBackgroundOverride
             ? presentationChrome.backgroundGradient
@@ -18892,7 +18898,7 @@ private func retainedPopoverPresentation(
         let popoverNode = Controls.stackPanel(
             backgroundColor: popoverBackgroundColor,
             backgroundGradient: popoverBackgroundGradient,
-            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16),
+            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.16),
             borderWidth: 1,
             shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.28),
             shadowOffset: Point(x: 0, y: 10),
@@ -18989,7 +18995,7 @@ private func retainedInspectorPresentation(
         let inspectorBackgroundColor =
             presentationChrome.hasBackgroundOverride
             ? presentationChrome.backgroundColor
-            : Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98)
+            : Color(red: 0.146, green: 0.146, blue: 0.146, alpha: 0.98)
         let inspectorBackgroundGradient =
             presentationChrome.hasBackgroundOverride
             ? presentationChrome.backgroundGradient
@@ -19000,7 +19006,7 @@ private func retainedInspectorPresentation(
         let inspectorNode = Controls.stackPanel(
             backgroundColor: inspectorBackgroundColor,
             backgroundGradient: inspectorBackgroundGradient,
-            borderColor: isSheet ? .clear : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+            borderColor: isSheet ? .clear : Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.14),
             borderWidth: isSheet ? 0 : 1,
             cornerRadius: isSheet ? 12 : 0,
             clipsToBounds: true,
@@ -19218,7 +19224,7 @@ private func retainedAlertPresentation(
         // Modal scrim: swallows outside clicks so they cannot reach the base
         // content, but does not dismiss (matching SwiftUI alert behavior).
         let scrimNode = Controls.panel(
-            backgroundColor: Color(red: 0.02, green: 0.03, blue: 0.05, alpha: 0.52),
+            backgroundColor: Color(red: 0.029, green: 0.029, blue: 0.029, alpha: 0.52),
             isHitTestVisible: true
         )
         scrimNode.nodeTag = "alert-scrim"
@@ -19231,8 +19237,8 @@ private func retainedAlertPresentation(
 
         let alertNode = Controls.stackPanel(
             preferredSize: Size(width: 300, height: 0),
-            backgroundColor: Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98),
-            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16),
+            backgroundColor: Color(red: 0.146, green: 0.146, blue: 0.146, alpha: 0.98),
+            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.16),
             borderWidth: 1,
             shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.32),
             shadowOffset: Point(x: 0, y: 12),
@@ -19462,14 +19468,14 @@ private func retainedConfirmationDialogPresentation(
         // Full-canvas scrim: swallows outside clicks and dismisses on outside
         // pointer-down, matching SwiftUI confirmationDialog behavior.
         let scrimNode = Controls.panel(
-            backgroundColor: Color(red: 0.02, green: 0.03, blue: 0.05, alpha: 0.44),
+            backgroundColor: Color(red: 0.029, green: 0.029, blue: 0.029, alpha: 0.44),
             isHitTestVisible: true
         )
         scrimNode.nodeTag = "confirmation-dialog-scrim"
         let dialogNode = Controls.stackPanel(
             preferredSize: Size(width: 340, height: 0),
-            backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.99),
-            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16),
+            backgroundColor: Color(red: 0.136, green: 0.136, blue: 0.136, alpha: 0.99),
+            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.16),
             borderWidth: 1,
             shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.30),
             shadowOffset: Point(x: 0, y: 10),
@@ -19670,8 +19676,8 @@ private func retainedContextMenuPresentation(
 
         let menuPanel = Controls.stackPanel(
             preferredSize: Size(width: 220, height: 0),
-            backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.17, alpha: 0.97),
-            borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.16),
+            backgroundColor: Color(red: 0.108, green: 0.108, blue: 0.108, alpha: 0.97),
+            borderColor: Color(red: 0.975, green: 0.975, blue: 0.975, alpha: 0.16),
             borderWidth: 1,
             shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.28),
             shadowOffset: Point(x: 0, y: 10),
@@ -20181,8 +20187,8 @@ extension View {
             return Component { runtime in
                 let toolbarContentNode = toolbar.makeNode(runtime: runtime)
                 let toolbarNode = Controls.stackPanel(
-                    backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.92),
-                    borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                    backgroundColor: Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 0.92),
+                    borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.08),
                     borderWidth: 1,
                     stackLayout: .horizontal(
                         spacing: 8,

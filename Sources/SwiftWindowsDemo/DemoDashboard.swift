@@ -13,24 +13,24 @@ import struct Foundation.URL
 public final class DemoDashboardModel: ObservableObject {
     @Published var selectedModule: DemoModule = .layout
     @Published var interactionCount = 0
-    @Published var lastAction = "READY"
+    @Published var lastAction = "Ready"
     @Published var recentEvents: [String] = [
-        "SYSTEM READY",
-        "D3D11 READY",
-        "WINDOW TOOLKIT ACTIVE",
+        "System ready",
+        "D3D11 ready",
+        "Window toolkit active",
     ]
 
     /// Active top-level screen shown by the demo's `TabView` shell.
     @Published public var selectedScreen: DemoScreen = .dashboard {
         didSet {
             if selectedScreen != oldValue {
-                performAction("OPENED \(selectedScreen.label)")
+                performAction("Opened \(selectedScreen.label)")
             }
         }
     }
 
     // Settings screen state
-    @Published var displayName = "OPERATOR"
+    @Published var displayName = "Operator"
     @Published var theme: DemoThemeOption = .system
     @Published var itemsPerPage = 10
     @Published var animationsEnabled = true
@@ -59,39 +59,39 @@ public final class DemoDashboardModel: ObservableObject {
     }
 
     func saveSettings() {
-        performAction("SAVED SETTINGS FOR \(displayName)")
+        performAction("Saved settings for \(displayName)")
     }
 
     func resetSettings() {
-        displayName = "OPERATOR"
+        displayName = "Operator"
         theme = .system
         itemsPerPage = 10
         animationsEnabled = true
         soundEffectsEnabled = false
         shareUsageData = true
         fontScale = 1.0
-        performAction("RESET SETTINGS TO DEFAULTS")
+        performAction("Reset settings to defaults")
     }
 
     func runSync() {
         syncProgress = min(1.0, syncProgress + 0.25)
-        performAction(syncProgress >= 1.0 ? "SYNC COMPLETE" : "SYNC ADVANCED")
+        performAction(syncProgress >= 1.0 ? "Sync complete" : "Sync advanced")
     }
 
     func restartSelectedComponent() {
         guard let component = selectedComponent else {
-            performAction("NO COMPONENT SELECTED")
+            performAction("No component selected")
             return
         }
-        performAction("RESTARTED \(component.name)")
+        performAction("Restarted \(component.name)")
     }
 
     func runDiagnostics() {
         guard let component = selectedComponent else {
-            performAction("NO COMPONENT SELECTED")
+            performAction("No component selected")
             return
         }
-        performAction("DIAGNOSED \(component.name)")
+        performAction("Diagnosed \(component.name)")
     }
 
     func selectFirstComponent() {
@@ -99,16 +99,16 @@ public final class DemoDashboardModel: ObservableObject {
     }
 
     func noteImportedFile(_ url: URL) {
-        performAction("IMPORTED \(url.lastPathComponent)")
+        performAction("Imported \(url.lastPathComponent)")
     }
 
     func noteDroppedItems(count: Int) {
-        performAction("RECEIVED \(count) DROPPED \(count == 1 ? "FILE" : "FILES")")
+        performAction("Received \(count) dropped \(count == 1 ? "file" : "files")")
     }
 
     func selectModule(_ module: DemoModule) {
         selectedModule = module
-        performAction("SELECTED \(module.label)")
+        performAction("Selected \(module.label)")
     }
 
     func cycleModule() {
@@ -119,7 +119,7 @@ public final class DemoDashboardModel: ObservableObject {
 
         let nextIndex = modules.index(after: index)
         selectedModule = nextIndex == modules.endIndex ? modules[modules.startIndex] : modules[nextIndex]
-        performAction("CYCLED \(selectedModule.label)")
+        performAction("Cycled \(selectedModule.label)")
     }
 
     func performAction(_ action: String) {
@@ -221,6 +221,9 @@ struct DemoDashboardScreen: View {
     }
 }
 struct DemoToolbar: View {
+    @Environment(\.colorScheme) private var colorScheme
+    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
+
     let model: DemoDashboardModel
     let layout: DemoLayout
 
@@ -229,24 +232,24 @@ struct DemoToolbar: View {
             cornerRadius: layout.toolbarCornerRadius,
             contentPadding: layout.toolbarPadding,
             fill: LinearGradient(
-                colors: [DemoTheme.surfaceTop, DemoTheme.surfaceBottom],
+                colors: [theme.surfaceTop, theme.surfaceBottom],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             ),
-            stroke: DemoTheme.surfaceStrokeStrong,
-            shadowColor: DemoTheme.shadow
+            stroke: theme.surfaceStrokeStrong,
+            shadowColor: theme.shadow
         ) {
             HStack(alignment: .center, spacing: layout.gap) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("WINSWIFTUI")
+                    Text("WinSwiftUI")
                         .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundColor(DemoTheme.primaryText)
+                        .foregroundStyle(.primary)
                         .multilineTextAlignment(.leading)
                         .lineLimit(1)
 
-                    Text("SAME-SOURCE DASHBOARD DEMO")
+                    Text("Same-source dashboard demo")
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundColor(DemoTheme.secondaryText)
+                        .foregroundStyle(.secondary)
                         .multilineTextAlignment(.leading)
                         .lineLimit(1)
                 }
@@ -254,12 +257,12 @@ struct DemoToolbar: View {
 
                 HStack(alignment: .center, spacing: 10) {
                     Image(systemName: "magnifyingglass")
-                        .foregroundColor(DemoTheme.secondaryText)
+                        .foregroundStyle(.secondary)
                         .font(.system(size: 12))
 
-                    Text("SEARCH COMMANDS")
+                    Text("Search commands")
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundColor(DemoTheme.secondaryText)
+                        .foregroundStyle(.secondary)
                         .multilineTextAlignment(.leading)
                         .lineLimit(1)
                 }
@@ -267,14 +270,14 @@ struct DemoToolbar: View {
                 .frame(width: layout.searchWidth, height: layout.pillHeight, alignment: .leading)
                 .background(
                     LinearGradient(
-                        colors: [DemoTheme.fieldTop, DemoTheme.fieldBottom],
+                        colors: [theme.fieldTop, theme.fieldBottom],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 )
                 .cornerRadius(layout.pillHeight * 0.5)
                 .padding(1)
-                .background(DemoTheme.surfaceStroke)
+                .background(theme.surfaceStroke)
                 .cornerRadius(layout.pillHeight * 0.5 + 1)
                 .allowsHitTesting(false)
                 .layoutPriority(1)
@@ -289,18 +292,18 @@ struct DemoToolbar: View {
                         Color(red: 0.26, green: 0.50, blue: 0.38, opacity: 0.84),
                     ]
                 ) {
-                    model.performAction("RENDER STACK READY")
+                    model.performAction("Render stack ready")
                 }
 
                 DemoPillButton(
-                    "EVENTS \(model.interactionCount)",
+                    "Events \(model.interactionCount)",
                     width: layout.eventsWidth,
                     colors: [
                         Color(red: 0.55, green: 0.69, blue: 0.95, opacity: 0.92),
                         Color(red: 0.36, green: 0.48, blue: 0.72, opacity: 0.82),
                     ]
                 ) {
-                    model.performAction("EVENT HUD OPENED")
+                    model.performAction("Event HUD opened")
                 }
 
                 DemoPillButton(
@@ -318,6 +321,9 @@ struct DemoToolbar: View {
     }
 }
 struct DemoSidebar: View {
+    @Environment(\.colorScheme) private var colorScheme
+    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
+
     let model: DemoDashboardModel
     let layout: DemoLayout
 
@@ -326,15 +332,15 @@ struct DemoSidebar: View {
             cornerRadius: layout.panelCornerRadius,
             contentPadding: .zero,
             fill: LinearGradient(
-                colors: [DemoTheme.sidebarTop, DemoTheme.sidebarBottom],
+                colors: [theme.sidebarTop, theme.sidebarBottom],
                 startPoint: .top,
                 endPoint: .bottom
             ),
-            stroke: DemoTheme.surfaceStrokeStrong
+            stroke: theme.surfaceStrokeStrong
         ) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    DemoSectionTitle("WORKSPACE")
+                    DemoSectionTitle("Workspace")
 
                     ForEach(DemoModule.allCases, id: \.self) { module in
                         DemoModuleButton(
@@ -342,7 +348,7 @@ struct DemoSidebar: View {
                             title: module.label,
                             colors: model.selectedModule == module
                                 ? [module.glowColor.opacity(0.92), module.stripeColor.opacity(0.74)]
-                                : [DemoTheme.fieldTop, DemoTheme.fieldBottom]
+                                : [theme.fieldTop, theme.fieldBottom]
                         ) {
                             model.selectModule(module)
                         }
@@ -365,22 +371,22 @@ struct DemoSidebar: View {
                         .allowsHitTesting(false)
 
                     DemoRowButton(
-                        title: "STATE",
+                        title: "State",
                         detail: model.lastAction,
                         systemImage: "info.circle",
                         accent: model.selectedModule.glowColor
                     ) {
-                        model.performAction("STATE PANEL OPENED")
+                        model.performAction("State panel opened")
                     }
                     .frame(width: layout.sidebarInnerWidth, alignment: .leading)
 
                     DemoRowButton(
-                        title: "SHORTCUTS",
-                        detail: "TAB AND WHEEL ROUTING",
+                        title: "Shortcuts",
+                        detail: "Tab and wheel routing",
                         systemImage: "keyboard",
                         accent: model.selectedModule.stripeColor
                     ) {
-                        model.performAction("SHORTCUTS OPENED")
+                        model.performAction("Shortcuts opened")
                     }
                     .frame(width: layout.sidebarInnerWidth, alignment: .leading)
                 }
@@ -401,7 +407,7 @@ struct DemoCenterPane: View {
 
                 DemoPanel {
                     VStack(alignment: .leading, spacing: 10) {
-                        DemoSectionTitle("RENDER PIPELINE")
+                        DemoSectionTitle("Render pipeline")
 
                         DemoRenderPipelineChart(model: model)
                             .frame(width: layout.contentInnerWidth - 32, height: 80)
@@ -413,17 +419,17 @@ struct DemoCenterPane: View {
                 if layout.compact {
                     VStack(alignment: .leading, spacing: 14) {
                         DemoMetricCard(
-                            title: "INTERACTIONS", value: "\(model.interactionCount)", note: "EVENTS TRACKED",
+                            title: "Interactions", value: "\(model.interactionCount)", note: "Events tracked",
                             accent: model.selectedModule.accentColor
                         )
                         .frame(width: layout.contentInnerWidth, alignment: .leading)
                         DemoMetricCard(
-                            title: "MODULE", value: model.selectedModule.label, note: model.selectedModule.summary,
+                            title: "Module", value: model.selectedModule.label, note: model.selectedModule.summary,
                             accent: model.selectedModule.accentColor
                         )
                         .frame(width: layout.contentInnerWidth, alignment: .leading)
                         DemoMetricCard(
-                            title: "TARGET", value: "SAME SOURCE", note: "IMPORT WINSWIFTUI OR SWIFTUI",
+                            title: "Target", value: "Same source", note: "Import WinSwiftUI or SwiftUI",
                             accent: Color(red: 0.30, green: 0.42, blue: 0.60, opacity: 0.95)
                         )
                         .frame(width: layout.contentInnerWidth, alignment: .leading)
@@ -431,17 +437,17 @@ struct DemoCenterPane: View {
                 } else {
                     HStack(alignment: .center, spacing: 18) {
                         DemoMetricCard(
-                            title: "INTERACTIONS", value: "\(model.interactionCount)", note: "EVENTS TRACKED",
+                            title: "Interactions", value: "\(model.interactionCount)", note: "Events tracked",
                             accent: model.selectedModule.accentColor
                         )
                         .frame(width: layout.metricCardWidth, alignment: .leading)
                         DemoMetricCard(
-                            title: "MODULE", value: model.selectedModule.label, note: model.selectedModule.summary,
+                            title: "Module", value: model.selectedModule.label, note: model.selectedModule.summary,
                             accent: model.selectedModule.accentColor
                         )
                         .frame(width: layout.metricCardWidth, alignment: .leading)
                         DemoMetricCard(
-                            title: "TARGET", value: "SAME SOURCE", note: "IMPORT WINSWIFTUI OR SWIFTUI",
+                            title: "Target", value: "Same source", note: "Import WinSwiftUI or SwiftUI",
                             accent: Color(red: 0.30, green: 0.42, blue: 0.60, opacity: 0.95)
                         )
                         .frame(width: layout.metricCardWidth, alignment: .leading)
@@ -451,7 +457,7 @@ struct DemoCenterPane: View {
 
                 DemoPanel {
                     VStack(alignment: .leading, spacing: 14) {
-                        DemoSectionTitle("ACTIVITY")
+                        DemoSectionTitle("Activity")
 
                         ForEach(model.recentEvents.prefix(5), id: \.self) { event in
                             DemoActivityCard(
@@ -475,9 +481,12 @@ struct DemoCenterPane: View {
 /// and linear-gradient shading, `drawLayer`, `translateBy`) against the same
 /// shared demo source compatible with macOS SwiftUI.
 struct DemoRenderPipelineChart: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let model: DemoDashboardModel
 
     var body: some View {
+        let plotBackground = DemoTheme(colorScheme: colorScheme).fieldTop
         let glow = model.selectedModule.glowColor
         let stripe = model.selectedModule.stripeColor
         let interactions = max(1, model.interactionCount)
@@ -491,8 +500,8 @@ struct DemoRenderPipelineChart: View {
                 Rect(x: 0, y: 0, width: size.width, height: size.height),
                 with: .linearGradient(
                     Gradient(colors: [
-                        Color(red: 0.96, green: 0.97, blue: 1.00, opacity: 0.55),
-                        Color(red: 0.90, green: 0.93, blue: 0.98, opacity: 0.30),
+                        plotBackground.opacity(0.55),
+                        plotBackground.opacity(0.30),
                     ]),
                     startPoint: CGPoint(x: size.width / 2, y: 0),
                     endPoint: CGPoint(x: size.width / 2, y: size.height)
@@ -560,7 +569,7 @@ struct DemoRightRail: View {
             VStack(alignment: .leading, spacing: layout.gap) {
                 DemoPanel {
                     VStack(alignment: .leading, spacing: 14) {
-                        DemoSectionTitle("DETAIL TRACK")
+                        DemoSectionTitle("Detail track")
 
                         ForEach(model.selectedModule.cards, id: \.title) { card in
                             DemoInfoCard(card: card)
@@ -571,7 +580,7 @@ struct DemoRightRail: View {
 
                 DemoPanel {
                     VStack(alignment: .leading, spacing: 14) {
-                        DemoSectionTitle("QUICK ACTIONS")
+                        DemoSectionTitle("Quick actions")
 
                         ForEach(model.selectedModule.actions, id: \.title) { action in
                             DemoRowButton(
@@ -593,6 +602,9 @@ struct DemoRightRail: View {
     }
 }
 struct DemoHeroCard: View {
+    @Environment(\.colorScheme) private var colorScheme
+    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
+
     let model: DemoDashboardModel
     let layout: DemoLayout
 
@@ -607,12 +619,12 @@ struct DemoHeroCard: View {
                 model.selectedModule.panelStartColor,
                 model.selectedModule.panelEndColor,
             ],
-            stroke: DemoTheme.surfaceStrokeStrong,
+            stroke: theme.surfaceStrokeStrong,
             shadowColor: model.selectedModule.glowColor.opacity(0.12)
         ) {
             VStack(alignment: .leading, spacing: 18) {
                 HStack(alignment: .center, spacing: 10) {
-                    DemoCapsuleText("CONTROL CENTER")
+                    DemoCapsuleText("Control center")
                     DemoCapsuleText(model.selectedModule.label, tint: model.selectedModule.glowColor)
                 }
 
@@ -623,7 +635,7 @@ struct DemoHeroCard: View {
 
                 Text(model.selectedModule.summary)
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundColor(DemoTheme.heroSubtitleText)
+                    .foregroundColor(Color(red: 1.0, green: 1.0, blue: 1.0, opacity: 0.72))
                     .multilineTextAlignment(.leading)
 
                 Color.clear
@@ -648,19 +660,19 @@ struct DemoHeroCard: View {
                 if layout.compactActions {
                     VStack(alignment: .leading, spacing: 12) {
                         DemoPillButton(
-                            "OPEN \(model.selectedModule.label)",
+                            "Open \(model.selectedModule.label)",
                             colors: [
                                 model.selectedModule.glowColor.opacity(0.94),
                                 model.selectedModule.stripeColor.opacity(0.70),
                             ]
                         ) {
-                            model.performAction("OPENED \(model.selectedModule.label)")
+                            model.performAction("Opened \(model.selectedModule.label)")
                         }
 
                         DemoPillButton(
-                            "CYCLE MODE",
-                            colors: [DemoTheme.fieldTop, DemoTheme.fieldBottom],
-                            textColor: DemoTheme.primaryText
+                            "Cycle mode",
+                            colors: [theme.fieldTop, theme.fieldBottom],
+                            textColor: Color.primary
                         ) {
                             model.cycleModule()
                         }
@@ -668,20 +680,20 @@ struct DemoHeroCard: View {
                 } else {
                     HStack(alignment: .center, spacing: 12) {
                         DemoPillButton(
-                            "OPEN \(model.selectedModule.label)",
+                            "Open \(model.selectedModule.label)",
                             colors: [
                                 model.selectedModule.glowColor.opacity(0.94),
                                 model.selectedModule.stripeColor.opacity(0.70),
                             ]
                         ) {
-                            model.performAction("OPENED \(model.selectedModule.label)")
+                            model.performAction("Opened \(model.selectedModule.label)")
                         }
                         .layoutPriority(1)
 
                         DemoPillButton(
-                            "CYCLE MODE",
-                            colors: [DemoTheme.fieldTop, DemoTheme.fieldBottom],
-                            textColor: DemoTheme.primaryText
+                            "Cycle mode",
+                            colors: [theme.fieldTop, theme.fieldBottom],
+                            textColor: Color.primary
                         ) {
                             model.cycleModule()
                         }
@@ -694,6 +706,9 @@ struct DemoHeroCard: View {
     }
 }
 struct DemoBackdrop: View {
+    @Environment(\.colorScheme) private var colorScheme
+    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
+
     let size: CGSize
 
     var body: some View {
@@ -702,9 +717,9 @@ struct DemoBackdrop: View {
             .background(
                 LinearGradient(
                     colors: [
-                        DemoTheme.backdropTop,
-                        DemoTheme.backdropMiddle,
-                        DemoTheme.backdropBottom,
+                        theme.backdropTop,
+                        theme.backdropMiddle,
+                        theme.backdropBottom,
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
@@ -714,23 +729,23 @@ struct DemoBackdrop: View {
     }
 }
 struct DemoGlassSurface<Content: View>: View {
+    // A default cannot be a stored constant any more: the appearance is
+    // only known once the view is in an environment.
+    @Environment(\.colorScheme) private var colorScheme
+
     let content: Content
     let cornerRadius: CGFloat
     let contentPadding: EdgeInsets
-    let fill: LinearGradient
-    let stroke: Color
-    let shadowColor: Color
+    let fill: LinearGradient?
+    let stroke: Color?
+    let shadowColor: Color?
 
     init(
         cornerRadius: CGFloat = 30,
         contentPadding: EdgeInsets = EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
-        fill: LinearGradient = LinearGradient(
-            colors: [DemoTheme.surfaceTop, DemoTheme.surfaceBottom],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        ),
-        stroke: Color = DemoTheme.surfaceStroke,
-        shadowColor: Color = DemoTheme.shadow,
+        fill: LinearGradient? = nil,
+        stroke: Color? = nil,
+        shadowColor: Color? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.content = content()
@@ -741,31 +756,44 @@ struct DemoGlassSurface<Content: View>: View {
         self.shadowColor = shadowColor
     }
 
+    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
+
+    private var resolvedFill: LinearGradient {
+        fill
+            ?? LinearGradient(
+                colors: [theme.surfaceTop, theme.surfaceBottom],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+    }
+
     var body: some View {
         content
             .padding(contentPadding)
-            .background(fill)
+            .background(resolvedFill)
             .cornerRadius(cornerRadius)
             .padding(1)
-            .background(stroke)
+            .background(stroke ?? theme.surfaceStroke)
             .cornerRadius(cornerRadius + 1)
-            .shadow(color: shadowColor, radius: 8, x: 0, y: 14)
+            .shadow(color: shadowColor ?? theme.shadow, radius: 8, x: 0, y: 14)
     }
 }
 struct DemoTintedSurface<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let content: Content
     let cornerRadius: CGFloat
     let contentPadding: EdgeInsets
     let colors: [Color]
-    let stroke: Color
-    let shadowColor: Color
+    let stroke: Color?
+    let shadowColor: Color?
 
     init(
         cornerRadius: CGFloat = 24,
         contentPadding: EdgeInsets = EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16),
         colors: [Color],
-        stroke: Color = DemoTheme.surfaceStrokeStrong,
-        shadowColor: Color = DemoTheme.shadow,
+        stroke: Color? = nil,
+        shadowColor: Color? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.content = content()
@@ -775,6 +803,8 @@ struct DemoTintedSurface<Content: View>: View {
         self.stroke = stroke
         self.shadowColor = shadowColor
     }
+
+    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
 
     var body: some View {
         content
@@ -788,9 +818,9 @@ struct DemoTintedSurface<Content: View>: View {
             )
             .cornerRadius(cornerRadius)
             .padding(1)
-            .background(stroke)
+            .background(stroke ?? theme.surfaceStrokeStrong)
             .cornerRadius(cornerRadius + 1)
-            .shadow(color: shadowColor, radius: 8, x: 0, y: 14)
+            .shadow(color: shadowColor ?? theme.shadow, radius: 8, x: 0, y: 14)
     }
 }
 struct DemoPanel<Content: View>: View {
@@ -807,6 +837,9 @@ struct DemoPanel<Content: View>: View {
     }
 }
 struct DemoCapsuleText: View {
+    @Environment(\.colorScheme) private var colorScheme
+    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
+
     let title: String
     let tint: Color?
 
@@ -818,14 +851,14 @@ struct DemoCapsuleText: View {
     var body: some View {
         Text(title)
             .font(.system(size: 10, weight: .semibold, design: .rounded))
-            .foregroundColor(tint == nil ? DemoTheme.primaryText : DemoTheme.inverseText)
+            .foregroundColor(tint == nil ? Color.primary : theme.onTintedFillText)
             .multilineTextAlignment(.center)
             .lineLimit(1)
             .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
-            .background((tint ?? DemoTheme.fieldTop).opacity(tint == nil ? 0.84 : 0.42))
+            .background((tint ?? theme.fieldTop).opacity(tint == nil ? 0.84 : 0.42))
             .cornerRadius(12)
             .padding(1)
-            .background(DemoTheme.surfaceStroke)
+            .background(theme.surfaceStroke)
             .cornerRadius(13)
     }
 }
@@ -837,25 +870,35 @@ struct DemoSectionTitle: View {
     }
 
     var body: some View {
+        // The one place the demo genuinely wants small caps: a group
+        // eyebrow, the way an NSTableView group row or a sidebar heading
+        // reads. Expressing it as `.textCase(.uppercase)` on a sentence-case
+        // string — rather than typing the string in caps — is what lets the
+        // system set it as caps *and* apply the tracking caps need.
         Text(title)
-            .font(.system(size: 14, weight: .semibold, design: .rounded))
-            .foregroundColor(DemoTheme.secondaryText)
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .textCase(.uppercase)
+            .foregroundStyle(.secondary)
             .multilineTextAlignment(.leading)
             .lineLimit(1)
     }
 }
 struct DemoPillButton: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let title: String
     let width: CGFloat?
     let colors: [Color]
-    let textColor: Color
+    let textColor: Color?
     let perform: @MainActor @Sendable () -> Void
+
+    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
 
     init(
         _ title: String,
         width: CGFloat? = nil,
         colors: [Color],
-        textColor: Color = DemoTheme.inverseText,
+        textColor: Color? = nil,
         perform: @escaping @MainActor @Sendable () -> Void
     ) {
         self.title = title
@@ -871,12 +914,12 @@ struct DemoPillButton: View {
                 cornerRadius: 20,
                 contentPadding: EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14),
                 colors: colors,
-                stroke: DemoTheme.surfaceStrokeStrong,
-                shadowColor: DemoTheme.shadow
+                stroke: theme.surfaceStrokeStrong,
+                shadowColor: theme.shadow
             ) {
                 Text(title)
                     .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .foregroundColor(textColor)
+                    .foregroundColor(textColor ?? theme.onTintedFillText)
                     .multilineTextAlignment(.center)
                     .lineLimit(1)
                     .frame(width: width, height: 38)
@@ -886,6 +929,9 @@ struct DemoPillButton: View {
     }
 }
 struct DemoModuleButton: View {
+    @Environment(\.colorScheme) private var colorScheme
+    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
+
     let systemImage: String
     let title: String
     let colors: [Color]
@@ -897,17 +943,17 @@ struct DemoModuleButton: View {
                 cornerRadius: 16,
                 contentPadding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
                 colors: colors,
-                stroke: DemoTheme.surfaceStroke
+                stroke: theme.surfaceStroke
             ) {
                 HStack(alignment: .center, spacing: 10) {
                     Image(systemName: systemImage)
-                        .foregroundColor(DemoTheme.primaryText)
+                        .foregroundStyle(.primary)
                         .font(.system(size: 14))
                         .frame(width: 18, height: 18)
 
                     Text(title)
                         .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundColor(DemoTheme.primaryText)
+                        .foregroundStyle(.primary)
                         .multilineTextAlignment(.leading)
                         .lineLimit(1)
                         .layoutPriority(1)
@@ -920,6 +966,9 @@ struct DemoModuleButton: View {
     }
 }
 struct DemoRowButton: View {
+    @Environment(\.colorScheme) private var colorScheme
+    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
+
     let title: String
     let detail: String
     let systemImage: String
@@ -932,11 +981,11 @@ struct DemoRowButton: View {
                 cornerRadius: 20,
                 contentPadding: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14),
                 fill: LinearGradient(
-                    colors: [DemoTheme.fieldTop, DemoTheme.fieldBottom],
+                    colors: [theme.fieldTop, theme.fieldBottom],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 ),
-                stroke: DemoTheme.surfaceStroke
+                stroke: theme.surfaceStroke
             ) {
                 HStack(alignment: .center, spacing: 14) {
                     Color.clear
@@ -955,10 +1004,10 @@ struct DemoRowButton: View {
                         cornerRadius: 16,
                         contentPadding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
                         colors: [accent.opacity(0.90), accent.opacity(0.62)],
-                        stroke: DemoTheme.surfaceStroke
+                        stroke: theme.surfaceStroke
                     ) {
                         Image(systemName: systemImage)
-                            .foregroundColor(DemoTheme.inverseText)
+                            .foregroundColor(theme.onTintedFillText)
                             .font(.system(size: 15))
                             .frame(width: 30, height: 30)
                     }
@@ -966,13 +1015,13 @@ struct DemoRowButton: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(title)
                             .font(.system(size: 16, weight: .bold, design: .rounded))
-                            .foregroundColor(DemoTheme.primaryText)
+                            .foregroundStyle(.primary)
                             .multilineTextAlignment(.leading)
                             .lineLimit(1)
 
                         Text(detail)
                             .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .foregroundColor(DemoTheme.tertiaryText)
+                            .foregroundStyle(.tertiary)
                             .multilineTextAlignment(.leading)
                             .lineLimit(1)
                     }
@@ -994,13 +1043,13 @@ struct DemoMetricCard: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text(title)
                     .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .foregroundColor(DemoTheme.tertiaryText)
+                    .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.leading)
                     .lineLimit(1)
 
                 Text(value)
                     .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundColor(DemoTheme.primaryText)
+                    .foregroundStyle(.primary)
                     .multilineTextAlignment(.leading)
 
                 Text(note)
@@ -1023,27 +1072,30 @@ struct DemoActivityCard: View {
     }
 }
 struct DemoInfoCard: View {
+    @Environment(\.colorScheme) private var colorScheme
+    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
+
     let card: DemoCard
 
     var body: some View {
         DemoGlassSurface(
             cornerRadius: 24,
             fill: LinearGradient(
-                colors: [DemoTheme.fieldTop, DemoTheme.fieldBottom],
+                colors: [theme.fieldTop, theme.fieldBottom],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             ),
-            stroke: DemoTheme.surfaceStroke
+            stroke: theme.surfaceStroke
         ) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(card.title)
                     .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .foregroundColor(DemoTheme.primaryText)
+                    .foregroundStyle(.primary)
                     .multilineTextAlignment(.leading)
 
                 Text(card.summary)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundColor(DemoTheme.secondaryText)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
 
                 Text(card.meta)
@@ -1074,25 +1126,91 @@ struct DemoAccent: View {
         .allowsHitTesting(false)
     }
 }
-enum DemoTheme {
-    static let backdropTop = Color(red: 0.91, green: 0.95, blue: 0.92, opacity: 1.0)
-    static let backdropMiddle = Color(red: 0.88, green: 0.92, blue: 0.97, opacity: 1.0)
-    static let backdropBottom = Color(red: 0.96, green: 0.95, blue: 0.91, opacity: 1.0)
-    static let surfaceTop = Color(red: 0.99, green: 0.99, blue: 1.0, opacity: 0.92)
-    static let surfaceBottom = Color(red: 0.93, green: 0.95, blue: 0.98, opacity: 0.86)
-    static let fieldTop = Color(red: 0.97, green: 0.98, blue: 1.0, opacity: 0.96)
-    static let fieldBottom = Color(red: 0.91, green: 0.94, blue: 0.98, opacity: 0.90)
-    static let sidebarTop = Color(red: 0.95, green: 0.96, blue: 0.98, opacity: 0.90)
-    static let sidebarBottom = Color(red: 0.89, green: 0.92, blue: 0.96, opacity: 0.84)
-    static let surfaceStroke = Color(red: 0.39, green: 0.47, blue: 0.60, opacity: 0.14)
-    static let surfaceStrokeStrong = Color(red: 0.32, green: 0.42, blue: 0.58, opacity: 0.18)
-    static let primaryText = Color(red: 0.18, green: 0.22, blue: 0.30, opacity: 0.96)
-    static let secondaryText = Color(red: 0.34, green: 0.40, blue: 0.50, opacity: 0.86)
-    static let tertiaryText = Color(red: 0.46, green: 0.52, blue: 0.62, opacity: 0.80)
-    static let inverseText = Color(red: 0.99, green: 1.0, blue: 1.0, opacity: 0.98)
-    /// Light secondary text for content that sits on the dark hero card.
-    static let heroSubtitleText = Color(red: 0.80, green: 0.86, blue: 0.95, opacity: 0.92)
-    static let shadow = Color(red: 0.16, green: 0.20, blue: 0.30, opacity: 0.10)
+/// The dashboard's surface palette, resolved for one appearance.
+///
+/// This used to be a single unconditional *light* theme with no
+/// `colorScheme` awareness, while the settings and data screens used bare
+/// system controls, which are appearance-driven. Three screens of one app
+/// therefore met in the middle of a `TabView` with two independent
+/// hardcoded appearances — and the dashboard's dark-slate secondary text
+/// was also being applied on the dark data screen, where it measured 2.7:1.
+///
+/// Text hierarchy is not here at all any more: it is `.primary`,
+/// `.secondary` and `.tertiary`, which the system resolves for whichever
+/// appearance the view is actually in. Only the *surfaces* — which are a
+/// design choice this demo is making, not a system role — carry values,
+/// and they carry one per appearance.
+struct DemoTheme {
+    let colorScheme: ColorScheme
+
+    private var isDark: Bool { colorScheme == .dark }
+
+    private func pick(light: Color, dark: Color) -> Color { isDark ? dark : light }
+
+    var backdropTop: Color {
+        pick(
+            light: Color(red: 0.91, green: 0.95, blue: 0.92, opacity: 1.0),
+            dark: Color(red: 0.098, green: 0.098, blue: 0.102, opacity: 1.0))
+    }
+    var backdropMiddle: Color {
+        pick(
+            light: Color(red: 0.88, green: 0.92, blue: 0.97, opacity: 1.0),
+            dark: Color(red: 0.118, green: 0.118, blue: 0.125, opacity: 1.0))
+    }
+    var backdropBottom: Color {
+        pick(
+            light: Color(red: 0.96, green: 0.95, blue: 0.91, opacity: 1.0),
+            dark: Color(red: 0.086, green: 0.086, blue: 0.090, opacity: 1.0))
+    }
+    var surfaceTop: Color {
+        pick(
+            light: Color(red: 0.99, green: 0.99, blue: 1.0, opacity: 0.92),
+            dark: Color(red: 0.196, green: 0.196, blue: 0.204, opacity: 0.92))
+    }
+    var surfaceBottom: Color {
+        pick(
+            light: Color(red: 0.93, green: 0.95, blue: 0.98, opacity: 0.86),
+            dark: Color(red: 0.157, green: 0.157, blue: 0.165, opacity: 0.86))
+    }
+    var fieldTop: Color {
+        pick(
+            light: Color(red: 0.97, green: 0.98, blue: 1.0, opacity: 0.96),
+            dark: Color(red: 0.235, green: 0.235, blue: 0.243, opacity: 0.96))
+    }
+    var fieldBottom: Color {
+        pick(
+            light: Color(red: 0.91, green: 0.94, blue: 0.98, opacity: 0.90),
+            dark: Color(red: 0.184, green: 0.184, blue: 0.192, opacity: 0.90))
+    }
+    var sidebarTop: Color {
+        pick(
+            light: Color(red: 0.95, green: 0.96, blue: 0.98, opacity: 0.90),
+            dark: Color(red: 0.169, green: 0.169, blue: 0.176, opacity: 0.90))
+    }
+    var sidebarBottom: Color {
+        pick(
+            light: Color(red: 0.89, green: 0.92, blue: 0.96, opacity: 0.84),
+            dark: Color(red: 0.137, green: 0.137, blue: 0.145, opacity: 0.84))
+    }
+    var surfaceStroke: Color {
+        pick(
+            light: Color(red: 0.0, green: 0.0, blue: 0.0, opacity: 0.10),
+            dark: Color(red: 1.0, green: 1.0, blue: 1.0, opacity: 0.10))
+    }
+    var surfaceStrokeStrong: Color {
+        pick(
+            light: Color(red: 0.0, green: 0.0, blue: 0.0, opacity: 0.16),
+            dark: Color(red: 1.0, green: 1.0, blue: 1.0, opacity: 0.16))
+    }
+    /// The label colour on a *tinted* fill the demo chose itself (a pill, a
+    /// hero card): those fills are dark in both appearances, so the label on
+    /// them is near-white in both.
+    var onTintedFillText: Color { Color(red: 1.0, green: 1.0, blue: 1.0, opacity: 0.95) }
+    var shadow: Color {
+        pick(
+            light: Color(red: 0.0, green: 0.0, blue: 0.0, opacity: 0.12),
+            dark: Color(red: 0.0, green: 0.0, blue: 0.0, opacity: 0.36))
+    }
 }
 struct DemoLayout {
     let size: CGSize
@@ -1176,38 +1294,38 @@ enum DemoModule: CaseIterable, Hashable {
 
     var label: String {
         switch self {
-        case .layout: return "LAYOUT"
-        case .input: return "INPUT"
-        case .animation: return "ANIMATION"
-        case .controls: return "CONTROLS"
+        case .layout: return "Layout"
+        case .input: return "Input"
+        case .animation: return "Animation"
+        case .controls: return "Controls"
         }
     }
 
-    var statusLabel: String { "MODE: \(label)" }
+    var statusLabel: String { "Mode: \(label)" }
     var headline: String {
         switch self {
-        case .layout: return "PURE SWIFT LAYOUT CORE"
-        case .input: return "POINTER AND KEYBOARD ROUTING"
-        case .animation: return "FRAME-DRIVEN UI MOTION"
-        case .controls: return "NATIVE CONTROL GALLERY"
+        case .layout: return "Pure Swift layout core"
+        case .input: return "Pointer and keyboard routing"
+        case .animation: return "Frame-driven UI motion"
+        case .controls: return "Native control gallery"
         }
     }
 
     var summary: String {
         switch self {
-        case .layout: return "RESPONSIVE COMPOSITION AND PANEL STRUCTURE"
-        case .input: return "HOVER, PRESS, FOCUS, AND SCROLL ROUTING"
-        case .animation: return "FRAME-TIMED STATE TRANSITIONS AND CHROME"
-        case .controls: return "TOGGLE, SLIDER, STEPPER, AND INPUT RENDERING"
+        case .layout: return "Responsive composition and panel structure"
+        case .input: return "Hover, press, focus, and scroll routing"
+        case .animation: return "Frame-timed state transitions and chrome"
+        case .controls: return "Toggle, slider, stepper, and input rendering"
         }
     }
 
     var detailLine: String {
         switch self {
-        case .layout: return "STACK  SCROLL  CLIP  INTRINSIC"
-        case .input: return "HOVER  PRESS  FOCUS  ACTIVATE"
-        case .animation: return "TIMERS  PALETTES  STATE  REDRAW"
-        case .controls: return "TOGGLE  SLIDER  STEP  PICK"
+        case .layout: return "Stack  Scroll  Clip  Intrinsic"
+        case .input: return "Hover  Press  Focus  Activate"
+        case .animation: return "Timers  Palettes  State  Redraw"
+        case .controls: return "Toggle  Slider  Step  Pick"
         }
     }
 
@@ -1279,37 +1397,37 @@ enum DemoModule: CaseIterable, Hashable {
         case .layout:
             return [
                 DemoCard(
-                    title: "STACK LAYOUT", summary: "PANELS STRETCH WITH PRIORITY AND PADDING",
-                    meta: "RETENTION-FIRST MEASUREMENT", accent: accentColor),
+                    title: "Stack layout", summary: "Panels stretch with priority and padding",
+                    meta: "Retention-first measurement", accent: accentColor),
                 DemoCard(
-                    title: "CLIPPING", summary: "SCISSOR-READY RECT CLIPPING THROUGH THE RENDER FRAME",
-                    meta: "BACKEND-NEUTRAL COMMANDS", accent: accentColor),
+                    title: "Clipping", summary: "Scissor-ready rect clipping through the render frame",
+                    meta: "Backend-neutral commands", accent: accentColor),
             ]
         case .input:
             return [
                 DemoCard(
-                    title: "FOCUS CHAIN", summary: "TAB MOVES THROUGH FOCUSABLE RETAINED NODES",
-                    meta: "WINDOW DELEGATE TO RUNTIME", accent: accentColor),
+                    title: "Focus chain", summary: "Tab moves through focusable retained nodes",
+                    meta: "Window delegate to runtime", accent: accentColor),
                 DemoCard(
-                    title: "PRESS STATES", summary: "BUTTONS DRIVE FOCUSED, PRESSED, AND ACTIVATED COLORS",
-                    meta: "MAIN-ACTOR CONTROL LIFECYCLE", accent: accentColor),
+                    title: "Press states", summary: "Buttons drive focused, pressed, and activated colors",
+                    meta: "Main-actor control lifecycle", accent: accentColor),
             ]
         case .animation:
             return [
                 DemoCard(
-                    title: "TICK DRIVER", summary: "WINDOW ANIMATION FRAMES ADVANCE COLOR TRANSITIONS",
-                    meta: "ONLY WHEN ACTIVE", accent: accentColor),
+                    title: "Tick driver", summary: "Window animation frames advance color transitions",
+                    meta: "Only when active", accent: accentColor),
                 DemoCard(
-                    title: "FRAME CACHE", summary: "UNCHANGED UI REUSES THE LAST RENDER FRAME UNTIL INVALIDATED",
-                    meta: "RETENTION REDRAWS", accent: accentColor),
+                    title: "Frame cache", summary: "Unchanged UI reuses the last render frame until invalidated",
+                    meta: "Retention redraws", accent: accentColor),
             ]
         case .controls:
             return [
                 DemoCard(
-                    title: "TOGGLE AND SLIDER", summary: "INTERACTIVE BINDING-DRIVEN CONTROLS",
-                    meta: "HIT-TEST AND FOCUS", accent: accentColor),
+                    title: "Toggle and slider", summary: "Interactive binding-driven controls",
+                    meta: "Hit-test and focus", accent: accentColor),
                 DemoCard(
-                    title: "TEXT INPUT", summary: "TEXTFIELD AND TEXTEDITOR WITH STATE", meta: "KEYBOARD ROUTING",
+                    title: "Text input", summary: "TextField and TextEditor with state", meta: "Keyboard routing",
                     accent: accentColor),
             ]
         }
@@ -1320,38 +1438,38 @@ enum DemoModule: CaseIterable, Hashable {
         case .layout:
             return [
                 DemoAction(
-                    title: "Inspect Stacks", caption: "READ THE CONTAINER TREE", systemImage: "rectangle.3.group",
-                    eventLabel: "STACK INSPECTOR OPENED"),
+                    title: "Inspect Stacks", caption: "Read the container tree", systemImage: "rectangle.3.group",
+                    eventLabel: "Stack inspector opened"),
                 DemoAction(
-                    title: "Resize Panes", caption: "DRAG THE SPLIT DIVIDERS", systemImage: "rectangle.split.3x1",
-                    eventLabel: "PANE EDITOR OPENED"),
+                    title: "Resize Panes", caption: "Drag the split dividers", systemImage: "rectangle.split.3x1",
+                    eventLabel: "Pane editor opened"),
             ]
         case .input:
             return [
                 DemoAction(
-                    title: "Focus Walk", caption: "TAB THROUGH CONTROLS", systemImage: "keyboard",
-                    eventLabel: "FOCUS WALK STARTED"),
+                    title: "Focus Walk", caption: "Tab through controls", systemImage: "keyboard",
+                    eventLabel: "Focus walk started"),
                 DemoAction(
-                    title: "Route Events", caption: "TRACE POINTER TO NODE", systemImage: "waveform.path.ecg",
-                    eventLabel: "INPUT TRACE OPENED"),
+                    title: "Route Events", caption: "Trace pointer to node", systemImage: "waveform.path.ecg",
+                    eventLabel: "Input trace opened"),
             ]
         case .animation:
             return [
                 DemoAction(
-                    title: "Play Motion", caption: "RETRIGGER THE STATUS CYCLE", systemImage: "sparkles",
-                    eventLabel: "MOTION LOOP STARTED"),
+                    title: "Play Motion", caption: "Retrigger the status cycle", systemImage: "sparkles",
+                    eventLabel: "Motion loop started"),
                 DemoAction(
-                    title: "Inspect Ticks", caption: "FOLLOW RUNTIME INVALIDATION", systemImage: "bolt.fill",
-                    eventLabel: "TICK INSPECTOR OPENED"),
+                    title: "Inspect Ticks", caption: "Follow runtime invalidation", systemImage: "bolt.fill",
+                    eventLabel: "Tick inspector opened"),
             ]
         case .controls:
             return [
                 DemoAction(
-                    title: "Toggle Demo", caption: "SWITCH STATES AND BINDINGS", systemImage: "switch.2",
-                    eventLabel: "TOGGLE DEMO OPENED"),
+                    title: "Toggle Demo", caption: "Switch states and bindings", systemImage: "switch.2",
+                    eventLabel: "Toggle demo opened"),
                 DemoAction(
-                    title: "Input Forms", caption: "TEXT AND PICKER LAYOUT", systemImage: "textformat",
-                    eventLabel: "INPUT FORM OPENED"),
+                    title: "Input Forms", caption: "Text and picker layout", systemImage: "textformat",
+                    eventLabel: "Input form opened"),
             ]
         }
     }
@@ -1367,9 +1485,9 @@ public enum DemoScreen: String, CaseIterable, Hashable {
 
     var label: String {
         switch self {
-        case .dashboard: return "DASHBOARD"
-        case .settings: return "SETTINGS"
-        case .data: return "DATA"
+        case .dashboard: return "Dashboard"
+        case .settings: return "Settings"
+        case .data: return "Data"
         }
     }
 
@@ -1399,32 +1517,32 @@ public struct DemoComponent: Identifiable, Hashable, Sendable {
     let load: Double
 
     var isHealthy: Bool { load < 0.85 }
-    var statusLabel: String { isHealthy ? "HEALTHY" : "DEGRADED" }
+    var statusLabel: String { isHealthy ? "Healthy" : "Degraded" }
 
     static let defaults: [DemoComponent] = [
         DemoComponent(
-            id: 1, name: "RENDER HOST", detail: "D3D11 BATCH PIPELINE", version: "V2.4.1",
+            id: 1, name: "Render host", detail: "D3D11 batch pipeline", version: "v2.4.1",
             systemImage: "bolt.fill", load: 0.34),
         DemoComponent(
-            id: 2, name: "INPUT ROUTER", detail: "POINTER AND KEYBOARD DISPATCH", version: "V1.9.0",
+            id: 2, name: "Input router", detail: "Pointer and keyboard dispatch", version: "v1.9.0",
             systemImage: "keyboard", load: 0.12),
         DemoComponent(
-            id: 3, name: "LAYOUT ENGINE", detail: "RETAINED STACK MEASUREMENT", version: "V3.1.2",
+            id: 3, name: "Layout engine", detail: "Retained stack measurement", version: "v3.1.2",
             systemImage: "rectangle.3.group", load: 0.48),
         DemoComponent(
-            id: 4, name: "ANIMATION TICKER", detail: "FRAME-DRIVEN STATE TRANSITIONS", version: "V1.4.0",
+            id: 4, name: "Animation ticker", detail: "Frame-driven state transitions", version: "v1.4.0",
             systemImage: "sparkles", load: 0.27),
         DemoComponent(
-            id: 5, name: "CONTROL SURFACES", detail: "BUTTONS, TOGGLES, AND PICKERS", version: "V2.0.3",
+            id: 5, name: "Control surfaces", detail: "Buttons, toggles, and pickers", version: "v2.0.3",
             systemImage: "switch.2", load: 0.56),
         DemoComponent(
-            id: 6, name: "EVENT LOG", detail: "INTERACTION TELEMETRY BUFFER", version: "V0.9.8",
+            id: 6, name: "Event log", detail: "Interaction telemetry buffer", version: "v0.9.8",
             systemImage: "waveform.path.ecg", load: 0.71),
         DemoComponent(
-            id: 7, name: "DOCUMENT STORE", detail: "SETTINGS PERSISTENCE LAYER", version: "V1.2.5",
+            id: 7, name: "Document store", detail: "Settings persistence layer", version: "v1.2.5",
             systemImage: "doc.text", load: 0.18),
         DemoComponent(
-            id: 8, name: "SYSTEM PROBE", detail: "HEALTH AND DIAGNOSTICS", version: "V0.7.2",
+            id: 8, name: "System probe", detail: "Health and diagnostics", version: "v0.7.2",
             systemImage: "info.circle", load: 0.90),
     ]
 }
@@ -1448,9 +1566,9 @@ struct DemoSettingsScreen: View {
                         TextField("Display Name", text: $model.displayName)
 
                         Picker("Theme", selection: $model.theme) {
-                            Text("SYSTEM").tag(DemoThemeOption.system)
-                            Text("LIGHT").tag(DemoThemeOption.light)
-                            Text("DARK").tag(DemoThemeOption.dark)
+                            Text("System").tag(DemoThemeOption.system)
+                            Text("Light").tag(DemoThemeOption.light)
+                            Text("Dark").tag(DemoThemeOption.dark)
                         }
                         .pickerStyle(.segmented)
 
@@ -1575,12 +1693,12 @@ struct DemoComponentRow: View {
                 // selected, and the semantic colour is the one that
                 // brightens against a prominent background.
                 Text(component.version)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
 
                 Text(component.statusLabel)
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .font(.footnote)
                     .foregroundColor(
                         component.isHealthy
                             ? Color(red: 0.30, green: 0.62, blue: 0.44, opacity: 0.95)
@@ -1602,13 +1720,15 @@ struct DemoComponentDetail: View {
                     Label(component.name, systemImage: component.systemImage)
 
                     Text(component.detail)
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundColor(DemoTheme.secondaryText)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
 
-                    Text("VERSION \(component.version)  STATUS \(component.statusLabel)")
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .foregroundColor(DemoTheme.tertiaryText)
+                    // `.secondary`, not `.tertiary`: this line is content,
+                    // and macOS reserves the tertiary rung for decoration.
+                    Text("Version \(component.version)   Status \(component.statusLabel)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
                 .layoutPriority(1)
@@ -1616,9 +1736,9 @@ struct DemoComponentDetail: View {
                 Spacer(minLength: 8)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("CURRENT LOAD")
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .foregroundColor(DemoTheme.tertiaryText)
+                    Text("Current load")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
 
                     ProgressView(value: component.load)

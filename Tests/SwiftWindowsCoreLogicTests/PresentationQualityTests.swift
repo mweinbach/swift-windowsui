@@ -304,7 +304,7 @@ final class PresentationQualityTests: XCTestCase {
 
             let scene = runtime.renderScene()
             let colors = presentationSceneQuadColors(in: scene)
-            let panelColor = Color(red: 0.08, green: 0.11, blue: 0.17, alpha: 0.96)
+            let panelColor = Color(red: 0.108, green: 0.108, blue: 0.108, alpha: 0.96)
 
             func firstIndex(matching target: Color) -> Int? {
                 colors.firstIndex { color in

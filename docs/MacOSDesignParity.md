@@ -8,21 +8,134 @@ spring constants are documented separately in `AnimationParity.md`.
 
 ## Font.system text styles
 
-Sizes mirror SwiftUI's published defaults on macOS 14+.
+The **macOS** ramp — AppKit's `NSFont.preferredFont(forTextStyle:)`. These
+used to be the *iOS* Dynamic Type table at `.large` (body 17, largeTitle 34)
+under the heading "macOS parity", and `MacOSDesignParityTests` asserted them,
+so the guardrail was actively locking the wrong ramp in. macOS has no `.large`
+content size and no 34pt large title; the top of the ramp is 26.
 
-| Text style    | Size (pt) | Weight     | Source                              |
-|---------------|-----------|------------|-------------------------------------|
-| `largeTitle`  | 34        | regular    | SwiftUI `Font.largeTitle`           |
-| `title`       | 28        | regular    | SwiftUI `Font.title`                |
-| `title2`      | 22        | regular    | SwiftUI `Font.title2`               |
-| `title3`      | 20        | regular    | SwiftUI `Font.title3`               |
-| `headline`    | 17        | **semibold** | SwiftUI `Font.headline`           |
-| `subheadline` | 15        | regular    | SwiftUI `Font.subheadline`          |
-| `body`        | 17        | regular    | SwiftUI `Font.body`                 |
-| `callout`     | 16        | regular    | SwiftUI `Font.callout`              |
-| `footnote`    | 13        | regular    | SwiftUI `Font.footnote`             |
-| `caption`     | 12        | regular    | SwiftUI `Font.caption`              |
-| `caption2`    | 11        | regular    | SwiftUI `Font.caption2`             |
+The constants live in `MacOSControlMetrics.Typography` and `Font`'s statics
+read from there, so the type and the control boxes it has to fit in are
+pinned by one module. That coupling is the point: a 17pt body needs a ~21pt
+line box, which is the whole height of `MacOSControlMetrics.TextField.regularHeight`,
+so the old ramp specified a label that could not fit the field specified
+beside it.
+
+| Text style    | Size (pt) | Weight       | Line height (pt) | Source                     |
+|---------------|-----------|--------------|------------------|----------------------------|
+| `largeTitle`  | 26        | regular      | 32               | SwiftUI `Font.largeTitle`  |
+| `title`       | 22        | regular      | 27               | SwiftUI `Font.title`       |
+| `title2`      | 17        | regular      | 21               | SwiftUI `Font.title2`      |
+| `title3`      | 15        | regular      | 18               | SwiftUI `Font.title3`      |
+| `headline`    | 13        | **semibold** | 16               | SwiftUI `Font.headline`    |
+| `subheadline` | 11        | regular      | 13               | SwiftUI `Font.subheadline` |
+| `body`        | 13        | regular      | 16               | SwiftUI `Font.body`        |
+| `callout`     | 12        | regular      | 15               | SwiftUI `Font.callout`     |
+| `footnote`    | 10        | regular      | 12               | SwiftUI `Font.footnote`    |
+| `caption`     | 10        | regular      | 12               | SwiftUI `Font.caption`     |
+| `caption2`    | 10        | regular      | 12               | SwiftUI `Font.caption2`    |
+
+Line height is `size + lineSpacing`, which is what the text renderer sets as
+DirectWrite's uniform line height.
+
+### `Font.system(size:)` is points
+
+`Font.resolvedNativeTextSize` used to be
+`size >= 8 ? size : max(12, size * 6 + 8)`: any value below 8 was silently
+reinterpreted as a legacy 5x7-atlas *scale* unit. `.system(size: 3)` rendered
+at 26px and `.system(size: 8)` at 8px — a public points API that was not
+monotonic in its own argument. The stack authored ~27 of its own chrome sites
+in those units, and because `1.5`, `1.6` and `1.9` all landed within 2px of
+body(17), the app effectively had one type size plus a 26px title.
+
+Points are now points at every value, and the 5x7 conversion (`resolvedScale`)
+is the bitmap fallback's business alone. `TypographyAndAppearanceTests`
+asserts monotonicity across the whole range.
+
+### Leading
+
+| `Font.Leading` | Extra leading | Notes                                        |
+|----------------|---------------|----------------------------------------------|
+| `.standard`    | `size × 0.22` | Puts 13pt body on macOS's 16pt line and 26pt largeTitle on its 32pt line. |
+| `.tight`       | `size × 0.08` |                                              |
+| `.loose`       | `size × 0.40` |                                              |
+| floor          | 1pt           | Leading never rounds to nothing.             |
+
+Leading is proportional because CoreText line height is. The previous flat
+2px gave a 26pt headline the same gap as a 10pt caption, so a multi-line
+block read as a different typeface at every size.
+
+### Chrome type
+
+| Constant                                  | Value | Notes                                                                 |
+|-------------------------------------------|-------|-----------------------------------------------------------------------|
+| `Typography.windowTitleSize`              | 13    | `NSWindow.title` / `NSToolbar` title, semibold. macOS has no large-title navigation bar; the previous 26px bold banner was iOS's `.large` display mode expressed in legacy scale units. |
+| `Typography.windowSubtitleSize`           | 11    | Toolbar subtitle, secondary label.                                    |
+| `Typography.sectionHeaderSize`            | 11    | Grouped-form / list section header, semibold, secondary label. Hierarchy comes from size *and* colour — at body size in near-white it differed from its own rows by weight alone. |
+| `Typography.symbolBoxRatio`               | 1.25  | An SF Symbol's image box relative to the inherited point size. `Image` inherits the ambient font rather than pinning a fixed 19.4px box. |
+| `Typography.uppercaseTrackingRatio`       | 0.06  | Default tracking applied when `textCase == .uppercase`. Capitals carry sidebearings tuned for mixed-case setting; set solid they read as a banner. An explicit `.tracking()` still wins. |
+| `Layout.labelIconSpacing`                 | 6     | `Label`'s symbol-to-title gutter (AppKit's image-and-title cell).      |
+
+`Label` inherits the ambient font. It used to hardcode
+`.system(size: 1.6, weight: .semibold)` — 17.6px via the size<8 rule — and
+apply it with `withFont`, so it *overrode* any `.font()` set on the list
+around it, and it forced `lineLimit(1)`, which SwiftUI does not.
+
+## Semantic label colours
+
+`Color.primary` was literally `(1, 1, 1)` and `Color.secondary` a blue-cast
+`(0.70, 0.74, 0.80)`, with no light counterparts, and
+`resolvedForVisualEnvironment` took contrast and background prominence but
+never a colour scheme. Light mode was therefore not merely unwired — it could
+not be expressed, and the ambient foreground default was a literal `.white`,
+so every inherited label vanished the moment an app was rendered light.
+
+macOS builds the whole text hierarchy as **one alpha ladder over one neutral
+base**; only the base changes with the appearance. `LabelHierarchy`
+(SwiftWindowsCore) holds the ladder, `Color.primary`/`.secondary`/`.tertiary`/
+`.quaternary`/`.quinary` are its dark-appearance rungs, and
+`Color.resolvedForVisualEnvironment(colorScheme:contrast:backgroundProminence:)`
+resolves a rung out of the same `ControlPalette` the control chrome reads.
+
+| Rung         | Alpha  | Hex     | AppKit                      |
+|--------------|--------|---------|-----------------------------|
+| primary      | 0.851  | `..D9`  | `NSColor.labelColor`        |
+| secondary    | 0.549  | `..8C`  | `secondaryLabelColor`       |
+| tertiary     | 0.251  | `..40`  | `tertiaryLabelColor`        |
+| quaternary   | 0.098  | `..19`  | `quaternaryLabelColor`      |
+| quinary      | 0.051  | `..0D`  | SwiftUI's fifth rung        |
+| secondary, `.increased` contrast | 0.749 | `..BF` | AppKit's increase-contrast pass |
+| tertiary, `.increased` contrast  | 0.451 | `..73` | "                        |
+
+The base is white in the dark appearance and black in the light one, so
+`Color.primary` and `ControlPalette.label` are the same colour by
+construction rather than by two people rounding to 0.85 independently.
+
+Recognition is by exact rung value: a colour the app wrote itself is not a
+semantic role and passes through untouched, and `Color.accentColor` (#007AFF)
+is never desaturated. The known limitation is that `Color.primary.opacity(0.5)`
+is no longer a recognised rung — an app that wants a dimmer label should ask
+for `.secondary` rather than fade `.primary`.
+
+`.increased` background prominence promotes secondary to primary: content
+drawn over a filled selection stops being secondary, which is what AppKit
+does.
+
+## Chrome neutrals
+
+Every hardcoded chrome literal in `Views.swift` and `Core.swift` sat on a
+navy axis where blue was roughly twice red — `(0.07, 0.10, 0.15)` surfaces
+under `(0.92, 0.95, 1.0)` "whites". macOS dark neutrals carry no hue at all;
+the accent is the only chromatic element. 171 literals were desaturated to
+their Rec.709 luminance, preserving the surface ladder's depth relationships
+and leaving every genuinely chromatic colour (the accent, the status greens
+and ambers, the module tints) untouched.
+
+The containers that a screen actually shows — the navigation band, the tab
+bar, `Form` and `Section` boxes, `List` bodies and their hairlines, the
+scroller thumb, the window backdrop — now read roles from `ControlPalette`
+instead of holding literals, so they follow the appearance rather than
+staying dark under light text.
 
 ## Control chrome defaults
 

@@ -254,8 +254,12 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(Color.gray.green, 0.557, accuracy: 0.005)
             XCTAssertEqual(Color.gray.blue, 0.576, accuracy: 0.005)
 
-            XCTAssertEqual(Color.primary, .white)
-            XCTAssertEqual(Color.secondary, Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 1))
+            // The semantic label rungs: one achromatic alpha ladder, whose
+            // base the appearance picks. They used to be an opaque white and
+            // a blue-cast slate with no light counterpart.
+            XCTAssertEqual(Color.primary, Color(red: 1, green: 1, blue: 1, alpha: LabelHierarchy.primaryAlpha))
+            XCTAssertEqual(
+                Color.secondary, Color(red: 1, green: 1, blue: 1, alpha: LabelHierarchy.secondaryAlpha))
             XCTAssertEqual(
                 Color.accentColor, Color.blue,
                 "macOS controlAccentColor default is the system blue")
@@ -326,15 +330,18 @@ final class WinSwiftUITests: XCTestCase {
         await MainActor.run {
             let node = makeNode(
                 Text("HELLO")
-                    .font(.system(size: 2.4, weight: .bold))
+                    .font(.system(size: 24, weight: .bold))
                     .foregroundColor(Color(red: 0.2, green: 0.4, blue: 0.6, alpha: 1))
                     .multilineTextAlignment(.leading)
                     .lineLimit(1)
             )
 
             XCTAssertEqual(node.text, "HELLO")
+            // Points are points: `.system(size: 24)` renders at 24, and the
+            // 5x7 atlas scale is derived from it rather than being a second
+            // meaning for the same argument.
             XCTAssertEqual(node.textStyle.scale, 2.4)
-            XCTAssertEqual(node.textStyle.nativeFontSize, 22.4)
+            XCTAssertEqual(node.textStyle.nativeFontSize, 24)
             XCTAssertEqual(node.textStyle.weight, .bold)
             XCTAssertEqual(node.textStyle.color, Color(red: 0.2, green: 0.4, blue: 0.6, alpha: 1))
             XCTAssertEqual(node.textStyle.alignment, .leading)
@@ -2851,13 +2858,14 @@ final class WinSwiftUITests: XCTestCase {
             let captionNode = makeNode(Text("CAPTION").font(.caption))
             let caption2Node = makeNode(Text("CAPTION2").font(.caption2))
 
-            XCTAssertEqual(titleNode.textStyle.nativeFontSize, 28)
-            XCTAssertEqual(titleNode.textStyle.scale, 2.8)
-            XCTAssertEqual(title2Node.textStyle.nativeFontSize, 22)
-            XCTAssertEqual(headlineNode.textStyle.nativeFontSize, 17)
+            // The macOS ramp (MacOSControlMetrics.Typography), not iOS.
+            XCTAssertEqual(titleNode.textStyle.nativeFontSize, 22)
+            XCTAssertEqual(titleNode.textStyle.scale, 2.2)
+            XCTAssertEqual(title2Node.textStyle.nativeFontSize, 17)
+            XCTAssertEqual(headlineNode.textStyle.nativeFontSize, 13)
             XCTAssertEqual(headlineNode.textStyle.weight, .semibold)
-            XCTAssertEqual(captionNode.textStyle.nativeFontSize, 12)
-            XCTAssertEqual(caption2Node.textStyle.nativeFontSize, 11)
+            XCTAssertEqual(captionNode.textStyle.nativeFontSize, 10)
+            XCTAssertEqual(caption2Node.textStyle.nativeFontSize, 10)
         }
     }
 
@@ -2872,10 +2880,10 @@ final class WinSwiftUITests: XCTestCase {
                     .font(.system(.headline))
             )
 
-            XCTAssertEqual(titleNode.textStyle.nativeFontSize, 28)
+            XCTAssertEqual(titleNode.textStyle.nativeFontSize, 22)
             XCTAssertEqual(titleNode.textStyle.weight, .bold)
             XCTAssertEqual(titleNode.textStyle.fontFamily, "Cascadia Mono")
-            XCTAssertEqual(headlineNode.textStyle.nativeFontSize, 17)
+            XCTAssertEqual(headlineNode.textStyle.nativeFontSize, 13)
             XCTAssertEqual(headlineNode.textStyle.weight, .semibold)
         }
     }
@@ -2941,7 +2949,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(inheritedNode.children[0].textStyle.nativeFontSize, 18)
             XCTAssertEqual(inheritedNode.children[0].textStyle.weight, .bold)
             XCTAssertEqual(inheritedNode.children[0].textStyle.fontFamily, "Cascadia Mono")
-            XCTAssertEqual(inheritedNode.children[1].textStyle.nativeFontSize, 20)
+            XCTAssertEqual(inheritedNode.children[1].textStyle.nativeFontSize, Font.body.size)
             XCTAssertEqual(inheritedNode.children[1].textStyle.weight, .regular)
             XCTAssertEqual(optionalNode.textStyle.nativeFontSize, 16)
             XCTAssertEqual(optionalNode.textStyle.weight, .semibold)
@@ -3216,8 +3224,14 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(relativeNode.textStyle.nativeFontSize, 12)
             XCTAssertEqual(relativeHeadlineNode.textStyle.fontFamily, "Aptos")
             XCTAssertEqual(relativeHeadlineNode.textStyle.nativeFontSize, 15)
+            // The relative size is the caller's; only the *style* is inherited.
             XCTAssertEqual(relativeHeadlineNode.textStyle.weight, .semibold)
-            XCTAssertEqual(relativeHeadlineNode.textStyle.lineSpacing, Font.headline.resolvedLineSpacing)
+            // `relativeTo:` inherits the *style* (weight, leading mode), not
+            // the size — and leading is now proportional, so a 15pt relative
+            // headline leads for 15pt, not for headline's 13.
+            XCTAssertEqual(
+                relativeHeadlineNode.textStyle.lineSpacing,
+                Font.custom("Aptos", size: 15, relativeTo: .headline).resolvedLineSpacing)
             XCTAssertEqual(inheritedNode.children[0].textStyle.fontFamily, "Cascadia Code")
             XCTAssertEqual(inheritedNode.children[0].textStyle.nativeFontSize, 16)
         }
@@ -3328,13 +3342,15 @@ final class WinSwiftUITests: XCTestCase {
                 .font(.system(size: 18).leading(.tight))
             )
 
-            XCTAssertEqual(tightNode.textStyle.lineSpacing, 0)
-            XCTAssertEqual(looseNode.textStyle.lineSpacing, 6)
-            XCTAssertEqual(weightedNode.textStyle.lineSpacing, 6)
+            // Leading is a fraction of the point size, not an absolute
+            // pixel count: 18pt tight/standard/loose are 18 x 0.08 / 0.22 / 0.40.
+            XCTAssertEqual(tightNode.textStyle.lineSpacing, 18 * 0.08, accuracy: 0.001)
+            XCTAssertEqual(looseNode.textStyle.lineSpacing, 18 * 0.40, accuracy: 0.001)
+            XCTAssertEqual(weightedNode.textStyle.lineSpacing, 18 * 0.40, accuracy: 0.001)
             XCTAssertEqual(weightedNode.textStyle.weight, .bold)
             XCTAssertEqual(explicitLineSpacingNode.textStyle.lineSpacing, 3)
-            XCTAssertEqual(inheritedNode.children[0].textStyle.lineSpacing, 0)
-            XCTAssertEqual(inheritedNode.children[1].textStyle.lineSpacing, 2)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.lineSpacing, 18 * 0.08, accuracy: 0.001)
+            XCTAssertEqual(inheritedNode.children[1].textStyle.lineSpacing, 18 * 0.22, accuracy: 0.001)
         }
     }
 
@@ -3727,7 +3743,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(node.children[0].textStyle.fontFamily, "Segoe UI")
 
             XCTAssertEqual(node.children[1].textStyle.color, inheritedColor)
-            XCTAssertEqual(node.children[1].textStyle.nativeFontSize, 20)
+            // `.font(nil)` clears the ambient font to the system default.
+            XCTAssertEqual(node.children[1].textStyle.nativeFontSize, Font.body.size)
             XCTAssertEqual(node.children[1].textStyle.weight, .regular)
             XCTAssertEqual(node.children[1].textStyle.fontFamily, "Segoe UI")
 
@@ -3810,7 +3827,10 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(secondaryNode.textStyle.color, .secondary)
             XCTAssertEqual(increasedSecondaryNode.textStyle.color, .highContrastSecondary)
             XCTAssertEqual(explicitSecondaryNode.textStyle.color, .highContrastSecondary)
-            XCTAssertEqual(prominentSecondaryNode.textStyle.color, .highContrastSecondary)
+            // `.increased` background prominence promotes secondary to
+            // primary: content over a filled selection stops being secondary.
+            XCTAssertEqual(
+                prominentSecondaryNode.textStyle.color, ControlPalette.darkStandard.label)
             XCTAssertEqual(readerNode.text, "INCREASED")
             XCTAssertEqual(gradientNode.textStyle.color, gradient.startColor)
         }
@@ -3857,15 +3877,13 @@ final class WinSwiftUITests: XCTestCase {
         await MainActor.run {
             XCTAssertEqual(HierarchicalShapeStyle.primary.retainedFallbackColor, .primary)
             XCTAssertEqual(HierarchicalShapeStyle.secondary.retainedFallbackColor, .secondary)
-            XCTAssertEqual(
-                HierarchicalShapeStyle.tertiary.retainedFallbackColor,
-                Color(red: 0.56, green: 0.61, blue: 0.69, alpha: 1))
-            XCTAssertEqual(
-                HierarchicalShapeStyle.quaternary.retainedFallbackColor,
-                Color(red: 0.44, green: 0.49, blue: 0.58, alpha: 1))
-            XCTAssertEqual(
-                HierarchicalShapeStyle.quinary.retainedFallbackColor,
-                Color(red: 0.34, green: 0.38, blue: 0.46, alpha: 1))
+            // The rungs *are* the semantic label colours, so a
+            // `.foregroundStyle(.tertiary)` survives as something the
+            // appearance resolver can still recognise. They used to be three
+            // opaque blue-slate literals unrelated to `.primary`/`.secondary`.
+            XCTAssertEqual(HierarchicalShapeStyle.tertiary.retainedFallbackColor, .tertiary)
+            XCTAssertEqual(HierarchicalShapeStyle.quaternary.retainedFallbackColor, .quaternary)
+            XCTAssertEqual(HierarchicalShapeStyle.quinary.retainedFallbackColor, .quinary)
             XCTAssertEqual(
                 ForegroundStyle(HierarchicalShapeStyle.tertiary),
                 .color(HierarchicalShapeStyle.tertiary.retainedFallbackColor))
@@ -3978,7 +3996,9 @@ final class WinSwiftUITests: XCTestCase {
             )
             let fillNode = makeNode(Rectangle().fill(FillShapeStyle().opacity(-1)))
 
-            XCTAssertEqual(textNode.textStyle.color, Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 0.25))
+            // `.secondary.opacity(0.25)` multiplies the rung's own alpha.
+            XCTAssertEqual(
+                textNode.textStyle.color, Color.secondary.retainedWithMultipliedOpacity(0.25))
             XCTAssertEqual(
                 backgroundNode.backgroundGradient?.startColor, Color(red: 0.2, green: 0.4, blue: 0.8, alpha: 0.4))
             XCTAssertEqual(
@@ -4088,15 +4108,17 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(
                 SelectionShapeStyle().retainedFallbackColor, Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 0.42))
             XCTAssertEqual(
-                SeparatorShapeStyle().retainedFallbackColor, Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 0.36))
+                SeparatorShapeStyle().retainedFallbackColor,
+                Color(red: 0.736, green: 0.736, blue: 0.736, alpha: 0.36))
             XCTAssertEqual(TintShapeStyle().retainedFallbackColor, ViewBuildContext.defaultTint)
             XCTAssertEqual(
                 PlaceholderTextShapeStyle().retainedFallbackColor,
-                Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 0.62))
+                Color(red: 0.736, green: 0.736, blue: 0.736, alpha: 0.62))
             XCTAssertEqual(LinkShapeStyle().retainedFallbackColor, Color(red: 0.34, green: 0.70, blue: 1.0, alpha: 1))
             XCTAssertEqual(FillShapeStyle().retainedFallbackColor, Color(red: 1, green: 1, blue: 1, alpha: 0.12))
             XCTAssertEqual(
-                WindowBackgroundShapeStyle().retainedFallbackColor, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 1))
+                WindowBackgroundShapeStyle().retainedFallbackColor,
+                Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 1))
             XCTAssertEqual(foregroundNode.textStyle.color, .primary)
             XCTAssertEqual(tintNode.textStyle.color, ViewBuildContext.defaultTint)
             XCTAssertEqual(placeholderNode.textStyle.color, PlaceholderTextShapeStyle().retainedFallbackColor)
@@ -4358,7 +4380,8 @@ final class WinSwiftUITests: XCTestCase {
             let fixedTint = Color(red: 0.2, green: 0.6, blue: 1.0, alpha: 1)
             let preferredTint = Color(red: 0.9, green: 0.5, blue: 0.1, alpha: 1)
             let inheritedTint = Color(red: 0.3, green: 0.8, blue: 0.4, alpha: 1)
-            let monochromeTint = Color(red: 0.86, green: 0.90, blue: 0.96, alpha: 0.78)
+            // `.monochrome` is the stack's own neutral, no longer blue-cast.
+            let monochromeTint = Color(red: 0.896, green: 0.896, blue: 0.896, alpha: 0.78)
             let listNode = makeNode(
                 List {
                     Label("FIXED", systemImage: "star")
@@ -4428,9 +4451,12 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             XCTAssertEqual(fillNode.textStyle.color, color)
-            XCTAssertEqual(fillNode.preferredSize, Size(width: 20, height: 20))
-            XCTAssertEqual(wideFitNode.preferredSize, Size(width: 20, height: 10))
-            XCTAssertEqual(scaledToFillNode.preferredSize, Size(width: 20, height: 20))
+            // A symbol's image box is `symbolBoxRatio` x the point size:
+            // SF Symbols draw to the font's full ascender-to-descender box.
+            let box = 20 * MacOSControlMetrics.Typography.symbolBoxRatio
+            XCTAssertEqual(fillNode.preferredSize, Size(width: box, height: box))
+            XCTAssertEqual(wideFitNode.preferredSize, Size(width: box, height: box / 2))
+            XCTAssertEqual(scaledToFillNode.preferredSize, Size(width: box, height: box))
         }
     }
 
@@ -4725,11 +4751,14 @@ final class WinSwiftUITests: XCTestCase {
             )
             let readerNode = makeNode(ImageScaleReaderView().imageScale(.large))
 
-            XCTAssertEqual(defaultNode.textStyle.scale, 1.9)
-            XCTAssertEqual(smallNode.textStyle.scale, 1.9 * 0.82)
-            XCTAssertEqual(largeNode.children[0].textStyle.scale, 1.9 * 1.25)
-            XCTAssertEqual(largeNode.children[1].children[0].textStyle.scale, 1.9 * 1.25)
-            XCTAssertEqual(environmentNode.textStyle.scale, 1.9 * 0.82)
+            // An `Image` inherits the ambient font rather than pinning a
+            // fixed 19.4px box, so its bitmap-fallback scale is body''s.
+            let base = Font.body.resolvedScale
+            XCTAssertEqual(defaultNode.textStyle.scale, base, accuracy: 0.0001)
+            XCTAssertEqual(smallNode.textStyle.scale, base * 0.82, accuracy: 0.0001)
+            XCTAssertEqual(largeNode.children[0].textStyle.scale, base * 1.25, accuracy: 0.0001)
+            XCTAssertEqual(largeNode.children[1].children[0].textStyle.scale, base * 1.25, accuracy: 0.0001)
+            XCTAssertEqual(environmentNode.textStyle.scale, base * 0.82, accuracy: 0.0001)
             XCTAssertEqual(readerNode.text, "LARGE")
         }
     }
@@ -4789,7 +4818,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(inheritedNode.children[0].textStyle.color, Color.white.opacity(0.72))
             XCTAssertEqual(inheritedNode.children[1].children[0].textStyle.color, Color.white.opacity(0.72))
             XCTAssertNil(resetNode.children[0].symbolRenderingMode)
-            XCTAssertEqual(resetNode.children[0].textStyle.color, .white)
+            XCTAssertEqual(resetNode.children[0].textStyle.color, .primary)
             XCTAssertEqual(readerNode.text, "MONOCHROME")
             XCTAssertEqual(resetReaderNode.children[0].text, "NONE")
         }
@@ -7189,7 +7218,7 @@ final class WinSwiftUITests: XCTestCase {
 
     func testScrollContentBackgroundVisibilityMapsToRetainedScrollChrome() async {
         await MainActor.run {
-            let scrollBackground = Color(red: 0.18, green: 0.24, blue: 0.32, alpha: 0.92)
+            let scrollBackground = Color(red: 0.233, green: 0.233, blue: 0.233, alpha: 0.92)
             let scrollStyle = ScrollViewStyle(backgroundColor: scrollBackground)
             let sectionGradient = LinearGradient(
                 colors: [.red, .blue],
@@ -7449,7 +7478,7 @@ final class WinSwiftUITests: XCTestCase {
 
     func testListRowBackgroundMapsToRetainedRowBackgrounds() async {
         await MainActor.run {
-            let rowColor = Color(red: 0.20, green: 0.28, blue: 0.38, alpha: 0.90)
+            let rowColor = Color(red: 0.27, green: 0.27, blue: 0.27, alpha: 0.90)
             let gradient = LinearGradient(colors: [.red, .blue], startPoint: .leading, endPoint: .trailing)
             let listNode = makeNode(
                 List {
@@ -7987,7 +8016,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(borderedNode.cornerRadius, 6)
             XCTAssertEqual(borderedLayout, .vertical(spacing: 0, padding: .zero, alignment: .stretch))
 
-            XCTAssertEqual(carouselNode.backgroundColor, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.68))
+            // List bodies are appearance roles, not literals.
+            XCTAssertEqual(carouselNode.backgroundColor, ControlPalette.darkStandard.controlBackground)
             XCTAssertEqual(carouselNode.borderWidth, 1)
             XCTAssertEqual(carouselNode.cornerRadius, 16)
             XCTAssertEqual(
@@ -7999,7 +8029,7 @@ final class WinSwiftUITests: XCTestCase {
                 )
             )
 
-            XCTAssertEqual(insetGroupedNode.backgroundColor, Color(red: 0.09, green: 0.12, blue: 0.18, alpha: 0.78))
+            XCTAssertEqual(insetGroupedNode.backgroundColor, ControlPalette.darkStandard.controlBackground)
             XCTAssertEqual(insetGroupedNode.borderWidth, 1)
             XCTAssertEqual(insetGroupedNode.cornerRadius, 14)
             XCTAssertEqual(
@@ -8021,7 +8051,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertNil(alternatingInsetNode.children[0].backgroundColor)
             XCTAssertEqual(
                 alternatingInsetNode.children[1].backgroundColor,
-                Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08)
+                ControlPalette.darkStandard.quinaryFill
             )
             XCTAssertEqual(alternatingInsetNode.children[1].cornerRadius, 8)
             XCTAssertNil(alternatingInsetNode.children[2].backgroundColor)
@@ -8143,7 +8173,7 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(
                 standardNode.children[2].backgroundColor,
-                Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22)
+                Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.22)
             )
             XCTAssertEqual(
                 increasedNode.children[2].backgroundColor,
@@ -8588,7 +8618,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(inheritedNode.children[0].children.count, 2)
             XCTAssertEqual(inheritedNode.children[0].children[0].text, "NAME")
             XCTAssertEqual(
-                inheritedNode.children[0].backgroundColor, Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.62))
+                inheritedNode.children[0].backgroundColor, ControlPalette.darkStandard.raisedSurface)
+            XCTAssertEqual(inheritedNode.children[0].borderColor, ControlPalette.darkStandard.separator)
             XCTAssertEqual(inheritedNode.children[0].borderWidth, 1)
             XCTAssertEqual(inheritedNode.children[0].cornerRadius, 16)
             guard case .stack(let groupedStackLayout) = inheritedNode.children[0].layoutMode else {
@@ -8645,7 +8676,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(node.children[0].text, "HEADER")
             XCTAssertEqual(node.children[1].text, "ROW")
             XCTAssertEqual(node.children[2].text, "FOOTER")
-            XCTAssertEqual(node.children[0].textStyle.color, SectionStyle.default.headerColor)
+            // `nil` header colour resolves to the appearance's secondary label.
+            XCTAssertEqual(node.children[0].textStyle.color, ControlPalette.darkStandard.secondaryLabel)
             XCTAssertEqual(node.children[2].textStyle.color, .secondary)
         }
     }
@@ -8696,7 +8728,7 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             XCTAssertEqual(allTexts(in: headerNode), ["HEADER", "ROW"])
-            XCTAssertEqual(headerNode.children[0].textStyle.color, SectionStyle.default.headerColor)
+            XCTAssertEqual(headerNode.children[0].textStyle.color, ControlPalette.darkStandard.secondaryLabel)
             XCTAssertEqual(allTexts(in: footerNode), ["ROW", "FOOTER"])
             XCTAssertEqual(footerNode.children[1].textStyle.color, .secondary)
             XCTAssertEqual(allTexts(in: headerFooterNode), ["HEADER", "ROW", "FOOTER"])
@@ -9490,7 +9522,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(allTexts(in: inheritedNode.children[0]), ["EXPORT", "ARCHIVE"])
             XCTAssertEqual(inheritedNode.children[0].cornerRadius, 12)
             XCTAssertEqual(
-                inheritedNode.children[0].backgroundColor, Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.64))
+                inheritedNode.children[0].backgroundColor, Color(red: 0.097, green: 0.097, blue: 0.097, alpha: 0.64))
             guard case .stack(let menuLayout) = inheritedNode.children[0].layoutMode else {
                 XCTFail("Expected menu control group stack layout")
                 return
@@ -9501,7 +9533,7 @@ final class WinSwiftUITests: XCTestCase {
                     spacing: 5, padding: EdgeInsets(top: 5, leading: 7, bottom: 5, trailing: 7), alignment: .center))
 
             XCTAssertEqual(compactGroupNode.cornerRadius, 7)
-            XCTAssertEqual(compactGroupNode.backgroundColor, Color(red: 0.09, green: 0.12, blue: 0.17, alpha: 0.58))
+            XCTAssertEqual(compactGroupNode.backgroundColor, Color(red: 0.117, green: 0.117, blue: 0.117, alpha: 0.58))
             guard case .stack(let compactLayout) = compactGroupNode.layoutMode else {
                 XCTFail("Expected compact menu control group stack layout")
                 return
@@ -9788,16 +9820,16 @@ final class WinSwiftUITests: XCTestCase {
             // child and the bottom hairline its second.
             XCTAssertEqual(
                 navigationNode.children[0].children[0].backgroundColor,
-                Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.96)
+                ControlPalette.darkStandard.windowBackground
             )
             XCTAssertEqual(navigationNode.children[0].children[0].cornerRadius, 0)
             XCTAssertEqual(
-                doubleColumnNavigationNode.backgroundColor, Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.28))
+                doubleColumnNavigationNode.backgroundColor, ControlPalette.darkStandard.controlBackground)
             XCTAssertEqual(doubleColumnNavigationNode.borderWidth, 1)
             XCTAssertEqual(doubleColumnNavigationNode.cornerRadius, 12)
             XCTAssertEqual(doubleColumnNavigationNode.children[0].cornerRadius, 8)
             XCTAssertEqual(
-                columnsNavigationNode.backgroundColor, Color(red: 0.09, green: 0.12, blue: 0.18, alpha: 0.24))
+                columnsNavigationNode.backgroundColor, ControlPalette.darkStandard.controlBackground)
             XCTAssertEqual(columnsNavigationNode.cornerRadius, 14)
             XCTAssertEqual(columnsNavigationNode.children[0].cornerRadius, 12)
         }
@@ -9863,7 +9895,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(splitNode.children[0].borderWidth, 1)
             XCTAssertEqual(splitNode.children[1].borderWidth, 0)
             XCTAssertEqual(
-                splitNode.children[0].backgroundColor, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.24))
+                splitNode.children[0].backgroundColor, Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 0.24))
 
             XCTAssertEqual(prominentNode.children.count, 3)
             XCTAssertEqual(prominentNode.children[0].layoutPriority, 0.75)
@@ -9873,7 +9905,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(prominentNode.children[1].borderWidth, 1)
             XCTAssertEqual(prominentNode.children[2].borderWidth, 0)
             XCTAssertEqual(
-                prominentNode.children[2].backgroundColor, Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.30))
+                prominentNode.children[2].backgroundColor, Color(red: 0.136, green: 0.136, blue: 0.136, alpha: 0.30))
         }
     }
 
@@ -10201,7 +10233,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(styledTabNode.children[2].children[1].preferredSize, Size(width: 6, height: 6))
             XCTAssertEqual(
                 alwaysBackgroundTabNode.children[2].backgroundColor,
-                Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.72))
+                Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 0.72))
             XCTAssertEqual(alwaysBackgroundTabNode.children[2].cornerRadius, 10)
             XCTAssertEqual(hiddenIndexTabNode.children.count, 2)
         }
@@ -11538,7 +11570,7 @@ final class WinSwiftUITests: XCTestCase {
                             dismiss()
                         }
                     }
-                    .presentationBackground(Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 1))
+                    .presentationBackground(Color(red: 0.186, green: 0.186, blue: 0.186, alpha: 1))
                     .presentationBackground(ForegroundStyle.color(.secondary))
                     .presentationBackground(gradient)
                     .presentationBackground(alignment: .top) {
@@ -14936,12 +14968,12 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(firstText(in: node.children[0]), "VALUE")
 
-            node.children[2].onActivate?()
+            stepperIncrement(of: node).onActivate?()
             XCTAssertEqual(value, 6.0, accuracy: 0.001)
             XCTAssertTrue(didInvalidate)
             XCTAssertEqual(editingChanges, [true, false])
 
-            node.children[1].onActivate?()
+            stepperDecrement(of: node).onActivate?()
             XCTAssertEqual(value, 4.0, accuracy: 0.001)
             XCTAssertEqual(editingChanges, [true, false, true, false])
         }
@@ -14965,12 +14997,12 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             XCTAssertTrue(allTexts(in: node.children[0]).contains("COUNT"))
-            XCTAssertTrue(node.children[1].isFocusable)
-            XCTAssertFalse(node.children[2].isFocusable)
+            XCTAssertTrue(stepperDecrement(of: node).isFocusable)
+            XCTAssertFalse(stepperIncrement(of: node).isFocusable)
 
-            node.children[2].onActivate?()
+            stepperIncrement(of: node).onActivate?()
             XCTAssertEqual(value, 1)
-            node.children[1].onActivate?()
+            stepperDecrement(of: node).onActivate?()
             XCTAssertEqual(value, 0)
         }
     }
@@ -14997,10 +15029,10 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(firstText(in: node.children[0]), "VOLUME")
 
-            node.children[2].onActivate?()
+            stepperIncrement(of: node).onActivate?()
             XCTAssertEqual(value, 0.5, accuracy: 0.001)
-            node.children[1].onActivate?()
-            node.children[1].onActivate?()
+            stepperDecrement(of: node).onActivate?()
+            stepperDecrement(of: node).onActivate?()
 
             XCTAssertEqual(value, 0.0, accuracy: 0.001)
             XCTAssertEqual(editingChanges, [true, false, true, false, true, false])
@@ -15018,8 +15050,8 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertFalse(clampedNode.children[1].isFocusable)
-            XCTAssertTrue(clampedNode.children[2].isFocusable)
+            XCTAssertFalse(stepperDecrement(of: clampedNode).isFocusable)
+            XCTAssertTrue(stepperIncrement(of: clampedNode).isFocusable)
         }
     }
 
@@ -15049,13 +15081,13 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             XCTAssertEqual(firstText(in: node.children[0]), "ACTIONS")
-            XCTAssertFalse(node.children[1].isFocusable)
-            XCTAssertTrue(node.children[2].isFocusable)
+            XCTAssertFalse(stepperDecrement(of: node).isFocusable)
+            XCTAssertTrue(stepperIncrement(of: node).isFocusable)
 
-            node.children[1].onActivate?()
+            stepperDecrement(of: node).onActivate?()
             XCTAssertEqual(decrements, 0)
 
-            node.children[2].onActivate?()
+            stepperIncrement(of: node).onActivate?()
             XCTAssertEqual(increments, 1)
             XCTAssertTrue(didInvalidate)
             XCTAssertEqual(editingChanges, [true, false])
@@ -15072,10 +15104,10 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             XCTAssertTrue(allTexts(in: builderNode.children[0]).contains("BUILDER"))
-            XCTAssertTrue(builderNode.children[1].isFocusable)
-            XCTAssertFalse(builderNode.children[2].isFocusable)
+            XCTAssertTrue(stepperDecrement(of: builderNode).isFocusable)
+            XCTAssertFalse(stepperIncrement(of: builderNode).isFocusable)
 
-            builderNode.children[1].onActivate?()
+            stepperDecrement(of: builderNode).onActivate?()
             XCTAssertEqual(decrements, 1)
         }
     }
@@ -20059,13 +20091,13 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(allTexts(in: toolbarNode).contains("SAVE"))
             XCTAssertTrue(toolbarNode.isHidden)
             XCTAssertEqual(toolbarNode.toolbarPlacementTags, Set(["primaryAction"]))
-            XCTAssertEqual(toolbarNode.backgroundColor, Color(red: 0.93, green: 0.96, blue: 1.0, alpha: 0.95))
+            XCTAssertEqual(toolbarNode.backgroundColor, Color(red: 0.957, green: 0.957, blue: 0.957, alpha: 0.95))
             XCTAssertNil(toolbarNode.backgroundGradient)
             XCTAssertEqual(toolbarNode.cornerRadius, 6)
             XCTAssertEqual(toolbarNode.borderColor, Color(red: 0.44, green: 0.60, blue: 0.86, alpha: 0.30))
             XCTAssertEqual(toolbarNode.shadowSpread, 6)
             XCTAssertEqual(
-                firstTextNode(in: toolbarNode)?.textStyle.color, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 1))
+                firstTextNode(in: toolbarNode)?.textStyle.color, Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 1))
             guard case .stack(let toolbarLayout) = toolbarNode.layoutMode else {
                 return XCTFail("Expected retained toolbar row to keep stack layout")
             }
@@ -20139,7 +20171,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(bottomOnlyNode.children[0].toolbarPlacementTags, Set(["bottomBar"]))
             XCTAssertFalse(bottomOnlyNode.children[0].isHidden)
             XCTAssertEqual(
-                bottomOnlyNode.children[0].backgroundColor, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.92))
+                bottomOnlyNode.children[0].backgroundColor,
+                Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 0.92))
 
             XCTAssertTrue(bottomHiddenNode.children[0].isHidden)
             XCTAssertEqual(
@@ -21434,6 +21467,19 @@ private func allTextColors(in node: ViewNode) -> [Color] {
         result.append(contentsOf: allTextColors(in: child))
     }
     return result
+}
+
+/// NSStepper is a *vertical* joined pair — one bezel holding an up chevron
+/// over a down chevron — beside the label, not the side-by-side
+/// decrement/increment pills that used to sit as `children[1]`/`children[2]`.
+@MainActor
+private func stepperIncrement(of node: ViewNode) -> ViewNode {
+    node.children[1].children[0]
+}
+
+@MainActor
+private func stepperDecrement(of node: ViewNode) -> ViewNode {
+    node.children[1].children[1]
 }
 
 @MainActor

@@ -150,11 +150,11 @@ public struct ControlPalette: Sendable, Equatable {
         controlSurfaceHovered: white(0.15),
         controlSurfacePressed: white(0.22),
         raisedSurface: Color(red: 0.157, green: 0.157, blue: 0.161, alpha: 1),
-        label: white(0.85),
-        secondaryLabel: white(0.55),
-        tertiaryLabel: white(0.25),
-        quaternaryLabel: white(0.10),
-        disabledLabel: white(0.25),
+        label: white(LabelHierarchy.primaryAlpha),
+        secondaryLabel: white(LabelHierarchy.secondaryAlpha),
+        tertiaryLabel: white(LabelHierarchy.tertiaryAlpha),
+        quaternaryLabel: white(LabelHierarchy.quaternaryAlpha),
+        disabledLabel: white(LabelHierarchy.tertiaryAlpha),
         selectedContentLabel: .white,
         separator: white(0.10),
         controlBorder: white(0.14),
@@ -175,11 +175,11 @@ public struct ControlPalette: Sendable, Equatable {
         controlSurfaceHovered: Color(red: 0.957, green: 0.957, blue: 0.957, alpha: 1),
         controlSurfacePressed: Color(red: 0.878, green: 0.878, blue: 0.882, alpha: 1),
         raisedSurface: .white,
-        label: black(0.85),
-        secondaryLabel: black(0.50),
-        tertiaryLabel: black(0.26),
-        quaternaryLabel: black(0.10),
-        disabledLabel: black(0.25),
+        label: black(LabelHierarchy.primaryAlpha),
+        secondaryLabel: black(LabelHierarchy.secondaryAlpha),
+        tertiaryLabel: black(LabelHierarchy.tertiaryAlpha),
+        quaternaryLabel: black(LabelHierarchy.quaternaryAlpha),
+        disabledLabel: black(LabelHierarchy.tertiaryAlpha),
         selectedContentLabel: .white,
         separator: black(0.10),
         controlBorder: black(0.16),
@@ -196,8 +196,8 @@ public struct ControlPalette: Sendable, Equatable {
     public static let darkIncreased: ControlPalette = {
         var palette = darkStandard
         palette.label = .white
-        palette.secondaryLabel = white(0.75)
-        palette.tertiaryLabel = white(0.45)
+        palette.secondaryLabel = white(LabelHierarchy.increasedContrastSecondaryAlpha)
+        palette.tertiaryLabel = white(LabelHierarchy.increasedContrastTertiaryAlpha)
         palette.separator = white(0.28)
         palette.controlBorder = white(0.34)
         palette.controlBorderStrong = white(0.55)
@@ -207,8 +207,8 @@ public struct ControlPalette: Sendable, Equatable {
     public static let lightIncreased: ControlPalette = {
         var palette = lightStandard
         palette.label = .black
-        palette.secondaryLabel = black(0.70)
-        palette.tertiaryLabel = black(0.45)
+        palette.secondaryLabel = black(LabelHierarchy.increasedContrastSecondaryAlpha)
+        palette.tertiaryLabel = black(LabelHierarchy.increasedContrastTertiaryAlpha)
         palette.separator = black(0.28)
         palette.controlBorder = black(0.36)
         palette.controlBorderStrong = black(0.55)

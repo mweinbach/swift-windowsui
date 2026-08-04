@@ -18,7 +18,10 @@ struct SwiftWindowsUISnapshotTool {
         let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
             of: view,
             size: IntSize(width: Int32(options.width), height: Int32(options.height)),
-            displayScale: options.displayScale
+            displayScale: options.displayScale,
+            // The window is in the appearance too, not just its content:
+            // the page backdrop behind the app comes from here.
+            colorScheme: options.appearance
         )
 
         let bitmap: BitmapSurface

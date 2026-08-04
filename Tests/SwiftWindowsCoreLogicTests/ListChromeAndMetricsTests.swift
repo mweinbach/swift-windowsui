@@ -41,7 +41,7 @@ final class ListChromeAndMetricsTests: XCTestCase {
 
     func testDefaultListStyleDeclaresRowSeparators() async {
         for style in [ListStyle.automatic, .plain] {
-            let chrome = style.retainedChrome
+            let chrome = style.retainedChrome(palette: .darkStandard)
             XCTAssertTrue(chrome.drawsRowSeparators, "\(style) rules between rows like macOS")
             XCTAssertEqual(chrome.rowMinHeight, MacOSControlMetrics.List.plainRowHeight)
         }

@@ -491,9 +491,9 @@ final class TextMeasurePaintFidelityTests: XCTestCase {
     private func demoPillView() -> some View {
         VStack(alignment: .leading, spacing: 0) {
             DemoPillButton(
-                "CYCLE MODE",
-                colors: [DemoTheme.fieldTop, DemoTheme.fieldBottom],
-                textColor: DemoTheme.primaryText
+                "Cycle mode",
+                colors: [DemoTheme(colorScheme: .dark).fieldTop, DemoTheme(colorScheme: .dark).fieldBottom],
+                textColor: Color.primary
             ) {}
         }
         .padding(8)
@@ -550,17 +550,20 @@ final class TextMeasurePaintFidelityTests: XCTestCase {
                     let view =
                         HStack(alignment: .center, spacing: 12) {
                             DemoPillButton(
-                                "OPEN LAYOUT",
+                                "Open layout",
                                 colors: [
-                                    DemoTheme.fieldTop.opacity(0.94),
-                                    DemoTheme.fieldBottom.opacity(0.70),
+                                    DemoTheme(colorScheme: .dark).fieldTop.opacity(0.94),
+                                    DemoTheme(colorScheme: .dark).fieldBottom.opacity(0.70),
                                 ]
                             ) {}
                             .layoutPriority(1)
                             DemoPillButton(
-                                "CYCLE MODE",
-                                colors: [DemoTheme.fieldTop, DemoTheme.fieldBottom],
-                                textColor: DemoTheme.primaryText
+                                "Cycle mode",
+                                colors: [
+                                    DemoTheme(colorScheme: .dark).fieldTop,
+                                    DemoTheme(colorScheme: .dark).fieldBottom,
+                                ],
+                                textColor: Color.primary
                             ) {}
                             .layoutPriority(1)
                         }

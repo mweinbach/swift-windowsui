@@ -220,6 +220,25 @@ public struct EdgeInsets: Equatable, Sendable {
 
     public static let zero = EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)
 }
+/// The alpha ladder macOS's `labelColor` family is built from.
+///
+/// Both appearances share the ladder; only the base changes (white in
+/// dark, black in light), which is what lets one set of semantic text
+/// colours be correct in both. The values are AppKit's published alphas —
+/// `#..D9`, `#..8C`, `#..40`, `#..19`, `#..0D` — so `Color.primary` and
+/// `ControlPalette.label` are the same colour by construction rather than
+/// by two people rounding to 0.85 independently.
+public enum LabelHierarchy {
+    public static let primaryAlpha: Float = 0xD9 / 255
+    public static let secondaryAlpha: Float = 0x8C / 255
+    public static let tertiaryAlpha: Float = 0x40 / 255
+    public static let quaternaryAlpha: Float = 0x19 / 255
+    public static let quinaryAlpha: Float = 0x0D / 255
+    /// `.increased` contrast lifts the dimmer rungs; AppKit's
+    /// increase-contrast pass takes secondary label to ~75%.
+    public static let increasedContrastSecondaryAlpha: Float = 0xBF / 255
+    public static let increasedContrastTertiaryAlpha: Float = 0x73 / 255
+}
 public struct Color: Equatable, Sendable {
     public var red: Float
     public var green: Float
@@ -252,9 +271,24 @@ public struct Color: Equatable, Sendable {
     public static let mint = Color(red: 0.0, green: 0.780, blue: 0.745, alpha: 1)
     public static let teal = Color(red: 0.188, green: 0.690, blue: 0.780, alpha: 1)
     public static let gray = Color(red: 0.557, green: 0.557, blue: 0.576, alpha: 1)
-    public static let primary = Color(red: 1, green: 1, blue: 1, alpha: 1)
-    public static let secondary = Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 1)
-    public static let highContrastSecondary = Color(red: 0.88, green: 0.92, blue: 0.98, alpha: 1)
+    // The `NSColor.labelColor` family. macOS expresses the text hierarchy
+    // as one alpha ladder over a single neutral base — white in dark
+    // appearance, black in light — and the *ladder is shared* by both. The
+    // base is the only thing an appearance changes, which is why these are
+    // the sentinels an appearance-aware resolver keys off (see
+    // `Color.resolvedForVisualEnvironment` in WinSwiftUI).
+    //
+    // They used to be `primary = (1, 1, 1)` and
+    // `secondary = (0.70, 0.74, 0.80)`: opaque, blue-cast, and with no
+    // light counterpart at all, so light mode was not unwired but
+    // unimplementable.
+    public static let primary = Color(red: 1, green: 1, blue: 1, alpha: LabelHierarchy.primaryAlpha)
+    public static let secondary = Color(red: 1, green: 1, blue: 1, alpha: LabelHierarchy.secondaryAlpha)
+    public static let tertiary = Color(red: 1, green: 1, blue: 1, alpha: LabelHierarchy.tertiaryAlpha)
+    public static let quaternary = Color(red: 1, green: 1, blue: 1, alpha: LabelHierarchy.quaternaryAlpha)
+    public static let quinary = Color(red: 1, green: 1, blue: 1, alpha: LabelHierarchy.quinaryAlpha)
+    public static let highContrastSecondary = Color(
+        red: 1, green: 1, blue: 1, alpha: LabelHierarchy.increasedContrastSecondaryAlpha)
     // macOS controlAccentColor default ("Multicolor → Blue") matches
     // Color.blue at #007AFF.
     // swift-format-ignore: DontRepeatTypeInStaticProperties

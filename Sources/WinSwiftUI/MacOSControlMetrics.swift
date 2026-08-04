@@ -122,10 +122,77 @@ public enum MacOSControlMetrics {
         public static let outsetFromBounds: Double = 3
     }
 
+    /// The macOS system type ramp — `Font.body`, `Font.headline` and the
+    /// rest of `Font.TextStyle`, in points.
+    ///
+    /// This lives beside the control geometry deliberately. The ramp used
+    /// to exist only as literals in `Core.swift`, and because the
+    /// machine-checked constants module never mentioned type, the two were
+    /// free to diverge: the ramp drifted to the *iOS* Dynamic Type table at
+    /// `.large` (body 17, largeTitle 34) while the control geometry stayed
+    /// macOS (a 21pt text field, a 24pt list row, a 22pt push button). A
+    /// 17pt label needs a ~21pt line box, so every control in the app was
+    /// starved by its own label. `Font`'s statics now read from here, which
+    /// is what keeps the type and the boxes it has to fit in pinned by one
+    /// module.
+    ///
+    /// Values are AppKit's `NSFont.preferredFont(forTextStyle:)` on macOS,
+    /// *not* UIKit's. macOS has no `.large` Dynamic Type content size and
+    /// no 34pt large title; the top of the ramp is 26.
+    public enum Typography {
+        public static let largeTitleSize: Double = 26
+        public static let titleSize: Double = 22
+        public static let title2Size: Double = 17
+        public static let title3Size: Double = 15
+        public static let headlineSize: Double = 13
+        public static let bodySize: Double = 13
+        public static let calloutSize: Double = 12
+        public static let subheadlineSize: Double = 11
+        public static let footnoteSize: Double = 10
+        public static let captionSize: Double = 10
+        public static let caption2Size: Double = 10
+
+        /// Leading is a *fraction of the point size*, not an absolute pixel
+        /// count. DirectWrite is given `size + leading` as the uniform line
+        /// height, so `standardLeadingRatio` is what makes 13pt body lay out
+        /// on macOS's 16pt line and 26pt largeTitle on its 32pt line. A flat
+        /// constant (the previous 2px at every size) cramps a title and
+        /// loosens a caption, which reads as a different typeface per size.
+        public static let standardLeadingRatio: Double = 0.22
+        public static let tightLeadingRatio: Double = 0.08
+        public static let looseLeadingRatio: Double = 0.40
+        /// Leading never rounds to nothing, however small the type.
+        public static let minimumLeading: Double = 1
+
+        /// Window and toolbar titles. macOS has no large-title navigation
+        /// bar: `NSWindow.title` and an `NSToolbar` title are 13pt semibold,
+        /// which is also what `Toolbar.regularHeight` (52) assumes.
+        public static let windowTitleSize: Double = 13
+        /// The secondary line under a window title (a toolbar subtitle).
+        public static let windowSubtitleSize: Double = 11
+        /// Tracking added to an uppercase run, as a fraction of the point
+        /// size. Capitals carry sidebearings tuned for mixed-case setting;
+        /// without extra tracking an all-caps label reads as a solid block.
+        public static let uppercaseTrackingRatio: Double = 0.06
+        /// An SF Symbol's image box relative to the point size of the font
+        /// it inherits. SF Symbols are drawn to the font's full
+        /// ascender-to-descender box at `.medium` scale, so a symbol beside
+        /// 13pt body text occupies roughly 16pt.
+        public static let symbolBoxRatio: Double = 1.25
+        /// Grouped-form / list section headers — `NSTableView`'s group row
+        /// and SwiftUI's `Form` section header. Hierarchy here comes from
+        /// size and colour, not weight alone.
+        public static let sectionHeaderSize: Double = 11
+    }
+
     /// `VStack`, `HStack` default spacing on macOS — SwiftUI uses
     /// 8pt between adjacent views unless explicitly overridden.
     public enum Layout {
         public static let defaultStackSpacing: Double = 8
+        /// Gap between a `Label`'s symbol and its title. AppKit's
+        /// image-and-title cell uses a 6pt gutter; the previous 10 was
+        /// tuned against a 17.6px semibold title.
+        public static let labelIconSpacing: Double = 6
         /// `.padding()` no-argument default — macOS uses 16pt on all
         /// edges.
         public static let defaultPadding: Double = 16

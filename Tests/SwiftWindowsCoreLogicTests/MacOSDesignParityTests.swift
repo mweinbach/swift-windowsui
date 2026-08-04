@@ -10,25 +10,30 @@ import XCTest
 final class MacOSDesignParityTests: XCTestCase {
 
     // MARK: - Font.system text styles
+    //
+    // The *macOS* ramp (AppKit `NSFont.preferredFont(forTextStyle:)`), not
+    // the iOS Dynamic Type table at `.large`. These used to assert body 17
+    // / largeTitle 34, which is verbatim iOS, under the name "macOS
+    // parity" — so the guardrail was actively locking the wrong ramp in.
 
     func testLargeTitleSizeMatchesSwiftUIDefault() async {
-        XCTAssertEqual(Font.largeTitle.size, 34, accuracy: 0.001)
+        XCTAssertEqual(Font.largeTitle.size, 26, accuracy: 0.001)
     }
 
     func testTitleSizeMatchesSwiftUIDefault() async {
-        XCTAssertEqual(Font.title.size, 28, accuracy: 0.001)
+        XCTAssertEqual(Font.title.size, 22, accuracy: 0.001)
     }
 
     func testTitle2SizeMatchesSwiftUIDefault() async {
-        XCTAssertEqual(Font.title2.size, 22, accuracy: 0.001)
+        XCTAssertEqual(Font.title2.size, 17, accuracy: 0.001)
     }
 
     func testTitle3SizeMatchesSwiftUIDefault() async {
-        XCTAssertEqual(Font.title3.size, 20, accuracy: 0.001)
+        XCTAssertEqual(Font.title3.size, 15, accuracy: 0.001)
     }
 
     func testHeadlineSizeMatchesSwiftUIDefault() async {
-        XCTAssertEqual(Font.headline.size, 17, accuracy: 0.001)
+        XCTAssertEqual(Font.headline.size, 13, accuracy: 0.001)
     }
 
     func testHeadlineUsesSemiboldWeightLikeSwiftUI() async {
@@ -36,27 +41,49 @@ final class MacOSDesignParityTests: XCTestCase {
     }
 
     func testSubheadlineSizeMatchesSwiftUIDefault() async {
-        XCTAssertEqual(Font.subheadline.size, 15, accuracy: 0.001)
+        XCTAssertEqual(Font.subheadline.size, 11, accuracy: 0.001)
     }
 
     func testBodySizeMatchesSwiftUIDefault() async {
-        XCTAssertEqual(Font.body.size, 17, accuracy: 0.001)
+        XCTAssertEqual(Font.body.size, 13, accuracy: 0.001)
     }
 
     func testCalloutSizeMatchesSwiftUIDefault() async {
-        XCTAssertEqual(Font.callout.size, 16, accuracy: 0.001)
+        XCTAssertEqual(Font.callout.size, 12, accuracy: 0.001)
     }
 
     func testFootnoteSizeMatchesSwiftUIDefault() async {
-        XCTAssertEqual(Font.footnote.size, 13, accuracy: 0.001)
+        XCTAssertEqual(Font.footnote.size, 10, accuracy: 0.001)
     }
 
     func testCaptionSizeMatchesSwiftUIDefault() async {
-        XCTAssertEqual(Font.caption.size, 12, accuracy: 0.001)
+        XCTAssertEqual(Font.caption.size, 10, accuracy: 0.001)
     }
 
     func testCaption2SizeMatchesSwiftUIDefault() async {
-        XCTAssertEqual(Font.caption2.size, 11, accuracy: 0.001)
+        XCTAssertEqual(Font.caption2.size, 10, accuracy: 0.001)
+    }
+
+    /// The ramp and the control geometry are pinned by the same module.
+    /// They used to live in two places — literals in `Core.swift` and a
+    /// prose table — which is how a 17pt body ended up specified alongside
+    /// a 21pt text field.
+    func testTypeRampReadsFromTheSameModuleAsControlGeometry() async {
+        XCTAssertEqual(Font.body.size, MacOSControlMetrics.Typography.bodySize, accuracy: 0.001)
+        XCTAssertEqual(Font.headline.size, MacOSControlMetrics.Typography.headlineSize, accuracy: 0.001)
+        XCTAssertEqual(Font.largeTitle.size, MacOSControlMetrics.Typography.largeTitleSize, accuracy: 0.001)
+        XCTAssertEqual(Font.caption.size, MacOSControlMetrics.Typography.captionSize, accuracy: 0.001)
+    }
+
+    /// A body label has to fit the box the same module specifies for it.
+    func testBodyLineBoxFitsTheStandardTextFieldAndListRow() async {
+        let lineHeight = Font.body.size + Font.body.resolvedLineSpacing
+        XCTAssertLessThanOrEqual(
+            lineHeight, MacOSControlMetrics.TextField.regularHeight,
+            "A body label must fit inside a standard text field")
+        XCTAssertLessThanOrEqual(
+            lineHeight, MacOSControlMetrics.List.plainRowHeight,
+            "A body label must fit inside a plain list row")
     }
 
     func testNonHeadlineStylesUseRegularWeightLikeSwiftUI() async {

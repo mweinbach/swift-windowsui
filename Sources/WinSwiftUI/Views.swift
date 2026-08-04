@@ -3666,7 +3666,10 @@ private struct RetainedNavigationViewChrome {
     /// the bordered-card header.
     var headerSeparatorColor: Color? = nil
 }
-private func retainedNavigationViewChrome(for style: NavigationViewStyle?) -> RetainedNavigationViewChrome {
+private func retainedNavigationViewChrome(
+    for style: NavigationViewStyle?,
+    palette: ControlPalette
+) -> RetainedNavigationViewChrome {
     // macOS parity: the navigation title band is a toolbar, not a card —
     // full bleed, `MacOSControlMetrics.Toolbar.regularHeight` tall, one
     // hairline along the bottom, and the body starts directly under it.
@@ -3675,14 +3678,14 @@ private func retainedNavigationViewChrome(for style: NavigationViewStyle?) -> Re
         containerBorderColor: .clear,
         containerBorderWidth: 0,
         containerCornerRadius: 0,
-        headerBackground: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.92),
+        headerBackground: palette.windowBackground,
         headerBorderColor: .clear,
         headerBorderWidth: 0,
         headerCornerRadius: 0,
         spacing: 0,
         headerMinHeight: MacOSControlMetrics.Toolbar.regularHeight,
         headerPadding: EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20),
-        headerSeparatorColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14)
+        headerSeparatorColor: palette.separator
     )
 
     guard let style else {
@@ -3698,35 +3701,35 @@ private func retainedNavigationViewChrome(for style: NavigationViewStyle?) -> Re
             containerBorderColor: .clear,
             containerBorderWidth: 0,
             containerCornerRadius: 0,
-            headerBackground: Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.96),
+            headerBackground: palette.windowBackground,
             headerBorderColor: .clear,
             headerBorderWidth: 0,
             headerCornerRadius: 0,
             spacing: 0,
             headerMinHeight: MacOSControlMetrics.Toolbar.regularHeight,
             headerPadding: EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20),
-            headerSeparatorColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14)
+            headerSeparatorColor: palette.separator
         )
     case .doubleColumn:
         return RetainedNavigationViewChrome(
-            containerBackground: Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.28),
-            containerBorderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.08),
+            containerBackground: palette.controlBackground,
+            containerBorderColor: palette.separator,
             containerBorderWidth: 1,
             containerCornerRadius: 12,
-            headerBackground: Color(red: 0.06, green: 0.09, blue: 0.14, alpha: 0.94),
-            headerBorderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+            headerBackground: palette.windowBackground,
+            headerBorderColor: palette.separator,
             headerBorderWidth: 1,
             headerCornerRadius: 8,
             spacing: 12
         )
     case .columns:
         return RetainedNavigationViewChrome(
-            containerBackground: Color(red: 0.09, green: 0.12, blue: 0.18, alpha: 0.24),
-            containerBorderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.10),
+            containerBackground: palette.controlBackground,
+            containerBorderColor: palette.separator,
             containerBorderWidth: 1,
             containerCornerRadius: 14,
-            headerBackground: Color(red: 0.09, green: 0.13, blue: 0.19, alpha: 0.90),
-            headerBorderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16),
+            headerBackground: palette.windowBackground,
+            headerBorderColor: palette.separator,
             headerBorderWidth: 1,
             headerCornerRadius: 12,
             spacing: 12
@@ -3864,19 +3867,26 @@ private func navigationContainerComponent(
     let hidesBackButton = navigationBarBackButtonHidden(in: visibleContent) ?? false
     let displayMode =
         navigationTitleDisplayMode(in: visibleContent) ?? navigationTitleDisplayMode(in: content) ?? .automatic
+    // macOS has no large-title navigation bar. `NSWindow.title` and an
+    // `NSToolbar` title are 13pt semibold in both display modes, which is
+    // the scale `Toolbar.regularHeight` (52) already assumes. The previous
+    // 20px semibold / 26px bold pair was the iOS `.inline` / `.large` split
+    // expressed in legacy scale units, and it put a banner where a window
+    // title belongs. `.large` is honoured only as a slightly heavier weight.
     let titleFont: Font =
         displayMode == .inline
-        ? .system(size: 2, weight: .semibold)
-        : .system(size: 3, weight: .bold)
-    let chrome = retainedNavigationViewChrome(for: navigationViewStyle)
+        ? .system(size: MacOSControlMetrics.Typography.windowTitleSize, weight: .semibold)
+        : .system(size: MacOSControlMetrics.Typography.windowTitleSize, weight: .bold)
+    let chrome = retainedNavigationViewChrome(for: navigationViewStyle, palette: context.controlPalette)
+    let palette = context.controlPalette
     let titleContext =
         context
-        .withForegroundColor(Color(red: 0.92, green: 0.96, blue: 1.0))
+        .withForegroundColor(palette.label)
         .withFont(titleFont)
     let subtitleContext =
         context
-        .withForegroundColor(Color(red: 0.70, green: 0.78, blue: 0.90, alpha: 0.86))
-        .withFont(.system(size: 1.35, weight: .regular))
+        .withForegroundColor(palette.secondaryLabel)
+        .withFont(.system(size: MacOSControlMetrics.Typography.windowSubtitleSize, weight: .regular))
 
     let titleComponent = composeComponent(
         from: title ?? [AnyView(Text("BACK"))],
@@ -3913,7 +3923,7 @@ private func navigationContainerComponent(
             let backLabel = Controls.label(
                 "<",
                 preferredSize: Size(width: 22, height: 26),
-                color: Color(red: 0.92, green: 0.96, blue: 1.0),
+                color: Color(red: 0.954, green: 0.954, blue: 0.954),
                 scale: 1.5,
                 weight: .bold,
                 lineBreakMode: .truncateTail,
@@ -4273,30 +4283,30 @@ public struct NavigationSplitView: View {
         switch style.kind {
         case .automatic:
             node.layoutPriority = 1
-            node.borderColor = index == count - 1 ? .clear : Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.08)
+            node.borderColor = index == count - 1 ? .clear : Color(red: 0.975, green: 0.975, blue: 0.975, alpha: 0.08)
             node.borderWidth = index == count - 1 ? 0 : 1
         case .balanced:
             node.layoutPriority = 1
-            node.backgroundColor = Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.24)
-            node.borderColor = index == count - 1 ? .clear : Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.10)
+            node.backgroundColor = Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 0.24)
+            node.borderColor = index == count - 1 ? .clear : Color(red: 0.975, green: 0.975, blue: 0.975, alpha: 0.10)
             node.borderWidth = index == count - 1 ? 0 : 1
         case .prominentDetail:
             let isDetail = index == count - 1
             node.layoutPriority = isDetail ? 2 : 0.75
             node.backgroundColor =
                 isDetail
-                ? Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.30)
-                : Color(red: 0.06, green: 0.09, blue: 0.13, alpha: 0.28)
-            node.borderColor = isDetail ? .clear : Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.12)
+                ? Color(red: 0.136, green: 0.136, blue: 0.136, alpha: 0.30)
+                : Color(red: 0.087, green: 0.087, blue: 0.087, alpha: 0.28)
+            node.borderColor = isDetail ? .clear : Color(red: 0.975, green: 0.975, blue: 0.975, alpha: 0.12)
             node.borderWidth = isDetail ? 0 : 1
         case .prominentDetailAndSidebar:
             let isDetail = index == count - 1
             node.layoutPriority = isDetail ? 2 : 0.75
             node.backgroundColor =
                 isDetail
-                ? Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.30)
-                : Color(red: 0.06, green: 0.09, blue: 0.13, alpha: 0.28)
-            node.borderColor = isDetail ? .clear : Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.12)
+                ? Color(red: 0.136, green: 0.136, blue: 0.136, alpha: 0.30)
+                : Color(red: 0.087, green: 0.087, blue: 0.087, alpha: 0.28)
+            node.borderColor = isDetail ? .clear : Color(red: 0.975, green: 0.975, blue: 0.975, alpha: 0.12)
             node.borderWidth = isDetail ? 0 : 1
         }
     }
@@ -4729,7 +4739,7 @@ public struct TabView: View {
 
     private func tabBarComponent(selectedIndex: Int, context: ViewBuildContext) -> Component {
         Component { runtime in
-            let chrome = Self.retainedTabChrome(for: context.tabViewStyle)
+            let chrome = Self.retainedTabChrome(for: context.tabViewStyle, palette: context.controlPalette)
             let tabNodes = content.enumerated().map { index, view in
                 let labelViews = view.tabItem ?? [AnyView(Text("TAB \(index + 1)"))]
                 let labelNode = composeComponent(
@@ -4847,7 +4857,7 @@ public struct TabView: View {
                 preferredSize: Size(width: isSelected ? 18 : 6, height: 6),
                 backgroundColor: isSelected
                     ? tint.opacity(0.92)
-                    : Color(red: 0.74, green: 0.80, blue: 0.90, alpha: 0.42),
+                    : Color(red: 0.794, green: 0.794, blue: 0.794, alpha: 0.42),
                 cornerRadius: 3,
                 isHitTestVisible: false
             )
@@ -4889,22 +4899,22 @@ public struct TabView: View {
             switch backgroundDisplayMode.kind {
             case .automatic:
                 return RetainedPageIndexChrome(
-                    backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.34),
-                    borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                    backgroundColor: Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 0.34),
+                    borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.08),
                     borderWidth: 1,
                     cornerRadius: 9
                 )
             case .always:
                 return RetainedPageIndexChrome(
-                    backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.72),
-                    borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+                    backgroundColor: Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 0.72),
+                    borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.14),
                     borderWidth: 1,
                     cornerRadius: 10
                 )
             case .interactive:
                 return RetainedPageIndexChrome(
-                    backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.52),
-                    borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12),
+                    backgroundColor: Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 0.52),
+                    borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.12),
                     borderWidth: 1,
                     cornerRadius: 10
                 )
@@ -4919,12 +4929,17 @@ public struct TabView: View {
         }
     }
 
-    private static func retainedTabChrome(for style: TabViewStyle) -> RetainedTabChrome {
+    private static func retainedTabChrome(for style: TabViewStyle, palette: ControlPalette) -> RetainedTabChrome {
+        // The band and its hairline are appearance roles; only the geometry
+        // varies by style. These used to be dark literals, which is why a
+        // light-mode app kept a dark tab bar over light content.
+        let band = palette.raisedSurface
+        let hairline = palette.separator
         switch style.kind {
         case .automatic, .tabBarOnly:
             return RetainedTabChrome(
-                backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.88),
-                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                backgroundColor: band,
+                borderColor: hairline,
                 borderWidth: 1,
                 cornerRadius: 12,
                 spacing: 4,
@@ -4933,14 +4948,14 @@ public struct TabView: View {
                 tabPadding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12),
                 selectedBorderAlpha: 0.42,
                 selectedBorderWidth: 1,
-                unselectedBorderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                unselectedBorderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.08),
                 unselectedBorderWidth: 1,
                 hoverBorderAlpha: 0.24
             )
         case .grouped:
             return RetainedTabChrome(
-                backgroundColor: Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.74),
-                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+                backgroundColor: band,
+                borderColor: hairline,
                 borderWidth: 1,
                 cornerRadius: 16,
                 spacing: 8,
@@ -4949,14 +4964,14 @@ public struct TabView: View {
                 tabPadding: EdgeInsets(top: 9, leading: 14, bottom: 9, trailing: 14),
                 selectedBorderAlpha: 0.50,
                 selectedBorderWidth: 1,
-                unselectedBorderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.06),
+                unselectedBorderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.06),
                 unselectedBorderWidth: 1,
                 hoverBorderAlpha: 0.28
             )
         case .sidebarAdaptable:
             return RetainedTabChrome(
-                backgroundColor: Color(red: 0.08, green: 0.12, blue: 0.18, alpha: 0.70),
-                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.10),
+                backgroundColor: band,
+                borderColor: hairline,
                 borderWidth: 1,
                 cornerRadius: 8,
                 spacing: 3,
@@ -4971,8 +4986,8 @@ public struct TabView: View {
             )
         case .page, .verticalPage:
             return RetainedTabChrome(
-                backgroundColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 0.48),
-                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.06),
+                backgroundColor: band,
+                borderColor: hairline,
                 borderWidth: 1,
                 cornerRadius: 20,
                 spacing: 6,
@@ -4987,8 +5002,8 @@ public struct TabView: View {
             )
         case .carousel:
             return RetainedTabChrome(
-                backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.58),
-                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12),
+                backgroundColor: band,
+                borderColor: hairline,
                 borderWidth: 1,
                 cornerRadius: 18,
                 spacing: 10,
@@ -4997,7 +5012,7 @@ public struct TabView: View {
                 tabPadding: EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16),
                 selectedBorderAlpha: 0.56,
                 selectedBorderWidth: 1,
-                unselectedBorderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.05),
+                unselectedBorderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.05),
                 unselectedBorderWidth: 1,
                 hoverBorderAlpha: 0.20
             )
@@ -5831,13 +5846,17 @@ public struct Text: View {
         let retainedListTintColor = context.listItemTint?.retainedTint.color
         let resolvedColor = (color ?? retainedListTintColor ?? context.foregroundColor)
             .resolvedForVisualEnvironment(
+                colorScheme: context.colorScheme,
                 contrast: context.colorSchemeContrast,
                 backgroundProminence: context.backgroundProminence
             )
         let inheritedFont = context.fontWeight.map { context.font.weight($0) } ?? context.font
         var resolvedFont: Font
         if let font {
-            resolvedFont = font ?? .system(size: 2)
+            // `.font(nil)` is "clear the ambient font", which SwiftUI
+            // resolves to the system default — `.body` — not to some other
+            // size.
+            resolvedFont = font ?? .body
         } else {
             resolvedFont = inheritedFont
         }
@@ -5893,9 +5912,17 @@ public struct Text: View {
                 fontWidth: resolvedFont.width.retainedTextFontWidth,
                 alignment: resolvedAlignment.textAlignment(layoutDirection: context.layoutDirection),
                 letterSpacing: letterSpacing ?? context.letterSpacing ?? 1,
-                // Native tracking only when the app actually asked. The
-                // `?? 1` above is the 5x7 atlas gap, not a point value.
-                nativeLetterSpacing: letterSpacing ?? context.letterSpacing,
+                // Native tracking only when the app actually asked, or when
+                // the text is uppercase. The `?? 1` above is the 5x7 atlas
+                // gap, not a point value.
+                //
+                // Uppercase runs need positive tracking: capitals are drawn
+                // with sidebearings tuned for mixed case, so set solid they
+                // read as a shouty banner rather than a label. macOS uses
+                // roughly 0.06em on caption-scale caps, which is exactly
+                // where uppercase labels live.
+                nativeLetterSpacing: letterSpacing ?? context.letterSpacing
+                    ?? uppercaseTracking(for: resolvedFont, textCase: textCase ?? context.textCase),
                 lineSpacing: lineSpacing ?? context.lineSpacing ?? resolvedFont.resolvedLineSpacing,
                 lineBreakMode: self.lineBreakMode?.retainedTextLineBreakMode
                     ?? resolvedLineBreakMode(
@@ -6056,9 +6083,9 @@ public struct Text: View {
 
         let baseFont: Font
         if let font = copy.font {
-            baseFont = font ?? .system(size: 2)
+            baseFont = font ?? .body
         } else {
-            baseFont = .system(size: 2)
+            baseFont = .body
         }
         copy.font = .some(baseFont.weight(weight))
         return copy
@@ -6258,6 +6285,15 @@ public struct Text: View {
         return copy
     }
 
+    /// Default tracking for an uppercase run, in points, or `nil` when the
+    /// text is not uppercase and should keep the face's own metrics.
+    private func uppercaseTracking(for font: Font, textCase: Text.Case?) -> Double? {
+        guard textCase == .uppercase else {
+            return nil
+        }
+        return font.resolvedNativeTextSize * MacOSControlMetrics.Typography.uppercaseTrackingRatio
+    }
+
     private func resolvedLineBreakMode(lineLimit: Int?, truncationMode: TruncationMode?) -> TextLineBreakMode {
         guard let lineLimit else {
             return .wrap
@@ -6343,7 +6379,11 @@ public struct Image: View {
 
     private let storage: Storage
     private var color: Color?
-    private var font: Font
+    /// `nil` means "inherit the ambient font", which is what SwiftUI does:
+    /// a symbol sits at the size of the text it is beside. This used to be
+    /// a non-optional `.system(size: 1.9)` — a legacy 5x7 scale unit that
+    /// expanded to a fixed 19.4px box regardless of the surrounding type.
+    private var font: Font?
     private var alignment: TextAlignment
     private var isResizable: Bool
     private var resizingMode: ResizingMode
@@ -6432,7 +6472,7 @@ public struct Image: View {
     private init(storage: Storage) {
         self.storage = storage
         self.color = nil
-        self.font = .system(size: 1.9)
+        self.font = nil
         self.alignment = .center
         self.isResizable = false
         self.resizingMode = .stretch
@@ -6458,6 +6498,7 @@ public struct Image: View {
             let symbol = resolvedSymbolIcon(for: systemName, variants: symbolVariants)
             let resolvedColor = (color ?? context.foregroundColor)
                 .resolvedForVisualEnvironment(
+                    colorScheme: context.colorScheme,
                     contrast: context.colorSchemeContrast,
                     backgroundProminence: context.backgroundProminence
                 )
@@ -6467,9 +6508,15 @@ public struct Image: View {
                 tint: context.tint
             )
             let imageScale = context.imageScale.resolvedMultiplier
-            let resolvedScale = font.resolvedScale * imageScale
-            let baseSize = Size(
-                width: font.resolvedNativeTextSize * imageScale, height: font.resolvedNativeTextSize * imageScale)
+            let symbolFont = font ?? context.font
+            // An SF Symbol's image box is taller than the point size of the
+            // text it accompanies — the glyph is drawn to the font's
+            // ascender-to-descender box, not its cap height. Without the
+            // ratio a 13pt row label would sit beside a 13px icon and read
+            // as the larger element.
+            let symbolBox = symbolFont.resolvedNativeTextSize * MacOSControlMetrics.Typography.symbolBoxRatio
+            let resolvedScale = symbolFont.resolvedScale * imageScale
+            let baseSize = Size(width: symbolBox * imageScale, height: symbolBox * imageScale)
             let preferredSize = resolvedPreferredSize(baseSize: baseSize, requiresExplicitOptIn: true)
             return Component { _ in
                 let node = Controls.icon(
@@ -6651,6 +6698,7 @@ public struct Image: View {
 
         let tint = (color ?? context.foregroundColor)
             .resolvedForVisualEnvironment(
+                colorScheme: context.colorScheme,
                 contrast: context.colorSchemeContrast,
                 backgroundProminence: context.backgroundProminence
             )
@@ -7303,23 +7351,25 @@ public struct Label: View {
     private let title: [AnyView]
     private let icon: [AnyView]
     private var color: Color?
-    private var font: Font
+    /// `nil` means "inherit the ambient font", which is what a macOS
+    /// `Label` does. This used to be a hardcoded `.system(size: 1.6,
+    /// weight: .semibold)` — 17.6px semibold via the legacy scale-unit rule
+    /// — applied with `.withFont`, so it *overrode* any `.font()` the app
+    /// had set on the list around it and turned every plain row into a
+    /// banner. A macOS list row is regular weight at the ambient size.
+    private var font: Font?
     private var spacing: Double
 
     public init(_ title: String, image name: String) {
         self.title = [
-            AnyView(
-                Text(title)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(1)
-            )
+            AnyView(Text(title).multilineTextAlignment(.leading))
         ]
         self.icon = [
             AnyView(Image(name))
         ]
         self.color = nil
-        self.font = .system(size: 1.6, weight: .semibold)
-        self.spacing = 10
+        self.font = nil
+        self.spacing = MacOSControlMetrics.Layout.labelIconSpacing
     }
 
     public init<S: StringProtocol>(_ title: S, image name: String) {
@@ -7332,18 +7382,14 @@ public struct Label: View {
 
     public init<S: StringProtocol>(_ title: S, image resource: ImageResource) {
         self.title = [
-            AnyView(
-                Text(String(title))
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(1)
-            )
+            AnyView(Text(String(title)).multilineTextAlignment(.leading))
         ]
         self.icon = [
             AnyView(Image(resource))
         ]
         self.color = nil
-        self.font = .system(size: 1.6, weight: .semibold)
-        self.spacing = 10
+        self.font = nil
+        self.spacing = MacOSControlMetrics.Layout.labelIconSpacing
     }
 
     public init(_ titleKey: LocalizedStringKey, image resource: ImageResource) {
@@ -7352,18 +7398,14 @@ public struct Label: View {
 
     public init(_ title: String, systemImage: String) {
         self.title = [
-            AnyView(
-                Text(title)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(1)
-            )
+            AnyView(Text(title).multilineTextAlignment(.leading))
         ]
         self.icon = [
             AnyView(Image(systemName: systemImage))
         ]
         self.color = nil
-        self.font = .system(size: 1.6, weight: .semibold)
-        self.spacing = 10
+        self.font = nil
+        self.spacing = MacOSControlMetrics.Layout.labelIconSpacing
     }
 
     public init<S: StringProtocol>(_ title: S, systemImage: String) {
@@ -7378,8 +7420,8 @@ public struct Label: View {
         self.title = title()
         self.icon = icon()
         self.color = nil
-        self.font = .system(size: 1.6, weight: .semibold)
-        self.spacing = 10
+        self.font = nil
+        self.spacing = MacOSControlMetrics.Layout.labelIconSpacing
     }
 
     public var body: Never {
@@ -7389,15 +7431,20 @@ public struct Label: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let resolvedColor = (color ?? context.foregroundColor)
             .resolvedForVisualEnvironment(
+                colorScheme: context.colorScheme,
                 contrast: context.colorSchemeContrast,
                 backgroundProminence: context.backgroundProminence
             )
-        let labelContext =
+        // Only narrow what the label actually owns. Forcing `lineLimit(1)`
+        // here is not something SwiftUI does, and it made every wrapped
+        // label in the app truncate.
+        var labelContext =
             context
             .withForegroundColor(resolvedColor)
-            .withFont(font)
             .withTextAlignment(.leading)
-            .withLineLimit(1)
+        if let font {
+            labelContext = labelContext.withFont(font)
+        }
         switch context.labelStyle.kind {
         case .automatic, .titleAndIcon:
             return HStack(spacing: spacing) {
@@ -9206,7 +9253,7 @@ public struct List: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
-            let listChrome = context.listStyle.retainedChrome
+            let listChrome = context.listStyle.retainedChrome(palette: context.controlPalette)
             let alignmentAnchor = context.defaultScrollAnchor(for: .alignment)
             let isEditing = context.environmentValues.editMode?.wrappedValue.isEditing == true
             let navigationState = ListKeyboardNavigationState()
@@ -9829,16 +9876,16 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
             case .inset:
                 headerBackground =
                     isDark
-                    ? Color(red: 0.10, green: 0.12, blue: 0.14, alpha: 1)
-                    : Color(red: 0.97, green: 0.98, blue: 0.99, alpha: 1)
+                    ? Color(red: 0.117, green: 0.117, blue: 0.117, alpha: 1)
+                    : Color(red: 0.979, green: 0.979, blue: 0.979, alpha: 1)
                 rowAltBackground =
                     isDark
-                    ? Color(red: 0.09, green: 0.11, blue: 0.13, alpha: 1)
-                    : Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 1)
+                    ? Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 1)
+                    : Color(red: 0.989, green: 0.989, blue: 0.989, alpha: 1)
                 borderColor =
                     isDark
-                    ? Color(red: 0.24, green: 0.28, blue: 0.32, alpha: 1)
-                    : Color(red: 0.78, green: 0.82, blue: 0.86, alpha: 1)
+                    ? Color(red: 0.274, green: 0.274, blue: 0.274, alpha: 1)
+                    : Color(red: 0.814, green: 0.814, blue: 0.814, alpha: 1)
                 borderWidth = 1
                 cornerRadius = 10
                 rowSpacing = 0
@@ -9847,16 +9894,16 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
             case .bordered:
                 headerBackground =
                     isDark
-                    ? Color(red: 0.14, green: 0.16, blue: 0.18, alpha: 1)
-                    : Color(red: 0.92, green: 0.94, blue: 0.96, alpha: 1)
+                    ? Color(red: 0.157, green: 0.157, blue: 0.157, alpha: 1)
+                    : Color(red: 0.937, green: 0.937, blue: 0.937, alpha: 1)
                 rowAltBackground =
                     isDark
-                    ? Color(red: 0.11, green: 0.13, blue: 0.15, alpha: 1)
-                    : Color(red: 0.96, green: 0.97, blue: 0.98, alpha: 1)
+                    ? Color(red: 0.127, green: 0.127, blue: 0.127, alpha: 1)
+                    : Color(red: 0.969, green: 0.969, blue: 0.969, alpha: 1)
                 borderColor =
                     isDark
-                    ? Color(red: 0.35, green: 0.40, blue: 0.45, alpha: 1)
-                    : Color(red: 0.65, green: 0.70, blue: 0.75, alpha: 1)
+                    ? Color(red: 0.393, green: 0.393, blue: 0.393, alpha: 1)
+                    : Color(red: 0.693, green: 0.693, blue: 0.693, alpha: 1)
                 borderWidth = 2
                 cornerRadius = 6
                 rowSpacing = 0
@@ -9865,13 +9912,13 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
             case .automatic:
                 headerBackground =
                     isDark
-                    ? Color(red: 0.12, green: 0.14, blue: 0.16, alpha: 1)
-                    : Color(red: 0.95, green: 0.96, blue: 0.97, alpha: 1)
+                    ? Color(red: 0.137, green: 0.137, blue: 0.137, alpha: 1)
+                    : Color(red: 0.959, green: 0.959, blue: 0.959, alpha: 1)
                 rowAltBackground =
                     isDark
-                    ? Color(red: 0.10, green: 0.11, blue: 0.12, alpha: 1)
-                    : Color(red: 0.97, green: 0.98, blue: 0.99, alpha: 1)
-                borderColor = Color(red: 0.85, green: 0.87, blue: 0.89, alpha: 1)
+                    ? Color(red: 0.109, green: 0.109, blue: 0.109, alpha: 1)
+                    : Color(red: 0.979, green: 0.979, blue: 0.979, alpha: 1)
+                borderColor = Color(red: 0.867, green: 0.867, blue: 0.867, alpha: 1)
                 borderWidth = 1
                 cornerRadius = 4
                 rowSpacing = 0
@@ -10155,7 +10202,7 @@ public struct Form: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
-            let chrome = Self.retainedChrome(for: context.formStyle)
+            let chrome = Self.retainedChrome(for: context.formStyle, palette: context.controlPalette)
             let node = Controls.stackPanel(
                 backgroundColor: chrome.backgroundColor,
                 borderColor: chrome.borderColor,
@@ -10185,7 +10232,7 @@ public struct Form: View {
         var cornerRadius: Double
     }
 
-    private static func retainedChrome(for style: FormStyle) -> RetainedChrome {
+    private static func retainedChrome(for style: FormStyle, palette: ControlPalette) -> RetainedChrome {
         switch style.kind {
         case .automatic:
             return RetainedChrome(
@@ -10201,7 +10248,7 @@ public struct Form: View {
                 spacing: 8,
                 padding: EdgeInsets(top: 8, leading: 18, bottom: 8, trailing: 18),
                 backgroundColor: nil,
-                borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.08),
+                borderColor: palette.separator,
                 borderWidth: 1,
                 cornerRadius: 8
             )
@@ -10209,8 +10256,8 @@ public struct Form: View {
             return RetainedChrome(
                 spacing: 10,
                 padding: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16),
-                backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.62),
-                borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.10),
+                backgroundColor: palette.raisedSurface,
+                borderColor: palette.separator,
                 borderWidth: 1,
                 cornerRadius: 16
             )
@@ -10358,18 +10405,35 @@ public struct Section: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let expansionBinding = isExpanded
+        // A macOS grouped-form header is 11pt semibold in the secondary
+        // label colour: hierarchy comes from size *and* colour. At body
+        // size in near-white it differed from its own rows by weight alone,
+        // which is why the settings screen read as a flat list of equals.
+        let palette = context.controlPalette
+        let headerColor = style.headerColor ?? palette.secondaryLabel
+        // A grouped section box is a raised surface closed by a hairline,
+        // in whichever appearance it is drawn in. These used to be dark
+        // literals, so a light-mode app showed light controls on dark cards.
+        let sectionBackground = style.backgroundColor ?? palette.raisedSurface
+        let sectionBorder = style.borderColor ?? palette.separator
+        let indicatorColor = style.indicatorColor ?? palette.tertiaryLabel
+        let indicatorHoverColor = style.indicatorHoverColor ?? palette.secondaryLabel
+        let indicatorActiveColor = style.indicatorActiveColor ?? palette.label
         return Component { runtime in
-            let headerFont = style.headerFont.resolvedHeaderFont(for: context.headerProminence)
+            let headerFont =
+                (style.headerFont
+                ?? .system(size: MacOSControlMetrics.Typography.sectionHeaderSize, weight: .semibold))
+                .resolvedHeaderFont(for: context.headerProminence)
             let headerContext =
                 context
-                .withForegroundColor(style.headerColor)
+                .withForegroundColor(headerColor)
                 .withFont(headerFont)
                 .withTextAlignment(.leading)
                 .withLineLimit(1)
             let footerContext =
                 context
-                .withForegroundColor(.secondary)
-                .withFont(.caption)
+                .withForegroundColor(palette.secondaryLabel)
+                .withFont(.footnote)
                 .withTextAlignment(.leading)
 
             let headerNodes = header.map {
@@ -10384,7 +10448,7 @@ public struct Section: View {
                 let chevronNode = Controls.label(
                     expansionBinding.wrappedValue ? "V" : ">",
                     preferredSize: Size(width: 18, height: 24),
-                    color: style.headerColor,
+                    color: headerColor,
                     scale: 1.2,
                     weight: .semibold,
                     lineBreakMode: .truncateTail,
@@ -10442,9 +10506,9 @@ public struct Section: View {
             let alignmentAnchor = style.scrollAxis == nil ? nil : context.defaultScrollAnchor(for: .alignment)
 
             let node = Controls.stackPanel(
-                backgroundColor: hidesScrollContentBackground ? nil : style.backgroundColor,
+                backgroundColor: hidesScrollContentBackground ? nil : sectionBackground,
                 backgroundGradient: hidesScrollContentBackground ? nil : style.backgroundGradient,
-                borderColor: style.borderColor,
+                borderColor: sectionBorder,
                 borderWidth: 1,
                 shadowColor: style.shadowColor,
                 // Tight, low shadow so stacked sections read as grouped cards
@@ -10482,10 +10546,10 @@ public struct Section: View {
                 )
                 node.initialScrollAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .initialOffset))
                 node.scrollSizeChangeAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .sizeChanges))
-                node.scrollIndicatorColor = style.indicatorColor
-                node.scrollIndicatorIdleColor = style.indicatorColor
-                node.scrollIndicatorHoverColor = style.indicatorHoverColor
-                node.scrollIndicatorActiveColor = style.indicatorActiveColor
+                node.scrollIndicatorColor = indicatorColor
+                node.scrollIndicatorIdleColor = indicatorColor
+                node.scrollIndicatorHoverColor = indicatorHoverColor
+                node.scrollIndicatorActiveColor = indicatorActiveColor
                 node.scrollIndicatorThickness = style.indicatorThickness
             }
             if style.scrollAxis != nil, context.isScrollClipDisabled {
@@ -10573,7 +10637,6 @@ public struct GroupBox: View {
     public init(_ title: String, @ViewBuilder content: () -> [AnyView]) {
         self.init(content: content) {
             Text(title)
-                .font(.system(size: 1.5, weight: .semibold))
                 .multilineTextAlignment(.leading)
                 .lineLimit(1)
         }
@@ -10595,8 +10658,8 @@ public struct GroupBox: View {
         let views = label + content
         return Component { runtime in
             Controls.panel(
-                backgroundColor: Color(red: 0.12, green: 0.15, blue: 0.20, alpha: 0.54),
-                borderColor: Color(red: 0.78, green: 0.86, blue: 1.0, alpha: 0.14),
+                backgroundColor: Color(red: 0.147, green: 0.147, blue: 0.147, alpha: 0.54),
+                borderColor: Color(red: 0.853, green: 0.853, blue: 0.853, alpha: 0.14),
                 borderWidth: 1,
                 cornerRadius: 12,
                 layoutMode: .stack(.vertical(spacing: 8, padding: .all(12), alignment: .stretch)),
@@ -10637,7 +10700,6 @@ public struct DisclosureGroup: View {
     ) {
         self.init(isExpanded: isExpanded, content: content) {
             Text(title)
-                .font(.system(size: 1.6, weight: .semibold))
                 .multilineTextAlignment(.leading)
                 .lineLimit(1)
         }
@@ -10944,7 +11006,6 @@ public struct Menu: View {
             content: content,
             label: {
                 Text(title)
-                    .font(.system(size: 1.6, weight: .semibold))
                     .multilineTextAlignment(.leading)
                     .lineLimit(1)
             }, primaryAction: primaryAction)
@@ -11228,8 +11289,8 @@ public struct Menu: View {
                     return node
                 }
                 let menuPanel = Controls.stackPanel(
-                    backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.17, alpha: 0.96),
-                    borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.14),
+                    backgroundColor: Color(red: 0.108, green: 0.108, blue: 0.108, alpha: 0.96),
+                    borderColor: Color(red: 0.975, green: 0.975, blue: 0.975, alpha: 0.14),
                     borderWidth: 1,
                     shadowColor: Color(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.28),
                     shadowOffset: Point(x: 0, y: 10),
@@ -11524,8 +11585,8 @@ public struct ControlGroup: View {
         switch style.kind {
         case .automatic:
             return RetainedChrome(
-                backgroundColor: Color(red: 0.12, green: 0.16, blue: 0.22, alpha: 0.72),
-                borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.10),
+                backgroundColor: Color(red: 0.156, green: 0.156, blue: 0.156, alpha: 0.72),
+                borderColor: Color(red: 0.975, green: 0.975, blue: 0.975, alpha: 0.10),
                 borderWidth: 1,
                 cornerRadius: 10,
                 spacing: 4,
@@ -11534,8 +11595,8 @@ public struct ControlGroup: View {
             )
         case .compactMenu:
             return RetainedChrome(
-                backgroundColor: Color(red: 0.09, green: 0.12, blue: 0.17, alpha: 0.58),
-                borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.08),
+                backgroundColor: Color(red: 0.117, green: 0.117, blue: 0.117, alpha: 0.58),
+                borderColor: Color(red: 0.975, green: 0.975, blue: 0.975, alpha: 0.08),
                 borderWidth: 1,
                 cornerRadius: 7,
                 spacing: 2,
@@ -11544,8 +11605,8 @@ public struct ControlGroup: View {
             )
         case .menu:
             return RetainedChrome(
-                backgroundColor: Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.64),
-                borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.13),
+                backgroundColor: Color(red: 0.097, green: 0.097, blue: 0.097, alpha: 0.64),
+                borderColor: Color(red: 0.975, green: 0.975, blue: 0.975, alpha: 0.13),
                 borderWidth: 1,
                 cornerRadius: 12,
                 spacing: 5,
@@ -11554,7 +11615,7 @@ public struct ControlGroup: View {
             )
         case .navigation:
             return RetainedChrome(
-                backgroundColor: Color(red: 0.08, green: 0.12, blue: 0.18, alpha: 0.62),
+                backgroundColor: Color(red: 0.116, green: 0.116, blue: 0.116, alpha: 0.62),
                 borderColor: tint.opacity(0.24),
                 borderWidth: 1,
                 cornerRadius: 9,
@@ -11564,7 +11625,7 @@ public struct ControlGroup: View {
             )
         case .palette:
             return RetainedChrome(
-                backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.50),
+                backgroundColor: Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 0.50),
                 borderColor: tint.opacity(0.34),
                 borderWidth: 1,
                 cornerRadius: 8,
@@ -12693,7 +12754,7 @@ private func retainedSearchChrome(
         return RetainedSearchChrome(
             nodeTag: "search-field-toolbar",
             preferredSize: Size(width: 240, height: context.controlSize.singleLineTextInputSize.height),
-            backgroundColor: Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.92),
+            backgroundColor: Color(red: 0.097, green: 0.097, blue: 0.097, alpha: 0.92),
             borderColor: context.tint.opacity(0.26),
             borderWidth: 1,
             cornerRadius: 12
@@ -12704,8 +12765,8 @@ private func retainedSearchChrome(
         return RetainedSearchChrome(
             nodeTag: "search-field-sidebar",
             preferredSize: Size(width: 210, height: context.controlSize.singleLineTextInputSize.height),
-            backgroundColor: Color(red: 0.09, green: 0.12, blue: 0.17, alpha: 0.72),
-            borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.10),
+            backgroundColor: Color(red: 0.117, green: 0.117, blue: 0.117, alpha: 0.72),
+            borderColor: Color(red: 0.975, green: 0.975, blue: 0.975, alpha: 0.10),
             borderWidth: 1,
             cornerRadius: 8
         )
@@ -12719,8 +12780,8 @@ private func retainedSearchChrome(
         return RetainedSearchChrome(
             nodeTag: "search-field-navigation-drawer",
             preferredSize: Size(width: 280, height: context.controlSize.singleLineTextInputSize.height),
-            backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.84),
-            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+            backgroundColor: Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 0.84),
+            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.14),
             borderWidth: 1,
             cornerRadius: 10
         )
@@ -14278,7 +14339,7 @@ public struct DatePicker: View {
             let stepperNode = Controls.stackPanel(
                 preferredSize: Size(width: 22, height: context.controlSize.singleLineTextInputSize.height),
                 backgroundColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: context.isEnabled ? 0.08 : 0.04),
-                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12),
+                borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.12),
                 borderWidth: 1,
                 cornerRadius: 4,
                 stackLayout: .vertical(
@@ -14894,7 +14955,6 @@ public struct Toggle: View {
         self.label = [
             AnyView(
                 Text(title)
-                    .font(.system(size: 1.6, weight: .semibold))
                     .multilineTextAlignment(.leading)
                     .lineLimit(1)
             )
@@ -15185,14 +15245,14 @@ public struct Toggle: View {
             cornerRadius: 8,
             palette: SurfacePalette(
                 idle: .clear,
-                hovered: Color(red: 0.20, green: 0.26, blue: 0.34, alpha: 0.44),
+                hovered: Color(red: 0.253, green: 0.253, blue: 0.253, alpha: 0.44),
                 focused: Color(red: 0.24, green: 0.32, blue: 0.42, alpha: 0.56),
                 pressed: Color(red: 0.30, green: 0.40, blue: 0.52, alpha: 0.64),
                 activated: Color(red: 0.30, green: 0.40, blue: 0.52, alpha: 0.64)
             ),
             chrome: SurfaceChrome(
                 borderColor: .clear,
-                borderHoveredColor: Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.16),
+                borderHoveredColor: Color(red: 0.92, green: 0.92, blue: 0.92, alpha: 0.16),
                 borderFocusedColor: context.tint.opacity(0.42),
                 borderPressedColor: context.tint.opacity(0.58),
                 borderWidth: 1,
@@ -15343,7 +15403,6 @@ public struct Picker<SelectionValue: Hashable>: View {
         self.label = [
             AnyView(
                 Text(title)
-                    .font(.system(size: 1.6, weight: .semibold))
                     .multilineTextAlignment(.leading)
                     .lineLimit(1)
             )
@@ -15545,12 +15604,13 @@ public struct Picker<SelectionValue: Hashable>: View {
         selectedAnyValue: AnyHashable,
         options: [Option]
     ) -> ViewNode {
-        // macOS segmented controls own their label metrics: compact
-        // single-line labels. Without the cap the default body scale
-        // starves the segment and the label collapses to zero height
-        // (previously rendered as invisible segment labels). The restyle
-        // happens before the pills are built because the label's line box
-        // is what the segment padding is derived from.
+        // A segment label is single-line and never wraps — that much is
+        // NSSegmentedControl. It is *not* a different size from the rest of
+        // the app: the size ceiling that used to live here (scale <= 1.3,
+        // native size <= 13) was a workaround for an ambient body of 17px
+        // starving the 22pt track, and it meant a picker could never
+        // participate in the type ramp. With body at 13pt the segment
+        // inherits like every other control label.
         //
         // Label colour comes from the appearance palette. The selected
         // label used to be near-black on a near-white pill in *both*
@@ -15565,11 +15625,6 @@ public struct Picker<SelectionValue: Hashable>: View {
                 continue
             }
             var style = option.node.textStyle
-            style.scale = min(style.scale, 1.3)
-            if let nativeSize = style.nativeFontSize {
-                style.nativeFontSize = min(nativeSize, 13)
-            }
-            style.lineSpacing = min(style.lineSpacing, 1)
             style.maximumNumberOfLines = 1
             style.lineBreakMode = .truncateTail
             style.color =
@@ -15586,8 +15641,13 @@ public struct Picker<SelectionValue: Hashable>: View {
         // label metric — and still compresses when a parent squeezes it,
         // because the pill clips its own bounds.
         let segmentLabelHeight = options.map { Self.segmentLabelHeight(of: $0.node) }.max() ?? 0
+        // The pill is inset from the track by whatever is left over around
+        // the tallest label — down to 1pt, which is NSSegmentedControl's own
+        // inset. A 2pt floor here forced the track to 24 the moment the
+        // label stopped being clamped to 13px, which is the wrong end to
+        // absorb it: the *control* height is the pinned value.
         let segmentVerticalPadding = max(
-            2,
+            1,
             (MacOSControlMetrics.PopUpButton.regularHeight - 2 * Self.segmentedTrackVerticalPadding
                 - segmentLabelHeight) / 2
         )
@@ -15729,7 +15789,7 @@ public struct Picker<SelectionValue: Hashable>: View {
                 ? Controls.icon(
                     .checkmark,
                     preferredSize: Size(width: 18, height: 18),
-                    color: context.isEnabled ? context.tint : Color(red: 0.55, green: 0.58, blue: 0.62, alpha: 0.70),
+                    color: context.isEnabled ? context.tint : Color(red: 0.577, green: 0.577, blue: 0.577, alpha: 0.70),
                     scale: 1.2,
                     displayScale: context.iconRasterDisplayScale
                 )
@@ -15746,10 +15806,10 @@ public struct Picker<SelectionValue: Hashable>: View {
                 palette: SurfacePalette(
                     idle: isSelected
                         ? context.tint.opacity(0.14)
-                        : Color(red: 0.12, green: 0.16, blue: 0.22, alpha: 0.34),
+                        : Color(red: 0.156, green: 0.156, blue: 0.156, alpha: 0.34),
                     hovered: isSelected
                         ? context.tint.opacity(0.22)
-                        : Color(red: 0.18, green: 0.24, blue: 0.32, alpha: 0.54),
+                        : Color(red: 0.233, green: 0.233, blue: 0.233, alpha: 0.54),
                     focused: isSelected
                         ? context.tint.opacity(0.28)
                         : Color(red: 0.22, green: 0.30, blue: 0.40, alpha: 0.64),
@@ -15760,7 +15820,7 @@ public struct Picker<SelectionValue: Hashable>: View {
                 chrome: SurfaceChrome(
                     borderColor: isSelected ? context.tint.opacity(0.36) : .clear,
                     borderHoveredColor: isSelected
-                        ? context.tint.opacity(0.50) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12),
+                        ? context.tint.opacity(0.50) : Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.12),
                     borderFocusedColor: context.tint.opacity(0.64),
                     borderPressedColor: context.tint.opacity(0.72),
                     borderWidth: isSelected ? 1 : 0,
@@ -15786,8 +15846,8 @@ public struct Picker<SelectionValue: Hashable>: View {
         }
 
         return Controls.stackPanel(
-            backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.46),
-            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+            backgroundColor: Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 0.46),
+            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.08),
             borderWidth: 1,
             cornerRadius: 10,
             clipsToBounds: true,
@@ -15824,13 +15884,13 @@ public struct Picker<SelectionValue: Hashable>: View {
                 height: context.controlSize.pickerMenuPreferredSize.height + 4
             ),
             palette: SurfacePalette(
-                idle: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.52),
-                hovered: Color(red: 0.13, green: 0.18, blue: 0.26, alpha: 0.64),
-                focused: Color(red: 0.17, green: 0.24, blue: 0.34, alpha: 0.76),
+                idle: Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 0.52),
+                hovered: Color(red: 0.175, green: 0.175, blue: 0.175, alpha: 0.64),
+                focused: Color(red: 0.232, green: 0.232, blue: 0.232, alpha: 0.76),
                 pressed: Color(red: 0.22, green: 0.31, blue: 0.44, alpha: 0.84)
             ),
             chrome: SurfaceChrome(
-                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12),
+                borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.12),
                 borderHoveredColor: context.tint.opacity(0.36),
                 borderFocusedColor: context.tint.opacity(0.54),
                 borderPressedColor: context.tint.opacity(0.66),
@@ -15869,12 +15929,12 @@ public struct Picker<SelectionValue: Hashable>: View {
                 palette: palette,
                 chrome: SurfaceChrome(
                     borderColor: isSelected
-                        ? context.tint.opacity(0.62) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.10),
+                        ? context.tint.opacity(0.62) : Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.10),
                     borderHoveredColor: isSelected
-                        ? context.tint.opacity(0.78) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22),
+                        ? context.tint.opacity(0.78) : Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.22),
                     borderFocusedColor: isSelected
-                        ? context.tint.opacity(0.88) : Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.30),
-                    borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.36),
+                        ? context.tint.opacity(0.88) : Color(red: 0.92, green: 0.92, blue: 0.92, alpha: 0.30),
+                    borderPressedColor: Color(red: 0.996, green: 0.996, blue: 0.996, alpha: 0.36),
                     borderWidth: isSelected ? 2 : 1,
                     focusRingColor: context.tint.opacity(0.30),
                     focusRingWidth: 2
@@ -15898,8 +15958,8 @@ public struct Picker<SelectionValue: Hashable>: View {
         }
 
         return Controls.stackPanel(
-            backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.72),
-            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+            backgroundColor: Color(red: 0.136, green: 0.136, blue: 0.136, alpha: 0.72),
+            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.08),
             borderWidth: 1,
             cornerRadius: 12,
             clipsToBounds: true,
@@ -15933,10 +15993,10 @@ public struct Picker<SelectionValue: Hashable>: View {
                 chrome: SurfaceChrome(
                     borderColor: isSelected ? context.tint.opacity(0.48) : .clear,
                     borderHoveredColor: isSelected
-                        ? context.tint.opacity(0.64) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+                        ? context.tint.opacity(0.64) : Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.14),
                     borderFocusedColor: isSelected
-                        ? context.tint.opacity(0.78) : Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.24),
-                    borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.34),
+                        ? context.tint.opacity(0.78) : Color(red: 0.92, green: 0.92, blue: 0.92, alpha: 0.24),
+                    borderPressedColor: Color(red: 0.996, green: 0.996, blue: 0.996, alpha: 0.34),
                     borderWidth: isSelected ? 1 : 0,
                     focusRingColor: context.tint.opacity(0.28),
                     focusRingWidth: 2
@@ -15973,8 +16033,8 @@ public struct Picker<SelectionValue: Hashable>: View {
         }
 
         return Controls.stackPanel(
-            backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.68),
-            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+            backgroundColor: Color(red: 0.136, green: 0.136, blue: 0.136, alpha: 0.68),
+            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.08),
             borderWidth: 1,
             cornerRadius: 12,
             clipsToBounds: true,
@@ -16006,12 +16066,12 @@ public struct Picker<SelectionValue: Hashable>: View {
                 layoutPriority: 1,
                 chrome: SurfaceChrome(
                     borderColor: isSelected
-                        ? context.tint.opacity(0.40) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                        ? context.tint.opacity(0.40) : Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.08),
                     borderHoveredColor: isSelected
-                        ? context.tint.opacity(0.58) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.18),
+                        ? context.tint.opacity(0.58) : Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.18),
                     borderFocusedColor: isSelected
-                        ? context.tint.opacity(0.72) : Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.26),
-                    borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.34),
+                        ? context.tint.opacity(0.72) : Color(red: 0.92, green: 0.92, blue: 0.92, alpha: 0.26),
+                    borderPressedColor: Color(red: 0.996, green: 0.996, blue: 0.996, alpha: 0.34),
                     borderWidth: 1,
                     focusRingColor: context.tint.opacity(0.28),
                     focusRingWidth: 2
@@ -16027,8 +16087,8 @@ public struct Picker<SelectionValue: Hashable>: View {
         }
 
         return Controls.stackPanel(
-            backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.72),
-            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+            backgroundColor: Color(red: 0.136, green: 0.136, blue: 0.136, alpha: 0.72),
+            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.08),
             borderWidth: 1,
             cornerRadius: 12,
             clipsToBounds: true,
@@ -16098,8 +16158,8 @@ public struct Picker<SelectionValue: Hashable>: View {
 
     private static var unselectedPalette: SurfacePalette {
         SurfacePalette(
-            idle: Color(red: 0.18, green: 0.23, blue: 0.31, alpha: 0.78),
-            hovered: Color(red: 0.22, green: 0.29, blue: 0.39, alpha: 0.86),
+            idle: Color(red: 0.225, green: 0.225, blue: 0.225, alpha: 0.78),
+            hovered: Color(red: 0.282, green: 0.282, blue: 0.282, alpha: 0.86),
             focused: Color(red: 0.26, green: 0.35, blue: 0.47, alpha: 0.90),
             pressed: Color(red: 0.31, green: 0.42, blue: 0.56, alpha: 0.96),
             activated: Color(red: 0.36, green: 0.48, blue: 0.63, alpha: 0.96)
@@ -16128,7 +16188,6 @@ public struct Stepper: View {
             onEditingChanged: onEditingChanged
         ) {
             Text(title)
-                .font(.system(size: 1.6, weight: .semibold))
                 .multilineTextAlignment(.leading)
                 .lineLimit(1)
         }
@@ -16207,7 +16266,6 @@ public struct Stepper: View {
             onEditingChanged: onEditingChanged
         ) {
             Text(title)
-                .font(.system(size: 1.6, weight: .semibold))
                 .multilineTextAlignment(.leading)
                 .lineLimit(1)
         }
@@ -16271,7 +16329,6 @@ public struct Stepper: View {
             onEditingChanged: onEditingChanged
         ) {
             Text(title)
-                .font(.system(size: 1.6, weight: .semibold))
                 .multilineTextAlignment(.leading)
                 .lineLimit(1)
         }
@@ -16330,7 +16387,6 @@ public struct Stepper: View {
             onEditingChanged: onEditingChanged
         ) {
             Text(title)
-                .font(.system(size: 1.6, weight: .semibold))
                 .multilineTextAlignment(.leading)
                 .lineLimit(1)
         }
@@ -16397,7 +16453,6 @@ public struct Stepper: View {
             onEditingChanged: onEditingChanged
         ) {
             Text(title)
-                .font(.system(size: 1.6, weight: .semibold))
                 .multilineTextAlignment(.leading)
                 .lineLimit(1)
         }
@@ -17044,7 +17099,6 @@ public struct ProgressView: View {
         self.label = [
             AnyView(
                 Text(title)
-                    .font(.system(size: 1.5, weight: .semibold))
                     .multilineTextAlignment(.leading)
                     .lineLimit(1)
             )
@@ -17275,7 +17329,6 @@ public struct Gauge: View {
         self.label = [
             AnyView(
                 Text(title)
-                    .font(.system(size: 1.5, weight: .semibold))
                     .multilineTextAlignment(.leading)
                     .lineLimit(1)
             )
@@ -17561,7 +17614,6 @@ public struct Link: View {
         self.label = [
             AnyView(
                 Text(title)
-                    .font(.system(size: 2, weight: .semibold))
                     .multilineTextAlignment(.center)
                     .lineLimit(1)
             )
@@ -18346,7 +18398,6 @@ public struct Button: View {
         self.label = [
             AnyView(
                 Text(title)
-                    .font(.system(size: 2, weight: .semibold))
                     .multilineTextAlignment(.center)
                     .lineLimit(1)
             )
@@ -18428,7 +18479,6 @@ public struct Button: View {
         self.label = [
             AnyView(
                 Text(title)
-                    .font(.system(size: 2, weight: .semibold))
                     .multilineTextAlignment(.center)
                     .lineLimit(1)
             )
@@ -20532,16 +20582,16 @@ private func placeholderPanel(
     return Component { _ in
         Controls.panel(
             preferredSize: preferredSize,
-            backgroundColor: Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98),
+            backgroundColor: Color(red: 0.146, green: 0.146, blue: 0.146, alpha: 0.98),
             text: text,
             textStyle: PixelTextStyle(
-                color: Color(red: 0.56, green: 0.60, blue: 0.68, alpha: 0.80),
+                color: Color(red: 0.597, green: 0.597, blue: 0.597, alpha: 0.80),
                 scale: 1.4,
                 alignment: .center,
                 verticalAlignment: .center,
                 weight: .semibold
             ),
-            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.14),
             borderWidth: 1,
             cornerRadius: 12,
             isHitTestVisible: false

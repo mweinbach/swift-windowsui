@@ -57,10 +57,10 @@ final class DemoScreensTests: XCTestCase {
 
         model.selectedScreen = .settings
         XCTAssertEqual(model.selectedScreen, .settings)
-        XCTAssertEqual(model.lastAction, "OPENED SETTINGS")
+        XCTAssertEqual(model.lastAction, "Opened Settings")
 
         model.selectedScreen = .data
-        XCTAssertEqual(model.lastAction, "OPENED DATA")
+        XCTAssertEqual(model.lastAction, "Opened Data")
     }
 
     func testDataScreenSelectionDefaultsToFirstComponent() async {

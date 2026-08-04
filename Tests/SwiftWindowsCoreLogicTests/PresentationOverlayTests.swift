@@ -119,7 +119,9 @@ final class PresentationOverlayTests: XCTestCase {
 
             let scene = runtime.renderScene()
             let colors = overlaySceneQuadColors(in: scene)
-            let sheetColor = Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98)
+            // Neutral, not navy: the sheet surface follows the desaturated
+            // chrome ramp.
+            let sheetColor = Color(red: 0.146, green: 0.146, blue: 0.146, alpha: 0.98)
 
             func firstIndex(matching target: Color) -> Int? {
                 colors.firstIndex { color in

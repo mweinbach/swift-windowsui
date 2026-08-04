@@ -110,7 +110,35 @@ $GalleryBaselineEntries = @(
     "state-picker-idle",
     "state-picker-hover",
     "state-picker-pressed",
-    "state-picker-focused"
+    "state-picker-focused",
+
+    # Light appearance tier. Every entry above renders dark, so the whole
+    # light half of `ControlPalette` — the derived grooves, the container
+    # surfaces, the hover/pressed/focus ramps on white — was pinned only by
+    # unit tests reading colour fields. That is how a light-mode Form came to
+    # draw a charcoal groove across a white settings pane and survive to final
+    # verification: nothing rendered it. Each `light-` entry is its dark twin
+    # in the other appearance, derived from the same view in the tool, so the
+    # pair cannot drift apart.
+    "light-button",
+    "light-button-styles",
+    "light-text-field",
+    "light-toggle",
+    "light-toggle-off",
+    "light-slider",
+    "light-picker",
+    "light-stepper",
+    "light-progress-view",
+    "light-progress-labeled",
+    "light-list-data",
+    "light-form-settings",
+    "light-divider",
+    "light-state-button-hover",
+    "light-state-button-pressed",
+    "light-state-button-focused",
+    "light-state-toggle-pressed",
+    "light-state-field-focused",
+    "light-state-picker-hover"
 )
 
 function Write-Step {

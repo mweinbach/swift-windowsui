@@ -486,7 +486,13 @@ with a non-1 scale; use the scene path for density renders.
 
 `scripts/gallery-compare.ps1` turns the `swift-windowsui-gallery` tool into a visual regression gate for Supported-tier controls.
 
-- The gate covers a fixed subset of gallery entries (buttons, toggles, sliders, stepper, picker, progress views, text fields, list/form chrome — 25 entries) plus the interaction-state tier below (16 entries), 41 in all. The list lives at the top of `scripts/gallery-compare.ps1`. Time-dependent entries (e.g. indeterminate progress) are deliberately excluded because their renders are not frame-stable.
+- The gate covers a fixed subset of gallery entries in three tiers, **60** in all. The roster lives at the top of `scripts/gallery-compare.ps1`. Time-dependent entries (e.g. indeterminate progress) are deliberately excluded because their renders are not frame-stable.
+
+| Tier | Entries | What it pins |
+| --- | --- | --- |
+| Control | 25 | Buttons, toggles, sliders, stepper, picker, progress views, text fields, list/form chrome — the Supported-tier controls as built |
+| Interaction state | 16 | `state-<control>-<state>` for button, toggle, text field, segmented picker: the idle → hover → pressed → focused → disabled ramps, driven through the runtime's own input |
+| Light appearance | 19 | `light-<id>`: each entry's dark twin rendered in the light appearance |
 
 ### Interaction-state tier
 
@@ -500,6 +506,22 @@ translucent control fill instead of as a ring).
 - They are deterministic despite the control animations: after the input, every tween is settled to its end value with `tickAnimations(at:)` at a timestamp far past any start time (both the colour and property tweens clamp progress to 1), and the scene is captured at the same instant. No wall clock enters the render.
 - The tool refuses to write a state entry whose render is pixel-identical to its own idle render, and fails the build instead. A driving point that drifts off its control would otherwise baseline an idle render under a state name and certify a ramp it never exercised.
 - There is deliberately **no** `state-field-hover`: a text field's bezel does not respond to the pointer on macOS, and this stack matches it (only `Controls.button` installs a hover ramp), so such an entry would re-certify the idle render forever.
+
+### Light appearance tier
+
+Every entry above renders dark. That left the whole light half of
+`ControlPalette` — the derived `controlTrack` / `segmentedTrackFill` grooves,
+the container surfaces, the hover/pressed/focus ramps on white — pinned only
+by unit tests reading colour fields. It is how a light-mode `Form` came to
+draw a charcoal groove across a white settings pane and survive to final
+verification: nothing rendered it.
+
+- Entries are `light-<dark id>`. The tool **derives** them from the dark specs rather than re-declaring the views, so a light entry is the same view in the other appearance by construction and cannot drift into testing a different control. A roster id that names no dark entry fails the render instead of silently dropping an appearance from the gate.
+- The roster is a subset chosen so each id covers a light-mode role no other entry covers: the recessed grooves (`toggle-off`, `slider`, `progress-view`, `progress-labeled`), the container surfaces (`form-settings`, `list-data`), the control bezels on white (`button`, `button-styles`, `text-field`, `stepper`, `picker`), the hairlines (`divider`), and the ramps (`state-button-hover` / `-pressed` / `-focused`, `state-toggle-pressed`, `state-field-focused`, `state-picker-hover`).
+- The backdrop is the appearance's own `windowBackground`, not white. Most light-mode control surfaces *are* white, so on a white page a text field's bezel, a grouped `Form`'s raised surface and a list body would all be invisible and the tier would certify nothing. Dark keeps the pure black it has always used, which is why adding the tier moved no dark baseline.
+
+### Baselines and thresholds
+
 - Checked-in baselines live in `tests/fixtures/gallery-baselines/` as compact PNGs. The rest of `artifacts/gallery/` stays generated-only.
 - A compare run re-renders the subset into `artifacts/gallery-compare/current/` and computes bounded per-entry diffs. A pixel counts as changed when any B/G/R/A channel differs by more than `-ChannelTolerance` (default 8). An entry fails when changed pixels exceed `-MaxChangedPercent` (default 0.5%) or any single channel delta exceeds `-MaxChannelDelta` (default 64). Missing baselines and canvas-size changes always fail. The raw-scene CPU rasterizer is deterministic, so unchanged code should produce 0% diffs.
 - Failures write red-overlay diff images to `artifacts/gallery-compare/diffs/` and a summary to `artifacts/gallery-compare/report.txt`; the script exits non-zero.
@@ -513,4 +535,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gallery-compare.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gallery-compare.ps1 -UpdateBaselines
 ```
 
-The gallery executable also accepts `--entries <csv>` and `--output-dir <path>` for ad-hoc filtered renders; with no arguments it keeps rendering the full gallery to `artifacts/gallery/`.
+The gallery executable also accepts `--entries <csv>` and `--output-dir <path>` for ad-hoc filtered renders; with no arguments it keeps rendering the full gallery to `artifacts/gallery/`, whose `index.html` tiles each entry on its own appearance's backdrop.
+
+`-UpdateBaselines` is not a way to make the gate green — it records what the
+renderer now produces. **Open every regenerated PNG before committing it**, and
+say in the commit which entries moved and why. A baseline accepted unseen turns
+the gate from a check on the renderer into a record of whatever it last did.

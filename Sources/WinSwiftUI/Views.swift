@@ -12596,8 +12596,14 @@ public struct SecureField: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        textInputComponent(
-            title: label == nil ? (prompt ?? title) : prompt,
+        // Same rule as `TextField`: in a grouped form the title is the row's
+        // *label*, not the well's placeholder. Without this branch a settings
+        // pane rendered "User [admin]" above a nameless password well — the
+        // one row in the pane with an empty label column.
+        let isFormRow =
+            context.isInsideGroupedForm && !context.labelsHidden && label == nil && !title.isEmpty
+        let fieldComponent = textInputComponent(
+            title: label == nil ? (isFormRow ? prompt : (prompt ?? title)) : prompt,
             text: text,
             isSecure: true,
             allowsNewlines: false,
@@ -12608,6 +12614,28 @@ public struct SecureField: View {
             onCommit: onCommit,
             context: context
         )
+        guard isFormRow else {
+            return fieldComponent
+        }
+
+        let title = self.title
+        let labelComponent = composeComponent(
+            from: [AnyView(Text(title).multilineTextAlignment(.trailing).lineLimit(1))],
+            context: context.withTextAlignment(.trailing).withLineLimit(1),
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
+            isHitTestVisible: false
+        )
+        return Component { runtime in
+            let fieldNode = fieldComponent.makeNode(runtime: runtime)
+            let labelNode = labelComponent.makeNode(runtime: runtime)
+            if fieldNode.accessibilityLabel == nil {
+                fieldNode.accessibilityLabel = title
+            }
+            // The well spans the value column, the way an NSSecureTextField
+            // in a form does.
+            fieldNode.layoutFillAxes = .horizontalOnly
+            return groupedFormRowNode(label: labelNode, content: fieldNode, isHitTestVisible: true)
+        }
     }
 }
 @MainActor

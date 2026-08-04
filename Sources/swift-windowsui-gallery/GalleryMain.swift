@@ -835,7 +835,8 @@ struct SwiftWindowsUIGalleryTool {
             // drifts off its control fails the build instead of quietly
             // baselining an idle render.
         ]
-        let gallerySpecs = baseSpecs + interactionStateSpecs()
+        let darkSpecs = baseSpecs + interactionStateSpecs()
+        let gallerySpecs = try darkSpecs + lightAppearanceSpecs(from: darkSpecs)
 
         var entries: [GalleryEntry] = []
         let displayScale = 1.0
@@ -848,7 +849,8 @@ struct SwiftWindowsUIGalleryTool {
                 of: spec.view,
                 size: spec.size,
                 displayScale: displayScale,
-                clearColor: .black
+                colorScheme: spec.colorScheme,
+                clearColor: galleryClearColor(for: spec.colorScheme)
             )
 
             let scene: GPUIScene
@@ -882,6 +884,7 @@ struct SwiftWindowsUIGalleryTool {
                     title: spec.title,
                     filename: filename,
                     size: spec.size,
+                    colorScheme: spec.colorScheme,
                     primitiveCount: scene.primitiveCount,
                     layerCount: scene.layers.count
                 ))
@@ -902,6 +905,10 @@ private struct GallerySpec {
     let title: String
     let view: AnyView
     let size: IntSize
+    /// The window appearance the entry renders in. Seeds the root environment
+    /// exactly as `NSWindow.effectiveAppearance` does, so the entry resolves
+    /// the same `ControlPalette` a real window of that appearance resolves.
+    let colorScheme: ColorScheme
     /// Non-nil for the interaction-state tier: the runtime input to deliver
     /// before the scene is captured. `nil` renders the view as built.
     let interaction: GalleryInteraction?
@@ -911,13 +918,92 @@ private struct GallerySpec {
         title: String,
         view: AnyView,
         size: IntSize = IntSize(width: 200, height: 200),
+        colorScheme: ColorScheme = .dark,
         interaction: GalleryInteraction? = nil
     ) {
         self.id = id
         self.title = title
         self.view = view
         self.size = size
+        self.colorScheme = colorScheme
         self.interaction = interaction
+    }
+}
+
+// MARK: - Light appearance tier
+
+/// The gallery's backdrop for an appearance.
+///
+/// Dark stays pure black — the historical value every dark baseline was taken
+/// against. Light uses the appearance's own `windowBackground` rather than
+/// white, because most light-mode control surfaces *are* white: on a white
+/// page a text field's bezel, a grouped Form's raised surface and a list's
+/// body would all be invisible, and the tier would certify nothing.
+private func galleryClearColor(for colorScheme: ColorScheme) -> Color {
+    switch colorScheme {
+    case .dark: return .black
+    case .light: return ControlPalette.resolve(colorScheme: .light).windowBackground
+    }
+}
+
+/// Gallery entries that get a light-appearance twin, by dark-tier id.
+///
+/// The whole light appearance — `ControlPalette.lightStandard`, the derived
+/// `controlTrack`/`segmentedTrackFill` grooves, and every container surface —
+/// was pinned only by unit tests reading colour fields. Nothing rendered it,
+/// which is how a light-mode Form came to draw a charcoal groove across a
+/// white settings pane and survive to final verification: the gate rendered
+/// dark only.
+///
+/// The roster is deliberately a subset. Each id below covers a light-mode
+/// role no other entry covers — the recessed grooves (toggle-off, slider,
+/// progress), the container surfaces (form-settings, list-data), the control
+/// bezels on white (button, text-field, stepper, picker), the hairlines
+/// (divider), and the hover/pressed/focus ramps whose light values are
+/// otherwise unrendered.
+private let lightTierEntryIDs: [String] = [
+    "button",
+    "button-styles",
+    "text-field",
+    "toggle",
+    "toggle-off",
+    "slider",
+    "picker",
+    "stepper",
+    "progress-view",
+    "progress-labeled",
+    "list-data",
+    "form-settings",
+    "divider",
+    "state-button-hover",
+    "state-button-pressed",
+    "state-button-focused",
+    "state-toggle-pressed",
+    "state-field-focused",
+    "state-picker-hover",
+]
+
+/// Derives the light tier from the dark specs rather than re-declaring the
+/// views. A light entry is then *the same view in the other appearance* by
+/// construction — it cannot drift into testing a different control, which a
+/// hand-maintained parallel list eventually would.
+private func lightAppearanceSpecs(from specs: [GallerySpec]) throws -> [GallerySpec] {
+    var byID: [String: GallerySpec] = [:]
+    for spec in specs {
+        byID[spec.id] = spec
+    }
+    return try lightTierEntryIDs.map { id in
+        guard let source = byID[id] else {
+            throw GalleryError.unknownLightTierSource(id: id)
+        }
+        return GallerySpec(
+            id: "light-\(id)",
+            title: "\(source.title) · light",
+            view: source.view,
+            size: source.size,
+            colorScheme: .light,
+            interaction: source.interaction
+        )
     }
 }
 
@@ -1009,9 +1095,9 @@ private func interactionStateSpecs() -> [GallerySpec] {
         )
     }
 
-    // Text field: 160x32 at the origin.
+    // Text field: 160x32 at the origin. No pointer point is derived for it —
+    // the field ramp below is focus-driven only (see the note on the specs).
     let fieldFrame = (width: 160.0, height: 32.0)
-    let fieldCentre = Point(x: fieldFrame.width / 2, y: fieldFrame.height / 2)
     func field() -> AnyView {
         AnyView(
             TextField("Name", text: .constant("Ada"))
@@ -1108,6 +1194,7 @@ private func interactionStateSpecs() -> [GallerySpec] {
 
 private enum GalleryError: Error, CustomStringConvertible {
     case interactionHadNoEffect(id: String, state: String)
+    case unknownLightTierSource(id: String)
 
     var description: String {
         switch self {
@@ -1117,6 +1204,12 @@ private enum GalleryError: Error, CustomStringConvertible {
                 pixel-identical to its own idle render. The interaction did not \
                 reach the control — check the point against the control's frame, \
                 or the tab count against the focusable order.
+                """
+        case .unknownLightTierSource(let id):
+            return """
+                The light tier names '\(id)', which is not a gallery entry. A \
+                light entry is derived from its dark twin, so a typo here would \
+                silently drop an appearance from the gate rather than render it.
                 """
         }
     }
@@ -1129,6 +1222,7 @@ private struct GalleryEntry {
     let title: String
     let filename: String
     let size: IntSize
+    let colorScheme: ColorScheme
     let primitiveCount: Int
     let layerCount: Int
 }
@@ -1137,17 +1231,21 @@ private struct GalleryEntry {
 
 private func writeGalleryHTML(entries: [GalleryEntry], to url: URL) throws {
     let cards = entries.map { entry in
-        """
-        <div class="card">
-            <div class="image-wrapper">
-                <img src="\(entry.filename)" alt="\(entry.title)" width="\(entry.size.width)" height="\(entry.size.height)">
+        // The wrapper carries the entry's own appearance: a light-tier PNG
+        // reviewed inside a black tile reads as a rendering bug that is not
+        // there, and hides the one that is.
+        let wrapperClass = entry.colorScheme == .light ? "image-wrapper light" : "image-wrapper"
+        return """
+            <div class="card">
+                <div class="\(wrapperClass)">
+                    <img src="\(entry.filename)" alt="\(entry.title)" width="\(entry.size.width)" height="\(entry.size.height)">
+                </div>
+                <div class="info">
+                    <div class="title">\(entry.title)</div>
+                    <div class="meta">\(entry.primitiveCount) primitives · \(entry.layerCount) layers</div>
+                </div>
             </div>
-            <div class="info">
-                <div class="title">\(entry.title)</div>
-                <div class="meta">\(entry.primitiveCount) primitives · \(entry.layerCount) layers</div>
-            </div>
-        </div>
-        """
+            """
     }.joined(separator: "\n")
 
     let html = """
@@ -1183,6 +1281,8 @@ private func writeGalleryHTML(entries: [GalleryEntry], to url: URL) throws {
                     justify-content: center;
                     padding: 8px;
                 }
+                .image-wrapper.light { background: #ececec; }
+                .image-wrapper.light img { border-color: #c8c8c8; }
                 img {
                     display: block;
                     max-width: 100%;
@@ -1209,7 +1309,7 @@ private func writeGalleryHTML(entries: [GalleryEntry], to url: URL) throws {
         </head>
         <body>
             <h1>SwiftWindowsUI Gallery</h1>
-            <div class="subtitle">\(entries.count) snapshots &middot; responsive canvases &middot; raw-scene backend &middot; shapes, effects, and real controls</div>
+            <div class="subtitle">\(entries.count) snapshots &middot; dark and light appearances &middot; raw-scene backend &middot; shapes, effects, and real controls</div>
             <div class="grid">
                 \(cards)
             </div>

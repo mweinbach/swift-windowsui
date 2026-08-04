@@ -64,6 +64,11 @@ final class GroupedFormLayoutTests: XCTestCase {
         groupBox(of: section).children.filter { !$0.isSeparatorRule }
     }
 
+    /// Every non-empty run of text in a subtree, in traversal order.
+    private func texts(in node: ViewNode) -> [String] {
+        descendants(of: node).compactMap { $0.text }.filter { !$0.isEmpty }
+    }
+
     private func descendants(of node: ViewNode) -> [ViewNode] {
         var found: [ViewNode] = [node]
         var index = 0
@@ -354,6 +359,49 @@ final class GroupedFormLayoutTests: XCTestCase {
         XCTAssertTrue(
             descendants(of: list).allSatisfy { $0.formRowLabelChildIndex == nil },
             "A List's rows are table rows; they do not inherit the form's label column"
+        )
+    }
+
+    /// A password row is a labelled row like any other. `TextField` moved its
+    /// title into the shared label column when the grouped form arrived;
+    /// `SecureField` did not, so a settings pane rendered "User [admin]" over
+    /// a nameless password well — the one row in the pane with nothing in the
+    /// label column. This is what the light gallery tier's `form-settings`
+    /// entry shows, in both appearances.
+    func testSecureFieldInAFormPutsItsTitleInTheLabelColumn() async {
+        let node = layoutNode(
+            Form {
+                Section("ACCOUNT") {
+                    TextField("User", text: .constant("admin"))
+                    SecureField("Password", text: .constant("hunter2"))
+                }
+            }
+        )
+        let rows = formRows(of: contentColumn(of: node).children[0])
+        XCTAssertEqual(rows.count, 2)
+
+        var labelColumns: [ViewNode] = []
+        for row in rows {
+            guard let index = row.formRowLabelChildIndex, row.children.indices.contains(index) else {
+                return XCTFail("A SecureField in a Form builds the same two-column row a TextField does")
+            }
+            labelColumns.append(row.children[index])
+        }
+        XCTAssertTrue(
+            texts(in: labelColumns[1]).contains("Password"),
+            "The SecureField's title is the row's label, not its placeholder"
+        )
+        XCTAssertEqual(
+            labelColumns[0].resolvedFrame.width,
+            labelColumns[1].resolvedFrame.width,
+            accuracy: 0.51,
+            "The password row joins the form's shared label column"
+        )
+        // The title moved out of the well, so nothing is left echoing it
+        // inside the field itself.
+        XCTAssertFalse(
+            texts(in: rows[1].children[1]).contains("Password"),
+            "A form row's field shows a prompt or nothing — never the label again"
         )
     }
 

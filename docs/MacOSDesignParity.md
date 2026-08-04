@@ -165,6 +165,38 @@ These match Apple's macOS Big Sur+ design language for standard controls.
 | `ControlAnimationStyle.default.pressDuration` | 0.14s | Press state color + scale.         |
 | `ControlAnimationStyle.default.activationDuration` | 0.18s | Activation flash.            |
 
+## Grouped form and group box
+
+A macOS grouped form (SwiftUI's `.formStyle(.grouped)`, System Settings) is a
+**two-column grid inside a centred content column**: trailing-aligned labels
+share one leading column, controls lead the value column beside them, and the
+section header sits *outside and above* the box it names. Controls read
+`EnvironmentValues.isInsideGroupedForm` and build a row through
+`groupedFormRowNode`; the container resolves the shared column width once
+every row exists (`alignedGroupedFormRows`).
+
+| Constant                                       | Value | Notes |
+|------------------------------------------------|-------|-------|
+| `MacOSControlMetrics.Form.contentMaxWidth`     | 640   | Width of the centred content column. macOS settings run a ~600–715pt column with generous margins; edge to edge across a 1256pt window is a web layout, and it is what made a three-segment picker 1215pt wide. |
+| `MacOSControlMetrics.Form.contentHorizontalMargin` | 20 | Margin inside the column, so 640pt of column carries 600pt boxes. |
+| `MacOSControlMetrics.Form.labelColumnGap`      | 8     | Label column to value column. |
+| `MacOSControlMetrics.Form.sectionSpacing`      | 20    | Box to the next section's header. |
+| `MacOSControlMetrics.Form.headerSpacing`       | 6     | Header to the box it names. |
+| `MacOSControlMetrics.Form.headerLeadingInset`  | 6     | Header text sits just proud of the box's corner. |
+| `MacOSControlMetrics.Form.rowSpacing`          | 10    | Row to row inside a box. |
+| `MacOSControlMetrics.Form.boxVerticalPadding`  | 12    | Group box interior. |
+| `MacOSControlMetrics.Form.boxHorizontalPadding`| 16    | " |
+| `MacOSControlMetrics.GroupBox.cornerRadius`    | 10    | macOS Sonoma's grouped box radius. The previous 28 on a 600pt-wide card is a marketing panel, not an `NSBox`. |
+| `MacOSControlMetrics.GroupBox.shadowOffsetY`   | 2     | Ambient *contact* shadow only. |
+| `MacOSControlMetrics.GroupBox.shadowSpread`    | 3     | " |
+| `ControlPalette.groupedContainerShadow` (light)| black @ 0.04 | A macOS light-mode group box is near-flat: a white surface closed by a separator-tone hairline. The shared `ambientShadow` at 0.12 put a visible smudge under every card. |
+| `ControlPalette.groupedContainerShadow` (dark) | black @ 0.22 | Dark mode carries the depth the low-contrast hairline cannot. |
+
+An `NSSegmentedControl` is **intrinsically sized** — equal segments as wide as
+the widest label — and stretches only when something explicitly asks it to (a
+`.frame(width:)`, a stretching container). The segmented track used to declare
+itself greedy, which is why it took the whole row it was offered.
+
 ## Semantic control palette
 
 Control chrome used to be architecturally unable to read `colorScheme`:

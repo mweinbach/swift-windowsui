@@ -100,6 +100,50 @@ public enum MacOSControlMetrics {
         public static let contentInset: Double = 16
     }
 
+    /// A grouped container — `GroupBox`, a `Form` section box, a settings
+    /// card. macOS draws these as a near-flat rounded rectangle closed by a
+    /// hairline; the depth cue is the border and the surface tone, not a
+    /// drop shadow. The shadow that remains is an ambient contact shadow
+    /// only, which is why its offset and spread are single digits.
+    public enum GroupBox {
+        /// macOS Sonoma's grouped box radius. A 28pt radius on a 600pt-wide
+        /// card is a marketing panel, not an `NSBox`.
+        public static let cornerRadius: Double = 10
+        public static let shadowOffsetY: Double = 2
+        public static let shadowSpread: Double = 3
+    }
+
+    /// Grouped `Form` metrics — SwiftUI's `.formStyle(.grouped)`, macOS
+    /// System Settings.
+    ///
+    /// A macOS grouped form is a *two-column grid* inside a centred content
+    /// column: trailing-aligned labels share one leading column, controls
+    /// lead the value column beside them, and the section header sits
+    /// outside and above the box it names.
+    public enum Form {
+        /// Width of the centred content column. macOS settings panes run a
+        /// ~600–715pt column with generous margins; edge-to-edge is a web
+        /// layout, not a settings pane.
+        public static let contentMaxWidth: Double = 640
+        /// Horizontal margin between the content column's edge and the
+        /// section boxes inside it, so a 640pt column carries 600pt boxes.
+        public static let contentHorizontalMargin: Double = 20
+        /// Gap between the label column and the value column.
+        public static let labelColumnGap: Double = 8
+        /// Box-to-next-header rhythm between adjacent sections.
+        public static let sectionSpacing: Double = 20
+        /// Gap between a section header and the box it labels.
+        public static let headerSpacing: Double = 6
+        /// Leading inset of an outside-the-box section header, so the header
+        /// text sits just proud of the box's own corner.
+        public static let headerLeadingInset: Double = 6
+        /// Row-to-row spacing inside a group box.
+        public static let rowSpacing: Double = 10
+        /// Interior padding of a group box.
+        public static let boxVerticalPadding: Double = 12
+        public static let boxHorizontalPadding: Double = 16
+    }
+
     /// `NavigationStack` / `NavigationSplitView` toolbar (NSToolbar).
     /// macOS Sonoma's standard toolbar is 52pt tall with title; 38pt
     /// when configured `.unifiedCompact`.

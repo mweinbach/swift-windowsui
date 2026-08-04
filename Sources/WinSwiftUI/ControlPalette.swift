@@ -239,6 +239,20 @@ public struct ControlPalette: Sendable, Equatable {
         isDark ? .white : .black
     }
 
+    /// Contact shadow under a grouped container — a `Form` section box, a
+    /// `GroupBox`, a settings card.
+    ///
+    /// A macOS light-mode group box is *near-flat*: a white surface closed
+    /// by a separator-tone hairline, with barely any shadow under it. The
+    /// depth in dark mode comes from the shadow instead, because a white @
+    /// 0.10 hairline on a near-black backdrop carries almost no edge on its
+    /// own. One shared `ambientShadow` at 0.12 could only ever be right for
+    /// one of the two, and in light mode it put a visible smudge under every
+    /// card.
+    public var groupedContainerShadow: Color {
+        isDark ? ControlPalette.black(0.22) : ControlPalette.black(0.04)
+    }
+
     // MARK: Accent-derived roles
 
     /// The emphasised selection fill — a *solid* accent, as

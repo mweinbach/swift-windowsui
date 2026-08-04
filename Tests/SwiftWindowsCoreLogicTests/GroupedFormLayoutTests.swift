@@ -1,0 +1,379 @@
+import Foundation
+
+import SwiftWindowsCore
+
+import XCTest
+
+@testable import SwiftWindowsUI
+
+@testable import WinSwiftUI
+
+/// A macOS grouped form is a two-column grid inside a centred content
+/// column, not a stack of independent controls stretched edge to edge.
+///
+/// Each test here corresponds to one structural claim: rows share a label
+/// column, the column is centred at the macOS content width, section
+/// headers sit outside the box they name, a segmented control is
+/// intrinsically sized, and a light-mode group box is near-flat.
+@MainActor
+final class GroupedFormLayoutTests: XCTestCase {
+
+    // MARK: - Helpers
+
+    private func buildNode<V: View>(
+        _ view: V,
+        size: Size = Size(width: 1200, height: 800),
+        colorScheme: ColorScheme = .dark
+    ) -> ViewNode {
+        let runtime = RetainedViewRuntime(root: ViewNode())
+        let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: {})
+            .withEnvironmentValue(\.colorScheme, colorScheme)
+        return view.makeComponent(context: context).makeNode(runtime: runtime)
+    }
+
+    private func layoutNode<V: View>(
+        _ view: V,
+        size: Size = Size(width: 1200, height: 800),
+        colorScheme: ColorScheme = .dark
+    ) -> ViewNode {
+        let runtime = RetainedViewRuntime(root: ViewNode())
+        let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: {})
+            .withEnvironmentValue(\.colorScheme, colorScheme)
+        let node = view.makeComponent(context: context).makeNode(runtime: runtime)
+        node.frame = Rect(origin: .zero, size: size)
+        runtime.root.addChild(node)
+        runtime.setRootSize(IntSize(width: Int32(size.width), height: Int32(size.height)))
+        _ = runtime.renderFrame()
+        return node
+    }
+
+    /// The styled column inside a Form's centring box.
+    private func contentColumn(of form: ViewNode) -> ViewNode {
+        form.children[0]
+    }
+
+    /// The rounded box of a grouped section — the second child of the
+    /// header-plus-box wrapper.
+    private func groupBox(of section: ViewNode) -> ViewNode {
+        section.children.count == 2 ? section.children[1] : section
+    }
+
+    private func descendants(of node: ViewNode) -> [ViewNode] {
+        var found: [ViewNode] = [node]
+        var index = 0
+        while index < found.count {
+            found.append(contentsOf: found[index].children)
+            index += 1
+        }
+        return found
+    }
+
+    // MARK: - Item 1: rows share one label column
+
+    func testGroupedFormRowsShareOneTrailingAlignedLabelColumn() async {
+        let node = layoutNode(
+            Form {
+                Section("PREFERENCES") {
+                    Toggle("On", isOn: .constant(true))
+                    Toggle("A Considerably Longer Row Label", isOn: .constant(false))
+                }
+            }
+        )
+        let section = contentColumn(of: node).children[0]
+        let rows = groupBox(of: section).children
+        XCTAssertEqual(rows.count, 2)
+
+        var labelColumns: [ViewNode] = []
+        for row in rows {
+            guard let index = row.formRowLabelChildIndex, row.children.indices.contains(index) else {
+                return XCTFail("Every labelled control in a Form builds a two-column row")
+            }
+            labelColumns.append(row.children[index])
+        }
+
+        XCTAssertEqual(
+            labelColumns[0].resolvedFrame.width,
+            labelColumns[1].resolvedFrame.width,
+            accuracy: 0.51,
+            "Rows in one section share a single label column, not a per-row one"
+        )
+        XCTAssertGreaterThan(
+            labelColumns[0].resolvedFrame.width,
+            labelColumns[0].children[0].resolvedFrame.width,
+            "The short label's column is widened to the group's widest label"
+        )
+        for labelColumn in labelColumns {
+            let label = labelColumn.children[0]
+            XCTAssertEqual(
+                label.resolvedFrame.maxX,
+                labelColumn.resolvedFrame.width,
+                accuracy: 0.51,
+                "Labels are trailing-aligned inside the shared column"
+            )
+        }
+        // …and the control leads the value column beside it.
+        let valueColumn = rows[0].children[1]
+        XCTAssertEqual(valueColumn.children[0].resolvedFrame.minX, 0, accuracy: 0.51)
+        XCTAssertGreaterThan(
+            valueColumn.resolvedFrame.width,
+            valueColumn.children[0].resolvedFrame.width,
+            "A switch leads the value column at its intrinsic width"
+        )
+    }
+
+    func testLabelColumnIsSharedPerSectionNotPerForm() async {
+        let node = layoutNode(
+            Form {
+                Section("SHORT") {
+                    Toggle("A", isOn: .constant(true))
+                }
+                Section("LONG") {
+                    Toggle("An Entirely Longer Label Than The Other Section", isOn: .constant(true))
+                }
+            }
+        )
+        let sections = contentColumn(of: node).children
+        XCTAssertEqual(sections.count, 2)
+        let widths = sections.map { section -> Double in
+            let row = groupBox(of: section).children[0]
+            return row.children[row.formRowLabelChildIndex ?? 0].resolvedFrame.width
+        }
+        XCTAssertLessThan(
+            widths[0], widths[1],
+            "Each section owns its own label column — macOS does not align across group boxes"
+        )
+    }
+
+    func testLabellessRowsAreIndentedToTheValueColumn() async {
+        let node = layoutNode(
+            Form {
+                Section("RESOURCES") {
+                    ProgressView("Sync Progress", value: 0.4)
+                    Button("Sync Now") {}
+                }
+            }
+        )
+        let rows = groupBox(of: contentColumn(of: node).children[0]).children
+        XCTAssertEqual(rows.count, 2)
+        let labelledRow = rows[0]
+        guard let labelIndex = labelledRow.formRowLabelChildIndex else {
+            return XCTFail("A labelled ProgressView builds a form row")
+        }
+        let labelColumnWidth = labelledRow.children[labelIndex].resolvedFrame.width
+        let valueColumnOrigin = labelColumnWidth + MacOSControlMetrics.Form.labelColumnGap
+        XCTAssertNil(rows[1].formRowLabelChildIndex)
+        XCTAssertEqual(
+            rows[1].children[0].resolvedFrame.minX,
+            valueColumnOrigin,
+            accuracy: 0.51,
+            "A bare button lines up with the controls above it instead of hugging the box edge"
+        )
+    }
+
+    func testListRowsInsideAFormAreNotGroupedFormRows() async {
+        let node = buildNode(
+            Form {
+                List {
+                    Toggle("Enable", isOn: .constant(true))
+                }
+            }
+        )
+        let list = contentColumn(of: node).children[0]
+        XCTAssertTrue(
+            descendants(of: list).allSatisfy { $0.formRowLabelChildIndex == nil },
+            "A List's rows are table rows; they do not inherit the form's label column"
+        )
+    }
+
+    func testSectionsOutsideAFormKeepTheirPlainRowLayout() async {
+        let node = buildNode(
+            Section("PREFERENCES") {
+                Toggle("Enable", isOn: .constant(true))
+            }
+        )
+        XCTAssertTrue(
+            descendants(of: node).allSatisfy { $0.formRowLabelChildIndex == nil },
+            "The grouped-form grid is Form-scoped; a standalone Section is untouched"
+        )
+    }
+
+    // MARK: - Item 2: centred content column
+
+    func testFormCentresItsContentColumnAtTheMacOSContentWidth() async {
+        let width: Double = 1200
+        let node = layoutNode(
+            Form {
+                Section("PROFILE") {
+                    Toggle("Enable", isOn: .constant(true))
+                }
+            },
+            size: Size(width: width, height: 800)
+        )
+        XCTAssertEqual(node.resolvedFrame.width, width, accuracy: 0.51)
+        let column = contentColumn(of: node)
+        XCTAssertEqual(
+            column.resolvedFrame.width,
+            MacOSControlMetrics.Form.contentMaxWidth,
+            accuracy: 0.51,
+            "A Form is a content column, not an edge-to-edge box"
+        )
+        XCTAssertEqual(
+            column.resolvedFrame.minX,
+            (width - MacOSControlMetrics.Form.contentMaxWidth) * 0.5,
+            accuracy: 1,
+            "The content column is centred in the window"
+        )
+    }
+
+    func testNarrowWindowsGiveTheFormTheirFullWidth() async {
+        let width: Double = 420
+        let node = layoutNode(
+            Form {
+                Section("PROFILE") {
+                    Toggle("Enable", isOn: .constant(true))
+                }
+            },
+            size: Size(width: width, height: 600)
+        )
+        XCTAssertEqual(
+            contentColumn(of: node).resolvedFrame.width,
+            width,
+            accuracy: 0.51,
+            "The max width is a ceiling, never a floor"
+        )
+    }
+
+    // MARK: - Item 3: intrinsically sized segmented control
+
+    func testSegmentedPickerDoesNotStretchToFillItsContainer() async {
+        let node = layoutNode(
+            VStack {
+                Picker("Theme", selection: .constant(0)) {
+                    Text("System").tag(0)
+                    Text("Light").tag(1)
+                    Text("Dark").tag(2)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            },
+            size: Size(width: 900, height: 200)
+        )
+        guard
+            let track = descendants(of: node).first(where: {
+                $0.cornerRadius == MacOSControlMetrics.Button.regularCornerRadius && $0.clipsToBounds
+                    && $0.children.count == 3
+            })
+        else {
+            return XCTFail("segmented track not found")
+        }
+        XCTAssertGreaterThan(track.resolvedFrame.width, 0)
+        XCTAssertLessThan(
+            track.resolvedFrame.width, 400,
+            "An NSSegmentedControl is intrinsically sized; it stretches only when asked"
+        )
+        let segmentWidths = track.children.map(\.resolvedFrame.width)
+        XCTAssertEqual(segmentWidths[0], segmentWidths[1], accuracy: 0.51)
+        XCTAssertEqual(segmentWidths[1], segmentWidths[2], accuracy: 0.51)
+    }
+
+    func testSegmentedPickerInAFormLeadsItsValueColumn() async {
+        let node = layoutNode(
+            Form {
+                Section("PROFILE") {
+                    Picker("Theme", selection: .constant(0)) {
+                        Text("System").tag(0)
+                        Text("Light").tag(1)
+                        Text("Dark").tag(2)
+                    }
+                    .pickerStyle(.segmented)
+                }
+            }
+        )
+        let row = groupBox(of: contentColumn(of: node).children[0]).children[0]
+        XCTAssertNotNil(row.formRowLabelChildIndex)
+        let valueColumn = row.children[1]
+        let track = valueColumn.children[0]
+        XCTAssertEqual(track.resolvedFrame.minX, 0, accuracy: 0.51)
+        XCTAssertLessThan(
+            track.resolvedFrame.width,
+            valueColumn.resolvedFrame.width,
+            "The track leads the value column at its intrinsic width instead of filling it"
+        )
+    }
+
+    // MARK: - Item 4: headers outside the box
+
+    func testGroupedFormSectionHeaderSitsOutsideAndAboveTheBox() async {
+        let node = buildNode(
+            Form {
+                Section("PROFILE") {
+                    Toggle("Enable", isOn: .constant(true))
+                }
+            }
+        )
+        let section = contentColumn(of: node).children[0]
+        XCTAssertEqual(section.children.count, 2, "A grouped section is a header plus a box")
+        XCTAssertEqual(section.borderWidth, 0, "The header wrapper carries no chrome of its own")
+        XCTAssertEqual(section.sectionHeaderChildCount, 1)
+
+        let header = section.children[0]
+        let box = section.children[1]
+        XCTAssertTrue(
+            descendants(of: header).contains { $0.text == "PROFILE" },
+            "The header text lives above the box"
+        )
+        XCTAssertFalse(
+            descendants(of: box).contains { $0.text == "PROFILE" },
+            "…and no longer inside it"
+        )
+        XCTAssertEqual(box.borderWidth, 1)
+        XCTAssertEqual(box.cornerRadius, MacOSControlMetrics.GroupBox.cornerRadius)
+        XCTAssertEqual(box.sectionHeaderChildCount, 0, "The box hosts rows only")
+    }
+
+    func testSectionHeaderStaysInsideTheBoxOutsideAForm() async {
+        let node = buildNode(
+            Section("PROFILE") {
+                Text("ROW")
+            }
+        )
+        XCTAssertEqual(
+            node.sectionHeaderChildCount, 1,
+            "A List-style section keeps its header as the box's first child"
+        )
+        XCTAssertTrue(node.children.contains { $0.text == "PROFILE" })
+    }
+
+    // MARK: - Item 5: near-flat light-mode group box
+
+    func testLightModeGroupedContainerShadowIsNearlyInvisible() async {
+        XCTAssertLessThan(
+            ControlPalette.lightStandard.groupedContainerShadow.alpha, 0.06,
+            "A macOS light-mode group box is a hairline ring, not a shadowed card"
+        )
+        XCTAssertGreaterThan(
+            ControlPalette.darkStandard.groupedContainerShadow.alpha,
+            ControlPalette.lightStandard.groupedContainerShadow.alpha,
+            "Dark mode carries the depth the low-contrast hairline cannot"
+        )
+    }
+
+    func testGroupedFormBoxTakesItsShadowFromTheAppearance() async {
+        for scheme in [ColorScheme.light, .dark] {
+            let node = buildNode(
+                Form {
+                    Section("PROFILE") {
+                        Toggle("Enable", isOn: .constant(true))
+                    }
+                },
+                colorScheme: scheme
+            )
+            let box = groupBox(of: contentColumn(of: node).children[0])
+            let palette = ControlPalette.resolve(colorScheme: scheme)
+            XCTAssertEqual(box.shadowColor, palette.groupedContainerShadow)
+            XCTAssertEqual(box.shadowOffset, Point(x: 0, y: MacOSControlMetrics.GroupBox.shadowOffsetY))
+            XCTAssertEqual(box.shadowSpread, MacOSControlMetrics.GroupBox.shadowSpread)
+            XCTAssertEqual(box.borderColor, palette.separator)
+        }
+    }
+}

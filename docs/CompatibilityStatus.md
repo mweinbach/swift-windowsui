@@ -74,7 +74,8 @@ dashboard composition on a single custom-rendered window.
 | `Spacer`, `Divider`, `Group`, `EmptyView` | **Implemented** | |
 | `ScrollView` | **Partial** | One primary axis; `.all` resolves to vertical; indicators managed in runtime |
 | `List` | **Partial** | Vertical scroll panel, stable row metrics, hover/selection chrome, arrow-key selection with scroll-into-view; limited edit chrome. **Not virtualized**: arrow-key scroll-into-view mirrors row frames through `onLayout`, which deferral silences for exactly the off-screen rows it needs — see `docs/GPURenderingPipeline.md`, “Why `List` is not virtualized yet” |
-| `Form`, `Section` | **Partial** | Form chrome and section headers/footers; styles map to retained spacing/shells |
+| `Form`, `Section` | **Partial** | Grouped-form layout is macOS-shaped: a 640pt content column centred in the window, rows as a two-column grid (shared trailing-aligned label column, leading value column), section headers outside and above near-flat group boxes. Styles map to retained spacing/shells; the grid is `Form`-scoped and does not span arbitrary containers |
+| `LabeledContent` | **Partial** | Label/value row; inside a `Form` it is the grouped-form row with the section's shared label column |
 | `GroupBox`, `DisclosureGroup`, `ControlGroup` | **Partial** | Functional retained chrome; style enums are mostly visual profiles / metadata |
 | `HSplitView`, `VSplitView` | **Implemented** | Draggable retained splitters with ratio / min extents |
 | `OutlineGroup` | **Partial** | Expand/collapse tree via retained disclosure chrome |

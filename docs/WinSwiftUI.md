@@ -774,10 +774,18 @@ colour.
   *ideal*: a greedy node with one (a slider, a scroll panel) reports it when
   nothing proposes an extent, and fills when something does.
 
-Greedy today: `ScrollView` (both axes), `List`, `Form` (horizontal),
+Greedy today: `ScrollView` (both axes), `List`, `Form` (horizontal, capped at
+`MacOSControlMetrics.Form.contentMaxWidth` and centred in the leftover),
 `NavigationStack`/`NavigationView` containers, the `TabView` container and its
-tab band, `GeometryReader`, `Divider` (cross axis), `Slider` (horizontal), the
-segmented picker track, and any node given an infinite `frame` maximum.
+tab band, `GeometryReader`, `Divider` (cross axis), `Slider` (horizontal), a
+grouped-form row's value column, and any node given an infinite `frame`
+maximum.
+
+The segmented picker track is **not** greedy: an `NSSegmentedControl` is
+intrinsically sized (equal segments as wide as the widest label) and stretches
+only when something explicitly asks — a `.frame(width:)`, a `.stretch`
+container. It used to declare itself greedy, which is how a three-segment
+picker came to be 1215pt wide in a settings pane.
 
 The runtime root stays `.absolute`, and its children are measured against the
 window's extent — so a greedy top-level view fills the window the way an
@@ -930,7 +938,7 @@ at the origin.
 - `defaultWheelPickerItemHeight(_:)` propagates `EnvironmentValues.defaultWheelPickerItemHeight`, defaulting to `32`, and retained wheel-style pickers use it as the minimum row height.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime. The SwiftUI-shaped `Axis.Set` / `showsIndicators:` initializer is accepted for source compatibility; the retained runtime scrolls one primary axis today, so `.all` resolves to the vertical retained path until two-axis scrolling is modeled.
 - `ScrollViewReader` provides a SwiftUI-shaped `ScrollViewProxy` to its content builder and records `scrollTo(_:anchor:)` requests as retained metadata. Programmatic scrolling through the proxy is not yet connected to retained scroll offset changes.
-- `List` maps to a retained vertical scroll panel, while `Form` maps to retained vertical form chrome with style-specific spacing, padding, and shell treatment. Tagged static rows and data-backed rows support single and multiple `selection:` bindings, render lightweight retained selected-row chrome, and write bindings from row activation. Binding-backed mutable collection rows, including `List($items)` for identifiable elements and `List($items, id: \.key)`, pass retained `Binding<Element>` rows into the builder so row controls can mutate collection elements in place. `formStyle(_:)` and `EnvironmentValues.formStyle` accept `.automatic`, `.columns`, `.grouped`, `AutomaticFormStyle`, `ColumnsFormStyle`, and `GroupedFormStyle`; automatic uses the default retained form stack, columns uses a denser retained column-style stack profile, and grouped uses a retained rounded panel shell. Row styling remains intentionally minimal, and platform edit-mode selection rules are not modeled yet.
+- `List` maps to a retained vertical scroll panel, while `Form` maps to retained vertical form chrome with style-specific spacing, padding, and shell treatment. Tagged static rows and data-backed rows support single and multiple `selection:` bindings, render lightweight retained selected-row chrome, and write bindings from row activation. Binding-backed mutable collection rows, including `List($items)` for identifiable elements and `List($items, id: \.key)`, pass retained `Binding<Element>` rows into the builder so row controls can mutate collection elements in place. `formStyle(_:)` and `EnvironmentValues.formStyle` accept `.automatic`, `.columns`, `.grouped`, `AutomaticFormStyle`, `ColumnsFormStyle`, and `GroupedFormStyle`; automatic uses the default retained form stack, columns uses a denser retained column-style stack profile, and grouped uses a retained rounded panel shell. A `Form` is a *centred content column*: it builds a centring box whose only child is the styled column, capped at `MacOSControlMetrics.Form.contentMaxWidth` (640), so a settings pane sits in a macOS-width column rather than stretching edge to edge. Inside a Form the rows are a two-column grid — `LabeledContent`, `Toggle`, `Picker`, `Stepper`, `Slider`, `TextField`, `ProgressView`, `Gauge`, `ColorPicker`, and `DatePicker` build a `groupedFormRowNode` with a trailing-aligned label column and a leading value column, the section resolves one shared column width for all its rows, and label-less rows (a bare `Button`) are indented to the value column. A grouped `Section` also moves its header outside and above its box and draws that box near-flat (`MacOSControlMetrics.GroupBox` radius and contact shadow, `ControlPalette.groupedContainerShadow`). Sections outside a Form keep the list-group treatment. Row styling remains intentionally minimal, and platform edit-mode selection rules are not modeled yet.
 - `headerProminence(_:)` propagates `EnvironmentValues.headerProminence`; `.increased` maps direct `Section` headers to a bolder retained header font unless the header text sets an explicit font.
 - `EnvironmentValues.backgroundProminence` accepts `.standard` and `.increased` for shared-source foreground styling decisions above custom or selected backgrounds. It is readable and overrideable compatibility metadata, and retained selection-capable `List` rows derive `.increased` prominence for selected row content.
 - `EnvironmentValues.defaultMinListHeaderHeight` maps to retained minimum-height constraints on direct `Section` header nodes, preserving stronger header constraints.
@@ -1023,7 +1031,8 @@ Avoid:
 
 - This is not full SwiftUI parity.
 - `layoutPriority` is still read as a flex-grow weight by the stack allocator, not only as SwiftUI's allocation *order* under pressure. `Spacer` and roughly twenty control builders are written against that meaning, so `.layoutPriority(1)` on app code inflates that subtree's frame instead of merely protecting its ideal size. Greedy fill (`layoutFillAxes`) is the intended replacement for the "grow into the leftover" half of that job; separating the two is a follow-up.
-- A labelled `Slider`, `Toggle`, `Picker`, or `ProgressView` stacks its label above the control instead of routing through a `LabeledContent`-style row (leading label column, trailing control) the way macOS does in a `Form`.
+- The grouped-form two-column grid is `Form`-scoped. Outside a `Form`, a labelled `Slider`, `Toggle`, `Picker`, or `ProgressView` still stacks its label above (or beside) the control rather than routing through a label column; there is no `Grid`/`alignmentGuide`-driven column that spans arbitrary containers.
+- The shared label column is resolved at build time from each row's intrinsic label width, so a label whose text changes size *after* the build (an animated `.font()` transition) keeps the column it was built with until the next rebuild.
 - The repository is still Windows-only because the platform and renderer targets are Win32/D3D11-specific.
 - Text behavior on the default path is still bitmap-based, while the experimental scene path has a partial native glyph-atlas port with cached logical layout, subtree layout/measurement reuse, runtime-owned prepaint dispatch state plus split deferred-subtree prepaint and deferred paint replay for interaction/focus/late-paint metadata and ancestor routing, semantic content masks, inherited-opacity propagation, and glyph-run capture that still stops short of GPUI-style shaped text runs, per-deferred prepaint replay ranges, and sprite families.
 - `D3D11Renderer` still only executes `fillRect` and `drawBitmap`; `GPUIScene` remains the richer but still experimental presentation path.

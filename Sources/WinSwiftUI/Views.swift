@@ -26,6 +26,105 @@ import SwiftWindowsUI
 
 // MARK: - Placeholder Panels for Platform-Specific Views
 
+// MARK: - Grouped form rows
+//
+// A macOS grouped form is a two-column grid, not a stack of independent
+// controls: trailing-aligned labels share one leading column, and the
+// controls lead the value column beside them. These three functions are
+// the whole mechanism — a control that owns a label builds a row with
+// `groupedFormRowNode`, and the container it lands in (a `Section`, or the
+// `Form` itself) resolves the shared column width with
+// `alignedGroupedFormRows` once every row exists.
+
+/// One grouped-form row: `label` trailing-aligned in the label column,
+/// `content` leading-aligned in the value column.
+///
+/// The label column carries no width of its own here. It is deliberately
+/// left at its intrinsic size until the container pins every row in the
+/// group to the same width — a row cannot know how wide its siblings'
+/// labels are, and a per-row column is exactly the ragged layout this
+/// replaces.
+@MainActor
+func groupedFormRowNode(label: ViewNode, content: ViewNode, isHitTestVisible: Bool = false) -> ViewNode {
+    let labelColumn = Controls.stackPanel(
+        stackLayout: .horizontal(spacing: 0, alignment: .center, mainAlignment: .end),
+        isHitTestVisible: false,
+        children: [label]
+    )
+    let valueColumn = Controls.stackPanel(
+        stackLayout: .horizontal(spacing: 0, alignment: .center, mainAlignment: .start),
+        isHitTestVisible: isHitTestVisible,
+        children: [content]
+    )
+    // The value column owns the rest of the row. Content that is itself
+    // greedy (a text field, a slider) fills it; content that is not (a
+    // switch, a segmented track, a stepper) leads it at its intrinsic
+    // width, which is what a settings pane looks like.
+    valueColumn.layoutFillAxes = .horizontalOnly
+    let row = Controls.stackPanel(
+        stackLayout: .horizontal(
+            spacing: MacOSControlMetrics.Form.labelColumnGap,
+            alignment: .center
+        ),
+        isHitTestVisible: isHitTestVisible,
+        children: [labelColumn, valueColumn]
+    )
+    row.layoutFillAxes = .horizontalOnly
+    row.formRowLabelChildIndex = 0
+    return row
+}
+
+/// Gives every grouped-form row in `nodes` one shared label-column width,
+/// and indents the group's label-less rows to the value column so a button
+/// or a plain row lines up with the controls above it.
+///
+/// Answers the children the container should actually host: unchanged when
+/// the group holds no form rows at all, which is what keeps a `Form` of
+/// bare `Section`s (and every `Section` outside a `Form`) untouched.
+@MainActor
+func alignedGroupedFormRows(_ nodes: [ViewNode]) -> [ViewNode] {
+    var labelColumns: [ViewNode] = []
+    for node in nodes {
+        guard let index = node.formRowLabelChildIndex, node.children.indices.contains(index) else {
+            continue
+        }
+        labelColumns.append(node.children[index])
+    }
+    guard !labelColumns.isEmpty else {
+        return nodes
+    }
+
+    let columnWidth = labelColumns.reduce(0.0) { widest, column in
+        max(widest, column.intrinsicContentSize().width)
+    }
+    guard columnWidth > 0 else {
+        return nodes
+    }
+    for column in labelColumns {
+        column.preferredSize = Size(width: columnWidth, height: column.preferredSize?.height ?? 0)
+    }
+
+    let valueColumnInset = columnWidth + MacOSControlMetrics.Form.labelColumnGap
+    return nodes.map { node in
+        // A rule spans the group edge to edge, and a row that already has a
+        // label is already aligned. Everything else — a button, a bare
+        // `Text` — belongs in the value column beside its labelled siblings.
+        guard node.formRowLabelChildIndex == nil, !node.layoutFillAxes.horizontal else {
+            return node
+        }
+        let indented = Controls.stackPanel(
+            stackLayout: .horizontal(
+                padding: EdgeInsets(top: 0, leading: valueColumnInset, bottom: 0, trailing: 0),
+                alignment: .center
+            ),
+            isHitTestVisible: false,
+            children: [node]
+        )
+        indented.layoutFillAxes = .horizontalOnly
+        return indented
+    }
+}
+
 private let defaultRetainedScrollIndicatorInsets = EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
 private func retainedScrollAnchor(from anchor: UnitPoint?) -> RetainedScrollAnchor? {
     anchor.map { RetainedScrollAnchor(x: $0.x, y: $0.y) }
@@ -7120,13 +7219,20 @@ public struct LabeledContent: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        // In a grouped form the label belongs to the shared label column and
+        // reads at the row's own prominence; standing alone it is the
+        // secondary half of a label/value pair.
+        let isFormRow = context.isInsideGroupedForm
         let labelComponent = composeComponent(
             from: label,
-            context:
-                context
-                .withForegroundColor(.secondary)
-                .withTextAlignment(.leading)
-                .withLineLimit(1),
+            context: isFormRow
+                ? context
+                    .withTextAlignment(.trailing)
+                    .withLineLimit(1)
+                : context
+                    .withForegroundColor(.secondary)
+                    .withTextAlignment(.leading)
+                    .withLineLimit(1),
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
             isHitTestVisible: false
         )
@@ -7134,7 +7240,7 @@ public struct LabeledContent: View {
             from: content,
             context:
                 context
-                .withTextAlignment(.trailing)
+                .withTextAlignment(isFormRow ? .leading : .trailing)
                 .withLineLimit(1),
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
             isHitTestVisible: false
@@ -7142,8 +7248,11 @@ public struct LabeledContent: View {
 
         return Component { runtime in
             let labelNode = labelComponent.makeNode(runtime: runtime)
-            labelNode.layoutPriority = max(labelNode.layoutPriority, 1)
             let contentNode = contentComponent.makeNode(runtime: runtime)
+            guard !isFormRow else {
+                return groupedFormRowNode(label: labelNode, content: contentNode)
+            }
+            labelNode.layoutPriority = max(labelNode.layoutPriority, 1)
             return Controls.stackPanel(
                 stackLayout: .horizontal(spacing: 12, alignment: .center),
                 isHitTestVisible: false,
@@ -9260,7 +9369,11 @@ public struct List: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        Component { runtime in
+        // A List's rows are table rows, not grouped-form rows: a List nested
+        // inside a Form must not inherit the two-column grid, or its cells
+        // start reserving a label column the table has no use for.
+        let context = context.withEnvironmentValue(\.isInsideGroupedForm, false)
+        return Component { runtime in
             let listChrome = context.listStyle.retainedChrome(palette: context.controlPalette)
             let alignmentAnchor = context.defaultScrollAnchor(for: .alignment)
             let isEditing = context.environmentValues.editMode?.wrappedValue.isEditing == true
@@ -10209,9 +10322,14 @@ public struct Form: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        Component { runtime in
+        // Everything below a Form builds grouped-form rows: a trailing
+        // label column, a leading value column, and section headers outside
+        // the boxes they name.
+        let rowContext = context.withEnvironmentValue(\.isInsideGroupedForm, true)
+        let content = self.content
+        return Component { runtime in
             let chrome = Self.retainedChrome(for: context.formStyle, palette: context.controlPalette)
-            let node = Controls.stackPanel(
+            let column = Controls.stackPanel(
                 backgroundColor: chrome.backgroundColor,
                 borderColor: chrome.borderColor,
                 borderWidth: chrome.borderWidth,
@@ -10222,12 +10340,29 @@ public struct Form: View {
                     && (chrome.backgroundColor != nil || chrome.borderWidth > 0),
                 stackLayout: .vertical(spacing: chrome.spacing, padding: chrome.padding, alignment: .stretch),
                 isHitTestVisible: false,
-                children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+                children: alignedGroupedFormRows(
+                    content.map { $0.makeComponent(context: rowContext).makeNode(runtime: runtime) }
+                )
             )
-            // A Form fills the width it is offered on macOS; its rows are
-            // what read as a column, not the container.
-            node.layoutFillAxes = .horizontalOnly
-            return node
+            // A Form takes the width it is offered *up to its content
+            // column*, and is centred in whatever is left. macOS settings
+            // live in a ~600–715pt column with generous margins; a form
+            // stretched edge to edge across a 1256pt window is a web page,
+            // and it is what made a three-segment picker 1215pt wide.
+            column.layoutFillAxes = .horizontalOnly
+            column.layoutConstraints = LayoutConstraints(
+                minWidth: 0,
+                maxWidth: chrome.contentMaxWidth,
+                minHeight: 0,
+                maxHeight: .infinity
+            )
+            let centeredColumn = Controls.stackPanel(
+                stackLayout: .vertical(spacing: 0, alignment: .center),
+                isHitTestVisible: false,
+                children: [column]
+            )
+            centeredColumn.layoutFillAxes = .horizontalOnly
+            return centeredColumn
         }
     }
 
@@ -10238,18 +10373,21 @@ public struct Form: View {
         var borderColor: Color
         var borderWidth: Double
         var cornerRadius: Double
+        var contentMaxWidth: Double
     }
 
     private static func retainedChrome(for style: FormStyle, palette: ControlPalette) -> RetainedChrome {
+        let margin = MacOSControlMetrics.Form.contentHorizontalMargin
         switch style.kind {
         case .automatic:
             return RetainedChrome(
-                spacing: 12,
-                padding: EdgeInsets.all(12),
+                spacing: MacOSControlMetrics.Form.sectionSpacing,
+                padding: EdgeInsets(top: 16, leading: margin, bottom: margin, trailing: margin),
                 backgroundColor: nil,
                 borderColor: .clear,
                 borderWidth: 0,
-                cornerRadius: 0
+                cornerRadius: 0,
+                contentMaxWidth: MacOSControlMetrics.Form.contentMaxWidth
             )
         case .columns:
             return RetainedChrome(
@@ -10258,16 +10396,18 @@ public struct Form: View {
                 backgroundColor: nil,
                 borderColor: palette.separator,
                 borderWidth: 1,
-                cornerRadius: 8
+                cornerRadius: 8,
+                contentMaxWidth: MacOSControlMetrics.Form.contentMaxWidth
             )
         case .grouped:
             return RetainedChrome(
-                spacing: 10,
-                padding: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16),
+                spacing: MacOSControlMetrics.Form.sectionSpacing,
+                padding: EdgeInsets(top: 16, leading: margin, bottom: margin, trailing: margin),
                 backgroundColor: palette.raisedSurface,
                 borderColor: palette.separator,
                 borderWidth: 1,
-                cornerRadius: 16
+                cornerRadius: MacOSControlMetrics.GroupBox.cornerRadius,
+                contentMaxWidth: MacOSControlMetrics.Form.contentMaxWidth
             )
         }
     }
@@ -10427,6 +10567,25 @@ public struct Section: View {
         let indicatorColor = style.indicatorColor ?? palette.tertiaryLabel
         let indicatorHoverColor = style.indicatorHoverColor ?? palette.secondaryLabel
         let indicatorActiveColor = style.indicatorActiveColor ?? palette.label
+        // A macOS grouped form puts the section header *outside and above*
+        // the box it names, and draws that box near-flat: a 10pt radius, a
+        // hairline, and only an ambient contact shadow. A section that was
+        // given its own style keeps it; a section outside a Form keeps the
+        // list-group chrome it has always had.
+        let usesGroupedFormChrome = context.isInsideGroupedForm && style.usesContainerChrome
+        let sectionShadow = usesGroupedFormChrome ? palette.groupedContainerShadow : style.shadowColor
+        let sectionCornerRadius =
+            usesGroupedFormChrome ? MacOSControlMetrics.GroupBox.cornerRadius : style.cornerRadius
+        let sectionSpacing = usesGroupedFormChrome ? MacOSControlMetrics.Form.rowSpacing : style.spacing
+        let sectionPadding =
+            usesGroupedFormChrome
+            ? EdgeInsets(
+                top: MacOSControlMetrics.Form.boxVerticalPadding,
+                leading: MacOSControlMetrics.Form.boxHorizontalPadding,
+                bottom: MacOSControlMetrics.Form.boxVerticalPadding,
+                trailing: MacOSControlMetrics.Form.boxHorizontalPadding
+            )
+            : style.padding
         return Component { runtime in
             let headerFont =
                 (style.headerFont
@@ -10501,12 +10660,17 @@ public struct Section: View {
                 }
             }
 
-            let contentNodes =
+            let builtContentNodes =
                 expansionBinding?.wrappedValue == false
                 ? []
                 : content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+            // One label column per section: the widest label in *this* group
+            // sets it, which is what makes a settings pane read as a grid
+            // instead of a ragged list.
+            let contentNodes =
+                usesGroupedFormChrome ? alignedGroupedFormRows(builtContentNodes) : builtContentNodes
             let children =
-                resolvedHeaderNodes + contentNodes
+                (usesGroupedFormChrome ? [] : resolvedHeaderNodes) + contentNodes
                 + footer.map { $0.makeComponent(context: footerContext).makeNode(runtime: runtime) }
             let hidesScrollContentBackground =
                 style.scrollAxis != nil
@@ -10518,18 +10682,21 @@ public struct Section: View {
                 backgroundGradient: hidesScrollContentBackground ? nil : style.backgroundGradient,
                 borderColor: sectionBorder,
                 borderWidth: 1,
-                shadowColor: style.shadowColor,
+                shadowColor: sectionShadow,
                 // Tight, low shadow so stacked sections read as grouped cards
                 // rather than floating panels.
-                shadowOffset: Point(x: 0, y: 8),
-                shadowSpread: 4,
-                cornerRadius: style.cornerRadius,
+                shadowOffset: Point(
+                    x: 0,
+                    y: usesGroupedFormChrome ? MacOSControlMetrics.GroupBox.shadowOffsetY : 8
+                ),
+                shadowSpread: usesGroupedFormChrome ? MacOSControlMetrics.GroupBox.shadowSpread : 4,
+                cornerRadius: sectionCornerRadius,
                 clipsToBounds: true,
                 stackLayout: .vertical(
-                    spacing: style.spacing,
+                    spacing: sectionSpacing,
                     padding: style.scrollAxis == nil
-                        ? style.padding
-                        : context.contentInsets(for: .scrollContent, defaultInsets: style.padding),
+                        ? sectionPadding
+                        : context.contentInsets(for: .scrollContent, defaultInsets: sectionPadding),
                     alignment: style.alignment.stackAlignment(layoutDirection: context.layoutDirection),
                     mainAlignment: alignmentAnchor.map { stackMainAlignment(from: $0.y) } ?? .start
                 ),
@@ -10563,11 +10730,45 @@ public struct Section: View {
             if style.scrollAxis != nil, context.isScrollClipDisabled {
                 node.clipsToBounds = false
             }
-            node.sectionHeaderChildCount = resolvedHeaderNodes.count
+            node.sectionHeaderChildCount = usesGroupedFormChrome ? 0 : resolvedHeaderNodes.count
             node.sectionFooterChildCount = footer.count
 
-            return node
+            guard usesGroupedFormChrome, !resolvedHeaderNodes.isEmpty else {
+                return node
+            }
+            return Self.groupedFormSectionNode(header: resolvedHeaderNodes, box: node)
         }
+    }
+
+    /// A grouped-form section: the header outside and above the box, the
+    /// way macOS System Settings sets one. Out of line so the header
+    /// treatment is one readable place rather than another branch inside an
+    /// already long builder.
+    private static func groupedFormSectionNode(header: [ViewNode], box: ViewNode) -> ViewNode {
+        let headerRow = Controls.stackPanel(
+            stackLayout: .horizontal(
+                padding: EdgeInsets(
+                    top: 0,
+                    leading: MacOSControlMetrics.Form.headerLeadingInset,
+                    bottom: 0,
+                    trailing: 0
+                ),
+                alignment: .center
+            ),
+            isHitTestVisible: false,
+            children: header
+        )
+        let node = Controls.stackPanel(
+            stackLayout: .vertical(
+                spacing: MacOSControlMetrics.Form.headerSpacing,
+                alignment: .stretch
+            ),
+            isHitTestVisible: false,
+            children: [headerRow, box]
+        )
+        node.layoutFillAxes = .horizontalOnly
+        node.sectionHeaderChildCount = 1
+        return node
     }
 }
 public struct Header<Content: View>: View {
@@ -12110,8 +12311,13 @@ public struct TextField: View {
         case .vertical:
             allowsNewlines = true
         }
-        return textInputComponent(
-            title: label == nil ? (prompt ?? title) : prompt,
+        // In a grouped form the title is the row's *label*, not the field's
+        // placeholder: macOS writes "Display Name" in the label column and
+        // leaves the field itself empty unless a prompt was given. Outside a
+        // form the title stands in as the placeholder, as it always has.
+        let isFormRow = context.isInsideGroupedForm && !context.labelsHidden && label == nil && !title.isEmpty
+        let fieldComponent = textInputComponent(
+            title: label == nil ? (isFormRow ? prompt : (prompt ?? title)) : prompt,
             text: text,
             isSecure: false,
             allowsNewlines: allowsNewlines,
@@ -12123,6 +12329,28 @@ public struct TextField: View {
             onCommit: onCommit,
             context: context
         )
+        guard isFormRow else {
+            return fieldComponent
+        }
+
+        let title = self.title
+        let labelComponent = composeComponent(
+            from: [AnyView(Text(title).multilineTextAlignment(.trailing).lineLimit(1))],
+            context: context.withTextAlignment(.trailing).withLineLimit(1),
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
+            isHitTestVisible: false
+        )
+        return Component { runtime in
+            let fieldNode = fieldComponent.makeNode(runtime: runtime)
+            let labelNode = labelComponent.makeNode(runtime: runtime)
+            if fieldNode.accessibilityLabel == nil {
+                fieldNode.accessibilityLabel = title
+            }
+            // The well spans the value column, the way an NSTextField in a
+            // form does.
+            fieldNode.layoutFillAxes = .horizontalOnly
+            return groupedFormRowNode(label: labelNode, content: fieldNode, isHitTestVisible: true)
+        }
     }
 }
 @MainActor
@@ -14281,6 +14509,24 @@ public struct DatePicker: View {
 
             let labelNode = labelComponent.makeNode(runtime: runtime)
             labelNode.layoutPriority = max(labelNode.layoutPriority, 1)
+            guard !context.isInsideGroupedForm else {
+                // In a form row the stepper field is the control; the empty
+                // rest of the value column is not a click target for it.
+                Self.configureInteraction(
+                    on: controlNode,
+                    selection: selection,
+                    range: range,
+                    components: displayedComponents,
+                    calendar: interactionCalendar,
+                    isEnabled: context.isEnabled,
+                    invalidate: context.invalidate
+                )
+                return groupedFormRowNode(
+                    label: labelNode,
+                    content: controlNode,
+                    isHitTestVisible: context.isEnabled
+                )
+            }
             let node = Controls.stackPanel(
                 stackLayout: .horizontal(spacing: 12, alignment: .center),
                 isHitTestVisible: context.isEnabled,
@@ -14782,6 +15028,23 @@ public struct ColorPicker: View {
 
             let labelNode = labelComponent.makeNode(runtime: runtime)
             labelNode.layoutPriority = max(labelNode.layoutPriority, 1)
+            guard !context.isInsideGroupedForm else {
+                // In a form row the well is the control; the empty rest of
+                // the value column is not a click target for it.
+                Self.configureInteraction(
+                    on: controlNode,
+                    selection: selection,
+                    supportsOpacity: supportsOpacity,
+                    isEnabled: context.isEnabled,
+                    usesNativeDialog: context.environmentValues.colorPickerUsesNativeDialog,
+                    invalidate: context.invalidate
+                )
+                return groupedFormRowNode(
+                    label: labelNode,
+                    content: controlNode,
+                    isHitTestVisible: context.isEnabled
+                )
+            }
             let node = Controls.stackPanel(
                 stackLayout: .horizontal(spacing: 12, alignment: .center),
                 isHitTestVisible: context.isEnabled,
@@ -15196,6 +15459,9 @@ public struct Toggle: View {
         // retained toggle builder already applied isButton (+ isSelected
         // when on).
         toggleNode.accessibilityLabel = firstRetainedText(in: labelNode)
+        guard !context.isInsideGroupedForm else {
+            return groupedFormRowNode(label: labelNode, content: toggleNode)
+        }
         return Controls.stackPanel(
             stackLayout: .horizontal(spacing: 10, alignment: .center),
             isHitTestVisible: false,
@@ -15570,6 +15836,9 @@ public struct Picker<SelectionValue: Hashable>: View {
 
             guard !currentValueLabelViews.isEmpty else {
                 let labelNode = labelComponent.makeNode(runtime: runtime)
+                guard !context.isInsideGroupedForm else {
+                    return groupedFormRowNode(label: labelNode, content: pickerNode)
+                }
                 return Controls.stackPanel(
                     stackLayout: .vertical(spacing: 8, alignment: .stretch),
                     isHitTestVisible: false,
@@ -15767,9 +16036,14 @@ public struct Picker<SelectionValue: Hashable>: View {
             isHitTestVisible: false,
             children: optionNodes
         )
-        // A segmented control fills the control column it is given (a Form
-        // row, a toolbar slot) and splits it equally between segments.
-        track.layoutFillAxes = .horizontalOnly
+        // An NSSegmentedControl is *intrinsically* sized: equal segments,
+        // each as wide as the widest label, and it only stretches when
+        // something explicitly asks it to (a `.frame(width:)`, a stretching
+        // container). Declaring the track greedy made it take whatever it
+        // was offered, which is how a three-segment "System / Light / Dark"
+        // picker came to be 1215pt wide in a settings pane. The equal-width
+        // pass above is what keeps the segments equal at intrinsic size;
+        // `.fillEqually` keeps them equal when a container does stretch it.
         return track
     }
 
@@ -16577,6 +16851,9 @@ public struct Stepper: View {
             }
 
             let labelNode = labelComponent.makeNode(runtime: runtime)
+            guard !context.isInsideGroupedForm else {
+                return groupedFormRowNode(label: labelNode, content: stepperNode)
+            }
             // The bezel sits flush as a joined pair; the label keeps the
             // 8pt gap the separate pills used to provide.
             let labelSlot = Controls.panel(
@@ -17033,6 +17310,12 @@ public struct Slider: View {
             // accessibilityLabel modifier applies after this and wins. The
             // retained slider builder already applied slider behavior + value.
             sliderNode.accessibilityLabel = firstRetainedText(in: labelNode)
+            guard !context.isInsideGroupedForm else {
+                // An NSSlider spans a form's control column; 200pt of track
+                // floating in a 400pt column is not a settings pane.
+                rowNode.layoutFillAxes = .horizontalOnly
+                return groupedFormRowNode(label: labelNode, content: rowNode)
+            }
             // In the labeled form the track row gives up vertical space before
             // the label does: a constrained parent squeezes the track (which
             // re-resolves its geometry in onLayout) instead of shrinking the
@@ -17255,6 +17538,16 @@ public struct ProgressView: View {
                 // explicit accessibilityLabel modifier wins. The retained
                 // progress builder already applied the value.
                 progressNode.accessibilityLabel = firstRetainedText(in: labelNode)
+                guard !context.isInsideGroupedForm else {
+                    // A determinate bar spans the value column, the way an
+                    // NSProgressIndicator spans a form's control column.
+                    if case .automatic = context.progressViewStyle.kind {
+                        progressNode.layoutFillAxes = .horizontalOnly
+                    } else if case .linear = context.progressViewStyle.kind {
+                        progressNode.layoutFillAxes = .horizontalOnly
+                    }
+                    return groupedFormRowNode(label: labelNode, content: progressNode)
+                }
                 return Controls.stackPanel(
                     stackLayout: .vertical(spacing: 8, alignment: .stretch),
                     isHitTestVisible: false,
@@ -17543,6 +17836,23 @@ public struct Gauge: View {
             // Labeled form: the bar absorbs vertical compression before the
             // header/bounds labels do so label text never overflows onto it.
             gaugeNode.layoutPriority = -1
+
+            // A gauge whose only accessory is its label is a grouped-form
+            // row like any other: label in the shared column, bar spanning
+            // the value column beside it.
+            if context.isInsideGroupedForm, !label.isEmpty, currentValueLabel.isEmpty, !hasBounds,
+                !hasMarkedLabels
+            {
+                let labelNode = labelComponent.makeNode(runtime: runtime)
+                gaugeNode.accessibilityLabel = firstRetainedText(in: labelNode)
+                switch context.gaugeStyle.kind {
+                case .circular, .accessoryCircular, .accessoryCircularCapacity:
+                    break
+                case .automatic, .linear, .linearCapacity, .accessoryLinear, .accessoryLinearCapacity:
+                    gaugeNode.layoutFillAxes = .horizontalOnly
+                }
+                return groupedFormRowNode(label: labelNode, content: gaugeNode)
+            }
 
             var children: [ViewNode] = []
             if hasHeader {

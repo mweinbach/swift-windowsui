@@ -8576,14 +8576,39 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            guard case .stack(let stackLayout) = node.layoutMode else {
+            // A Form is a centring box around a ~640pt content column:
+            // macOS settings live in a column with margins, not edge to
+            // edge across the window.
+            guard case .stack(let centringLayout) = node.layoutMode else {
                 return XCTFail("Expected Form to use retained stack layout")
             }
+            XCTAssertEqual(centringLayout.axis, .vertical)
+            XCTAssertEqual(centringLayout.alignment, .center)
+            XCTAssertEqual(node.children.count, 1)
 
-            XCTAssertEqual(stackLayout, .vertical(spacing: 12, padding: .all(12), alignment: .stretch))
-            XCTAssertEqual(node.children.count, 2)
-            XCTAssertEqual(node.children[0].text, "NAME")
-            XCTAssertEqual(firstText(in: node.children[1]), "ENABLED")
+            let column = node.children[0]
+            XCTAssertEqual(column.layoutConstraints?.maxWidth, MacOSControlMetrics.Form.contentMaxWidth)
+            guard case .stack(let columnLayout) = column.layoutMode else {
+                return XCTFail("Expected the Form's content column to use retained stack layout")
+            }
+            XCTAssertEqual(
+                columnLayout,
+                .vertical(
+                    spacing: MacOSControlMetrics.Form.sectionSpacing,
+                    padding: EdgeInsets(
+                        top: 16,
+                        leading: MacOSControlMetrics.Form.contentHorizontalMargin,
+                        bottom: MacOSControlMetrics.Form.contentHorizontalMargin,
+                        trailing: MacOSControlMetrics.Form.contentHorizontalMargin
+                    ),
+                    alignment: .stretch
+                )
+            )
+            XCTAssertEqual(column.children.count, 2)
+            // The label-less row is indented to the value column beside the
+            // toggle's label, so it is a wrapper now, not the Text itself.
+            XCTAssertEqual(firstText(in: column.children[0]), "NAME")
+            XCTAssertEqual(firstText(in: column.children[1]), "ENABLED")
         }
     }
 
@@ -8616,27 +8641,36 @@ final class WinSwiftUITests: XCTestCase {
                 .formStyle(.columns)
             )
 
+            // A Form's chrome lives on the content column inside its
+            // centring box, so each style's box is one level down.
+            let inheritedColumn = inheritedNode.children[0].children[0]
+            let columnsColumn = columnsNode.children[0]
+
             XCTAssertEqual(columnsReaderNode.text, "COLUMNS")
             XCTAssertEqual(groupedReaderNode.text, "GROUPED")
-            XCTAssertEqual(inheritedNode.children[0].children.count, 2)
-            XCTAssertEqual(inheritedNode.children[0].children[0].text, "NAME")
-            XCTAssertEqual(
-                inheritedNode.children[0].backgroundColor, ControlPalette.darkStandard.raisedSurface)
-            XCTAssertEqual(inheritedNode.children[0].borderColor, ControlPalette.darkStandard.separator)
-            XCTAssertEqual(inheritedNode.children[0].borderWidth, 1)
-            XCTAssertEqual(inheritedNode.children[0].cornerRadius, 16)
-            guard case .stack(let groupedStackLayout) = inheritedNode.children[0].layoutMode else {
+            XCTAssertEqual(inheritedColumn.children.count, 2)
+            XCTAssertEqual(inheritedColumn.children[0].text, "NAME")
+            XCTAssertEqual(inheritedColumn.backgroundColor, ControlPalette.darkStandard.raisedSurface)
+            XCTAssertEqual(inheritedColumn.borderColor, ControlPalette.darkStandard.separator)
+            XCTAssertEqual(inheritedColumn.borderWidth, 1)
+            XCTAssertEqual(inheritedColumn.cornerRadius, MacOSControlMetrics.GroupBox.cornerRadius)
+            guard case .stack(let groupedStackLayout) = inheritedColumn.layoutMode else {
                 return XCTFail("Expected grouped Form to use retained stack layout")
             }
             XCTAssertEqual(
                 groupedStackLayout,
                 .vertical(
-                    spacing: 10,
-                    padding: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16),
+                    spacing: MacOSControlMetrics.Form.sectionSpacing,
+                    padding: EdgeInsets(
+                        top: 16,
+                        leading: MacOSControlMetrics.Form.contentHorizontalMargin,
+                        bottom: MacOSControlMetrics.Form.contentHorizontalMargin,
+                        trailing: MacOSControlMetrics.Form.contentHorizontalMargin
+                    ),
                     alignment: .stretch
                 )
             )
-            guard case .stack(let columnsStackLayout) = columnsNode.layoutMode else {
+            guard case .stack(let columnsStackLayout) = columnsColumn.layoutMode else {
                 return XCTFail("Expected columns Form to use retained stack layout")
             }
             XCTAssertEqual(
@@ -8647,8 +8681,8 @@ final class WinSwiftUITests: XCTestCase {
                     alignment: .stretch
                 )
             )
-            XCTAssertEqual(columnsNode.borderWidth, 1)
-            XCTAssertEqual(columnsNode.cornerRadius, 8)
+            XCTAssertEqual(columnsColumn.borderWidth, 1)
+            XCTAssertEqual(columnsColumn.cornerRadius, 8)
         }
     }
 

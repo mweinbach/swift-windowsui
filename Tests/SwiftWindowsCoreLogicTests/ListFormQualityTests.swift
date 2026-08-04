@@ -17,6 +17,14 @@ private func rows(of node: ViewNode) -> [ViewNode] {
     node.children.filter { $0.text != nil || !$0.children.isEmpty || $0.onActivate != nil }
 }
 
+/// The styled column inside a `Form`. A Form builds a centring box whose
+/// only child is the ~640pt content column the sections live in; every
+/// assertion about form chrome belongs to that child, not the box.
+@MainActor
+private func formContentColumn(of node: ViewNode) -> ViewNode {
+    node.children[0]
+}
+
 @MainActor
 private func makeListFormNode<V: View>(
     _ view: V,
@@ -404,9 +412,13 @@ final class ListFormQualityTests: XCTestCase {
                 .formStyle(.columns)
             )
 
-            XCTAssertFalse(automaticNode.clipsToBounds)
-            XCTAssertTrue(groupedNode.clipsToBounds)
-            XCTAssertTrue(columnsNode.clipsToBounds)
+            // A Form is a *centred content column*: the node it builds is
+            // the centring box, and the styled column is its only child.
+            // macOS settings live in a ~640pt column with margins, so the
+            // chrome can no longer be the outermost node.
+            XCTAssertFalse(formContentColumn(of: automaticNode).clipsToBounds)
+            XCTAssertTrue(formContentColumn(of: groupedNode).clipsToBounds)
+            XCTAssertTrue(formContentColumn(of: columnsNode).clipsToBounds)
         }
     }
 
@@ -438,13 +450,18 @@ final class ListFormQualityTests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(node.children.count, 2)
-            XCTAssertEqual(rows(of: node)[0].sectionHeaderChildCount, 1)
-            XCTAssertEqual(rows(of: node)[1].sectionHeaderChildCount, 1)
-            XCTAssertEqual(rows(of: node)[0].borderWidth, 1)
-            XCTAssertEqual(rows(of: node)[1].borderWidth, 1)
-            XCTAssertGreaterThan(rows(of: node)[0].cornerRadius, 0)
-            XCTAssertGreaterThan(rows(of: node)[1].cornerRadius, 0)
+            let column = formContentColumn(of: node)
+            XCTAssertEqual(column.children.count, 2)
+            // In a grouped form each section is a header *plus* a box, and
+            // the header sits outside the box the way macOS System Settings
+            // sets one — so the group chrome is now one level down.
+            for section in rows(of: column) {
+                XCTAssertEqual(section.sectionHeaderChildCount, 1)
+                XCTAssertEqual(section.children.count, 2)
+                let box = section.children[1]
+                XCTAssertEqual(box.borderWidth, 1)
+                XCTAssertGreaterThan(box.cornerRadius, 0)
+            }
         }
     }
 }

@@ -134,6 +134,35 @@ final class MacOSDesignParityTests: XCTestCase {
         XCTAssertEqual(ControlAnimationStyle.pressedScale, 0.97, accuracy: 0.001)
     }
 
+    // MARK: - Grouped form and group box
+
+    func testGroupedFormMetricsMatchTheMacOSSettingsPane() async {
+        XCTAssertEqual(MacOSControlMetrics.Form.contentMaxWidth, 640, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Form.contentHorizontalMargin, 20, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Form.labelColumnGap, 8, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Form.sectionSpacing, 20, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Form.headerSpacing, 6, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Form.headerLeadingInset, 6, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Form.rowSpacing, 10, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Form.boxVerticalPadding, 12, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Form.boxHorizontalPadding, 16, accuracy: 0.001)
+        // The content column carries ~600pt boxes, which is the low end of
+        // macOS's 600–715pt settings column.
+        XCTAssertEqual(
+            MacOSControlMetrics.Form.contentMaxWidth - 2 * MacOSControlMetrics.Form.contentHorizontalMargin,
+            600,
+            accuracy: 0.001
+        )
+    }
+
+    func testGroupBoxIsARoundedRectWithAContactShadow() async {
+        XCTAssertEqual(MacOSControlMetrics.GroupBox.cornerRadius, 10, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.GroupBox.shadowOffsetY, 2, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.GroupBox.shadowSpread, 3, accuracy: 0.001)
+        XCTAssertEqual(ControlPalette.lightStandard.groupedContainerShadow, ControlPalette.black(0.04))
+        XCTAssertEqual(ControlPalette.darkStandard.groupedContainerShadow, ControlPalette.black(0.22))
+    }
+
     // MARK: - Material backdrop blur
 
     func testMaterialKindTintAlphasMatchDocumentedTable() async {

@@ -2649,6 +2649,18 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    /// When this node is a grouped-form row, the index of the child that is
+    /// its label column; `nil` on every other node.
+    ///
+    /// A macOS grouped form is a two-column grid, and the leading column's
+    /// width is shared by every row in the group — it is the widest label,
+    /// not each row's own. The container resolves that width after building
+    /// its rows, and this is how it finds the columns to pin without
+    /// guessing at child positions.
+    public var formRowLabelChildIndex: Int? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     /// Type-erased preference values emitted by SwiftUI-shaped compatibility modifiers.
     /// The retained runtime keeps them as metadata so ancestor modifiers can
     /// inspect rebuilt subtrees without coupling the renderer to WinSwiftUI.

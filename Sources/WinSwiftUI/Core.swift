@@ -6269,6 +6269,13 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var labelStyle: LabelStyle
     public var labeledContentStyle: LabeledContentStyle
     public var formStyle: FormStyle
+    /// True inside a `Form` that lays its rows out the way macOS does: a
+    /// two-column grid with trailing-aligned labels sharing one leading
+    /// column and controls leading the value column beside them. A control
+    /// that owns a label reads this and builds a form row instead of its
+    /// standalone label-then-control arrangement, which is what makes a
+    /// stack of unrelated controls read as one settings pane.
+    var isInsideGroupedForm: Bool
     public var groupBoxStyle: GroupBoxStyle
     public var disclosureGroupStyle: DisclosureGroupStyle
     public var menuStyle: MenuStyle
@@ -6494,6 +6501,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         labelStyle: LabelStyle = .automatic,
         labeledContentStyle: LabeledContentStyle = .automatic,
         formStyle: FormStyle = .automatic,
+        isInsideGroupedForm: Bool = false,
         groupBoxStyle: GroupBoxStyle = .automatic,
         disclosureGroupStyle: DisclosureGroupStyle = .automatic,
         menuStyle: MenuStyle = .automatic,
@@ -6686,6 +6694,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.labelStyle = labelStyle
         self.labeledContentStyle = labeledContentStyle
         self.formStyle = formStyle
+        self.isInsideGroupedForm = isInsideGroupedForm
         self.groupBoxStyle = groupBoxStyle
         self.disclosureGroupStyle = disclosureGroupStyle
         self.menuStyle = menuStyle
@@ -8356,6 +8365,12 @@ public struct ViewBuildContext {
 
     public var formStyle: FormStyle {
         environmentValuesProvider().formStyle
+    }
+
+    /// True inside a `Form` laying its rows out as a macOS two-column
+    /// grid. Controls that own a label build a form row when this is set.
+    var isInsideGroupedForm: Bool {
+        environmentValuesProvider().isInsideGroupedForm
     }
 
     public var groupBoxStyle: GroupBoxStyle {
@@ -16759,6 +16774,14 @@ public struct SectionStyle: Sendable {
     /// which is not hierarchy.
     public var headerFont: Font?
     public var isHitTestVisible: Bool
+    /// True only for `SectionStyle.default`.
+    ///
+    /// A section carrying the stock style lets whatever contains it choose
+    /// the chrome — a grouped `Form` box is not a `List` group row — while a
+    /// section whose caller spelled out a padding, a radius or a background
+    /// keeps exactly what it asked for. Without this flag the two are
+    /// indistinguishable, because every field already has a default.
+    var usesContainerChrome: Bool = false
 
     public init(
         spacing: Double = 16,
@@ -16798,7 +16821,11 @@ public struct SectionStyle: Sendable {
         self.isHitTestVisible = isHitTestVisible
     }
 
-    public static let `default` = SectionStyle()
+    public static let `default`: SectionStyle = {
+        var style = SectionStyle()
+        style.usesContainerChrome = true
+        return style
+    }()
 }
 @MainActor
 struct ModifiedView<Content: View>: View, TaggedViewMetadata {

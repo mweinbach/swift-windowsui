@@ -195,4 +195,211 @@ final class DemoScreensTests: XCTestCase {
             widths[0], columnWidth - 40,
             "and that width is the column's, not the longest line's")
     }
+
+    // MARK: - G4-COMPOSE: demo composition
+
+    private func absoluteX(of node: ViewNode) -> Double {
+        var x = 0.0
+        var current: ViewNode? = node
+        while let candidate = current {
+            x += candidate.resolvedFrame.origin.x
+            current = candidate.parent
+        }
+        return x
+    }
+
+    /// The bottom edge of the lowest piece of text in the tree. Panels fill
+    /// the window whether or not anything is in them, so the *text* is what
+    /// says where a screen's content actually stops.
+    private func lowestTextBottom(in root: ViewNode) -> Double {
+        var lowest = 0.0
+        var stack: [(node: ViewNode, y: Double)] = [(root, 0)]
+        while let entry = stack.popLast() {
+            let top = entry.y + entry.node.resolvedFrame.origin.y
+            if let text = entry.node.text, !text.isEmpty {
+                lowest = max(lowest, top + entry.node.resolvedFrame.size.height)
+            }
+            for child in entry.node.children {
+                stack.append((child, top))
+            }
+        }
+        return lowest
+    }
+
+    private func widestRoundedSurfaceWidth(in root: ViewNode) -> Double {
+        var widest = 0.0
+        var stack: [ViewNode] = [root]
+        while let node = stack.popLast() {
+            if node.cornerRadius > 0 {
+                widest = max(widest, node.resolvedFrame.size.width)
+            }
+            stack.append(contentsOf: node.children)
+        }
+        return widest
+    }
+
+    /// G4 item 1. The data screen used to size its list at
+    /// `proxy.size.height - 224` and then let the detail block measure
+    /// whatever it measured. The detail block came in well under 224, so the
+    /// screen ended in a bare strip of window about 75 pt tall. A greedy list
+    /// takes exactly what its siblings leave, so the detail block lands on the
+    /// bottom inset at every window size.
+    func testDataScreenDetailBlockLandsOnTheBottomInset() async {
+        let size = IntSize(width: 1280, height: 720)
+        let model = DemoDashboardModel()
+        model.selectedScreen = .data
+        let root = laidOut(DemoRootView(model: model), size: size)
+
+        let bottom = lowestTextBottom(in: root)
+        XCTAssertGreaterThan(
+            bottom, Double(size.height) - 44,
+            "the detail block is pinned under a greedy list, so it ends on the screen's bottom inset")
+        XCTAssertLessThanOrEqual(
+            bottom, Double(size.height),
+            "and it stays inside the window")
+    }
+
+    /// G4 item 2. The right rail reserved 8 pt of its own width for a scroll
+    /// gutter. Overlay scrollers float over the content instead of taking
+    /// layout space, so the reservation only pulled the rail's cards 8 pt
+    /// short of the toolbar edge directly above them.
+    func testRightRailCardsSpanTheFullRailWidth() async {
+        let layout = DemoLayout(size: CGSize(width: 1280, height: 655))
+        let model = DemoDashboardModel()
+        let root = laidOut(
+            DemoRightRail(model: model, layout: layout)
+                .frame(width: layout.railWidth, height: 520, alignment: .topLeading),
+            size: IntSize(width: 420, height: 560)
+        )
+
+        XCTAssertEqual(
+            widestRoundedSurfaceWidth(in: root), layout.railWidth, accuracy: 0.5,
+            "a rail card is as wide as the rail; there is no scroll gutter to reserve")
+    }
+
+    /// G4 item 3. A metric card's caption and a section eyebrow are the same
+    /// kind of thing, so they sit on the same rung. The caption used to be
+    /// `.tertiary`, which measured 1.86:1 against the light card fill — a
+    /// shape rather than a word.
+    func testCardCaptionsSitOnTheSecondaryRung() async {
+        let root = laidOut(
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Reference rung")
+                    .foregroundStyle(.secondary)
+
+                DemoMetricCard(
+                    title: "Interactions", value: "0", note: "Events tracked", accent: Color.blue)
+
+                DemoRowButton(
+                    title: "State", detail: "Ready", systemImage: "info.circle", accent: Color.blue
+                ) {}
+            }
+            .frame(width: 260),
+            size: IntSize(width: 320, height: 420)
+        )
+
+        guard
+            let reference = firstNode(in: root, matching: { $0.text == "Reference rung" }),
+            let metricTitle = firstNode(in: root, matching: { $0.text == "Interactions" }),
+            let rowDetail = firstNode(in: root, matching: { $0.text == "Ready" })
+        else {
+            return XCTFail("expected the reference rung, a metric title, and a row subtitle")
+        }
+
+        XCTAssertEqual(
+            metricTitle.textStyle.color, reference.textStyle.color,
+            "a metric card's caption reads at the same prominence as a section eyebrow")
+        XCTAssertEqual(
+            rowDetail.textStyle.color, reference.textStyle.color,
+            "so does a row's subtitle")
+    }
+
+    /// G4 item 4. System Settings puts the noun in the label column and the
+    /// value beside its stepper in the control column. The row used to fold
+    /// the value into the label — "Items Per Page: 10" — which made it the one
+    /// row in the pane whose label was a sentence.
+    func testItemsPerPageRowKeepsTheValueOutOfTheLabel() async {
+        let model = DemoDashboardModel()
+        model.selectedScreen = .settings
+        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
+
+        XCTAssertNil(
+            firstNode(in: root, matching: { ($0.text ?? "").hasPrefix("Items Per Page:") }),
+            "the value does not live inside the label")
+
+        guard
+            let label = firstNode(in: root, matching: { $0.text == "Items Per Page" }),
+            let value = firstNode(in: root, matching: { $0.text == "\(model.itemsPerPage)" })
+        else {
+            return XCTFail("expected a bare label and a separate value")
+        }
+
+        XCTAssertEqual(
+            absoluteY(of: label), absoluteY(of: value), accuracy: 6,
+            "label and value share the row's baseline")
+        XCTAssertGreaterThan(
+            absoluteX(of: value), absoluteX(of: label),
+            "and the value is in the control column, to the right of the label column")
+    }
+
+    /// G4 item 5. Whether the three metric cards stack is a question about the
+    /// content column's *width*. It used to ask `compact`, which is also true
+    /// in a short window: the default 1280x720 window stacked the band,
+    /// tripling its height in the window with the least height to spend, and
+    /// the bottom of the scroll view came down across the middle of the
+    /// third card.
+    func testMetricBandStaysARowInAWideShortWindow() async {
+        XCTAssertFalse(
+            DemoLayout(size: CGSize(width: 1280, height: 720)).stacksMetrics,
+            "a wide window keeps the band a row however short it is")
+        XCTAssertTrue(
+            DemoLayout(size: CGSize(width: 880, height: 900)).stacksMetrics,
+            "a narrow one stacks it however tall it is")
+
+        let model = DemoDashboardModel()
+        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
+
+        guard
+            let interactions = firstNode(in: root, matching: { $0.text == "Interactions" }),
+            let module = firstNode(in: root, matching: { $0.text == "Module" }),
+            let target = firstNode(in: root, matching: { $0.text == "Target" })
+        else {
+            return XCTFail("expected the three metric captions")
+        }
+
+        XCTAssertEqual(absoluteY(of: interactions), absoluteY(of: module), accuracy: 2)
+        XCTAssertEqual(absoluteY(of: module), absoluteY(of: target), accuracy: 2)
+    }
+
+    /// G4 item 5, the fold itself. The centre pane scrolls, so its bottom edge
+    /// cuts the column somewhere; what it must not do is cut a card in half.
+    /// The sidebar is framed at `layout.bodyHeight`, so its bottom edge *is*
+    /// the centre pane's viewport bottom — the fold.
+    func testDashboardFoldLandsInAGapNotAcrossACard() async {
+        let model = DemoDashboardModel()
+        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
+
+        guard
+            let workspace = firstNode(
+                in: root,
+                matching: { $0.text?.caseInsensitiveCompare("Workspace") == .orderedSame }),
+            let sidebar = enclosingSurface(of: workspace),
+            let moduleCaption = firstNode(in: root, matching: { $0.text == "Module" }),
+            let moduleCard = enclosingSurface(of: moduleCaption)
+        else {
+            return XCTFail("expected a sidebar surface and a Module metric card")
+        }
+
+        let fold = absoluteY(of: sidebar) + sidebar.resolvedFrame.size.height
+        let cardTop = absoluteY(of: moduleCard)
+        let cardBottom = cardTop + moduleCard.resolvedFrame.size.height
+
+        XCTAssertGreaterThan(fold, 0, "the sidebar is framed at the body height")
+        XCTAssertFalse(
+            cardTop < fold && cardBottom > fold,
+            "the fold at \(fold) runs through the Module card (\(cardTop)...\(cardBottom))")
+        XCTAssertLessThanOrEqual(
+            cardBottom, fold,
+            "and the band is fully above it, not pushed off the bottom entirely")
+    }
 }

@@ -421,14 +421,23 @@ struct DemoCenterPane: View {
                     VStack(alignment: .leading, spacing: 10) {
                         DemoSectionTitle("Render pipeline")
 
+                        // The panel's own content width, not a literal 32 that
+                        // happened to be near it: the panel pads by 14 in a
+                        // compact window and 16 otherwise, so the flat 32 left
+                        // the plot short of the panel's right inset in one of
+                        // the two and over it in the other.
                         DemoRenderPipelineChart(model: model)
-                            .frame(width: layout.contentInnerWidth - 32, height: 80)
+                            .frame(
+                                width: layout.contentInnerWidth
+                                    - layout.panelPadding.leading - layout.panelPadding.trailing - 2,
+                                height: layout.chartHeight
+                            )
                             .clipped()
                     }
                 }
                 .frame(width: layout.contentInnerWidth, alignment: .leading)
 
-                if layout.compact {
+                if layout.stacksMetrics {
                     VStack(alignment: .leading, spacing: 14) {
                         DemoMetricCard(
                             title: "Interactions", value: "\(model.interactionCount)", note: "Events tracked",
@@ -483,7 +492,6 @@ struct DemoCenterPane: View {
                 }
                 .frame(width: layout.contentInnerWidth, alignment: .leading)
             }
-            .padding(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 6))
         }
     }
 }
@@ -625,7 +633,6 @@ struct DemoRightRail: View {
                 }
                 .frame(width: layout.railInnerWidth, alignment: .leading)
             }
-            .padding(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 6))
         }
     }
 }
@@ -1140,9 +1147,14 @@ struct DemoRowButton: View {
                             .multilineTextAlignment(.leading)
                             .lineLimit(1)
 
+                        // `.secondary`, not `.tertiary`: this line is the
+                        // row's subtitle — content — and macOS keeps the
+                        // tertiary rung for decoration and disabled chrome.
+                        // On the light card the tertiary rung measured
+                        // 1.88:1, which is a smudge, not a caption.
                         Text(detail)
                             .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(.secondary)
                             .multilineTextAlignment(.leading)
                             .lineLimit(1)
                     }
@@ -1167,9 +1179,14 @@ struct DemoMetricCard: View {
     var body: some View {
         DemoGlassSurface(cornerRadius: 26) {
             VStack(alignment: .leading, spacing: 10) {
+                // The card's caption sits on the same rung as the section
+                // headers around it ("WORKSPACE", "RENDER PIPELINE"), which
+                // is `.secondary`. On the light card the tertiary rung this
+                // used to carry measured 1.86:1 against the card fill — the
+                // titles were legible only as a shape.
                 Text(title)
                     .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
                     .lineLimit(1)
 
@@ -1410,8 +1427,14 @@ struct DemoLayout {
     var contentWidth: CGFloat {
         max(420, size.width - outerPadding * 2 - sidebarWidth - railWidth - columnGap * 2)
     }
-    var contentInnerWidth: CGFloat { max(380, contentWidth - 8) }
-    var railInnerWidth: CGFloat { max(220, railWidth - 8) }
+    // The content of a scrolling column is as wide as the column. These used
+    // to reserve 8 pt for a scroll gutter, which stopped being a thing when
+    // the scrollers became overlay scrollers: the reservation just pulled
+    // every card in the centre pane and the right rail 8 pt short of the
+    // toolbar's right edge directly above them, so the window's right margin
+    // read as two different margins depending on which band you looked at.
+    var contentInnerWidth: CGFloat { max(380, contentWidth) }
+    var railInnerWidth: CGFloat { max(220, railWidth) }
     /// The width of a row inside the sidebar: the surface's own width, minus
     /// the 1 pt stroke ring it draws around itself and the panel padding.
     var sidebarRowWidth: CGFloat {
@@ -1420,6 +1443,16 @@ struct DemoLayout {
     var metricCardWidth: CGFloat {
         max(120, (contentInnerWidth - gap * 2) / 3)
     }
+    /// Whether the three metric cards have to stack into a column.
+    ///
+    /// This is a question about the *content column's width* — can a card
+    /// still hold a 24 pt value and a note? — and nothing else. It used to
+    /// ask `compact`, which is also true in a short window, so a window that
+    /// was wide and short stacked the band: exactly backwards. It tripled the
+    /// band's height in the window with the least height to spend, and pushed
+    /// the third card halfway past the bottom of the scroll view, where it
+    /// read as a sliced-off box with a cut-in-half title.
+    var stacksMetrics: Bool { metricCardWidth < 190 }
     var toolbarCornerRadius: CGFloat { compact ? 22 : 26 }
     var panelCornerRadius: CGFloat { compact ? 22 : 26 }
     var toolbarTitleWidth: CGFloat { compact ? 180 : 220 }
@@ -1430,6 +1463,14 @@ struct DemoLayout {
     var pillHeight: CGFloat { 34 }
     var headlineSize: CGFloat { compact ? 24 : 30 }
     var heroHeight: CGFloat { compact ? 210 : 232 }
+    /// The plot's own height, scaled with the window the way `heroHeight` and
+    /// `toolbarHeight` are. It used to be a flat 80 pt: a 736 pt wide plot
+    /// 80 pt tall is a strip rather than a card, the bars had no room to
+    /// differentiate, and the band was the one part of the column that did
+    /// not grow with the window. The taller plot also coarsens the column's
+    /// rhythm, which is what puts the bottom of the scroll view in the gap
+    /// between two cards instead of a dozen points into the top of one.
+    var chartHeight: CGFloat { compact ? 112 : 128 }
     var compactActions: Bool { compact }
 
     var toolbarPadding: EdgeInsets {
@@ -1787,12 +1828,25 @@ struct DemoSettingsScreen: View {
                         }
                         .pickerStyle(.segmented)
 
-                        Stepper(
-                            "Items Per Page: \(model.itemsPerPage)",
-                            value: $model.itemsPerPage,
-                            in: 5...30,
-                            step: 5
-                        )
+                        // System Settings puts the noun in the label column
+                        // and the value beside its stepper in the control
+                        // column. Folding the value into the label — "Items
+                        // Per Page: 10" — makes the one row in the pane whose
+                        // label is a sentence, and leaves the control column
+                        // holding a bezel with nothing to be about.
+                        LabeledContent("Items Per Page") {
+                            HStack(spacing: 8) {
+                                Text("\(model.itemsPerPage)")
+
+                                Stepper(
+                                    "Items Per Page",
+                                    value: $model.itemsPerPage,
+                                    in: 5...30,
+                                    step: 5
+                                )
+                                .labelsHidden()
+                            }
+                        }
                     }
 
                     Section("Preferences") {
@@ -1864,32 +1918,30 @@ struct DemoDataScreen: View {
 
     var body: some View {
         NavigationStack {
-            GeometryReader { proxy in
-                let contentWidth = max(320, proxy.size.width - 32)
-
-                VStack(alignment: .leading, spacing: 12) {
-                    List(model.components, selection: $model.selectedComponentID) { component in
-                        DemoComponentRow(component: component)
-                    }
-                    .frame(
-                        width: contentWidth,
-                        height: max(200, proxy.size.height - 224),
-                        alignment: .topLeading
-                    )
-                    .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-                        model.noteDroppedItems(count: providers.count)
-                        return true
-                    }
-
-                    Divider()
-                        .frame(width: contentWidth)
-
-                    DemoComponentDetail(model: model)
-                        .frame(width: contentWidth, alignment: .leading)
+            // The list is the greedy half of this screen and the detail block
+            // is pinned under it. No `proxy.size.height - 224`: that literal
+            // was a guess at the detail block's height, the guess was about
+            // 75 pt too generous, and the screen ended in a bare strip of
+            // window with nothing in it. A greedy child takes exactly what is
+            // left once its siblings have measured themselves, so the list
+            // grows and shrinks with the detail block instead of against it.
+            VStack(alignment: .leading, spacing: 12) {
+                List(model.components, selection: $model.selectedComponentID) { component in
+                    DemoComponentRow(component: component)
                 }
-                .padding(16)
-                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                    model.noteDroppedItems(count: providers.count)
+                    return true
+                }
+
+                Divider()
+
+                DemoComponentDetail(model: model)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .padding(16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .navigationTitle("Components")
         }
     }

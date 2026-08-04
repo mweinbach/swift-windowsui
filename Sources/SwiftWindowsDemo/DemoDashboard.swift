@@ -1697,13 +1697,20 @@ struct DemoComponentRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
 
+                // macOS reserves colour for the state that needs attention:
+                // Activity Monitor and System Settings leave the nominal row
+                // in secondary text and paint only the exceptional one, which
+                // is what makes the exceptional one visible at all.
+                //
+                // It is also the only version of this that survives selection.
+                // SwiftUI passes an app-authored colour straight through onto
+                // the selection fill — correct, and matched here — but the
+                // hand-mixed green it used to carry measured 1.2:1 on system
+                // blue. `.secondary` is a semantic rung, so it inverts to
+                // white with the rest of the selected row.
                 Text(component.statusLabel)
                     .font(.footnote)
-                    .foregroundColor(
-                        component.isHealthy
-                            ? Color(red: 0.30, green: 0.62, blue: 0.44, opacity: 0.95)
-                            : Color(red: 0.85, green: 0.48, blue: 0.20, opacity: 0.95)
-                    )
+                    .foregroundColor(component.isHealthy ? .secondary : .orange)
                     .lineLimit(1)
             }
         }

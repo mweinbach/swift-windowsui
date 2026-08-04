@@ -125,7 +125,15 @@ func alignedGroupedFormRows(_ nodes: [ViewNode]) -> [ViewNode] {
     }
 }
 
-private let defaultRetainedScrollIndicatorInsets = EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
+/// An overlay scroller floats a pill over the content a few points in from
+/// the edge; it does not reserve a gutter. Pinned by
+/// `MacOSControlMetrics.Scroller.overlayInset`.
+private let defaultRetainedScrollIndicatorInsets = EdgeInsets(
+    top: MacOSControlMetrics.Scroller.overlayInset,
+    leading: MacOSControlMetrics.Scroller.overlayInset,
+    bottom: MacOSControlMetrics.Scroller.overlayInset,
+    trailing: MacOSControlMetrics.Scroller.overlayInset
+)
 private func retainedScrollAnchor(from anchor: UnitPoint?) -> RetainedScrollAnchor? {
     anchor.map { RetainedScrollAnchor(x: $0.x, y: $0.y) }
 }
@@ -3966,16 +3974,20 @@ private func navigationContainerComponent(
     let hidesBackButton = navigationBarBackButtonHidden(in: visibleContent) ?? false
     let displayMode =
         navigationTitleDisplayMode(in: visibleContent) ?? navigationTitleDisplayMode(in: content) ?? .automatic
-    // macOS has no large-title navigation bar. `NSWindow.title` and an
-    // `NSToolbar` title are 13pt semibold in both display modes, which is
-    // the scale `Toolbar.regularHeight` (52) already assumes. The previous
-    // 20px semibold / 26px bold pair was the iOS `.inline` / `.large` split
-    // expressed in legacy scale units, and it put a banner where a window
-    // title belongs. `.large` is honoured only as a slightly heavier weight.
+    // This band is the *content pane's* header, not the OS title bar: macOS
+    // puts `NSWindow.title` in chrome this stack does not own, so what is
+    // drawn here is the pane title a Finder or System Settings window shows
+    // above its content. Those are set at largeTitle (26), which is also what
+    // `Toolbar.regularHeight` (52) has room for; `.inline` is the compact
+    // toolbar variant and takes title2 semibold (17).
+    //
+    // Setting it at `windowTitleSize` (13) — the previous value — sized a
+    // *window* title into a *pane* header, which is why "Settings" read as a
+    // stray 13pt label floating in an otherwise empty 52pt band.
     let titleFont: Font =
         displayMode == .inline
-        ? .system(size: MacOSControlMetrics.Typography.windowTitleSize, weight: .semibold)
-        : .system(size: MacOSControlMetrics.Typography.windowTitleSize, weight: .bold)
+        ? .system(size: MacOSControlMetrics.Typography.title2Size, weight: .semibold)
+        : .system(size: MacOSControlMetrics.Typography.largeTitleSize, weight: .bold)
     let chrome = retainedNavigationViewChrome(for: navigationViewStyle, palette: context.controlPalette)
     let palette = context.controlPalette
     let titleContext =
@@ -8870,6 +8882,9 @@ public struct ScrollView: View {
             let initialScrollAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .initialOffset))
             let scrollSizeChangeAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .sizeChanges))
             let alignmentAnchor = context.defaultScrollAnchor(for: .alignment)
+            let palette = context.controlPalette
+            let usesOverlayIndicator =
+                context.scrollIndicatorVisibility(for: axis).usesRetainedOverlayScrollIndicator
             let node = Controls.scrollPanel(
                 axis: axis.scrollAxis,
                 backgroundColor: context.scrollContentBackgroundVisibility.hidesRetainedScrollContentBackground
@@ -8886,11 +8901,12 @@ public struct ScrollView: View {
                     alignmentAnchor: alignmentAnchor
                 ),
                 scrollStep: style.scrollStep,
-                scrollIndicatorColor: style.indicatorColor,
-                scrollIndicatorHoverColor: style.indicatorHoverColor,
-                scrollIndicatorActiveColor: style.indicatorActiveColor,
+                scrollIndicatorColor: style.indicatorColor ?? palette.scrollerKnob,
+                scrollIndicatorHoverColor: style.indicatorHoverColor ?? palette.scrollerKnobHovered,
+                scrollIndicatorActiveColor: style.indicatorActiveColor ?? palette.scrollerKnobActive,
                 scrollIndicatorThickness: style.indicatorThickness,
                 scrollIndicatorInsets: scrollIndicatorInsets,
+                scrollIndicatorAutoHides: usesOverlayIndicator,
                 initialScrollAnchor: initialScrollAnchor,
                 scrollSizeChangeAnchor: scrollSizeChangeAnchor,
                 isHitTestVisible: style.isHitTestVisible,
@@ -9479,6 +9495,17 @@ public struct List: View {
                 for: .scrollIndicators,
                 defaultInsets: defaultRetainedScrollIndicatorInsets
             )
+            // A List's scroller is the same overlay scroller a ScrollView gets;
+            // it used to keep the retained defaults, which are a blue-tinted
+            // near-white bar that is always on and invisible in light mode.
+            let listPalette = context.controlPalette
+            node.scrollIndicatorThickness = MacOSControlMetrics.Scroller.overlayThumbThickness
+            node.scrollIndicatorIdleColor = listPalette.scrollerKnob
+            node.scrollIndicatorHoverColor = listPalette.scrollerKnobHovered
+            node.scrollIndicatorActiveColor = listPalette.scrollerKnobActive
+            node.scrollIndicatorAutoHides =
+                context.verticalScrollIndicatorVisibility.usesRetainedOverlayScrollIndicator
+            node.scrollIndicatorColor = node.restingScrollIndicatorColor
             node.initialScrollAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .initialOffset))
             node.scrollSizeChangeAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .sizeChanges))
             if !context.isScrollEnabled {
@@ -9981,7 +10008,13 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
             }
 
             let style = context.tableStyle
-            let isDark = context.backgroundProminence == .increased
+            // A table's chrome is an *appearance* question, and it used to be
+            // asked of `backgroundProminence` — a per-row selection signal
+            // that is `.increased` only inside an emphasised row. A table on a
+            // dark app therefore drew its light-mode header everywhere except
+            // on a selected row, and the `.automatic` border stayed a single
+            // near-white literal in both appearances.
+            let palette = context.controlPalette
 
             // Resolve style-driven chrome
             let headerBackground: Color
@@ -9995,51 +10028,27 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
 
             switch style.kind {
             case .inset:
-                headerBackground =
-                    isDark
-                    ? Color(red: 0.117, green: 0.117, blue: 0.117, alpha: 1)
-                    : Color(red: 0.979, green: 0.979, blue: 0.979, alpha: 1)
-                rowAltBackground =
-                    isDark
-                    ? Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 1)
-                    : Color(red: 0.989, green: 0.989, blue: 0.989, alpha: 1)
-                borderColor =
-                    isDark
-                    ? Color(red: 0.274, green: 0.274, blue: 0.274, alpha: 1)
-                    : Color(red: 0.814, green: 0.814, blue: 0.814, alpha: 1)
+                headerBackground = palette.controlBackground
+                rowAltBackground = palette.quinaryFill
+                borderColor = palette.separator
                 borderWidth = 1
                 cornerRadius = 10
                 rowSpacing = 0
                 headerPadding = EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16)
                 rowPadding = EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
             case .bordered:
-                headerBackground =
-                    isDark
-                    ? Color(red: 0.157, green: 0.157, blue: 0.157, alpha: 1)
-                    : Color(red: 0.937, green: 0.937, blue: 0.937, alpha: 1)
-                rowAltBackground =
-                    isDark
-                    ? Color(red: 0.127, green: 0.127, blue: 0.127, alpha: 1)
-                    : Color(red: 0.969, green: 0.969, blue: 0.969, alpha: 1)
-                borderColor =
-                    isDark
-                    ? Color(red: 0.393, green: 0.393, blue: 0.393, alpha: 1)
-                    : Color(red: 0.693, green: 0.693, blue: 0.693, alpha: 1)
+                headerBackground = palette.raisedSurface
+                rowAltBackground = palette.quinaryFill
+                borderColor = palette.controlBorder
                 borderWidth = 2
                 cornerRadius = 6
                 rowSpacing = 0
                 headerPadding = EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
                 rowPadding = EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
             case .automatic:
-                headerBackground =
-                    isDark
-                    ? Color(red: 0.137, green: 0.137, blue: 0.137, alpha: 1)
-                    : Color(red: 0.959, green: 0.959, blue: 0.959, alpha: 1)
-                rowAltBackground =
-                    isDark
-                    ? Color(red: 0.109, green: 0.109, blue: 0.109, alpha: 1)
-                    : Color(red: 0.979, green: 0.979, blue: 0.979, alpha: 1)
-                borderColor = Color(red: 0.867, green: 0.867, blue: 0.867, alpha: 1)
+                headerBackground = palette.controlBackground
+                rowAltBackground = palette.quinaryFill
+                borderColor = palette.separator
                 borderWidth = 1
                 cornerRadius = 4
                 rowSpacing = 0
@@ -10564,9 +10573,9 @@ public struct Section: View {
         // literals, so a light-mode app showed light controls on dark cards.
         let sectionBackground = style.backgroundColor ?? palette.raisedSurface
         let sectionBorder = style.borderColor ?? palette.separator
-        let indicatorColor = style.indicatorColor ?? palette.tertiaryLabel
-        let indicatorHoverColor = style.indicatorHoverColor ?? palette.secondaryLabel
-        let indicatorActiveColor = style.indicatorActiveColor ?? palette.label
+        let indicatorColor = style.indicatorColor ?? palette.scrollerKnob
+        let indicatorHoverColor = style.indicatorHoverColor ?? palette.scrollerKnobHovered
+        let indicatorActiveColor = style.indicatorActiveColor ?? palette.scrollerKnobActive
         // A macOS grouped form puts the section header *outside and above*
         // the box it names, and draws that box near-flat: a 10pt radius, a
         // hairline, and only an ambient contact shadow. A section that was
@@ -10721,11 +10730,13 @@ public struct Section: View {
                 )
                 node.initialScrollAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .initialOffset))
                 node.scrollSizeChangeAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .sizeChanges))
-                node.scrollIndicatorColor = indicatorColor
                 node.scrollIndicatorIdleColor = indicatorColor
                 node.scrollIndicatorHoverColor = indicatorHoverColor
                 node.scrollIndicatorActiveColor = indicatorActiveColor
                 node.scrollIndicatorThickness = style.indicatorThickness
+                node.scrollIndicatorAutoHides =
+                    context.scrollIndicatorVisibility(for: axis).usesRetainedOverlayScrollIndicator
+                node.scrollIndicatorColor = node.restingScrollIndicatorColor
             }
             if style.scrollAxis != nil, context.isScrollClipDisabled {
                 node.clipsToBounds = false
@@ -11498,10 +11509,10 @@ public struct Menu: View {
                     return node
                 }
                 let menuPanel = Controls.stackPanel(
-                    backgroundColor: Color(red: 0.108, green: 0.108, blue: 0.108, alpha: 0.96),
-                    borderColor: Color(red: 0.975, green: 0.975, blue: 0.975, alpha: 0.14),
+                    backgroundColor: context.controlPalette.elevatedSurface,
+                    borderColor: context.controlPalette.elevatedSurfaceBorder,
                     borderWidth: 1,
-                    shadowColor: Color(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.28),
+                    shadowColor: ControlPalette.black(0.28),
                     shadowOffset: Point(x: 0, y: 10),
                     shadowSpread: 8,
                     cornerRadius: 10,
@@ -12986,11 +12997,15 @@ private func retainedSearchChrome(
     for placement: SearchFieldPlacement,
     context: ViewBuildContext
 ) -> RetainedSearchChrome? {
+    // A search field is a recessed text field wherever it is placed, and a
+    // recessed field is an appearance role. These were dark literals, so a
+    // light-mode toolbar carried a black search field.
+    let palette = context.controlPalette
     if placement == .toolbar {
         return RetainedSearchChrome(
             nodeTag: "search-field-toolbar",
             preferredSize: Size(width: 240, height: context.controlSize.singleLineTextInputSize.height),
-            backgroundColor: Color(red: 0.097, green: 0.097, blue: 0.097, alpha: 0.92),
+            backgroundColor: palette.controlBackground,
             borderColor: context.tint.opacity(0.26),
             borderWidth: 1,
             cornerRadius: 12
@@ -13001,8 +13016,8 @@ private func retainedSearchChrome(
         return RetainedSearchChrome(
             nodeTag: "search-field-sidebar",
             preferredSize: Size(width: 210, height: context.controlSize.singleLineTextInputSize.height),
-            backgroundColor: Color(red: 0.117, green: 0.117, blue: 0.117, alpha: 0.72),
-            borderColor: Color(red: 0.975, green: 0.975, blue: 0.975, alpha: 0.10),
+            backgroundColor: palette.tertiaryFill,
+            borderColor: palette.separator,
             borderWidth: 1,
             cornerRadius: 8
         )
@@ -13016,8 +13031,8 @@ private func retainedSearchChrome(
         return RetainedSearchChrome(
             nodeTag: "search-field-navigation-drawer",
             preferredSize: Size(width: 280, height: context.controlSize.singleLineTextInputSize.height),
-            backgroundColor: Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 0.84),
-            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.14),
+            backgroundColor: palette.controlBackground,
+            borderColor: palette.controlBorder,
             borderWidth: 1,
             cornerRadius: 10
         )

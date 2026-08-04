@@ -37,6 +37,19 @@ private func layoutNode<V: View>(
     return (runtime, node)
 }
 
+@MainActor
+private func firstNavigationTextNode(in node: ViewNode, matching text: String) -> ViewNode? {
+    if node.text == text {
+        return node
+    }
+    for child in node.children {
+        if let found = firstNavigationTextNode(in: child, matching: text) {
+            return found
+        }
+    }
+    return nil
+}
+
 final class MacOSControlMetricsWiringTests: XCTestCase {
 
     // MARK: - Button (NSButton push bezel)
@@ -200,6 +213,54 @@ final class MacOSControlMetricsWiringTests: XCTestCase {
             XCTAssertEqual(header.borderWidth, 0)
             XCTAssertEqual(separator.resolvedFrame.size.height, 1, accuracy: 0.001)
             XCTAssertEqual(separator.resolvedFrame.size.width, 800, accuracy: 0.001)
+        }
+    }
+
+    /// The band this stack draws is the *content pane's* header — macOS puts
+    /// the window title in chrome the stack does not own — so it is set at
+    /// pane scale, not at `NSWindow.title` scale. At 13pt the title read as a
+    /// stray label adrift in an otherwise empty 52pt band.
+    func testNavigationTitleIsSetAtContentPaneScale() async {
+        await MainActor.run {
+            let (_, node) = layoutNode(
+                NavigationStack {
+                    Text("BODY")
+                        .navigationTitle("TITLE")
+                },
+                size: Size(width: 800, height: 400)
+            )
+
+            let titleNode = firstNavigationTextNode(in: node.children[0], matching: "TITLE")
+            XCTAssertEqual(
+                titleNode?.textStyle.nativeFontSize,
+                MacOSControlMetrics.Typography.largeTitleSize,
+                "a pane title is largeTitle (26), not the 13pt window title"
+            )
+            XCTAssertLessThan(
+                MacOSControlMetrics.Typography.largeTitleSize,
+                MacOSControlMetrics.Toolbar.regularHeight,
+                "and it still has to fit the band it is set in"
+            )
+        }
+    }
+
+    func testACompactNavigationTitleIsSetAtToolbarTitleScale() async {
+        await MainActor.run {
+            let (_, node) = layoutNode(
+                NavigationStack {
+                    Text("BODY")
+                        .navigationTitle("TITLE")
+                        .navigationBarTitleDisplayMode(.inline)
+                },
+                size: Size(width: 800, height: 400)
+            )
+
+            let titleNode = firstNavigationTextNode(in: node.children[0], matching: "TITLE")
+            XCTAssertEqual(
+                titleNode?.textStyle.nativeFontSize,
+                MacOSControlMetrics.Typography.title2Size,
+                "`.inline` is macOS's unified-compact toolbar title — title2 semibold (17)"
+            )
         }
     }
 

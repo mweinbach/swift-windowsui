@@ -15473,6 +15473,21 @@ public struct ScrollIndicatorVisibility: Sendable, Equatable {
             return false
         }
     }
+
+    /// Whether the scroller behaves as a macOS *overlay* scroller — invisible
+    /// at rest, revealed by scrolling, faded out afterwards.
+    ///
+    /// `.automatic` is the macOS default and is therefore an overlay.
+    /// `.visible` is the app asking for the scroller to be on screen, which is
+    /// the "Show scroll bars: Always" appearance: a persistent bar.
+    var usesRetainedOverlayScrollIndicator: Bool {
+        switch kind {
+        case .automatic, .hidden, .never:
+            return true
+        case .visible:
+            return false
+        }
+    }
 }
 public struct ScrollBounceBehavior: Sendable, Equatable, Hashable, CustomStringConvertible {
     enum Kind: Sendable, Equatable, Hashable {
@@ -16700,9 +16715,12 @@ public struct ScrollViewStyle: Sendable {
     public var shadowSpread: Double
     public var cornerRadius: Double
     public var scrollStep: Double
-    public var indicatorColor: Color
-    public var indicatorHoverColor: Color
-    public var indicatorActiveColor: Color
+    /// `nil` resolves to the appearance's overlay-scroller knob at build time.
+    /// These used to be near-white literals, which meant a light-mode app's
+    /// scroller was white-on-white.
+    public var indicatorColor: Color?
+    public var indicatorHoverColor: Color?
+    public var indicatorActiveColor: Color?
     public var indicatorThickness: Double
     public var isHitTestVisible: Bool
 
@@ -16718,10 +16736,10 @@ public struct ScrollViewStyle: Sendable {
         shadowSpread: Double = 0,
         cornerRadius: Double = 0,
         scrollStep: Double = 64,
-        indicatorColor: Color = Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.16),
-        indicatorHoverColor: Color = Color(red: 0.986, green: 0.986, blue: 0.986, alpha: 0.30),
-        indicatorActiveColor: Color = Color(red: 0.996, green: 0.996, blue: 0.996, alpha: 0.46),
-        indicatorThickness: Double = 5,
+        indicatorColor: Color? = nil,
+        indicatorHoverColor: Color? = nil,
+        indicatorActiveColor: Color? = nil,
+        indicatorThickness: Double = MacOSControlMetrics.Scroller.overlayThumbThickness,
         isHitTestVisible: Bool = true
     ) {
         self.spacing = spacing
@@ -18584,18 +18602,19 @@ private func retainedPresentationDragIndicatorNode() -> ViewNode {
 private func retainedPresentationChildren(
     contentNode: ViewNode,
     chrome: RetainedPresentationChrome,
+    palette: ControlPalette,
     wrapsScrollingContent: Bool = false
 ) -> [ViewNode] {
     let presentedContentNode =
         wrapsScrollingContent && chrome.contentInteraction == .scrolls
-        ? retainedPresentationScrollContentNode(contentNode)
+        ? retainedPresentationScrollContentNode(contentNode, palette: palette)
         : contentNode
     return chrome.showsDragIndicator
         ? [retainedPresentationDragIndicatorNode(), presentedContentNode]
         : [presentedContentNode]
 }
 @MainActor
-private func retainedPresentationScrollContentNode(_ contentNode: ViewNode) -> ViewNode {
+private func retainedPresentationScrollContentNode(_ contentNode: ViewNode, palette: ControlPalette) -> ViewNode {
     let scrollNode = Controls.scrollPanel(
         axis: .vertical,
         layoutPriority: 1,
@@ -18606,10 +18625,17 @@ private func retainedPresentationScrollContentNode(_ contentNode: ViewNode) -> V
             mainAlignment: .start
         ),
         scrollStep: 64,
-        scrollIndicatorColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.18),
-        scrollIndicatorHoverColor: Color(red: 0.986, green: 0.986, blue: 0.986, alpha: 0.34),
-        scrollIndicatorActiveColor: Color(red: 0.996, green: 0.996, blue: 0.996, alpha: 0.56),
-        scrollIndicatorThickness: 5,
+        scrollIndicatorColor: palette.scrollerKnob,
+        scrollIndicatorHoverColor: palette.scrollerKnobHovered,
+        scrollIndicatorActiveColor: palette.scrollerKnobActive,
+        scrollIndicatorThickness: MacOSControlMetrics.Scroller.overlayThumbThickness,
+        scrollIndicatorInsets: EdgeInsets(
+            top: MacOSControlMetrics.Scroller.overlayInset,
+            leading: MacOSControlMetrics.Scroller.overlayInset,
+            bottom: MacOSControlMetrics.Scroller.overlayInset,
+            trailing: MacOSControlMetrics.Scroller.overlayInset
+        ),
+        scrollIndicatorAutoHides: true,
         isHitTestVisible: true,
         children: [contentNode]
     )
@@ -18751,10 +18777,11 @@ private func retainedSheetPresentation(
         } else {
             scrimNode.nodeTag = "sheet-scrim-dismiss-enabled"
         }
+        let palette = context.controlPalette
         let sheetBackgroundColor =
             presentationChrome.hasBackgroundOverride
             ? presentationChrome.backgroundColor
-            : Color(red: 0.146, green: 0.146, blue: 0.146, alpha: 0.98)
+            : palette.elevatedSurface
         let sheetBackgroundGradient =
             presentationChrome.hasBackgroundOverride
             ? presentationChrome.backgroundGradient
@@ -18766,7 +18793,7 @@ private func retainedSheetPresentation(
         let sheetNode = Controls.stackPanel(
             backgroundColor: sheetBackgroundColor,
             backgroundGradient: sheetBackgroundGradient,
-            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.14),
+            borderColor: palette.elevatedSurfaceBorder,
             borderWidth: 1,
             cornerRadius: sheetCornerRadius,
             clipsToBounds: true,
@@ -18781,6 +18808,7 @@ private func retainedSheetPresentation(
             children: retainedPresentationChildren(
                 contentNode: sheetContentNode,
                 chrome: presentationChrome,
+                palette: palette,
                 wrapsScrollingContent: true
             )
         )
@@ -18855,16 +18883,18 @@ private func retainedSheetPresentation(
 @MainActor
 private func retainedFullScreenCoverPresentation(
     base: Component,
-    cover: Component
+    cover: Component,
+    context: ViewBuildContext
 ) -> Component {
     Component { runtime in
+        let palette = context.controlPalette
         let baseNode = base.makeNode(runtime: runtime)
         let coverContentNode = cover.makeNode(runtime: runtime)
         let presentationChrome = retainedPresentationChrome(in: coverContentNode)
         let coverBackgroundColor =
             presentationChrome.hasBackgroundOverride
             ? presentationChrome.backgroundColor
-            : Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 1.0)
+            : palette.windowBackground
         let coverBackgroundGradient =
             presentationChrome.hasBackgroundOverride
             ? presentationChrome.backgroundGradient
@@ -18885,7 +18915,8 @@ private func retainedFullScreenCoverPresentation(
             // Hit-test visible so the modal cover swallows clicks instead of
             // letting them fall through to the base content it covers.
             isHitTestVisible: true,
-            children: retainedPresentationChildren(contentNode: coverContentNode, chrome: presentationChrome)
+            children: retainedPresentationChildren(
+                contentNode: coverContentNode, chrome: presentationChrome, palette: palette)
         )
         // Deferred painting keeps the cover above all base content and gives
         // its subtree hit-test priority over base content.
@@ -18931,10 +18962,11 @@ private func retainedPopoverPresentation(
         let baseNode = base.makeNode(runtime: runtime)
         let popoverContentNode = popover.makeNode(runtime: runtime)
         let presentationChrome = retainedPresentationChrome(in: popoverContentNode)
+        let palette = context.controlPalette
         let popoverBackgroundColor =
             presentationChrome.hasBackgroundOverride
             ? presentationChrome.backgroundColor
-            : Color(red: 0.156, green: 0.156, blue: 0.156, alpha: 0.98)
+            : palette.elevatedSurface
         let popoverBackgroundGradient =
             presentationChrome.hasBackgroundOverride
             ? presentationChrome.backgroundGradient
@@ -18946,7 +18978,7 @@ private func retainedPopoverPresentation(
         let popoverNode = Controls.stackPanel(
             backgroundColor: popoverBackgroundColor,
             backgroundGradient: popoverBackgroundGradient,
-            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.16),
+            borderColor: palette.elevatedSurfaceBorder,
             borderWidth: 1,
             shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.28),
             shadowOffset: Point(x: 0, y: 10),
@@ -18961,7 +18993,8 @@ private func retainedPopoverPresentation(
             // Hit-test visible so clicks on the popover's padding do not fall
             // through to the dismissal scrim behind it.
             isHitTestVisible: true,
-            children: retainedPresentationChildren(contentNode: popoverContentNode, chrome: presentationChrome)
+            children: retainedPresentationChildren(
+                contentNode: popoverContentNode, chrome: presentationChrome, palette: palette)
         )
         // Full-canvas transparent scrim: sits behind the popover inside the
         // deferred overlay and dismisses on outside pointer-down.
@@ -19040,10 +19073,11 @@ private func retainedInspectorPresentation(
         let baseNode = base.makeNode(runtime: runtime)
         let inspectorContentNode = inspector.makeNode(runtime: runtime)
         let presentationChrome = retainedPresentationChrome(in: inspectorContentNode)
+        let palette = context.controlPalette
         let inspectorBackgroundColor =
             presentationChrome.hasBackgroundOverride
             ? presentationChrome.backgroundColor
-            : Color(red: 0.146, green: 0.146, blue: 0.146, alpha: 0.98)
+            : palette.elevatedSurface
         let inspectorBackgroundGradient =
             presentationChrome.hasBackgroundOverride
             ? presentationChrome.backgroundGradient
@@ -19054,7 +19088,7 @@ private func retainedInspectorPresentation(
         let inspectorNode = Controls.stackPanel(
             backgroundColor: inspectorBackgroundColor,
             backgroundGradient: inspectorBackgroundGradient,
-            borderColor: isSheet ? .clear : Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.14),
+            borderColor: isSheet ? .clear : palette.elevatedSurfaceBorder,
             borderWidth: isSheet ? 0 : 1,
             cornerRadius: isSheet ? 12 : 0,
             clipsToBounds: true,
@@ -19067,6 +19101,7 @@ private func retainedInspectorPresentation(
             children: retainedPresentationChildren(
                 contentNode: inspectorContentNode,
                 chrome: presentationChrome,
+                palette: palette,
                 wrapsScrollingContent: true
             )
         )
@@ -19243,8 +19278,12 @@ private func retainedCompactAdaptivePopoverPresentation(
             )
             .makeNode(runtime: runtime)
         case .fullScreenCover:
-            return retainedFullScreenCoverPresentation(base: baseComponent, cover: popoverComponent)
-                .makeNode(runtime: runtime)
+            return retainedFullScreenCoverPresentation(
+                base: baseComponent,
+                cover: popoverComponent,
+                context: context
+            )
+            .makeNode(runtime: runtime)
         case .automatic, .none, .popover:
             return retainedPopoverPresentation(
                 base: baseComponent,
@@ -19268,6 +19307,7 @@ private func retainedAlertPresentation(
     dismiss: @escaping @MainActor () -> Void
 ) -> Component {
     Component { runtime in
+        let palette = context.controlPalette
         let baseNode = base.makeNode(runtime: runtime)
         // Modal scrim: swallows outside clicks so they cannot reach the base
         // content, but does not dismiss (matching SwiftUI alert behavior).
@@ -19285,8 +19325,8 @@ private func retainedAlertPresentation(
 
         let alertNode = Controls.stackPanel(
             preferredSize: Size(width: 300, height: 0),
-            backgroundColor: Color(red: 0.146, green: 0.146, blue: 0.146, alpha: 0.98),
-            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.16),
+            backgroundColor: palette.elevatedSurface,
+            borderColor: palette.elevatedSurfaceBorder,
             borderWidth: 1,
             shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.32),
             shadowOffset: Point(x: 0, y: 12),
@@ -19512,6 +19552,7 @@ private func retainedConfirmationDialogPresentation(
     )
 
     return Component { runtime in
+        let palette = context.controlPalette
         let baseNode = base.makeNode(runtime: runtime)
         // Full-canvas scrim: swallows outside clicks and dismisses on outside
         // pointer-down, matching SwiftUI confirmationDialog behavior.
@@ -19522,8 +19563,8 @@ private func retainedConfirmationDialogPresentation(
         scrimNode.nodeTag = "confirmation-dialog-scrim"
         let dialogNode = Controls.stackPanel(
             preferredSize: Size(width: 340, height: 0),
-            backgroundColor: Color(red: 0.136, green: 0.136, blue: 0.136, alpha: 0.99),
-            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.16),
+            backgroundColor: palette.elevatedSurface,
+            borderColor: palette.elevatedSurfaceBorder,
             borderWidth: 1,
             shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.30),
             shadowOffset: Point(x: 0, y: 10),
@@ -19709,6 +19750,7 @@ private func retainedContextMenuPresentation(
     )
 
     return Component { runtime in
+        let palette = context.controlPalette
         let baseNode = base.makeNode(runtime: runtime)
         installRetainedContextMenuHandler(on: baseNode, state: state, context: context)
         guard state.isPresented else {
@@ -19724,8 +19766,8 @@ private func retainedContextMenuPresentation(
 
         let menuPanel = Controls.stackPanel(
             preferredSize: Size(width: 220, height: 0),
-            backgroundColor: Color(red: 0.108, green: 0.108, blue: 0.108, alpha: 0.97),
-            borderColor: Color(red: 0.975, green: 0.975, blue: 0.975, alpha: 0.16),
+            backgroundColor: palette.elevatedSurface,
+            borderColor: palette.elevatedSurfaceBorder,
             borderWidth: 1,
             shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.28),
             shadowOffset: Point(x: 0, y: 10),
@@ -20572,7 +20614,7 @@ extension View {
                 fallbackLayout: .stack(.vertical(spacing: 8, alignment: .stretch))
             )
 
-            return retainedFullScreenCoverPresentation(base: base, cover: cover)
+            return retainedFullScreenCoverPresentation(base: base, cover: cover, context: context)
         }
     }
 
@@ -20608,7 +20650,7 @@ extension View {
                 fallbackLayout: .stack(.vertical(spacing: 8, alignment: .stretch))
             )
 
-            return retainedFullScreenCoverPresentation(base: base, cover: cover)
+            return retainedFullScreenCoverPresentation(base: base, cover: cover, context: context)
         }
     }
 

@@ -163,6 +163,51 @@ final class MacOSDesignParityTests: XCTestCase {
         XCTAssertEqual(ControlPalette.darkStandard.groupedContainerShadow, ControlPalette.black(0.22))
     }
 
+    func testOverlayScrollerMetricsMatchNSScroller() async {
+        XCTAssertEqual(MacOSControlMetrics.Scroller.overlayThumbThickness, 7, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Scroller.overlayInset, 4, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Scroller.minimumThumbLength, 24, accuracy: 0.001)
+        // The stock ScrollView chrome is the pinned metric, not a number of
+        // its own: a 5pt bar at a 6pt inset was a web scrollbar's geometry.
+        XCTAssertEqual(
+            ScrollViewStyle.default.indicatorThickness,
+            MacOSControlMetrics.Scroller.overlayThumbThickness,
+            accuracy: 0.001
+        )
+    }
+
+    func testOverlayScrollerKnobIsANeutralPillInBothAppearances() async {
+        // White on a dark app, black on a light one. The retained default was
+        // a blue-tinted near-white in both, which light mode could not show.
+        XCTAssertEqual(ControlPalette.darkStandard.scrollerKnob, ControlPalette.white(0.48))
+        XCTAssertEqual(ControlPalette.lightStandard.scrollerKnob, ControlPalette.black(0.42))
+        XCTAssertGreaterThan(
+            ControlPalette.darkStandard.scrollerKnobHovered.alpha,
+            ControlPalette.darkStandard.scrollerKnob.alpha
+        )
+        XCTAssertGreaterThan(
+            ControlPalette.darkStandard.scrollerKnobActive.alpha,
+            ControlPalette.darkStandard.scrollerKnobHovered.alpha
+        )
+    }
+
+    func testFloatingPanelsSitOnAnAppearanceResolvedSurface() async {
+        // A menu, a popover, a sheet, an alert and a context menu all share
+        // one elevation. Every one of them used to be a dark literal, so a
+        // light-mode app opened a near-black panel with near-black text.
+        XCTAssertGreaterThan(ControlPalette.lightStandard.elevatedSurface.red, 0.9)
+        XCTAssertLessThan(ControlPalette.darkStandard.elevatedSurface.red, 0.3)
+        // Elevated is *above* the window, so it is lighter than the window
+        // backdrop in dark mode rather than a second copy of it.
+        XCTAssertGreaterThan(
+            ControlPalette.darkStandard.elevatedSurface.red,
+            ControlPalette.darkStandard.windowBackground.red
+        )
+        // The closing hairline follows the appearance too.
+        XCTAssertEqual(ControlPalette.darkStandard.elevatedSurfaceBorder, ControlPalette.white(0.16))
+        XCTAssertEqual(ControlPalette.lightStandard.elevatedSurfaceBorder, ControlPalette.black(0.14))
+    }
+
     // MARK: - Material backdrop blur
 
     func testMaterialKindTintAlphasMatchDocumentedTable() async {

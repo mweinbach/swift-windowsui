@@ -144,6 +144,25 @@ public enum MacOSControlMetrics {
         public static let boxHorizontalPadding: Double = 16
     }
 
+    /// `NSScroller` in its modern *overlay* style — the only style a macOS
+    /// app gets unless the user has set "Show scroll bars: Always" in General
+    /// settings.
+    ///
+    /// An overlay scroller has no track and no arrows: it is a rounded pill
+    /// floating over the content, invisible at rest and faded in while the
+    /// content moves. That is why a screenshot of a real macOS app shows no
+    /// scrollbar anywhere, and why the always-on 5–6pt bar this stack used to
+    /// draw read as a web page's scrollbar rather than a system one.
+    public enum Scroller {
+        /// Thickness of the knob pill.
+        public static let overlayThumbThickness: Double = 7
+        /// Gap between the pill and the scroll view's own edge. The pill
+        /// floats *inside* the content, it does not steal a gutter.
+        public static let overlayInset: Double = 4
+        /// Shortest a knob is allowed to get on a very long document.
+        public static let minimumThumbLength: Double = 24
+    }
+
     /// `NavigationStack` / `NavigationSplitView` toolbar (NSToolbar).
     /// macOS Sonoma's standard toolbar is 52pt tall with title; 38pt
     /// when configured `.unifiedCompact`.

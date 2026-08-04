@@ -239,6 +239,49 @@ public struct ControlPalette: Sendable, Equatable {
         isDark ? .white : .black
     }
 
+    /// A surface that floats above the window rather than sitting inside it —
+    /// a menu, a popover, a sheet, an alert, a context menu, an inspector.
+    ///
+    /// This is a *different* elevation from `raisedSurface`, which is a card
+    /// on the window's own backdrop. macOS renders a floating panel on a
+    /// vibrant material that is lighter than the window in dark mode and
+    /// slightly off-white in light mode; this is that material's flat
+    /// approximation. It exists because every one of these surfaces was a
+    /// dark literal, so a light-mode app opened a black menu with black text
+    /// on it.
+    public var elevatedSurface: Color {
+        isDark
+            ? Color(red: 0.169, green: 0.169, blue: 0.176, alpha: 0.98)
+            : Color(red: 0.976, green: 0.976, blue: 0.980, alpha: 0.98)
+    }
+
+    /// The hairline closing an elevated surface. A near-white ring is a dark
+    /// mode idea; in light mode the ring has to be the dark one.
+    public var elevatedSurfaceBorder: Color {
+        isDark ? ControlPalette.white(0.16) : ControlPalette.black(0.14)
+    }
+
+    /// The knob of an overlay scroller, at the moment it is revealed.
+    ///
+    /// macOS draws it as a neutral pill with no track behind it: white on a
+    /// dark app, black on a light one, at roughly half strength. The
+    /// blue-tinted near-white the retained defaults carried was invisible in
+    /// light mode and cool against a grey app in dark mode.
+    public var scrollerKnob: Color {
+        isDark ? ControlPalette.white(0.48) : ControlPalette.black(0.42)
+    }
+
+    /// The knob under the pointer. macOS both darkens and widens the knob on
+    /// hover; this stack only changes the tone.
+    public var scrollerKnobHovered: Color {
+        isDark ? ControlPalette.white(0.64) : ControlPalette.black(0.58)
+    }
+
+    /// The knob being dragged.
+    public var scrollerKnobActive: Color {
+        isDark ? ControlPalette.white(0.78) : ControlPalette.black(0.72)
+    }
+
     /// Contact shadow under a grouped container — a `Form` section box, a
     /// `GroupBox`, a settings card.
     ///

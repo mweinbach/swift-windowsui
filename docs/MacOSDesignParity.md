@@ -69,12 +69,28 @@ block read as a different typeface at every size.
 
 | Constant                                  | Value | Notes                                                                 |
 |-------------------------------------------|-------|-----------------------------------------------------------------------|
-| `Typography.windowTitleSize`              | 13    | `NSWindow.title` / `NSToolbar` title, semibold. macOS has no large-title navigation bar; the previous 26px bold banner was iOS's `.large` display mode expressed in legacy scale units. |
+| `Typography.windowTitleSize`              | 13    | `NSWindow.title` / `NSToolbar` title, semibold — the OS title-bar scale. Note this is *not* what `.navigationTitle` is set at: see "Navigation title" below. |
 | `Typography.windowSubtitleSize`           | 11    | Toolbar subtitle, secondary label.                                    |
 | `Typography.sectionHeaderSize`            | 11    | Grouped-form / list section header, semibold, secondary label. Hierarchy comes from size *and* colour — at body size in near-white it differed from its own rows by weight alone. |
 | `Typography.symbolBoxRatio`               | 1.25  | An SF Symbol's image box relative to the inherited point size. `Image` inherits the ambient font rather than pinning a fixed 19.4px box. |
 | `Typography.uppercaseTrackingRatio`       | 0.06  | Default tracking applied when `textCase == .uppercase`. Capitals carry sidebearings tuned for mixed-case setting; set solid they read as a banner. An explicit `.tracking()` still wins. |
 | `Layout.labelIconSpacing`                 | 6     | `Label`'s symbol-to-title gutter (AppKit's image-and-title cell).      |
+
+### Navigation title
+
+macOS puts `NSWindow.title` in title-bar chrome this stack does not own, so
+the band `NavigationStack` draws is the **content pane's** header — the title
+a Finder or System Settings pane shows above its content — not a window
+title. It is therefore set at pane scale:
+
+| Display mode           | Font                      | Notes                                            |
+|------------------------|---------------------------|--------------------------------------------------|
+| `.automatic` / `.large` | largeTitle 26, bold      | Fits inside `Toolbar.regularHeight` (52).        |
+| `.inline`              | title2 17, semibold       | The unified-compact toolbar variant.             |
+
+Setting it at `windowTitleSize` (13) sized a *window* title into a *pane*
+header: "Settings" read as a stray 13pt label adrift in an otherwise empty
+52pt band. `testNavigationTitleIsSetAtContentPaneScale` pins it.
 
 `Label` inherits the ambient font. It used to hardcode
 `.system(size: 1.6, weight: .semibold)` — 17.6px via the size<8 rule — and
@@ -234,6 +250,18 @@ fill under `(0.96, 0.98, 1.0)` borders — where macOS uses grey.
 | `segmentedTrackFill`             | #2C2C2E         | #E9E9EB         | NSSegmentedControl groove |
 | `segmentedSelectedFill`          | #636366         | #FFFFFF         | selected segment pill |
 | `segmentedSelectedLabel`         | white           | black           | selected segment label |
+| `elevatedSurface`                | #2B2B2D @ 0.98  | #F9F9FA @ 0.98  | floating-panel material |
+| `elevatedSurfaceBorder`          | white @ 0.16    | black @ 0.14    | floating-panel hairline |
+| `scrollerKnob`                   | white @ 0.48    | black @ 0.42    | `NSScroller` overlay knob |
+| `scrollerKnobHovered`            | white @ 0.64    | black @ 0.58    | knob under the pointer |
+| `scrollerKnobActive`             | white @ 0.78    | black @ 0.72    | knob being dragged |
+
+`elevatedSurface` is a *different* elevation from `raisedSurface`: a raised
+surface is a card on the window's own backdrop, an elevated one floats above
+the window entirely — a menu, a popover, a sheet, an alert, a context menu,
+an inspector, a full-screen cover. Every one of those was a dark literal, so
+a light-mode app opened a near-black panel with near-black text on it.
+`testFloatingPanelsSitOnAnAppearanceResolvedSurface` pins it.
 
 The three segmented roles also dress the `TabView` tab bar: macOS draws a tab
 bar with `NSSegmentedControl`, so the band is the groove, the selected tab is
@@ -331,12 +359,42 @@ grids.
 | List row (plain)             | `List.plainRowHeight`                     | 24 pt     |
 | List row (sidebar)           | `List.sidebarRowHeight`                   | 28 pt     |
 | List content inset           | `List.contentInset`                       | 16 pt     |
+| Overlay scroller knob        | `Scroller.overlayThumbThickness`          | 7 pt      |
+| Overlay scroller inset       | `Scroller.overlayInset`                   | 4 pt      |
+| Overlay scroller min knob    | `Scroller.minimumThumbLength`             | 24 pt     |
 | Toolbar (regular)            | `Toolbar.regularHeight`                   | 52 pt     |
 | Window corner radius         | `Window.cornerRadius`                     | 10 pt     |
 | Sheet corner radius          | `Window.sheetCornerRadius`                | 12 pt     |
 | Focus ring stroke            | `FocusRing.strokeWidth`                   | 4 pt      |
 | Default stack spacing        | `Layout.defaultStackSpacing`              | 8 pt      |
 | Default `.padding()`         | `Layout.defaultPadding`                   | 16 pt     |
+
+### Overlay scrollers
+
+A macOS scroller is an *overlay* scroller unless the user has set "Show
+scroll bars: Always": no track, no arrows, a rounded pill floating over the
+content, invisible at rest, faded in while the content moves and faded back
+out afterwards. That is why a screenshot of a real macOS app shows no
+scrollbar anywhere.
+
+The runtime supplies the mechanism (`ViewNode.scrollIndicatorAutoHides`,
+`RetainedViewRuntime.revealScrollIndicator(for:)` /
+`flashScrollIndicator(for:)`), WinSwiftUI sets the policy:
+`.scrollIndicators(.automatic)` — the default — is an overlay scroller;
+`.scrollIndicators(.visible)` is the legacy persistent bar.
+
+| Timing                                          | Value  |
+|-------------------------------------------------|--------|
+| `RetainedViewRuntime.scrollIndicatorRevealDuration`   | 0.12 s |
+| `RetainedViewRuntime.scrollIndicatorVisibleHold`      | 1.00 s |
+| `RetainedViewRuntime.scrollIndicatorFadeOutDuration`  | 0.45 s |
+
+Fade in is quick and fade out is slow on purpose — a scroller answers
+instantly and leaves quietly. The reveal state is part of
+`hasActiveAnimations` for the whole hold, because a revealed scroller with no
+tween in flight still needs frames to reach its own hide deadline.
+`OverlayScrollIndicatorTests` pins the timeline; the flash hooks ride the same
+lifecycle pass `onAppear` does.
 
 ### One named ergonomic delta
 

@@ -662,7 +662,15 @@ public final class ComponentHost {
         if target.showsScrollIndicator != source.showsScrollIndicator {
             target.showsScrollIndicator = source.showsScrollIndicator
         }
-        if target.scrollIndicatorColor != source.scrollIndicatorColor {
+        if target.scrollIndicatorAutoHides != source.scrollIndicatorAutoHides {
+            target.scrollIndicatorAutoHides = source.scrollIndicatorAutoHides
+            target.scrollIndicatorColor = source.scrollIndicatorColor
+        } else if !source.scrollIndicatorAutoHides, target.scrollIndicatorColor != source.scrollIndicatorColor {
+            // An overlay scroller's painted colour is runtime-driven — it is
+            // mid-reveal or mid-fade — and a freshly built node always carries
+            // the resting one. Copying it across a rebuild would blink the
+            // scroller out from under a scroll that is still happening, the
+            // same reason `scrollOffset` above is not adopted wholesale.
             target.scrollIndicatorColor = source.scrollIndicatorColor
         }
         if target.scrollIndicatorIdleColor != source.scrollIndicatorIdleColor {

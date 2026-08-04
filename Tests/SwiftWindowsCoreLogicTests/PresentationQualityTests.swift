@@ -304,7 +304,9 @@ final class PresentationQualityTests: XCTestCase {
 
             let scene = runtime.renderScene()
             let colors = presentationSceneQuadColors(in: scene)
-            let panelColor = Color(red: 0.108, green: 0.108, blue: 0.108, alpha: 0.96)
+            // A menu is a floating panel: the same appearance-resolved
+            // elevation a sheet, a popover and an alert sit on.
+            let panelColor = ControlPalette.darkStandard.elevatedSurface
 
             func firstIndex(matching target: Color) -> Int? {
                 colors.firstIndex { color in

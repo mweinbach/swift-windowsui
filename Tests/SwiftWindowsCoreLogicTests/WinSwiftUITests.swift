@@ -7364,9 +7364,12 @@ final class WinSwiftUITests: XCTestCase {
                 plainSectionLayout,
                 .vertical(spacing: 16, padding: baseInsets, alignment: .leading)
             )
+            // Edges `contentMargins` does not name fall back to the overlay
+            // scroller's own inset (`MacOSControlMetrics.Scroller.overlayInset`,
+            // 4), not the 6pt gutter the old always-visible bar reserved.
             XCTAssertEqual(
                 scrollNode.scrollIndicatorInsets,
-                EdgeInsets(top: 6, leading: 12, bottom: 24, trailing: 12)
+                EdgeInsets(top: 4, leading: 12, bottom: 24, trailing: 12)
             )
             XCTAssertEqual(
                 listNode.scrollIndicatorInsets,
@@ -7374,7 +7377,7 @@ final class WinSwiftUITests: XCTestCase {
             )
             XCTAssertEqual(
                 scrollingSectionNode.scrollIndicatorInsets,
-                EdgeInsets(top: 9, leading: 6, bottom: 9, trailing: 6)
+                EdgeInsets(top: 9, leading: 4, bottom: 9, trailing: 4)
             )
             XCTAssertEqual(
                 insetScrollNode.scrollIndicatorInsets,

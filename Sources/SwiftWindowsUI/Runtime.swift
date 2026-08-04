@@ -1935,8 +1935,16 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    /// `.scrollIndicatorsFlash(trigger:)`. Every distinct value the app hands
+    /// down flashes the scroller once — the property used to be stored and
+    /// read by nobody, so the modifier compiled and did nothing.
     public var scrollIndicatorsFlashTrigger: String? {
-        didSet { invalidateRuntime(.layout) }
+        didSet {
+            invalidateRuntime(.layout)
+            if scrollIndicatorsFlashTrigger != oldValue, oldValue != nil {
+                runtime?.flashScrollIndicator(for: self)
+            }
+        }
     }
 
     public var scrollTransition: String? {
@@ -2007,7 +2015,16 @@ public final class ViewNode {
         // by the first `.lazyStack` below this node that actually defers a
         // child, so an ordinary scroll view keeps its paint-only
         // invalidation and pays nothing for the concept.
-        didSet { invalidateRuntime(hasVirtualizedDescendants ? [.paint, .layout] : .paint) }
+        //
+        // This is also the one funnel every scroll reaches — wheel, keyboard,
+        // thumb drag, momentum, scroll-into-view, `scrollPosition` — so it is
+        // where an overlay scroller learns it should be on screen.
+        didSet {
+            invalidateRuntime(hasVirtualizedDescendants ? [.paint, .layout] : .paint)
+            if scrollIndicatorAutoHides, scrollOffset != oldValue {
+                runtime?.revealScrollIndicator(for: self)
+            }
+        }
     }
 
     public var scrollStep: Double {
@@ -2040,6 +2057,28 @@ public final class ViewNode {
 
     public var scrollIndicatorInsets: EdgeInsets {
         didSet { invalidateRuntime(.paint) }
+    }
+
+    /// Overlay-scroller behaviour: the thumb is *invisible* at rest and is
+    /// revealed by scrolling, a flash, or a pointer on the track, then fades
+    /// back out a beat after the scrolling stops. This is what a macOS
+    /// scroller does, and it is why a screenshot of a real macOS app shows no
+    /// scrollbar at all.
+    ///
+    /// The runtime only supplies the mechanism. `false` keeps the legacy
+    /// always-visible bar, which is what `.scrollIndicators(.visible)` asks
+    /// for and what every hand-built `ViewNode` fixture still gets.
+    public var scrollIndicatorAutoHides: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    /// What the thumb settles to when nothing is happening: nothing at all for
+    /// an overlay scroller, its own tone for a legacy one.
+    ///
+    /// `scrollIndicatorIdleColor` stays the *revealed* tone in both modes, so
+    /// reveal and hide are the same tween run in opposite directions.
+    public var restingScrollIndicatorColor: Color {
+        scrollIndicatorAutoHides ? .clear : scrollIndicatorIdleColor
     }
 
     public var initialScrollAnchor: RetainedScrollAnchor? {
@@ -3014,6 +3053,7 @@ public final class ViewNode {
         scrollIndicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.72),
         scrollIndicatorThickness: Double = 6,
         scrollIndicatorInsets: EdgeInsets = EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6),
+        scrollIndicatorAutoHides: Bool = false,
         initialScrollAnchor: RetainedScrollAnchor? = nil,
         scrollSizeChangeAnchor: RetainedScrollAnchor? = nil,
         isFocusable: Bool = false,
@@ -3262,7 +3302,11 @@ public final class ViewNode {
         self.scrollOffset = scrollOffset
         self.scrollStep = scrollStep
         self.showsScrollIndicator = showsScrollIndicator
-        self.scrollIndicatorColor = scrollIndicatorColor
+        self.scrollIndicatorAutoHides = scrollIndicatorAutoHides
+        // An overlay scroller starts where it spends most of its life:
+        // invisible. `scrollIndicatorIdleColor` stays the *revealed* tone, so
+        // the same node can fade in to it and back out to nothing.
+        self.scrollIndicatorColor = scrollIndicatorAutoHides ? .clear : scrollIndicatorColor
         self.scrollIndicatorIdleColor = scrollIndicatorIdleColor ?? scrollIndicatorColor
         self.scrollIndicatorHoverColor = scrollIndicatorHoverColor
         self.scrollIndicatorActiveColor = scrollIndicatorActiveColor
@@ -5454,6 +5498,9 @@ public final class ViewNode {
             hasAppeared = true
             onAppear?()
             onAppearWithNode?(self)
+            if scrollIndicatorsFlashOnAppear {
+                runtime?.flashScrollIndicator(for: self)
+            }
             previousFrame = absoluteFrame
         }
         if let prev = previousFrame, prev != absoluteFrame {
@@ -6698,8 +6745,14 @@ public final class ViewNode {
         )
     }
 
+    /// Where the thumb *is*, whether or not it can currently be seen.
+    ///
+    /// Geometry deliberately does not consult `scrollIndicatorColor`: an
+    /// overlay scroller is transparent for most of its life, and gating the
+    /// rect on alpha would mean a faded-out thumb has no track, so the pointer
+    /// could never land on it and hovering the edge could never bring it back.
     func scrollIndicatorRect(in absoluteFrame: Rect) -> Rect? {
-        guard showsScrollIndicator, isScrollable, maxScrollOffset > 0, scrollIndicatorColor.alpha > 0 else {
+        guard showsScrollIndicator, isScrollable, maxScrollOffset > 0 else {
             return nil
         }
 
@@ -7334,9 +7387,14 @@ public final class RetainedViewRuntime {
     /// and the removal-transition overlays. Omitting either of the last two
     /// froze a removal transition permanently — the overlay was painted once
     /// at its start value and then never ticked again.
+    /// `scrollIndicatorReveals` is in the list for the interval where nothing
+    /// is moving at all: a revealed overlay scroller waiting out its hold has
+    /// no tween in flight, and if the host switched its timer off there the
+    /// deadline would never arrive and the thumb would stay up forever.
     public var hasActiveAnimations: Bool {
         !colorAnimations.isEmpty || buttonRepeatState != nil || !scrollMomenta.isEmpty
             || !scrollPresentedTweens.isEmpty || !transitionOverlays.isEmpty
+            || !scrollIndicatorReveals.isEmpty
             || hasNodeAnimationsInFlight
     }
 
@@ -7492,6 +7550,113 @@ public final class RetainedViewRuntime {
     }
     private var scrollPresentedTweens: [ObjectIdentifier: ScrollPresentedTween] = [:]
     private static let scrollKeyboardTweenDuration: Double = 0.22
+
+    // MARK: - Overlay scroller reveal / auto-hide
+
+    /// A scroller that has been asked to show itself and is waiting to be told
+    /// to go away again.
+    ///
+    /// Both fields are resolved against the *animation clock* rather than the
+    /// wall clock: `tickAnimations(at:)` is handed the same timestamp the
+    /// colour tweens run on, and a test that drives the runtime with synthetic
+    /// timestamps has to be able to run a reveal to completion. Arming the
+    /// deadline on the first tick after the reveal — instead of at the call
+    /// site — is what keeps the two clocks from being mixed.
+    private struct ScrollIndicatorRevealState {
+        weak var node: ViewNode?
+        var needsReveal: Bool
+        var hideDeadline: Double?
+    }
+    private var scrollIndicatorReveals: [ObjectIdentifier: ScrollIndicatorRevealState] = [:]
+    /// How long a revealed overlay scroller stays up after the last scroll.
+    /// macOS holds its scroller for about a beat before starting the fade.
+    static let scrollIndicatorVisibleHold: Double = 1.0
+    /// Fade in is quick; fade out is slow, the asymmetry macOS uses so a
+    /// scroller answers instantly and leaves quietly.
+    static let scrollIndicatorRevealDuration: Double = 0.12
+    static let scrollIndicatorFadeOutDuration: Double = 0.45
+
+    /// Brings an overlay scroller on screen and restarts its hold. Every scroll
+    /// on an auto-hiding node routes here through `ViewNode.scrollOffset`.
+    func revealScrollIndicator(for node: ViewNode) {
+        guard node.scrollIndicatorAutoHides, node.showsScrollIndicator, node.isScrollable else {
+            return
+        }
+        let key = ObjectIdentifier(node)
+        if var state = scrollIndicatorReveals[key] {
+            state.needsReveal = true
+            state.hideDeadline = nil
+            scrollIndicatorReveals[key] = state
+        } else {
+            scrollIndicatorReveals[key] = ScrollIndicatorRevealState(
+                node: node, needsReveal: true, hideDeadline: nil)
+        }
+        invalidate()
+    }
+
+    /// `.scrollIndicatorsFlash(...)`: the same reveal, asked for by the app
+    /// rather than by a scroll.
+    public func flashScrollIndicator(for node: ViewNode) {
+        revealScrollIndicator(for: node)
+    }
+
+    /// Runs the reveal state machine on the animation clock. Returns true only
+    /// when a tween was actually started, so a scroller sitting in its hold
+    /// does not bill the host for a redraw every frame.
+    private func tickScrollIndicatorReveals(at timestamp: Double) -> Bool {
+        guard !scrollIndicatorReveals.isEmpty else { return false }
+
+        var didStartTween = false
+        for key in Array(scrollIndicatorReveals.keys) {
+            guard var state = scrollIndicatorReveals[key], let node = state.node else {
+                scrollIndicatorReveals.removeValue(forKey: key)
+                continue
+            }
+
+            // A thumb the pointer is on, or is dragging, is already shown at a
+            // stronger tone by the hover/active path; the reveal must not pull
+            // it back down to the resting one.
+            let isPointerOwned = node === hoveredScrollIndicatorNode || node === activeScrollIndicatorNode
+
+            if state.needsReveal {
+                state.needsReveal = false
+                // A momentum glide re-arms the reveal on every tick it moves
+                // the offset. Restarting the tween each time would keep
+                // resetting its start colour to wherever the fade had got to,
+                // so the thumb would creep up asymptotically and never arrive.
+                // Only the *deadline* is re-armed by a repeat scroll.
+                let alreadyRising =
+                    colorAnimations[ColorAnimationKey(node: node, property: .scrollIndicator)]?.endColor
+                    == node.scrollIndicatorIdleColor
+                if !isPointerOwned, !alreadyRising {
+                    animateColor(
+                        .scrollIndicator, of: node, to: node.scrollIndicatorIdleColor,
+                        duration: Self.scrollIndicatorRevealDuration, at: timestamp)
+                    didStartTween = true
+                }
+            }
+
+            guard let deadline = state.hideDeadline else {
+                state.hideDeadline = timestamp + Self.scrollIndicatorVisibleHold
+                scrollIndicatorReveals[key] = state
+                continue
+            }
+
+            guard timestamp >= deadline else {
+                scrollIndicatorReveals[key] = state
+                continue
+            }
+
+            scrollIndicatorReveals.removeValue(forKey: key)
+            if !isPointerOwned {
+                animateColor(
+                    .scrollIndicator, of: node, to: node.restingScrollIndicatorColor,
+                    duration: Self.scrollIndicatorFadeOutDuration, at: timestamp)
+                didStartTween = true
+            }
+        }
+        return didStartTween
+    }
 
     /// Nodes that have been removed from the view tree but are still animating
     /// out via their removal transition. Rendered after the main tree each frame.
@@ -7793,7 +7958,8 @@ public final class RetainedViewRuntime {
 
             if let node = dragState.node {
                 let targetColor =
-                    nextIndicatorHit?.node === node ? node.scrollIndicatorHoverColor : node.scrollIndicatorIdleColor
+                    nextIndicatorHit?.node === node
+                    ? node.scrollIndicatorHoverColor : node.restingScrollIndicatorColor
                 animateColor(
                     .scrollIndicator, of: node, to: targetColor, duration: 0.12,
                     at: Win32Window.currentTimestampSeconds())
@@ -8090,6 +8256,9 @@ public final class RetainedViewRuntime {
         let didAdvanceButtonRepeat = advanceButtonRepeat(at: timestamp)
         let didAdvanceScrollMomenta = tickScrollMomenta(at: timestamp)
         let didAdvanceScrollPresentedTweens = tickScrollPresentedTweens(at: timestamp)
+        // Before the colour tweens are advanced below, so a reveal or a fade
+        // started this tick makes progress on this tick rather than the next.
+        let didStartScrollIndicatorTween = tickScrollIndicatorReveals(at: timestamp)
         let didAdvancePropertyAnimations = tickPropertyAnimations(node: root, at: timestamp)
 
         var didAdvanceOverlayAnimations = false
@@ -8115,7 +8284,8 @@ public final class RetainedViewRuntime {
 
         guard !colorAnimations.isEmpty else {
             return didAdvanceButtonRepeat || didAdvanceScrollMomenta || didAdvanceScrollPresentedTweens
-                || didAdvancePropertyAnimations || didAdvanceOverlayAnimations || !completedOverlays.isEmpty
+                || didStartScrollIndicatorTween || didAdvancePropertyAnimations || didAdvanceOverlayAnimations
+                || !completedOverlays.isEmpty
         }
 
         var didUpdateAnyAnimation = false
@@ -8143,8 +8313,8 @@ public final class RetainedViewRuntime {
         }
 
         return didUpdateAnyAnimation || didAdvanceButtonRepeat || didAdvanceScrollMomenta
-            || didAdvanceScrollPresentedTweens || didAdvancePropertyAnimations || didAdvanceOverlayAnimations
-            || !completedOverlays.isEmpty
+            || didAdvanceScrollPresentedTweens || didStartScrollIndicatorTween || didAdvancePropertyAnimations
+            || didAdvanceOverlayAnimations || !completedOverlays.isEmpty
     }
 
     // MARK: - Scroll Momentum
@@ -9040,10 +9210,12 @@ public final class RetainedViewRuntime {
         }
 
         if let previousNode = hoveredScrollIndicatorNode, previousNode !== activeScrollIndicatorNode {
+            // An overlay scroller the pointer has left goes all the way out,
+            // not back to a visible "idle" bar it never had.
             animateColor(
                 .scrollIndicator,
                 of: previousNode,
-                to: previousNode.scrollIndicatorIdleColor,
+                to: previousNode.restingScrollIndicatorColor,
                 duration: 0.12,
                 at: Win32Window.currentTimestampSeconds()
             )

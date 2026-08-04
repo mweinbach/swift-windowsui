@@ -428,6 +428,7 @@ public enum Controls {
         scrollIndicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.72),
         scrollIndicatorThickness: Double = 6,
         scrollIndicatorInsets: EdgeInsets = EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6),
+        scrollIndicatorAutoHides: Bool = false,
         initialScrollAnchor: RetainedScrollAnchor? = nil,
         scrollSizeChangeAnchor: RetainedScrollAnchor? = nil,
         isHitTestVisible: Bool = true,
@@ -452,8 +453,11 @@ public enum Controls {
             node.scrollAxis = axis
             node.scrollStep = scrollStep
             node.showsScrollIndicator = true
-            node.scrollIndicatorColor = scrollIndicatorColor
+            node.scrollIndicatorAutoHides = scrollIndicatorAutoHides
+            // The idle colour is the *revealed* tone in both modes; what the
+            // thumb is painted with right now is the resting one.
             node.scrollIndicatorIdleColor = scrollIndicatorColor
+            node.scrollIndicatorColor = scrollIndicatorAutoHides ? .clear : scrollIndicatorColor
             node.scrollIndicatorHoverColor = scrollIndicatorHoverColor
             node.scrollIndicatorActiveColor = scrollIndicatorActiveColor
             node.scrollIndicatorThickness = scrollIndicatorThickness

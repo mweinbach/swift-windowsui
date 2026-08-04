@@ -142,6 +142,24 @@ than on the appearance's base. Promoting the rung while keeping the light
 appearance's black base put an 85%-black version label on `#007AFF` in the
 demo's Data screen; `testSelectionContentIsLightInBothAppearances` pins it.
 
+### A quaternary background is a bar, not a shade
+
+The rungs resolve differently on the way to a *fill*, in exactly one place.
+`.background(.quaternary)` is the idiomatic bottom bar — the scrim that
+closes a list with an inspector or status strip. In the dark appearance the
+white quaternary rung lightens the window into the bar (#373737 on #212121,
+secondary strings 4.8:1), which is precisely what a macOS dark bottom bar
+does, so dark resolves the label rung unchanged. In the light appearance the
+same maths is a black wash that lands the bar at #D5D5D5 on the #ECECEC
+window — *darker* than the page it closes, which no macOS bottom bar is:
+Finder's status bar and Xcode's debug bar sit at `windowBackgroundColor`
+and let the divider above them carry the edge. A light quaternary
+*background* therefore resolves to `ControlPalette.windowBackground`, where
+its secondary strings clear 4.5:1. The label resolution keeps AppKit's
+published `#..19` in both appearances.
+`Color.resolvedForBackgroundVisualEnvironment` implements the split;
+`testQuaternaryBackgroundIsABarNotAShadeInLight` pins it.
+
 ## Chrome neutrals
 
 Every hardcoded chrome literal in `Views.swift` and `Core.swift` sat on a

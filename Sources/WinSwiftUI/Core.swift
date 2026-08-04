@@ -17568,6 +17568,39 @@ extension SwiftWindowsCore.Color {
             return palette.quaternaryLabel.retainedWithMultipliedOpacity(0.6)
         }
     }
+
+    /// Resolves a colour that is about to be painted as a *background*.
+    ///
+    /// One rung reads differently on the way to a fill: `.quaternary`. As a
+    /// label it is AppKit's `quaternaryLabelColor` — black at `#..19` in the
+    /// light appearance — and that stays untouched. But the idiomatic use of
+    /// `.background(.quaternary)` is a *bar*: the scrim that closes a list
+    /// with an inspector or status strip. In dark mode the white rung
+    /// lightens the window into a bar, which is exactly what a dark-mode
+    /// bottom bar does. In light mode the same maths puts a black wash over
+    /// the window and lands the bar at #D5D5D5 on the #ECECEC window —
+    /// *darker* than the page it closes, which no macOS bottom bar is:
+    /// Finder's status bar and Xcode's debug bar sit at
+    /// `windowBackgroundColor` and let the divider above them do the work.
+    /// A light quaternary background therefore resolves to the window tone,
+    /// where its secondary strings clear 4.5:1. Pinned in
+    /// docs/MacOSDesignParity.md and `MacOSDesignParityTests`.
+    public nonisolated func resolvedForBackgroundVisualEnvironment(
+        colorScheme: ColorScheme,
+        contrast: ColorSchemeContrast,
+        backgroundProminence: BackgroundProminence
+    ) -> SwiftWindowsCore.Color {
+        if colorScheme == .light, backgroundProminence != .increased,
+            labelHierarchyLevel == .quaternary
+        {
+            return ControlPalette.resolve(colorScheme: colorScheme, contrast: contrast).windowBackground
+        }
+        return resolvedForVisualEnvironment(
+            colorScheme: colorScheme,
+            contrast: contrast,
+            backgroundProminence: backgroundProminence
+        )
+    }
 }
 extension ForegroundStyle {
     func retainedWithOpacity(_ opacity: Double) -> ForegroundStyle {
@@ -22271,13 +22304,16 @@ extension View {
     /// black in a light window, and a system colour carries a published value
     /// per appearance. Resolution used to happen only on the way to a
     /// foreground, so `.background(.quaternary)` handed the stored value
-    /// straight to the panel and painted a *white* scrim on a light window —
-    /// a bar lighter than the page it was sitting on. The resolver is a
-    /// lookup, so a colour the app mixed itself passes through unchanged.
+    /// straight to the panel and painted a *white* scrim on a light window.
+    /// The resolver is a lookup, so a colour the app mixed itself passes
+    /// through unchanged — and it is the *background* variant of the lookup,
+    /// because one rung fills differently than it writes: a light quaternary
+    /// background is a bar at the window tone, not a black wash
+    /// (`resolvedForBackgroundVisualEnvironment`).
     private func backgroundStyle(color: Color?, gradient: GradientType?) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
-            let resolved = color?.resolvedForVisualEnvironment(
+            let resolved = color?.resolvedForBackgroundVisualEnvironment(
                 colorScheme: context.colorScheme,
                 contrast: context.colorSchemeContrast,
                 backgroundProminence: context.backgroundProminence

@@ -428,7 +428,12 @@ final class SystemAppearanceTests: XCTestCase {
     /// has always done that; the background path handed the stored value
     /// straight to the panel, so `.background(.quaternary)` painted a *white*
     /// scrim on a light window — lighter than the page it was supposed to be
-    /// a bar on.
+    /// a bar on. The light quaternary rung then resolves one step further:
+    /// a black wash over the light window lands a bar *darker* than the
+    /// window it closes, which no macOS bottom bar is, so the background
+    /// variant of the lookup answers with the window tone instead
+    /// (docs/MacOSDesignParity.md, pinned by
+    /// `testQuaternaryBackgroundIsABarNotAShadeInLight`).
     func testHierarchicalStyleAsBackgroundResolvesForTheLightAppearance() async {
         await MainActor.run {
             let light = backgroundColorOfNode(
@@ -436,7 +441,7 @@ final class SystemAppearanceTests: XCTestCase {
             let dark = backgroundColorOfNode(
                 Text("bar").background(.quaternary).environment(\.colorScheme, .dark))
 
-            XCTAssertEqual(light, ControlPalette.lightStandard.quaternaryLabel)
+            XCTAssertEqual(light, ControlPalette.lightStandard.windowBackground)
             XCTAssertEqual(dark, ControlPalette.darkStandard.quaternaryLabel)
             XCTAssertNotEqual(light, dark, "a background sentinel has to change with the appearance")
         }

@@ -1,3 +1,9 @@
+// Scoped, not `import Foundation`: corelibs-Foundation exports its own
+// CG geometry types, and pulling the whole module in makes every
+// `CGRect(x: a + b, …)` in the layout ambiguous enough to time out the
+// type-checker. A scoped import still surfaces the member extensions
+// (`.number` on `IntegerFormatStyle`) the settings form needs.
+import struct Foundation.IntegerFormatStyle
 import struct Foundation.URL
 
 #if canImport(SwiftUI)
@@ -355,23 +361,20 @@ struct DemoSidebar: View {
                         }
                     }
 
-                    // A rule, not a band. 4pt of saturated accent reads as a
-                    // divider carrying the module's colour; the 10pt one this
-                    // replaced read as a progress bar sitting at 100% — and
-                    // only became obvious once the fill stopped being a pale
-                    // wash and started being the accent.
-                    Color.clear
-                        .frame(height: 4)
-                        .frame(maxWidth: .infinity)
-                        .background(
-                            LinearGradient(
-                                colors: model.selectedModule.accentFill,
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .cornerRadius(2)
-                        .allowsHitTesting(false)
+                    // A group boundary, the way a macOS source list draws one: a
+                    // second eyebrow, not a rule. The 4pt accent bar that
+                    // used to sit here had no semantic job — it was not a
+                    // selection indicator (the selected row already carries
+                    // the accent fill), not a separator (nothing in a source
+                    // list separates with saturated colour), and not a
+                    // progress bar (though at full width it read as one at
+                    // 100%). The two rows under it are a different *kind* of
+                    // thing from the module list — session status, not
+                    // navigation — and the sidebar already speaks the
+                    // eyebrow language: "Workspace" introduces the first
+                    // group, so "Session" introduces the second.
+                    DemoSectionTitle("Session")
+                        .padding(.top, 6)
 
                     DemoRowButton(
                         title: "State",
@@ -405,9 +408,6 @@ struct DemoSidebar: View {
     }
 }
 struct DemoCenterPane: View {
-    @Environment(\.colorScheme) private var colorScheme
-    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
-
     let model: DemoDashboardModel
     let layout: DemoLayout
 
@@ -440,36 +440,30 @@ struct DemoCenterPane: View {
                 if layout.stacksMetrics {
                     VStack(alignment: .leading, spacing: 14) {
                         DemoMetricCard(
-                            title: "Interactions", value: "\(model.interactionCount)", note: "Events tracked",
-                            accent: theme.caption(model.selectedModule)
+                            title: "Interactions", value: "\(model.interactionCount)", note: "Events tracked"
                         )
                         .frame(width: layout.contentInnerWidth, alignment: .leading)
                         DemoMetricCard(
-                            title: "Module", value: model.selectedModule.label, note: model.selectedModule.summary,
-                            accent: theme.caption(model.selectedModule)
+                            title: "Module", value: model.selectedModule.label, note: model.selectedModule.summary
                         )
                         .frame(width: layout.contentInnerWidth, alignment: .leading)
                         DemoMetricCard(
-                            title: "Target", value: "Same source", note: "Import WinSwiftUI or SwiftUI",
-                            accent: theme.neutralCaption
+                            title: "Target", value: "Same source", note: "Import WinSwiftUI or SwiftUI"
                         )
                         .frame(width: layout.contentInnerWidth, alignment: .leading)
                     }
                 } else {
                     HStack(alignment: .center, spacing: 18) {
                         DemoMetricCard(
-                            title: "Interactions", value: "\(model.interactionCount)", note: "Events tracked",
-                            accent: theme.caption(model.selectedModule)
+                            title: "Interactions", value: "\(model.interactionCount)", note: "Events tracked"
                         )
                         .frame(width: layout.metricCardWidth, alignment: .leading)
                         DemoMetricCard(
-                            title: "Module", value: model.selectedModule.label, note: model.selectedModule.summary,
-                            accent: theme.caption(model.selectedModule)
+                            title: "Module", value: model.selectedModule.label, note: model.selectedModule.summary
                         )
                         .frame(width: layout.metricCardWidth, alignment: .leading)
                         DemoMetricCard(
-                            title: "Target", value: "Same source", note: "Import WinSwiftUI or SwiftUI",
-                            accent: theme.neutralCaption
+                            title: "Target", value: "Same source", note: "Import WinSwiftUI or SwiftUI"
                         )
                         .frame(width: layout.metricCardWidth, alignment: .leading)
                     }
@@ -608,7 +602,7 @@ struct DemoRightRail: View {
                         DemoSectionTitle("Detail track")
 
                         ForEach(model.selectedModule.cards, id: \.title) { card in
-                            DemoInfoCard(card: card, module: model.selectedModule)
+                            DemoInfoCard(card: card)
                         }
                     }
                 }
@@ -656,7 +650,12 @@ struct DemoHeroCard: View {
                 theme.heroBottom(model.selectedModule),
             ],
             stroke: theme.surfaceStrokeStrong,
-            shadowColor: model.selectedModule.glowColor.opacity(0.12)
+            // A glow-tinted halo under the dark hero, the neutral panel
+            // shadow under the light one: a blue shadow on a light window
+            // reads as a cool smudge, not as ambience.
+            shadowColor: colorScheme == .dark
+                ? model.selectedModule.glowColor.opacity(0.12)
+                : theme.shadow
         ) {
             // 14, not 18. Five rungs at 18 plus a 38pt pill row measured 214
             // inside a 210pt card, and a fixed-height card answers an
@@ -1185,7 +1184,6 @@ struct DemoMetricCard: View {
     let title: String
     let value: String
     let note: String
-    let accent: Color
 
     var body: some View {
         DemoGlassSurface(cornerRadius: 26) {
@@ -1206,9 +1204,15 @@ struct DemoMetricCard: View {
                     .foregroundStyle(.primary)
                     .multilineTextAlignment(.leading)
 
+                // One rule for captions across the app: a caption is
+                // `.secondary`, and an accent means "you can click this".
+                // These notes used to take a per-module accent, so "Events
+                // tracked" sat in link blue next to "Import WinSwiftUI or
+                // SwiftUI" in slate — two colours for one row of identical
+                // roles, neither of them interactive.
                 Text(note)
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundColor(accent)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1231,7 +1235,6 @@ struct DemoInfoCard: View {
     private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
 
     let card: DemoCard
-    let module: DemoModule
 
     var body: some View {
         // A rail card's own rhythm, tighter than a centre-pane panel's: 14pt
@@ -1263,9 +1266,13 @@ struct DemoInfoCard: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
 
+                // Same rule as every caption in the app: `.secondary`, with
+                // the accent reserved for things that can be clicked. The
+                // per-module tint this carried made a static meta line the
+                // most saturated text on the rail.
                 Text(card.meta)
                     .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .foregroundColor(theme.caption(module))
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
             }
             // A column of cards is a column: every card takes the column's
@@ -1379,21 +1386,6 @@ struct DemoTheme {
         pick(light: module.heroBottomLight, dark: module.panelEndColor)
     }
 
-    /// The accent used for a *caption* — a card's meta line, a metric's note —
-    /// as opposed to the accent used for a fill. Text has to swap direction
-    /// with the appearance: the deep accent that reads on a light card is a
-    /// smudge on a dark one, which is what the meta lines used to be.
-    func caption(_ module: DemoModule) -> Color {
-        pick(light: module.accentColor, dark: module.stripeColor)
-    }
-
-    /// The same rung for a caption that belongs to no module.
-    var neutralCaption: Color {
-        pick(
-            light: Color(red: 0.30, green: 0.42, blue: 0.60, opacity: 0.98),
-            dark: Color(red: 0.66, green: 0.75, blue: 0.90, opacity: 0.92))
-    }
-
     /// The fill behind a plain chip on the hero card: a light scrim on the
     /// dark card, a dark scrim on the pale one, the way a macOS badge sits on
     /// whatever it is on.
@@ -1440,9 +1432,17 @@ struct DemoTheme {
         Color(red: 0.235, green: 0.376, blue: 0.600, opacity: 1.0),
         Color(red: 0.180, green: 0.290, blue: 0.471, opacity: 1.0),
     ]
+    /// Panel shadows, per appearance. Dark mode carries the depth in its
+    /// shadows because a white hairline barely reads there. A light macOS
+    /// window is the opposite — a System Settings box casts black at ~0.04 —
+    /// and the 0.12 this used to be blanketed every gutter of the light
+    /// dashboard in a #CFD5DA smudge: with 14–18pt gaps and a 14pt shadow
+    /// offset, the *shadows* were the only "window background" the filled
+    /// screen ever showed, and the page graded a step darker and cooler
+    /// than the window tone its backdrop actually is.
     var shadow: Color {
         pick(
-            light: Color(red: 0.0, green: 0.0, blue: 0.0, opacity: 0.12),
+            light: Color(red: 0.0, green: 0.0, blue: 0.0, opacity: 0.05),
             dark: Color(red: 0.0, green: 0.0, blue: 0.0, opacity: 0.36))
     }
 }
@@ -1680,15 +1680,6 @@ enum DemoModule: CaseIterable, Hashable {
     /// The accent fill as the two-stop ramp the demo's tinted surfaces take.
     var accentFill: [Color] { [fillTop, fillBottom] }
 
-    var accentColor: Color {
-        switch self {
-        case .layout: return Color(red: 0.30, green: 0.40, blue: 0.58, opacity: 0.98)
-        case .input: return Color(red: 0.24, green: 0.42, blue: 0.44, opacity: 0.98)
-        case .animation: return Color(red: 0.36, green: 0.32, blue: 0.44, opacity: 0.98)
-        case .controls: return Color(red: 0.44, green: 0.32, blue: 0.58, opacity: 0.98)
-        }
-    }
-
     var panelStartColor: Color {
         switch self {
         case .layout: return Color(red: 0.18, green: 0.24, blue: 0.37, opacity: 0.97)
@@ -1707,24 +1698,29 @@ enum DemoModule: CaseIterable, Hashable {
         }
     }
 
-    /// The light-appearance hero stops: the same four hues, washed out to a
-    /// card that carries dark text. `panelStartColor` and `panelEndColor` stay
-    /// the dark-appearance pair.
+    /// The light-appearance hero stops: the same four hues, pale enough to
+    /// carry dark text but tinted enough to carry *weight*. `panelStartColor`
+    /// and `panelEndColor` stay the dark-appearance pair. The old stops
+    /// started three levels off white and the hero read as one more white
+    /// card in the column; its dark twin works because it is unmistakably a
+    /// blue card. The headline and the `.secondary` summary sit in the upper
+    /// half of the ramp, which is what bounds how deep the bottom stop can
+    /// go: the summary must clear 4.5:1 against the mid-card fill.
     var heroTopLight: Color {
         switch self {
-        case .layout: return Color(red: 0.97, green: 0.98, blue: 1.0, opacity: 0.97)
-        case .input: return Color(red: 0.96, green: 0.99, blue: 0.99, opacity: 0.97)
-        case .animation: return Color(red: 1.0, green: 0.98, blue: 0.96, opacity: 0.97)
-        case .controls: return Color(red: 0.99, green: 0.97, blue: 1.0, opacity: 0.97)
+        case .layout: return Color(red: 0.945, green: 0.965, blue: 1.0, opacity: 0.97)
+        case .input: return Color(red: 0.94, green: 0.985, blue: 0.98, opacity: 0.97)
+        case .animation: return Color(red: 1.0, green: 0.965, blue: 0.935, opacity: 0.97)
+        case .controls: return Color(red: 0.975, green: 0.95, blue: 1.0, opacity: 0.97)
         }
     }
 
     var heroBottomLight: Color {
         switch self {
-        case .layout: return Color(red: 0.85, green: 0.90, blue: 0.98, opacity: 0.94)
-        case .input: return Color(red: 0.84, green: 0.94, blue: 0.93, opacity: 0.94)
-        case .animation: return Color(red: 0.99, green: 0.91, blue: 0.84, opacity: 0.94)
-        case .controls: return Color(red: 0.92, green: 0.87, blue: 0.98, opacity: 0.94)
+        case .layout: return Color(red: 0.80, green: 0.87, blue: 0.97, opacity: 0.94)
+        case .input: return Color(red: 0.79, green: 0.915, blue: 0.90, opacity: 0.94)
+        case .animation: return Color(red: 0.985, green: 0.865, blue: 0.755, opacity: 0.94)
+        case .controls: return Color(red: 0.885, green: 0.815, blue: 0.965, opacity: 0.94)
         }
     }
 
@@ -1908,13 +1904,15 @@ struct DemoSettingsScreen: View {
             // The form is taller than small windows; scroll instead of
             // squeezing sections until their tracks vanish.
             ScrollView {
-                // 24 above the title and 22 under it: a settings pane's own
-                // rhythm, and the reason the default window's scroll fold
-                // now lands in the band between the "Resources" box and the
-                // "Actions" header rather than through the middle of the
-                // "Save Settings" button. The title used to start 6pt under
-                // the tab bar, which is not a page inset, it is a collision.
-                VStack(alignment: .leading, spacing: 22) {
+                // 32 above the title and 32 under it: a settings pane's own
+                // rhythm, and the numbers that put the default window's
+                // scroll fold in the *gap* between the "Resources" box and
+                // the "Actions" header. At 24/22 the fold landed 16pt later:
+                // the header was fully visible with nothing under it — an
+                // orphaned eyebrow captioning the bottom edge of the window.
+                // The title used to start 6pt under the tab bar, which is
+                // not a page inset, it is a collision.
+                VStack(alignment: .leading, spacing: 32) {
                     // The title travels with the column: it sits on the
                     // section boxes' own leading edge, so the window's wide
                     // side margins read as the margins of one centred pane
@@ -1943,9 +1941,22 @@ struct DemoSettingsScreen: View {
                             // row in the pane whose label is a sentence, and
                             // leaves the control column holding a bezel with
                             // nothing to be about.
+                            //
+                            // And the value is a *field*, not a numeral
+                            // floating in the row: macOS pairs NSStepper
+                            // with a text-field bezel (Date & Time, TextEdit
+                            // page setup — every stepper in the OS), because
+                            // the pair is one compound control that can also
+                            // be typed into.
                             LabeledContent("Items Per Page") {
                                 HStack(spacing: 8) {
-                                    Text("\(model.itemsPerPage)")
+                                    TextField(
+                                        "Items Per Page",
+                                        value: $model.itemsPerPage,
+                                        format: .number
+                                    )
+                                    .labelsHidden()
+                                    .frame(width: 44)
 
                                     Stepper(
                                         "Items Per Page",
@@ -2013,7 +2024,7 @@ struct DemoSettingsScreen: View {
                 // the title would be at the window's edge again.
                 .frame(maxWidth: columnWidth, alignment: .leading)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 24)
+                .padding(.vertical, 32)
             }
             .fileImporter(
                 isPresented: $isImporterPresented,
@@ -2062,8 +2073,10 @@ struct DemoDataScreen: View {
                 // a card. A bar is what macOS puts at the bottom of an
                 // inspector: its own scrim, closed at the top by a rule,
                 // running edge to edge with its own insets. `.quaternary` is
-                // a semantic rung, so the scrim darkens the light window and
-                // lightens the dark one.
+                // a semantic rung: it lightens the dark window into a bar,
+                // and in light mode it resolves to the window tone — a macOS
+                // bottom bar is never darker than the window it closes, so
+                // the divider carries the edge there.
                 VStack(spacing: 0) {
                     Divider()
 
@@ -2102,30 +2115,37 @@ struct DemoComponentRow: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
 
-            // macOS reserves colour for the state that needs attention:
-            // Activity Monitor and System Settings leave the nominal row in
-            // secondary text and paint only the exceptional one, which is what
-            // makes the exceptional one visible at all.
-            //
-            // It is also the only version of this that survives selection.
-            // SwiftUI passes an app-authored colour straight through onto the
-            // selection fill — correct, and matched here — but the hand-mixed
-            // green it used to carry measured 1.2:1 on system blue.
-            // `.secondary` is a semantic rung, so it inverts to white with the
-            // rest of the selected row.
+            // macOS reserves colour for the state that needs attention — and
+            // it carries that colour on a *symbol*, not on the word: a
+            // Network-settings row is a coloured status dot beside plain
+            // text. Painting the word itself `.orange` was faithful SwiftUI
+            // (macOS composites the same 2.2:1 orange on white) and
+            // illegible for exactly that reason: an accent is a colour for
+            // shapes, not for 10pt text on white. The dot carries the orange
+            // at full saturation in any size; the word stays `.secondary`,
+            // legible on white and inverting to white with the rest of a
+            // selected row — while the dot, like any app-authored colour on
+            // macOS, passes through onto the selection fill unchanged.
             //
             // The status column is a column: every row's status ends on the
             // same trailing edge, or a table of eight rows reads as eight
-            // ragged right margins. `multilineTextAlignment` is what carries
-            // that through — the fixed-width frame reserves the column, and
-            // the text alignment is what puts a short word ("Healthy") on the
-            // same edge as a long one ("Degraded").
-            Text(component.statusLabel)
-                .font(.footnote)
-                .foregroundColor(component.isHealthy ? .secondary : .orange)
-                .lineLimit(1)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 72, alignment: .trailing)
+            // ragged right margins. The fixed-width frame reserves the
+            // column; trailing alignment puts a short word ("Healthy") on
+            // the same edge as a long one ("Degraded").
+            HStack(alignment: .center, spacing: 5) {
+                if !component.isHealthy {
+                    Circle()
+                        .fill(Color.orange)
+                        .frame(width: 7, height: 7)
+                }
+
+                Text(component.statusLabel)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .multilineTextAlignment(.trailing)
+            }
+            .frame(width: 72, alignment: .trailing)
         }
     }
 }

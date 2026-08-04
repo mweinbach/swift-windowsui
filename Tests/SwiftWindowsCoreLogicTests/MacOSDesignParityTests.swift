@@ -418,6 +418,76 @@ final class MacOSDesignParityTests: XCTestCase {
         }
     }
 
+    // MARK: - Background rungs
+
+    private func relativeLuminance(of color: Color) -> Double {
+        func channel(_ value: Double) -> Double {
+            value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channel(Double(color.red)) + 0.7152 * channel(Double(color.green))
+            + 0.0722 * channel(Double(color.blue))
+    }
+
+    /// WCAG contrast of `text` drawn at its own alpha over an *opaque* fill.
+    private func contrastRatio(text: Color, over fill: Color) -> Double {
+        let alpha = Double(text.alpha)
+        let composited = Color(
+            red: Float(alpha * Double(text.red) + (1 - alpha) * Double(fill.red)),
+            green: Float(alpha * Double(text.green) + (1 - alpha) * Double(fill.green)),
+            blue: Float(alpha * Double(text.blue) + (1 - alpha) * Double(fill.blue)),
+            alpha: 1)
+        let a = relativeLuminance(of: composited)
+        let b = relativeLuminance(of: fill)
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+    }
+
+    /// `.background(.quaternary)` is a *bar* — the scrim that closes a list
+    /// with an inspector or status strip. In dark mode the white label rung
+    /// lightens the window into the bar, exactly as a macOS dark bottom bar
+    /// does, and stays as it is. In light mode the same label rung is a black
+    /// wash that landed the bar at #D5D5D5 on the #ECECEC window — darker
+    /// than the page it closes, which no macOS bottom bar is (Finder's status
+    /// bar and Xcode's debug bar sit at `windowBackgroundColor`). The
+    /// background resolution of the light quaternary rung is therefore the
+    /// window tone; the *label* resolution keeps AppKit's published `#..19`.
+    func testQuaternaryBackgroundIsABarNotAShadeInLight() async {
+        let lightBar = Color.quaternary.resolvedForBackgroundVisualEnvironment(
+            colorScheme: .light, contrast: .standard, backgroundProminence: .standard)
+        XCTAssertEqual(
+            lightBar, ControlPalette.lightStandard.windowBackground,
+            "a light quaternary background sits at the window tone, never below it")
+        XCTAssertGreaterThanOrEqual(
+            contrastRatio(text: ControlPalette.lightStandard.secondaryLabel, over: lightBar), 4.5,
+            "secondary strings on the light bar clear WCAG AA")
+
+        // Dark is untouched: the white quaternary rung over the dark window
+        // *is* the macOS bar treatment (#373737 on #212121, strings 4.8:1).
+        let darkBar = Color.quaternary.resolvedForBackgroundVisualEnvironment(
+            colorScheme: .dark, contrast: .standard, backgroundProminence: .standard)
+        XCTAssertEqual(darkBar, ControlPalette.darkStandard.quaternaryLabel)
+        let darkWindow = ControlPalette.darkStandard.windowBackground
+        let darkAlpha = Double(darkBar.alpha)
+        let composited = Color(
+            red: Float(darkAlpha * Double(darkBar.red) + (1 - darkAlpha) * Double(darkWindow.red)),
+            green: Float(darkAlpha * Double(darkBar.green) + (1 - darkAlpha) * Double(darkWindow.green)),
+            blue: Float(darkAlpha * Double(darkBar.blue) + (1 - darkAlpha) * Double(darkWindow.blue)),
+            alpha: 1)
+        XCTAssertGreaterThanOrEqual(
+            contrastRatio(text: ControlPalette.darkStandard.secondaryLabel, over: composited), 4.5,
+            "secondary strings on the dark bar clear WCAG AA")
+
+        // The label rung itself is not what moved: quaternary *text* keeps
+        // AppKit's published alpha in both appearances.
+        XCTAssertEqual(
+            Color.quaternary.resolvedForVisualEnvironment(
+                colorScheme: .light, contrast: .standard, backgroundProminence: .standard),
+            ControlPalette.lightStandard.quaternaryLabel)
+        XCTAssertEqual(
+            Color.quaternary.resolvedForVisualEnvironment(
+                colorScheme: .dark, contrast: .standard, backgroundProminence: .standard),
+            ControlPalette.darkStandard.quaternaryLabel)
+    }
+
     func testAccentColorMatchesMacOSDefaultControlAccentBlue() async {
         // macOS controlAccentColor's "Blue" (default) is #007AFF — the
         // same as Color.blue. WinSwiftUI's defaultTint must agree.

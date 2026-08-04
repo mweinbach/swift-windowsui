@@ -172,8 +172,8 @@ final class DemoScreensTests: XCTestCase {
         let columnWidth = 240.0
         let node = laidOut(
             VStack(alignment: .leading, spacing: 14) {
-                DemoInfoCard(card: cards[0], module: .layout)
-                DemoInfoCard(card: cards[1], module: .layout)
+                DemoInfoCard(card: cards[0])
+                DemoInfoCard(card: cards[1])
             }
             .frame(width: columnWidth),
             size: IntSize(width: 400, height: 500)
@@ -277,10 +277,13 @@ final class DemoScreensTests: XCTestCase {
             "a rail card is as wide as the rail; there is no scroll gutter to reserve")
     }
 
-    /// G4 item 3. A metric card's caption and a section eyebrow are the same
-    /// kind of thing, so they sit on the same rung. The caption used to be
-    /// `.tertiary`, which measured 1.86:1 against the light card fill — a
-    /// shape rather than a word.
+    /// G4 item 3 + FINAL item 4. A metric card's caption and a section
+    /// eyebrow are the same kind of thing, so they sit on the same rung. The
+    /// caption used to be `.tertiary`, which measured 1.86:1 against the
+    /// light card fill — a shape rather than a word. The card's *note* is a
+    /// caption too: it used to take a per-module accent, so "Events tracked"
+    /// sat in link blue next to "Import WinSwiftUI or SwiftUI" in slate. One
+    /// rule — captions are `.secondary`; an accent means interactive.
     func testCardCaptionsSitOnTheSecondaryRung() async {
         let root = laidOut(
             VStack(alignment: .leading, spacing: 12) {
@@ -288,31 +291,42 @@ final class DemoScreensTests: XCTestCase {
                     .foregroundStyle(.secondary)
 
                 DemoMetricCard(
-                    title: "Interactions", value: "0", note: "Events tracked", accent: Color.blue)
+                    title: "Interactions", value: "0", note: "Events tracked")
 
                 DemoRowButton(
                     title: "State", detail: "Ready", systemImage: "info.circle",
                     accent: DemoModule.layout.accentFill
                 ) {}
+
+                DemoInfoCard(card: DemoModule.layout.cards[0])
             }
             .frame(width: 260),
-            size: IntSize(width: 320, height: 420)
+            size: IntSize(width: 320, height: 500)
         )
 
         guard
             let reference = firstNode(in: root, matching: { $0.text == "Reference rung" }),
             let metricTitle = firstNode(in: root, matching: { $0.text == "Interactions" }),
-            let rowDetail = firstNode(in: root, matching: { $0.text == "Ready" })
+            let metricNote = firstNode(in: root, matching: { $0.text == "Events tracked" }),
+            let rowDetail = firstNode(in: root, matching: { $0.text == "Ready" }),
+            let cardMeta = firstNode(
+                in: root, matching: { $0.text == DemoModule.layout.cards[0].meta })
         else {
-            return XCTFail("expected the reference rung, a metric title, and a row subtitle")
+            return XCTFail("expected the reference rung and all four caption kinds")
         }
 
         XCTAssertEqual(
             metricTitle.textStyle.color, reference.textStyle.color,
             "a metric card's caption reads at the same prominence as a section eyebrow")
         XCTAssertEqual(
+            metricNote.textStyle.color, reference.textStyle.color,
+            "and so does its note — the accent is reserved for interactive text")
+        XCTAssertEqual(
             rowDetail.textStyle.color, reference.textStyle.color,
             "so does a row's subtitle")
+        XCTAssertEqual(
+            cardMeta.textStyle.color, reference.textStyle.color,
+            "and an info card's meta line")
     }
 
     /// G4 item 4. System Settings puts the noun in the label column and the
@@ -525,10 +539,17 @@ final class DemoScreensTests: XCTestCase {
             "and it is inside the centred column, not at the window's edge")
     }
 
-    /// G5 item 3. The inspector used to be a paragraph after the list, split
-    /// from it by a hairline in a 12pt gap — both standing on the same window
-    /// background, so the block read as floating text. macOS closes an
-    /// inspector with a *bar*: its own scrim, a rule along its top edge.
+    /// G5 item 3 + FINAL item 2. The inspector used to be a paragraph after
+    /// the list, split from it by a hairline in a 12pt gap — both standing on
+    /// the same window background, so the block read as floating text. macOS
+    /// closes an inspector with a *bar*: its own scrim, a rule along its top
+    /// edge. What the scrim is differs by appearance: a dark-mode bar is
+    /// *lighter* than the window (the white quaternary rung), but a light
+    /// bottom bar is never darker than the window it closes — Finder's status
+    /// bar sits at the window tone and lets the divider do the work. The
+    /// light `.quaternary` background used to composite the black label rung
+    /// to #D5D5D5 on the #ECECEC window, and the bar's four secondary strings
+    /// measured 4.28:1.
     func testDataInspectorSitsOnABarRatherThanTheWindow() async {
         for scheme in [ColorScheme.light, ColorScheme.dark] {
             let model = DemoDashboardModel()
@@ -557,14 +578,98 @@ final class DemoScreensTests: XCTestCase {
                 return XCTFail("the inspector has no bar behind it in \(scheme)")
             }
 
-            // The scrim darkens a light window and lightens a dark one: a
-            // semantic rung, not a fixed white. `.quaternary` used to reach
-            // the panel unresolved and paint white on both.
-            let isLight = scheme == .light
-            XCTAssertEqual(
-                Double(fill.red) < 0.5, isLight,
-                "a bar scrim runs against the appearance it is in (\(scheme))")
+            if scheme == .light {
+                let palette = ControlPalette.lightStandard
+                XCTAssertEqual(
+                    fill, palette.windowBackground,
+                    "a light bottom bar sits at the window tone, not below it")
+                XCTAssertGreaterThanOrEqual(
+                    contrastRatio(text: palette.secondaryLabel, over: fill), 4.5,
+                    "the bar's secondary strings clear WCAG AA on the bar tone")
+            } else {
+                // The white quaternary rung: a translucent scrim that
+                // *lightens* the dark window into a bar.
+                XCTAssertGreaterThan(Double(fill.red), 0.5, "a dark bar scrim is white-based")
+                XCTAssertEqual(
+                    fill.alpha, LabelHierarchy.quaternaryAlpha, accuracy: 0.001,
+                    "and it is the quaternary rung, unchanged")
+            }
         }
+    }
+
+    /// FINAL item 6. The settings pane's rhythm decides where the default
+    /// window's scroll fold lands. It has to land in the *gap* between the
+    /// "Resources" box and the "Actions" header: at the old 24/22 rhythm the
+    /// header sat fully visible just above the fold with its box below it —
+    /// an orphaned eyebrow captioning the bottom edge of the window.
+    func testSettingsFoldLandsBetweenResourcesAndActions() async {
+        let model = DemoDashboardModel()
+        model.selectedScreen = .settings
+        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
+
+        guard
+            let syncButton = firstNode(in: root, matching: { $0.text == "Sync Now" }),
+            let resourcesBox = enclosingSurface(of: syncButton),
+            let actionsHeader = firstNode(in: root, matching: { $0.text == "Actions" })
+        else {
+            return XCTFail("expected the Resources box and the Actions header")
+        }
+
+        let fold = 720.0
+        let boxBottom = absoluteY(of: resourcesBox) + resourcesBox.resolvedFrame.size.height
+        XCTAssertLessThan(boxBottom, fold, "the Resources box closes above the fold")
+        XCTAssertGreaterThan(
+            absoluteY(of: actionsHeader), fold,
+            "and the Actions header opens below it — never orphaned on the fold line")
+    }
+
+    /// FINAL item 1. The Degraded status carries its orange on a *symbol*
+    /// and keeps the word `.secondary`: bare `.orange` 10pt text composites
+    /// to 2.2:1 on the white list. The nominal rows stay undecorated, the
+    /// way Activity Monitor leaves them.
+    func testDegradedStatusIsADotBesideSecondaryText() async {
+        let degraded = DemoComponent.defaults.first { !$0.isHealthy }
+        let healthy = DemoComponent.defaults.first { $0.isHealthy }
+        guard let degraded, let healthy else {
+            return XCTFail("the fixture data carries both states")
+        }
+
+        let root = laidOut(
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Reference rung").foregroundStyle(.secondary)
+                DemoComponentRow(component: degraded)
+                DemoComponentRow(component: healthy)
+            },
+            size: IntSize(width: 480, height: 200)
+        )
+
+        guard
+            let reference = firstNode(in: root, matching: { $0.text == "Reference rung" }),
+            let degradedWord = firstNode(in: root, matching: { $0.text == degraded.statusLabel }),
+            let healthyWord = firstNode(in: root, matching: { $0.text == healthy.statusLabel })
+        else {
+            return XCTFail("expected both status words")
+        }
+
+        XCTAssertEqual(
+            degradedWord.textStyle.color, reference.textStyle.color,
+            "the word is legible text, not an accent swatch")
+        XCTAssertEqual(healthyWord.textStyle.color, reference.textStyle.color)
+
+        // The orange lives on the dot — a small filled shape on the degraded
+        // row only.
+        var dot: ViewNode?
+        var stack: [ViewNode] = [root]
+        while let node = stack.popLast() {
+            if let fill = node.backgroundColor, fill.red > 0.9, fill.green > 0.4, fill.green < 0.75,
+                fill.blue < 0.2, node.resolvedFrame.size.width <= 8
+            {
+                dot = node
+                break
+            }
+            stack.append(contentsOf: node.children)
+        }
+        XCTAssertNotNil(dot, "the degraded row carries an orange status dot")
     }
 
     /// G5 item 4a. Stacking the hero card's two pills is a question about the

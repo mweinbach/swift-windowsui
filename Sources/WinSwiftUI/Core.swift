@@ -6276,6 +6276,12 @@ public struct EnvironmentValues: @unchecked Sendable {
     /// standalone label-then-control arrangement, which is what makes a
     /// stack of unrelated controls read as one settings pane.
     var isInsideGroupedForm: Bool
+    /// The label column the enclosing `Form` shares across its sections.
+    /// Set only by `Form`; each `Section` registers its resolved group into
+    /// it so one column can be widened across all of them.
+    /// Not an initializer parameter: the memberwise init is public and this
+    /// type is not, and nothing outside `Form` has any business seeding it.
+    var groupedFormColumnScope: GroupedFormColumnScope? = nil
     public var groupBoxStyle: GroupBoxStyle
     public var disclosureGroupStyle: DisclosureGroupStyle
     public var menuStyle: MenuStyle
@@ -8371,6 +8377,12 @@ public struct ViewBuildContext {
     /// grid. Controls that own a label build a form row when this is set.
     var isInsideGroupedForm: Bool {
         environmentValuesProvider().isInsideGroupedForm
+    }
+
+    /// The label column shared across the enclosing `Form`'s sections, when
+    /// a `Form` is what this subtree is being built inside.
+    var groupedFormColumnScope: GroupedFormColumnScope? {
+        environmentValuesProvider().groupedFormColumnScope
     }
 
     public var groupBoxStyle: GroupBoxStyle {

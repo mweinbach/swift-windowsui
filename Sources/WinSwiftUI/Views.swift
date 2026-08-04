@@ -30,11 +30,64 @@ import SwiftWindowsUI
 //
 // A macOS grouped form is a two-column grid, not a stack of independent
 // controls: trailing-aligned labels share one leading column, and the
-// controls lead the value column beside them. These three functions are
-// the whole mechanism — a control that owns a label builds a row with
-// `groupedFormRowNode`, and the container it lands in (a `Section`, or the
-// `Form` itself) resolves the shared column width with
-// `alignedGroupedFormRows` once every row exists.
+// controls lead the value column beside them. These pieces are the whole
+// mechanism — a control that owns a label builds a row with
+// `groupedFormRowNode`, the container it lands in (a `Section`, or the
+// `Form` itself) resolves that group's shared column width with
+// `alignedGroupedFormRows` once every row exists, and the enclosing
+// `Form` widens every group to one column with `GroupedFormColumnScope`.
+
+/// The one label column a `Form` shares across all of its sections.
+///
+/// macOS aligns a settings pane on a single leading column: the label
+/// edges in "General" line up with the label edges in "Appearance", and
+/// the boxes are grouping, not separate grids. Each `Section` still
+/// resolves its own group first — it has to, because a section outside a
+/// `Form` has no wider scope to defer to — and registers the result here.
+/// The `Form` then takes the widest of those and applies it to every
+/// registered column and value-column indent, which is idempotent because
+/// the recorded width is each group's *intrinsic* answer rather than
+/// whatever it was last set to.
+///
+/// Reference type on purpose: it travels down the build as an environment
+/// value so a section can register into the form that is still building
+/// it, which is the inherited-environment shape the runtime already uses
+/// rather than a second piece of global UI state.
+@MainActor
+final class GroupedFormColumnScope {
+    private var labelColumns: [ViewNode] = []
+    private var valueColumnIndents: [ViewNode] = []
+    private var widestGroupWidth: Double = 0
+
+    /// Records one resolved group: its label columns, the label-less rows
+    /// it indented into the value column, and the width it settled on.
+    func adopt(labelColumns: [ViewNode], valueColumnIndents: [ViewNode], groupWidth: Double) {
+        self.labelColumns.append(contentsOf: labelColumns)
+        self.valueColumnIndents.append(contentsOf: valueColumnIndents)
+        widestGroupWidth = max(widestGroupWidth, groupWidth)
+    }
+
+    /// Widens every group in the form to the form-wide column.
+    func resolve() {
+        guard widestGroupWidth > 0 else {
+            return
+        }
+        for column in labelColumns {
+            column.preferredSize = Size(
+                width: widestGroupWidth,
+                height: column.preferredSize?.height ?? 0
+            )
+        }
+        let valueColumnInset = widestGroupWidth + MacOSControlMetrics.Form.labelColumnGap
+        for indent in valueColumnIndents {
+            guard var layout = indent.layoutMode.stackLayout else {
+                continue
+            }
+            layout.padding = EdgeInsets(top: 0, leading: valueColumnInset, bottom: 0, trailing: 0)
+            indent.layoutMode = .stack(layout)
+        }
+    }
+}
 
 /// One grouped-form row: `label` trailing-aligned in the label column,
 /// `content` leading-aligned in the value column.
@@ -46,6 +99,14 @@ import SwiftWindowsUI
 /// replaces.
 @MainActor
 func groupedFormRowNode(label: ViewNode, content: ViewNode, isHitTestVisible: Bool = false) -> ViewNode {
+    // Several controls raise their label's layout priority so a squeezed row
+    // sacrifices the control before the words. Inside the column that
+    // reading has no work left to do — the column pins the width and the
+    // shrink pass floors text at its measured extent — while the stack
+    // allocator's other reading of priority, flex-grow weight, would let the
+    // label swallow the column's slack and land leading in a column whose
+    // whole point is a trailing edge.
+    label.layoutPriority = 0
     let labelColumn = Controls.stackPanel(
         stackLayout: .horizontal(spacing: 0, alignment: .center, mainAlignment: .end),
         isHitTestVisible: false,
@@ -81,8 +142,13 @@ func groupedFormRowNode(label: ViewNode, content: ViewNode, isHitTestVisible: Bo
 /// Answers the children the container should actually host: unchanged when
 /// the group holds no form rows at all, which is what keeps a `Form` of
 /// bare `Section`s (and every `Section` outside a `Form`) untouched.
+///
+/// `scope` is the enclosing `Form`'s column, when there is one. This group
+/// still resolves itself — a `Section` may be the outermost grouping there
+/// is — and hands the result up so the form can widen every group to the
+/// same edge once all of them exist.
 @MainActor
-func alignedGroupedFormRows(_ nodes: [ViewNode]) -> [ViewNode] {
+func alignedGroupedFormRows(_ nodes: [ViewNode], scope: GroupedFormColumnScope? = nil) -> [ViewNode] {
     var labelColumns: [ViewNode] = []
     for node in nodes {
         guard let index = node.formRowLabelChildIndex, node.children.indices.contains(index) else {
@@ -105,7 +171,8 @@ func alignedGroupedFormRows(_ nodes: [ViewNode]) -> [ViewNode] {
     }
 
     let valueColumnInset = columnWidth + MacOSControlMetrics.Form.labelColumnGap
-    return nodes.map { node in
+    var valueColumnIndents: [ViewNode] = []
+    let resolved = nodes.map { node -> ViewNode in
         // A rule spans the group edge to edge, and a row that already has a
         // label is already aligned. Everything else — a button, a bare
         // `Text` — belongs in the value column beside its labelled siblings.
@@ -121,8 +188,15 @@ func alignedGroupedFormRows(_ nodes: [ViewNode]) -> [ViewNode] {
             children: [node]
         )
         indented.layoutFillAxes = .horizontalOnly
+        valueColumnIndents.append(indented)
         return indented
     }
+    scope?.adopt(
+        labelColumns: labelColumns,
+        valueColumnIndents: valueColumnIndents,
+        groupWidth: columnWidth
+    )
+    return resolved
 }
 
 /// An overlay scroller floats a pill over the content a few points in from
@@ -10347,10 +10421,24 @@ public struct Form: View {
         // Everything below a Form builds grouped-form rows: a trailing
         // label column, a leading value column, and section headers outside
         // the boxes they name.
-        let rowContext = context.withEnvironmentValue(\.isInsideGroupedForm, true)
         let content = self.content
         return Component { runtime in
+            // One column for the whole form. Every section resolves its own
+            // group as it builds — it cannot see its siblings — and registers
+            // the answer here; `resolve()` then widens all of them to the
+            // widest, which is the single leading edge macOS settings panes
+            // align on.
+            let columnScope = GroupedFormColumnScope()
+            let rowContext =
+                context
+                .withEnvironmentValue(\.isInsideGroupedForm, true)
+                .withEnvironmentValue(\.groupedFormColumnScope, columnScope)
             let chrome = Self.retainedChrome(for: context.formStyle, palette: context.controlPalette)
+            let rows = alignedGroupedFormRows(
+                content.map { $0.makeComponent(context: rowContext).makeNode(runtime: runtime) },
+                scope: columnScope
+            )
+            columnScope.resolve()
             let column = Controls.stackPanel(
                 backgroundColor: chrome.backgroundColor,
                 borderColor: chrome.borderColor,
@@ -10362,9 +10450,7 @@ public struct Form: View {
                     && (chrome.backgroundColor != nil || chrome.borderWidth > 0),
                 stackLayout: .vertical(spacing: chrome.spacing, padding: chrome.padding, alignment: .stretch),
                 isHitTestVisible: false,
-                children: alignedGroupedFormRows(
-                    content.map { $0.makeComponent(context: rowContext).makeNode(runtime: runtime) }
-                )
+                children: rows
             )
             // A Form takes the width it is offered *up to its content
             // column*, and is centred in whatever is left. macOS settings
@@ -10686,11 +10772,14 @@ public struct Section: View {
                 expansionBinding?.wrappedValue == false
                 ? []
                 : content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
-            // One label column per section: the widest label in *this* group
-            // sets it, which is what makes a settings pane read as a grid
-            // instead of a ragged list.
+            // This section resolves its own group first — the widest label in
+            // *this* box — and hands the result to the enclosing form, which
+            // widens every group to one column once all of them exist. A
+            // section is a grouping, not a separate grid.
             let contentNodes =
-                usesGroupedFormChrome ? alignedGroupedFormRows(builtContentNodes) : builtContentNodes
+                usesGroupedFormChrome
+                ? alignedGroupedFormRows(builtContentNodes, scope: context.groupedFormColumnScope)
+                : builtContentNodes
             let children =
                 (usesGroupedFormChrome ? [] : resolvedHeaderNodes) + contentNodes
                 + footer.map { $0.makeComponent(context: footerContext).makeNode(runtime: runtime) }

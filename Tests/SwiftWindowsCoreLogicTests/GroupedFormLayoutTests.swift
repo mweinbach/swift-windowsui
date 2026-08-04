@@ -121,7 +121,10 @@ final class GroupedFormLayoutTests: XCTestCase {
         )
     }
 
-    func testLabelColumnIsSharedPerSectionNotPerForm() async {
+    /// macOS aligns a settings pane on one leading column: the label edges
+    /// in "General" line up with the label edges in "Appearance". The boxes
+    /// group rows, they do not each own a grid.
+    func testLabelColumnIsSharedAcrossEveryFormSection() async {
         let node = layoutNode(
             Form {
                 Section("SHORT") {
@@ -134,13 +137,58 @@ final class GroupedFormLayoutTests: XCTestCase {
         )
         let sections = contentColumn(of: node).children
         XCTAssertEqual(sections.count, 2)
-        let widths = sections.map { section -> Double in
+        let columns = sections.map { section -> ViewNode in
             let row = groupBox(of: section).children[0]
-            return row.children[row.formRowLabelChildIndex ?? 0].resolvedFrame.width
+            return row.children[row.formRowLabelChildIndex ?? 0]
         }
-        XCTAssertLessThan(
-            widths[0], widths[1],
-            "Each section owns its own label column — macOS does not align across group boxes"
+        XCTAssertEqual(
+            columns[0].resolvedFrame.width,
+            columns[1].resolvedFrame.width,
+            accuracy: 0.51,
+            "One label column spans the whole Form, not one per group box"
+        )
+        XCTAssertEqual(
+            columns[0].resolvedFrame.maxX,
+            columns[1].resolvedFrame.maxX,
+            accuracy: 0.51,
+            "…so the two sections' labels end on the same edge"
+        )
+        XCTAssertGreaterThan(
+            columns[0].resolvedFrame.width,
+            columns[0].children[0].resolvedFrame.width,
+            "The short section's column is widened to the form's widest label"
+        )
+    }
+
+    /// The indent that lines a bare button up with the controls above it is
+    /// resolved against the *form* column too — a section that resolved a
+    /// narrower one first must not leave a stale inset behind.
+    func testLabellessRowsFollowTheFormWideColumn() async {
+        let node = layoutNode(
+            Form {
+                Section("SHORT") {
+                    Toggle("A", isOn: .constant(true))
+                    Button("Sync Now") {}
+                }
+                Section("LONG") {
+                    Toggle("An Entirely Longer Label Than The Other Section", isOn: .constant(true))
+                }
+            }
+        )
+        let sections = contentColumn(of: node).children
+        // The *other* section is the one that sets the column, and the
+        // button in this one has to follow it — a per-section inset left
+        // behind by the first pass is exactly the bug this catches.
+        let widestRow = groupBox(of: sections[1]).children[0]
+        guard let labelIndex = widestRow.formRowLabelChildIndex else {
+            return XCTFail("A labelled Toggle builds a form row")
+        }
+        let indentedRow = groupBox(of: sections[0]).children[1]
+        XCTAssertEqual(
+            indentedRow.children[0].resolvedFrame.minX,
+            widestRow.children[labelIndex].resolvedFrame.width + MacOSControlMetrics.Form.labelColumnGap,
+            accuracy: 0.51,
+            "The button leads the value column the whole form settled on"
         )
     }
 

@@ -537,13 +537,24 @@ struct DemoRenderPipelineChart: View {
                 ctx.drawLayer { sub in
                     sub.translateBy(x: x, y: baselineY - barHeight)
                     sub.opacity = 0.85 + bar.emphasis * 0.15
+                    // Square corners read as a filled table cell; a real chart
+                    // bar carries a small radius. Keep it under half the bar
+                    // width so a thin series never turns into a column of
+                    // capsules.
+                    //
+                    // A solid shading, not the gradient the square bar used:
+                    // `GraphicsContext` gradients are a *rect* feature in this
+                    // stack (docs/CompatibilityStatus.md — `Canvas` is Partial),
+                    // and a same-source demo must not read as correct only
+                    // because a gap degrades quietly. The bar keeps its
+                    // per-bar emphasis through the layer opacity above.
+                    let radius = min(2.5, barWidth / 2)
                     sub.fill(
-                        Rect(x: 0, y: 0, width: barWidth, height: barHeight),
-                        with: .linearGradient(
-                            Gradient(colors: [bar.top, bar.bottom]),
-                            startPoint: CGPoint(x: barWidth / 2, y: 0),
-                            endPoint: CGPoint(x: barWidth / 2, y: barHeight)
-                        )
+                        Path(
+                            roundedRect: CGRect(x: 0, y: 0, width: barWidth, height: barHeight),
+                            cornerRadius: radius
+                        ),
+                        with: .color(bar.fill)
                     )
                 }
 
@@ -555,8 +566,7 @@ struct DemoRenderPipelineChart: View {
     private struct Bar {
         let value: CGFloat
         let emphasis: CGFloat
-        let top: Color
-        let bottom: Color
+        let fill: Color
     }
 
     private static func bars(interactions: Int, glow: Color, stripe: Color) -> [Bar] {
@@ -565,11 +575,14 @@ struct DemoRenderPipelineChart: View {
             let phase = (Double(index) + Double(interactions) * 0.13).truncatingRemainder(dividingBy: 1)
             let value = min(1, max(0.10, base + CGFloat(phase) * 0.10))
             let emphasis = CGFloat(phase)
+            // One series, two module tones: the taller half of the series
+            // carries the module's glow, the shorter its stripe. A chart reads
+            // as a chart because its bars share a colour, not because each one
+            // is a gradient.
             return Bar(
                 value: value,
                 emphasis: emphasis,
-                top: glow,
-                bottom: stripe.opacity(0.75)
+                fill: base >= 0.6 ? glow : stripe
             )
         }
     }
@@ -1753,8 +1766,10 @@ struct DemoSettingsScreen: View {
 
                         ColorPicker("Accent Color", selection: $model.accentColor)
 
-                        Divider()
-
+                        // No explicit `Divider()` here: a grouped Form section
+                        // rules between every pair of rows on its own, the way
+                        // System Settings does. One written here would be the
+                        // only double rule in the pane.
                         Slider(value: $model.fontScale, in: 0.8...1.4) {
                             Text("Font Scale")
                         }
@@ -1878,10 +1893,18 @@ struct DemoComponentRow: View {
             // green it used to carry measured 1.2:1 on system blue.
             // `.secondary` is a semantic rung, so it inverts to white with the
             // rest of the selected row.
+            //
+            // The status column is a column: every row's status ends on the
+            // same trailing edge, or a table of eight rows reads as eight
+            // ragged right margins. `multilineTextAlignment` is what carries
+            // that through — the fixed-width frame reserves the column, and
+            // the text alignment is what puts a short word ("Healthy") on the
+            // same edge as a long one ("Degraded").
             Text(component.statusLabel)
                 .font(.footnote)
                 .foregroundColor(component.isHealthy ? .secondary : .orange)
                 .lineLimit(1)
+                .multilineTextAlignment(.trailing)
                 .frame(width: 72, alignment: .trailing)
         }
     }

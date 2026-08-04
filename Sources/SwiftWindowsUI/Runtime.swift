@@ -2709,6 +2709,16 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    /// Marks this node as a hairline rule rather than content.
+    ///
+    /// The retained model has no per-side border, so every separator in the
+    /// stack — a `Divider`, a list row rule, a stepper's seam, a grouped
+    /// form's row rule — is a sibling node one physical pixel thick.
+    /// Containers that rule *between* their own children need to know which
+    /// of those children is already a rule, or an app that wrote its own
+    /// `Divider` into a section gets three lines where it asked for one.
+    public var isSeparatorRule: Bool = false
+
     /// Type-erased preference values emitted by SwiftUI-shaped compatibility modifiers.
     /// The retained runtime keeps them as metadata so ancestor modifiers can
     /// inspect rebuilt subtrees without coupling the renderer to WinSwiftUI.

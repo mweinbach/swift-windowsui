@@ -362,7 +362,12 @@ grids.
 | Toggle switch (.regular)     | `Toggle.regularSize`                      | 38×22 pt  |
 | Slider track thickness       | `Slider.trackThickness`                   | 4 pt      |
 | Slider thumb diameter        | `Slider.thumbDiameter`                    | 16 pt     |
-| Stepper button               | `Stepper.buttonSize`                      | 19×11 pt  |
+| Stepper half (one arrow)     | `Stepper.buttonSize`                      | 13×11 pt  |
+| Stepper bezel (the pair)     | `Stepper.regularSize`                     | 13×22 pt  |
+| Stepper bezel radius         | `Stepper.cornerRadius`                    | 3 pt      |
+| Colour well (.regular)       | `ColorWell.regularSize`                   | 34×22 pt  |
+| Colour well bezel radius     | `ColorWell.cornerRadius`                  | 5 pt      |
+| Colour well swatch inset     | `ColorWell.swatchInset`                   | 3 pt      |
 | Pop-up button (.regular)     | `PopUpButton.regularHeight`               | 22 pt     |
 | Progress bar (.regular)      | `ProgressBar.regularHeight`               | 6 pt      |
 | Progress spinner (.regular)  | `ProgressSpinner.regularDiameter`         | 16 pt     |
@@ -428,10 +433,52 @@ progress bar is `ProgressBar.regularHeight` (6 pt) and the slider groove is
 `Slider.trackThickness` (4 pt) with a `Slider.thumbDiameter` (16 pt) knob.
 
 The toggle (52×32) and slider control height (200×28) remain deliberate
-Windows-side sizes; the stepper is now derived — each half is
-`Stepper.buttonSize` (19×11) plus the delta on width and half the delta on
+Windows-side sizes; the stepper is derived — each half is
+`Stepper.buttonSize` (13×11) plus the delta on width and half the delta on
 height, stacked vertically as NSStepper is, rather than the 68×30
-side-by-side pair (the iOS UIStepper form factor) it used to draw.
+side-by-side pair (the iOS UIStepper form factor) it used to draw. The colour
+well takes `ColorWell.regularSize` exactly: a well is as wide as the swatch it
+shows, not a pointer target sized for a click.
+
+### The stepper is one bezel, not two chained buttons
+
+An NSStepper is a *narrow* two-part bezel — one rounded rectangle 13pt across
+and 22pt tall, split by a hairline, with a small arrow centred in each half.
+Two failures produce the flat box it used to draw:
+
+- **Width.** The 19pt this doc used to claim as `Stepper.buttonSize.width` is
+  the old Aqua stepper. At that width the arrow glyph grew to fill its half and
+  the control read as a square button with two chevrons on it. The arrow's own
+  box is now pinned separately (`Stepper.chevronSize`), because the icon bitmap
+  is *stretched into the node's rect* — the glyph box is the arrow's size.
+- **The seam.** Two flush buttons each closed by their own 1pt ring put two
+  adjacent rings at the join, and against the low-contrast dark palette they
+  cancelled into a 2pt smear with no divider in it. The ring now belongs to the
+  bezel (the painter re-draws a parent's ring *after* its children, so the
+  halves may fill it edge to edge) and the seam is a real hairline node, like
+  every other separator in this stack.
+
+### A grouped form rules between every row
+
+macOS System Settings separates every row inside a grouped box. A box that
+ruled only where the app happened to write a `Divider` reads as an arbitrary
+rhythm rather than a settings pane, so `Section` interleaves the rule itself,
+the same way `List` does between its rows. An app's own `Divider` is not
+doubled: a row that is already a rule suppresses the automatic one on either
+side of it, which is what `ViewNode.isSeparatorRule` is for.
+
+Scoped to a grouped `Section`, like the shared label column: a `Section`
+outside a `Form` keeps the list-group layout it has always had, and a grouped
+`Form` whose rows are written directly (no `Section` at all) is one box with no
+row grouping to rule between.
+
+The rule sits in the middle of the row gap and costs the gap nothing: the
+section's stack spacing is `(Form.rowSpacing - hairline) / 2` on each side, so
+two rows stay exactly `Form.rowSpacing` apart and what changed is that there is
+now a line between them. Subtracting the hairline is what keeps that true at
+every backing scale — a rule is one *device* pixel, so a fixed half-gap would
+make a settings pane a few points shorter at 2x, and in a scrolling pane a fold
+that moves with the display is a different app at every DPI.
 
 Remaining recorded divergences, with rationale:
 
@@ -443,6 +490,8 @@ Remaining recorded divergences, with rationale:
 | Tab band inset         | 12/16 pt around a centered group | macOS insets an `.automatic` tab view from the window edge and centres the segment group instead of distributing tabs across the full width. |
 | Toolbar band           | Full bleed + bottom hairline     | The navigation title reads as window chrome, not a rounded card floating over the content. |
 | List row separator     | Sibling 1px panel between rows   | The retained model has no per-side border, so the rule is a node rather than a bottom edge on the row. It therefore costs one physical pixel of layout height per gap, where AppKit draws the grid line inside the row rect. |
+| Grouped-form row rule  | Spans the box's *content* width  | The section's horizontal padding is applied by the stack to every child, and a full-bleed rule would need a negative margin the retained layout has no concept of. macOS bleeds the rule to the box edge. |
+| Stepper bezel height   | `2 × (buttonSize.height + delta) + 1px` | The seam is a node, so the joined pair costs one physical pixel more than twice a half — the same separator-thickness divergence the list row rule records. |
 
 ## What's deliberately NOT pinned here
 

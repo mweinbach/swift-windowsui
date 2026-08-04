@@ -321,17 +321,24 @@ final class ChromeCompositionTests: XCTestCase {
                     Text("Count: 5")
                 }
             )
-            // Pinned structure: [label, bezel[increment, decrement]] — the
-            // vertical NSStepper, not the side-by-side UIStepper pair.
+            // Pinned structure: [label, bezel[increment, rule, decrement]] —
+            // the vertical NSStepper, not the side-by-side UIStepper pair,
+            // and one bezel rather than two chained buttons.
             XCTAssertEqual(node.children.count, 2)
             let bezel = node.children[1]
-            XCTAssertEqual(bezel.children.count, 2)
+            XCTAssertEqual(bezel.children.count, 3)
             let increment = bezel.children[0]
-            let decrement = bezel.children[1]
+            let decrement = bezel.children[2]
+
+            // The hairline ring is the bezel's, drawn once around the pair.
+            XCTAssertEqual(bezel.borderWidth, 1, accuracy: 0.001)
+            XCTAssertTrue(bezel.children[1].isSeparatorRule)
 
             for button in [decrement, increment] {
-                // Elevated-button chrome: hairline border, gradient sheen.
-                XCTAssertEqual(button.borderWidth, 1, accuracy: 0.001)
+                // Half chrome: no ring of its own, but the surface fill and
+                // its gradient sheen stay — that is what makes a pressed half
+                // read as pressed.
+                XCTAssertEqual(button.borderWidth, 0, accuracy: 0.001)
                 let background = try XCTUnwrap(button.backgroundColor)
                 let sheen = try XCTUnwrap(button.backgroundGradient)
                 XCTAssertLessThan(sheen.endColor.red, background.red)

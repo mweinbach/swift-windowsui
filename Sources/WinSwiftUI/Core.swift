@@ -21,6 +21,7 @@ public typealias Size = SwiftWindowsCore.Size
 public typealias CGImage = SwiftWindowsGraphics.BitmapSurface
 public typealias Angle = SwiftWindowsCore.Angle
 public typealias FillStyle = SwiftWindowsCore.FillStyle
+public typealias Path = SwiftWindowsCore.Path
 public typealias StrokeStyle = SwiftWindowsCore.StrokeStyle
 public typealias ControlAnimationStyle = SwiftWindowsUI.ControlAnimationStyle
 public typealias SurfaceChrome = SwiftWindowsUI.SurfaceChrome
@@ -15239,6 +15240,14 @@ public struct ListStyle: Sendable, Equatable {
             // macOS plain/automatic lists inset their row content from the
             // list edge and never draw a row shorter than the standard row
             // box (MacOSControlMetrics.List.plainRowHeight).
+            //
+            // The body is `textBackgroundColor`, and it is the *view's* body,
+            // not the rows': an NSTableView shorter than its scroll view
+            // still paints its background down to the clip view's bottom
+            // edge. With no background at all the chrome stopped at the last
+            // row and everything below it was bare window — a short list in a
+            // tall slot read as a list floating over a hole rather than as a
+            // table with room left in it.
             return RetainedListChrome(
                 defaultSpacing: 0,
                 padding: EdgeInsets(
@@ -15247,6 +15256,7 @@ public struct ListStyle: Sendable, Equatable {
                     bottom: 0,
                     trailing: MacOSControlMetrics.List.contentInset
                 ),
+                backgroundColor: palette.controlBackground,
                 rowMinHeight: MacOSControlMetrics.List.plainRowHeight,
                 drawsRowSeparators: true,
                 separatorLeadingInset: 0

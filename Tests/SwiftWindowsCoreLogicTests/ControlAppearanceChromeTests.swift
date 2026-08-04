@@ -20,10 +20,12 @@ import XCTest
 @MainActor
 private func buildNode<V: View>(
     _ view: V,
-    size: Size = Size(width: 800, height: 600)
+    size: Size = Size(width: 800, height: 600),
+    colorScheme: ColorScheme = .dark
 ) -> ViewNode {
     let runtime = RetainedViewRuntime(root: ViewNode())
     let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: {})
+        .withEnvironmentValue(\.colorScheme, colorScheme)
     return view.makeComponent(context: context).makeNode(runtime: runtime)
 }
 
@@ -260,6 +262,77 @@ final class ControlAppearanceChromeTests: XCTestCase {
                 texts.contains { $0.hasPrefix("#") },
                 "NSColorWell shows the well, never a hex string: \(texts)")
             XCTAssertTrue(texts.contains("Accent Color"), "The row label still renders")
+        }
+    }
+
+    /// An NSColorWell is a *bordered control* filled with the selection: a
+    /// bezel in the control tone with the swatch inset inside it, carrying the
+    /// pointer ramp every other bordered control has. It used to be a bare
+    /// rectangle of accent colour with a 1pt gutter, which read as an inert
+    /// block of paint rather than as something to click.
+    func testColorPickerWellIsABezelWithAnInsetSwatch() async {
+        await MainActor.run {
+            for scheme in [ColorScheme.light, .dark] {
+                let palette = ControlPalette.resolve(colorScheme: scheme)
+                let node = buildNode(
+                    ColorPicker("Accent Color", selection: .constant(.blue)),
+                    colorScheme: scheme
+                )
+                guard
+                    let bezel = flatten(node).first(where: {
+                        $0.preferredSize == MacOSControlMetrics.ColorWell.regularSize
+                    })
+                else {
+                    return XCTFail("the well states the NSColorWell size")
+                }
+                XCTAssertEqual(bezel.backgroundColor, palette.controlSurface, "\(scheme): the bezel is a control face")
+                XCTAssertEqual(bezel.borderColor, palette.controlBorder, "\(scheme): closed by the control hairline")
+                XCTAssertEqual(bezel.borderWidth, 1, accuracy: 0.001)
+                XCTAssertEqual(bezel.cornerRadius, MacOSControlMetrics.ColorWell.cornerRadius, accuracy: 0.001)
+                // Hover affordance: the bezel carries the bordered-control
+                // ramp, which is only expressible on a button surface.
+                XCTAssertNotNil(bezel.onPointerEnter, "\(scheme): the well lights up under the pointer")
+                XCTAssertFalse(bezel.isFocusable, "the row is the focus stop, not the bezel inside it")
+                // …and it is the node a click on the swatch lands on:
+                // activation does not bubble in the retained runtime, so a
+                // chrome-only bezel would swallow every click on the well.
+                XCTAssertTrue(bezel.isHitTestVisible)
+                XCTAssertNotNil(bezel.onActivate, "\(scheme): clicking the well activates the well")
+
+                let swatch = bezel.children[0]
+                XCTAssertEqual(swatch.backgroundColor, .blue)
+                XCTAssertEqual(
+                    swatch.cornerRadius,
+                    MacOSControlMetrics.ColorWell.swatchCornerRadius,
+                    accuracy: 0.001
+                )
+            }
+        }
+    }
+
+    /// The bezel and the row it sits in do the same thing, because they are
+    /// built from the same closure. Clicking the swatch and clicking the row
+    /// beside it must not be two different colour pickers.
+    func testColorPickerBezelAndRowActivateTheSameWell() async {
+        await MainActor.run {
+            var selected = Color.blue
+            let binding = Binding<Color>(get: { selected }, set: { selected = $0 })
+            let node = buildNode(ColorPicker("Accent Color", selection: binding))
+            guard
+                let bezel = flatten(node).first(where: {
+                    $0.preferredSize == MacOSControlMetrics.ColorWell.regularSize
+                })
+            else {
+                return XCTFail("the well states the NSColorWell size")
+            }
+
+            bezel.onActivate?()
+            let afterBezel = selected
+            XCTAssertNotEqual(afterBezel, .blue, "the bezel steps the palette")
+
+            selected = .blue
+            node.onActivate?()
+            XCTAssertEqual(selected, afterBezel, "…and the row does exactly the same step")
         }
     }
 

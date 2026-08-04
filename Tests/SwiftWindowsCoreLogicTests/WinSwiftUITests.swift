@@ -8005,7 +8005,10 @@ final class WinSwiftUITests: XCTestCase {
                 return XCTFail("Expected grouped List to keep retained stack layout")
             }
 
-            XCTAssertNil(plainNode.backgroundColor)
+            // The plain body is `textBackgroundColor` and it fills the view,
+            // not the rows: an NSTableView shorter than its scroll view still
+            // paints down to the clip view's bottom edge.
+            XCTAssertEqual(plainNode.backgroundColor, ControlPalette.darkStandard.controlBackground)
             XCTAssertEqual(plainNode.borderWidth, 0)
             XCTAssertEqual(plainNode.cornerRadius, 0)
             XCTAssertEqual(
@@ -14900,7 +14903,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertFalse(allTexts(in: pickerNode).contains("MODE"))
             XCTAssertTrue(allTexts(in: pickerNode).contains("COMPACT"))
 
-            XCTAssertEqual(stepperNode.children.count, 2)
+            // The bezel alone: [increment][seam rule][decrement].
+            XCTAssertEqual(stepperNode.children.count, 3)
             XCTAssertFalse(allTexts(in: stepperNode).contains("VALUE"))
 
             XCTAssertFalse(sliderNode.children.isEmpty)
@@ -14969,10 +14973,11 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(
                 pickerNode.children[1].preferredSize,
                 Size(width: 232, height: ControlSize.large.pickerMenuPreferredSize.height))
-            // The stepper is one bezel holding two halves, not two siblings.
+            // The stepper is one bezel holding two halves split by a
+            // hairline, not two siblings.
             let stepperBezel = stepperNode.children[1]
-            XCTAssertEqual(stepperBezel.children.count, 2)
-            for half in stepperBezel.children {
+            XCTAssertEqual(stepperBezel.children.count, 3)
+            for half in stepperBezel.children where !half.isSeparatorRule {
                 XCTAssertEqual(half.preferredSize, ControlSize.small.stepperButtonPreferredSize)
             }
             XCTAssertEqual(sliderNode.preferredSize, Size(width: 240, height: 34))
@@ -21514,12 +21519,13 @@ private func allTextColors(in node: ViewNode) -> [Color] {
 /// decrement/increment pills that used to sit as `children[1]`/`children[2]`.
 @MainActor
 private func stepperIncrement(of node: ViewNode) -> ViewNode {
+    // The bezel holds [increment][seam rule][decrement].
     node.children[1].children[0]
 }
 
 @MainActor
 private func stepperDecrement(of node: ViewNode) -> ViewNode {
-    node.children[1].children[1]
+    node.children[1].children[2]
 }
 
 @MainActor

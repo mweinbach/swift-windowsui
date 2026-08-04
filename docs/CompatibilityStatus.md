@@ -95,7 +95,7 @@ dashboard composition on a single custom-rendered window.
 | Basic shapes (`Rectangle`, `RoundedRectangle`, `Capsule`, `Circle`, `Ellipse`, …) | **Implemented** | Fill/stroke/border through retained primitives |
 | `StrokeStyle` on any outline | **Implemented** | `lineWidth`, `lineCap`, `lineJoin`, `miterLimit`, `dashPattern`, `dashOffset` reach both stroke routes. Rect and rounded-rect borders resolve dashes through `BorderSegments`; every other outline (custom `Shape`, trimmed shape, `Canvas` `strokePath`) through `PathDashing`. A miter sharper than 4 half-widths degrades to a bevel so the drawn spike cannot exceed the raster sized for it |
 | `UnevenRoundedRectangle` | **Implemented** | Per-corner radii end-to-end (RTL-aware); uniform-only consumers (shadow/outline/clip) fall back to max radius |
-| `Canvas` + `GraphicsContext` | **Partial** | Scene-path drawing; `symbols:` / `resolveSymbol`, blendMode, `withCGContext` not wired |
+| `Canvas` + `GraphicsContext` | **Partial** | Scene-path drawing; `Path(_:)` / `Path(roundedRect:cornerRadius:)` / `Path(ellipseIn:)` build a fillable path without a `Shape`, and a convex fill is emitted as one unbroken span per row (a fan triangulation used to leave a hairline of background along every shared edge). **A gradient shading on a `fill(_ path:)` degrades to its first stop** — gradients are a rect feature; `symbols:` / `resolveSymbol`, blendMode, `withCGContext` not wired |
 | `ContentUnavailableView` | **Implemented** | Retained empty-state chrome |
 
 ### Controls — Implemented / Partial
@@ -110,7 +110,7 @@ dashboard composition on a single custom-rendered window.
 | `TextField`, `SecureField`, `TextEditor` | **Partial** | Focusable retained input; caret, shift-selection, select-all, clipboard shortcuts, mouse-drag selection, IME composition (marked text, candidate window at caret; secure fields block copy/cut) |
 | `DatePicker` | **Partial** | Label/value + arrow increments; style shells; not a native calendar UI |
 | `MultiDatePicker` | **Partial** | Month grid multi-select for current month |
-| `ColorPicker` | **Partial** | Swatch + palette keyboard cycle (default); native `ChooseColorW` dialog opt-in via `\.colorPickerUsesNativeDialog` |
+| `ColorPicker` | **Partial** | NSColorWell-shaped bezel (`MacOSControlMetrics.ColorWell`) with an inset swatch and the bordered-control hover/pressed ramp; palette keyboard cycle (default); native `ChooseColorW` dialog opt-in via `\.colorPickerUsesNativeDialog` |
 | `Menu` | **Partial** | Retained popup: canvas-clamped placement, scrim/Escape dismissal, focus restore, deferred layering; not a native Win32 menu bar |
 | `Link` | **Implemented** | Button that invokes `openURL` (ShellExecute on Windows) |
 | `NavigationStack` / `NavigationView` / `NavigationLink` | **Partial** | Local push/pop + title chrome; not UINavigationController semantics. macOS puts the window title in title-bar chrome this stack does not own, so `.navigationTitle` renders as a *content pane* header — largeTitle 26, or title2 17 semibold under `.navigationBarTitleDisplayMode(.inline)` |

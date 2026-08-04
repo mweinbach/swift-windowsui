@@ -58,6 +58,12 @@ final class GroupedFormLayoutTests: XCTestCase {
         section.children.count == 2 ? section.children[1] : section
     }
 
+    /// The box's *rows*, with the hairlines a grouped section rules between
+    /// them dropped. A rule is chrome, not a row.
+    private func formRows(of section: ViewNode) -> [ViewNode] {
+        groupBox(of: section).children.filter { !$0.isSeparatorRule }
+    }
+
     private func descendants(of node: ViewNode) -> [ViewNode] {
         var found: [ViewNode] = [node]
         var index = 0
@@ -80,7 +86,7 @@ final class GroupedFormLayoutTests: XCTestCase {
             }
         )
         let section = contentColumn(of: node).children[0]
-        let rows = groupBox(of: section).children
+        let rows = formRows(of: section)
         XCTAssertEqual(rows.count, 2)
 
         var labelColumns: [ViewNode] = []
@@ -138,7 +144,7 @@ final class GroupedFormLayoutTests: XCTestCase {
         let sections = contentColumn(of: node).children
         XCTAssertEqual(sections.count, 2)
         let columns = sections.map { section -> ViewNode in
-            let row = groupBox(of: section).children[0]
+            let row = formRows(of: section)[0]
             return row.children[row.formRowLabelChildIndex ?? 0]
         }
         XCTAssertEqual(
@@ -179,11 +185,11 @@ final class GroupedFormLayoutTests: XCTestCase {
         // The *other* section is the one that sets the column, and the
         // button in this one has to follow it — a per-section inset left
         // behind by the first pass is exactly the bug this catches.
-        let widestRow = groupBox(of: sections[1]).children[0]
+        let widestRow = formRows(of: sections[1])[0]
         guard let labelIndex = widestRow.formRowLabelChildIndex else {
             return XCTFail("A labelled Toggle builds a form row")
         }
-        let indentedRow = groupBox(of: sections[0]).children[1]
+        let indentedRow = formRows(of: sections[0])[1]
         XCTAssertEqual(
             indentedRow.children[0].resolvedFrame.minX,
             widestRow.children[labelIndex].resolvedFrame.width + MacOSControlMetrics.Form.labelColumnGap,
@@ -201,7 +207,7 @@ final class GroupedFormLayoutTests: XCTestCase {
                 }
             }
         )
-        let rows = groupBox(of: contentColumn(of: node).children[0]).children
+        let rows = formRows(of: contentColumn(of: node).children[0])
         XCTAssertEqual(rows.count, 2)
         let labelledRow = rows[0]
         guard let labelIndex = labelledRow.formRowLabelChildIndex else {
@@ -215,6 +221,124 @@ final class GroupedFormLayoutTests: XCTestCase {
             valueColumnOrigin,
             accuracy: 0.51,
             "A bare button lines up with the controls above it instead of hugging the box edge"
+        )
+    }
+
+    // MARK: - Item 6: a grouped box rules between every row
+
+    /// macOS System Settings separates *every* row inside a grouped box. A
+    /// box that ruled only where the app happened to write a `Divider` read
+    /// as an arbitrary rhythm — one line above "Font Scale" and none between
+    /// the three toggles above it.
+    func testGroupedFormSectionRulesBetweenEveryPairOfRows() async {
+        let node = layoutNode(
+            Form {
+                Section("PREFERENCES") {
+                    Toggle("One", isOn: .constant(true))
+                    Toggle("Two", isOn: .constant(false))
+                    Toggle("Three", isOn: .constant(true))
+                }
+            }
+        )
+        let box = groupBox(of: contentColumn(of: node).children[0])
+        let rules = box.children.filter(\.isSeparatorRule)
+        XCTAssertEqual(rules.count, 2, "Three rows are separated by two rules — never after the last")
+        XCTAssertEqual(box.children.count, 5, "…interleaved, not appended")
+        XCTAssertFalse(box.children[0].isSeparatorRule, "A box never opens on a rule")
+        XCTAssertFalse(box.children[4].isSeparatorRule, "…nor closes on one")
+        let palette = ControlPalette.resolve(colorScheme: .dark)
+        for rule in rules {
+            XCTAssertEqual(rule.backgroundColor, palette.separator)
+            XCTAssertGreaterThan(rule.resolvedFrame.width, 0, "A rule spans the box's content width")
+            XCTAssertLessThanOrEqual(rule.resolvedFrame.height, 1.01, "One physical pixel")
+        }
+        // Row-to-row distance is unchanged: the rule sits in the middle of
+        // the same gap rather than adding a second one — and it costs the
+        // gap nothing, so a pane is the same height at every backing scale.
+        XCTAssertEqual(
+            box.children[2].resolvedFrame.minY - box.children[0].resolvedFrame.maxY,
+            MacOSControlMetrics.Form.rowSpacing,
+            accuracy: 0.01
+        )
+    }
+
+    /// A hairline is one *device* pixel, so a grouped pane whose rows are all
+    /// ruled would drift shorter at 2x if the rule added to the gap. In a
+    /// scrolling settings pane that moves the fold — a different app at every
+    /// DPI, and exactly what `ScenePrimitiveScaleInvarianceTests` catches.
+    func testGroupedFormRowRhythmIsIdenticalAtEveryBackingScale() async {
+        func boxHeight(displayScale: Double) -> Double {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let size = Size(width: 1200, height: 800)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { size },
+                invalidateHandler: {},
+                environmentValuesProvider: {
+                    EnvironmentValues(displayScale: displayScale, pixelLength: 1 / displayScale)
+                }
+            )
+            let view = Form {
+                Section("PREFERENCES") {
+                    Toggle("One", isOn: .constant(true))
+                    Toggle("Two", isOn: .constant(false))
+                    Toggle("Three", isOn: .constant(true))
+                    Toggle("Four", isOn: .constant(false))
+                }
+            }
+            let node = view.makeComponent(context: context).makeNode(runtime: runtime)
+            node.frame = Rect(origin: .zero, size: size)
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: Int32(size.width), height: Int32(size.height)))
+            _ = runtime.renderFrame()
+            return groupBox(of: contentColumn(of: node).children[0]).resolvedFrame.height
+        }
+
+        XCTAssertEqual(boxHeight(displayScale: 1), boxHeight(displayScale: 2), accuracy: 0.01)
+        XCTAssertEqual(boxHeight(displayScale: 1), boxHeight(displayScale: 3), accuracy: 0.01)
+    }
+
+    /// An app that writes its own rule keeps exactly one line, not three.
+    func testAppAuthoredDividerIsNotDoubledByTheSectionRules() async {
+        let node = layoutNode(
+            Form {
+                Section("PREFERENCES") {
+                    Toggle("One", isOn: .constant(true))
+                    Divider()
+                    Toggle("Two", isOn: .constant(false))
+                }
+            }
+        )
+        let box = groupBox(of: contentColumn(of: node).children[0])
+        XCTAssertEqual(box.children.count, 3, "row, the app's own rule, row")
+        XCTAssertTrue(box.children[1].isSeparatorRule)
+        XCTAssertFalse(box.children[0].isSeparatorRule)
+        XCTAssertFalse(box.children[2].isSeparatorRule)
+    }
+
+    /// A single-row box has nothing to separate, and a `Section` outside a
+    /// `Form` keeps the list-group layout it has always had.
+    func testSectionRulesAreGroupedFormScoped() async {
+        let single = layoutNode(
+            Form {
+                Section("PROFILE") {
+                    Toggle("Only", isOn: .constant(true))
+                }
+            }
+        )
+        XCTAssertTrue(
+            groupBox(of: contentColumn(of: single).children[0]).children.allSatisfy { !$0.isSeparatorRule },
+            "One row, no rule"
+        )
+
+        let standalone = buildNode(
+            Section("PREFERENCES") {
+                Toggle("One", isOn: .constant(true))
+                Toggle("Two", isOn: .constant(false))
+            }
+        )
+        XCTAssertTrue(
+            descendants(of: standalone).allSatisfy { !$0.isSeparatorRule },
+            "The automatic rules are Form-scoped, like the label column"
         )
     }
 
@@ -337,7 +461,7 @@ final class GroupedFormLayoutTests: XCTestCase {
                 }
             }
         )
-        let row = groupBox(of: contentColumn(of: node).children[0]).children[0]
+        let row = formRows(of: contentColumn(of: node).children[0])[0]
         XCTAssertNotNil(row.formRowLabelChildIndex)
         let valueColumn = row.children[1]
         let track = valueColumn.children[0]

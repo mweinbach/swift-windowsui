@@ -31,21 +31,37 @@ final class ControlChromePolishTests: XCTestCase {
             assertChromeDescendantFramesWithinBounds(node)
             let row = tryUnwrap(node.children.first)
             // NSStepper is a vertical pair inside one bezel beside the
-            // label: [label slot][bezel[increment][decrement]].
+            // label: [label slot][bezel[increment][rule][decrement]].
+            //
+            // The rule between the halves is new: two flush buttons each
+            // ringed by their own hairline put two adjacent borders at the
+            // seam, and those cancelled into a flat smear with no divider in
+            // it. The bezel owns the ring now (the painter re-draws a
+            // parent's ring after its children) and the seam is a real node.
             XCTAssertEqual(row.children.count, 2)
             let bezel = row.children[1]
-            XCTAssertEqual(bezel.children.count, 2)
+            XCTAssertEqual(bezel.children.count, 3)
             let increment = bezel.children[0]
-            let decrement = bezel.children[1]
+            let divider = bezel.children[1]
+            let decrement = bezel.children[2]
 
-            // The halves sit flush (joined) with per-corner radii, stacked
-            // up-chevron over down-chevron.
-            XCTAssertEqual(
-                increment.resolvedFrame.maxY, decrement.resolvedFrame.minY, accuracy: 0.51)
+            // The halves sit flush against the rule, stacked up-chevron over
+            // down-chevron, and keep the per-corner radii that follow the
+            // bezel's own rounding.
+            XCTAssertEqual(increment.resolvedFrame.maxY, divider.resolvedFrame.minY, accuracy: 0.51)
+            XCTAssertEqual(divider.resolvedFrame.maxY, decrement.resolvedFrame.minY, accuracy: 0.51)
             XCTAssertEqual(
                 increment.resolvedFrame.minX, decrement.resolvedFrame.minX, accuracy: 0.51)
             XCTAssertNotNil(decrement.cornerRadii)
             XCTAssertNotNil(increment.cornerRadii)
+
+            // One bezel, one ring: the pair is closed by the container, and
+            // the seam is a separator-marked hairline inside it.
+            XCTAssertEqual(bezel.borderWidth, 1, accuracy: 0.01)
+            XCTAssertEqual(bezel.cornerRadius, MacOSControlMetrics.Stepper.cornerRadius, accuracy: 0.01)
+            XCTAssertTrue(divider.isSeparatorRule)
+            XCTAssertGreaterThan(tryUnwrap(divider.backgroundColor).alpha, 0)
+            XCTAssertLessThanOrEqual(divider.resolvedFrame.height, 1.01)
 
             // Both buttons remain individually focusable/pressable and keep
             // their action names for accessibility.
@@ -54,8 +70,9 @@ final class ControlChromePolishTests: XCTestCase {
                 XCTAssertNotNil(button.onActivate)
                 XCTAssertNotNil(button.onPointerDown)
                 XCTAssertEqual(button.accessibilityLabel, name)
-                // Joined chrome: hairline border stays, elevated shadow goes.
-                XCTAssertEqual(button.borderWidth, 1, accuracy: 0.01)
+                // Joined chrome: the ring belongs to the bezel, not to each
+                // half, and the elevated shadow is gone either way.
+                XCTAssertEqual(button.borderWidth, 0, accuracy: 0.01)
                 XCTAssertEqual(button.shadowColor.alpha, 0, accuracy: 0.01)
             }
 
@@ -77,10 +94,17 @@ final class ControlChromePolishTests: XCTestCase {
             )
             assertChromeDescendantFramesWithinBounds(node)
             let pair = tryUnwrap(node.children.first)
-            XCTAssertEqual(pair.children.count, 2)
+            // [increment][rule][decrement] inside the one bezel.
+            XCTAssertEqual(pair.children.count, 3)
             XCTAssertEqual(
                 pair.children[0].resolvedFrame.maxY,
                 pair.children[1].resolvedFrame.minY,
+                accuracy: 0.51,
+                "labelsHidden stepper halves should sit flush, stacked vertically"
+            )
+            XCTAssertEqual(
+                pair.children[1].resolvedFrame.maxY,
+                pair.children[2].resolvedFrame.minY,
                 accuracy: 0.51,
                 "labelsHidden stepper halves should sit flush, stacked vertically"
             )

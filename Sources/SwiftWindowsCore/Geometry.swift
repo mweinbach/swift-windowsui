@@ -855,6 +855,29 @@ public struct Path: Equatable, Sendable {
         callback(&self)
     }
 
+    /// `Path(_ rect:)` — the whole rectangle as one closed subpath.
+    public init(_ rect: Rect) {
+        self.init()
+        addRect(rect)
+    }
+
+    /// `Path(roundedRect:cornerRadius:)`.
+    ///
+    /// SwiftUI's shape-free way to fill a rounded rectangle inside a
+    /// `Canvas`, and the only one an app can reach without a `Shape`: a
+    /// `GraphicsContext` fills paths and rects, not shapes. Without it,
+    /// same-source drawing code has to fill a square-cornered rect.
+    public init(roundedRect rect: Rect, cornerRadius: Double) {
+        self.init()
+        addRoundedRect(rect, cornerRadius: cornerRadius)
+    }
+
+    /// `Path(ellipseIn:)`.
+    public init(ellipseIn rect: Rect) {
+        self.init()
+        addEllipse(in: rect)
+    }
+
     @discardableResult
     public mutating func move(to point: Point) -> Path {
         moveTo(point)

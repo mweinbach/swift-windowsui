@@ -8073,6 +8073,7 @@ public struct Divider: View {
                 isHitTestVisible: false
             )
             node.layoutFillAxes = isVertical ? .verticalOnly : .horizontalOnly
+            node.isSeparatorRule = true
             return node
         }
     }
@@ -9673,6 +9674,7 @@ public struct List: View {
                     isHitTestVisible: false
                 )
                 rule.layoutFillAxes = .horizontalOnly
+                rule.isSeparatorRule = true
                 if listChrome.separatorLeadingInset > 0 {
                     children.append(
                         Controls.panel(
@@ -10684,7 +10686,21 @@ public struct Section: View {
         let sectionShadow = usesGroupedFormChrome ? palette.groupedContainerShadow : style.shadowColor
         let sectionCornerRadius =
             usesGroupedFormChrome ? MacOSControlMetrics.GroupBox.cornerRadius : style.cornerRadius
-        let sectionSpacing = usesGroupedFormChrome ? MacOSControlMetrics.Form.rowSpacing : style.spacing
+        // A grouped section rules *between* its rows, and the rule sits in
+        // the middle of the gap: half the remaining rhythm above it, half
+        // below, so two rows stay exactly `Form.rowSpacing` apart and the
+        // hairline costs the pane no height at all.
+        //
+        // Subtracting the hairline is what keeps that true at every backing
+        // scale. A rule is one *device* pixel (docs/MacOSDesignParity.md), so
+        // a fixed half-gap would make a settings pane a few points shorter at
+        // 2x than at 1x — and in a scrolling pane, a fold that moves with the
+        // display is a different app at every DPI.
+        let groupedFormRuleThickness = usesGroupedFormChrome ? retainedHairlineThickness(for: context) : 0
+        let sectionSpacing =
+            usesGroupedFormChrome
+            ? max(0, MacOSControlMetrics.Form.rowSpacing - groupedFormRuleThickness) / 2
+            : style.spacing
         let sectionPadding =
             usesGroupedFormChrome
             ? EdgeInsets(
@@ -10778,7 +10794,11 @@ public struct Section: View {
             // section is a grouping, not a separate grid.
             let contentNodes =
                 usesGroupedFormChrome
-                ? alignedGroupedFormRows(builtContentNodes, scope: context.groupedFormColumnScope)
+                ? Self.groupedFormRowsWithSeparators(
+                    alignedGroupedFormRows(builtContentNodes, scope: context.groupedFormColumnScope),
+                    palette: palette,
+                    thickness: groupedFormRuleThickness
+                )
                 : builtContentNodes
             let children =
                 (usesGroupedFormChrome ? [] : resolvedHeaderNodes) + contentNodes
@@ -10851,6 +10871,53 @@ public struct Section: View {
             }
             return Self.groupedFormSectionNode(header: resolvedHeaderNodes, box: node)
         }
+    }
+
+    /// Interleaves a hairline rule between adjacent rows of a grouped-form
+    /// section box.
+    ///
+    /// macOS System Settings separates *every* row inside a grouped box, the
+    /// same way a `List` rules between its rows — a box whose rows are only
+    /// separated where the app happened to write a `Divider` reads as an
+    /// arbitrary rhythm rather than a settings pane. Apps therefore no longer
+    /// need to write those rules themselves, and one that still does keeps
+    /// exactly one line: a row that is already a rule suppresses the
+    /// automatic one on either side of it.
+    ///
+    /// The rule spans the box's *content* width rather than bleeding to its
+    /// edges: the section's own horizontal padding is applied by the stack to
+    /// every child, and a full-bleed rule would need a negative margin the
+    /// retained layout has no concept of. Recorded in docs/MacOSDesignParity.md.
+    ///
+    /// `thickness` comes from the same `retainedHairlineThickness` the box's
+    /// row spacing was computed against, so the rule and the gap it sits in
+    /// can never disagree about how tall a hairline is.
+    @MainActor
+    private static func groupedFormRowsWithSeparators(
+        _ rows: [ViewNode],
+        palette: ControlPalette,
+        thickness: Double
+    ) -> [ViewNode] {
+        guard rows.count > 1, thickness > 0 else {
+            return rows
+        }
+
+        var children: [ViewNode] = []
+        children.reserveCapacity(rows.count * 2 - 1)
+        for (index, row) in rows.enumerated() {
+            if index > 0, !row.isSeparatorRule, !rows[index - 1].isSeparatorRule {
+                let rule = Controls.panel(
+                    preferredSize: Size(width: 0, height: thickness),
+                    backgroundColor: palette.separator,
+                    isHitTestVisible: false
+                )
+                rule.layoutFillAxes = .horizontalOnly
+                rule.isSeparatorRule = true
+                children.append(rule)
+            }
+            children.append(row)
+        }
+        return children
     }
 
     /// A grouped-form section: the header outside and above the box, the
@@ -13325,7 +13392,10 @@ extension ControlSize {
         }
     }
 
-    /// NSColorWell: a 34x22 well at regular size.
+    /// NSColorWell — `MacOSControlMetrics.ColorWell.regularSize` (34x22) at
+    /// regular size. A colour well is not a pointer *target* the way a push
+    /// button is (it is as wide as the swatch it shows), so it takes the
+    /// macOS reference exactly, with no ergonomic delta.
     fileprivate var colorSwatchPreferredSize: Size {
         switch self {
         case .mini:
@@ -13333,7 +13403,7 @@ extension ControlSize {
         case .small:
             return Size(width: 30, height: 20)
         case .regular:
-            return Size(width: 34, height: 22)
+            return MacOSControlMetrics.ColorWell.regularSize
         case .large:
             return Size(width: 40, height: 34)
         case .extraLarge:
@@ -15096,32 +15166,70 @@ public struct ColorPicker: View {
         return Component { runtime in
             let color = selection.wrappedValue
             let palette = context.controlPalette
-            // NSColorWell: a colour well with a hairline ring and a light
-            // inner gutter, and *no* hex readout — the 8-digit RGBA string
-            // this used to print next to the swatch is developer-facing
-            // text macOS never shows.
+            // NSColorWell: a *bordered control* that happens to be filled
+            // with the selection — a bezel in the control-surface tone with
+            // the swatch inset inside it, and *no* hex readout (the 8-digit
+            // RGBA string this used to print beside it is developer-facing
+            // text macOS never shows).
+            //
+            // The bezel is built as a button because that is what a colour
+            // well is: it carries the pointer ramp (hover lightens the bezel
+            // and strengthens its ring, pressing it darkens) that a bare
+            // panel had no way to express, which is why the well used to read
+            // as an inert rectangle of accent colour.
+            let inset = MacOSControlMetrics.ColorWell.swatchInset
+            // One activation for the whole control. The bezel is the node a
+            // click actually lands on — activation does not bubble in the
+            // retained runtime, `pointerUp` fires the *pressed* node's own
+            // `onActivate` — and the row around it is the focus stop and the
+            // label's target. Two constructions of "what a colour well does"
+            // is two things that can drift.
+            let usesNativeDialog = context.environmentValues.colorPickerUsesNativeDialog
+            let invalidate = context.invalidate
+            let activate: () -> Void = {
+                if usesNativeDialog {
+                    if let chosen = ColorDialogManager.chooseColor(initial: selection.wrappedValue) {
+                        selection.wrappedValue = chosen
+                        invalidate()
+                    }
+                } else {
+                    Self.applyPaletteStep(
+                        to: selection,
+                        direction: 1,
+                        supportsOpacity: supportsOpacity,
+                        invalidate: invalidate
+                    )
+                }
+            }
             let wellFill = Controls.panel(
                 backgroundColor: color,
-                cornerRadius: 2,
+                cornerRadius: MacOSControlMetrics.ColorWell.swatchCornerRadius,
                 isHitTestVisible: false
             )
             // The well fills the gutter the bezel leaves it.
             wellFill.layoutFillAxes = .both
-            let swatchNode = Controls.panel(
+            let swatchNode = Controls.button(
+                runtime: runtime,
                 preferredSize: context.controlSize.colorSwatchPreferredSize,
-                backgroundColor: palette.controlSurface,
-                borderColor: palette.controlBorder,
-                borderWidth: 1,
-                cornerRadius: 4,
+                cornerRadius: MacOSControlMetrics.ColorWell.cornerRadius,
+                palette: palette.borderedButtonPalette,
+                chrome: palette.buttonChrome(focusTint: context.tint, casts: false),
+                clipsToBounds: true,
                 layoutMode: .stack(
                     .vertical(
-                        padding: EdgeInsets(top: 2, leading: 2, bottom: 2, trailing: 2),
+                        padding: EdgeInsets(top: inset, leading: inset, bottom: inset, trailing: inset),
                         alignment: .stretch,
                         mainAlignment: .center
                     )),
-                isHitTestVisible: false,
+                isEnabled: context.isEnabled,
+                appliesSurfaceSheen: true,
+                action: context.isEnabled ? activate : nil,
                 children: [wellFill]
             )
+            // The focus stop and the key handling stay on the control row
+            // (`configureInteraction`): a colour well is one tab stop, not a
+            // row and a bezel inside it.
+            swatchNode.isFocusable = false
             let controlNode = Controls.stackPanel(
                 stackLayout: .horizontal(spacing: 8, alignment: .center),
                 isHitTestVisible: context.isEnabled,
@@ -15137,8 +15245,8 @@ public struct ColorPicker: View {
                     selection: selection,
                     supportsOpacity: supportsOpacity,
                     isEnabled: context.isEnabled,
-                    usesNativeDialog: context.environmentValues.colorPickerUsesNativeDialog,
-                    invalidate: context.invalidate
+                    activate: activate,
+                    invalidate: invalidate
                 )
                 return controlNode
             }
@@ -15153,8 +15261,8 @@ public struct ColorPicker: View {
                     selection: selection,
                     supportsOpacity: supportsOpacity,
                     isEnabled: context.isEnabled,
-                    usesNativeDialog: context.environmentValues.colorPickerUsesNativeDialog,
-                    invalidate: context.invalidate
+                    activate: activate,
+                    invalidate: invalidate
                 )
                 return groupedFormRowNode(
                     label: labelNode,
@@ -15172,8 +15280,8 @@ public struct ColorPicker: View {
                 selection: selection,
                 supportsOpacity: supportsOpacity,
                 isEnabled: context.isEnabled,
-                usesNativeDialog: context.environmentValues.colorPickerUsesNativeDialog,
-                invalidate: context.invalidate
+                activate: activate,
+                invalidate: invalidate
             )
             return node
         }
@@ -15184,7 +15292,7 @@ public struct ColorPicker: View {
         selection: Binding<Color>,
         supportsOpacity: Bool,
         isEnabled: Bool,
-        usesNativeDialog: Bool,
+        activate: @escaping () -> Void,
         invalidate: @escaping () -> Void
     ) {
         guard isEnabled else {
@@ -15193,16 +15301,7 @@ public struct ColorPicker: View {
 
         node.isFocusable = true
         node.isHitTestVisible = true
-        node.onActivate = {
-            if usesNativeDialog {
-                if let chosen = ColorDialogManager.chooseColor(initial: selection.wrappedValue) {
-                    selection.wrappedValue = chosen
-                    invalidate()
-                }
-            } else {
-                applyPaletteStep(to: selection, direction: 1, supportsOpacity: supportsOpacity, invalidate: invalidate)
-            }
-        }
+        node.onActivate = activate
         node.onKeyDown = { event in
             switch event.key {
             case .rightArrow:
@@ -16922,20 +17021,27 @@ public struct Stepper: View {
         let increment = increment
 
         return Component { runtime in
-            // NSStepper is a *vertical* joined pair: an up chevron above a
-            // down chevron in one 19x22pt bezel beside the field. The
-            // side-by-side "-"/"+" pair this used to draw is the iOS
-            // UIStepper form factor, and the ASCII glyphs rendered as a
-            // thin dash next to a full-weight plus.
+            // NSStepper is a *vertical* joined pair inside ONE bezel: an up
+            // arrow above a down arrow, split by a hairline, beside the
+            // field. The side-by-side "-"/"+" pair this used to draw is the
+            // iOS UIStepper form factor; two separately-ringed buttons stacked
+            // flush is the other failure — the seam then carries two adjacent
+            // 1pt rings that cancel into a flat box with no divider at all.
+            //
+            // So the ring lives on the bezel (the painter re-draws a parent's
+            // ring after its children, so the halves may fill it edge to edge)
+            // and the seam is a real filled hairline node.
+            let palette = context.controlPalette
             let halfSize = context.controlSize.stepperButtonPreferredSize
-            let outerRadius = MacOSControlMetrics.Button.smallCornerRadius
+            let outerRadius = MacOSControlMetrics.Stepper.cornerRadius
+            let hairline = retainedHairlineThickness(for: context)
             let incrementNode = Self.controlButton(
                 runtime: runtime,
                 icon: .chevronUp,
                 accessibilityName: "Increment",
                 isEnabled: context.isEnabled && canIncrement(),
                 preferredSize: halfSize,
-                palette: context.controlPalette,
+                palette: palette,
                 iconDisplayScale: context.iconRasterDisplayScale,
                 cornerRadii: RetainedCornerRadii(topLeft: outerRadius, topRight: outerRadius),
                 action: {
@@ -16949,7 +17055,7 @@ public struct Stepper: View {
                 accessibilityName: "Decrement",
                 isEnabled: context.isEnabled && canDecrement(),
                 preferredSize: halfSize,
-                palette: context.controlPalette,
+                palette: palette,
                 iconDisplayScale: context.iconRasterDisplayScale,
                 cornerRadii: RetainedCornerRadii(bottomRight: outerRadius, bottomLeft: outerRadius),
                 action: {
@@ -16957,11 +17063,24 @@ public struct Stepper: View {
                     context.invalidate()
                 }
             )
-            // The shared hairline where the two halves meet is the divider.
-            let stepperNode = Controls.stackPanel(
-                stackLayout: .vertical(spacing: 0, alignment: .stretch),
+            let dividerNode = Controls.panel(
+                preferredSize: Size(width: 0, height: hairline),
+                backgroundColor: palette.controlBorder,
+                isHitTestVisible: false
+            )
+            dividerNode.layoutFillAxes = .horizontalOnly
+            dividerNode.isSeparatorRule = true
+            let stepperNode = Controls.panel(
+                preferredSize: Size(
+                    width: halfSize.width,
+                    height: halfSize.height * 2 + hairline
+                ),
+                borderColor: palette.controlBorder,
+                borderWidth: 1,
+                cornerRadius: outerRadius,
+                layoutMode: .stack(.vertical(spacing: 0, alignment: .stretch)),
                 isHitTestVisible: false,
-                children: [incrementNode, decrementNode]
+                children: [incrementNode, dividerNode, decrementNode]
             )
 
             guard !context.labelsHidden else {
@@ -17003,18 +17122,29 @@ public struct Stepper: View {
         action: @escaping @MainActor () -> Void
     ) -> ViewNode {
         let surfaceStyle = ButtonSurfaceStyle.bordered(palette: palette)
-        // Joined-pair chrome: keep the standard hairline border and focus
-        // ring, but drop the elevated-button shadow — a hovering or pressed
-        // segment must not cast onto its sibling in the joined pair.
+        // Joined-pair chrome: the bezel around the pair owns the hairline
+        // ring, so a half draws none of its own — two stacked rings is what
+        // turned the seam into a flat 2pt smear instead of a divider. The
+        // focus ring stays (a half is still a focus stop) and the
+        // elevated-button shadow goes, so a hovering or pressed segment
+        // cannot cast onto its sibling.
         var joinedChrome = surfaceStyle.chrome
+        joinedChrome.borderWidth = 0
         joinedChrome.shadowColor = .clear
         joinedChrome.shadowHoveredColor = .clear
         joinedChrome.shadowFocusedColor = .clear
         joinedChrome.shadowPressedColor = .clear
         joinedChrome.shadowActivatedColor = .clear
+        // A macOS stepper arrow is a small wedge with air around it, not a
+        // glyph sized to the half it sits in. The icon bitmap is stretched
+        // into the node's own rect, so this box *is* the arrow's size.
+        let chevronBox = MacOSControlMetrics.Stepper.chevronSize
         let titleNode = Controls.icon(
             icon,
-            preferredSize: Size(width: preferredSize.width - 6, height: preferredSize.height - 2),
+            preferredSize: Size(
+                width: min(chevronBox.width, preferredSize.width),
+                height: min(chevronBox.height, preferredSize.height)
+            ),
             color: isEnabled ? palette.label : palette.disabledLabel,
             scale: Stepper.chevronGlyphScale,
             displayScale: iconDisplayScale
@@ -17022,7 +17152,7 @@ public struct Stepper: View {
         let node = Controls.button(
             runtime: runtime,
             preferredSize: preferredSize,
-            cornerRadius: MacOSControlMetrics.Button.smallCornerRadius,
+            cornerRadius: MacOSControlMetrics.Stepper.cornerRadius,
             palette: surfaceStyle.palette,
             chrome: joinedChrome,
             // No self-clip: the painter falls back to `maxRadius` for

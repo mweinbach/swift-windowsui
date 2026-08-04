@@ -47,6 +47,53 @@ final class ListChromeAndMetricsTests: XCTestCase {
         }
     }
 
+    /// An NSTableView shorter than its scroll view still paints its body down
+    /// to the clip view's bottom edge. With no background at all, a short list
+    /// in a tall slot stopped at its last row and everything below it was bare
+    /// window — the list read as rows floating over a hole.
+    func testDefaultListStyleCarriesABodyThatFillsItsSlot() async {
+        for scheme in [ColorScheme.light, .dark] {
+            let palette = ControlPalette.resolve(colorScheme: scheme)
+            for style in [ListStyle.automatic, .plain] {
+                XCTAssertEqual(
+                    style.retainedChrome(palette: palette).backgroundColor,
+                    palette.controlBackground,
+                    "\(style) draws the text background, in whichever appearance it is in"
+                )
+            }
+        }
+
+        await MainActor.run {
+            let slotHeight: Double = 400
+            let node = buildNode(
+                List {
+                    Text("Inbox")
+                    Text("Sent")
+                }
+                .frame(width: 300, height: slotHeight),
+                size: Size(width: 600, height: 600)
+            )
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 600, height: 600))
+            _ = runtime.renderFrame()
+
+            guard
+                let body = flatten(node).first(where: {
+                    $0.backgroundColor == ControlPalette.darkStandard.controlBackground
+                })
+            else {
+                return XCTFail("the list body is a painted surface")
+            }
+            XCTAssertEqual(
+                body.resolvedFrame.height, slotHeight, accuracy: 0.51,
+                "The body fills the slot, not the two rows in it"
+            )
+            let rowsHeight = body.children.reduce(0.0) { $0 + $1.resolvedFrame.height }
+            XCTAssertLessThan(rowsHeight, slotHeight, "…while the rows stay content-sized")
+        }
+    }
+
     func testListEmitsAHairlineBetweenAdjacentRows() async {
         await MainActor.run {
             let node = buildNode(
@@ -178,14 +225,20 @@ final class ListChromeAndMetricsTests: XCTestCase {
                 $0.accessibilityLabel == "Increment" || $0.accessibilityLabel == "Decrement"
             }
             XCTAssertEqual(buttons.count, 2)
+            // One bezel holding [increment][seam rule][decrement]: the ring is
+            // the bezel's, and the hairline between the halves is a node.
             let bezel = flatten(node).first { candidate in
-                candidate.children.count == 2
+                candidate.children.count == 3
                     && candidate.children.allSatisfy {
-                        $0.accessibilityLabel == "Increment" || $0.accessibilityLabel == "Decrement"
+                        $0.accessibilityLabel == "Increment"
+                            || $0.accessibilityLabel == "Decrement"
+                            || $0.isSeparatorRule
                     }
             }
             XCTAssertNotNil(bezel, "The two halves share one bezel")
             XCTAssertEqual(bezel?.children.first?.accessibilityLabel, "Increment", "Increment sits on top")
+            XCTAssertEqual(bezel?.children[1].isSeparatorRule, true, "A hairline divides the halves")
+            XCTAssertEqual(bezel?.borderWidth, 1, "The bezel carries the ring, not each half")
         }
     }
 

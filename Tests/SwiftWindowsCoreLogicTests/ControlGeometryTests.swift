@@ -114,12 +114,13 @@ final class ControlGeometryTests: XCTestCase {
                 assertDescendantFramesWithinBounds(node)
                 let row = tryUnwrap(node.children.first)
                 // NSStepper: [label slot, bezel] with the bezel holding an
-                // up chevron stacked flush above a down chevron.
+                // up chevron above a hairline above a down chevron.
                 XCTAssertEqual(row.children.count, 2)
                 let bezel = row.children[1]
-                XCTAssertEqual(bezel.children.count, 2)
+                XCTAssertEqual(bezel.children.count, 3)
                 let increment = bezel.children[0]
-                let decrement = bezel.children[1]
+                let divider = bezel.children[1]
+                let decrement = bezel.children[2]
                 XCTAssertEqual(
                     decrement.resolvedFrame.height,
                     increment.resolvedFrame.height,
@@ -128,11 +129,18 @@ final class ControlGeometryTests: XCTestCase {
                 )
                 XCTAssertEqual(
                     increment.resolvedFrame.maxY,
+                    divider.resolvedFrame.minY,
+                    accuracy: 0.51,
+                    "stepper halves should sit flush against the seam at \(width)pt"
+                )
+                XCTAssertEqual(
+                    divider.resolvedFrame.maxY,
                     decrement.resolvedFrame.minY,
                     accuracy: 0.51,
-                    "stepper halves should sit flush as a joined pair at \(width)pt"
+                    "stepper halves should sit flush against the seam at \(width)pt"
                 )
-                // Per-corner radii: rounded outer corners, square joined edge.
+                // Per-corner radii: the halves' fills follow the bezel's own
+                // rounding at the outer corners and stay square at the seam.
                 let incrementRadii = tryUnwrap(increment.cornerRadii)
                 XCTAssertGreaterThan(incrementRadii.topLeft, 0)
                 XCTAssertGreaterThan(incrementRadii.topRight, 0)
@@ -161,7 +169,9 @@ final class ControlGeometryTests: XCTestCase {
                 let row = tryUnwrap(node.children.first)
                 labelWidths.append(tryUnwrap(firstTextNode(in: row)).resolvedFrame.width)
                 let bezel = row.children[1]
-                for half in bezel.children {
+                // The seam rule fills the bezel across (preferred width 0), so
+                // only the two halves state a width of their own.
+                for half in bezel.children where !half.isSeparatorRule {
                     XCTAssertEqual(
                         half.resolvedFrame.width,
                         half.preferredSize?.width ?? -1,

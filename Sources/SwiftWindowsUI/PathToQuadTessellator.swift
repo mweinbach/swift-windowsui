@@ -101,6 +101,9 @@ enum PathToQuadTessellator {
             if let rectQuads = rectFill(for: path) {
                 return Result(quads: rectQuads, residualPath: nil)
             }
+            if let roundedQuads = roundedRectFill(for: path) {
+                return Result(quads: roundedQuads, residualPath: nil)
+            }
             if let triQuads = triangleFill(for: path) {
                 return Result(quads: triQuads, residualPath: nil)
             }
@@ -173,12 +176,22 @@ enum PathToQuadTessellator {
         return quads.isEmpty ? nil : quads
     }
 
-    /// Fans the polygon's vertices from vertex 0 into N-2 triangles and
-    /// scanline-tessellates each. Curves in the path are first
-    /// subdivided into line segments so RoundedRectangle, Circle,
-    /// Capsule, and other curved closed shapes also qualify. Returns
-    /// nil if the path can't be expressed as a simple convex polygon
-    /// (concave, self-intersecting, or non-closed).
+    /// Scanline-tessellates a convex polygon as **one** figure: for each
+    /// row, the span between the leftmost and rightmost edge crossing.
+    /// Curves in the path are first subdivided into line segments so
+    /// RoundedRectangle, Circle, Capsule, and other curved closed shapes
+    /// also qualify. Returns nil if the path can't be expressed as a simple
+    /// convex polygon (concave, self-intersecting, or non-closed).
+    ///
+    /// This used to fan the polygon from vertex 0 into N-2 triangles and fill
+    /// each separately. Two neighbouring triangles then computed their spans
+    /// independently and each dropped its sub-pixel sliver (the
+    /// `> 0.5` span test that keeps a strip from degenerating), so every
+    /// shared fan edge came out as a hairline of background *through the
+    /// fill* — a rounded chart bar arrived with a diagonal scratch from
+    /// corner to corner. A convex polygon crosses any scanline exactly twice,
+    /// so the span is min..max over all edges and there are no interior edges
+    /// left to leak. It is also strictly fewer quads than the fan.
     private static func convexPolygonFill(for path: PathPrimitive) -> [QuadPrimitive]? {
         guard let polygonVertices = sampleClosedFillBoundary(elements: path.elements) else {
             return nil
@@ -186,22 +199,68 @@ enum PathToQuadTessellator {
         guard polygonVertices.count >= 4 else { return nil }
         guard isConvex(polygonVertices) else { return nil }
 
-        var quads: [QuadPrimitive] = []
-        let v0 = polygonVertices[0]
-        for i in 1..<(polygonVertices.count - 1) {
-            let v1 = polygonVertices[i]
-            let v2 = polygonVertices[i + 1]
-            guard
-                let strip = scanlineFillTriangle(
-                    v0: v0, v1: v1, v2: v2, color: path.fillColor, clip: path.clipBounds,
-                    clipCornerRadius: path.clipCornerRadius),
-                quads.count + strip.count <= maxTessellatedQuads
-            else {
-                return nil
-            }
-            quads.append(contentsOf: strip)
+        guard
+            let quads = scanlineFillConvexPolygon(
+                polygonVertices,
+                color: path.fillColor,
+                clip: path.clipBounds,
+                clipCornerRadius: path.clipCornerRadius
+            ),
+            quads.count <= maxTessellatedQuads
+        else {
+            return nil
         }
         return quads.isEmpty ? nil : quads
+    }
+
+    /// One horizontal strip per row between the polygon's outermost edge
+    /// crossings. Same budget rules as `scanlineFillTriangle`: an empty
+    /// array for a fully-clipped or degenerate polygon, `nil` past the row
+    /// budget so the caller abandons GPU promotion for the whole path.
+    private static func scanlineFillConvexPolygon(
+        _ vertices: [Point], color: Color, clip: Rect?, clipCornerRadius: Double = 0
+    ) -> [QuadPrimitive]? {
+        var minY = Double.infinity
+        var maxY = -Double.infinity
+        for vertex in vertices {
+            minY = min(minY, vertex.y)
+            maxY = max(maxY, vertex.y)
+        }
+        guard minY.isFinite, maxY.isFinite else { return [] }
+        minY = floor(minY)
+        maxY = ceil(maxY)
+        if let clip, clip.size.width > 0, clip.size.height > 0 {
+            minY = max(minY, floor(clip.minY))
+            maxY = min(maxY, ceil(clip.maxY))
+        }
+        guard maxY > minY else { return [] }
+        let rowCount = GPUISceneValue.int(maxY - minY)
+        guard rowCount > 0, rowCount <= maxScanlineRows else { return nil }
+
+        var quads: [QuadPrimitive] = []
+        quads.reserveCapacity(rowCount + 1)
+        var y = minY
+        while y < maxY {
+            let scanY = y + 0.5
+            var left = Double.infinity
+            var right = -Double.infinity
+            var index = 0
+            while index < vertices.count {
+                let a = vertices[index]
+                let b = vertices[(index + 1) % vertices.count]
+                if let xAtY = intersectX(edgeStart: a, edgeEnd: b, atY: scanY) {
+                    left = min(left, xAtY)
+                    right = max(right, xAtY)
+                }
+                index += 1
+            }
+            if left.isFinite, right.isFinite, right - left > 0.5 {
+                quads.append(
+                    quad(for: Rect(x: left, y: y, width: right - left, height: 1), color: color, clip: clip))
+            }
+            y += 1
+        }
+        return quads
     }
 
     /// Ear-clipping triangulation for **simple** concave polygons.
@@ -496,6 +555,78 @@ enum PathToQuadTessellator {
         guard atY >= lo && atY <= hi else { return nil }
         let t = (atY - a.y) / dy
         return a.x + t * (b.x - a.x)
+    }
+
+    /// An axis-aligned rounded rectangle is a *quad*, not a polygon.
+    ///
+    /// The quad family already carries a corner radius — it is what every
+    /// rounded control background in the stack is drawn with — so a
+    /// `Path(roundedRect:cornerRadius:)` fill costs one primitive with
+    /// shader-quality corner anti-aliasing. Falling through to the convex
+    /// polygon lane instead spends one scanline strip per row (a 40pt bar is
+    /// ~40 quads) and steps its corners in whole pixels, which is what pushed
+    /// a ten-bar chart past the scene-primitive budget.
+    ///
+    /// Matches the element stream `Path.addRoundedRect` emits: a `moveTo`
+    /// then four `lineTo`/`arc` pairs. The geometry is verified rather than
+    /// the angles — four equal radii whose centres are the corners inset by
+    /// that radius can only describe this shape.
+    private static func roundedRectFill(for path: PathPrimitive) -> [QuadPrimitive]? {
+        var elements = path.elements
+        if elements.last == .close {
+            elements.removeLast()
+        }
+        guard elements.count == 9 else { return nil }
+        guard case .moveTo(let start) = elements[0] else { return nil }
+
+        var radius: Double?
+        var centers: [Point] = []
+        var index = 1
+        while index < elements.count {
+            guard case .lineTo = elements[index] else { return nil }
+            guard case .arc(let center, let arcRadius, _, _, _) = elements[index + 1] else { return nil }
+            if let radius, abs(radius - arcRadius) > 0.001 { return nil }
+            radius = arcRadius
+            centers.append(center)
+            index += 2
+        }
+        guard centers.count == 4, let r = radius, r > 0 else { return nil }
+
+        let xs = centers.map(\.x)
+        let ys = centers.map(\.y)
+        guard let cornerMinX = xs.min(), let cornerMaxX = xs.max(),
+            let cornerMinY = ys.min(), let cornerMaxY = ys.max()
+        else { return nil }
+        // The four arc centres must be the four distinct inset corners.
+        let expectedCenters: Set<[Double]> = [
+            [cornerMinX, cornerMinY], [cornerMaxX, cornerMinY],
+            [cornerMaxX, cornerMaxY], [cornerMinX, cornerMaxY],
+        ]
+        guard expectedCenters.count == 4,
+            Set(centers.map { [$0.x, $0.y] }) == expectedCenters
+        else { return nil }
+
+        let rect = Rect(
+            x: cornerMinX - r,
+            y: cornerMinY - r,
+            width: (cornerMaxX - cornerMinX) + 2 * r,
+            height: (cornerMaxY - cornerMinY) + 2 * r
+        )
+        // A radius past half the shorter side is a different shape (the arcs
+        // would overlap); leave those to the polygon lane.
+        guard 2 * r <= min(rect.size.width, rect.size.height) + 0.001 else { return nil }
+        // The subpath starts on the top edge, just past the first corner.
+        guard abs(start.y - rect.minY) < 0.001, abs(start.x - (cornerMinX)) < 0.001 else { return nil }
+
+        return [
+            quad(
+                for: rect,
+                color: path.fillColor,
+                clip: path.clipBounds,
+                clipCornerRadius: path.clipCornerRadius,
+                cornerRadius: Float(r)
+            )
+        ]
     }
 
     private static func rectFill(for path: PathPrimitive) -> [QuadPrimitive]? {

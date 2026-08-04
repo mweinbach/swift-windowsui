@@ -51,11 +51,44 @@ public enum MacOSControlMetrics {
         public static let regularHeight: Double = 28
     }
 
-    /// `Stepper` — NSStepper. Each chevron button is 19×11 in
-    /// regular size; the pair stack is 19×22.
+    /// `Stepper` — NSStepper.
+    ///
+    /// The modern (Big Sur+) stepper is a *narrow* two-part bezel: one
+    /// rounded rectangle 13pt across and 22pt tall, split in half by a
+    /// hairline, with a small arrow centred in each half. The 19pt width
+    /// this used to claim is the old Aqua stepper, and at that width the
+    /// arrows grew to fill the box and the control read as a square button
+    /// with two chevrons rather than as a stepper.
     public enum Stepper {
-        public static let buttonSize = Size(width: 19, height: 11)
-        public static let regularSize = Size(width: 19, height: 22)
+        /// One half of the bezel — the up (or down) arrow button.
+        public static let buttonSize = Size(width: 13, height: 11)
+        /// The joined pair: one bezel, not two chained buttons.
+        public static let regularSize = Size(width: 13, height: 22)
+        /// Corner radius of the shared bezel. A stepper is closed tighter
+        /// than a push button — it is 22pt tall in total, so the 4pt
+        /// small-button radius rounds a half almost to a capsule.
+        public static let cornerRadius: Double = 3
+        /// The arrow glyph's box inside a half. The arrow is a small wedge
+        /// with clear air around it; a glyph sized to the half's own box is
+        /// what made the chevrons read as the control. The box keeps the
+        /// glyph's own proportions — the icon bitmap is stretched into it, so
+        /// a 7×4 box squashes a chevron into an unreadable smudge.
+        public static let chevronSize = Size(width: 9, height: 8)
+    }
+
+    /// `ColorPicker` — NSColorWell.
+    ///
+    /// A colour well is a bordered control that happens to be filled with
+    /// the selection: a rounded bezel in the control-border tone with the
+    /// swatch inset inside it, not a bare rectangle of colour. The inset is
+    /// what keeps a white selection legible on a light window and a black
+    /// one on a dark window.
+    public enum ColorWell {
+        public static let regularSize = Size(width: 34, height: 22)
+        public static let cornerRadius: Double = 5
+        /// Gutter between the bezel and the swatch.
+        public static let swatchInset: Double = 3
+        public static let swatchCornerRadius: Double = 2
     }
 
     /// `Picker(...)` with `.menu` style — NSPopUpButton. Standard

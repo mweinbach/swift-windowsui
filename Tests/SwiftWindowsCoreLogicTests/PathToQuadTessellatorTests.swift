@@ -85,6 +85,88 @@ final class PathToQuadTessellatorTests: XCTestCase {
         )
     }
 
+    /// A convex fill is one figure, so it must not carry a seam where a
+    /// triangulation used to split it.
+    ///
+    /// Fan-triangulating a convex polygon and filling each triangle
+    /// separately made both neighbours drop their sub-pixel sliver at the
+    /// shared edge (the `> 0.5` span test every scanline strip applies), so
+    /// the background showed through the fill along every fan edge — a
+    /// rounded chart bar arrived with a diagonal scratch across it. A convex
+    /// polygon crosses any scanline exactly twice, so there is exactly one
+    /// span per row and no interior edge left to leak.
+    /// An axis-aligned rounded rectangle is a quad with a corner radius, not
+    /// forty scanline strips: the quad family already draws every rounded
+    /// control background in the stack, with shader corner anti-aliasing. Ten
+    /// scanline-filled chart bars was what pushed the demo dashboard past its
+    /// scene-primitive budget.
+    func testRoundedRectFillPromotesToOneRoundedQuad() {
+        var rounded = Path()
+        rounded.addRoundedRect(Rect(x: 4, y: 6, width: 40, height: 30), cornerRadius: 3)
+        let quads = PathToQuadTessellator.tessellate(makeFilledPath(elements: rounded.elements))
+        XCTAssertEqual(quads?.count, 1, "One rounded quad, not one strip per row")
+        guard let quad = quads?.first else { return XCTFail() }
+        XCTAssertEqual(quad.x, 4, accuracy: 0.001)
+        XCTAssertEqual(quad.y, 6, accuracy: 0.001)
+        XCTAssertEqual(quad.width, 40, accuracy: 0.001)
+        XCTAssertEqual(quad.height, 30, accuracy: 0.001)
+        XCTAssertEqual(quad.cornerRadius, 3, accuracy: 0.001)
+    }
+
+    func testRotatedRoundedRectFallsBackToThePolygonLane() {
+        // Only an *axis-aligned* rounded rect is a quad. A rounded shape whose
+        // arc centres are not the four inset corners keeps the general path.
+        let path = makeFilledPath(elements: [
+            .moveTo(Point(x: 10, y: 0)),
+            .lineTo(Point(x: 30, y: 10)),
+            .arc(center: Point(x: 28, y: 14), radius: 4, startAngle: 0, endAngle: .pi / 2, clockwise: false),
+            .lineTo(Point(x: 20, y: 30)),
+            .arc(center: Point(x: 16, y: 28), radius: 4, startAngle: .pi / 2, endAngle: .pi, clockwise: false),
+            .lineTo(Point(x: 0, y: 20)),
+            .arc(center: Point(x: 2, y: 16), radius: 4, startAngle: .pi, endAngle: 1.5 * .pi, clockwise: false),
+            .lineTo(Point(x: 10, y: 0)),
+            .arc(center: Point(x: 14, y: 2), radius: 4, startAngle: 1.5 * .pi, endAngle: 0, clockwise: false),
+            .close,
+        ])
+        let quads = PathToQuadTessellator.tessellate(path)
+        XCTAssertNotEqual(quads?.count, 1, "A turned rounded shape is not one axis-aligned quad")
+    }
+
+    func testConvexPolygonFillEmitsOneUnbrokenSpanPerRow() {
+        // A capsule-ish convex polygon built from straight edges only, so it
+        // takes the polygon lane rather than the rounded-rect quad promotion.
+        let path = makeFilledPath(elements: [
+            .moveTo(Point(x: 8, y: 4)),
+            .lineTo(Point(x: 40, y: 4)),
+            .lineTo(Point(x: 44, y: 12)),
+            .lineTo(Point(x: 44, y: 30)),
+            .lineTo(Point(x: 40, y: 36)),
+            .lineTo(Point(x: 8, y: 36)),
+            .lineTo(Point(x: 4, y: 30)),
+            .lineTo(Point(x: 4, y: 12)),
+            .close,
+        ])
+        guard let quads = PathToQuadTessellator.tessellate(path) else {
+            return XCTFail("A convex polygon must tessellate")
+        }
+
+        var rows: [Double: [QuadPrimitive]] = [:]
+        for quad in quads {
+            rows[Double(quad.y), default: []].append(quad)
+        }
+        XCTAssertFalse(rows.isEmpty)
+        for (row, quadsInRow) in rows {
+            XCTAssertEqual(
+                quadsInRow.count, 1,
+                "Row \(row) is covered by \(quadsInRow.count) spans; a seam between them is a visible scratch"
+            )
+        }
+        // The widest rows reach the full 40pt across, so the fill is the
+        // whole shape rather than the half a broken fan would leave.
+        let widest = quads.map(\.width).max() ?? 0
+        XCTAssertEqual(Double(widest), 40, accuracy: 1.01)
+    }
+
     func testTriangleFillScanlineTessellatesToStripQuads() {
         let path = makeFilledPath(elements: [
             .moveTo(Point(x: 0, y: 0)),

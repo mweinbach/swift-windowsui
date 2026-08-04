@@ -41,10 +41,38 @@ final class MacOSControlReferenceTests: XCTestCase {
     // MARK: - Stepper
 
     func testStepperButtonAndRegularSizeMatchNSStepper() {
-        XCTAssertEqual(MacOSControlMetrics.Stepper.buttonSize.width, 19, accuracy: 0.001)
+        // The modern stepper bezel is 13pt across, not the 19 of the old Aqua
+        // one: it is a narrow two-part bezel, taller than it is wide.
+        XCTAssertEqual(MacOSControlMetrics.Stepper.buttonSize.width, 13, accuracy: 0.001)
         XCTAssertEqual(MacOSControlMetrics.Stepper.buttonSize.height, 11, accuracy: 0.001)
-        XCTAssertEqual(MacOSControlMetrics.Stepper.regularSize.width, 19, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Stepper.regularSize.width, 13, accuracy: 0.001)
         XCTAssertEqual(MacOSControlMetrics.Stepper.regularSize.height, 22, accuracy: 0.001)
+        XCTAssertEqual(
+            MacOSControlMetrics.Stepper.regularSize.height,
+            MacOSControlMetrics.Stepper.buttonSize.height * 2,
+            accuracy: 0.001,
+            "the pair is the bezel: two halves, no leftover"
+        )
+        XCTAssertEqual(MacOSControlMetrics.Stepper.cornerRadius, 3, accuracy: 0.001)
+        XCTAssertLessThan(
+            MacOSControlMetrics.Stepper.chevronSize.width,
+            MacOSControlMetrics.Stepper.buttonSize.width,
+            "the arrow is a wedge inside the half, not the half itself"
+        )
+    }
+
+    // MARK: - Colour well
+
+    func testColorWellMatchesNSColorWell() {
+        XCTAssertEqual(MacOSControlMetrics.ColorWell.regularSize.width, 34, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.ColorWell.regularSize.height, 22, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.ColorWell.cornerRadius, 5, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.ColorWell.swatchInset, 3, accuracy: 0.001)
+        XCTAssertLessThan(
+            MacOSControlMetrics.ColorWell.swatchCornerRadius,
+            MacOSControlMetrics.ColorWell.cornerRadius,
+            "the swatch is inset inside the bezel, so its rounding is tighter"
+        )
     }
 
     // MARK: - Pop-up button

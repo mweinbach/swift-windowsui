@@ -16184,11 +16184,21 @@ public struct Picker<SelectionValue: Hashable>: View {
             var style = option.node.textStyle
             style.maximumNumberOfLines = 1
             style.lineBreakMode = .truncateTail
+            // An NSSegmentedControl centres its title *in the segment cell*.
+            // The title used to be centred by the segment's stack instead,
+            // which left the text box exactly as wide as the string — and a
+            // text box the width of its own string has no tolerance at all.
+            // A pressed segment is drawn at `ControlAnimationStyle.pressedScale`
+            // and its label is re-fitted to the scaled box, so "Three" in a
+            // 33pt box became "Thr…" for as long as the pointer was down. The
+            // cell is the segment; the string is centred inside it.
+            style.alignment = .center
             style.color =
                 isEnabled
                 ? (isSelected ? palette.segmentedSelectedLabel : palette.label)
                 : palette.disabledLabel
             option.node.textStyle = style
+            option.node.layoutFillAxes = .horizontalOnly
         }
 
         // NSSegmentedControl, regular size: the track is

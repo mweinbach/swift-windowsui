@@ -383,30 +383,57 @@ to macOS visual effects views.
 
 ## System colors
 
-RGB values match Apple's documented macOS / SF Symbols system color
-palette (Human Interface Guidelines → Color → System colors). These
-are the exact hex codes Apple publishes as the "Multicolor" defaults
-for `Color.red`, `Color.blue`, etc. on macOS.
+A system colour is a *pair*, not a value. Apple publishes two sRGB
+resolutions for each — one per appearance — and `NSColor.systemOrange`
+is a dynamic colour that picks between them; SwiftUI documents
+`Color.orange` as "context-dependent" for the same reason. The light
+value on a dark window is a shade too heavy and the dark value on white
+is a shade too pale, which is why one constant cannot serve both.
 
-| Color           | macOS hex | sRGB (3 dp)           |
-|-----------------|-----------|-----------------------|
-| `Color.red`     | `#FF3B30` | (1.000, 0.231, 0.188) |
-| `Color.orange`  | `#FF9500` | (1.000, 0.584, 0.000) |
-| `Color.yellow`  | `#FFCC00` | (1.000, 0.800, 0.000) |
-| `Color.green`   | `#34C759` | (0.204, 0.780, 0.349) |
-| `Color.mint`    | `#00C7BE` | (0.000, 0.780, 0.745) |
-| `Color.teal`    | `#30B0C7` | (0.188, 0.690, 0.780) |
-| `Color.cyan`    | `#32ADE6` | (0.196, 0.678, 0.902) |
-| `Color.blue`    | `#007AFF` | (0.000, 0.478, 1.000) |
-| `Color.indigo`  | `#5856D6` | (0.345, 0.337, 0.839) |
-| `Color.purple`  | `#AF52DE` | (0.686, 0.322, 0.871) |
-| `Color.pink`    | `#FF2D55` | (1.000, 0.176, 0.333) |
-| `Color.brown`   | `#A2845E` | (0.635, 0.518, 0.369) |
-| `Color.gray`    | `#8E8E93` | (0.557, 0.557, 0.576) |
+Both columns live in `SwiftWindowsCore.SystemColorPalette`. The
+`Color.red` / `Color.orange` statics are the *light* rung of each pair,
+so everything that reads a static keeps the value it always had;
+`Color.resolvedForVisualEnvironment` swaps in the dark twin when the
+colour scheme is dark, exactly as it already does for the
+`LabelHierarchy` rungs.
 
-`Color.accentColor` and `ViewBuildContext.defaultTint` both resolve
-to `Color.blue` (`#007AFF`), matching macOS's default
-controlAccentColor when the user hasn't picked a custom accent.
+These are the SwiftUI system palette — the same table on macOS and iOS.
+AppKit publishes a few macOS-only `NSColor` variants (`systemGreen` is
+`#28CD41` rather than `#34C759`, `systemTeal` `#59ADC4`, `systemCyan`
+`#55BEF0`); those belong to `Color(nsColor:)`, not to SwiftUI's own
+`Color.green`, which is the cross-platform one this layer implements.
+
+There is deliberately no increased-contrast column: Apple publishes no
+increased-contrast sRGB values for the system palette, and inventing
+them would put unverifiable numbers behind a parity test.
+
+| Color           | Light hex | Light sRGB (3 dp)     | Dark hex  | Dark sRGB (3 dp)      |
+|-----------------|-----------|-----------------------|-----------|-----------------------|
+| `Color.red`     | `#FF3B30` | (1.000, 0.231, 0.188) | `#FF453A` | (1.000, 0.271, 0.227) |
+| `Color.orange`  | `#FF9500` | (1.000, 0.584, 0.000) | `#FF9F0A` | (1.000, 0.624, 0.039) |
+| `Color.yellow`  | `#FFCC00` | (1.000, 0.800, 0.000) | `#FFD60A` | (1.000, 0.839, 0.039) |
+| `Color.green`   | `#34C759` | (0.204, 0.780, 0.349) | `#30D158` | (0.188, 0.820, 0.345) |
+| `Color.mint`    | `#00C7BE` | (0.000, 0.780, 0.745) | `#66D4CF` | (0.400, 0.831, 0.812) |
+| `Color.teal`    | `#30B0C7` | (0.188, 0.690, 0.780) | `#40C8E0` | (0.251, 0.784, 0.878) |
+| `Color.cyan`    | `#32ADE6` | (0.196, 0.678, 0.902) | `#64D2FF` | (0.392, 0.824, 1.000) |
+| `Color.blue`    | `#007AFF` | (0.000, 0.478, 1.000) | `#0A84FF` | (0.039, 0.518, 1.000) |
+| `Color.indigo`  | `#5856D6` | (0.345, 0.337, 0.839) | `#5E5CE6` | (0.369, 0.361, 0.902) |
+| `Color.purple`  | `#AF52DE` | (0.686, 0.322, 0.871) | `#BF5AF2` | (0.749, 0.353, 0.949) |
+| `Color.pink`    | `#FF2D55` | (1.000, 0.176, 0.333) | `#FF375F` | (1.000, 0.216, 0.373) |
+| `Color.brown`   | `#A2845E` | (0.635, 0.518, 0.369) | `#AC8E68` | (0.675, 0.557, 0.408) |
+| `Color.gray`    | `#8E8E93` | (0.557, 0.557, 0.576) | `#98989D` | (0.596, 0.596, 0.616) |
+
+A saturated system colour used as *text* is low contrast on white in
+both appearances — `#FF9500` measures 2.2:1 on a white table row — and
+that is macOS's own behaviour, not a defect in the pair table: the light
+value already is the darker-on-white member. Colour on a light surface
+carries emphasis, not legibility; the reading is the label colour's job.
+
+`Color.accentColor` and `ViewBuildContext.defaultTint` both resolve to
+`Color.blue`'s light value (`#007AFF`), matching macOS's default
+controlAccentColor when the user hasn't picked a custom accent. The tint
+is not run through the appearance resolver: control chrome takes its
+accent from `ControlPalette`, which owns its own per-appearance tones.
 
 ## Control dimension reference
 

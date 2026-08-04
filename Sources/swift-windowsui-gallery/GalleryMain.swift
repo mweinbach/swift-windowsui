@@ -1120,7 +1120,21 @@ private func interactionStateSpecs() -> [GallerySpec] {
     // sharing it with a caption (which squashes a 30pt control to ~10pt). The
     // point lands in the LAST segment — the unselected one, since a hover ramp
     // under the selected segment's fill is indistinguishable from selection.
-    let pickerFrame = (width: 180.0, height: 30.0)
+    //
+    // 240pt, matching the base `picker` entry. `state-picker-pressed` used to
+    // certify "Thr…" as the correct rendering of a segment title; widening the
+    // entry is *not* what fixed that (the cause was a title cell sized to its
+    // own string, and it is fixed in `Picker` — see
+    // `ControlChromePolishTests.testSegmentTitleCellSpansTheSegment…`). The
+    // width is here so the ramp certifies chrome and only chrome: at 180 each
+    // segment held "Three" with about a point to spare, which is close enough
+    // that a font-metric change would put the ramp back in the business of
+    // testing line breaking. A deliberately narrow frame belongs in
+    // `ControlChromePolishTests`, where it is the subject.
+    let pickerFrame = (width: 240.0, height: 30.0)
+    /// Canvas for the picker ramp: the 240pt track plus the room its focus ring
+    /// needs, since the ring is drawn outside the control's bounds.
+    let pickerCanvas = IntSize(width: 280, height: 200)
     let pickerTrailingSegment = Point(x: pickerFrame.width - 30, y: pickerFrame.height / 2)
     func picker() -> AnyView {
         AnyView(
@@ -1190,15 +1204,16 @@ private func interactionStateSpecs() -> [GallerySpec] {
             )),
 
         // Segmented picker ramp
-        GallerySpec(id: "state-picker-idle", title: "Picker · idle", view: picker()),
         GallerySpec(
-            id: "state-picker-hover", title: "Picker · hover", view: picker(),
+            id: "state-picker-idle", title: "Picker · idle", view: picker(), size: pickerCanvas),
+        GallerySpec(
+            id: "state-picker-hover", title: "Picker · hover", view: picker(), size: pickerCanvas,
             interaction: .hover(pickerTrailingSegment)),
         GallerySpec(
-            id: "state-picker-pressed", title: "Picker · pressed", view: picker(),
+            id: "state-picker-pressed", title: "Picker · pressed", view: picker(), size: pickerCanvas,
             interaction: .pressed(pickerTrailingSegment)),
         GallerySpec(
-            id: "state-picker-focused", title: "Picker · focused", view: picker(),
+            id: "state-picker-focused", title: "Picker · focused", view: picker(), size: pickerCanvas,
             interaction: .focused(tabCount: 1)),
     ]
 }

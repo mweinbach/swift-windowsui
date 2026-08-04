@@ -3835,7 +3835,7 @@ final class WinSwiftUITests: XCTestCase {
                 prominentSecondaryNode.textStyle.color,
                 ControlPalette.darkStandard.selectedContentLabel)
             XCTAssertEqual(readerNode.text, "INCREASED")
-            XCTAssertEqual(gradientNode.textStyle.color, gradient.startColor)
+            XCTAssertEqual(gradientNode.textStyle.color, inDarkAppearance(gradient.startColor))
         }
     }
 
@@ -3868,7 +3868,8 @@ final class WinSwiftUITests: XCTestCase {
             let strokedNode = makeNode(Capsule().strokeBorder(erasedGradient, lineWidth: 2))
 
             XCTAssertEqual(textNode.textStyle.color, .secondary)
-            XCTAssertEqual(inheritedGradientNode.children[0].textStyle.color, gradient.startColor)
+            XCTAssertEqual(
+                inheritedGradientNode.children[0].textStyle.color, inDarkAppearance(gradient.startColor))
             XCTAssertEqual(filledNode.backgroundColor, .secondary)
             XCTAssertEqual(strokedNode.borderColor, gradient.startColor)
             XCTAssertEqual(strokedNode.borderGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
@@ -3954,7 +3955,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(textNode.textStyle.color, color)
             XCTAssertEqual(labelNode.children[0].textStyle.color, color)
             XCTAssertEqual(labelNode.children[1].textStyle.color, color)
-            XCTAssertEqual(inheritedNode.children[0].textStyle.color, gradient.startColor)
+            XCTAssertEqual(
+                inheritedNode.children[0].textStyle.color, inDarkAppearance(gradient.startColor))
             XCTAssertEqual(backgroundNode.backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
             XCTAssertEqual(overlayNode.children[1].backgroundColor, color)
             XCTAssertEqual(overlayNode.children[1].frame, Rect(x: 0, y: 0, width: 80, height: 32))
@@ -4082,7 +4084,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(ignoredSafeAreaNode.backgroundColor, customColor)
             XCTAssertEqual(firstText(in: ignoredSafeAreaNode.children[0]), "EDGES")
             XCTAssertEqual(
-                shapedNode.children[0].backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
+                shapedNode.children[0].backgroundGradient,
+                .linear(SwiftWindowsGraphics.LinearGradient(inDarkAppearance(gradient))))
             XCTAssertEqual(shapedNode.children[0].cornerRadius, 7)
             XCTAssertTrue(shapedNode.children[0].clipsToBounds)
             XCTAssertEqual(
@@ -4123,7 +4126,7 @@ final class WinSwiftUITests: XCTestCase {
                 WindowBackgroundShapeStyle().retainedFallbackColor,
                 Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 1))
             XCTAssertEqual(foregroundNode.textStyle.color, .primary)
-            XCTAssertEqual(tintNode.textStyle.color, ViewBuildContext.defaultTint)
+            XCTAssertEqual(tintNode.textStyle.color, inDarkAppearance(ViewBuildContext.defaultTint))
             XCTAssertEqual(placeholderNode.textStyle.color, PlaceholderTextShapeStyle().retainedFallbackColor)
             XCTAssertEqual(linkNode.textStyle.color, LinkShapeStyle().retainedFallbackColor)
             XCTAssertEqual(separatorNode.backgroundColor, SeparatorShapeStyle().retainedFallbackColor)
@@ -4189,7 +4192,7 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             XCTAssertEqual(node.text, "ALERT")
-            XCTAssertEqual(node.textStyle.color, .red)
+            XCTAssertEqual(node.textStyle.color, inDarkAppearance(.red))
             XCTAssertEqual(node.textStyle.weight, .bold)
         }
     }
@@ -4276,10 +4279,11 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(colorNode.textStyle.color, primaryColor)
             XCTAssertEqual(tertiaryColorNode.textStyle.color, primaryColor)
             XCTAssertEqual(storedNode.textStyle.color, Color(red: 0.1, green: 0.7, blue: 0.4, alpha: 1))
-            XCTAssertEqual(gradientNode.children[0].backgroundColor, primaryGradient.startColor)
+            XCTAssertEqual(
+                gradientNode.children[0].backgroundColor, inDarkAppearance(primaryGradient.startColor))
             XCTAssertEqual(
                 gradientNode.children[0].backgroundGradient,
-                .linear(SwiftWindowsGraphics.LinearGradient(primaryGradient)))
+                .linear(SwiftWindowsGraphics.LinearGradient(inDarkAppearance(primaryGradient))))
         }
     }
 
@@ -4570,7 +4574,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(decorativeVariableBitmapNode.symbolVariableValue, 0.75)
             XCTAssertTrue(decorativeVariableBitmapNode.isAccessibilityHidden)
             XCTAssertEqual(variableSymbolNode.text, "\u{E713}")
-            XCTAssertEqual(variableSymbolNode.textStyle.color, .red)
+            XCTAssertEqual(variableSymbolNode.textStyle.color, inDarkAppearance(.red))
             XCTAssertEqual(variableSymbolNode.symbolVariableValue, 0.42)
             XCTAssertEqual(labeledSymbolNode.text, "\u{E713}")
             XCTAssertEqual(labeledSymbolNode.accessibilityLabel, "SETTINGS")
@@ -21396,6 +21400,25 @@ private func makeNode<V: View>(
     let runtime = RetainedViewRuntime(root: ViewNode())
     let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: onInvalidate)
     return view.makeComponent(context: context).makeNode(runtime: runtime)
+}
+
+/// The value a colour takes once the build context has resolved it for the
+/// tests' default (dark) appearance.
+///
+/// Identity for a colour the test mixed itself, and the published dark twin
+/// for one of the system colours (`SystemColorPalette`) — which is why an
+/// expectation written as `Color.red` needs this wrapper while
+/// `Color(red: 0.2, ...)` does not.
+private func inDarkAppearance(_ color: Color) -> Color {
+    color.resolvedForVisualEnvironment(
+        colorScheme: .dark, contrast: .standard, backgroundProminence: .standard)
+}
+
+/// The same, for a gradient: every stop resolves, so a gradient built from
+/// `[.red, .blue]` is not the gradient the node carries in a dark window.
+private func inDarkAppearance(_ gradient: WinSwiftUI.LinearGradient) -> WinSwiftUI.LinearGradient {
+    gradient.resolvedForVisualEnvironment(
+        colorScheme: .dark, contrast: .standard, backgroundProminence: .standard)
 }
 @MainActor
 private func makeRuntimeNode<V: View>(

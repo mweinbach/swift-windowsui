@@ -1,3 +1,4 @@
+import SwiftWindowsCore
 import XCTest
 
 @testable import SwiftWindowsUI
@@ -277,56 +278,144 @@ final class MacOSDesignParityTests: XCTestCase {
         XCTAssertEqual(color.alpha, 1.0, accuracy: 0.001, "\(name).alpha", file: file, line: line)
     }
 
+    /// The statics are the *light* rung of the pair table, so a colour cannot
+    /// be given a dark twin while its light value quietly drifts away from the
+    /// constant every existing assertion reads.
+    func testSystemColorStaticsAreTheLightRungOfTheirPair() async {
+        let pairedStatics: [(String, Color, SystemColorPalette.Pair)] = [
+            ("red", .red, SystemColorPalette.red),
+            ("orange", .orange, SystemColorPalette.orange),
+            ("yellow", .yellow, SystemColorPalette.yellow),
+            ("green", .green, SystemColorPalette.green),
+            ("mint", .mint, SystemColorPalette.mint),
+            ("teal", .teal, SystemColorPalette.teal),
+            ("cyan", .cyan, SystemColorPalette.cyan),
+            ("blue", .blue, SystemColorPalette.blue),
+            ("indigo", .indigo, SystemColorPalette.indigo),
+            ("purple", .purple, SystemColorPalette.purple),
+            ("pink", .pink, SystemColorPalette.pink),
+            ("brown", .brown, SystemColorPalette.brown),
+            ("gray", .gray, SystemColorPalette.gray),
+        ]
+        XCTAssertEqual(
+            pairedStatics.count, SystemColorPalette.pairs.count,
+            "Every pair in the table has a matching static")
+        for (name, value, pair) in pairedStatics {
+            XCTAssertEqual(value, pair.light, "Color.\(name) is the pair's light value")
+            XCTAssertNotEqual(
+                pair.light, pair.dark,
+                "\(name) publishes two different sRGB values, one per appearance")
+            XCTAssertEqual(
+                SystemColorPalette.darkVariant(of: value), pair.dark,
+                "\(name) resolves to its dark twin")
+        }
+    }
+
     func testSystemRedMatchesAppleHIG() async {
         assertColor(.red, red: 1.0, green: 0.231, blue: 0.188, name: "red")
+        assertColor(SystemColorPalette.red.dark, red: 1.0, green: 0.271, blue: 0.227, name: "red·dark")
     }
 
     func testSystemOrangeMatchesAppleHIG() async {
         assertColor(.orange, red: 1.0, green: 0.584, blue: 0.0, name: "orange")
+        assertColor(
+            SystemColorPalette.orange.dark, red: 1.0, green: 0.624, blue: 0.039, name: "orange·dark")
     }
 
     func testSystemYellowMatchesAppleHIG() async {
         assertColor(.yellow, red: 1.0, green: 0.8, blue: 0.0, name: "yellow")
+        assertColor(
+            SystemColorPalette.yellow.dark, red: 1.0, green: 0.839, blue: 0.039, name: "yellow·dark")
     }
 
     func testSystemGreenMatchesAppleHIG() async {
         assertColor(.green, red: 0.204, green: 0.78, blue: 0.349, name: "green")
+        assertColor(
+            SystemColorPalette.green.dark, red: 0.188, green: 0.82, blue: 0.345, name: "green·dark")
     }
 
     func testSystemMintMatchesAppleHIG() async {
         assertColor(.mint, red: 0.0, green: 0.78, blue: 0.745, name: "mint")
+        assertColor(
+            SystemColorPalette.mint.dark, red: 0.4, green: 0.831, blue: 0.812, name: "mint·dark")
     }
 
     func testSystemTealMatchesAppleHIG() async {
         assertColor(.teal, red: 0.188, green: 0.69, blue: 0.78, name: "teal")
+        assertColor(
+            SystemColorPalette.teal.dark, red: 0.251, green: 0.784, blue: 0.878, name: "teal·dark")
     }
 
     func testSystemCyanMatchesAppleHIG() async {
         assertColor(.cyan, red: 0.196, green: 0.678, blue: 0.902, name: "cyan")
+        assertColor(
+            SystemColorPalette.cyan.dark, red: 0.392, green: 0.824, blue: 1.0, name: "cyan·dark")
     }
 
     func testSystemBlueMatchesAppleHIG() async {
         assertColor(.blue, red: 0.0, green: 0.478, blue: 1.0, name: "blue")
+        assertColor(
+            SystemColorPalette.blue.dark, red: 0.039, green: 0.518, blue: 1.0, name: "blue·dark")
     }
 
     func testSystemIndigoMatchesAppleHIG() async {
         assertColor(.indigo, red: 0.345, green: 0.337, blue: 0.839, name: "indigo")
+        assertColor(
+            SystemColorPalette.indigo.dark, red: 0.369, green: 0.361, blue: 0.902, name: "indigo·dark")
     }
 
     func testSystemPurpleMatchesAppleHIG() async {
         assertColor(.purple, red: 0.686, green: 0.322, blue: 0.871, name: "purple")
+        assertColor(
+            SystemColorPalette.purple.dark, red: 0.749, green: 0.353, blue: 0.949, name: "purple·dark")
     }
 
     func testSystemPinkMatchesAppleHIG() async {
         assertColor(.pink, red: 1.0, green: 0.176, blue: 0.333, name: "pink")
+        assertColor(
+            SystemColorPalette.pink.dark, red: 1.0, green: 0.216, blue: 0.373, name: "pink·dark")
     }
 
     func testSystemBrownMatchesAppleHIG() async {
         assertColor(.brown, red: 0.635, green: 0.518, blue: 0.369, name: "brown")
+        assertColor(
+            SystemColorPalette.brown.dark, red: 0.675, green: 0.557, blue: 0.408, name: "brown·dark")
     }
 
     func testSystemGrayMatchesAppleHIG() async {
         assertColor(.gray, red: 0.557, green: 0.557, blue: 0.576, name: "gray")
+        assertColor(
+            SystemColorPalette.gray.dark, red: 0.596, green: 0.596, blue: 0.616, name: "gray·dark")
+    }
+
+    /// The table is only worth having if the resolver reads it. A dark window
+    /// used to paint `Color.orange` at the light `#FF9500`, which is the one
+    /// value in the pair that is *not* meant for a dark background.
+    func testSystemColorsResolveByAppearance() async {
+        let lightOrange = Color.orange.resolvedForVisualEnvironment(
+            colorScheme: .light, contrast: .standard, backgroundProminence: .standard)
+        let darkOrange = Color.orange.resolvedForVisualEnvironment(
+            colorScheme: .dark, contrast: .standard, backgroundProminence: .standard)
+        XCTAssertEqual(lightOrange, Color.orange, "The static already is the light value")
+        XCTAssertEqual(darkOrange, SystemColorPalette.orange.dark)
+
+        // Alpha is the caller's, not the table's: a faded system colour stays
+        // faded through the swap.
+        let faded = Color.orange.opacity(0.4).resolvedForVisualEnvironment(
+            colorScheme: .dark, contrast: .standard, backgroundProminence: .standard)
+        XCTAssertEqual(faded.red, SystemColorPalette.orange.dark.red, accuracy: 0.001)
+        XCTAssertEqual(faded.green, SystemColorPalette.orange.dark.green, accuracy: 0.001)
+        XCTAssertEqual(faded.alpha, 0.4, accuracy: 0.001)
+
+        // A colour the app mixed itself is nobody's system colour and is
+        // returned untouched in either appearance.
+        let authored = Color(red: 0.42, green: 0.17, blue: 0.63)
+        for scheme in [ColorScheme.light, .dark] {
+            XCTAssertEqual(
+                authored.resolvedForVisualEnvironment(
+                    colorScheme: scheme, contrast: .standard, backgroundProminence: .standard),
+                authored, "\(scheme): an authored literal is not a system colour")
+        }
     }
 
     func testAccentColorMatchesMacOSDefaultControlAccentBlue() async {

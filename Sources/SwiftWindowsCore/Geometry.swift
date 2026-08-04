@@ -239,6 +239,123 @@ public enum LabelHierarchy {
     public static let increasedContrastSecondaryAlpha: Float = 0xBF / 255
     public static let increasedContrastTertiaryAlpha: Float = 0x73 / 255
 }
+
+/// The system colour table — `Color.red` and its twelve siblings — as the
+/// *pair* of sRGB values Apple publishes for each appearance.
+///
+/// A system colour is not one colour. `NSColor.systemOrange` is a dynamic
+/// colour that resolves to `#FF9500` in a light appearance and `#FF9F0A` in a
+/// dark one, and SwiftUI's `Color.orange` documents itself as
+/// "context-dependent" for the same reason: on a dark window the light value
+/// is a shade too heavy, and the dark value on white is a shade too pale.
+/// This stack shipped the light column in *both* appearances, so every
+/// saturated colour in dark mode was the light-appearance value — the one
+/// place the two tables are least interchangeable.
+///
+/// `Color.red` and friends stay the light value, so nothing that reads the
+/// static changes meaning; the dark twin is reached through
+/// `darkVariant(of:)`, which is what `resolvedForVisualEnvironment` calls
+/// once it knows the appearance.
+///
+/// These are the SwiftUI/`UIColor` system palette, the same table on macOS
+/// and iOS. AppKit publishes a handful of macOS-only variants
+/// (`NSColor.systemGreen` is `#28CD41` rather than `#34C759`), but those are
+/// `NSColor` values; SwiftUI's own `Color.green` is the cross-platform one,
+/// and it is SwiftUI's colours this layer implements.
+///
+/// Increased contrast is deliberately *not* a third column: Apple publishes
+/// no increased-contrast sRGB values for the system palette, and inventing
+/// them would put unverifiable numbers behind a parity test.
+public enum SystemColorPalette {
+    /// One system colour's two published resolutions.
+    public struct Pair: Equatable, Sendable {
+        /// The value the matching `Color` static holds.
+        public let light: Color
+        public let dark: Color
+
+        public init(light: Color, dark: Color) {
+            self.light = light
+            self.dark = dark
+        }
+    }
+
+    // Hex codes in the doc table; the sRGB triples here are those hexes at
+    // three decimal places, matching how the statics above are written.
+    /// `#FF3B30` / `#FF453A`
+    public static let red = Pair(
+        light: Color(red: 1.0, green: 0.231, blue: 0.188),
+        dark: Color(red: 1.0, green: 0.271, blue: 0.227))
+    /// `#FF9500` / `#FF9F0A`
+    public static let orange = Pair(
+        light: Color(red: 1.0, green: 0.584, blue: 0.0),
+        dark: Color(red: 1.0, green: 0.624, blue: 0.039))
+    /// `#FFCC00` / `#FFD60A`
+    public static let yellow = Pair(
+        light: Color(red: 1.0, green: 0.800, blue: 0.0),
+        dark: Color(red: 1.0, green: 0.839, blue: 0.039))
+    /// `#34C759` / `#30D158`
+    public static let green = Pair(
+        light: Color(red: 0.204, green: 0.780, blue: 0.349),
+        dark: Color(red: 0.188, green: 0.820, blue: 0.345))
+    /// `#00C7BE` / `#66D4CF`
+    public static let mint = Pair(
+        light: Color(red: 0.0, green: 0.780, blue: 0.745),
+        dark: Color(red: 0.400, green: 0.831, blue: 0.812))
+    /// `#30B0C7` / `#40C8E0`
+    public static let teal = Pair(
+        light: Color(red: 0.188, green: 0.690, blue: 0.780),
+        dark: Color(red: 0.251, green: 0.784, blue: 0.878))
+    /// `#32ADE6` / `#64D2FF`
+    public static let cyan = Pair(
+        light: Color(red: 0.196, green: 0.678, blue: 0.902),
+        dark: Color(red: 0.392, green: 0.824, blue: 1.0))
+    /// `#007AFF` / `#0A84FF`
+    public static let blue = Pair(
+        light: Color(red: 0.0, green: 0.478, blue: 1.0),
+        dark: Color(red: 0.039, green: 0.518, blue: 1.0))
+    /// `#5856D6` / `#5E5CE6`
+    public static let indigo = Pair(
+        light: Color(red: 0.345, green: 0.337, blue: 0.839),
+        dark: Color(red: 0.369, green: 0.361, blue: 0.902))
+    /// `#AF52DE` / `#BF5AF2`
+    public static let purple = Pair(
+        light: Color(red: 0.686, green: 0.322, blue: 0.871),
+        dark: Color(red: 0.749, green: 0.353, blue: 0.949))
+    /// `#FF2D55` / `#FF375F`
+    public static let pink = Pair(
+        light: Color(red: 1.0, green: 0.176, blue: 0.333),
+        dark: Color(red: 1.0, green: 0.216, blue: 0.373))
+    /// `#A2845E` / `#AC8E68`
+    public static let brown = Pair(
+        light: Color(red: 0.635, green: 0.518, blue: 0.369),
+        dark: Color(red: 0.675, green: 0.557, blue: 0.408))
+    /// `#8E8E93` / `#98989D`
+    public static let gray = Pair(
+        light: Color(red: 0.557, green: 0.557, blue: 0.576),
+        dark: Color(red: 0.596, green: 0.596, blue: 0.616))
+
+    /// Every pair, in the order the doc table lists them.
+    public static let pairs: [Pair] = [
+        red, orange, yellow, green, mint, teal, cyan, blue, indigo, purple, pink, brown, gray,
+    ]
+
+    /// The dark-appearance twin of a light system colour, or `nil` when the
+    /// colour is not one.
+    ///
+    /// Matching is on RGB alone so a system colour that has been through
+    /// `.opacity(_:)` still resolves; the caller's own alpha is carried onto
+    /// the twin rather than replaced by the table's opaque one.
+    public static func darkVariant(of color: Color) -> Color? {
+        for pair in pairs
+        where pair.light.red == color.red && pair.light.green == color.green
+            && pair.light.blue == color.blue
+        {
+            return Color(
+                red: pair.dark.red, green: pair.dark.green, blue: pair.dark.blue, alpha: color.alpha)
+        }
+        return nil
+    }
+}
 public struct Color: Equatable, Sendable {
     public var red: Float
     public var green: Float
@@ -255,22 +372,31 @@ public struct Color: Equatable, Sendable {
     public static let black = Color(red: 0, green: 0, blue: 0, alpha: 1)
     public static let white = Color(red: 1, green: 1, blue: 1, alpha: 1)
     public static let clear = Color(red: 0, green: 0, blue: 0, alpha: 0)
-    // System colors match Apple's documented macOS / SF Symbols values
-    // (HIG → System colors). Pinned in docs/MacOSDesignParity.md so a
-    // change here without a doc/test update fails CI.
-    public static let red = Color(red: 1.0, green: 0.231, blue: 0.188, alpha: 1)
-    public static let green = Color(red: 0.204, green: 0.780, blue: 0.349, alpha: 1)
-    public static let blue = Color(red: 0.0, green: 0.478, blue: 1.0, alpha: 1)
-    public static let orange = Color(red: 1.0, green: 0.584, blue: 0.0, alpha: 1)
-    public static let yellow = Color(red: 1.0, green: 0.800, blue: 0.0, alpha: 1)
-    public static let purple = Color(red: 0.686, green: 0.322, blue: 0.871, alpha: 1)
-    public static let pink = Color(red: 1.0, green: 0.176, blue: 0.333, alpha: 1)
-    public static let cyan = Color(red: 0.196, green: 0.678, blue: 0.902, alpha: 1)
-    public static let brown = Color(red: 0.635, green: 0.518, blue: 0.369, alpha: 1)
-    public static let indigo = Color(red: 0.345, green: 0.337, blue: 0.839, alpha: 1)
-    public static let mint = Color(red: 0.0, green: 0.780, blue: 0.745, alpha: 1)
-    public static let teal = Color(red: 0.188, green: 0.690, blue: 0.780, alpha: 1)
-    public static let gray = Color(red: 0.557, green: 0.557, blue: 0.576, alpha: 1)
+    // The system colour table, in its LIGHT appearance. These statics are
+    // the light rung of `SystemColorPalette.pairs`, which is where the dark
+    // twin of each lives: SwiftUI's `Color.orange` is documented as "a
+    // context-dependent orange", and AppKit's `NSColor.systemOrange` is a
+    // dynamic colour with two published sRGB values, so a single constant
+    // cannot be both. Storing the light value and resolving the dark one
+    // (`Color.resolvedForVisualEnvironment` in WinSwiftUI) is what lets a
+    // flat RGBA struct still carry an appearance, exactly as the
+    // `LabelHierarchy` sentinels above do.
+    //
+    // Pinned in docs/MacOSDesignParity.md so a change here without a
+    // doc/test update fails CI.
+    public static let red = SystemColorPalette.red.light
+    public static let green = SystemColorPalette.green.light
+    public static let blue = SystemColorPalette.blue.light
+    public static let orange = SystemColorPalette.orange.light
+    public static let yellow = SystemColorPalette.yellow.light
+    public static let purple = SystemColorPalette.purple.light
+    public static let pink = SystemColorPalette.pink.light
+    public static let cyan = SystemColorPalette.cyan.light
+    public static let brown = SystemColorPalette.brown.light
+    public static let indigo = SystemColorPalette.indigo.light
+    public static let mint = SystemColorPalette.mint.light
+    public static let teal = SystemColorPalette.teal.light
+    public static let gray = SystemColorPalette.gray.light
     // The `NSColor.labelColor` family. macOS expresses the text hierarchy
     // as one alpha ladder over a single neutral base — white in dark
     // appearance, black in light — and the *ladder is shared* by both. The

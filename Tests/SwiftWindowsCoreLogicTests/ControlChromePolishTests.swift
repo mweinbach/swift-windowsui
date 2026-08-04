@@ -172,6 +172,52 @@ final class ControlChromePolishTests: XCTestCase {
         }
     }
 
+    /// A segment's title cell is the segment, not the string.
+    ///
+    /// The title used to be centred by the segment's own stack, which sized
+    /// the text node to the string's advance — a box with no tolerance at
+    /// all. A pressed control is drawn at `ControlAnimationStyle.pressedScale`
+    /// and its label is re-fitted to that scaled box, so every segment title
+    /// ellipsized for as long as the pointer was down ("Three" → "Thr…"), and
+    /// the gallery's pressed-picker entry certified it. The cell now spans the
+    /// segment interior, which is both what NSSegmentedControl does and enough
+    /// headroom that a 3% squeeze cannot reach the string.
+    func testSegmentTitleCellSpansTheSegmentSoAPressCannotTruncateIt() async {
+        await MainActor.run {
+            let node = makeChromeRuntimeNode(
+                Picker("Mode", selection: .constant(0)) {
+                    Text("One").tag(0)
+                    Text("Two").tag(1)
+                    Text("Three").tag(2)
+                }
+                .pickerStyle(SegmentedPickerStyle())
+                .labelsHidden()
+                .frame(width: 240, height: 30)
+            )
+            let shell = tryUnwrap(
+                firstNode(in: node) {
+                    $0.cornerRadius == MacOSControlMetrics.Button.regularCornerRadius && $0.clipsToBounds
+                        && $0.children.count == 3
+                },
+                message: "segmented track not found"
+            )
+            // The segment's own horizontal padding, from `segmentedPickerNode`.
+            let segmentHorizontalPadding: Double = 10
+            for segment in shell.children {
+                let label = tryUnwrap(segment.children.first, message: "segment title")
+                XCTAssertNotNil(label.text, "a segment's only child is its title")
+                XCTAssertEqual(
+                    label.resolvedFrame.width,
+                    segment.resolvedFrame.width - 2 * segmentHorizontalPadding,
+                    accuracy: 0.51,
+                    "the title cell is the segment interior, not the string's advance")
+                XCTAssertEqual(
+                    label.textStyle.alignment, .center,
+                    "…and the string is centred inside that cell")
+            }
+        }
+    }
+
     // MARK: - Checkbox / radio glyph centering
 
     func testCheckboxGlyphCentersInBoxAtDisplayScales() async {

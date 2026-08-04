@@ -17518,7 +17518,17 @@ extension SwiftWindowsCore.Color {
             effectiveLevel = labelHierarchyLevel
         }
         guard let effectiveLevel else {
-            return self
+            // Not a rung of the label ladder. The other appearance-aware
+            // family is the system colour table, whose statics hold the
+            // light value: `Text("Degraded").foregroundColor(.orange)` on a
+            // dark window used to paint `#FF9500`, the light-appearance
+            // orange, because nothing on this path knew there was a second
+            // one. Everything else — a literal the app wrote, an image
+            // sample, a palette tone — still passes through untouched.
+            guard colorScheme == .dark else {
+                return self
+            }
+            return SystemColorPalette.darkVariant(of: self) ?? self
         }
 
         let palette = ControlPalette.resolve(colorScheme: colorScheme, contrast: contrast)

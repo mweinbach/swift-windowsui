@@ -19,6 +19,35 @@ private func buildNode<V: View>(
     return view.makeComponent(context: context).makeNode(runtime: runtime)
 }
 
+/// Builds a view *and lays it out*, so assertions can read the frames the
+/// layout pass produced rather than the declared chrome.
+@MainActor
+private func layoutNode<V: View>(
+    _ view: V,
+    size: Size = Size(width: 800, height: 600)
+) -> (runtime: RetainedViewRuntime, node: ViewNode) {
+    let runtime = RetainedViewRuntime(root: ViewNode())
+    let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: {})
+    let node = view.makeComponent(context: context).makeNode(runtime: runtime)
+    node.frame = Rect(origin: .zero, size: size)
+    runtime.root.addChild(node)
+    runtime.setRootSize(IntSize(width: Int32(size.width), height: Int32(size.height)))
+    _ = runtime.renderFrame()
+    return (runtime, node)
+}
+
+/// A laid-out node's horizontal span in `ancestor`'s coordinate space.
+@MainActor
+private func horizontalSpan(of node: ViewNode, in ancestor: ViewNode) -> (minX: Double, maxX: Double) {
+    var originX: Double = 0
+    var current: ViewNode? = node
+    while let walk = current, walk !== ancestor {
+        originX += walk.resolvedFrame.origin.x
+        current = walk.parent
+    }
+    return (originX, originX + node.resolvedFrame.size.width)
+}
+
 @MainActor
 private func flatten(_ node: ViewNode) -> [ViewNode] {
     var result: [ViewNode] = [node]
@@ -200,6 +229,57 @@ final class ListChromeAndMetricsTests: XCTestCase {
             XCTAssertEqual(
                 selected?.cornerRadius ?? -1, MacOSControlMetrics.Button.regularCornerRadius,
                 "A 28pt row takes a small radius, not the 10pt floating-chip radius")
+        }
+    }
+
+    /// An AppKit inset table insets the row *box*: the selection fill and the
+    /// rule between rows start and end on the same two vertical lines, because
+    /// they are two decorations of one inset row rectangle. A rule that ran the
+    /// body's full width under a selection inset from it would read as two
+    /// different tables stacked on each other.
+    ///
+    /// This is a geometry assertion, not a chrome one: the inset is expressed
+    /// as the list's own padding, so the only way to see the two agree is to
+    /// lay the list out and compare the frames the pass produced.
+    func testInsetListRulesOnTheSameVerticalsAsItsSelectionFill() async {
+        await MainActor.run {
+            for style in [ListStyle.inset, .automatic] {
+                let width: Double = 320
+                let (_, node) = layoutNode(
+                    List(selection: .constant(Set(["a"]))) {
+                        Text("Alpha").tag("a")
+                        Text("Beta").tag("b")
+                        Text("Gamma").tag("c")
+                    }
+                    .listStyle(style),
+                    size: Size(width: width, height: 240)
+                )
+
+                // Spans are measured against the list, not against whatever
+                // container a rule happens to be wrapped in: an inset applied
+                // by wrapping the rule in a padded panel is exactly the
+                // divergence this test exists to catch, and reading the rule's
+                // own parent-relative frame would hide it.
+                let rules = flatten(node).filter(\.isSeparatorRule).map { horizontalSpan(of: $0, in: node) }
+                let rows = node.children.filter { !$0.isSeparatorRule && $0.onActivate != nil }
+                    .map { horizontalSpan(of: $0, in: node) }
+                XCTAssertFalse(rules.isEmpty, "\(style): adjacent unselected rows are ruled")
+                XCTAssertEqual(rows.count, 3, "\(style): three selectable rows")
+
+                let inset = MacOSControlMetrics.List.contentInset
+                for row in rows {
+                    XCTAssertEqual(row.minX, inset, accuracy: 0.01, "\(style): row inset")
+                    XCTAssertEqual(row.maxX, width - inset, accuracy: 0.01, "\(style): row inset")
+                }
+                for rule in rules {
+                    XCTAssertEqual(
+                        rule.minX, rows[0].minX, accuracy: 0.01,
+                        "\(style): a rule starts where the selection fill starts")
+                    XCTAssertEqual(
+                        rule.maxX, rows[0].maxX, accuracy: 0.01,
+                        "\(style): a rule ends where the selection fill ends")
+                }
+            }
         }
     }
 

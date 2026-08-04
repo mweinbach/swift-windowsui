@@ -424,10 +424,30 @@ final class SystemAppearanceTests: XCTestCase {
     // colour scheme picks. `resolvedForContrast` on its own could not
     // express that and is gone.
 
+    /// "App-authored" means a colour the app mixed itself. `Color.red` and
+    /// `Color.accentColor` used to stand in for one here, which was only
+    /// true while the system palette was appearance-blind: they are dynamic
+    /// colours with a published value per appearance (see
+    /// `SystemColorPalette`), so a dark window resolves the dark twin and
+    /// the examples below are the ones that really are nobody's system
+    /// colour.
     func testStandardContrastLeavesAppAuthoredColorsUntouched() async {
-        XCTAssertEqual(Color.red.resolved(.dark, .standard), .red)
-        XCTAssertEqual(Color.accentColor.resolved(.dark, .standard), .accentColor)
+        let mixed = Color(red: 0.42, green: 0.17, blue: 0.63)
+        XCTAssertEqual(mixed.resolved(.dark, .standard), mixed)
+        XCTAssertEqual(mixed.resolved(.light, .standard), mixed)
         XCTAssertEqual(Color.black.opacity(0.4).resolved(.light, .standard), Color.black.opacity(0.4))
+        XCTAssertEqual(Color.white.resolved(.dark, .standard), .white)
+    }
+
+    /// The system palette is the other appearance-aware family beside the
+    /// label ladder, and contrast is not what selects between its two
+    /// published values — the appearance is.
+    func testSystemColorsResolveToTheirAppearanceTwinAtEitherContrast() async {
+        for contrast in [ColorSchemeContrast.standard, .increased] {
+            XCTAssertEqual(Color.red.resolved(.light, contrast), SystemColorPalette.red.light)
+            XCTAssertEqual(Color.red.resolved(.dark, contrast), SystemColorPalette.red.dark)
+            XCTAssertEqual(Color.accentColor.resolved(.dark, contrast), SystemColorPalette.blue.dark)
+        }
     }
 
     func testIncreasedContrastBrightensSecondaryInDarkAppearance() async {
@@ -460,10 +480,19 @@ final class SystemAppearanceTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(secondary.alpha, tertiary.alpha)
     }
 
+    /// Increased contrast lifts the *label ladder*; it has no opinion about a
+    /// colour it does not recognise. (A system colour is recognised, but by
+    /// the appearance rather than by the contrast —
+    /// `testSystemColorsResolveToTheirAppearanceTwinAtEitherContrast` above.
+    /// Apple publishes no increased-contrast sRGB values for the system
+    /// palette, so there is no third column to reach for here.)
     func testIncreasedContrastLeavesNonSemanticColorsUntouched() async {
-        XCTAssertEqual(Color.red.resolved(.dark, .increased), .red)
-        XCTAssertEqual(Color.accentColor.resolved(.dark, .increased), .accentColor)
+        let mixed = Color(red: 0.42, green: 0.17, blue: 0.63)
+        XCTAssertEqual(mixed.resolved(.dark, .increased), mixed)
         XCTAssertEqual(Color.black.opacity(0.4).resolved(.dark, .increased), Color.black.opacity(0.4))
+        XCTAssertEqual(
+            Color.red.resolved(.dark, .increased), Color.red.resolved(.dark, .standard),
+            "contrast is not what selects between a system colour's two values")
     }
 
     private var tertiaryFallback: Color {

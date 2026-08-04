@@ -15,9 +15,15 @@ struct SwiftWindowsUISnapshotTool {
         // it there was no way to produce a light-mode snapshot, so the fact
         // that control chrome ignored `colorScheme` could not be seen.
         let view = DemoRootView(model: model).preferredColorScheme(options.appearance)
+        // `size` is the runtime's ROOT size, which is logical points — the
+        // host divides its pixel client size by the scale factor before
+        // calling `setRootSize`. Passing the pixel size here (what `--width`
+        // used to mean under `--scale 2`) laid the app out at 1280x720 pt and
+        // then rasterized it into a 1280x720 *pixel* bitmap, so a 2x snapshot
+        // was the top-left quadrant magnified rather than a HiDPI layout.
         let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
             of: view,
-            size: IntSize(width: Int32(options.width), height: Int32(options.height)),
+            size: IntSize(width: Int32(options.logicalWidth), height: Int32(options.logicalHeight)),
             displayScale: options.displayScale,
             // The window is in the appearance too, not just its content:
             // the page backdrop behind the app comes from here.
@@ -27,19 +33,41 @@ struct SwiftWindowsUISnapshotTool {
         let bitmap: BitmapSurface
         let backendName: String
 
+        // The surface is in DEVICE pixels. `ScenePainter` already scaled every
+        // primitive by `displayScale`, and the frame path is replayed through
+        // the same scale, so the target has to be `logical * scale` or the
+        // render is cropped.
+        let pixelSize = IntSize(width: Int32(options.pixelWidth), height: Int32(options.pixelHeight))
+
         switch options.backend {
         case .rawScene:
-            bitmap = GPUIRawSceneRasterizer.rasterize(snapshot.scene, size: snapshot.size)
+            bitmap = GPUIRawSceneRasterizer.rasterize(snapshot.scene, size: pixelSize)
             backendName = "raw-scene"
         case .rawFrame:
-            bitmap = GPUIRawSceneRasterizer.rasterize(snapshot.frame, size: snapshot.size)
+            // The frame path emits geometry in POINTS — `appendCommands` takes
+            // `displayScale` only to pick a text raster scale, and both the CPU
+            // and D3D11 frame renderers blit those commands 1:1. So a HiDPI
+            // frame snapshot draws a point-sized UI into a pixel-sized surface.
+            // Say so rather than shipping a quietly cropped-looking image.
+            if options.displayScale != 1 {
+                FileHandle.standardError.write(
+                    Data(
+                        """
+                        warning: the frame path is point-space (its commands are never scaled by \
+                        displayScale), so --scale \(options.displayScale) fills only the top-left \
+                        \(options.logicalWidth)x\(options.logicalHeight) of this surface. Use the \
+                        scene path (--mode scene) for HiDPI renders.
+
+                        """.utf8))
+            }
+            bitmap = GPUIRawSceneRasterizer.rasterize(snapshot.frame, size: pixelSize)
             backendName = "raw-frame"
         case .cpuBatch:
             let renderer = CPUBatchRenderer()
             try renderer.attach(
                 to: SurfaceDescriptor(
                     windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 1)!)!,
-                    pixelSize: snapshot.size,
+                    pixelSize: pixelSize,
                     scaleFactor: options.displayScale
                 ))
             try renderer.render(scene: snapshot.scene)
@@ -64,6 +92,8 @@ struct SwiftWindowsUISnapshotTool {
         print("Appearance=\(options.appearance == .light ? "light" : "dark")")
         print("Format=\(format.rawValue)")
         print("Size=\(bitmap.width)x\(bitmap.height)")
+        print("LogicalSize=\(options.logicalWidth)x\(options.logicalHeight)")
+        print("DisplayScale=\(options.displayScale)")
         print("ScenePrimitives=\(snapshot.scene.primitiveCount)")
         print("FrameCommands=\(snapshot.frame.commands.count)")
         print("SceneLayers=\(snapshot.scene.layers.count)")
@@ -85,10 +115,24 @@ struct SwiftWindowsUISnapshotTool {
 
 // MARK: - Options
 
+/// Two sizes, one scale.
+///
+/// `logicalWidth/Height` is the window in POINTS — it is what the runtime lays
+/// out in, and what `RetainedViewRuntime.setRootSize` takes. `pixelWidth/Height`
+/// is the surface in DEVICE PIXELS — it is what the rasterizer fills.
+///
+/// The relationship is the host's: `pixel = logical * scale`
+/// (`WinSwiftUIWindowHost.logicalSize(for:scaleFactor:)` is the same division,
+/// the other way round). Before this existed, `--width/--height` was fed to
+/// *both*, which made `--scale 2` a 2x magnification of the top-left quadrant
+/// of a 1x layout instead of a HiDPI layout — nothing in the tree got denser,
+/// it just got bigger, so no HiDPI layout defect could be seen.
 private struct SnapshotOptions {
     var outputURL: URL
-    var width: Int
-    var height: Int
+    var pixelWidth: Int
+    var pixelHeight: Int
+    var logicalWidth: Int
+    var logicalHeight: Int
     var displayScale: Double
     var mode: SnapshotMode
     var backend: SnapshotBackend
@@ -101,6 +145,8 @@ private struct SnapshotOptions {
         var output = URL(fileURLWithPath: "artifacts/demo-screenshot.bmp")
         var width = 1280
         var height = 720
+        var logicalSize: (width: Int, height: Int)? = nil
+        var sawExplicitPixelSize = false
         var displayScale = 1.0
         var mode = SnapshotMode.scene
         var backend: SnapshotBackend? = nil
@@ -121,8 +167,12 @@ private struct SnapshotOptions {
                 output = URL(fileURLWithPath: try requireValue(after: argument, from: &iterator))
             case "--width":
                 width = try parsePositiveInt(try requireValue(after: argument, from: &iterator), name: argument)
+                sawExplicitPixelSize = true
             case "--height":
                 height = try parsePositiveInt(try requireValue(after: argument, from: &iterator), name: argument)
+                sawExplicitPixelSize = true
+            case "--logical-size":
+                logicalSize = try parseSize(try requireValue(after: argument, from: &iterator), name: argument)
             case "--scale":
                 displayScale = try parsePositiveDouble(
                     try requireValue(after: argument, from: &iterator), name: argument)
@@ -171,6 +221,30 @@ private struct SnapshotOptions {
 
         let resolvedBackend = backend ?? mode.defaultBackend
 
+        // `--logical-size` states the window in points and derives the surface;
+        // otherwise `--width/--height` state the surface and the window is
+        // derived, which is the direction the host converts in. Either way the
+        // two agree, so `--scale 2` is a denser render of a real layout.
+        let resolvedLogical: (width: Int, height: Int)
+        let resolvedPixel: (width: Int, height: Int)
+        if let logicalSize {
+            guard !sawExplicitPixelSize else {
+                throw SnapshotError.invalidArgument(
+                    "--logical-size and --width/--height set the same thing from opposite ends; pass one or the other.")
+            }
+            resolvedLogical = logicalSize
+            resolvedPixel = (
+                width: max(1, Int((Double(logicalSize.width) * displayScale).rounded(.toNearestOrAwayFromZero))),
+                height: max(1, Int((Double(logicalSize.height) * displayScale).rounded(.toNearestOrAwayFromZero)))
+            )
+        } else {
+            resolvedPixel = (width: width, height: height)
+            resolvedLogical = (
+                width: max(1, Int((Double(width) / displayScale).rounded(.toNearestOrAwayFromZero))),
+                height: max(1, Int((Double(height) / displayScale).rounded(.toNearestOrAwayFromZero)))
+            )
+        }
+
         let resolvedFormat: SnapshotFormat
         if let explicit = format {
             resolvedFormat = explicit
@@ -189,8 +263,10 @@ private struct SnapshotOptions {
 
         return SnapshotOptions(
             outputURL: output,
-            width: width,
-            height: height,
+            pixelWidth: resolvedPixel.width,
+            pixelHeight: resolvedPixel.height,
+            logicalWidth: resolvedLogical.width,
+            logicalHeight: resolvedLogical.height,
             displayScale: displayScale,
             mode: mode,
             backend: resolvedBackend,
@@ -215,6 +291,18 @@ private struct SnapshotOptions {
             throw SnapshotError.invalidArgument("\(name) must be a positive integer.")
         }
         return parsed
+    }
+
+    /// `WxH`, with `x` or `X` as the separator.
+    private static func parseSize(_ value: String, name: String) throws -> (width: Int, height: Int) {
+        let parts = value.lowercased().split(separator: "x", omittingEmptySubsequences: false)
+        guard parts.count == 2,
+            let width = Int(parts[0]), let height = Int(parts[1]),
+            width > 0, height > 0
+        else {
+            throw SnapshotError.invalidArgument("\(name) must look like 1280x720 with positive extents.")
+        }
+        return (width: width, height: height)
     }
 
     private static func parsePositiveDouble(_ value: String, name: String) throws -> Double {
@@ -263,8 +351,12 @@ private enum SnapshotError: Error, CustomStringConvertible {
 
                 Options:
                   -o, --output <path>     Output image path (default: artifacts/demo-screenshot.bmp)
-                  --width <px>            Width in pixels (default: 1280)
-                  --height <px>           Height in pixels (default: 720)
+                  --width <px>            Surface width in DEVICE PIXELS (default: 1280)
+                  --height <px>           Surface height in DEVICE PIXELS (default: 720)
+                  --logical-size <WxH>    Window size in POINTS; the surface becomes
+                                          logical x scale. Mutually exclusive with
+                                          --width/--height, which derive the window as
+                                          pixels / scale instead.
                   --scale <factor>        Display scale (default: 1.0)
                   --mode <scene|frame>    Snapshot mode (default: scene)
                   --backend <raw-scene|raw-frame|cpu-batch>

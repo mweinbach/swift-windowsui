@@ -425,6 +425,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   `NativeTextRenderer.defaultIconDisplayScale`: the sole live host writes it
   on activation and on every resize, a second live host cannot stomp it, and
   claims are weak so a closed window releases it.
+- `FocusRingAndDensityTests` — three claims the pixel gates could not see.
+  A focus ring is an **annulus**: both the 2pt focus effect and the wider
+  chrome outline used to fill their whole outset rect and rely on the control's
+  border and fill to cover all but the margin, which holds only while those are
+  opaque — the macOS palettes are translucent, so the accent showed through the
+  body and a focused bordered button rendered accent-blue (in macOS terms, a
+  different control). A rotated node's shadow is **culled where it actually
+  falls**: the cull footprint has to turn the shadow offset the same way the
+  emission does. And the snapshotter's `size` is **points**, so a HiDPI render
+  needs a `size × scale` surface — see the HiDPI section below.
 
 Test runs never write images into the source tree: `check-contracts.ps1`
 fails if a `ReferenceImages` directory appears under `Tests/`. Reviewed
@@ -440,11 +450,56 @@ Visual checks:
 - Add `-FrameDebug` to either command to force the `RenderFrame` fallback path.
 - `demo-screenshot.ps1` does not depend on desktop window visibility, monitor placement, or foreground focus. It also leaves the raw BMP source next to the PNG as `*.raw.bmp` for inspection.
 
+#### HiDPI (true 2x) snapshots
+
+`swift-windowsui-snapshot` keeps two sizes, related the way the host relates
+them (`WinSwiftUIWindowHost.logicalSize(for:scaleFactor:)`): **pixel = logical
+× scale**.
+
+- `--width` / `--height` are the surface in **device pixels**; the window is derived as `pixels / scale`.
+- `--logical-size <WxH>` is the window in **points**; the surface is derived as `logical × scale`. Mutually exclusive with `--width`/`--height`.
+- `demo-screenshot.ps1` exposes the same pair as `-LogicalWidth`/`-LogicalHeight`. A non-1 `-Scale` suffixes the output (`…-2x.png`) so the HiDPI and 1x renders sit side by side instead of overwriting each other.
+
+```powershell
+# A true 2x render of the same 1280x720-point layout the 1x shots use.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-screenshot.ps1 `
+    -AllScreens -LogicalWidth 1280 -LogicalHeight 720 -Scale 2
+```
+
+Before this split, `--width`/`--height` fed *both* the runtime root size and
+the surface, so `--scale 2` laid the app out at 1280×720 points and then
+rasterized it into a 1280×720 **pixel** bitmap — a 2x magnification of the
+top-left quadrant, not a HiDPI layout. Nothing about layout at density was
+verifiable. `FocusRingAndDensityTests` pins the underlying contract:
+`WinSwiftUIRendererSnapshotter.snapshot(size:)` is points, device geometry
+scales by the display scale, and a scale-2 scene therefore does not fit in a
+`size`-sized surface. It also pins the macOS hairline rule — a `Divider` stays
+**one device pixel** at every scale, while a 1pt border scales with it.
+
+Note that the frame path (`--mode frame`) is point-space: `appendCommands`
+takes `displayScale` only to pick a text raster scale and both frame renderers
+blit its commands 1:1, so a HiDPI frame snapshot fills only the top-left
+`logical` region of the surface. The tool warns when `--mode frame` is combined
+with a non-1 scale; use the scene path for density renders.
+
 ## Gallery Regression Gate
 
 `scripts/gallery-compare.ps1` turns the `swift-windowsui-gallery` tool into a visual regression gate for Supported-tier controls.
 
-- The gate covers a fixed subset of gallery entries (buttons, toggles, sliders, stepper, picker, progress views, text fields, list/form chrome — 25 entries). The list lives at the top of `scripts/gallery-compare.ps1`. Animation-, focus-, and time-dependent entries (e.g. indeterminate progress) are deliberately excluded because their renders are not frame-stable.
+- The gate covers a fixed subset of gallery entries (buttons, toggles, sliders, stepper, picker, progress views, text fields, list/form chrome — 25 entries) plus the interaction-state tier below (16 entries), 41 in all. The list lives at the top of `scripts/gallery-compare.ps1`. Time-dependent entries (e.g. indeterminate progress) are deliberately excluded because their renders are not frame-stable.
+
+### Interaction-state tier
+
+The hover / pressed / focus / disabled ramps used to be pinned only by unit
+tests reading colour fields, so a ramp could go visually wrong with every
+assertion still green — which is exactly how a focused bordered button came to
+render accent-blue (the focus ring was emitted as a filled slab under a
+translucent control fill instead of as a ring).
+
+- Entries are `state-<control>-<state>` for button, toggle, text field and segmented picker. The tool drives the runtime's **own** input entry points — `pointerMoved`, `pointerDown`, and `keyDown(.tab)` — rather than reaching into node state, so what the gate sees is what a user's input produces.
+- They are deterministic despite the control animations: after the input, every tween is settled to its end value with `tickAnimations(at:)` at a timestamp far past any start time (both the colour and property tweens clamp progress to 1), and the scene is captured at the same instant. No wall clock enters the render.
+- The tool refuses to write a state entry whose render is pixel-identical to its own idle render, and fails the build instead. A driving point that drifts off its control would otherwise baseline an idle render under a state name and certify a ramp it never exercised.
+- There is deliberately **no** `state-field-hover`: a text field's bezel does not respond to the pointer on macOS, and this stack matches it (only `Controls.button` installs a hover ramp), so such an entry would re-certify the idle render forever.
 - Checked-in baselines live in `tests/fixtures/gallery-baselines/` as compact PNGs. The rest of `artifacts/gallery/` stays generated-only.
 - A compare run re-renders the subset into `artifacts/gallery-compare/current/` and computes bounded per-entry diffs. A pixel counts as changed when any B/G/R/A channel differs by more than `-ChannelTolerance` (default 8). An entry fails when changed pixels exceed `-MaxChangedPercent` (default 0.5%) or any single channel delta exceeds `-MaxChannelDelta` (default 64). Missing baselines and canvas-size changes always fail. The raw-scene CPU rasterizer is deterministic, so unchanged code should produce 0% diffs.
 - Failures write red-overlay diff images to `artifacts/gallery-compare/diffs/` and a summary to `artifacts/gallery-compare/report.txt`; the script exits non-zero.

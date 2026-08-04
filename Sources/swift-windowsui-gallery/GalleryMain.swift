@@ -1,6 +1,7 @@
 import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
+import SwiftWindowsUI
 import WinSwiftUI
 
 @main
@@ -38,7 +39,7 @@ struct SwiftWindowsUIGalleryTool {
             withIntermediateDirectories: true
         )
 
-        let gallerySpecs: [GallerySpec] = [
+        let baseSpecs: [GallerySpec] = [
             GallerySpec(
                 id: "rectangle", title: "Rectangle",
                 view: AnyView(
@@ -823,7 +824,18 @@ struct SwiftWindowsUIGalleryTool {
                     }
                     .frame(width: 160, height: 140)
                 )),
+
+            // MARK: Interaction states
+            //
+            // One control per family, its ramp walked idle → hover → pressed →
+            // focused → disabled. Every entry lays the control out at the
+            // canvas origin with a known frame, so the pointer point below is
+            // the control's own centre; the render loop refuses to write an
+            // entry whose driven state did not change a pixel, so a point that
+            // drifts off its control fails the build instead of quietly
+            // baselining an idle render.
         ]
+        let gallerySpecs = baseSpecs + interactionStateSpecs()
 
         var entries: [GalleryEntry] = []
         let displayScale = 1.0
@@ -838,7 +850,28 @@ struct SwiftWindowsUIGalleryTool {
                 displayScale: displayScale,
                 clearColor: .black
             )
-            let bitmap = GPUIRawSceneRasterizer.rasterize(snapshot.scene, size: snapshot.size)
+
+            let scene: GPUIScene
+            if let interaction = spec.interaction {
+                // The idle scene is captured first, for the guard below.
+                let idleBitmap = GPUIRawSceneRasterizer.rasterize(snapshot.scene, size: snapshot.size)
+                applyInteraction(interaction, to: snapshot.runtime)
+                scene = snapshot.runtime.renderScene(at: gallerySettledTimestamp)
+                let statefulBitmap = GPUIRawSceneRasterizer.rasterize(scene, size: snapshot.size)
+                // A state entry that renders identically to its own idle render
+                // is not a state entry — it is an idle render with a misleading
+                // name, and it would sit in the gate forever certifying a ramp
+                // it never exercised. The usual cause is a pointer point that
+                // misses the control, which is silent otherwise.
+                guard idleBitmap.pixels != statefulBitmap.pixels else {
+                    throw GalleryError.interactionHadNoEffect(
+                        id: spec.id, state: interaction.describedState)
+                }
+            } else {
+                scene = snapshot.scene
+            }
+
+            let bitmap = GPUIRawSceneRasterizer.rasterize(scene, size: snapshot.size)
             let filename = "\(spec.id).png"
             let url = outputDir.appendingPathComponent(filename)
             try bitmap.writePNG(to: url)
@@ -849,8 +882,8 @@ struct SwiftWindowsUIGalleryTool {
                     title: spec.title,
                     filename: filename,
                     size: spec.size,
-                    primitiveCount: snapshot.scene.primitiveCount,
-                    layerCount: snapshot.scene.layers.count
+                    primitiveCount: scene.primitiveCount,
+                    layerCount: scene.layers.count
                 ))
             print("Rendered \(spec.id)")
         }
@@ -869,12 +902,223 @@ private struct GallerySpec {
     let title: String
     let view: AnyView
     let size: IntSize
+    /// Non-nil for the interaction-state tier: the runtime input to deliver
+    /// before the scene is captured. `nil` renders the view as built.
+    let interaction: GalleryInteraction?
 
-    init(id: String, title: String, view: AnyView, size: IntSize = IntSize(width: 200, height: 200)) {
+    init(
+        id: String,
+        title: String,
+        view: AnyView,
+        size: IntSize = IntSize(width: 200, height: 200),
+        interaction: GalleryInteraction? = nil
+    ) {
         self.id = id
         self.title = title
         self.view = view
         self.size = size
+        self.interaction = interaction
+    }
+}
+
+// MARK: - Interaction state tier
+
+/// A control state reached the way a user reaches it — through the runtime's
+/// own input entry points — rather than by reaching into the node tree.
+///
+/// The hover/pressed/focus ramps in `ControlPalette` and `SurfaceChrome` were
+/// pinned only by unit tests reading colour fields; nothing rendered them, so
+/// a ramp could go visually wrong (a pressed fill lighter than its idle, a
+/// focus ring drawn under the control instead of around it) with every
+/// assertion still green. These entries put the ramps behind the pixel gate.
+private enum GalleryInteraction {
+    /// Pointer resting on the control at `point` (client points).
+    case hover(Point)
+    /// Pointer down and held at `point`.
+    case pressed(Point)
+    /// Keyboard focus, moved with Tab exactly as the host moves it.
+    /// `tabCount` presses land on the nth focusable control.
+    case focused(tabCount: Int)
+
+    var describedState: String {
+        switch self {
+        case .hover: return "hover"
+        case .pressed: return "pressed"
+        case .focused: return "focused"
+        }
+    }
+}
+
+/// Far enough past any control tween's start that every one of them has
+/// completed. `ViewColorAnimation.progress` and `tickPropertyAnimations` both
+/// clamp to 1, so the settled value is the ramp's END colour — deterministic
+/// regardless of the wall clock the tween was started against. Rendering at
+/// the tween's start time instead would capture whatever fraction of the
+/// 0.14–0.18s animation the machine happened to be at, which is not a gate.
+private let gallerySettledTimestamp: Double = 1e12
+
+@MainActor
+private func applyInteraction(
+    _ interaction: GalleryInteraction,
+    to runtime: RetainedViewRuntime
+) {
+    switch interaction {
+    case .hover(let point):
+        runtime.pointerMoved(to: point)
+    case .pressed(let point):
+        runtime.pointerMoved(to: point)
+        runtime.pointerDown(at: point)
+    case .focused(let tabCount):
+        for _ in 0..<max(1, tabCount) {
+            runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.tab.rawValue))
+        }
+    }
+    // Settle every tween the input started, then render at the same instant so
+    // the scene and the animation clock agree.
+    runtime.tickAnimations(at: gallerySettledTimestamp)
+}
+
+/// The interaction-state tier: four control families × their state ramps.
+///
+/// Each control is pinned to a known frame at the canvas origin so the driving
+/// point is derivable by hand and stays true if the surrounding list is
+/// reordered.
+@MainActor
+private func interactionStateSpecs() -> [GallerySpec] {
+    // Button: 120x36 at the origin.
+    let buttonFrame = (width: 120.0, height: 36.0)
+    let buttonCentre = Point(x: buttonFrame.width / 2, y: buttonFrame.height / 2)
+    func button(_ title: String) -> AnyView {
+        AnyView(
+            Button(title) {}
+                .frame(width: buttonFrame.width, height: buttonFrame.height)
+        )
+    }
+
+    // Toggle: the switch alone. A labelled `Toggle` lays its row out at
+    // content width and leading-aligned, so the switch's position depends on
+    // the label's measured text — `labelsHidden()` makes the hit target the
+    // frame itself, and the centre derivable rather than measured off a PNG.
+    let toggleFrame = (width: 60.0, height: 36.0)
+    let togglePoint = Point(x: toggleFrame.width / 2, y: toggleFrame.height / 2)
+    func toggle() -> AnyView {
+        AnyView(
+            Toggle("Sync", isOn: .constant(true))
+                .labelsHidden()
+                .frame(width: toggleFrame.width, height: toggleFrame.height)
+        )
+    }
+
+    // Text field: 160x32 at the origin.
+    let fieldFrame = (width: 160.0, height: 32.0)
+    let fieldCentre = Point(x: fieldFrame.width / 2, y: fieldFrame.height / 2)
+    func field() -> AnyView {
+        AnyView(
+            TextField("Name", text: .constant("Ada"))
+                .frame(width: fieldFrame.width, height: fieldFrame.height)
+        )
+    }
+
+    // Segmented picker, label hidden so the band fills the frame instead of
+    // sharing it with a caption (which squashes a 30pt control to ~10pt). The
+    // point lands in the LAST segment — the unselected one, since a hover ramp
+    // under the selected segment's fill is indistinguishable from selection.
+    let pickerFrame = (width: 180.0, height: 30.0)
+    let pickerTrailingSegment = Point(x: pickerFrame.width - 30, y: pickerFrame.height / 2)
+    func picker() -> AnyView {
+        AnyView(
+            Picker("Mode", selection: .constant(0)) {
+                Text("One").tag(0)
+                Text("Two").tag(1)
+                Text("Three").tag(2)
+            }
+            .pickerStyle(SegmentedPickerStyle())
+            .labelsHidden()
+            .frame(width: pickerFrame.width, height: pickerFrame.height)
+        )
+    }
+
+    return [
+        // Button ramp
+        GallerySpec(id: "state-button-idle", title: "Button · idle", view: button("Action")),
+        GallerySpec(
+            id: "state-button-hover", title: "Button · hover", view: button("Action"),
+            interaction: .hover(buttonCentre)),
+        GallerySpec(
+            id: "state-button-pressed", title: "Button · pressed", view: button("Action"),
+            interaction: .pressed(buttonCentre)),
+        GallerySpec(
+            id: "state-button-focused", title: "Button · focused", view: button("Action"),
+            interaction: .focused(tabCount: 1)),
+        GallerySpec(
+            id: "state-button-disabled", title: "Button · disabled",
+            view: AnyView(
+                Button("Action") {}
+                    .disabled(true)
+                    .frame(width: buttonFrame.width, height: buttonFrame.height)
+            )),
+
+        // Toggle ramp
+        GallerySpec(id: "state-toggle-idle", title: "Toggle · idle", view: toggle()),
+        GallerySpec(
+            id: "state-toggle-hover", title: "Toggle · hover", view: toggle(),
+            interaction: .hover(togglePoint)),
+        GallerySpec(
+            id: "state-toggle-pressed", title: "Toggle · pressed", view: toggle(),
+            interaction: .pressed(togglePoint)),
+        GallerySpec(
+            id: "state-toggle-disabled", title: "Toggle · disabled",
+            view: AnyView(
+                Toggle("Sync", isOn: .constant(true))
+                    .labelsHidden()
+                    .disabled(true)
+                    .frame(width: toggleFrame.width, height: toggleFrame.height)
+            )),
+
+        // Text field ramp. No hover entry: a text field's bezel does not
+        // respond to the pointer on macOS, and this stack matches it — only
+        // `Controls.button` installs a hover ramp, so a `field-hover` entry
+        // would sit in the gate re-certifying the idle render forever. Focus
+        // is the state a field actually has, and it is pinned below.
+        GallerySpec(id: "state-field-idle", title: "TextField · idle", view: field()),
+        GallerySpec(
+            id: "state-field-focused", title: "TextField · focused", view: field(),
+            interaction: .focused(tabCount: 1)),
+        GallerySpec(
+            id: "state-field-disabled", title: "TextField · disabled",
+            view: AnyView(
+                TextField("Name", text: .constant("Ada"))
+                    .disabled(true)
+                    .frame(width: fieldFrame.width, height: fieldFrame.height)
+            )),
+
+        // Segmented picker ramp
+        GallerySpec(id: "state-picker-idle", title: "Picker · idle", view: picker()),
+        GallerySpec(
+            id: "state-picker-hover", title: "Picker · hover", view: picker(),
+            interaction: .hover(pickerTrailingSegment)),
+        GallerySpec(
+            id: "state-picker-pressed", title: "Picker · pressed", view: picker(),
+            interaction: .pressed(pickerTrailingSegment)),
+        GallerySpec(
+            id: "state-picker-focused", title: "Picker · focused", view: picker(),
+            interaction: .focused(tabCount: 1)),
+    ]
+}
+
+private enum GalleryError: Error, CustomStringConvertible {
+    case interactionHadNoEffect(id: String, state: String)
+
+    var description: String {
+        switch self {
+        case .interactionHadNoEffect(let id, let state):
+            return """
+                Gallery entry '\(id)' declares the '\(state)' state but renders \
+                pixel-identical to its own idle render. The interaction did not \
+                reach the control — check the point against the control's frame, \
+                or the tab count against the focusable order.
+                """
+        }
     }
 }
 

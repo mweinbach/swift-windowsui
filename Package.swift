@@ -150,6 +150,11 @@ let package = Package(
                 "SwiftWindowsCore",
                 "SwiftWindowsDemo",
                 "SwiftWindowsGraphics",
+                // The interaction-state tier drives `RetainedViewRuntime`
+                // input (pointer, Tab) directly, so the gallery names the
+                // runtime rather than reaching it transitively through
+                // WinSwiftUI.
+                "SwiftWindowsUI",
                 "WinSwiftUI",
             ]
         ),

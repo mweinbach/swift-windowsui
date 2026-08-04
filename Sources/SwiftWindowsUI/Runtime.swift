@@ -5617,29 +5617,32 @@ public final class ViewNode {
             }
         }
 
-        if hasPaintableExtent,
-            let focusEffect = focusEffectCommand(
+        if hasPaintableExtent {
+            for focusEffect in focusEffectCommands(
                 for: paintFrame,
                 inheritedClip: inheritedClip?.rect,
                 opacity: effectiveOpacity
-            )
-        {
-            commands.append(.fillRect(focusEffect))
+            ) {
+                commands.append(.fillRect(focusEffect))
+            }
         }
 
         let effectiveOutlineColor = outlineColor.multipliedAlpha(by: effectiveOpacity)
         if hasPaintableExtent, effectiveOutlineColor.alpha > 0, outlineWidth > 0 {
             let outlineRect = paintFrame.outset(by: outlineWidth)
             if baseClipAllowsDrawing(baseClip: inheritedClip?.rect, rect: outlineRect) {
-                commands.append(
-                    .fillRect(
-                        FillRectCommand(
-                            rect: outlineRect,
-                            color: effectiveOutlineColor,
-                            cornerRadius: uniformCornerRadius + outlineWidth,
-                            clipRect: inheritedClip?.rect
-                        )
-                    )
+                // A ring, matching `ScenePainter.appendFocusRing`. Filling the
+                // whole outset rect only reads as a ring while the border and
+                // background painted over it are opaque; the macOS palettes
+                // are translucent, so the accent used to show through the body
+                // and repaint a focused bordered control accent-blue.
+                appendFocusRingCommands(
+                    into: &commands,
+                    paintFrame: paintFrame,
+                    outlineWidth: outlineWidth,
+                    color: effectiveOutlineColor,
+                    uniformCornerRadius: uniformCornerRadius,
+                    clipRect: inheritedClip?.rect
                 )
             }
         }
@@ -5940,33 +5943,44 @@ public final class ViewNode {
         )
     }
 
-    func focusEffectCommand(
+    /// The 2pt focus halo, as a RING.
+    ///
+    /// It used to be one `fillRect` covering `frame.outset(by: 2)` — a slab
+    /// under the control, relying on the control's own border and background
+    /// to cover everything but the 2pt margin. Those are translucent in the
+    /// macOS palettes (`white(0.15)`-class fills), so the halo showed through
+    /// the body and repainted a focused bordered control accent-blue, which
+    /// on macOS means a *different* control: the prominent/default button.
+    /// Emitted as an annulus, it can only ever occupy the margin.
+    func focusEffectCommands(
         for absoluteFrame: Rect,
         inheritedClip: Rect?,
         opacity: Float
-    ) -> FillRectCommand? {
+    ) -> [FillRectCommand] {
         guard isFocused, isFocusable, !isFocusEffectDisabled else {
-            return nil
+            return []
         }
 
         let width = 2.0
         let ringRect = absoluteFrame.outset(by: width)
         guard ringRect.size.width > 0, ringRect.size.height > 0 else {
-            return nil
+            return []
         }
         guard baseClipAllowsDrawing(baseClip: inheritedClip, rect: ringRect) else {
-            return nil
+            return []
         }
 
         let color = Color(red: 0.25, green: 0.55, blue: 1, alpha: 0.75).multipliedAlpha(by: opacity)
         guard color.alpha > 0 else {
-            return nil
+            return []
         }
 
-        return FillRectCommand(
-            rect: ringRect,
+        return focusRingFillCommands(
+            ringFrame: ringRect,
+            width: width,
             color: color,
-            cornerRadius: effectCornerRadius(for: absoluteFrame, kinds: .focusEffect, fallback: cornerRadius) + width,
+            outerCornerRadius: effectCornerRadius(
+                for: absoluteFrame, kinds: .focusEffect, fallback: cornerRadius) + width,
             clipRect: inheritedClip
         )
     }
@@ -9315,6 +9329,75 @@ private final class ViewColorAnimation {
         return min(max(elapsed / duration, 0), 1)
     }
 }
+/// The frame path's keyboard focus ring: an annulus around `paintFrame`,
+/// drawn as the same `BorderSegments` walk the scene path uses.
+///
+/// Out of line because `appendCommands` is the deepest frame in the paint
+/// traversal and this needs a segment array; inlined, every level of a deep
+/// tree would carry it whether or not the node has a focus ring.
+@inline(never)
+func appendFocusRingCommands(
+    into commands: inout [RenderCommand],
+    paintFrame: Rect,
+    outlineWidth: Double,
+    color: Color,
+    uniformCornerRadius: Double,
+    clipRect: Rect?
+) {
+    for command in focusRingFillCommands(
+        ringFrame: paintFrame.outset(by: outlineWidth),
+        width: outlineWidth,
+        color: color,
+        outerCornerRadius: uniformCornerRadius + outlineWidth,
+        clipRect: clipRect
+    ) {
+        commands.append(.fillRect(command))
+    }
+}
+
+/// The one place a focus ring's geometry is decided, shared by the 2pt focus
+/// effect and the wider chrome outline, and by both the frame and scene paths.
+///
+/// A ring is an annulus, and `BorderSegments.solidSegments` is the walk the
+/// container border already uses when it must paint after its children — edges
+/// plus per-corner arcs, covering the band and nothing inside it.
+func focusRingFillCommands(
+    ringFrame: Rect,
+    width: Double,
+    color: Color,
+    outerCornerRadius: Double,
+    clipRect: Rect?
+) -> [FillRectCommand] {
+    let segments = BorderSegments.solidSegments(
+        frame: ringFrame,
+        width: width,
+        cornerRadius: outerCornerRadius
+    )
+    // A degenerate walk (zero perimeter, or a ring wider than the control it
+    // surrounds) must not drop the ring entirely — fall back to the slab,
+    // which is what a ring that thick would look like anyway.
+    guard !segments.isEmpty else {
+        return [
+            FillRectCommand(
+                rect: ringFrame,
+                color: color,
+                cornerRadius: outerCornerRadius,
+                clipRect: clipRect
+            )
+        ]
+    }
+
+    return segments.compactMap { segment in
+        guard baseClipAllowsDrawing(baseClip: clipRect, rect: segment.rect) else { return nil }
+        return FillRectCommand(
+            rect: segment.rect,
+            color: color,
+            cornerRadius: segment.cornerRadius,
+            clipRect: clipRect
+        )
+    }
+}
+
 func baseClipAllowsDrawing(baseClip: Rect?, rect: Rect) -> Bool {
     baseClip?.intersected(with: rect) != nil || baseClip == nil
 }

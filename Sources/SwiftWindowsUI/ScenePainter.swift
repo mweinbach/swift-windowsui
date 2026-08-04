@@ -520,12 +520,20 @@ public enum ScenePainter {
             // with the decoration that reaches outside it — a shadow or
             // focus/outline ring on a card scrolled one pixel past the clip edge
             // is still visible, and culling on `paintFrame` alone made it pop.
-            let ownShadowRect: Rect? =
-                node.shadowColor.alpha > 0
-                ? paintFrame
+            // The offset is turned by the node's rotation, exactly as the
+            // emission below turns it (`placement.turning`). A shadow's
+            // offset is authored in the shadowed view's own space, so a card
+            // turned 90° with `.shadow(y: 40)` casts 40pt to its *side*; a
+            // footprint that still assumed 40pt down could miss the clip the
+            // halo actually falls in and prune a visibly-shadowed subtree.
+            var ownShadowRect: Rect?
+            if node.shadowColor.alpha > 0 {
+                let placedOffset = placement.turning(node.shadowOffset)
+                ownShadowRect =
+                    paintFrame
                     .outset(by: max(0, node.shadowSpread))
-                    .offsetBy(dx: node.shadowOffset.x, dy: node.shadowOffset.y)
-                : nil
+                    .offsetBy(dx: placedOffset.x, dy: placedOffset.y)
+            }
             let ownOutlineRect: Rect? =
                 node.outlineColor.alpha > 0 && node.outlineWidth > 0
                 ? paintFrame.outset(by: node.outlineWidth)
@@ -774,36 +782,48 @@ public enum ScenePainter {
                 }
             }
 
-            if hasPaintableExtent,
-                let focusEffect = node.focusEffectCommand(
+            if hasPaintableExtent {
+                for focusEffect in node.focusEffectCommands(
                     for: paintFrame,
                     inheritedClip: inheritedClip?.rect,
                     opacity: opacity
-                )
-            {
-                scene.addQuad(
-                    placement.rotating(
-                        quad(for: focusEffect, surfaceSize: surfaceSize, displayScale: displayScale),
-                        displayScale: displayScale),
-                    toLayer: layerIndex
-                )
-            }
-
-            // Outline (drawn outside the border)
-            if hasPaintableExtent, let outlineRect = ownOutlineRect {
-                if clipAllowsDrawing(clip: inheritedClip, rect: outlineRect) {
+                ) {
                     scene.addQuad(
                         placement.rotating(
-                            solidQuad(
-                                rect: quadFrame.outset(by: node.outlineWidth),
-                                cornerRadius: (node.cornerRadii?.maxRadius ?? node.cornerRadius) + node.outlineWidth,
-                                color: node.outlineColor,
-                                opacity: opacity,
-                                clip: inheritedClip?.rect,
-                                surfaceSize: surfaceSize,
-                                displayScale: displayScale,
-                                colorEffects: colorEffects
-                            ), displayScale: displayScale), toLayer: layerIndex)
+                            quad(for: focusEffect, surfaceSize: surfaceSize, displayScale: displayScale),
+                            displayScale: displayScale),
+                        toLayer: layerIndex
+                    )
+                }
+            }
+
+            // Outline — the keyboard focus ring, drawn OUTSIDE the border.
+            //
+            // As a ring, not a slab. This used to fill the whole outset rect
+            // and lean on the border and background painted over it to hide
+            // everything but the 4pt margin. That holds only while those are
+            // opaque, and the macOS palettes are not: a bordered control's
+            // fill is `white(0.15)`-style translucency over the window, so the
+            // accent slab showed straight through the body and a focused push
+            // button turned solid blue — a `.borderedProminent` button, which
+            // is a different control. `BorderSegments.solidSegments` is the
+            // same ring walk the container border already uses when it has to
+            // paint after its children; it covers the margin and nothing else,
+            // so no fill above it can be seen through.
+            if hasPaintableExtent, let outlineRect = ownOutlineRect {
+                if clipAllowsDrawing(clip: inheritedClip, rect: outlineRect) {
+                    appendFocusRing(
+                        node: node,
+                        quadFrame: quadFrame,
+                        placement: placement,
+                        opacity: opacity,
+                        inheritedClip: inheritedClip,
+                        colorEffects: colorEffects,
+                        layerIndex: layerIndex,
+                        into: &scene,
+                        surfaceSize: surfaceSize,
+                        displayScale: displayScale
+                    )
                 }
             }
 
@@ -3314,6 +3334,69 @@ public enum ScenePainter {
 
     private static func shouldRenderNativeGlyph(_ glyph: NativeTextGlyphLayout) -> Bool {
         glyph.character != " " || glyph.sourceIndex == nil
+    }
+
+    /// Emits the keyboard focus ring as an annulus around `quadFrame`.
+    ///
+    /// Out of line, and deliberately so: the paint loop it is called from is
+    /// the deepest frame in the traversal, and a ring walk needs a segment
+    /// array plus per-corner arc state. Kept here, the loop gains a call and
+    /// not a hundred bytes of stack per level.
+    @inline(never)
+    private static func appendFocusRing(
+        node: ViewNode,
+        quadFrame: Rect,
+        placement: PaintPlacement,
+        opacity: Float,
+        inheritedClip: RuntimeClipShape?,
+        colorEffects: [RetainedColorEffect],
+        layerIndex: Int,
+        into scene: inout GPUIScene,
+        surfaceSize: Size,
+        displayScale: Double
+    ) {
+        let ringFrame = quadFrame.outset(by: node.outlineWidth)
+        // The ring's own radius follows the control's, widened by the ring so
+        // the outer edge stays concentric with the bezel.
+        let outerRadius = (node.cornerRadii?.maxRadius ?? node.cornerRadius) + node.outlineWidth
+        let segments = BorderSegments.solidSegments(
+            frame: ringFrame,
+            width: node.outlineWidth,
+            cornerRadius: outerRadius
+        )
+        // A degenerate walk (zero perimeter) must not silently drop the ring;
+        // fall back to the rect the ring would have covered.
+        guard !segments.isEmpty else {
+            scene.addQuad(
+                placement.rotating(
+                    solidQuad(
+                        rect: ringFrame,
+                        cornerRadius: outerRadius,
+                        color: node.outlineColor,
+                        opacity: opacity,
+                        clip: inheritedClip?.rect,
+                        surfaceSize: surfaceSize,
+                        displayScale: displayScale,
+                        colorEffects: colorEffects
+                    ), displayScale: displayScale), toLayer: layerIndex)
+            return
+        }
+
+        for segment in segments
+        where clipAllowsDrawing(clip: inheritedClip, rect: placement.footprint(of: segment.rect)) {
+            scene.addQuad(
+                placement.rotating(
+                    solidQuad(
+                        rect: segment.rect,
+                        cornerRadius: segment.cornerRadius,
+                        color: node.outlineColor,
+                        opacity: opacity,
+                        clip: inheritedClip?.rect,
+                        surfaceSize: surfaceSize,
+                        displayScale: displayScale,
+                        colorEffects: colorEffects
+                    ), displayScale: displayScale), toLayer: layerIndex)
+        }
     }
 
     private static func scaleRect(_ rect: Rect, by factor: Double) -> Rect {

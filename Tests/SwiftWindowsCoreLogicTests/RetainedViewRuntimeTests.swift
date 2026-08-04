@@ -747,17 +747,29 @@ final class RetainedViewRuntimeTests: XCTestCase {
             let scene = runtime.renderScene()
 
             let focusColor = Color(red: 0.25, green: 0.55, blue: 1, alpha: 0.75)
-            XCTAssertTrue(
-                fillRectCommands(in: frame).contains {
-                    $0.color == focusColor && $0.cornerRadius == 14
-                }
-            )
-            XCTAssertTrue(
-                scene.layers.flatMap(\.quads).contains {
-                    Color(red: $0.startR, green: $0.startG, blue: $0.startB, alpha: $0.startA) == focusColor
-                        && $0.cornerRadius == 14
-                }
-            )
+
+            // The halo is a ring, so its radius is no longer readable off a
+            // single quad — it is visible in the ring's geometry. The ring
+            // frame is the 80pt-wide node outset by the 2pt halo, so 84pt; its
+            // straight top edge spans that minus a corner radius at each end.
+            // With the `.focusEffect` content shape's 12pt radius (+2 for the
+            // halo) that is 84 - 28 = 56. Falling back to the node's own 4pt
+            // radius would give 84 - 12 = 72, so the two are distinguishable.
+            let expectedTopEdgeWidth = 84.0 - 2 * 14
+
+            let framedEdges = fillRectCommands(in: frame).filter { $0.color == focusColor }
+            XCTAssertFalse(framedEdges.isEmpty, "the halo is still drawn on the frame path")
+            XCTAssertEqual(
+                framedEdges.map(\.rect.size.width).max() ?? 0, expectedTopEdgeWidth, accuracy: 1e-6,
+                "the frame path's halo follows the focusEffect content shape's radius")
+
+            let sceneEdges = scene.layers.flatMap(\.quads).filter {
+                Color(red: $0.startR, green: $0.startG, blue: $0.startB, alpha: $0.startA) == focusColor
+            }
+            XCTAssertFalse(sceneEdges.isEmpty, "the halo is still drawn on the scene path")
+            XCTAssertEqual(
+                Double(sceneEdges.map(\.width).max() ?? 0), expectedTopEdgeWidth, accuracy: 1e-4,
+                "and the scene path agrees with it")
         }
     }
 

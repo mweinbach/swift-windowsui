@@ -475,8 +475,16 @@ struct ScenePainterTests {
         #expect(quads[0].cornerRadius == 8)
     }
 
-    @Test("Outline produces quad outside the frame")
-    func outlineProducesQuadOutsideFrame() {
+    /// The outline is a RING around the frame, not a slab under it.
+    ///
+    /// This used to assert one quad covering the whole outset rect, which is
+    /// what the painter emitted — correct-looking only while the fill painted
+    /// over it is opaque. The macOS control palettes are translucent, so the
+    /// slab showed through the body and repainted a focused bordered button
+    /// accent-blue. The ring's union is still the outset rect; the difference
+    /// is that its interior is empty.
+    @Test("Outline produces a ring around the frame, never covering its interior")
+    func outlineProducesRingOutsideFrame() {
         let node = ViewNode(
             frame: Rect(x: 10, y: 10, width: 40, height: 30),
             backgroundColor: .white,
@@ -487,14 +495,36 @@ struct ScenePainterTests {
         let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
         let quads = scene.layers[0].quads
 
-        // outline quad + fill quad
-        #expect(quads.count == 2)
+        // The ring's own radius is the control's plus the ring width, so even
+        // a square control gets a 3pt-rounded ring: four edge bands plus four
+        // corner arcs, each arc subdivided into bands no longer than the ring
+        // is wide. Twelve quads, then the fill.
+        #expect(quads.count == 13)
 
-        let outlineQuad = quads[0]
-        #expect(outlineQuad.x == 7)
-        #expect(outlineQuad.y == 7)
-        #expect(outlineQuad.width == 46)
-        #expect(outlineQuad.height == 36)
+        let outlineQuads = quads.filter { $0.startR == 0 && $0.startG == 0 && $0.startB == 0 }
+        #expect(outlineQuads.count == 12)
+
+        // The ring spans exactly the outset rect...
+        let minX = outlineQuads.map { $0.x }.min() ?? 0
+        let minY = outlineQuads.map { $0.y }.min() ?? 0
+        let maxX = outlineQuads.map { $0.x + $0.width }.max() ?? 0
+        let maxY = outlineQuads.map { $0.y + $0.height }.max() ?? 0
+        #expect(minX == 7)
+        #expect(minY == 7)
+        #expect(maxX == 53)
+        #expect(maxY == 43)
+
+        // ...and none of it lands inside the control. Inset past the ring's
+        // 3pt outer radius: a corner arc's bounding box legitimately reaches
+        // into the frame's square corners, which the rounded ring does not
+        // actually paint.
+        let body = Rect(x: 10, y: 10, width: 40, height: 30).outset(by: -4)
+        for quad in outlineQuads {
+            let rect = Rect(
+                x: Double(quad.x), y: Double(quad.y),
+                width: Double(quad.width), height: Double(quad.height))
+            #expect(rect.intersected(with: body) == nil)
+        }
     }
 
     // MARK: - Opacity multiplied into alpha

@@ -86,7 +86,31 @@ $GalleryBaselineEntries = @(
     "list-data",
     "form",
     "form-settings",
-    "divider"
+    "divider",
+
+    # Interaction-state tier. The hover/pressed/focus/disabled ramps were
+    # pinned only by unit tests reading colour fields, so a ramp could go
+    # visually wrong with every assertion still green — which is how a focused
+    # bordered button came to render accent-blue (the focus ring was a filled
+    # slab under a translucent fill, not a ring). These are deterministic: the
+    # gallery drives the runtime's own input entry points, then settles every
+    # tween to its end value before capturing, so no wall clock is involved.
+    "state-button-idle",
+    "state-button-hover",
+    "state-button-pressed",
+    "state-button-focused",
+    "state-button-disabled",
+    "state-toggle-idle",
+    "state-toggle-hover",
+    "state-toggle-pressed",
+    "state-toggle-disabled",
+    "state-field-idle",
+    "state-field-focused",
+    "state-field-disabled",
+    "state-picker-idle",
+    "state-picker-hover",
+    "state-picker-pressed",
+    "state-picker-focused"
 )
 
 function Write-Step {

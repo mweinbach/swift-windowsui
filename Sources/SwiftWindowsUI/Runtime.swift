@@ -1467,8 +1467,9 @@ public struct FixedSizeAxes: Equatable, Sendable {
 /// instead of its intrinsic measurement.
 ///
 /// This is the runtime's model of SwiftUI's *greedy* views — `Color`,
-/// `ScrollView`, `List`, `Form`, `Divider` across its cross axis, and
-/// anything given `.frame(maxWidth: .infinity)`. A greedy axis is
+/// `ScrollView`, `List`, `Form`, `Spacer` along its stack's axis,
+/// `Divider` across its cross axis, and anything given
+/// `.frame(maxWidth: .infinity)`. A greedy axis is
 /// meaningful only against a finite proposal: measured with an
 /// unconstrained axis (an intrinsic query, or the main axis of the
 /// enclosing stack) the node still reports its content size, so a
@@ -1476,6 +1477,14 @@ public struct FixedSizeAxes: Equatable, Sendable {
 /// Along a stack's main axis the fill is applied as growth out of the
 /// stack's leftover extent (`growMainSizes`), which is what keeps
 /// `VStack { Text; ScrollView }` from over-subscribing the track.
+///
+/// Greed also travels: a stack holding a greedy child along its *own*
+/// axis is greedy along that axis, so `HStack { Text; Spacer }` is as
+/// wide as its proposal rather than as wide as its text. That inherited
+/// half lives in `ViewNode.inheritedStackFillAxes`, is derived once per
+/// measurement, and stops at any ancestor that pins its own extent along
+/// the same axis — `ViewNode.effectiveFillAxes` is the sum the layout
+/// actually reads.
 public struct LayoutFillAxes: Equatable, Sendable {
     public var horizontal: Bool
     public var vertical: Bool
@@ -2841,6 +2850,11 @@ public final class ViewNode {
     internal private(set) var subtreeDirtyFlags: DirtyFlags = .all
     internal var cachedMeasureKey: ViewMeasureCacheKey?
     internal var cachedMeasuredSize: Size?
+    /// Main-axis greed this stack picked up from its own children, folded in
+    /// at the end of every measurement (see `updateInheritedStackFillAxes`).
+    /// Never set by a caller — `layoutFillAxes` is the declared half of the
+    /// same idea, and `effectiveFillAxes` is what the layout consults.
+    internal private(set) var inheritedStackFillAxes = LayoutFillAxes()
     internal var cachedLayoutKey: ViewLayoutCacheKey?
     /// The key this node's *in-flight* layout pass will cache once its subtree
     /// has settled. Layout is a worklist, so the key is minted when the node is
@@ -6215,6 +6229,11 @@ public final class ViewNode {
     /// its explicit dimensions, and caches the answer.
     @inline(never)
     private func finishMeasurement(plan: MeasurementPlan, childSizes: [Size]) -> Size {
+        // Before this node answers for itself: the children have measured, so
+        // their own inherited greed is this pass's, and folding it in here is
+        // what carries a `Spacer` up out of the row it sits in.
+        updateInheritedStackFillAxes()
+
         let measuredSize: Size
         switch layoutMode {
         case .absolute:
@@ -6338,10 +6357,11 @@ public final class ViewNode {
         // the size it reports when nothing proposes an extent. An infinite
         // proposal leaves the measurement alone, which is what keeps an
         // unconstrained measure of a greedy subtree finite.
-        if frame.size.width <= 0, layoutFillAxes.horizontal, constraints.maxWidth.isFinite {
+        let fillAxes = effectiveFillAxes
+        if frame.size.width <= 0, fillAxes.horizontal, constraints.maxWidth.isFinite {
             measuredWidth = max(measuredWidth, constraints.maxWidth)
         }
-        if frame.size.height <= 0, layoutFillAxes.vertical, constraints.maxHeight.isFinite {
+        if frame.size.height <= 0, fillAxes.vertical, constraints.maxHeight.isFinite {
             measuredHeight = max(measuredHeight, constraints.maxHeight)
         }
 
@@ -6454,15 +6474,28 @@ public final class ViewNode {
     }
 
     /// Weight this child carries when a stack shares out leftover main-axis
-    /// extent. A greedy child (`layoutFillAxes` along this axis) asked for
-    /// the whole proposal and gets a unit share; the historic
-    /// `layoutPriority`-as-flex-weight behaviour is preserved for the
-    /// controls built on it.
-    private static func mainAxisGrowthWeight(of child: ViewNode, axis: StackAxis) -> Double {
-        if child.layoutPriority > 0 {
-            return child.layoutPriority
+    /// extent.
+    ///
+    /// Leftover space belongs to the children that asked for it. When any
+    /// child is greedy along this axis — a `Spacer`, a `ScrollView`, a
+    /// `.frame(maxWidth: .infinity)` — those children take the whole
+    /// remainder and everyone else keeps the size it measured, which is
+    /// SwiftUI's rule and the reason a fixed-width search field beside a
+    /// `Spacer` stays the width its author gave it.
+    ///
+    /// `layoutPriority` is not a flex weight in SwiftUI, but a good deal of
+    /// this stack's control chrome was built on it behaving like one. That
+    /// reading survives only where it can still be the intended one: a row
+    /// with no greedy child at all.
+    private static func mainAxisGrowthWeight(
+        of child: ViewNode,
+        axis: StackAxis,
+        preferringGreedyChildren: Bool
+    ) -> Double {
+        guard preferringGreedyChildren else {
+            return max(0, child.layoutPriority)
         }
-        return fillsMainAxis(child, axis: axis) ? 1 : 0
+        return fillsMainAxis(child, axis: axis) ? max(1, child.layoutPriority) : 0
     }
 
     private func growMainSizes(
@@ -6475,15 +6508,19 @@ public final class ViewNode {
             return
         }
 
+        let preferringGreedyChildren = children.contains { ViewNode.fillsMainAxis($0, axis: axis) }
         let participantIndices = children.indices.filter {
-            ViewNode.mainAxisGrowthWeight(of: children[$0], axis: axis) > 0
+            ViewNode.mainAxisGrowthWeight(
+                of: children[$0], axis: axis, preferringGreedyChildren: preferringGreedyChildren) > 0
         }
         guard !participantIndices.isEmpty else {
             return
         }
 
         let totalPriority = participantIndices.reduce(0.0) { partialResult, index in
-            partialResult + ViewNode.mainAxisGrowthWeight(of: children[index], axis: axis)
+            partialResult
+                + ViewNode.mainAxisGrowthWeight(
+                    of: children[index], axis: axis, preferringGreedyChildren: preferringGreedyChildren)
         }
         guard totalPriority > 0 else {
             return
@@ -6497,7 +6534,9 @@ public final class ViewNode {
             } else {
                 share =
                     extraExtent
-                    * (ViewNode.mainAxisGrowthWeight(of: children[index], axis: axis) / totalPriority)
+                    * (ViewNode.mainAxisGrowthWeight(
+                        of: children[index], axis: axis, preferringGreedyChildren: preferringGreedyChildren)
+                        / totalPriority)
                 remainingExtent -= share
             }
 
@@ -6590,7 +6629,53 @@ public final class ViewNode {
 
     /// True when this node accepts its parent's proposal along `axis`.
     fileprivate static func fillsMainAxis(_ node: ViewNode, axis: StackAxis) -> Bool {
-        axis == .vertical ? node.layoutFillAxes.vertical : node.layoutFillAxes.horizontal
+        axis == .vertical ? node.effectiveFillAxes.vertical : node.effectiveFillAxes.horizontal
+    }
+
+    /// The axes this node is actually greedy on: the ones it declares, plus
+    /// the ones it inherited from a greedy child along its own stack axis.
+    internal var effectiveFillAxes: LayoutFillAxes {
+        LayoutFillAxes(
+            horizontal: layoutFillAxes.horizontal || inheritedStackFillAxes.horizontal,
+            vertical: layoutFillAxes.vertical || inheritedStackFillAxes.vertical
+        )
+    }
+
+    /// A stack that holds a greedy child *along its own axis* is itself
+    /// greedy along that axis — SwiftUI's `HStack { Text; Spacer }`, which
+    /// takes the width it is proposed rather than the width of its text.
+    ///
+    /// Only the main axis is derived. Across a stack's cross axis a greedy
+    /// child already reports the proposal from its own measurement and the
+    /// stack folds that in as its cross extent, so deriving there would
+    /// double-apply — and would let a `.frame(width:)` wrapper (a
+    /// single-child vertical stack) inherit width greed it must not have.
+    /// A node that pins its own extent along the axis ends the chain for the
+    /// same reason: `.frame(height: 44)` is the author's answer, not a
+    /// proposal to pass on.
+    ///
+    /// Called once per measurement, after the children have measured, so the
+    /// values it reads are this pass's. Deriving it here rather than walking
+    /// down from `effectiveFillAxes` keeps the one remaining recursion —
+    /// `sizeThatFits` — free of a second one.
+    @inline(never)
+    fileprivate func updateInheritedStackFillAxes() {
+        guard let axis = layoutMode.stackLayout?.axis else {
+            inheritedStackFillAxes = LayoutFillAxes()
+            return
+        }
+
+        let pinsMainExtent = axis == .vertical ? explicitHeight != nil : explicitWidth != nil
+        guard !pinsMainExtent else {
+            inheritedStackFillAxes = LayoutFillAxes()
+            return
+        }
+
+        let inherits = children.contains { !$0.isHidden && ViewNode.fillsMainAxis($0, axis: axis) }
+        inheritedStackFillAxes =
+            axis == .vertical
+            ? LayoutFillAxes(horizontal: false, vertical: inherits)
+            : LayoutFillAxes(horizontal: inherits, vertical: false)
     }
 
     /// Minimum main-axis extent a stack shrink pass may leave this node

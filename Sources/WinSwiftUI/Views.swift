@@ -7936,21 +7936,34 @@ public struct Spacer: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let preferredSize: Size
+        // A Spacer is greedy along the axis it sits on: SwiftUI hands it the
+        // proposal and it expands to fill whatever the row's other children
+        // leave. Declaring that as a fill axis is what makes the *row* take
+        // the width it is offered instead of the width of its content — a
+        // toolbar spanning its window rather than stopping at its last
+        // button. Off the stack axis it stays inert, and with no stack at
+        // all it is a plain `minLength` box.
+        let fillAxes: LayoutFillAxes
         switch context.stackAxis {
         case .horizontal:
             preferredSize = Size(width: minLength ?? 0, height: 0)
+            fillAxes = .horizontalOnly
         case .vertical:
             preferredSize = Size(width: 0, height: minLength ?? 0)
+            fillAxes = .verticalOnly
         case nil:
             preferredSize = Size(width: minLength ?? 0, height: minLength ?? 0)
+            fillAxes = LayoutFillAxes()
         }
 
         return Component { _ in
-            Controls.panel(
+            let node = Controls.panel(
                 preferredSize: preferredSize,
                 layoutPriority: 1,
                 isHitTestVisible: false
             )
+            node.layoutFillAxes = fillAxes
+            return node
         }
     }
 }

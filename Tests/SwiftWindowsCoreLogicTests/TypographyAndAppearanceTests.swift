@@ -149,7 +149,54 @@ final class TypographyAndAppearanceTests: XCTestCase {
     func testIncreasedBackgroundProminencePromotesSecondaryToPrimary() async {
         let promoted = Color.secondary.resolvedForVisualEnvironment(
             colorScheme: .dark, contrast: .standard, backgroundProminence: .increased)
-        XCTAssertEqual(promoted, ControlPalette.darkStandard.label)
+        XCTAssertEqual(promoted, ControlPalette.darkStandard.selectedContentLabel)
+    }
+
+    /// The emphasised selection fill is the *same* accent blue in both
+    /// appearances, so the ladder over it is built on white in both.
+    /// Resolving it against the appearance base put `.secondary` at
+    /// black-at-85% on `#007AFF` in light mode — the selected row in the
+    /// demo's Data screen had a near-invisible version label.
+    func testSelectionContentIsLightInBothAppearances() async {
+        for scheme in [ColorScheme.dark, ColorScheme.light] {
+            for style in [Color.primary, Color.secondary, Color.tertiary] {
+                let resolved = style.resolvedForVisualEnvironment(
+                    colorScheme: scheme, contrast: .standard, backgroundProminence: .increased)
+                XCTAssertEqual(resolved.red, 1, accuracy: 0.001, "\(scheme) selection content is white-based")
+                XCTAssertEqual(resolved.green, 1, accuracy: 0.001)
+                XCTAssertEqual(resolved.blue, 1, accuracy: 0.001)
+            }
+        }
+    }
+
+    /// Promoting the rung must not flatten the ladder: the lower rungs stay
+    /// legible but still rank under the title.
+    func testSelectionContentKeepsItsHierarchyBelowTheTitle() async {
+        for scheme in [ColorScheme.dark, ColorScheme.light] {
+            let primary = Color.primary.resolvedForVisualEnvironment(
+                colorScheme: scheme, contrast: .standard, backgroundProminence: .increased)
+            let tertiary = Color.tertiary.resolvedForVisualEnvironment(
+                colorScheme: scheme, contrast: .standard, backgroundProminence: .increased)
+            XCTAssertEqual(primary.alpha, 1, accuracy: 0.001)
+            XCTAssertLessThan(tertiary.alpha, primary.alpha)
+        }
+    }
+
+    /// The whole point of the fix: composited over the selection fill, the
+    /// label has to be brighter than the fill, not darker than it.
+    func testSelectedRowLabelOutshinesTheSelectionFillInLightMode() async {
+        let palette = ControlPalette.resolve(colorScheme: .light)
+        let fill = palette.selectedContentBackground(tint: .accentColor)
+        let label = Color.secondary.resolvedForVisualEnvironment(
+            colorScheme: .light, contrast: .standard, backgroundProminence: .increased)
+        let composited = (
+            fill.red + (label.red - fill.red) * label.alpha,
+            fill.green + (label.green - fill.green) * label.alpha,
+            fill.blue + (label.blue - fill.blue) * label.alpha
+        )
+        let fillLuma = 0.299 * fill.red + 0.587 * fill.green + 0.114 * fill.blue
+        let labelLuma = 0.299 * composited.0 + 0.587 * composited.1 + 0.114 * composited.2
+        XCTAssertGreaterThan(labelLuma, fillLuma + 0.2, "Selected-row secondary text reads against the fill")
     }
 
     // MARK: - The chrome neutrals are achromatic

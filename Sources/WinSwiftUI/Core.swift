@@ -17428,6 +17428,27 @@ extension SwiftWindowsCore.Color {
         }
 
         let palette = ControlPalette.resolve(colorScheme: colorScheme, contrast: contrast)
+        if backgroundProminence == .increased {
+            // An emphasised selection is the *same* saturated accent fill in
+            // both appearances, so the ladder over it is built on
+            // `alternateSelectedControlTextColor` — white — and not on the
+            // appearance's base. Resolving against `palette.label` put
+            // near-black text on the blue selection fill in light mode: the
+            // promotion above fixed the rung and left the base wrong.
+            let base = palette.selectedContentLabel
+            switch effectiveLevel {
+            case .primary:
+                return base
+            case .secondary:
+                return base.retainedWithMultipliedOpacity(Double(LabelHierarchy.secondaryAlpha))
+            case .tertiary:
+                return base.retainedWithMultipliedOpacity(Double(LabelHierarchy.tertiaryAlpha))
+            case .quaternary:
+                return base.retainedWithMultipliedOpacity(Double(LabelHierarchy.quaternaryAlpha))
+            case .quinary:
+                return base.retainedWithMultipliedOpacity(Double(LabelHierarchy.quinaryAlpha))
+            }
+        }
         switch effectiveLevel {
         case .primary:
             return palette.label

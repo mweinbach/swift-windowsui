@@ -119,7 +119,12 @@ for `.secondary` rather than fade `.primary`.
 
 `.increased` background prominence promotes secondary to primary: content
 drawn over a filled selection stops being secondary, which is what AppKit
-does.
+does. It also changes the *base*: an emphasised selection is the same
+saturated accent fill in both appearances, so the ladder over it is built on
+`selectedContentLabel` (`alternateSelectedControlTextColor`, white) rather
+than on the appearance's base. Promoting the rung while keeping the light
+appearance's black base put an 85%-black version label on `#007AFF` in the
+demo's Data screen; `testSelectionContentIsLightInBothAppearances` pins it.
 
 ## Chrome neutrals
 

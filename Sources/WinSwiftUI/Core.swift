@@ -22077,18 +22077,7 @@ extension View {
     }
 
     public func background(_ color: Color) -> some View {
-        ModifiedView(content: self) { content, context in
-            let child = content.makeComponent(context: context)
-            return Component { runtime in
-                let childNode = child.makeNode(runtime: runtime)
-                return Controls.stackPanel(
-                    backgroundColor: color,
-                    stackLayout: .vertical(alignment: .stretch),
-                    isHitTestVisible: false,
-                    children: [childNode]
-                )
-            }
-        }
+        backgroundStyle(color: color, gradient: nil)
     }
 
     public func background(_ color: Color, ignoresSafeAreaEdges edges: Edge.Set) -> some View {
@@ -22109,10 +22098,15 @@ extension View {
             }
 
             let child = content.makeComponent(context: context)
+            let resolved = color.resolvedForVisualEnvironment(
+                colorScheme: context.colorScheme,
+                contrast: context.colorSchemeContrast,
+                backgroundProminence: context.backgroundProminence
+            )
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 return Controls.stackPanel(
-                    backgroundColor: color,
+                    backgroundColor: resolved,
                     stackLayout: .vertical(alignment: .stretch),
                     isHitTestVisible: false,
                     children: [childNode]
@@ -22269,13 +22263,29 @@ extension View {
         }
     }
 
+    /// A background fill resolves against the appearance it lands in, exactly
+    /// as the foreground path does.
+    ///
+    /// The semantic families are *sentinels*, not RGBA: the
+    /// `NSColor.labelColor` ladder is stored white-with-alpha and flipped to
+    /// black in a light window, and a system colour carries a published value
+    /// per appearance. Resolution used to happen only on the way to a
+    /// foreground, so `.background(.quaternary)` handed the stored value
+    /// straight to the panel and painted a *white* scrim on a light window —
+    /// a bar lighter than the page it was sitting on. The resolver is a
+    /// lookup, so a colour the app mixed itself passes through unchanged.
     private func backgroundStyle(color: Color?, gradient: GradientType?) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
+            let resolved = color?.resolvedForVisualEnvironment(
+                colorScheme: context.colorScheme,
+                contrast: context.colorSchemeContrast,
+                backgroundProminence: context.backgroundProminence
+            )
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 return Controls.stackPanel(
-                    backgroundColor: color,
+                    backgroundColor: resolved,
                     backgroundGradient: gradient,
                     stackLayout: .vertical(alignment: .stretch),
                     isHitTestVisible: false,

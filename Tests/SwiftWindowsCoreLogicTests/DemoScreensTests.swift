@@ -291,7 +291,8 @@ final class DemoScreensTests: XCTestCase {
                     title: "Interactions", value: "0", note: "Events tracked", accent: Color.blue)
 
                 DemoRowButton(
-                    title: "State", detail: "Ready", systemImage: "info.circle", accent: Color.blue
+                    title: "State", detail: "Ready", systemImage: "info.circle",
+                    accent: DemoModule.layout.accentFill
                 ) {}
             }
             .frame(width: 260),
@@ -401,5 +402,227 @@ final class DemoScreensTests: XCTestCase {
         XCTAssertLessThanOrEqual(
             cardBottom, fold,
             "and the band is fully above it, not pushed off the bottom entirely")
+    }
+
+    // MARK: - G5-COMPOSE: demo composition
+
+    /// The fill a piece of text is drawn on: the nearest ancestor carrying a
+    /// non-transparent background. A demo surface draws its fill and its
+    /// corner on two different nodes, so "the nearest rounded ancestor" and
+    /// "the nearest filled ancestor" are not the same node.
+    private func nearestFill(above node: ViewNode) -> Color? {
+        var current = node.parent
+        while let candidate = current {
+            if let fill = candidate.backgroundColor, fill.alpha > 0 { return fill }
+            current = candidate.parent
+        }
+        return nil
+    }
+
+    private func relativeLuminance(of color: Color) -> Double {
+        func channel(_ value: Double) -> Double {
+            value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channel(Double(color.red)) + 0.7152 * channel(Double(color.green))
+            + 0.0722 * channel(Double(color.blue))
+    }
+
+    /// WCAG contrast of `text` drawn at its own alpha over an *opaque* `fill`.
+    private func contrastRatio(text: Color, over fill: Color) -> Double {
+        let alpha = Double(text.alpha)
+        let red: Double = alpha * Double(text.red) + (1 - alpha) * Double(fill.red)
+        let green: Double = alpha * Double(text.green) + (1 - alpha) * Double(fill.green)
+        let blue: Double = alpha * Double(text.blue) + (1 - alpha) * Double(fill.blue)
+        let composited = Color(
+            red: Float(red), green: Float(green), blue: Float(blue), alpha: 1)
+        let a = relativeLuminance(of: composited)
+        let b = relativeLuminance(of: fill)
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+    }
+
+    /// G5 item 1. The demo writes a near-white label on every fill it tints
+    /// itself, so those fills have to be colours rather than washes of one.
+    ///
+    /// They used to be `glowColor`/`stripeColor` — pale hues carrying alpha,
+    /// meant to be laid *over* something. Composited onto a light window the
+    /// "Open Layout" pill resolved to #88BDF2 and its label measured 1.9:1;
+    /// on the dark window the same pill only reached 2.4:1. An opaque fill
+    /// has no appearance to vary with, which is why one ramp answers for
+    /// both.
+    func testEveryTintedFillCarriesItsNearWhiteLabelAtFourPointFive() async {
+        let label = DemoTheme(colorScheme: .light).onTintedFillText
+        XCTAssertEqual(
+            label, DemoTheme(colorScheme: .dark).onTintedFillText,
+            "one label colour on tinted fills, in both appearances")
+
+        var ramps: [(name: String, colors: [Color])] = [
+            ("ready", DemoTheme.readyFill),
+            ("events", DemoTheme.eventsFill),
+        ]
+        for module in DemoModule.allCases {
+            ramps.append((String(describing: module), module.accentFill))
+        }
+
+        for ramp in ramps {
+            for (index, stop) in ramp.colors.enumerated() {
+                XCTAssertEqual(
+                    stop.alpha, 1, accuracy: 0.001,
+                    "\(ramp.name) stop \(index) is a wash, not a fill")
+                let ratio = contrastRatio(text: label, over: stop)
+                XCTAssertGreaterThanOrEqual(
+                    ratio, 4.5,
+                    "\(ramp.name) stop \(index) measures \(String(format: "%.2f", ratio)):1")
+            }
+        }
+    }
+
+    /// The same for the hero card's tinted badge, which takes its fill from a
+    /// caller and used to knock it back to 0.92 on the way in.
+    func testTintedBadgeKeepsItsFillOpaque() async {
+        let model = DemoDashboardModel()
+        for scheme in [ColorScheme.light, ColorScheme.dark] {
+            let root = laidOut(
+                DemoCapsuleText(model.selectedModule.label, tint: model.selectedModule.fillTop)
+                    .environment(\.colorScheme, scheme),
+                size: IntSize(width: 200, height: 80)
+            )
+            guard
+                let text = firstNode(in: root, matching: { $0.text == model.selectedModule.label }),
+                let fill = nearestFill(above: text)
+            else {
+                return XCTFail("expected a badge surface with a fill in \(scheme)")
+            }
+            XCTAssertEqual(fill.alpha, 1, accuracy: 0.001, "a badge fill is a fill")
+            XCTAssertGreaterThanOrEqual(
+                contrastRatio(text: DemoTheme(colorScheme: scheme).onTintedFillText, over: fill),
+                4.5)
+        }
+    }
+
+    /// G5 item 2. `.navigationTitle` is drawn by the pane's chrome at the
+    /// pane's own leading edge, so in a 1280pt window "Settings" sat 320pt
+    /// away from the 640pt column it was titling, with nothing under it in
+    /// between. The title belongs on the column.
+    func testSettingsTitleSitsOnTheContentColumn() async {
+        let model = DemoDashboardModel()
+        model.selectedScreen = .settings
+        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
+
+        guard
+            let title = firstNode(
+                in: root,
+                matching: { $0.text == "Settings" && ($0.textStyle.nativeFontSize ?? 0) > 20 }),
+            let sectionHeader = firstNode(in: root, matching: { $0.text == "Profile" })
+        else {
+            return XCTFail("expected a large pane title and a section header")
+        }
+
+        XCTAssertEqual(
+            absoluteX(of: title), absoluteX(of: sectionHeader), accuracy: 8,
+            "the title leads on the same edge as the section headers under it")
+        XCTAssertGreaterThan(
+            absoluteX(of: title), 200,
+            "and it is inside the centred column, not at the window's edge")
+    }
+
+    /// G5 item 3. The inspector used to be a paragraph after the list, split
+    /// from it by a hairline in a 12pt gap — both standing on the same window
+    /// background, so the block read as floating text. macOS closes an
+    /// inspector with a *bar*: its own scrim, a rule along its top edge.
+    func testDataInspectorSitsOnABarRatherThanTheWindow() async {
+        for scheme in [ColorScheme.light, ColorScheme.dark] {
+            let model = DemoDashboardModel()
+            model.selectedScreen = .data
+            let root = laidOut(
+                DemoRootView(model: model).environment(\.colorScheme, scheme),
+                size: IntSize(width: 1280, height: 720))
+
+            guard let load = firstNode(in: root, matching: { $0.text == "Current load" }) else {
+                return XCTFail("expected the inspector's load caption in \(scheme)")
+            }
+
+            var bar: ViewNode?
+            var current = load.parent
+            while let candidate = current {
+                if let fill = candidate.backgroundColor, fill.alpha > 0,
+                    candidate.resolvedFrame.size.width > 1000
+                {
+                    bar = candidate
+                    break
+                }
+                current = candidate.parent
+            }
+
+            guard let bar, let fill = bar.backgroundColor else {
+                return XCTFail("the inspector has no bar behind it in \(scheme)")
+            }
+
+            // The scrim darkens a light window and lightens a dark one: a
+            // semantic rung, not a fixed white. `.quaternary` used to reach
+            // the panel unresolved and paint white on both.
+            let isLight = scheme == .light
+            XCTAssertEqual(
+                Double(fill.red) < 0.5, isLight,
+                "a bar scrim runs against the appearance it is in (\(scheme))")
+        }
+    }
+
+    /// G5 item 4a. Stacking the hero card's two pills is a question about the
+    /// content column's *width*. It used to ask `compact`, which is also true
+    /// in a short window, so 1280x720 stacked them — and the hero card is a
+    /// fixed height, so the extra row had nowhere to go and both pills were
+    /// squeezed from 38pt to about 15.
+    func testHeroActionsStayARowInAWideShortWindow() async {
+        XCTAssertFalse(
+            DemoLayout(size: CGSize(width: 1280, height: 720)).compactActions,
+            "a wide window keeps the pills side by side however short it is")
+        XCTAssertTrue(
+            DemoLayout(size: CGSize(width: 820, height: 900)).compactActions,
+            "a narrow one stacks them however tall it is")
+
+        let model = DemoDashboardModel()
+        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
+
+        guard
+            let open = firstNode(in: root, matching: { $0.text == "Open Layout" }),
+            let cycle = firstNode(in: root, matching: { $0.text == "Cycle mode" }),
+            let openPill = enclosingSurface(of: open)
+        else {
+            return XCTFail("expected both hero pills")
+        }
+
+        XCTAssertEqual(absoluteY(of: open), absoluteY(of: cycle), accuracy: 2, "one row")
+        XCTAssertGreaterThanOrEqual(
+            openPill.resolvedFrame.size.height, 34,
+            "a pill is as tall as it asked to be, not squeezed by an overflowing card")
+    }
+
+    /// G5 item 4b. The right rail is two panels in the height the centre pane
+    /// spends on one, so it carries a tighter internal rhythm. At the centre
+    /// column's rhythm it ran ~30pt past the bottom of its scroll view and
+    /// the fold went through the middle of the "Resize Panes" row.
+    func testRightRailFitsAboveTheFold() async {
+        let model = DemoDashboardModel()
+        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
+
+        guard
+            let workspace = firstNode(
+                in: root,
+                matching: { $0.text?.caseInsensitiveCompare("Workspace") == .orderedSame }),
+            let sidebar = enclosingSurface(of: workspace),
+            let resize = firstNode(in: root, matching: { $0.text == "Resize Panes" }),
+            let resizeRow = enclosingSurface(of: resize)
+        else {
+            return XCTFail("expected a sidebar surface and the last quick-action row")
+        }
+
+        let fold = absoluteY(of: sidebar) + sidebar.resolvedFrame.size.height
+        let rowTop = absoluteY(of: resizeRow)
+        let rowBottom = rowTop + resizeRow.resolvedFrame.size.height
+
+        XCTAssertFalse(
+            rowTop < fold && rowBottom > fold,
+            "the fold at \(fold) runs through the Resize Panes row (\(rowTop)...\(rowBottom))")
+        XCTAssertLessThanOrEqual(rowBottom, fold, "the rail's last row is whole and above the fold")
     }
 }

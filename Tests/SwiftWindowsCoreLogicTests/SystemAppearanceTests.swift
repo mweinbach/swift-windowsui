@@ -5,6 +5,8 @@ import WinSDK
 
 @testable import SwiftWindowsPlatform
 
+@testable import SwiftWindowsUI
+
 @testable import WinSwiftUI
 
 /// Fake settings source so host sampling stays headless — no live OS theme
@@ -415,6 +417,78 @@ final class SystemAppearanceTests: XCTestCase {
         XCTAssertEqual(resolved.colorScheme, .light)
         XCTAssertEqual(resolved.colorSchemeContrast, .standard)
         XCTAssertTrue(resolved.accessibilityReduceMotion)
+    }
+
+    // MARK: - Semantic styles used as backgrounds
+
+    /// A semantic colour is a *sentinel*, not an RGBA, wherever it is used.
+    ///
+    /// The label ladder is stored white-with-alpha and flipped to black in a
+    /// light window by `resolvedForVisualEnvironment`. The foreground path
+    /// has always done that; the background path handed the stored value
+    /// straight to the panel, so `.background(.quaternary)` painted a *white*
+    /// scrim on a light window — lighter than the page it was supposed to be
+    /// a bar on.
+    func testHierarchicalStyleAsBackgroundResolvesForTheLightAppearance() async {
+        await MainActor.run {
+            let light = backgroundColorOfNode(
+                Text("bar").background(.quaternary).environment(\.colorScheme, .light))
+            let dark = backgroundColorOfNode(
+                Text("bar").background(.quaternary).environment(\.colorScheme, .dark))
+
+            XCTAssertEqual(light, ControlPalette.lightStandard.quaternaryLabel)
+            XCTAssertEqual(dark, ControlPalette.darkStandard.quaternaryLabel)
+            XCTAssertNotEqual(light, dark, "a background sentinel has to change with the appearance")
+        }
+    }
+
+    /// The same for the system palette, whose two published values are also
+    /// selected by the appearance.
+    func testSystemColorAsBackgroundResolvesForTheAppearance() async {
+        await MainActor.run {
+            let light = backgroundColorOfNode(
+                Text("bar").background(Color.red).environment(\.colorScheme, .light))
+            let dark = backgroundColorOfNode(
+                Text("bar").background(Color.red).environment(\.colorScheme, .dark))
+
+            XCTAssertEqual(light, SystemColorPalette.red.light)
+            XCTAssertEqual(dark, SystemColorPalette.red.dark)
+        }
+    }
+
+    /// A colour the app mixed itself is not a sentinel and must survive
+    /// untouched — the resolver is a lookup, not a filter.
+    func testAppAuthoredBackgroundColorIsNotRewrittenByTheAppearance() async {
+        await MainActor.run {
+            let mixed = Color(red: 0.42, green: 0.17, blue: 0.63, alpha: 0.8)
+            XCTAssertEqual(
+                backgroundColorOfNode(Text("bar").background(mixed).environment(\.colorScheme, .light)),
+                mixed)
+            XCTAssertEqual(
+                backgroundColorOfNode(Text("bar").background(mixed).environment(\.colorScheme, .dark)),
+                mixed)
+        }
+    }
+
+    @MainActor
+    private func backgroundColorOfNode<V: View>(_ view: V) -> Color? {
+        let runtime = RetainedViewRuntime(root: ViewNode())
+        let context = ViewBuildContext(
+            canvasSizeProvider: { Size(width: 400, height: 200) }, invalidateHandler: {})
+        let node = view.makeComponent(context: context).makeNode(runtime: runtime)
+        return firstBackgroundColor(in: node)
+    }
+
+    @MainActor
+    private func firstBackgroundColor(in node: ViewNode) -> Color? {
+        var worklist: [ViewNode] = [node]
+        while let current = worklist.popLast() {
+            if let color = current.backgroundColor, color.alpha > 0 {
+                return color
+            }
+            worklist.append(contentsOf: current.children.reversed())
+        }
+        return nil
     }
 
     // MARK: - Contrast-response palette

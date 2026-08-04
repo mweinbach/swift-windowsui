@@ -285,10 +285,7 @@ struct DemoToolbar: View {
                 DemoPillButton(
                     "D3D11",
                     width: layout.backendWidth,
-                    colors: [
-                        Color(red: 0.42, green: 0.70, blue: 0.56, opacity: 0.94),
-                        Color(red: 0.26, green: 0.50, blue: 0.38, opacity: 0.84),
-                    ]
+                    colors: DemoTheme.readyFill
                 ) {
                     model.performAction("Render stack ready")
                 }
@@ -296,10 +293,7 @@ struct DemoToolbar: View {
                 DemoPillButton(
                     "Events \(model.interactionCount)",
                     width: layout.eventsWidth,
-                    colors: [
-                        Color(red: 0.55, green: 0.69, blue: 0.95, opacity: 0.92),
-                        Color(red: 0.36, green: 0.48, blue: 0.72, opacity: 0.82),
-                    ]
+                    colors: DemoTheme.eventsFill
                 ) {
                     model.performAction("Event HUD opened")
                 }
@@ -307,9 +301,7 @@ struct DemoToolbar: View {
                 DemoPillButton(
                     model.selectedModule.statusLabel,
                     width: layout.modeWidth,
-                    colors: [
-                        model.selectedModule.glowColor.opacity(0.94), model.selectedModule.stripeColor.opacity(0.70),
-                    ]
+                    colors: model.selectedModule.accentFill
                 ) {
                     model.cycleModule()
                 }
@@ -345,39 +337,47 @@ struct DemoSidebar: View {
                     // was wider than the padded panel, so each row hung a
                     // couple of points over both edges of the surface it was
                     // supposed to be inside.
+                    //
+                    // A macOS source list fills the selected row with the
+                    // accent and writes it in white — in *both* appearances.
+                    // The selected row used to carry the module's glow at 0.92
+                    // under a `.primary` label, which is a white label on a
+                    // pale blue in the dark appearance.
                     ForEach(DemoModule.allCases, id: \.self) { module in
+                        let isSelected = model.selectedModule == module
                         DemoModuleButton(
                             systemImage: module.systemImage,
                             title: module.label,
-                            colors: model.selectedModule == module
-                                ? [module.glowColor.opacity(0.92), module.stripeColor.opacity(0.74)]
-                                : [theme.fieldTop, theme.fieldBottom]
+                            colors: isSelected ? module.accentFill : [theme.fieldTop, theme.fieldBottom],
+                            textColor: isSelected ? theme.onTintedFillText : Color.primary
                         ) {
                             model.selectModule(module)
                         }
                     }
 
+                    // A rule, not a band. 4pt of saturated accent reads as a
+                    // divider carrying the module's colour; the 10pt one this
+                    // replaced read as a progress bar sitting at 100% — and
+                    // only became obvious once the fill stopped being a pale
+                    // wash and started being the accent.
                     Color.clear
-                        .frame(height: 10)
+                        .frame(height: 4)
                         .frame(maxWidth: .infinity)
                         .background(
                             LinearGradient(
-                                colors: [
-                                    model.selectedModule.glowColor.opacity(0.88),
-                                    model.selectedModule.stripeColor.opacity(0.62),
-                                ],
+                                colors: model.selectedModule.accentFill,
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
                         )
-                        .cornerRadius(5)
+                        .cornerRadius(2)
                         .allowsHitTesting(false)
 
                     DemoRowButton(
                         title: "State",
                         detail: model.lastAction,
                         systemImage: "info.circle",
-                        accent: model.selectedModule.glowColor
+                        accent: model.selectedModule.accentFill
                     ) {
                         model.performAction("State panel opened")
                     }
@@ -386,7 +386,7 @@ struct DemoSidebar: View {
                         title: "Shortcuts",
                         detail: "Tab and wheel routing",
                         systemImage: "keyboard",
-                        accent: model.selectedModule.glowColor
+                        accent: model.selectedModule.accentFill
                     ) {
                         model.performAction("Shortcuts opened")
                     }
@@ -485,7 +485,7 @@ struct DemoCenterPane: View {
                                 title: event,
                                 detail: model.selectedModule.detailLine,
                                 systemImage: model.selectedModule.systemImage,
-                                accent: model.selectedModule.glowColor
+                                accent: model.selectedModule.accentFill
                             )
                         }
                     }
@@ -601,7 +601,10 @@ struct DemoRightRail: View {
         ScrollView {
             VStack(alignment: .leading, spacing: layout.gap) {
                 DemoPanel {
-                    VStack(alignment: .leading, spacing: 14) {
+                    // 12, not 14: the rail carries two panels in the height
+                    // the centre pane spends on one, so its internal rhythm
+                    // is a step tighter than the centre column's.
+                    VStack(alignment: .leading, spacing: 12) {
                         DemoSectionTitle("Detail track")
 
                         ForEach(model.selectedModule.cards, id: \.title) { card in
@@ -612,19 +615,15 @@ struct DemoRightRail: View {
                 .frame(width: layout.railInnerWidth, alignment: .leading)
 
                 DemoPanel {
-                    VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 12) {
                         DemoSectionTitle("Quick actions")
 
                         ForEach(model.selectedModule.actions, id: \.title) { action in
-                            // `glowColor`, not `stripeColor`: the icon chip
-                            // carries a near-white glyph, and the pale stripe
-                            // tint left it at a wash of white on white in the
-                            // light appearance.
                             DemoRowButton(
                                 title: action.title,
                                 detail: action.caption,
                                 systemImage: action.systemImage,
-                                accent: model.selectedModule.glowColor
+                                accent: model.selectedModule.accentFill
                             ) {
                                 model.performAction(action.eventLabel)
                             }
@@ -659,10 +658,16 @@ struct DemoHeroCard: View {
             stroke: theme.surfaceStrokeStrong,
             shadowColor: model.selectedModule.glowColor.opacity(0.12)
         ) {
-            VStack(alignment: .leading, spacing: 18) {
+            // 14, not 18. Five rungs at 18 plus a 38pt pill row measured 214
+            // inside a 210pt card, and a fixed-height card answers an
+            // overflow by squeezing: the pills came out 31pt tall rather than
+            // the 38 they asked for. The card's height is what the metric
+            // band below it is positioned against, so the rhythm gives way
+            // here rather than the card growing.
+            VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .center, spacing: 10) {
                     DemoCapsuleText("Control center")
-                    DemoCapsuleText(model.selectedModule.label, tint: model.selectedModule.glowColor)
+                    DemoCapsuleText(model.selectedModule.label, tint: model.selectedModule.fillTop)
                 }
 
                 // Semantic rungs, not white: the card is dark in one
@@ -678,33 +683,33 @@ struct DemoHeroCard: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
 
+                // The accent rule takes the accent *fill*, not the glow it
+                // used to: a pale hue at 0.94 alpha over a pale hero card is
+                // the same colour as the card, and the rule was invisible in
+                // the light appearance. 4pt rather than 12, for the same
+                // reason as the sidebar's — a saturated band that wide across
+                // a card is a progress bar, not a rule.
                 Color.clear
                     .frame(
                         width: layout.contentInnerWidth
                             - layout.panelPadding.leading - layout.panelPadding.trailing - 2,
-                        height: 12
+                        height: 4
                     )
                     .background(
                         LinearGradient(
-                            colors: [
-                                model.selectedModule.glowColor.opacity(0.94),
-                                model.selectedModule.stripeColor.opacity(0.68),
-                            ],
+                            colors: model.selectedModule.accentFill,
                             startPoint: .leading,
                             endPoint: .trailing
                         )
                     )
-                    .cornerRadius(6)
+                    .cornerRadius(2)
                     .allowsHitTesting(false)
 
                 if layout.compactActions {
                     VStack(alignment: .leading, spacing: 12) {
                         DemoPillButton(
                             "Open \(model.selectedModule.label)",
-                            colors: [
-                                model.selectedModule.glowColor.opacity(0.94),
-                                model.selectedModule.stripeColor.opacity(0.70),
-                            ]
+                            colors: model.selectedModule.accentFill
                         ) {
                             model.performAction("Opened \(model.selectedModule.label)")
                         }
@@ -721,10 +726,7 @@ struct DemoHeroCard: View {
                     HStack(alignment: .center, spacing: 12) {
                         DemoPillButton(
                             "Open \(model.selectedModule.label)",
-                            colors: [
-                                model.selectedModule.glowColor.opacity(0.94),
-                                model.selectedModule.stripeColor.opacity(0.70),
-                            ]
+                            colors: model.selectedModule.accentFill
                         ) {
                             model.performAction("Opened \(model.selectedModule.label)")
                         }
@@ -970,7 +972,10 @@ struct DemoCapsuleText: View {
             .multilineTextAlignment(.center)
             .lineLimit(1)
             .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
-            .background(tint == nil ? theme.heroChipFill : tint!.opacity(0.92))
+            // The badge takes its tint at full strength. The 0.92 it used to
+            // apply was the last of the washes: a badge fill is an accent
+            // fill, and a caller hands one over already opaque.
+            .background(tint == nil ? theme.heroChipFill : tint!)
             .cornerRadius(12)
             .padding(1)
             .background(theme.surfaceStroke)
@@ -1051,6 +1056,9 @@ struct DemoModuleButton: View {
     let systemImage: String
     let title: String
     let colors: [Color]
+    /// The label rung the row's own fill asks for: `.primary` on the neutral
+    /// field, near-white on the accent fill of a selected row.
+    let textColor: Color
     let perform: @MainActor @Sendable () -> Void
 
     var body: some View {
@@ -1064,13 +1072,13 @@ struct DemoModuleButton: View {
             ) {
                 HStack(alignment: .center, spacing: 10) {
                     Image(systemName: systemImage)
-                        .foregroundStyle(.primary)
+                        .foregroundColor(textColor)
                         .font(.system(size: 14))
                         .frame(width: 18, height: 18)
 
                     Text(title)
                         .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundStyle(.primary)
+                        .foregroundColor(textColor)
                         .multilineTextAlignment(.leading)
                         .lineLimit(1)
                         .layoutPriority(1)
@@ -1098,7 +1106,10 @@ struct DemoRowButton: View {
     let title: String
     let detail: String
     let systemImage: String
-    let accent: Color
+    /// The row's accent *fill* ramp, not a glow to wash the chip in: the
+    /// icon chip carries a near-white glyph, and a glow at 0.90 alpha put
+    /// that glyph on a pastel in the light appearance.
+    let accent: [Color]
     let perform: @MainActor @Sendable () -> Void
 
     var body: some View {
@@ -1119,7 +1130,7 @@ struct DemoRowButton: View {
                         .frame(width: 8, height: 44)
                         .background(
                             LinearGradient(
-                                colors: [accent.opacity(0.94), accent.opacity(0.62)],
+                                colors: accent,
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
@@ -1130,7 +1141,7 @@ struct DemoRowButton: View {
                     DemoTintedSurface(
                         cornerRadius: 16,
                         contentPadding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
-                        colors: [accent.opacity(0.90), accent.opacity(0.62)],
+                        colors: accent,
                         stroke: theme.surfaceStroke,
                         elevation: .control
                     ) {
@@ -1208,7 +1219,7 @@ struct DemoActivityCard: View {
     let title: String
     let detail: String
     let systemImage: String
-    let accent: Color
+    let accent: [Color]
 
     var body: some View {
         DemoRowButton(title: title, detail: detail, systemImage: systemImage, accent: accent) {}
@@ -1223,8 +1234,14 @@ struct DemoInfoCard: View {
     let module: DemoModule
 
     var body: some View {
+        // A rail card's own rhythm, tighter than a centre-pane panel's: 14pt
+        // insets and a 6pt line gap, so the two cards plus the quick-action
+        // panel under them are a column the default window can hold whole.
+        // At 18/8 the rail ran ~30pt past the bottom of its scroll view and
+        // the fold went through the middle of the last row button.
         DemoGlassSurface(
             cornerRadius: 24,
+            contentPadding: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14),
             fill: LinearGradient(
                 colors: [theme.fieldTop, theme.fieldBottom],
                 startPoint: .top,
@@ -1232,9 +1249,12 @@ struct DemoInfoCard: View {
             ),
             stroke: theme.surfaceStroke
         ) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
+                // A headline, not a title2: 20pt bold on a 260pt rail card
+                // is the largest type on the screen after the hero headline,
+                // for the smallest card.
                 Text(card.title)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
                     .foregroundStyle(.primary)
                     .multilineTextAlignment(.leading)
 
@@ -1407,6 +1427,19 @@ struct DemoTheme {
     /// hero card): those fills are dark in both appearances, so the label on
     /// them is near-white in both.
     var onTintedFillText: Color { Color(red: 1.0, green: 1.0, blue: 1.0, opacity: 0.95) }
+
+    /// The two toolbar pills that report a fixed fact rather than the
+    /// selected module. Opaque, for the reason `DemoModule.fillTop` gives:
+    /// these used to be a green and a blue carrying 0.92-ish alpha, which on
+    /// the light toolbar composited to a pastel with a white label on it.
+    static let readyFill: [Color] = [
+        Color(red: 0.165, green: 0.478, blue: 0.333, opacity: 1.0),
+        Color(red: 0.122, green: 0.369, blue: 0.255, opacity: 1.0),
+    ]
+    static let eventsFill: [Color] = [
+        Color(red: 0.235, green: 0.376, blue: 0.600, opacity: 1.0),
+        Color(red: 0.180, green: 0.290, blue: 0.471, opacity: 1.0),
+    ]
     var shadow: Color {
         pick(
             light: Color(red: 0.0, green: 0.0, blue: 0.0, opacity: 0.12),
@@ -1471,7 +1504,16 @@ struct DemoLayout {
     /// rhythm, which is what puts the bottom of the scroll view in the gap
     /// between two cards instead of a dozen points into the top of one.
     var chartHeight: CGFloat { compact ? 112 : 128 }
-    var compactActions: Bool { compact }
+    /// Whether the hero card's two action pills have to stack.
+    ///
+    /// The *width* half of `compact`, and only that half. Stacking is an
+    /// answer to "there is no room beside it", which is a question about
+    /// width; asking `compact` also stacked them in a window that was merely
+    /// short, which is exactly backwards — it spends a second 50pt row of
+    /// height in the window with the least height to spend. The hero card is
+    /// a fixed height, so the extra row had nowhere to go and both pills were
+    /// squeezed from 38pt to about 15: a bold 12pt label in a 15pt capsule.
+    var compactActions: Bool { size.width < 1180 }
 
     var toolbarPadding: EdgeInsets {
         compact
@@ -1600,6 +1642,43 @@ enum DemoModule: CaseIterable, Hashable {
         case .controls: return Color(red: 0.28, green: 0.20, blue: 0.36, opacity: 0.84)
         }
     }
+
+    /// Top stop of the module's **accent fill** — the colour under a
+    /// near-white label on a pill, a chip, or a selected source-list row.
+    ///
+    /// This is opaque on purpose, and it is the whole point of the value.
+    /// `glowColor` and `stripeColor` are *glows*: pale hues carrying alpha,
+    /// meant to be laid over something. Using them as a fill composited the
+    /// pale hue onto whatever was behind it, so on a light window the "Open
+    /// Layout" pill resolved to #88BDF2 and its white label measured 1.9:1 —
+    /// and even on the dark window it only reached 2.4:1. An accent fill is
+    /// not a wash of an accent: it is a colour, and macOS picks it dark
+    /// enough that the label it was chosen for is legible on it. Every stop
+    /// here clears 4.5:1 against the 0.95-alpha white the demo writes on it,
+    /// in both appearances, because an opaque fill has no appearance to vary
+    /// with.
+    var fillTop: Color {
+        switch self {
+        case .layout: return Color(red: 0.118, green: 0.431, blue: 0.808, opacity: 1.0)
+        case .input: return Color(red: 0.059, green: 0.463, blue: 0.525, opacity: 1.0)
+        case .animation: return Color(red: 0.659, green: 0.322, blue: 0.0, opacity: 1.0)
+        case .controls: return Color(red: 0.482, green: 0.294, blue: 0.737, opacity: 1.0)
+        }
+    }
+
+    /// Bottom stop of the accent fill: the same hue a step down, so a filled
+    /// control is lit from above like every other surface in the demo.
+    var fillBottom: Color {
+        switch self {
+        case .layout: return Color(red: 0.078, green: 0.329, blue: 0.624, opacity: 1.0)
+        case .input: return Color(red: 0.039, green: 0.357, blue: 0.412, opacity: 1.0)
+        case .animation: return Color(red: 0.514, green: 0.247, blue: 0.0, opacity: 1.0)
+        case .controls: return Color(red: 0.376, green: 0.227, blue: 0.576, opacity: 1.0)
+        }
+    }
+
+    /// The accent fill as the two-stop ramp the demo's tinted surfaces take.
+    var accentFill: [Color] { [fillTop, fillBottom] }
 
     var accentColor: Color {
         switch self {
@@ -1812,91 +1891,130 @@ struct DemoSettingsScreen: View {
     @Environment(\.openWindow) private var openWindow
     @State private var isImporterPresented = false
 
+    /// Width of the settings pane's content column, and the gutter between
+    /// that column's edge and the section boxes inside it.
+    ///
+    /// A settings pane is a *column*, not a page: System Settings runs one a
+    /// little over 600pt wide and lets the window keep whatever margin is
+    /// left. The demo has to name the column because it wants the title on
+    /// it — a `.navigationTitle` is drawn by the pane's chrome at the pane's
+    /// own leading edge, which in a 1280pt window put "Settings" 320pt away
+    /// from the form it was titling, with nothing under it in between.
+    private let columnWidth: CGFloat = 640
+    private let columnGutter: CGFloat = 20
+
     var body: some View {
         NavigationStack {
             // The form is taller than small windows; scroll instead of
             // squeezing sections until their tracks vanish.
             ScrollView {
-                Form {
-                    Section("Profile") {
-                        TextField("Display Name", text: $model.displayName)
+                // 24 above the title and 22 under it: a settings pane's own
+                // rhythm, and the reason the default window's scroll fold
+                // now lands in the band between the "Resources" box and the
+                // "Actions" header rather than through the middle of the
+                // "Save Settings" button. The title used to start 6pt under
+                // the tab bar, which is not a page inset, it is a collision.
+                VStack(alignment: .leading, spacing: 22) {
+                    // The title travels with the column: it sits on the
+                    // section boxes' own leading edge, so the window's wide
+                    // side margins read as the margins of one centred pane
+                    // rather than as empty space next to a stray heading.
+                    Text("Settings")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                        .lineLimit(1)
+                        .padding(.horizontal, columnGutter)
 
-                        Picker("Theme", selection: $model.theme) {
-                            Text("System").tag(DemoThemeOption.system)
-                            Text("Light").tag(DemoThemeOption.light)
-                            Text("Dark").tag(DemoThemeOption.dark)
+                    Form {
+                        Section("Profile") {
+                            TextField("Display Name", text: $model.displayName)
+
+                            Picker("Theme", selection: $model.theme) {
+                                Text("System").tag(DemoThemeOption.system)
+                                Text("Light").tag(DemoThemeOption.light)
+                                Text("Dark").tag(DemoThemeOption.dark)
+                            }
+                            .pickerStyle(.segmented)
+
+                            // System Settings puts the noun in the label
+                            // column and the value beside its stepper in the
+                            // control column. Folding the value into the
+                            // label — "Items Per Page: 10" — makes the one
+                            // row in the pane whose label is a sentence, and
+                            // leaves the control column holding a bezel with
+                            // nothing to be about.
+                            LabeledContent("Items Per Page") {
+                                HStack(spacing: 8) {
+                                    Text("\(model.itemsPerPage)")
+
+                                    Stepper(
+                                        "Items Per Page",
+                                        value: $model.itemsPerPage,
+                                        in: 5...30,
+                                        step: 5
+                                    )
+                                    .labelsHidden()
+                                }
+                            }
                         }
-                        .pickerStyle(.segmented)
 
-                        // System Settings puts the noun in the label column
-                        // and the value beside its stepper in the control
-                        // column. Folding the value into the label — "Items
-                        // Per Page: 10" — makes the one row in the pane whose
-                        // label is a sentence, and leaves the control column
-                        // holding a bezel with nothing to be about.
-                        LabeledContent("Items Per Page") {
-                            HStack(spacing: 8) {
-                                Text("\(model.itemsPerPage)")
+                        Section("Preferences") {
+                            Toggle("Enable Animations", isOn: $model.animationsEnabled)
+                            Toggle("Sound Effects", isOn: $model.soundEffectsEnabled)
+                            Toggle("Share Usage Data", isOn: $model.shareUsageData)
 
-                                Stepper(
-                                    "Items Per Page",
-                                    value: $model.itemsPerPage,
-                                    in: 5...30,
-                                    step: 5
-                                )
-                                .labelsHidden()
+                            ColorPicker("Accent Color", selection: $model.accentColor)
+
+                            // No explicit `Divider()` here: a grouped Form
+                            // section rules between every pair of rows on its
+                            // own, the way System Settings does. One written
+                            // here would be the only double rule in the pane.
+                            Slider(value: $model.fontScale, in: 0.8...1.4) {
+                                Text("Font Scale")
+                            }
+                        }
+
+                        Section("Resources") {
+                            Gauge(value: model.storageUsed, in: 0...1) {
+                                Text("Storage Used")
+                            }
+
+                            ProgressView("Sync Progress", value: model.syncProgress)
+
+                            Button("Sync Now") {
+                                model.runSync()
+                            }
+                        }
+
+                        Section("Actions") {
+                            Button("Save Settings") {
+                                model.saveSettings()
+                            }
+
+                            Button("Reset To Defaults", role: .destructive) {
+                                model.resetSettings()
+                            }
+
+                            Button("Open Second Window") {
+                                openWindow(id: "main-dashboard")
+                            }
+
+                            Button("Import File…") {
+                                isImporterPresented = true
                             }
                         }
                     }
-
-                    Section("Preferences") {
-                        Toggle("Enable Animations", isOn: $model.animationsEnabled)
-                        Toggle("Sound Effects", isOn: $model.soundEffectsEnabled)
-                        Toggle("Share Usage Data", isOn: $model.shareUsageData)
-
-                        ColorPicker("Accent Color", selection: $model.accentColor)
-
-                        // No explicit `Divider()` here: a grouped Form section
-                        // rules between every pair of rows on its own, the way
-                        // System Settings does. One written here would be the
-                        // only double rule in the pane.
-                        Slider(value: $model.fontScale, in: 0.8...1.4) {
-                            Text("Font Scale")
-                        }
-                    }
-
-                    Section("Resources") {
-                        Gauge(value: model.storageUsed, in: 0...1) {
-                            Text("Storage Used")
-                        }
-
-                        ProgressView("Sync Progress", value: model.syncProgress)
-
-                        Button("Sync Now") {
-                            model.runSync()
-                        }
-                    }
-
-                    Section("Actions") {
-                        Button("Save Settings") {
-                            model.saveSettings()
-                        }
-
-                        Button("Reset To Defaults", role: .destructive) {
-                            model.resetSettings()
-                        }
-
-                        Button("Open Second Window") {
-                            openWindow(id: "main-dashboard")
-                        }
-
-                        Button("Import File…") {
-                            isImporterPresented = true
-                        }
-                    }
                 }
+                // The column, then the centring. Two frames rather than one:
+                // the inner one is the pane's own width, the outer one is the
+                // window it is centred in. A `Form` fills whatever width it
+                // is offered and centres its section boxes inside that, so
+                // without the inner frame the column would be the window and
+                // the title would be at the window's edge again.
+                .frame(maxWidth: columnWidth, alignment: .leading)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
             }
-            .navigationTitle("Settings")
             .fileImporter(
                 isPresented: $isImporterPresented,
                 allowedContentTypes: [.image, .plainText]
@@ -1925,22 +2043,36 @@ struct DemoDataScreen: View {
             // window with nothing in it. A greedy child takes exactly what is
             // left once its siblings have measured themselves, so the list
             // grows and shrinks with the detail block instead of against it.
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 0) {
                 List(model.components, selection: $model.selectedComponentID) { component in
                     DemoComponentRow(component: component)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(16)
                 .onDrop(of: [.fileURL], isTargeted: nil) { providers in
                     model.noteDroppedItems(count: providers.count)
                     return true
                 }
 
-                Divider()
+                // The inspector is a *bar*, not a paragraph that happens to
+                // follow the list. It used to be a hairline `Divider()` in a
+                // 12pt gap between two things standing on the same window
+                // background — the rule measured 1.2:1 against what was on
+                // either side of it, so the block read as floating text under
+                // a card. A bar is what macOS puts at the bottom of an
+                // inspector: its own scrim, closed at the top by a rule,
+                // running edge to edge with its own insets. `.quaternary` is
+                // a semantic rung, so the scrim darkens the light window and
+                // lightens the dark one.
+                VStack(spacing: 0) {
+                    Divider()
 
-                DemoComponentDetail(model: model)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    DemoComponentDetail(model: model)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
+                }
+                .background(.quaternary)
             }
-            .padding(16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .navigationTitle("Components")
         }

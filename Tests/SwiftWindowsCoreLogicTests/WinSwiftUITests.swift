@@ -3828,9 +3828,12 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(increasedSecondaryNode.textStyle.color, .highContrastSecondary)
             XCTAssertEqual(explicitSecondaryNode.textStyle.color, .highContrastSecondary)
             // `.increased` background prominence promotes secondary to
-            // primary: content over a filled selection stops being secondary.
+            // primary and rebases the ladder on the selection's own content
+            // colour: over a filled selection, content stops being secondary
+            // *and* stops taking the appearance's base.
             XCTAssertEqual(
-                prominentSecondaryNode.textStyle.color, ControlPalette.darkStandard.label)
+                prominentSecondaryNode.textStyle.color,
+                ControlPalette.darkStandard.selectedContentLabel)
             XCTAssertEqual(readerNode.text, "INCREASED")
             XCTAssertEqual(gradientNode.textStyle.color, gradient.startColor)
         }

@@ -203,6 +203,13 @@ fill under `(0.96, 0.98, 1.0)` borders — where macOS uses grey.
 | `segmentedSelectedFill`          | #636366         | #FFFFFF         | selected segment pill |
 | `segmentedSelectedLabel`         | white           | black           | selected segment label |
 
+The three segmented roles also dress the `TabView` tab bar: macOS draws a tab
+bar with `NSSegmentedControl`, so the band is the groove, the selected tab is
+the raised pill, and unselected tabs carry no border. Giving each tab its own
+rounded border inside the band's border — with the accent ringing the selected
+one — is what made the bar read as three chained web buttons inside a fourth.
+`testTabBarSpeaksTheSegmentedControlLanguage` pins it.
+
 `.increased` contrast strengthens exactly the roles AppKit strengthens:
 hairlines, control borders and secondary/tertiary text.
 

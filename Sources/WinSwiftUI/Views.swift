@@ -4739,12 +4739,20 @@ public struct TabView: View {
 
     private func tabBarComponent(selectedIndex: Int, context: ViewBuildContext) -> Component {
         Component { runtime in
-            let chrome = Self.retainedTabChrome(for: context.tabViewStyle, palette: context.controlPalette)
+            let palette = context.controlPalette
+            let chrome = Self.retainedTabChrome(for: context.tabViewStyle, palette: palette)
             let tabNodes = content.enumerated().map { index, view in
+                let isSelected = index == selectedIndex
                 let labelViews = view.tabItem ?? [AnyView(Text("TAB \(index + 1)"))]
+                // The raised pill carries its own label colour, exactly as a
+                // selected segment does: on the near-white light-mode pill an
+                // inherited white label would be invisible.
+                let labelContext =
+                    isSelected
+                    ? context.withForegroundColor(palette.segmentedSelectedLabel) : context
                 let labelNode = composeComponent(
                     from: labelViews,
-                    context: context,
+                    context: labelContext,
                     fallbackLayout: .stack(.horizontal(spacing: 4, alignment: .center))
                 )
                 .makeNode(runtime: runtime)
@@ -4761,25 +4769,45 @@ public struct TabView: View {
                 } else {
                     tabContentNode = labelNode
                 }
-                let isSelected = index == selectedIndex
-                let palette =
+                // macOS draws a tab bar and a segmented picker with the same
+                // control: one recessed track, a raised pill under the
+                // selection, and nothing at all around the other segments.
+                // Ringing every tab in its own border — and the selected one
+                // in the accent — is what made the bar read as three chained
+                // web buttons inside a fourth.
+                let tabPalette =
                     isSelected
-                    ? ButtonSurfaceStyle.default.palette
-                    : ButtonSurfaceStyle.plain.palette
+                    ? SurfacePalette(
+                        idle: palette.segmentedSelectedFill,
+                        hovered: ControlPalette.lightened(palette.segmentedSelectedFill, by: 0.08),
+                        focused: ControlPalette.lightened(palette.segmentedSelectedFill, by: 0.08),
+                        pressed: ControlPalette.darkened(palette.segmentedSelectedFill, by: 0.10),
+                        activated: ControlPalette.darkened(palette.segmentedSelectedFill, by: 0.10),
+                        disabledForeground: palette.disabledLabel
+                    )
+                    : SurfacePalette(
+                        idle: .clear,
+                        hovered: palette.quaternaryFill,
+                        focused: palette.quaternaryFill,
+                        pressed: palette.tertiaryFill,
+                        activated: palette.tertiaryFill,
+                        disabledForeground: palette.disabledLabel
+                    )
 
                 return Controls.button(
                     runtime: runtime,
                     cornerRadius: chrome.tabCornerRadius,
-                    palette: palette,
+                    palette: tabPalette,
                     chrome: SurfaceChrome(
-                        borderColor: isSelected
-                            ? context.tint.opacity(chrome.selectedBorderAlpha) : chrome.unselectedBorderColor,
-                        borderHoveredColor: context.tint.opacity(isSelected ? 0.62 : chrome.hoverBorderAlpha),
-                        borderFocusedColor: context.tint.opacity(0.68),
-                        borderPressedColor: context.tint.opacity(0.78),
-                        borderWidth: isSelected ? chrome.selectedBorderWidth : chrome.unselectedBorderWidth,
-                        focusRingColor: context.tint.opacity(0.24),
-                        focusRingWidth: 2
+                        borderColor: isSelected ? palette.controlBorder : .clear,
+                        borderWidth: isSelected ? chrome.selectedBorderWidth : 0,
+                        focusRingColor: ControlPalette.opaque(context.tint)
+                            .opacity(Double(ControlPalette.focusRingAlpha)),
+                        focusRingWidth: MacOSControlMetrics.FocusRing.strokeWidth,
+                        shadowColor: isSelected ? ControlPalette.ambientShadow : .clear,
+                        shadowPressedColor: .clear,
+                        shadowOffset: Point(x: 0, y: 1),
+                        shadowSpread: 1
                     ),
                     layoutMode: .stack(
                         .vertical(
@@ -4825,11 +4853,9 @@ public struct TabView: View {
         var padding: EdgeInsets
         var tabCornerRadius: Double
         var tabPadding: EdgeInsets
-        var selectedBorderAlpha: Double
+        /// Hairline around the raised pill. Unselected segments carry no
+        /// border at all, so there is no unselected counterpart.
         var selectedBorderWidth: Double
-        var unselectedBorderColor: Color
-        var unselectedBorderWidth: Double
-        var hoverBorderAlpha: Double
     }
 
     private struct RetainedPageIndexChrome {
@@ -4932,8 +4958,10 @@ public struct TabView: View {
     private static func retainedTabChrome(for style: TabViewStyle, palette: ControlPalette) -> RetainedTabChrome {
         // The band and its hairline are appearance roles; only the geometry
         // varies by style. These used to be dark literals, which is why a
-        // light-mode app kept a dark tab bar over light content.
-        let band = palette.raisedSurface
+        // light-mode app kept a dark tab bar over light content. The band is
+        // the segmented control's recessed track, because that is the control
+        // macOS draws a tab bar with.
+        let band = palette.segmentedTrackFill
         let hairline = palette.separator
         switch style.kind {
         case .automatic, .tabBarOnly:
@@ -4946,11 +4974,7 @@ public struct TabView: View {
                 padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
                 tabCornerRadius: 8,
                 tabPadding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12),
-                selectedBorderAlpha: 0.42,
-                selectedBorderWidth: 1,
-                unselectedBorderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.08),
-                unselectedBorderWidth: 1,
-                hoverBorderAlpha: 0.24
+                selectedBorderWidth: 1
             )
         case .grouped:
             return RetainedTabChrome(
@@ -4962,11 +4986,7 @@ public struct TabView: View {
                 padding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8),
                 tabCornerRadius: 10,
                 tabPadding: EdgeInsets(top: 9, leading: 14, bottom: 9, trailing: 14),
-                selectedBorderAlpha: 0.50,
-                selectedBorderWidth: 1,
-                unselectedBorderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.06),
-                unselectedBorderWidth: 1,
-                hoverBorderAlpha: 0.28
+                selectedBorderWidth: 1
             )
         case .sidebarAdaptable:
             return RetainedTabChrome(
@@ -4978,11 +4998,7 @@ public struct TabView: View {
                 padding: EdgeInsets(top: 5, leading: 5, bottom: 5, trailing: 5),
                 tabCornerRadius: 6,
                 tabPadding: EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10),
-                selectedBorderAlpha: 0.48,
-                selectedBorderWidth: 2,
-                unselectedBorderColor: .clear,
-                unselectedBorderWidth: 0,
-                hoverBorderAlpha: 0.22
+                selectedBorderWidth: 2
             )
         case .page, .verticalPage:
             return RetainedTabChrome(
@@ -4994,11 +5010,7 @@ public struct TabView: View {
                 padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3),
                 tabCornerRadius: 16,
                 tabPadding: EdgeInsets(top: 7, leading: 12, bottom: 7, trailing: 12),
-                selectedBorderAlpha: 0.58,
-                selectedBorderWidth: 1,
-                unselectedBorderColor: .clear,
-                unselectedBorderWidth: 0,
-                hoverBorderAlpha: 0.18
+                selectedBorderWidth: 1
             )
         case .carousel:
             return RetainedTabChrome(
@@ -5010,11 +5022,7 @@ public struct TabView: View {
                 padding: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10),
                 tabCornerRadius: 14,
                 tabPadding: EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16),
-                selectedBorderAlpha: 0.56,
-                selectedBorderWidth: 1,
-                unselectedBorderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.05),
-                unselectedBorderWidth: 1,
-                hoverBorderAlpha: 0.20
+                selectedBorderWidth: 1
             )
         }
     }

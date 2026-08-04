@@ -245,6 +245,82 @@ final class MacOSControlMetricsWiringTests: XCTestCase {
         }
     }
 
+    // MARK: - Tab bar (the same NSSegmentedControl)
+
+    /// macOS draws a `.automatic` tab bar with the segmented control: one
+    /// recessed track, a raised pill under the selection, and nothing around
+    /// the other segments. Every tab used to carry its own rounded border
+    /// inside the band's border, with the selected one ringed in the accent —
+    /// three chained web buttons inside a fourth.
+    func testTabBarSpeaksTheSegmentedControlLanguage() async {
+        await MainActor.run {
+            for scheme in [ColorScheme.dark, ColorScheme.light] {
+                let palette = ControlPalette.resolve(colorScheme: scheme)
+                let bar = Self.tabBarNode(colorScheme: scheme)
+
+                XCTAssertEqual(bar.backgroundColor, palette.segmentedTrackFill, "\(scheme) track")
+                XCTAssertEqual(bar.children.count, 2)
+
+                let selected = bar.children[0]
+                let unselected = bar.children[1]
+                XCTAssertEqual(selected.backgroundColor, palette.segmentedSelectedFill, "\(scheme) pill")
+                XCTAssertEqual(unselected.borderWidth, 0, "\(scheme) unselected tabs carry no border")
+                XCTAssertNotEqual(
+                    selected.backgroundColor, unselected.backgroundColor,
+                    "\(scheme) selection is a fill, not a ring")
+            }
+        }
+    }
+
+    /// The light-mode pill is near-white, so an inherited white label on it
+    /// is invisible: the pill carries `segmentedSelectedLabel` exactly as a
+    /// selected segment does.
+    func testSelectedTabLabelInvertsOnThePill() async {
+        await MainActor.run {
+            let palette = ControlPalette.resolve(colorScheme: .light)
+            let bar = Self.tabBarNode(colorScheme: .light)
+            guard let label = Self.firstText(in: bar.children[0]) else {
+                return XCTFail("Expected a label on the selected tab")
+            }
+            XCTAssertEqual(label.textStyle.color, palette.segmentedSelectedLabel)
+            XCTAssertLessThan(label.textStyle.color.red, 0.5, "A near-white pill takes a dark label")
+        }
+    }
+
+    @MainActor
+    private static func tabBarNode(colorScheme: ColorScheme) -> ViewNode {
+        let runtime = RetainedViewRuntime(root: ViewNode())
+        let context = ViewBuildContext(
+            canvasSizeProvider: { Size(width: 800, height: 600) },
+            invalidateHandler: {},
+            environmentValuesProvider: { EnvironmentValues(colorScheme: colorScheme) }
+        )
+        let node =
+            TabView {
+                Text("First page")
+                    .tabItem { Text("First") }
+                Text("Second page")
+                    .tabItem { Text("Second") }
+            }
+            .makeComponent(context: context)
+            .makeNode(runtime: runtime)
+        // container > centring band > the tab control itself.
+        return node.children[0].children[0]
+    }
+
+    @MainActor
+    private static func firstText(in node: ViewNode) -> ViewNode? {
+        if node.text != nil {
+            return node
+        }
+        for child in node.children {
+            if let found = firstText(in: child) {
+                return found
+            }
+        }
+        return nil
+    }
+
     // MARK: - Stack spacing
 
     func testStacksDefaultToTheMacOSStackSpacing() async {

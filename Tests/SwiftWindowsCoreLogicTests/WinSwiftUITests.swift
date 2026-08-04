@@ -8064,8 +8064,11 @@ final class WinSwiftUITests: XCTestCase {
             )
             XCTAssertEqual(alternatingInsetNode.children[1].cornerRadius, 8)
             XCTAssertNil(alternatingInsetNode.children[2].backgroundColor)
+            // An un-striped inset table rules between its rows instead, so
+            // the second child is the hairline, not the second row.
             XCTAssertNil(nonAlternatingInsetNode.children[0].backgroundColor)
-            XCTAssertNil(nonAlternatingInsetNode.children[1].backgroundColor)
+            XCTAssertTrue(nonAlternatingInsetNode.children[1].isSeparatorRule)
+            XCTAssertNil(nonAlternatingInsetNode.children[2].backgroundColor)
         }
     }
 
@@ -8657,7 +8660,10 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(inheritedColumn.children.count, 2)
             XCTAssertEqual(inheritedColumn.children[0].text, "NAME")
             XCTAssertEqual(inheritedColumn.backgroundColor, ControlPalette.darkStandard.raisedSurface)
-            XCTAssertEqual(inheritedColumn.borderColor, ControlPalette.darkStandard.separator)
+            // A grouped card is a panel material, and its ring starts at the
+            // appearance's top highlight rather than at the separator tone.
+            XCTAssertNotNil(inheritedColumn.backgroundGradient)
+            XCTAssertEqual(inheritedColumn.borderColor, ControlPalette.darkStandard.raisedSurfaceHighlight)
             XCTAssertEqual(inheritedColumn.borderWidth, 1)
             XCTAssertEqual(inheritedColumn.cornerRadius, MacOSControlMetrics.GroupBox.cornerRadius)
             guard case .stack(let groupedStackLayout) = inheritedColumn.layoutMode else {
@@ -8974,7 +8980,13 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(stackLayout, .vertical(spacing: 8, padding: .all(12), alignment: .stretch))
             XCTAssertEqual(node.borderWidth, 1)
-            XCTAssertEqual(node.cornerRadius, 12)
+            // An NSBox is the same grouped container a Form section is: the
+            // pinned 10pt corner, the appearance's raised surface, and the
+            // panel material on it. The 12pt radius and the translucent dark
+            // charcoal it used to carry were literals no appearance resolved.
+            XCTAssertEqual(node.cornerRadius, MacOSControlMetrics.GroupBox.cornerRadius)
+            XCTAssertEqual(node.backgroundColor, ControlPalette.darkStandard.raisedSurface)
+            XCTAssertNotNil(node.backgroundGradient)
             XCTAssertEqual(node.children.count, 2)
             XCTAssertEqual(node.children[0].text, "SETTINGS")
             XCTAssertEqual(node.children[1].text, "BODY")
@@ -9020,7 +9032,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(readerNode.text, "AUTOMATIC")
             XCTAssertEqual(inheritedNode.children[0].children.count, 2)
             XCTAssertEqual(inheritedNode.children[0].children[0].text, "SETTINGS")
-            XCTAssertEqual(inheritedNode.children[0].cornerRadius, 12)
+            XCTAssertEqual(
+                inheritedNode.children[0].cornerRadius, MacOSControlMetrics.GroupBox.cornerRadius)
         }
     }
 

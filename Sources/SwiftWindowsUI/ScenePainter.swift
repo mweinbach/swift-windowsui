@@ -869,13 +869,19 @@ public enum ScenePainter {
                 if let borderSegments = dashedBorderSegments {
                     for segment in borderSegments
                     where clipAllowsDrawing(clip: effectiveClip, rect: placement.footprint(of: segment.rect)) {
+                        let stops = BorderSegments.segmentStops(
+                            gradient: node.borderGradient,
+                            start: borderColor,
+                            segment: segment.rect,
+                            in: quadFrame
+                        )
                         scene.addQuad(
                             placement.rotating(
                                 fillQuad(
                                     rect: segment.rect,
                                     cornerRadius: segment.cornerRadius,
-                                    color: borderColor,
-                                    gradient: node.borderGradient,
+                                    color: stops.color,
+                                    gradient: stops.gradient,
                                     opacity: opacity,
                                     clip: effectiveClipRect,
                                     surfaceSize: surfaceSize,
@@ -1511,13 +1517,19 @@ public enum ScenePainter {
             for segment in segments
             where clipAllowsDrawing(clip: state.effectiveClip, rect: state.placement.footprint(of: segment.rect)) {
                 let segmentFootprint = state.placement.footprint(of: segment.rect)
+                let stops = BorderSegments.segmentStops(
+                    gradient: node.borderGradient,
+                    start: state.borderColor,
+                    segment: segment.rect,
+                    in: ringFrame
+                )
                 scene.addQuad(
                     state.placement.rotating(
                         fillQuad(
                             rect: segment.rect,
                             cornerRadius: segment.cornerRadius,
-                            color: state.borderColor,
-                            gradient: node.borderGradient,
+                            color: stops.color,
+                            gradient: stops.gradient,
                             opacity: state.opacity,
                             clip: state.effectiveClip?.rect,
                             surfaceSize: surfaceSize,

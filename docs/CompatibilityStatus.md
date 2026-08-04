@@ -76,7 +76,7 @@ dashboard composition on a single custom-rendered window.
 | `List` | **Partial** | Vertical scroll panel, stable row metrics, hover/selection chrome, arrow-key selection with scroll-into-view; limited edit chrome. **Not virtualized**: arrow-key scroll-into-view mirrors row frames through `onLayout`, which deferral silences for exactly the off-screen rows it needs — see `docs/GPURenderingPipeline.md`, “Why `List` is not virtualized yet” |
 | `Form`, `Section` | **Partial** | Grouped-form layout is macOS-shaped: a 640pt content column centred in the window, rows as a two-column grid (one trailing-aligned label column shared across every section of the form, leading value column), section headers outside and above near-flat group boxes. Styles map to retained spacing/shells; the grid is `Form`-scoped and does not span arbitrary containers |
 | `LabeledContent` | **Partial** | Label/value row; inside a `Form` it is the grouped-form row with the form-wide shared label column |
-| `GroupBox`, `DisclosureGroup`, `ControlGroup` | **Partial** | Functional retained chrome; style enums are mostly visual profiles / metadata |
+| `GroupBox`, `DisclosureGroup`, `ControlGroup` | **Partial** | Functional retained chrome; style enums are mostly visual profiles / metadata. `GroupBox` draws the grouped-container material (`ControlPalette.raisedSurfaceFill` / `raisedSurfaceRing`, `MacOSControlMetrics.GroupBox` geometry), so it resolves per appearance and matches a `Form` section box |
 | `HSplitView`, `VSplitView` | **Implemented** | Draggable retained splitters with ratio / min extents |
 | `OutlineGroup` | **Partial** | Expand/collapse tree via retained disclosure chrome |
 | `Table` | **Partial** | Data + columns as retained header/row grid; not a native Windows list-view |
@@ -133,7 +133,7 @@ dashboard composition on a single custom-rendered window.
 | Sizing / padding / background / overlay / border / corner / clip | **Implemented** / **Partial** | `frame`, `padding`, `background`, `overlay`, `border`, `cornerRadius`, `clipped`, basic `clipShape` |
 | Color / font / line limit / opacity / hidden / zIndex / offset / 2D scale & rotation | **Implemented** / **Partial** | Propagates via `ViewBuildContext` / node transforms |
 | Interaction | **Implemented** / **Partial** | `onTapGesture`, `onHover`, `disabled`, `focusable`, `@FocusState`, keyboard shortcuts on activation |
-| List row chrome | **Partial** | Separators, insets, backgrounds, selection styling |
+| List row chrome | **Partial** | Separators, insets, backgrounds, selection styling. `.automatic` / `.plain` / `.inset` paint a `textBackgroundColor` body; `.inset` rounds and rings it and insets its rows into it, and stripes replace row rules rather than joining them |
 | Animation (opacity / background) | **Partial** | `animation`, `withAnimation` for interpolatable retained properties; springs have numeric parity tables |
 | State wrappers | **Implemented** / **Partial** | `@State`, `Binding`, `@ObservedObject`, `@StateObject`, `@Published` (lightweight), `@AppStorage` |
 

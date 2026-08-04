@@ -15289,15 +15289,42 @@ public struct ListStyle: Sendable, Equatable {
                 cornerRadius: 12
             )
         case .inset:
+            // `.inset` had no body at all: no fill, no ring, no corners, no
+            // rule between rows, and a 6pt gap holding the rows apart. Four
+            // strings floated on the window background, which is the one
+            // thing an *inset table* is not — the inset in the name is the
+            // row content's inset from the body's edge, so without a body
+            // there is nothing for it to be inset from.
+            //
+            // The body is the same `textBackgroundColor` card the plain and
+            // automatic styles paint, closed with the 6pt radius and hairline
+            // a `.bordered` list gets, and the rows are ruled and inset into
+            // it. The card fills the list's own frame rather than sitting in
+            // a margin inside it: an NSTableView's background is the *clip
+            // view's* background, and a list that left a gutter around itself
+            // would show window backdrop inside its own scroll bounds.
+            //
+            // Stripes and rules are alternatives, not a stack: AppKit's
+            // alternating row colours *are* the row boundary, and a table
+            // that drew both reads as a spreadsheet.
+            let stripes = alternatesRowBackgrounds == true
             return RetainedListChrome(
-                defaultSpacing: 6,
-                padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12),
-                backgroundColor: nil,
-                borderColor: .clear,
-                borderWidth: 0,
-                cornerRadius: 0,
-                alternatesRowBackgrounds: alternatesRowBackgrounds == true,
-                alternatingRowBackgroundColor: palette.quinaryFill
+                defaultSpacing: 0,
+                padding: EdgeInsets(
+                    top: MacOSControlMetrics.List.insetVerticalInset,
+                    leading: MacOSControlMetrics.List.contentInset,
+                    bottom: MacOSControlMetrics.List.insetVerticalInset,
+                    trailing: MacOSControlMetrics.List.contentInset
+                ),
+                backgroundColor: palette.controlBackground,
+                borderColor: palette.separator,
+                borderWidth: 1,
+                cornerRadius: MacOSControlMetrics.List.insetCornerRadius,
+                alternatesRowBackgrounds: stripes,
+                alternatingRowBackgroundColor: palette.quinaryFill,
+                rowMinHeight: MacOSControlMetrics.List.plainRowHeight,
+                drawsRowSeparators: !stripes,
+                separatorLeadingInset: 0
             )
         case .insetGrouped:
             return RetainedListChrome(

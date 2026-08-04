@@ -299,21 +299,105 @@ public enum Controls {
     /// shallower than the retired gloss.
     public nonisolated static let grooveSheenFactor: Float = 0.90
 
+    /// How far a control surface's bottom stop falls, in luminance the window
+    /// actually shows rather than in the surface's own channels.
+    ///
+    /// It is the complement of `surfaceSheenFactor` — the same 0.04 step,
+    /// stated as a distance instead of a ratio — because macOS's own bezels
+    /// travel about the same *absolute* amount in both appearances: a light
+    /// push button runs #FFFFFF → #F5F5F5 and a dark one #545456 → #48484A,
+    /// 10 and 12 levels of 255.
+    public nonisolated static var surfaceSheenDrop: Float { 1 - surfaceSheenFactor }
+
+    /// Most of itself a surface may lose to its own sheen.
+    ///
+    /// The absolute step above is calibrated against a near-white bezel,
+    /// where it is 4% of the surface. On a dim surface the same distance is
+    /// most of what the surface has — a `white(0.10)` control over a black
+    /// page is 25/255, and a 10-level drop dissolves its bottom edge into the
+    /// window. macOS's dark push bezel travels 14% of itself; this ceiling is
+    /// that, rounded, and it binds only where the absolute step would eat the
+    /// control.
+    public nonisolated static let surfaceSheenRelativeCeiling: Float = 0.16
+
+    /// How much brightness a surface contributes to the window: its greatest
+    /// channel, weighted by how much of the surface there is.
+    ///
+    /// The greatest channel rather than a luminance sum, because the sheen is
+    /// a fall in the surface's *own* brightness. A weighted sum reads
+    /// `#007AFF` as a dim colour (blue carries 11% of luminance), so an
+    /// absolute step against it would shade a full-strength accent three
+    /// times as hard as the near-white bezel beside it. Value says both are
+    /// at full brightness, and both take the same 4% fall — which is what
+    /// keeps this arithmetic identical to `shaded(_:by: surfaceSheenFactor)`
+    /// for every opaque, full-value surface: white bezels, accent fills,
+    /// destructive reds, slider and progress bars.
+    public nonisolated static func compositeValue(_ color: Color) -> Float {
+        max(color.red, max(color.green, color.blue)) * color.alpha
+    }
+
+    /// The bottom stop of a control-surface sheen.
+    ///
+    /// `shaded(_:by: surfaceSheenFactor)` scales the channels and leaves alpha
+    /// alone. That is the right arithmetic for an opaque bezel and very nearly
+    /// a no-op for a translucent one: a dark-appearance control surface is
+    /// `white(0.10)`, a wash whose composite is `0.10 · 1 + 0.90 · window`, so
+    /// scaling `(1,1,1)` to `(0.96,0.96,0.96)` moved a 25/255 button by a
+    /// single level. Every bordered button in the dark appearance was a flat
+    /// fill while the light one carried its gradient — out of one shared
+    /// "sheen".
+    ///
+    /// Solving for the factor that lands the surface `drop` lower in what the
+    /// window shows fixes that without giving up hue: the channels still scale
+    /// together, so a grey stays grey and an accent stays its own colour. On
+    /// any opaque full-value surface the factor comes out at exactly
+    /// `surfaceSheenFactor`, which is why nothing already correct moves.
+    public nonisolated static func sheenBottom(_ color: Color, drop: Float) -> Color {
+        let value = compositeValue(color)
+        guard color.alpha > 0, value > 0, drop > 0 else {
+            return color
+        }
+        let effectiveDrop = min(drop, value * surfaceSheenRelativeCeiling)
+        return shaded(color, by: max(0, (value - effectiveDrop) / value))
+    }
+
     public static func backgroundSheen(for color: Color) -> GradientType? {
         guard color.alpha > 0 else {
             return nil
         }
-        return .linear(LinearGradient(startColor: color, endColor: shaded(color, by: surfaceSheenFactor)))
+        return .linear(LinearGradient(startColor: color, endColor: sheenBottom(color, drop: surfaceSheenDrop)))
     }
 
-    /// Vertical border gradient: the top edge keeps the (animated) border
-    /// color while the bottom fades, reading as a hairline top-edge
-    /// highlight on standard controls.
+    /// How much of its strength a bezel's ring keeps at its far edge.
+    public nonisolated static let borderSheenFadeFactor: Float = 0.55
+
+    /// Vertical border gradient — the hairline a bezel is closed with.
+    ///
+    /// macOS lights a control from above, so its ring is *lightest* along the
+    /// top edge in both appearances. That is not the same as strongest at the
+    /// top, and the difference is the whole light appearance: a dark-mode ring
+    /// is drawn in white, where lightest means full strength on top and a fade
+    /// downward; a light-mode ring is drawn in black, where the identical
+    /// lighting reads the other way round — the ring withdraws at the top and
+    /// closes along the bottom, which is the faint under-line a macOS light
+    /// push button carries. Fading downward regardless was a dark-mode idea,
+    /// and in light mode it drew the shadow edge along the top of every
+    /// control in the app.
+    ///
+    /// The ring's own colour says which it is: a ring you can see against a
+    /// dark window is a highlight, a ring you can see against a light one is a
+    /// shadow, and nothing else in the palette rings a control in a mid-tone.
     public static func borderSheen(for color: Color) -> GradientType? {
         guard color.alpha > 0 else {
             return nil
         }
-        return .linear(LinearGradient(startColor: color, endColor: color.multipliedAlpha(by: 0.55)))
+        let faded = color.multipliedAlpha(by: borderSheenFadeFactor)
+        let isHighlightRing = max(color.red, max(color.green, color.blue)) > 0.5
+        return .linear(
+            isHighlightRing
+                ? LinearGradient(startColor: color, endColor: faded)
+                : LinearGradient(startColor: faded, endColor: color)
+        )
     }
 
     public static func panel(

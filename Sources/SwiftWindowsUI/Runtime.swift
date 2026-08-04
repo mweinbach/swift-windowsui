@@ -5690,14 +5690,24 @@ public final class ViewNode {
                 strokeStyle: borderStrokeStyle
             ) {
                 for segment in borderSegments where baseClipAllowsDrawing(baseClip: effectiveClip, rect: segment.rect) {
+                    // Each dash is its own quad, so the ring's gradient has to
+                    // be re-sampled onto the dash rather than replayed inside
+                    // it — same reason, and same helper, as the scene path's
+                    // ring segments.
+                    let stops = BorderSegments.segmentStops(
+                        gradient: effectiveBorderGradient,
+                        start: effectiveBorderColor,
+                        segment: segment.rect,
+                        in: paintFrame
+                    )
                     commands.append(
                         .fillRect(
                             FillRectCommand(
                                 rect: segment.rect,
-                                color: effectiveBorderColor,
+                                color: stops.color,
                                 cornerRadius: segment.cornerRadius,
                                 clipRect: effectiveClipRect,
-                                gradient: effectiveBorderGradient
+                                gradient: stops.gradient
                             )
                         )
                     )

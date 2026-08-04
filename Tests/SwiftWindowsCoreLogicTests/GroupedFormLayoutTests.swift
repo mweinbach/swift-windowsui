@@ -578,7 +578,7 @@ final class GroupedFormLayoutTests: XCTestCase {
         )
     }
 
-    func testGroupedFormBoxTakesItsShadowFromTheAppearance() async {
+    func testGroupedFormBoxTakesItsShadowFromTheAppearance() async throws {
         for scheme in [ColorScheme.light, .dark] {
             let node = buildNode(
                 Form {
@@ -593,7 +593,44 @@ final class GroupedFormLayoutTests: XCTestCase {
             XCTAssertEqual(box.shadowColor, palette.groupedContainerShadow)
             XCTAssertEqual(box.shadowOffset, Point(x: 0, y: MacOSControlMetrics.GroupBox.shadowOffsetY))
             XCTAssertEqual(box.shadowSpread, MacOSControlMetrics.GroupBox.shadowSpread)
-            XCTAssertEqual(box.borderColor, palette.separator)
+            // The ring is lit from above: it starts at the appearance's
+            // highlight along the box's top edge and closes at the separator
+            // tone along its bottom one. `borderColor` is the start stop
+            // because a quad resolves a gradient's first stop from the fill
+            // colour it is handed.
+            XCTAssertEqual(box.borderColor, palette.raisedSurfaceHighlight)
+            let ring = try XCTUnwrap(box.borderGradient)
+            XCTAssertEqual(ring.startColor, palette.raisedSurfaceHighlight)
+            XCTAssertEqual(ring.endColor, palette.separator)
+        }
+    }
+
+    // MARK: - Panel material
+
+    /// A grouped box is a *surface*, and a surface is not one flat colour.
+    func testGroupedFormBoxCarriesThePanelMaterial() async throws {
+        for scheme in [ColorScheme.light, .dark] {
+            let node = buildNode(
+                Form {
+                    Section("PROFILE") {
+                        Toggle("Enable", isOn: .constant(true))
+                    }
+                },
+                colorScheme: scheme
+            )
+            let box = groupBox(of: contentColumn(of: node).children[0])
+            let palette = ControlPalette.resolve(colorScheme: scheme)
+            XCTAssertEqual(box.backgroundColor, palette.raisedSurface)
+            let fill = try XCTUnwrap(
+                box.backgroundGradient,
+                "A \(scheme) grouped box paints a material, not a fillRect"
+            )
+            XCTAssertEqual(fill.startColor, palette.raisedSurface)
+            // Barely there, and downward: a panel is lit from above.
+            let travel =
+                Controls.compositeValue(fill.startColor) - Controls.compositeValue(fill.endColor)
+            XCTAssertGreaterThan(travel, 0.005, "\(scheme): the material has to be visible at all")
+            XCTAssertLessThan(travel, Controls.surfaceSheenDrop + 0.001, "\(scheme): and never a glossy card")
         }
     }
 }

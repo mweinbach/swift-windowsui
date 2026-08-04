@@ -118,6 +118,41 @@ final class MacOSDesignParityTests: XCTestCase {
         // this used to carry is an 18% luminance drop on every control.
         XCTAssertEqual(Controls.surfaceSheenFactor, 0.96, accuracy: 0.0001)
         XCTAssertEqual(Controls.grooveSheenFactor, 0.90, accuracy: 0.0001)
+        // The same step stated as a distance: macOS's bezels travel about
+        // the same absolute amount in both appearances (#FFFFFF → #F5F5F5
+        // light, #545456 → #48484A dark).
+        XCTAssertEqual(Controls.surfaceSheenDrop, 0.04, accuracy: 0.0001)
+        XCTAssertEqual(Controls.surfaceSheenDrop, 1 - Controls.surfaceSheenFactor, accuracy: 0.0001)
+        // …capped relative to the surface, so a dim control does not lose its
+        // bottom edge to its own sheen. macOS's dark push bezel travels ~14%.
+        XCTAssertEqual(Controls.surfaceSheenRelativeCeiling, 0.16, accuracy: 0.0001)
+        XCTAssertEqual(Controls.borderSheenFadeFactor, 0.55, accuracy: 0.0001)
+    }
+
+    func testGroupedContainerMaterialIsBarelyThereAndDownward() async {
+        for palette in [ControlPalette.darkStandard, .lightStandard] {
+            guard case .linear(let fill) = palette.raisedSurfaceFill else {
+                return XCTFail("a panel material is a linear gradient")
+            }
+            XCTAssertEqual(fill.axis, .vertical, "a panel is lit from above")
+            XCTAssertEqual(fill.startColor, palette.raisedSurface)
+            let travel = Controls.compositeValue(fill.startColor) - Controls.compositeValue(fill.endColor)
+            XCTAssertGreaterThan(travel, 0.005)
+            XCTAssertLessThanOrEqual(travel, Controls.surfaceSheenDrop + 0.0001)
+
+            guard case .linear(let ring) = palette.raisedSurfaceRing else {
+                return XCTFail("a panel ring is a linear gradient")
+            }
+            XCTAssertEqual(ring.startColor, palette.raisedSurfaceHighlight)
+            XCTAssertEqual(ring.endColor, palette.separator)
+        }
+        XCTAssertEqual(ControlPalette.darkStandard.raisedSurfaceHighlight, ControlPalette.white(0.16))
+        XCTAssertEqual(ControlPalette.lightStandard.raisedSurfaceHighlight, ControlPalette.white(0.55))
+    }
+
+    func testInsetListBodyMetricsMatchAnInsetNSTableView() async {
+        XCTAssertEqual(MacOSControlMetrics.List.insetCornerRadius, 6, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.List.insetVerticalInset, 6, accuracy: 0.001)
     }
 
     func testPushButtonCornerRadiusIsARoundedRect() async {

@@ -173,8 +173,60 @@ These match Apple's macOS Big Sur+ design language for standard controls.
 | `MacOSControlMetrics.Button.regularCornerRadius` | 6 | Push-bezel corner radius. A capsule is the opt-in shape (`.buttonBorderShape(.capsule)`), never the default — 16 on a 22–30pt control clamps to h/2 and renders every button as a stadium. |
 | `MacOSControlMetrics.Button.smallCornerRadius` | 4 | `.mini` / `.small`, and the segmented pill. |
 | `MacOSControlMetrics.Button.largeCornerRadius` | 8 | `.large`.                            |
-| `Controls.surfaceSheenFactor`         | 0.96  | Luminance the bottom stop of a control sheen keeps. Apple retired the glossy bevel with Yosemite; the previous 0.82 was an 18% drop on every surface and is what made controls read as styled divs. |
+| `Controls.surfaceSheenFactor`         | 0.96  | Luminance the bottom stop of a control sheen keeps, on a full-value surface. Apple retired the glossy bevel with Yosemite; the previous 0.82 was an 18% drop on every surface and is what made controls read as styled divs. |
+| `Controls.surfaceSheenDrop`           | 0.04  | The same step stated as a distance rather than a ratio (`1 - surfaceSheenFactor`). macOS's bezels travel about the same *absolute* amount in both appearances: a light push button runs #FFFFFF → #F5F5F5 and a dark one #545456 → #48484A. |
+| `Controls.surfaceSheenRelativeCeiling`| 0.16  | Most of itself a surface may lose to its own sheen. The absolute step is calibrated on a near-white bezel; on a dim one it is most of what the surface has, and a `white(0.10)` control over a black page (25/255) would dissolve its bottom edge into the window. macOS's dark push bezel travels ~14% of itself. |
+| `Controls.borderSheenFadeFactor`      | 0.55  | Strength a bezel's ring keeps at its far edge. |
 | `Controls.grooveSheenFactor`          | 0.90  | The deeper shade a genuinely recessed groove keeps (slider/progress track, segmented track, text-field well). |
+
+### The sheen is a step in what the window shows
+
+`shaded(_:by:)` scales the channels and leaves alpha alone. That is the right
+arithmetic for an opaque bezel and very nearly a no-op for a translucent one:
+a dark-appearance control surface is `white(0.10)`, a wash whose composite is
+`0.10 · 1 + 0.90 · window`, so scaling `(1,1,1)` to `(0.96,0.96,0.96)` moved a
+25/255 button by a **single level**. Every bordered button in the dark
+appearance was a flat fill while the light one carried its gradient, out of
+one shared "sheen".
+
+`Controls.sheenBottom` solves instead for the factor that lands the surface
+`surfaceSheenDrop` lower in `compositeValue` — its greatest channel weighted
+by its alpha — capped at `surfaceSheenRelativeCeiling` of the surface itself.
+The channels still scale together, so hue survives; and on any opaque
+full-value surface (white bezels, accent fills, destructive reds, slider and
+progress bars) the factor comes out at exactly `surfaceSheenFactor`, which is
+why nothing already correct moved.
+
+The greatest channel rather than a weighted luminance sum, deliberately: a sum
+reads `#007AFF` as dim (blue carries 11% of luminance), so an absolute step
+against it would shade a full-strength accent three times as hard as the
+near-white bezel beside it.
+
+### A ring is lightest along its top edge — in both appearances
+
+macOS lights a bezel from above, so its hairline is *lightest* on top whichever
+appearance it is in. That is not the same as strongest on top, and the
+difference is the whole light appearance: a dark-mode ring is drawn in white,
+where lightest means full strength on top fading down; a light-mode ring is
+drawn in black, where the identical lighting reads the other way round — the
+ring withdraws at the top and closes along the bottom, which is the faint
+under-line a macOS light push button carries. `Controls.borderSheen` picks the
+stop order from the ring's own colour.
+
+Two other things had to be true before any of that reached a pixel:
+
+- **A ring's gradient belongs to the ring, not to each of its edges.** A quad
+  evaluates its gradient across its own rect, and a bordered node *with
+  children* paints its border as four thin edge quads. Handed the ring's
+  gradient unmodified, each edge replayed the whole ramp inside a 1pt line, so
+  the top and bottom hairlines both landed on the gradient's midpoint. Every
+  button in this stack has a label inside it, so the highlight `borderSheen`
+  produced never reached one real control while every node-reading unit test
+  agreed it was there. `BorderSegments.segmentStops` re-samples the gradient
+  onto each segment; `PainterBorderRingCoverageTests` pins it in pixels.
+- **A quad carries two stops.** `GPUIScene`'s quad primitive has a start and an
+  end colour, so a multi-stop gradient collapses at the paint layer. Chrome
+  gradients are authored as two stops for that reason.
 | `ControlPalette.disabledContentOpacity` | 0.35 | AppKit dims the whole disabled cell, label included — not only the surface fill. |
 | `ControlAnimationStyle.pressedScale`  | 0.97  | Press-down affordance, Big Sur+ feel.   |
 | `ControlAnimationStyle.default.focusDuration` | 0.18s | Hover/focus cross-fade.            |
@@ -207,6 +259,30 @@ every row exists (`alignedGroupedFormRows`).
 | `MacOSControlMetrics.GroupBox.shadowSpread`    | 3     | " |
 | `ControlPalette.groupedContainerShadow` (light)| black @ 0.04 | A macOS light-mode group box is near-flat: a white surface closed by a separator-tone hairline. The shared `ambientShadow` at 0.12 put a visible smudge under every card. |
 | `ControlPalette.groupedContainerShadow` (dark) | black @ 0.22 | Dark mode carries the depth the low-contrast hairline cannot. |
+| `ControlPalette.raisedSurfaceHighlight` (light)| white @ 0.55 | Top edge of a grouped container's ring. |
+| `ControlPalette.raisedSurfaceHighlight` (dark) | white @ 0.16 | " |
+
+### The panel material
+
+A macOS panel is not one flat colour. It carries a vertical gradient so slight
+you would not call it a gradient if you saw it alone — a handful of levels of
+255 between its top and its bottom — and that slight amount is the whole
+difference between a surface and a rectangle of paint. Every card in this app
+was a single `fillRect`, which is why a screenshot read as flat colour
+blocking however correct the tones themselves were.
+
+`ControlPalette.raisedSurfaceFill` is that material: `raisedSurface` at the top
+and `Controls.sheenBottom` of it at the bottom — the *same* sheen every control
+surface takes, deliberately, because a card and the buttons standing on it have
+to be lit from one direction. `ControlPalette.raisedSurfaceRing` is the ring
+that closes it: `raisedSurfaceHighlight` along the top edge, `separator` along
+the bottom, the same top-lit rule `borderSheen` gives a control bezel.
+
+A `GroupBox`, a grouped `Form`'s section boxes and a grouped `Form`'s own card
+all take it. `GroupBox` in particular used to carry literals no appearance
+resolved at all — a translucent `#252525 @ 0.54` fill under a `#DADADA @ 0.14`
+ring at a 12pt radius — so it was neither appearance-correct nor the same box
+the settings pane beside it drew.
 
 An `NSSegmentedControl` is **intrinsically sized** — equal segments as wide as
 the widest label — and stretches only when something explicitly asks it to (a
@@ -375,6 +451,8 @@ grids.
 | List row (plain)             | `List.plainRowHeight`                     | 24 pt     |
 | List row (sidebar)           | `List.sidebarRowHeight`                   | 28 pt     |
 | List content inset           | `List.contentInset`                       | 16 pt     |
+| Inset list body corner       | `List.insetCornerRadius`                  | 6 pt      |
+| Inset list body top/bottom   | `List.insetVerticalInset`                 | 6 pt      |
 | Overlay scroller knob        | `Scroller.overlayThumbThickness`          | 7 pt      |
 | Overlay scroller inset       | `Scroller.overlayInset`                   | 4 pt      |
 | Overlay scroller min knob    | `Scroller.minimumThumbLength`             | 24 pt     |

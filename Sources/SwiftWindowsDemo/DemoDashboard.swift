@@ -228,14 +228,12 @@ struct DemoToolbar: View {
     let layout: DemoLayout
 
     var body: some View {
+        // The toolbar band is a panel like any other; it used to restate the
+        // panel's own default fill only to run it corner to corner, which put
+        // a left-to-right lightness ramp across the top of the window.
         DemoGlassSurface(
             cornerRadius: layout.toolbarCornerRadius,
             contentPadding: layout.toolbarPadding,
-            fill: LinearGradient(
-                colors: [theme.surfaceTop, theme.surfaceBottom],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ),
             stroke: theme.surfaceStrokeStrong,
             shadowColor: theme.shadow
         ) {
@@ -796,13 +794,31 @@ struct DemoGlassSurface<Content: View>: View {
 
     private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
 
+    /// A panel is lit from above, so its gradient runs top to bottom.
+    ///
+    /// It used to run corner to corner, which on a card far wider than it is
+    /// tall is very nearly a *horizontal* gradient: a 730×140 pt card moved
+    /// nine levels from its left edge to its right one and one level from its
+    /// top to its bottom. Both halves of that are wrong — panels do not get
+    /// lighter on one side, and the vertical fall is the only part of the
+    /// gradient the eye reads as depth — which is why these cards audited as
+    /// flat single-colour fills despite being authored as gradients.
     private var resolvedFill: LinearGradient {
         fill
             ?? LinearGradient(
                 colors: [theme.surfaceTop, theme.surfaceBottom],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                startPoint: .top,
+                endPoint: .bottom
             )
+    }
+
+    /// The panel's hairline, brightest along its top edge.
+    private var resolvedStroke: LinearGradient {
+        LinearGradient(
+            colors: [theme.surfaceHighlight, stroke ?? theme.surfaceStroke],
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 
     var body: some View {
@@ -811,7 +827,7 @@ struct DemoGlassSurface<Content: View>: View {
             .background(resolvedFill)
             .cornerRadius(cornerRadius)
             .padding(1)
-            .background(stroke ?? theme.surfaceStroke)
+            .background(resolvedStroke)
             .cornerRadius(cornerRadius + 1)
             .shadow(
                 color: elevation.castsShadow ? (shadowColor ?? theme.shadow) : .clear,
@@ -883,15 +899,24 @@ struct DemoTintedSurface<Content: View>: View {
         content
             .padding(contentPadding)
             .background(
+                // Top to bottom, like every other panel: a tinted card is
+                // still a card, and a corner-to-corner tint on a wide surface
+                // reads as a lighting direction no window has.
                 LinearGradient(
                     colors: colors,
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
             )
             .cornerRadius(cornerRadius)
             .padding(1)
-            .background(stroke ?? theme.surfaceStrokeStrong)
+            .background(
+                LinearGradient(
+                    colors: [theme.surfaceHighlight, stroke ?? theme.surfaceStrokeStrong],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
             .cornerRadius(cornerRadius + 1)
             .shadow(
                 color: elevation.castsShadow ? (shadowColor ?? theme.shadow) : .clear,
@@ -1076,8 +1101,8 @@ struct DemoRowButton: View {
                 contentPadding: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14),
                 fill: LinearGradient(
                     colors: [theme.fieldTop, theme.fieldBottom],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
+                    startPoint: .top,
+                    endPoint: .bottom
                 ),
                 stroke: theme.surfaceStroke,
                 elevation: .control
@@ -1185,8 +1210,8 @@ struct DemoInfoCard: View {
             cornerRadius: 24,
             fill: LinearGradient(
                 colors: [theme.fieldTop, theme.fieldBottom],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                startPoint: .top,
+                endPoint: .bottom
             ),
             stroke: theme.surfaceStroke
         ) {
@@ -1344,6 +1369,17 @@ struct DemoTheme {
         pick(
             light: Color(red: 0.0, green: 0.0, blue: 0.0, opacity: 0.10),
             dark: Color(red: 1.0, green: 1.0, blue: 1.0, opacity: 0.10))
+    }
+    /// The top edge of a panel's hairline. macOS lights a surface from above
+    /// in both appearances: on a dark window that reads as a white highlight
+    /// along the card's top edge, and on a light one as the ring withdrawing
+    /// at the top and closing at the bottom. Matches the system treatment the
+    /// runtime gives a `GroupBox` and a `Form` section box, so a card the
+    /// demo draws itself and a card the framework draws are lit the same way.
+    var surfaceHighlight: Color {
+        pick(
+            light: Color(red: 1.0, green: 1.0, blue: 1.0, opacity: 0.55),
+            dark: Color(red: 1.0, green: 1.0, blue: 1.0, opacity: 0.16))
     }
     var surfaceStrokeStrong: Color {
         pick(

@@ -17,6 +17,57 @@ enum BorderSegments {
     /// covering the whole perimeter while degrading dash granularity rather
     /// than frame time.
     private static let maxDashSteps = 4_096
+
+    /// Re-samples a ring's two-stop gradient onto one of the ring's own
+    /// segments.
+    ///
+    /// A quad evaluates its gradient across *its own* rect, and a border ring
+    /// is emitted as thin edge quads. A control's border sheen — the
+    /// top-lighter hairline every macOS bezel is closed with — was therefore
+    /// replayed inside each 1pt edge, so the top hairline and the bottom
+    /// hairline both landed on the gradient's midpoint and a bezel that asked
+    /// for a bright top edge and a faded bottom one drew two identical grey
+    /// lines. (The bug only reached nodes with children, because a leaf's
+    /// border is a single full-frame fill — which is why the sheen looked
+    /// correct in every unit test that read the node and wrong in every
+    /// button that had a label inside it.)
+    ///
+    /// Mapping the segment back onto the ring's parameter range is what puts
+    /// the start colour on the top edge, the end colour on the bottom one,
+    /// and the ramp between them down the sides.
+    /// A ring with no linear gradient is returned untouched, so the ordinary
+    /// solid border stays one flat colour and one quad shape.
+    static func segmentStops(
+        gradient: GradientType?,
+        start: Color,
+        segment: Rect,
+        in frame: Rect
+    ) -> (color: Color, gradient: GradientType?) {
+        guard case .linear(let linear) = gradient else {
+            return (start, gradient)
+        }
+        let end = linear.endColor
+        let axis = linear.axis
+        let extent = axis == .horizontal ? frame.size.width : frame.size.height
+        guard extent.isFinite, extent > 0 else {
+            return (start, gradient)
+        }
+        let origin = axis == .horizontal ? frame.origin.x : frame.origin.y
+        let lower = axis == .horizontal ? segment.origin.x : segment.origin.y
+        let length = axis == .horizontal ? segment.size.width : segment.size.height
+        guard lower.isFinite, length.isFinite, origin.isFinite else {
+            return (start, gradient)
+        }
+        let t0 = min(max((lower - origin) / extent, 0), 1)
+        let t1 = min(max((lower + length - origin) / extent, 0), 1)
+        let sliceStart = start.interpolated(to: end, progress: t0)
+        let sliceEnd = start.interpolated(to: end, progress: t1)
+        return (
+            sliceStart,
+            .linear(LinearGradient(startColor: sliceStart, endColor: sliceEnd, axis: axis))
+        )
+    }
+
     /// Generates solid border-ring segments (top/bottom/left/right edges and
     /// four corner arcs) so the border can be drawn as thin quads rather than
     /// a full-rect fill.  This keeps the border visible when it must be drawn

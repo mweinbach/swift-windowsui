@@ -57,6 +57,36 @@ final class ChromeCompositionTests: XCTestCase {
         }
     }
 
+    /// A bezel's ring is lightest along its top edge in both appearances,
+    /// which is the *opposite* stop order in each: a white ring fades
+    /// downward, a black one fades upward. One direction for both put the
+    /// shadow edge along the top of every light-mode control.
+    @MainActor
+    func testBezelRingIsLightestAlongItsTopEdgeInBothAppearances() async throws {
+        for palette in [ControlPalette.darkStandard, .lightStandard] {
+            let ring = try XCTUnwrap(Controls.borderSheen(for: palette.controlBorder))
+            guard case .linear(let gradient) = ring else {
+                return XCTFail("a ring sheen is a linear gradient")
+            }
+            let topWeight = gradient.startColor.alpha
+            let bottomWeight = gradient.endColor.alpha
+            if palette.isDark {
+                XCTAssertGreaterThan(
+                    topWeight, bottomWeight,
+                    "a white ring is a highlight: full strength on top, fading down")
+            } else {
+                XCTAssertLessThan(
+                    topWeight, bottomWeight,
+                    "a black ring is a shadow: withdrawn on top, closing along the bottom")
+            }
+            XCTAssertEqual(
+                min(topWeight, bottomWeight),
+                max(topWeight, bottomWeight) * Controls.borderSheenFadeFactor,
+                accuracy: 0.0001
+            )
+        }
+    }
+
     func testBorderedProminentButtonGradientTracksTint() async throws {
         try await MainActor.run {
             let node = makeChromeNode(Button("Go") {}.buttonStyle(.borderedProminent))
@@ -95,6 +125,66 @@ final class ChromeCompositionTests: XCTestCase {
             let background = try XCTUnwrap(node.backgroundColor)
             let sheen = try XCTUnwrap(node.backgroundGradient)
             XCTAssertLessThan(sheen.endColor.red, background.red)
+        }
+    }
+
+    /// The sheen has to move what the *window* shows, not what the surface's
+    /// own channels say.
+    ///
+    /// A dark-appearance control surface is `white(0.10)`: a wash whose
+    /// composite is governed by its alpha. Scaling `(1,1,1)` by 0.96 left the
+    /// composite 0.4% lower — one level of 255 on a 25/255 button — so every
+    /// bordered button in the dark appearance was a flat fill while the light
+    /// one, being opaque, carried the gradient the same code asked for.
+    func testControlSheenMovesTheCompositeInBothAppearances() async {
+        for palette in [ControlPalette.darkStandard, .lightStandard] {
+            let surface = palette.controlSurface
+            let bottom = Controls.sheenBottom(surface, drop: Controls.surfaceSheenDrop)
+            let travel = Controls.compositeValue(surface) - Controls.compositeValue(bottom)
+            XCTAssertGreaterThan(
+                travel, 0.01,
+                "\(palette.colorScheme): a sheen the window cannot see is not a sheen"
+            )
+            XCTAssertLessThanOrEqual(
+                travel, Controls.surfaceSheenDrop + 0.0001,
+                "\(palette.colorScheme): and never more than the pinned step"
+            )
+            // Hue survives: the channels still scale together.
+            XCTAssertEqual(bottom.alpha, surface.alpha, accuracy: 0.0001)
+        }
+    }
+
+    /// The step is capped relative to the surface so a dark control does not
+    /// lose its bottom edge to its own sheen.
+    func testDarkControlSheenIsCappedRelativeToItsSurface() async {
+        let palette = ControlPalette.darkStandard
+        let surface = palette.controlSurface
+        let bottom = Controls.sheenBottom(surface, drop: Controls.surfaceSheenDrop)
+        let value = Controls.compositeValue(surface)
+        let travel = value - Controls.compositeValue(bottom)
+        XCTAssertEqual(
+            travel, value * Controls.surfaceSheenRelativeCeiling, accuracy: 0.0005,
+            "A 25/255 surface takes the relative ceiling, not the full absolute step"
+        )
+    }
+
+    /// Every opaque full-value surface is where the two formulations meet:
+    /// a white bezel, an accent fill, a destructive red, a slider's filled
+    /// bar. That is the reason nothing already correct moves — only the
+    /// translucent dark washes, which had no sheen at all, do.
+    func testOpaqueFullValueSurfaceSheenStillEqualsTheHistoricalFactor() async {
+        let surfaces: [Color] = [
+            Color(red: 1, green: 1, blue: 1, alpha: 1),
+            ControlPalette.opaque(.accentColor),
+            ControlPalette.opaque(.red),
+            ControlPalette.darkStandard.segmentedSelectedFill,
+        ]
+        for surface in surfaces where Controls.compositeValue(surface) >= 0.999 {
+            XCTAssertEqual(
+                Controls.sheenBottom(surface, drop: Controls.surfaceSheenDrop),
+                Controls.shaded(surface, by: Controls.surfaceSheenFactor),
+                "\(surface) is at full value and takes the historical proportional shade"
+            )
         }
     }
 

@@ -173,4 +173,58 @@ final class PainterBorderRingCoverageTests: XCTestCase {
         XCTAssertEqual(containerRing.g, leafRing.g)
         XCTAssertEqual(containerRing.b, leafRing.b)
     }
+
+    // MARK: - The ring's own gradient
+
+    /// A ring's gradient belongs to the ring, not to each of its edges.
+    ///
+    /// The ring is emitted as thin edge quads and a quad evaluates its
+    /// gradient across *its own* rect, so a top-lighter border sheen handed to
+    /// each segment unmodified was replayed inside a 2pt line: the top edge
+    /// and the bottom edge both came out at the gradient's midpoint. Every
+    /// macOS bezel is closed with a bright top hairline and a faded bottom
+    /// one, and every button in this stack has a label inside it — which is
+    /// exactly the case that takes the ring path — so the highlight the
+    /// `borderSheen` builder produced never reached a single pixel of a real
+    /// control, while the node-reading unit tests all agreed it was there.
+    func testRingSegmentsSampleTheGradientAtTheirOwnPlaceInTheRing() async {
+        let container = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 40, height: 40),
+            borderColor: white,
+            borderGradient: .linear(
+                LinearGradient(startColor: white, endColor: Color(red: 0, green: 0, blue: 0, alpha: 1))),
+            borderWidth: 2,
+            children: [ViewNode(frame: Rect(x: 4, y: 4, width: 32, height: 32))]
+        )
+
+        let bitmap = rasterize(container)
+        let top = pixel(bitmap, x: 20, y: 0)
+        let bottom = pixel(bitmap, x: 20, y: 39)
+        let side = pixel(bitmap, x: 0, y: 20)
+
+        XCTAssertGreaterThan(
+            Int(top.r), 240,
+            "the ring's top edge stands at the gradient's start, not at its midpoint")
+        XCTAssertLessThan(
+            Int(bottom.r), 24,
+            "and its bottom edge at the gradient's end")
+        XCTAssertTrue(
+            (100...160).contains(Int(side.r)),
+            "with the ramp between them down the sides, got \(side.r)")
+    }
+
+    /// A ring with no gradient is still one flat colour, top to bottom.
+    func testSolidRingIsUnaffectedByTheSegmentSampling() async {
+        let container = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 40, height: 40),
+            borderColor: white,
+            borderWidth: 2,
+            children: [ViewNode(frame: Rect(x: 4, y: 4, width: 32, height: 32))]
+        )
+
+        let bitmap = rasterize(container)
+        XCTAssertEqual(pixel(bitmap, x: 20, y: 0).r, 255)
+        XCTAssertEqual(pixel(bitmap, x: 20, y: 39).r, 255)
+        XCTAssertEqual(pixel(bitmap, x: 0, y: 20).r, 255)
+    }
 }

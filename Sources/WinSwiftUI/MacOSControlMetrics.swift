@@ -131,6 +131,16 @@ public enum MacOSControlMetrics {
         /// Leading/trailing inset from the list's own edge to row content
         /// (NSTableView's standard content inset).
         public static let contentInset: Double = 16
+        /// `.inset` is a *body* style, not a spacing tweak: NSTableView's
+        /// inset style draws its rows on a rounded `textBackgroundColor`
+        /// card. This is that card's radius — the same 6pt a `.bordered`
+        /// list is closed with, because they are the same box with and
+        /// without the row inset.
+        public static let insetCornerRadius: Double = 6
+        /// Top and bottom gutter between the inset body's edge and its first
+        /// and last row. Without it the first row's text sits flush against
+        /// the body's own rounded corner.
+        public static let insetVerticalInset: Double = 6
     }
 
     /// A grouped container — `GroupBox`, a `Form` section box, a settings

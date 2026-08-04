@@ -10443,7 +10443,9 @@ public struct Form: View {
             columnScope.resolve()
             let column = Controls.stackPanel(
                 backgroundColor: chrome.backgroundColor,
+                backgroundGradient: chrome.backgroundGradient,
                 borderColor: chrome.borderColor,
+                borderGradient: chrome.borderGradient,
                 borderWidth: chrome.borderWidth,
                 cornerRadius: chrome.cornerRadius,
                 // Card-style forms clip content to the rounded card so section
@@ -10480,7 +10482,9 @@ public struct Form: View {
         var spacing: Double
         var padding: EdgeInsets
         var backgroundColor: Color?
+        var backgroundGradient: GradientType?
         var borderColor: Color
+        var borderGradient: GradientType?
         var borderWidth: Double
         var cornerRadius: Double
         var contentMaxWidth: Double
@@ -10494,7 +10498,9 @@ public struct Form: View {
                 spacing: MacOSControlMetrics.Form.sectionSpacing,
                 padding: EdgeInsets(top: 16, leading: margin, bottom: margin, trailing: margin),
                 backgroundColor: nil,
+                backgroundGradient: nil,
                 borderColor: .clear,
+                borderGradient: nil,
                 borderWidth: 0,
                 cornerRadius: 0,
                 contentMaxWidth: MacOSControlMetrics.Form.contentMaxWidth
@@ -10504,17 +10510,23 @@ public struct Form: View {
                 spacing: 8,
                 padding: EdgeInsets(top: 8, leading: 18, bottom: 8, trailing: 18),
                 backgroundColor: nil,
+                backgroundGradient: nil,
                 borderColor: palette.separator,
+                borderGradient: nil,
                 borderWidth: 1,
                 cornerRadius: 8,
                 contentMaxWidth: MacOSControlMetrics.Form.contentMaxWidth
             )
         case .grouped:
+            // The one Form style that draws a card of its own takes the same
+            // panel material its section boxes do.
             return RetainedChrome(
                 spacing: MacOSControlMetrics.Form.sectionSpacing,
                 padding: EdgeInsets(top: 16, leading: margin, bottom: margin, trailing: margin),
                 backgroundColor: palette.raisedSurface,
-                borderColor: palette.separator,
+                backgroundGradient: palette.raisedSurfaceFill,
+                borderColor: palette.raisedSurfaceHighlight,
+                borderGradient: palette.raisedSurfaceRing,
                 borderWidth: 1,
                 cornerRadius: MacOSControlMetrics.GroupBox.cornerRadius,
                 contentMaxWidth: MacOSControlMetrics.Form.contentMaxWidth
@@ -10808,10 +10820,20 @@ public struct Section: View {
                 && context.scrollContentBackgroundVisibility.hidesRetainedScrollContentBackground
             let alignmentAnchor = style.scrollAxis == nil ? nil : context.defaultScrollAnchor(for: .alignment)
 
+            // A grouped box takes the panel material: the appearance's own
+            // near-flat vertical fill and a ring that is lightest along its
+            // top edge. A section that was given an explicit background
+            // gradient keeps it — the material is the *default* surface, not
+            // an override of one the app authored.
+            let sectionFill =
+                style.backgroundGradient
+                ?? (usesGroupedFormChrome && style.backgroundColor == nil ? palette.raisedSurfaceFill : nil)
+            let sectionRing = usesGroupedFormChrome && style.borderColor == nil ? palette.raisedSurfaceRing : nil
             let node = Controls.stackPanel(
                 backgroundColor: hidesScrollContentBackground ? nil : sectionBackground,
-                backgroundGradient: hidesScrollContentBackground ? nil : style.backgroundGradient,
-                borderColor: sectionBorder,
+                backgroundGradient: hidesScrollContentBackground ? nil : sectionFill,
+                borderColor: sectionRing?.startColor ?? sectionBorder,
+                borderGradient: sectionRing,
                 borderWidth: 1,
                 shadowColor: sectionShadow,
                 // Tight, low shadow so stacked sections read as grouped cards
@@ -11046,11 +11068,24 @@ public struct GroupBox: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let views = label + content
         return Component { runtime in
-            Controls.panel(
-                backgroundColor: Color(red: 0.147, green: 0.147, blue: 0.147, alpha: 0.54),
-                borderColor: Color(red: 0.853, green: 0.853, blue: 0.853, alpha: 0.14),
+            // An `NSBox` is the same grouped container a `Form` section is:
+            // the appearance's raised surface, the panel material on it, a
+            // separator-tone ring lightest along its top edge, and the pinned
+            // 10pt corner. The literals this used to carry were a translucent
+            // dark charcoal and a near-white ring at a 12pt radius — a box
+            // that could only ever be right in one appearance, and was not the
+            // same box the settings pane beside it drew.
+            let palette = context.controlPalette
+            return Controls.panel(
+                backgroundColor: palette.raisedSurface,
+                backgroundGradient: palette.raisedSurfaceFill,
+                borderColor: palette.raisedSurfaceHighlight,
+                borderGradient: palette.raisedSurfaceRing,
                 borderWidth: 1,
-                cornerRadius: 12,
+                shadowColor: palette.groupedContainerShadow,
+                shadowOffset: Point(x: 0, y: MacOSControlMetrics.GroupBox.shadowOffsetY),
+                shadowSpread: MacOSControlMetrics.GroupBox.shadowSpread,
+                cornerRadius: MacOSControlMetrics.GroupBox.cornerRadius,
                 layoutMode: .stack(.vertical(spacing: 8, padding: .all(12), alignment: .stretch)),
                 isHitTestVisible: false,
                 children: views.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }

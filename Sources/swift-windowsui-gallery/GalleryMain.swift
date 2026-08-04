@@ -363,6 +363,16 @@ struct SwiftWindowsUIGalleryTool {
                     .padding(8)
                 ),
                 size: IntSize(width: 260, height: 140)),
+            // The one entry that certifies a segmented picker's *chrome* in
+            // both appearances, so its canvas has to be wide enough for the
+            // control to lay out at its intrinsic width. At 160pt the three
+            // segments and the "Color" caption shared a band narrower than
+            // their own titles and the baseline pinned "Gr…" as the correct
+            // rendering of "Green" — a truncation the entry's own width
+            // caused, certified forever as chrome. The constrained-width
+            // behaviour that produced it is real and stays covered by
+            // `WinSwiftUIPickerTests` / `ControlChromePolishTests`, where a
+            // narrow frame is the thing under test rather than the canvas.
             GallerySpec(
                 id: "picker", title: "Picker",
                 view: AnyView(
@@ -371,8 +381,9 @@ struct SwiftWindowsUIGalleryTool {
                         Text("Green").tag(1)
                         Text("Blue").tag(2)
                     }
-                    .frame(width: 160, height: 40)
-                )),
+                    .frame(width: 240, height: 40)
+                ),
+                size: IntSize(width: 280, height: 200)),
             GallerySpec(
                 id: "picker-theme", title: "Picker Theme",
                 view: AnyView(

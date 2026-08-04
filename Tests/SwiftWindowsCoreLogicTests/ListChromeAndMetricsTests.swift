@@ -94,6 +94,46 @@ final class ListChromeAndMetricsTests: XCTestCase {
         }
     }
 
+    // MARK: - `.inset` is a body style
+
+    /// `.inset` had no body: no fill, no ring, no corners, no rule, and a 6pt
+    /// gap holding the rows apart. Four strings floated on the window
+    /// background — which is the one thing an *inset table* is not, because
+    /// the inset in the name is the row content's inset from a body's edge.
+    func testInsetListStyleDrawsARoundedTextBackgroundBody() async {
+        for scheme in [ColorScheme.light, .dark] {
+            let palette = ControlPalette.resolve(colorScheme: scheme)
+            let chrome = ListStyle.inset.retainedChrome(palette: palette)
+            XCTAssertEqual(
+                chrome.backgroundColor, palette.controlBackground,
+                "\(scheme): an inset table's rows stand on the text background"
+            )
+            XCTAssertEqual(chrome.cornerRadius, MacOSControlMetrics.List.insetCornerRadius)
+            XCTAssertEqual(chrome.borderColor, palette.separator)
+            XCTAssertEqual(chrome.borderWidth, 1)
+            XCTAssertEqual(
+                chrome.padding.leading, MacOSControlMetrics.List.contentInset,
+                "\(scheme): and are inset into it"
+            )
+            XCTAssertEqual(chrome.padding.trailing, MacOSControlMetrics.List.contentInset)
+            XCTAssertEqual(chrome.padding.top, MacOSControlMetrics.List.insetVerticalInset)
+            XCTAssertEqual(chrome.rowMinHeight, MacOSControlMetrics.List.plainRowHeight)
+            XCTAssertEqual(chrome.defaultSpacing, 0, "\(scheme): rows in a table are adjacent, not spaced")
+        }
+    }
+
+    /// Stripes and rules are alternatives. AppKit's alternating row colours
+    /// *are* the row boundary; a table that drew both reads as a spreadsheet.
+    func testInsetListRulesBetweenRowsUnlessItIsStriping() async {
+        let plainInset = ListStyle.inset.retainedChrome(palette: .darkStandard)
+        XCTAssertTrue(plainInset.drawsRowSeparators)
+        XCTAssertFalse(plainInset.alternatesRowBackgrounds)
+
+        let striped = ListStyle.inset(alternatesRowBackgrounds: true).retainedChrome(palette: .darkStandard)
+        XCTAssertTrue(striped.alternatesRowBackgrounds)
+        XCTAssertFalse(striped.drawsRowSeparators, "the stripe is the boundary")
+    }
+
     func testListEmitsAHairlineBetweenAdjacentRows() async {
         await MainActor.run {
             let node = buildNode(

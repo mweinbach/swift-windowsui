@@ -1,5 +1,7 @@
 import SwiftWindowsCore
 
+import SwiftWindowsGraphics
+
 import SwiftWindowsUI
 
 /// The semantic colour roles macOS control chrome is built from, resolved
@@ -311,6 +313,59 @@ public struct ControlPalette: Sendable, Equatable {
     /// card.
     public var groupedContainerShadow: Color {
         isDark ? ControlPalette.black(0.22) : ControlPalette.black(0.04)
+    }
+
+    // MARK: Surface materials
+
+    /// The *material* a grouped container is filled with — a `GroupBox`, a
+    /// `Form` section box, a settings card.
+    ///
+    /// A macOS panel is not one flat colour. It carries a vertical gradient
+    /// so slight you would not call it a gradient if you saw it alone — a
+    /// handful of levels of 255 between its top and its bottom — and that
+    /// slight amount is the whole difference between a surface and a
+    /// rectangle of paint. Every card in this app was a single `fillRect`,
+    /// which is why a screenshot of it read as flat colour blocking however
+    /// correct the tones themselves were.
+    ///
+    /// It is the same sheen every control surface takes
+    /// (`Controls.backgroundSheen`), deliberately: a card and the buttons
+    /// standing on it have to be lit from one direction, and two separately
+    /// tuned "subtle gradients" would eventually disagree about which way is
+    /// up.
+    public var raisedSurfaceFill: GradientType {
+        .linear(
+            SwiftWindowsGraphics.LinearGradient(
+                startColor: raisedSurface,
+                endColor: Controls.sheenBottom(raisedSurface, drop: Controls.surfaceSheenDrop),
+                axis: .vertical
+            )
+        )
+    }
+
+    /// The top edge of a grouped container's hairline ring.
+    ///
+    /// macOS lights a panel from above, so its top hairline is the lightest
+    /// part of the ring in *both* appearances — what changes is what "lighter"
+    /// looks like. On a dark window a white top edge reads as a highlight
+    /// against the card; on a light one the card is already near-white, so the
+    /// same edge reads as the ring *withdrawing* at the top and closing at the
+    /// bottom, which is exactly how a System Settings box sits on its window.
+    public var raisedSurfaceHighlight: Color {
+        isDark ? ControlPalette.white(0.16) : ControlPalette.white(0.55)
+    }
+
+    /// The container's ring: the top highlight above, the separator tone
+    /// below. `borderColor` carries the start stop because a quad resolves a
+    /// gradient's first stop from the fill colour it is handed.
+    public var raisedSurfaceRing: GradientType {
+        .linear(
+            SwiftWindowsGraphics.LinearGradient(
+                startColor: raisedSurfaceHighlight,
+                endColor: separator,
+                axis: .vertical
+            )
+        )
     }
 
     // MARK: Accent-derived roles

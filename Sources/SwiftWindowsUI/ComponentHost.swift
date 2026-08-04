@@ -51,8 +51,8 @@ public final class ComponentHost {
         let oldChildren = runtime.root.children
         let newNodes = buildComponents().map { $0.makeNode(runtime: runtime) }
 
-        reconcileChildren(of: runtime.root, oldChildren: oldChildren, newNodes: newNodes)
-        applyNewNodeTransitionsRecursively(in: runtime.root)
+        Self.reconcileChildren(of: runtime.root, oldChildren: oldChildren, newNodes: newNodes)
+        Self.applyNewNodeTransitionsRecursively(in: runtime.root)
         runtime.pendingMatchedGeometryCheck = true
     }
 
@@ -165,7 +165,7 @@ public final class ComponentHost {
         return FileDialogCancellationError()
     }
 
-    private func applyNewNodeTransitionsRecursively(in node: ViewNode) {
+    static func applyNewNodeTransitionsRecursively(in node: ViewNode) {
         if !node.hasAppeared, node.transition.kind != .identity {
             node.applyInsertionTransition()
         }
@@ -174,9 +174,21 @@ public final class ComponentHost {
         }
     }
 
+    /// Re-runs one already-matched node against a freshly built counterpart:
+    /// the node keeps its identity (and everything the runtime hung on it —
+    /// scroll offset, `hasAppeared`, focus) and adopts the new build's
+    /// properties and children. This is the `nodesMatch` branch of
+    /// `reconcileChildren` addressed directly, for callers that already know
+    /// which node the new build corresponds to. `RetainedViewRuntime` uses it
+    /// to re-seat a `GeometryReader` body on its resolved slot.
+    static func adopt(source: ViewNode, into target: ViewNode) {
+        updateNodeProperties(target: target, source: source)
+        reconcileChildren(of: target, oldChildren: target.children, newNodes: source.children)
+    }
+
     /// Basic view-diffing reconciliation.  Walk old and new child lists in
     /// parallel and reuse existing nodes when possible.
-    private func reconcileChildren(of parent: ViewNode, oldChildren: [ViewNode], newNodes: [ViewNode]) {
+    static func reconcileChildren(of parent: ViewNode, oldChildren: [ViewNode], newNodes: [ViewNode]) {
         let oldCount = oldChildren.count
         let newCount = newNodes.count
         let commonCount = min(oldCount, newCount)
@@ -215,7 +227,7 @@ public final class ComponentHost {
     /// Two nodes "match" when they carry the same stable identity tag or, in
     /// the absence of explicit tags, when their structural layout and text
     /// signatures are equivalent (same layoutMode category plus optional text).
-    private func nodesMatch(_ a: ViewNode, _ b: ViewNode) -> Bool {
+    private static func nodesMatch(_ a: ViewNode, _ b: ViewNode) -> Bool {
         // If both nodes carry an explicit tag, match on tag only.
         if let tagA = a.nodeTag, let tagB = b.nodeTag {
             return tagA == tagB
@@ -226,7 +238,7 @@ public final class ComponentHost {
     }
 
     /// Produce a cheap comparable key for a layout mode.
-    private func layoutModeTag(_ mode: ViewLayoutMode) -> String {
+    private static func layoutModeTag(_ mode: ViewLayoutMode) -> String {
         switch mode {
         case .absolute:
             return "absolute"
@@ -251,7 +263,7 @@ public final class ComponentHost {
 
     /// Copy visual / layout properties from `source` onto `target`, keeping
     /// `target`'s identity (parent, runtime, callbacks) intact.
-    private func updateNodeProperties(target: ViewNode, source: ViewNode) {
+    private static func updateNodeProperties(target: ViewNode, source: ViewNode) {
         let oldFrame = target.frame
         let oldOpacity = target.opacity
         target.animationStates = source.animationStates
@@ -1059,6 +1071,13 @@ public final class ComponentHost {
         target.onAppearWithNode = source.onAppearWithNode
         target.onDisappearWithNode = source.onDisappearWithNode
         target.onSizeChange = source.onSizeChange
+        // The reader's body and the slot it was built from travel together:
+        // `target` has just adopted `source`'s children, so it has also
+        // adopted the size they were built against. Splitting them would
+        // leave the convergence loop comparing a slot against a body it did
+        // not produce, and it would rebuild forever.
+        target.geometryReaderBuild = source.geometryReaderBuild
+        target.geometryReaderBuiltSize = source.geometryReaderBuiltSize
         target.onUpdatePlatformView = source.onUpdatePlatformView
         target.onDismantlePlatformView = source.onDismantlePlatformView
         target.phaseAnimatorState = source.phaseAnimatorState

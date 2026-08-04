@@ -8885,7 +8885,19 @@ public struct ZStack: View {
             let root = Controls.panel(layoutMode: .absolute, isHitTestVisible: false, children: childNodes)
             root.onLayout = { bounds in
                 for child in childNodes {
-                    let childSize = child.intrinsicContentSize()
+                    let intrinsic = child.intrinsicContentSize()
+                    // A ZStack pins each child's size so it has something to
+                    // align, but a child that *declares* it fills its
+                    // proposal must be handed the stack's extent instead of
+                    // its own intrinsic one — pinning the intrinsic size is
+                    // what makes a greedy child (a ScrollView, a List, a
+                    // GeometryReader) refuse the proposal the ZStack is
+                    // supposed to pass across.
+                    let fill = child.layoutFillAxes
+                    let childSize = Size(
+                        width: fill.horizontal ? bounds.size.width : intrinsic.width,
+                        height: fill.vertical ? bounds.size.height : intrinsic.height
+                    )
                     let origin = alignment.frameOrigin(
                         for: childSize,
                         in: bounds.size,
@@ -8916,19 +8928,54 @@ public struct GeometryReader: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let seedSize = context.canvasSize
+        let content = self.content
         let composed = composeComponent(
-            from: content(GeometryProxy(size: context.canvasSize)),
+            from: content(GeometryProxy(size: seedSize)),
             context: context,
             fallbackLayout: .absolute
         )
         return Component { runtime in
-            let node = composed.makeNode(runtime: runtime)
+            let bodyNode = composed.makeNode(runtime: runtime)
             // A GeometryReader is greedy in its parent's proposal, and the
             // proxy is supposed to describe exactly that slot. Containers
             // that consume chrome narrow the canvas they hand down (see
-            // `ViewBuildContext.withCanvasSize`), so the reader reports the
-            // space it actually occupies rather than the whole window.
+            // `ViewBuildContext.withCanvasSize`), so the seed is already
+            // right wherever a container knows what it took.
+            bodyNode.layoutFillAxes = .both
+
+            // The reader gets a node of its own rather than collapsing into
+            // its body, because a body is free to pin its own extent —
+            // `GeometryReader { Text().frame(width: 80) }` — and a collapsed
+            // reader would then have no node whose resolved frame is the
+            // slot. The wrapper is greedy and lays out absolutely, so the
+            // body sits where it always sat and the wrapper's frame is the
+            // slot the parent actually handed over.
+            let node = Controls.panel(layoutMode: .absolute, isHitTestVisible: false, children: [bodyNode])
             node.layoutFillAxes = .both
+
+            // Wherever no container narrowed — nested stacks, split panes,
+            // a sidebar beside the reader — the seed is the whole canvas and
+            // the body over-reports until the layout has run. Build order
+            // cannot fix that: the reader's siblings have not been measured
+            // yet. So the seed is a hint, and the resolved slot is the
+            // authority: the runtime re-invokes this closure once the frame
+            // is known and adopts the result onto the node it already has
+            // (see `RetainedViewRuntime.resolveGeometryReaderSlots`).
+            node.geometryReaderBuiltSize = seedSize
+            node.geometryReaderBuild = { runtime, size in
+                // Rebuilt as a whole reader, not just as its body, so the
+                // node the runtime adopts carries the next round's build
+                // closure and its own record of the size it was built from.
+                // The narrowed context also re-seeds any reader nested in
+                // this body, so nesting converges in rounds rather than in
+                // one round per level.
+                [
+                    GeometryReader(content: content)
+                        .makeComponent(context: context.withCanvasSize(size))
+                        .makeNode(runtime: runtime)
+                ]
+            }
             return node
         }
     }

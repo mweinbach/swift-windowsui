@@ -2833,6 +2833,26 @@ public final class ViewNode {
     public var onAppear: (() -> Void)?
     public var onDisappear: (() -> Void)?
     public var onSizeChange: ((Rect) -> Void)?
+
+    /// A `GeometryReader`'s body, kept so the runtime can re-invoke it once
+    /// layout has resolved the slot the reader actually occupies. Build order
+    /// cannot know that slot — the reader's siblings have not been measured
+    /// yet — so the reader seeds its body with the canvas and this closure
+    /// converges it (see `RetainedViewRuntime.resolveGeometryReaderSlots`).
+    ///
+    /// Renderer-neutral by construction: it hands back nodes, and it takes
+    /// the runtime it should build them against rather than capturing one —
+    /// a captured runtime would close a retain cycle back through the root.
+    /// The returned node is a fresh build of the *same* reader, so the
+    /// runtime adopts it onto this node instead of nesting it underneath.
+    public var geometryReaderBuild: ((RetainedViewRuntime, Size) -> [ViewNode])?
+
+    /// The slot size `children` were last built against. `nil` on a node that
+    /// is not a reader. Compared against `resolvedFrame.size` to decide
+    /// whether a convergence rebuild is owed, so it is also the loop's own
+    /// termination condition.
+    public var geometryReaderBuiltSize: Size?
+
     internal private(set) var hasAppeared = false
     public internal(set) var isRemovalOverlay: Bool = false
     private var previousFrame: Rect?
@@ -3857,6 +3877,17 @@ public final class ViewNode {
             // the painter reads, and the geometry the next pass compares
             // against are all the same finite values.
             node.resolvedFrame = sanitizedLayoutRect(node.resolvedFrame)
+
+            // Collected here rather than at build time because this is the
+            // first point at which the reader's frame is both resolved and
+            // known to belong to the live tree: a build-time registry would
+            // hold the throwaway nodes reconciliation discards. Above the
+            // clean-path skip, so a reader whose slot moved under an
+            // otherwise-cached ancestor is still offered to the loop.
+            if node.geometryReaderBuild != nil {
+                node.runtime?.recordGeometryReaderCandidate(node)
+            }
+
             let layoutKey = ViewLayoutCacheKey(frame: node.resolvedFrame, displayScale: displayScale)
             let layoutDirtyFlags = node.subtreeDirtyFlags.intersection([.layout, .children])
             if layoutDirtyFlags.isEmpty, node.cachedLayoutKey == layoutKey {
@@ -7607,6 +7638,27 @@ public final class RetainedViewRuntime {
     /// tell state a pass produced from state a previous pass left behind —
     /// see `ViewNode.isOnVirtualizationDescentPath`.
     internal private(set) var layoutPassID: UInt64 = 0
+
+    /// The `GeometryReader` nodes the pass that just ran walked past, in
+    /// traversal order. Refilled by every pass and drained by
+    /// `resolveGeometryReaderSlots`; empty for the overwhelming majority of
+    /// trees, which is what keeps the convergence loop free when no reader
+    /// is on screen.
+    private var pendingGeometryReaderNodes: [WeakViewNodeRef] = []
+
+    /// How many reader bodies have been rebuilt against a resolved slot over
+    /// this runtime's lifetime. A test-visible convergence witness: it must
+    /// stop climbing once the layout is stable.
+    internal private(set) var geometryReaderResolveCount = 0
+
+    /// How many extra layout passes a single `updateResolvedLayout` may spend
+    /// converging readers onto their slots. Each round resolves every reader
+    /// the previous pass saw, so nesting costs rounds, not passes per reader.
+    /// Four is deep enough for the nested readers real screens build and
+    /// small enough that a body whose own size feeds its slot — a reader in
+    /// an unbounded scroll proposal — gives up rather than oscillating.
+    private static let geometryReaderConvergenceLimit = 4
+
     internal private(set) var lastPrepaintReplayCount = 0
     internal private(set) var lastDeferredOverlayReplayCount = 0
     internal private(set) var lastDeferredDrawFrameReplayCount = 0
@@ -9225,11 +9277,91 @@ public final class RetainedViewRuntime {
         lastDeferredOverlayReplayCount = 0
         lastDeferredDrawFrameReplayCount = 0
         lastDeferredDrawSceneReplayCount = 0
+        runLayoutPass()
+
+        // A `GeometryReader` is greedy, so its slot is decided by its parent
+        // and is not knowable at build time. The pass above resolved it; this
+        // loop hands it back to the body that asked for it and re-lays out.
+        // A tree with no reader in it never enters the loop and pays for one
+        // nil-check per pass.
+        var convergenceRounds = 0
+        while convergenceRounds < Self.geometryReaderConvergenceLimit,
+            resolveGeometryReaderSlots()
+        {
+            convergenceRounds += 1
+            runLayoutPass()
+        }
+
+        updatePrepaintState()
+    }
+
+    private func runLayoutPass() {
         layoutPassID &+= 1
         currentPassLayoutVisitCount = 0
+        pendingGeometryReaderNodes.removeAll(keepingCapacity: true)
         root.resolvedFrame = root.frame
         root.layoutSubtree(displayScale: displayScale)
-        updatePrepaintState()
+    }
+
+    /// Records a reader the running layout pass walked past. Called from the
+    /// traversal, so the list is in traversal order — outer readers before
+    /// the ones nested in their bodies, which is the order that converges in
+    /// the fewest rounds.
+    fileprivate func recordGeometryReaderCandidate(_ node: ViewNode) {
+        pendingGeometryReaderNodes.append(WeakViewNodeRef(node: node))
+    }
+
+    /// Re-invokes every reader body whose resolved slot no longer matches the
+    /// size it was built from, and answers whether anything changed — which
+    /// is the loop's signal to lay out again.
+    ///
+    /// The rebuild produces a fresh node for the *same* reader, so it is
+    /// adopted onto the existing one: the reader keeps its place in its
+    /// parent, its resolved frame, and everything the runtime hung on it,
+    /// and only its body is re-seated. Insertion transitions are deliberately
+    /// not re-applied — this is a re-measurement of content that is already
+    /// on screen, not an insertion.
+    private func resolveGeometryReaderSlots() -> Bool {
+        guard !pendingGeometryReaderNodes.isEmpty else {
+            return false
+        }
+
+        var didRebuild = false
+        for reference in pendingGeometryReaderNodes {
+            guard let node = reference.node, let build = node.geometryReaderBuild else {
+                continue
+            }
+
+            let slot = node.resolvedFrame.size
+            // A zero-extent slot is a node the layout has not placed yet (or
+            // a hidden one); reporting it would hand the body a degenerate
+            // proxy and throw away the seed for nothing.
+            guard slot.width > 0, slot.height > 0 else {
+                continue
+            }
+
+            if let built = node.geometryReaderBuiltSize,
+                abs(built.width - slot.width) < 0.5,
+                abs(built.height - slot.height) < 0.5
+            {
+                continue
+            }
+
+            guard let rebuilt = build(self, slot).first else {
+                continue
+            }
+
+            ComponentHost.adopt(source: rebuilt, into: node)
+            // Belt and braces: `adopt` copies the rebuilt node's own record
+            // of what it was built from, and this is the same value. Setting
+            // it explicitly means a reader whose rebuild path ever stops
+            // carrying that record still terminates.
+            node.geometryReaderBuiltSize = slot
+            geometryReaderResolveCount &+= 1
+            didRebuild = true
+        }
+
+        return didRebuild
     }
 
     private func updatePrepaintState() {

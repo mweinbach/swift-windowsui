@@ -81,7 +81,7 @@ dashboard composition on a single custom-rendered window.
 | `OutlineGroup` | **Partial** | Expand/collapse tree via retained disclosure chrome |
 | `Table` | **Partial** | Data + columns as retained header/row grid; not a native Windows list-view |
 | `ViewThatFits` | **Partial** | First child whose intrinsic size fits canvas axes; no full proposal probing |
-| `GeometryReader` | **Partial** | Greedy in its parent's proposal; proxy reads the build-context canvas, which `TabView` narrows by its tab band. A reader under a container that does not narrow the canvas still over-reports. Coordinate spaces are simplified; safe-area insets are zero |
+| `GeometryReader` | **Partial** | Reports its resolved slot: the proxy is seeded from the build canvas, then the runtime re-invokes the body against the frame layout actually gave it (capped at four convergence rounds). Coordinate spaces are simplified; safe-area insets are zero |
 
 ### Text, images, shapes — Implemented / Partial
 

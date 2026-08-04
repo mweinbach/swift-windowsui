@@ -20387,9 +20387,12 @@ final class WinSwiftUITests: XCTestCase {
             runtime.setRootSize(IntSize(width: 320, height: 180))
             let frame = runtime.renderFrame()
 
+            // ZStack panel > reader > frame > text: the reader carries a node
+            // of its own so its resolved frame is the slot it was handed,
+            // which is what the runtime re-invokes the body against.
             XCTAssertEqual(node.children.count, 1)
             XCTAssertEqual(node.children[0].children.count, 1)
-            XCTAssertEqual(node.children[0].children[0].text, "320 X 180")
+            XCTAssertEqual(node.children[0].children[0].children[0].text, "320 X 180")
 
             let bitmapRect = frame.commands.compactMap { command -> Rect? in
                 guard case .drawBitmap(let drawBitmap) = command else {

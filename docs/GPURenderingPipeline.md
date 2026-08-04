@@ -1024,6 +1024,46 @@ into a `BitmapSurface` and reused across frames:
 - Fresh renderer reports empty cache and zero hit/miss counters
   (`testFreshRendererHasEmptyPathCache`).
 
+### 4a-scale. Why 2x emits more primitives
+
+The same app at the same *logical* size does not emit the same number of
+scene primitives at every display scale. On the demo at 1280x720 pt:
+
+| screen    | 1x  | true 2x |
+| --------- | --- | ------- |
+| dashboard | 752 | 787     |
+| data      | 490 | 520     |
+| settings  | 723 | 723     |
+
+This is one effect, not several, and it is the fill lanes above. Every
+other family is scale-invariant, and so is chrome:
+
+- Glyphs, images, shadows and CPU paths are one primitive per drawn thing
+  at any scale. A glyph is a quad against an atlas whose *raster* is
+  scale-dependent; its count is not.
+- Borders, corner arcs, hairlines, scroll indicators and fills are
+  resolved in **points** and scaled on the way into the scene, so a
+  rounded border ring is the same four edges and four arc runs at 1x and
+  2x — `BorderSegments.appendCornerArc` subdivides a point-space arc.
+  That is why the settings pane, which is nothing but chrome, costs the
+  same 723 primitives at both scales.
+- A **path fill** is lowered by `PathToQuadTessellator` into axis-aligned
+  quads one **device-pixel row** at a time (`scanlineFillTriangle` emits
+  `height: 1` in the device space `ScenePainter` scaled the path into).
+  The rows *are* the pixels: the same logical shape covers twice as many
+  rows at 2x, and emitting a scale-invariant number of them would leave
+  gaps between the strips. The dashboard and data screens draw vector
+  symbols this way; the settings pane draws none, which is the whole
+  difference between the rows of the table.
+
+So the count difference is the cost of GPU-promoting a fill, and it is
+bounded by the same budgets as every other fill (`maxScanlineRows`,
+`maxTessellatedQuads`, and the clip intersection that drops rows the clip
+cannot show). `ScenePrimitiveScaleInvarianceTests` pins all three claims:
+only quads may differ across scale, a chrome-only screen may not differ
+at all, and a path fill emits exactly one one-device-pixel-tall quad per
+row.
+
 ### 4b. Dashes are geometry before the path contract
 
 `PathPrimitive` carries no `dashPattern`: both stroke rasterizers draw

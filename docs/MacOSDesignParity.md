@@ -247,6 +247,7 @@ fill under `(0.96, 0.98, 1.0)` borders — where macOS uses grey.
 | `controlBorder`                  | white @ 0.14    | black @ 0.16    | control bezel ring |
 | `unemphasizedSelectedBackground` | #3F3F41         | #DCDCDD         | `unemphasizedSelectedContentBackgroundColor` |
 | `systemFill` … `quinaryFill`     | white @ .10/.08/.05/.03/.02 | black @ same | `systemFill` ramp |
+| `controlTrack`                   | #4D5766         | #D6D6DA         | slider / progress / switch groove |
 | `segmentedTrackFill`             | #2C2C2E         | #E9E9EB         | NSSegmentedControl groove |
 | `segmentedSelectedFill`          | #636366         | #FFFFFF         | selected segment pill |
 | `segmentedSelectedLabel`         | white           | black           | selected segment label |
@@ -255,6 +256,16 @@ fill under `(0.96, 0.98, 1.0)` borders — where macOS uses grey.
 | `scrollerKnob`                   | white @ 0.48    | black @ 0.42    | `NSScroller` overlay knob |
 | `scrollerKnobHovered`            | white @ 0.64    | black @ 0.58    | knob under the pointer |
 | `scrollerKnobActive`             | white @ 0.78    | black @ 0.72    | knob being dragged |
+
+`controlTrack` is the groove a *continuous* control's fill runs along: a
+`Slider`'s unfilled bar, a determinate `ProgressView`'s remainder, a `Gauge`'s
+empty span, and the body of an `off` `Toggle`. All four read the same
+hard-coded dark slate off `Controls` and no WinSwiftUI caller overrode it, so
+`--appearance light` drew a near-black bar across a white settings pane and an
+`off` switch came out charcoal — the last controls still wearing the dark
+appearance. The dark value is that literal unchanged, so no dark-mode pixel
+moved. `ControlTrackAppearanceTests` pins both values and the wiring on all
+four controls.
 
 `elevatedSurface` is a *different* elevation from `raisedSurface`: a raised
 surface is a card on the window's own backdrop, an elevated one floats above

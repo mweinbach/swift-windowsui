@@ -217,6 +217,23 @@ public struct ControlPalette: Sendable, Equatable {
 
     // MARK: Derived control roles
 
+    /// The recessed groove a *continuous* control's fill runs along: a
+    /// slider's unfilled bar, a determinate `ProgressView`'s remainder, a
+    /// segmented gauge's empty cells, and the body of an `off` switch.
+    ///
+    /// All four used to bake the same dark slate literal
+    /// (`Color(red: 0.30, green: 0.34, blue: 0.40)`) into their `Controls`
+    /// default, so a light-mode Form drew a near-black groove across a white
+    /// settings pane and an `off` switch came out charcoal — the one part of
+    /// the light appearance that still looked like the dark one. The dark
+    /// value below is that literal unchanged; light is macOS's neutral
+    /// groove, dark enough to read as recessed on white.
+    public var controlTrack: Color {
+        isDark
+            ? Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1)
+            : Color(red: 0.839, green: 0.839, blue: 0.855, alpha: 1)
+    }
+
     /// Recessed groove an `NSSegmentedControl`'s segments sit in.
     public var segmentedTrackFill: Color {
         isDark

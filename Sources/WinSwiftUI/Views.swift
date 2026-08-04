@@ -15458,6 +15458,7 @@ public struct Toggle: View {
             isEnabled: context.isEnabled,
             preferredSize: context.controlSize.togglePreferredSize,
             onColor: context.tint,
+            offColor: context.controlPalette.controlTrack,
             onToggle: { newValue in
                 binding.wrappedValue = newValue
                 context.invalidate()
@@ -17279,6 +17280,7 @@ public struct Slider: View {
                 isEnabled: context.isEnabled,
                 preferredSize: sliderPreferredSize,
                 layoutPriority: minimumLabelViews.isEmpty && maximumLabelViews.isEmpty ? 0 : 1,
+                trackColor: context.controlPalette.controlTrack,
                 filledColor: context.tint,
                 onValueChanged: { newValue in
                     binding.wrappedValue = Self.snappedValue(newValue, in: range, step: step)
@@ -17532,6 +17534,7 @@ public struct ProgressView: View {
                     value: value ?? 0,
                     total: total,
                     preferredSize: context.controlSize.progressPreferredSize,
+                    trackColor: context.controlPalette.controlTrack,
                     filledColor: context.tint
                 )
             }
@@ -17834,6 +17837,7 @@ public struct Gauge: View {
                     value: gaugeValue,
                     total: rangeTotal,
                     preferredSize: context.controlSize.progressPreferredSize,
+                    trackColor: context.controlPalette.controlTrack,
                     filledColor: context.tint
                 )
             }

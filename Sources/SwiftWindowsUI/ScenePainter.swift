@@ -1113,37 +1113,43 @@ public enum ScenePainter {
                 var nativeGlyphs: [GlyphPrimitive] = []
                 var pixelGlyphs: [GlyphPrimitive] = []
                 var textDecorationQuads: [QuadPrimitive] = []
-                // R-ROT. Text is shaped and laid out in the node's *unrotated*
-                // paint space and each cell is turned about the node's centre
-                // afterwards — the same two steps the border ring takes. Laying
-                // out in `paintFrame` and leaving the cells upright is what kept
-                // a rotated card's label horizontal inside a turned card, with
-                // the line breaking to the bounding box's width rather than the
-                // card's. `cullClip` is the preimage of the clip so the
-                // pre-rotation cull cannot drop a glyph the rotation brings in.
+                // R-ROT / E6-TEXT. Text is shaped and laid out in the node's
+                // *untransformed* paint space and each cell is then scaled and
+                // turned about the node's centre — the same two steps the
+                // border ring takes. Laying out in `paintFrame` and leaving the
+                // cells upright is what kept a rotated card's label horizontal
+                // inside a turned card, with the line breaking to the bounding
+                // box's width rather than the card's; laying out in the
+                // *scaled* rect at an unscaled font size is what made
+                // `scaleEffect` re-break the string and a 0.97 press ellipsize
+                // a button's own title. `runLayoutRect` is the width the view
+                // actually has, and `unplacedRunFootprint` is the preimage of
+                // the clip so the pre-placement cull cannot drop a glyph the
+                // placement brings in.
                 appendTextGlyphs(
                     for: text,
                     style: effectiveTextStyle,
-                    in: quadFillRect,
+                    in: placement.runLayoutRect(quadFillRect),
                     opacity: 1,
                     clip: effectiveClipRect,
-                    cullClip: effectiveClipRect.map { placement.unplacedFootprint(of: $0) },
+                    cullClip: effectiveClipRect.map { placement.unplacedRunFootprint(of: $0) },
                     clipCornerRadius: effectiveClip.resolvedCornerRadius(forQuadRect: fillRect),
                     surfaceSize: surfaceSize,
                     displayScale: displayScale,
+                    contentScale: placement.scale,
                     textSystem: textSystem,
                     into: &nativeGlyphs,
                     pixelGlyphs: &pixelGlyphs,
                     decorationQuads: &textDecorationQuads
                 )
                 for glyph in nativeGlyphs {
-                    scene.addGlyph(placement.rotating(glyph, displayScale: displayScale), toLayer: layerIndex)
+                    scene.addGlyph(placement.placingRun(glyph, displayScale: displayScale), toLayer: layerIndex)
                 }
                 for glyph in pixelGlyphs {
-                    scene.addPixelGlyph(placement.rotating(glyph, displayScale: displayScale), toLayer: layerIndex)
+                    scene.addPixelGlyph(placement.placingRun(glyph, displayScale: displayScale), toLayer: layerIndex)
                 }
                 for quad in textDecorationQuads {
-                    scene.addQuad(placement.rotating(quad, displayScale: displayScale), toLayer: layerIndex)
+                    scene.addQuad(placement.placingRun(quad, displayScale: displayScale), toLayer: layerIndex)
                 }
                 usedNativeGlyphs = usedNativeGlyphs || !nativeGlyphs.isEmpty
                 usedPixelGlyphs = usedPixelGlyphs || !pixelGlyphs.isEmpty
@@ -2527,6 +2533,13 @@ public enum ScenePainter {
                     placement: placement)
 
             case .drawText(let text, let rect, let style):
+                // E6-TEXT residual. A `Canvas` closure is handed the *placed*
+                // size and draws in that space, so its text rect is already
+                // scaled and there is no untransformed box to lay out in: the
+                // run keeps the placed rect and `rotating`, not `placingRun`.
+                // Putting the canvas in local space is a change to what the
+                // closure is handed, which is a `Canvas` semantics question,
+                // not a text one — see `docs/GPURenderingPipeline.md`.
                 let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
                 let effectiveStyle = style.multipliedOpacity(by: opacity)
                 guard clipAllowsDrawing(clip: currentCullClip, rect: effectiveRect) else { continue }
@@ -2837,12 +2850,19 @@ public enum ScenePainter {
     }
 
     /// `cullClip` is the clip the *layout* is compared against, which is not
-    /// always the clip the primitives carry: a run inside a rotated subtree is
-    /// laid out in the node's own unrotated space and turned afterwards, so it
-    /// has to be culled against the preimage of the screen-space clip
-    /// (`PaintPlacement.unplacedFootprint`) or the rotation drops glyphs it
-    /// would have brought into view. For every axis-aligned caller the two are
-    /// the same rect.
+    /// always the clip the primitives carry: a run inside a transformed
+    /// subtree is laid out in the node's own untransformed space and placed
+    /// afterwards, so it has to be culled against the preimage of the
+    /// screen-space clip (`PaintPlacement.unplacedRunFootprint`) or the
+    /// placement drops glyphs it would have brought into view. For every
+    /// axis-aligned caller the two are the same rect.
+    ///
+    /// `contentScale` is the uniform scale the caller will apply to the
+    /// finished run. It never reaches the *layout* — that is the point, and
+    /// `rect` is already the untransformed box — it only chooses the pixel
+    /// size the glyphs are rasterized at, so a scaled run is crisp instead of
+    /// a stretched 1x raster. The cells come back in the untransformed space
+    /// at device resolution either way.
     private static func appendTextGlyphs(
         for text: String,
         style: PixelTextStyle,
@@ -2853,6 +2873,7 @@ public enum ScenePainter {
         clipCornerRadius: Double = 0,
         surfaceSize: Size,
         displayScale: Double,
+        contentScale: Double = 1,
         textSystem: WindowTextSystem,
         into glyphs: inout [GlyphPrimitive],
         pixelGlyphs: inout [GlyphPrimitive],
@@ -2877,6 +2898,7 @@ public enum ScenePainter {
             clipCornerRadius: clipCornerRadius,
             surfaceSize: surfaceSize,
             displayScale: displayScale,
+            contentScale: contentScale,
             textSystem: textSystem,
             into: &glyphs,
             decorationQuads: &decorationQuads
@@ -3018,6 +3040,7 @@ public enum ScenePainter {
         clipCornerRadius: Double = 0,
         surfaceSize: Size,
         displayScale: Double,
+        contentScale: Double = 1,
         textSystem: WindowTextSystem,
         into glyphs: inout [GlyphPrimitive],
         decorationQuads: inout [QuadPrimitive]
@@ -3049,6 +3072,18 @@ public enum ScenePainter {
         }
         let clipRect = clipRectFloats(clip, surfaceSize: surfaceSize, displayScale: displayScale)
         let scaledVisibleClip = cullClip.map { scaleRect($0, by: displayScale) }
+        // E6-TEXT. The run is laid out and emitted in the node's untransformed
+        // space, but it is *rasterized* for the size it will end up drawn at:
+        // `rasterScale` is the atlas rung nearest the caller's `contentScale`
+        // (see `NativeGlyphAtlas.glyphRasterScale`). The cells then come back
+        // in untransformed space by dividing the raster's pixel metrics by the
+        // rung — `placingRun` multiplies by the true scale, so the net cell is
+        // `metric × contentScale / rasterScale`, i.e. exactly the right size
+        // drawn from the nearest crisp raster. Both factors are `1` for every
+        // untransformed run, which is the bit-identical path.
+        let rasterScale = NativeGlyphAtlas.glyphRasterScale(for: contentScale)
+        let rasterScaleFactor = displayScale * rasterScale
+        let cellScale = 1 / rasterScale
         var appendedGlyphs: [GlyphPrimitive] = []
         var appendedDecorationQuads: [QuadPrimitive] = []
         var lineOriginY = baseY
@@ -3092,7 +3127,7 @@ public enum ScenePainter {
 
                 guard
                     let preparedGlyph = NativeGlyphAtlas.shared.prepareGlyph(
-                        for: glyph, style: style, scaleFactor: displayScale),
+                        for: glyph, style: style, scaleFactor: rasterScaleFactor),
                     let previewEntry = preparedGlyph.previewEntry
                 else {
                     continue
@@ -3107,18 +3142,29 @@ public enum ScenePainter {
                 // pixel from two adjacent destination pixels when the origin
                 // is fractional, producing the classic doubled-letter smear
                 // pattern.  Pixel-aligned glyphs render crisp 1:1 from atlas.
-                let destinationOrigin = Point(
-                    x: (glyphLayoutOrigin.x + Double(previewEntry.bearingX)).rounded(),
-                    y: (anchorY + Double(previewEntry.bearingY)).rounded()
+                //
+                // Only for a run that lands on the device grid, though: a run
+                // under a scale is placed by `placingRun` afterwards, so
+                // snapping *here* snaps a pre-image and lands the cell off the
+                // grid by the scale factor anyway — while quantising the run's
+                // internal spacing at the wrong resolution. A scaled run is
+                // resampled by construction; it keeps its exact metrics.
+                let unsnapped = Point(
+                    x: glyphLayoutOrigin.x + Double(previewEntry.bearingX) * cellScale,
+                    y: anchorY + Double(previewEntry.bearingY) * cellScale
                 )
+                let destinationOrigin =
+                    rasterScale == 1 && contentScale == 1
+                    ? Point(x: unsnapped.x.rounded(), y: unsnapped.y.rounded())
+                    : unsnapped
                 guard destinationOrigin.x.isFinite, destinationOrigin.y.isFinite else {
                     continue
                 }
                 let glyphRect = Rect(
                     x: destinationOrigin.x,
                     y: destinationOrigin.y,
-                    width: Double(previewEntry.width),
-                    height: Double(previewEntry.height)
+                    width: Double(previewEntry.width) * cellScale,
+                    height: Double(previewEntry.height) * cellScale
                 )
                 if let scaledVisibleClip, scaledVisibleClip.intersected(with: glyphRect) == nil {
                     continue
@@ -3132,8 +3178,8 @@ public enum ScenePainter {
                     GlyphPrimitive(
                         screenX: Float(destinationOrigin.x),
                         screenY: Float(destinationOrigin.y),
-                        screenW: Float(entry.width),
-                        screenH: Float(entry.height),
+                        screenW: Float(Double(entry.width) * cellScale),
+                        screenH: Float(Double(entry.height) * cellScale),
                         atlasU0: uv.u0,
                         atlasV0: uv.v0,
                         atlasU1: uv.u1,

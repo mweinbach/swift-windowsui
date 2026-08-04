@@ -1,3 +1,4 @@
+import Foundation
 import SwiftWindowsCore
 
 import SwiftWindowsGraphics
@@ -53,6 +54,41 @@ final class NativeGlyphAtlas {
         let atlas = GlyphAtlas(width: atlasWidth, height: atlasHeight)
         self.atlas = atlas
         self.cache = GlyphAtlasCache(atlas: atlas, maxEntries: maxEntries)
+    }
+
+    /// E6-TEXT. The atlas rung a run drawn at `contentScale` rasterizes on.
+    ///
+    /// A run under a transform is laid out once, in the view's own space, and
+    /// the finished cells are scaled — so the *only* remaining question is at
+    /// what pixel size the glyphs are rasterized. Rasterizing at exactly the
+    /// effective device size is what keeps a `scaleEffect(2)` label crisp, but
+    /// the scale of a live transform is a continuum: a press spring walks
+    /// 1.0 → 0.97 → 1.0 across a dozen frames, and one atlas rung per visited
+    /// scale would churn the cache every animation, for glyphs no one can tell
+    /// apart.
+    ///
+    /// The rungs are therefore the powers of `2^(1/8)`. Consequences, in the
+    /// order they matter:
+    ///
+    /// - Neighbouring rungs differ by 9%, so a run is resampled by at most
+    ///   ±4.4% in linear size — a bilinear stretch of a full-detail raster,
+    ///   which is invisible next to the 2x *upscale of a 1x raster* that a
+    ///   fixed-size atlas would force.
+    /// - `0.97` is within 4.4% of `1`, so every pressed control in the stack
+    ///   rasterizes on the rung it already occupies: the press case costs no
+    ///   atlas at all.
+    /// - The authored scales that matter — `1`, `2`, `4`, `0.5` and the rest
+    ///   of the powers of two — land on rungs *exactly*, so they are crisp
+    ///   rather than merely close.
+    ///
+    /// Clamped to `[1/8, 8]`: past that the resample is the lesser evil
+    /// against rasterizing a 400px glyph, and the atlas is 2048² total.
+    static func glyphRasterScale(for contentScale: Double) -> Double {
+        guard contentScale.isFinite, contentScale > 0 else { return 1 }
+        let clamped = min(max(contentScale, 0.125), 8)
+        let rung = (log2(clamped) * 8).rounded() / 8
+        guard rung != 0 else { return 1 }
+        return exp2(rung)
     }
 
     /// Test-only: swap the process-wide atlas. Always pair with
@@ -192,6 +228,13 @@ final class NativeGlyphAtlas {
 
     var size: IntSize {
         IntSize(width: atlas.width, height: atlas.height)
+    }
+
+    /// How many distinct glyph rasters the atlas is holding. A rung of
+    /// `glyphRasterScale` is a distinct raster of the same character, so this
+    /// is what a test observes to see which rung a run drew from.
+    var cachedGlyphCount: Int {
+        cache.count
     }
 
     /// Test-only helper for forcing the shared atlas back to a clean empty state.

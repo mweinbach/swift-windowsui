@@ -339,6 +339,11 @@ angle:
 - `boundingBox` — the axis-aligned footprint of the rotated rect. Every
   *predicate* uses it: culling, the clip rejection rect, the cache key's
   `bounds`. It is an acceptance bound, not a shape.
+- `scale` — the similarity's uniform scale factor, `1` whenever the
+  transform is not a similarity. Only one kind of content needs it: a
+  text run, which is *laid out* rather than placed (see below). Everything
+  else the painter emits is already expressed in the transformed rect, so
+  re-applying `scale` to it would square the scale.
 
 **Every family turns.** WS-19 lowered the angle for quad decoration only;
 R-ROT closed the rest, and all four GPU families now carry a
@@ -376,20 +381,73 @@ because `shapeHash` digests the element stream. `clipBounds` is
 deliberately *not* turned: the scene contract's clip is an axis-aligned
 screen-space rect for every family.
 
-**Text is laid out before it is turned.** A run inside a rotated subtree is
-shaped and laid out in the node's own unrotated paint space — so it breaks
-to the node's width, not to its bounding box's — and each cell is turned
-afterwards. That makes the pre-rotation cull a hazard: comparing an
-un-turned glyph cell against the turned screen clip drops glyphs the
-rotation would have brought inside it. `appendTextGlyphs` therefore takes a
+**Text is laid out before it is placed.** A run inside a transformed subtree
+is shaped and laid out in the node's own **untransformed** paint space —
+`PaintPlacement.runLayoutRect(_:)`, the painted rect pulled back through the
+node's scale about its centre — and the finished cells are then scaled and
+turned by `PaintPlacement.placingRun(_:displayScale:)`. Line breaking is a
+function of the width a run is measured against, and both halves of the
+placement used to leak into that width:
+
+- a **rotation** made the run break to the bounding box's width, so a turned
+  card's label wrapped differently (and stayed horizontal) inside it;
+- a **scale** made the run break to the *transformed* width at an
+  untransformed font size, so `scaleEffect(2)` re-broke the string into
+  half as many lines of twice the characters, and a control pressed to
+  `ControlAnimationStyle.pressedScale` (0.97) re-fitted its own title into
+  a box 3% narrower and ellipsized it. Segmented-control titles were given
+  centring headroom to survive that; every other control label was one
+  tight string away from the same.
+
+SwiftUI does neither: a transform scales a rendered run, it does not reflow
+one. `ScaledTextLayoutTests` pins the statement from both ends — a pressed
+label has the identical breaks of its unpressed self, a 2x label has the
+identical breaks of its 1x self with twice the cell geometry, and a
+rotated-and-scaled label is the scaled one with every cell turned about the
+node's centre.
+
+Laying out first makes the pre-placement cull a hazard: comparing an
+unplaced glyph cell against the placed screen clip drops glyphs the
+placement would have brought inside it. `appendTextGlyphs` therefore takes a
 separate `cullClip`, which callers set to
-`PaintPlacement.unplacedFootprint(of:)` — the clip pulled back into the
-layout space, widened to a box. Rotation is rigid, so that box is a
+`PaintPlacement.unplacedRunFootprint(of:)` — the clip pulled back into the
+layout space, widened to a box. The map is a similarity, so that box is a
 superset: it can keep a glyph the clip then rejects per pixel, never drop
 one it would have shown. `Canvas` gets the same treatment through a paired
 clip stack (`currentClip` in screen space, `currentCullClip` in the
 canvas's drawing space), which is why `check-contracts.ps1` exempts both
 names from the bare-`Rect.intersected` rule.
+
+**A scaled run rasterizes at its own size, on a rung.** Laying out in local
+space leaves one question: what pixel size the glyphs are rasterized at.
+Drawing a 2x run from the 1x atlas entries would be a 100% bilinear
+stretch — the whole reason to keep a glyph atlas is to avoid that — but
+rasterizing at exactly the effective device size means a new set of atlas
+entries per *frame* of any scale animation. `NativeGlyphAtlas.glyphRasterScale(for:)`
+quantizes the scale onto the powers of `2^(1/8)` and the painter rasterizes
+there, dividing the raster's pixel metrics by the rung so `placingRun` can
+multiply by the true scale. Three consequences, which are the justification:
+
+- neighbouring rungs are 9% apart, so nothing is ever resampled by more than
+  ±4.4% in linear size — a bilinear stretch of a *full-detail* raster;
+- `0.97` is inside that band, so the entire pressed-control case rasterizes
+  on the rung it already occupies and costs no atlas entries at all;
+- `1`, `2`, `4` and the rest of the powers of two are rungs *exactly*, so
+  authored scales are crisp rather than merely close.
+
+Clamped to `[1/8, 8]`; past that the resample is the lesser evil against a
+400px glyph in a 2048² atlas.
+
+**Residual: shears, mirrors and non-uniform scales still re-flow.** They are
+not separable (below), so `scale` is `1` and the run is laid out in the
+bounding box, exactly as everything did before. **Residual: `Canvas` text.**
+A canvas closure is handed the *placed* size and draws in that space, so
+there is no untransformed box to lay out in; canvas runs keep the placed
+rect and `rotating`. Moving them would change what the closure is handed,
+which is a `Canvas` semantics question rather than a text one. **Residual:
+the frame path.** `ViewNode.appendCommands` has no placement at all and lays
+its text out in the transformed rect; it is the CPU fallback, and it already
+cannot follow the rotation either.
 
 Only a **similarity** is separable — a rotation composed with a uniform
 scale, no reflection, no shear. In matrix terms (row-vector convention,

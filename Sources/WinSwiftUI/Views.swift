@@ -16186,12 +16186,18 @@ public struct Picker<SelectionValue: Hashable>: View {
             style.lineBreakMode = .truncateTail
             // An NSSegmentedControl centres its title *in the segment cell*.
             // The title used to be centred by the segment's stack instead,
-            // which left the text box exactly as wide as the string — and a
-            // text box the width of its own string has no tolerance at all.
-            // A pressed segment is drawn at `ControlAnimationStyle.pressedScale`
-            // and its label is re-fitted to the scaled box, so "Three" in a
-            // 33pt box became "Thr…" for as long as the pointer was down. The
-            // cell is the segment; the string is centred inside it.
+            // which left the text box exactly as wide as the string.
+            //
+            // That is the right cell either way, but it arrived as a
+            // workaround: a pressed segment is drawn at
+            // `ControlAnimationStyle.pressedScale` and the painter re-fitted
+            // its label to the scaled box, so "Three" in a 33pt box became
+            // "Thr…" for as long as the pointer was down, and the headroom
+            // this bought was the only thing holding it back. E6-TEXT moved
+            // the fix to where the defect was — a run is laid out in the
+            // node's own space and the finished cells are scaled — so the
+            // headroom is no longer load-bearing for any label in the stack.
+            // The centring stays because it is what the control does.
             style.alignment = .center
             style.color =
                 isEnabled

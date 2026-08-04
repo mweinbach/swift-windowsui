@@ -270,6 +270,66 @@ final class CrossBackendPixelParityTests: XCTestCase {
         )
     }
 
+    /// E6-TEXT. A run under a `scaleEffect` is laid out in the view's own
+    /// space and the finished cells are scaled, so the glyph family now
+    /// receives cells at *fractional* origins and fractional sizes drawn from
+    /// a raster of a nearby-but-not-equal size. Every glyph cell the painter
+    /// emitted before this was integer-snapped in both position and extent, so
+    /// the sampler question the two backends have to answer the same way had
+    /// never actually been asked by a shipping scene.
+    ///
+    /// Three cells with a 1.4x scale's worth of fractional geometry, spaced by
+    /// a fractional advance — the shape of a scaled run, at the size a control
+    /// label actually is.
+    private static func scaledRunGlyphScene() -> ParityScene {
+        ParityScene(
+            name: "scaled run glyph cells",
+            size: surface,
+            scene: makeScene { scene in
+                scene.glyphAtlas = rampGlyphAtlas()
+                let scale: Float = 1.4
+                for index in 0..<3 {
+                    scene.addGlyph(
+                        GlyphPrimitive(
+                            screenX: 24.3 + Float(index) * 18.2 * scale,
+                            screenY: 40.7,
+                            screenW: 11 * scale,
+                            screenH: 16 * scale,
+                            atlasU0: 0, atlasV0: 0, atlasU1: 1, atlasV1: 1,
+                            colorR: 0.95, colorG: 0.85, colorB: 0.35, colorA: 1
+                        )
+                    )
+                }
+            }
+        )
+    }
+
+    /// The same cells with the node's rotation on them: `placingRun` composes
+    /// scale and rotation, so the two arrive together on one primitive.
+    private static func scaledRotatedRunGlyphScene() -> ParityScene {
+        ParityScene(
+            name: "scaled and turned run glyph cells",
+            size: surface,
+            scene: makeScene { scene in
+                scene.glyphAtlas = rampGlyphAtlas()
+                let scale: Float = 1.4
+                for index in 0..<3 {
+                    scene.addGlyph(
+                        GlyphPrimitive(
+                            screenX: 24.3 + Float(index) * 18.2 * scale,
+                            screenY: 40.7,
+                            screenW: 11 * scale,
+                            screenH: 16 * scale,
+                            atlasU0: 0, atlasV0: 0, atlasU1: 1, atlasV1: 1,
+                            colorR: 0.95, colorG: 0.85, colorB: 0.35, colorA: 1,
+                            rotationRadians: 0.45
+                        )
+                    )
+                }
+            }
+        )
+    }
+
     private static func shadowScene() -> ParityScene {
         ParityScene(
             name: "shadow",
@@ -1015,6 +1075,10 @@ final class CrossBackendPixelParityTests: XCTestCase {
     func testRotatedImageParity() async throws { try assertParity(Self.rotatedImageScene()) }
 
     func testRotatedGlyphParity() async throws { try assertParity(Self.rotatedGlyphScene()) }
+
+    func testScaledRunGlyphParity() async throws { try assertParity(Self.scaledRunGlyphScene()) }
+
+    func testScaledRotatedRunGlyphParity() async throws { try assertParity(Self.scaledRotatedRunGlyphScene()) }
 
     func testShadowParity() async throws { try assertParity(Self.shadowScene()) }
 

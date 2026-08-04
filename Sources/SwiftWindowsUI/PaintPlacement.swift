@@ -33,20 +33,40 @@ import SwiftWindowsGraphics
 /// them — `frame` and `boundingBox` are the same value produced by the same
 /// call as before, and `place`/`footprint` are the identity. The historic
 /// output stays byte for byte identical.
+///
+/// E6-TEXT added a fourth value, `scale`, for the one kind of content that is
+/// *laid out* rather than placed: a text run. Everything else the painter
+/// emits is already expressed in the transformed rect — a quad's size is the
+/// scaled size, a path is scaled into it — but a run's line breaks are a
+/// function of the width it is measured against, and measuring against the
+/// *transformed* width at an untransformed font size re-flows the string.
+/// SwiftUI does not do that: it lays the run out in the view's own space and
+/// scales the rendered result. `scale` is what lets the painter do the same.
 struct PaintPlacement {
     var frame: Rect
     var rotation: Double
     var boundingBox: Rect
+    /// The uniform scale factor of the accumulated transform's linear part,
+    /// or `1` when the transform is not a similarity. Same separability rule
+    /// as `rotation`: a shear, a mirror or a non-uniform scale cannot be
+    /// expressed as "lay out here, then scale by s", so those keep the
+    /// bounding-box fallback *and* the re-layout that comes with it (see
+    /// `docs/GPURenderingPipeline.md`).
+    var scale: Double = 1
 
     var isRotated: Bool { rotation != 0 }
+    /// `scale` is exactly `1` for every axis-aligned, unscaled tree, so this
+    /// gates the run-scaling path off entirely for the overwhelmingly common
+    /// case and keeps its output bit-identical.
+    var isScaled: Bool { scale != 1 }
 
     static let identityTolerance = 1e-9
 
     /// The axis-aligned placement: no rotation lowered, bounding box and frame
     /// the same rect. Used directly by the frame path, which has no rotation
     /// encoding at all.
-    static func axisAligned(_ rect: Rect) -> PaintPlacement {
-        PaintPlacement(frame: rect, rotation: 0, boundingBox: rect)
+    static func axisAligned(_ rect: Rect, scale: Double = 1) -> PaintPlacement {
+        PaintPlacement(frame: rect, rotation: 0, boundingBox: rect, scale: scale)
     }
 
     /// Lowers `transform` applied to `localFrame`.
@@ -78,13 +98,20 @@ struct PaintPlacement {
         let matrix = transform.matrix
         let boundingBox = localFrame.applying(transform: transform)
 
-        let scale = (matrix.a * matrix.a + matrix.b * matrix.b).squareRoot()
-        guard scale.isFinite, scale > Self.identityTolerance else {
+        let rawScale = (matrix.a * matrix.a + matrix.b * matrix.b).squareRoot()
+        guard rawScale.isFinite, rawScale > Self.identityTolerance else {
             return .axisAligned(boundingBox)
         }
         // Scale-relative tolerance: the comparison is between matrix entries
         // that are all O(scale).
-        let tolerance = Self.identityTolerance * max(1, scale)
+        let tolerance = Self.identityTolerance * max(1, rawScale)
+        // Snapped to exactly 1 inside that tolerance. `Transform2D` stores
+        // itself decomposed and every composition round-trips through the
+        // matrix, so a chain of *unscaled* transforms with a rotation in it
+        // reads back a scale of 1 ± an ulp or two — enough to arm `isScaled`
+        // and put every run in the subtree through a divide-then-multiply for
+        // no geometric reason.
+        let scale = abs(rawScale - 1) <= tolerance ? 1 : rawScale
         guard abs(matrix.a - matrix.d) <= tolerance, abs(matrix.b + matrix.c) <= tolerance else {
             return .axisAligned(boundingBox)
         }
@@ -93,9 +120,11 @@ struct PaintPlacement {
         // A similarity with no rotation is a plain scale-and-translate, and
         // its bounding box *is* its frame — take the historic path so the
         // unrotated output stays bit-identical rather than round-tripping
-        // through a centre and a half-extent.
+        // through a centre and a half-extent. The scale still rides along:
+        // a `scaleEffect` is exactly this case, and it is the one that moves
+        // a text run's line breaks.
         guard rotation != 0, rotation.isFinite else {
-            return .axisAligned(boundingBox)
+            return .axisAligned(boundingBox, scale: scale)
         }
 
         let centre = Point(x: localFrame.midX, y: localFrame.midY).applying(transform)
@@ -113,7 +142,7 @@ struct PaintPlacement {
         // similarity. Reusing that value keeps the painter bit-identical with
         // prepaint and the frame path, which have no rotation encoding and
         // compute the box directly.
-        return PaintPlacement(frame: frame, rotation: rotation, boundingBox: boundingBox)
+        return PaintPlacement(frame: frame, rotation: rotation, boundingBox: boundingBox, scale: scale)
     }
 
     /// Maps a rect expressed in the node's unrotated paint space onto the rect
@@ -233,6 +262,101 @@ struct PaintPlacement {
             width: width,
             height: height
         )
+    }
+
+    // MARK: - Runs laid out in the node's own space
+
+    /// E6-TEXT. The rect a run is *laid out* in, given the rect it has to end
+    /// up filling: `placed` pulled back through the node's uniform scale about
+    /// the node's centre.
+    ///
+    /// Scaling it by `scale` about that same centre reproduces `placed`
+    /// exactly, so the run still fills its box — it is measured against the
+    /// width the view actually has instead of the width the transform gives
+    /// it, which is the whole point. An unscaled placement returns the rect
+    /// untouched.
+    func runLayoutRect(_ placed: Rect) -> Rect {
+        guard isScaled else { return placed }
+        let pivot = Point(x: frame.midX, y: frame.midY)
+        let inverse = 1 / scale
+        return Rect(
+            x: pivot.x + (placed.midX - pivot.x) * inverse - placed.size.width * inverse * 0.5,
+            y: pivot.y + (placed.midY - pivot.y) * inverse - placed.size.height * inverse * 0.5,
+            width: placed.size.width * inverse,
+            height: placed.size.height * inverse
+        )
+    }
+
+    /// The region of the node's *layout* space that can still reach `rect`
+    /// once the node's placement is applied — the preimage of a screen-space
+    /// clip, which is what a run laid out in local space has to be culled
+    /// against. Un-turns first (`unplacedFootprint`), then un-scales, because
+    /// that is the order `placingRun` applies them in reverse.
+    func unplacedRunFootprint(of rect: Rect) -> Rect {
+        runLayoutRect(unplacedFootprint(of: rect))
+    }
+
+    /// Applies the node's uniform scale to a rect already in device space:
+    /// origin and extent both scale about the node's centre. Companion to
+    /// `placingDevice`, which does the same for the rotation; the two commute
+    /// because they share a pivot.
+    func scalingDevice(_ rect: Rect, displayScale: Double) -> Rect {
+        guard isScaled else { return rect }
+        let pivot = Point(x: frame.midX * displayScale, y: frame.midY * displayScale)
+        return Rect(
+            x: pivot.x + (rect.origin.x - pivot.x) * scale,
+            y: pivot.y + (rect.origin.y - pivot.y) * scale,
+            width: rect.size.width * scale,
+            height: rect.size.height * scale
+        )
+    }
+
+    /// Places a glyph cell that was laid out in the node's own space and is
+    /// already in device resolution: scaled about the node's centre, then
+    /// turned about it.
+    ///
+    /// This is the text counterpart of `rotating`. The difference matters:
+    /// `rotating` is for primitives the painter already built in the
+    /// *transformed* rect (a quad's size is the scaled size), so re-scaling
+    /// them would square the scale. A run is the one thing built in the
+    /// untransformed rect, and it needs both halves of the similarity.
+    func placingRun(_ glyph: GlyphPrimitive, displayScale: Double) -> GlyphPrimitive {
+        guard isScaled || isRotated else { return glyph }
+        var placed = glyph
+        var cell = Rect(
+            x: Double(glyph.screenX), y: Double(glyph.screenY),
+            width: Double(glyph.screenW), height: Double(glyph.screenH))
+        cell = scalingDevice(cell, displayScale: displayScale)
+        cell = placingDevice(cell, displayScale: displayScale)
+        placed.screenX = Float(cell.origin.x)
+        placed.screenY = Float(cell.origin.y)
+        placed.screenW = Float(cell.size.width)
+        placed.screenH = Float(cell.size.height)
+        if isRotated {
+            placed.rotationRadians = Float(rotation)
+        }
+        return placed
+    }
+
+    /// The same placement for the quads a run emits alongside its glyphs —
+    /// underline and strikethrough segments, which are laid out in the same
+    /// local space and have to travel with the cells.
+    func placingRun(_ quad: QuadPrimitive, displayScale: Double) -> QuadPrimitive {
+        guard isScaled || isRotated else { return quad }
+        var placed = quad
+        var rect = Rect(
+            x: Double(quad.x), y: Double(quad.y),
+            width: Double(quad.width), height: Double(quad.height))
+        rect = scalingDevice(rect, displayScale: displayScale)
+        rect = placingDevice(rect, displayScale: displayScale)
+        placed.x = Float(rect.origin.x)
+        placed.y = Float(rect.origin.y)
+        placed.width = Float(rect.size.width)
+        placed.height = Float(rect.size.height)
+        if isRotated {
+            placed.rotationRadians = Float(rotation)
+        }
+        return placed
     }
 
     /// Applies the lowered rotation to a quad that is already in device space.

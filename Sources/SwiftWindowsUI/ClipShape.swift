@@ -37,13 +37,16 @@ import SwiftWindowsCore
 ///   made the visible clip, the interactive clip and the fallback renderer's
 ///   clip three different regions under a transform.
 ///
-/// **Why a class.** `appendCommands` is the one recursive traversal left, its
-/// frame is enormous in an unoptimized build, and a 120-byte clip value copied
-/// into every argument and temporary along it costs kilobytes of stack per
-/// level — enough to overflow the main thread's 1 MB stack at the demo's depth
-/// of ~42 before `ViewNode.maximumTraversalDepth` can fire. Every stored
-/// property is a `let` and every operation returns a new instance, so this is a
-/// value in everything but its 8-byte representation.
+/// **Why a class.** It was made one when `appendCommands` was still a
+/// recursion with an enormous unoptimized frame: a 120-byte clip value copied
+/// into every argument and temporary along it cost kilobytes of stack per
+/// level, enough to overflow the main thread's 1 MB stack at the demo's depth
+/// of ~42, long before `ViewNode.maximumTraversalDepth` could fire. That walk
+/// is an explicit worklist now, and the argument survives the change: the clip
+/// is stored in a heap traversal record and inherited by every child, where a
+/// reference is one word and the value would be fifteen. Every stored property
+/// is a `let` and every operation returns a new instance, so this is a value in
+/// everything but its 8-byte representation.
 ///
 /// The primitive ABI carries a single axis-aligned clip rect plus one radius,
 /// so `shapeRect` cannot be shipped verbatim;

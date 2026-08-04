@@ -42,7 +42,16 @@ Focused test runs:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter RetainedViewRuntimeTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIWindowHostTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter GPUISceneTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter TraversalStackHeadroomTests
 ```
+
+`TraversalStackHeadroomTests` is the one suite whose failure mode is not a
+failed assertion: it renders a tree at `ViewNode.maximumTraversalDepth` (256),
+so if a traversal's stack frame grows past its budget the *test process*
+disappears with exit code 1 and no output — the same signature the regression
+it pins produced. Run it after any change to `layoutSubtree`, `sizeThatFits`,
+`appendPrepaintState` or `appendCommands`, and treat a silent abort there as a
+stack-frame regression, not a flake.
 
 On Swift for Windows, filtering the very large `WinSwiftUITests` XCTest class can fail in the runner with Windows error 206 (`NSCocoaErrorDomain Code=258`). Use full `swift test` for that coverage, or filter narrower XCTest classes such as `WindowGroupInitTests`, `CommandsAndSceneTests`, or `ClipboardButtonTests`.
 

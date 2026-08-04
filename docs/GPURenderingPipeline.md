@@ -87,14 +87,31 @@ non-finite input to 0 — `max(NaN, 0)` is NaN in Swift, and a NaN offset
 poisons every descendant origin so that every clip intersection comes
 back empty and the window paints blank with nothing logged. Layout,
 measure, prepaint, the frame-path command walk, the cache-range shifts
-and the animation tick share one recursion-depth counter capped at
-`ViewNode.maximumTraversalDepth`; past it a subtree is skipped with a
+and the animation tick share one depth counter capped at
+`ViewNode.maximumTraversalDepth` (256); past it a subtree is skipped with a
 one-shot diagnostic instead of overflowing the main thread's stack
-(an access violation, which no fallback policy can absorb). The cap is a
-backstop, not a stack guarantee: the demo's deepest screen reaches 42.
+(an access violation, which no fallback policy can absorb).
+
+**The cap is a stack guarantee, not just a backstop.** It did not used to
+be. Layout, prepaint and the frame-path command walk were recursions with
+unoptimized frames of 12 KB, 15 KB and 24 KB, so the real ceiling against a
+1 MB stack was about 43 levels — one above the deepest demo screen, and an
+eighth of the cap; a 20-level SwiftUI hierarchy (every modifier adds a
+wrapper node) killed the test process outright. All three are now explicit
+worklists in the shape `ScenePainter.paintNode` already used: `.enter` does
+what a node can do before its children, `.finish` what it can only do after
+them, and depth costs an array element instead of a stack frame. The
+worklists publish their depth on the shared counter
+(`ViewNode.enterTraversal(atDepth:)`), so nesting is still accounted across
+the boundary into the recursions that remain. Measurement is still a
+recursion — it returns a value up the tree — and is held to about a
+kilobyte a level by deciding what to measure and folding the result back
+out of line; 256 levels of it is about a quarter of the stack in debug.
+The demo's deepest screen reaches 42.
 
 **Tests:** `RuntimeAnimationGatingTests`, `RuntimeDirtyFlagIntegrityTests`,
-`RuntimeRenderPassReentrancyTests`, `RuntimeGeometrySanitationTests`.
+`RuntimeRenderPassReentrancyTests`, `RuntimeGeometrySanitationTests`,
+`TraversalStackHeadroomTests` (renders a tree at the cap and one past it).
 
 ## 2. ViewNode → GPUIScene
 
@@ -2225,7 +2242,7 @@ lowering already documents above.
 ### Virtualization: `.lazyStack`
 
 `LazyVStack` was lazy in name only — the runtime had no virtualization
-concept, so a 5,000-row list ran a full recursive `layoutSubtree` into
+concept, so a 5,000-row list ran a full `layoutSubtree` descent into
 every row on every layout pass.
 
 `ViewLayoutMode.lazyStack(StackLayout)` is that concept:
@@ -2234,7 +2251,7 @@ every row on every layout pass.
   frame, because a stack cannot know where row 900 goes without knowing
   how tall rows 0…899 are. `sizeThatFits` is cached per node, so that
   half stays shallow.
-- **The recursive descent is skipped** while the scroll viewport, plus a
+- **The descent into the child is skipped** while the scroll viewport, plus a
   full viewport of overscan on each side, cannot reach the child. The
   overscan is what makes the skip safe: a row's subtree may draw outside
   the row and layout is not the place that knows how far.
@@ -2481,8 +2498,8 @@ painted, with both clips labelled `.painted` so the `Space` assertion could
 not see it. The frame path now threads the accumulated transform the way
 prepaint and `ScenePainter.paintNode` do —
 `ViewNode.accumulatedPaintGeometry(of:transform:inheritedTransform:)`, which
-is deliberately *out of line* because `appendCommands` is the recursion whose
-frame the paragraph below is about. Pinned by
+is deliberately *out of line*: the temporaries of three `concatenating` calls
+belong in one leaf frame, not in the walk that visits every node. Pinned by
 `ClipAbstractionTests.testANestedNonCommutingTransformClipsTheSameRegionOnBothPaths`.
 
 **Scroll indicators live in both spaces at once.** The thumb's *length* is
@@ -2522,11 +2539,12 @@ rounded shape's corner arc (a diagonal cut) is slightly too permissive there;
 exactness would need a second clip rect in every primitive family.
 
 `RuntimeClipShape` is a `final class` with `let` properties — a value in
-everything but its representation. `ViewNode.appendCommands` is the one
-recursive traversal left and its unoptimized frame is enormous; a 120-byte
-clip copied into every argument and temporary along it overflows the main
-thread's 1 MB stack at the demo's depth of ~42, well before
-`ViewNode.maximumTraversalDepth` can fire.
+everything but its representation. It became one when `appendCommands` was
+still a recursion with an enormous unoptimized frame, and a 120-byte clip
+copied into every argument and temporary along it overflowed the 1 MB stack
+at the demo's depth of ~42. That walk is a worklist now, but the class still
+earns its keep: the clip is carried in a heap traversal record and inherited
+by every child, so a reference is one word where a value was fifteen.
 
 ### Rounded clips reach every family
 
@@ -2603,9 +2621,9 @@ two cannot drift onto different keys. The scene path is untouched: it draws
 text from the glyph atlas and never asks for a whole-string bitmap.
 
 `TextRasterCache.shared` is a process global on purpose — its callers
-(`Controls.icon` from a static factory, `appendCommands` from the recursive
-`ViewNode.appendCommands`, which has no stack headroom for another
-parameter) have no runtime in scope; the key carries everything that varies
+(`Controls.icon` from a static factory, `appendCommands` from deep inside
+`ViewNode`'s frame-path walk) have no runtime in scope; the key carries
+everything that varies
 per window, so there is no per-runtime state to separate and no invalidation
 hook to get wrong; and the 64 MiB bound is a process bound, which
 per-runtime instances would multiply by the window count. The reasoning is

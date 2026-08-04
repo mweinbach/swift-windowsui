@@ -1341,6 +1341,78 @@ struct RuntimePrepaintState {
     var deferredSubtrees: [DeferredSubtreeState] = []
     var deferredDraws: [DeferredDrawState] = []
     var nextDeferredPriority: Int = 0
+
+    /// Where every one of this state's streams currently ends — the cursor a
+    /// node's cached range is opened and closed against. Written as one value
+    /// so the recursion that brackets a subtree spells the six counts once
+    /// rather than at every level.
+    var currentIndex: PrepaintStateIndex {
+        PrepaintStateIndex(
+            dispatchIndex: dispatchNodes.count,
+            interactionIndex: interactions.count,
+            focusOrderIndex: focusOrder.count,
+            deferredSubtreeIndex: deferredSubtrees.count,
+            deferredDrawIndex: deferredDraws.count,
+            deferredPriority: nextDeferredPriority
+        )
+    }
+}
+
+/// What a stack has decided before it places its first child: the sizes its
+/// children asked for, the sizes they were granted, and where the run starts.
+@MainActor
+struct StackAllocation {
+    var contentRect: Rect
+    var desiredSizes: [Size]
+    var desiredMainSizes: [Double]
+    var allocatedMainSizes: [Double]
+    var spacingTotal: Double
+    var effectiveSpacing: Double
+    var mainCursorStart: Double
+    var allowsOverflowAlongMainAxis: Bool
+}
+
+/// One child's place in a stack: its frame, how far the cursor advances past
+/// it, and how much of the cross axis it claimed.
+struct StackChildPlacement {
+    var frame: Rect
+    var mainAdvance: Double
+    var crossExtent: Double
+}
+
+/// What a node decided about its own measurement before it measured a single
+/// child: the constraints it resolved, the key it will cache under, the size
+/// its own content wants, and the proposal its children get.
+///
+/// It exists so the measure recursion — the last recursive traversal in the
+/// runtime — carries one small value per level instead of a mode's worth of
+/// locals.
+struct MeasurementPlan {
+    var effectiveConstraints = LayoutConstraints()
+    var cacheKey = ViewMeasureCacheKey(constraints: LayoutConstraints(), displayScale: 1)
+    var contentSize = Size.zero
+    var childConstraints = LayoutConstraints.unconstrained
+    /// `.absolute` proposes to each child from that child's own origin, so its
+    /// children cannot share one constraint.
+    var measuresChildrenIndividually = false
+}
+
+/// How far along the track a stack has placed, and the widest child so far.
+/// Carried as one value because the placement loop is the frame the layout
+/// recursion descends from, and it is kept deliberately narrow.
+struct StackPlacementCursor {
+    var mainCursor: Double
+    var visibleIndex: Int = 0
+    var maxCrossExtent: Double = 0
+}
+
+/// `appendPrepaintState`'s share of `ScenePainter.paintNode`'s transform
+/// algebra, computed once per node and out of line.
+struct PrepaintGeometry {
+    var centeredTransform: Transform2D
+    var effectiveTransform: Transform2D
+    var paintFrame: Rect
+    var inverseTransform: Transform2D?
 }
 public enum ViewLayoutMode: Sendable {
     case absolute
@@ -2719,6 +2791,10 @@ public final class ViewNode {
     internal var cachedMeasureKey: ViewMeasureCacheKey?
     internal var cachedMeasuredSize: Size?
     internal var cachedLayoutKey: ViewLayoutCacheKey?
+    /// The key this node's *in-flight* layout pass will cache once its subtree
+    /// has settled. Layout is a worklist, so the key is minted when the node is
+    /// entered and committed when it finishes — a stack frame used to hold it.
+    internal var pendingLayoutKey: ViewLayoutCacheKey?
 
     /// Set on a scrollable node when a `.lazyStack` beneath it defers a
     /// child's layout. It is what turns a scroll — normally a paint-only
@@ -3550,23 +3626,34 @@ public final class ViewNode {
 
     // MARK: - Traversal depth
 
-    /// Hard cap on nested layout / measure / prepaint / command recursion.
+    /// Hard cap on nested layout / measure / prepaint / command traversal.
     /// Deep trees are legal here — every `WinSwiftUI` modifier adds a wrapper
     /// node, so depth grows with modifier-chain length and not only with
     /// nesting — but a pathological chain has to degrade to a diagnostic
     /// instead of overflowing the main thread's stack. A stack overflow on
     /// Windows is an access violation: no Swift error, no renderer fallback,
-    /// no log line. `ScenePainter.paintNode` was rewritten as an explicit
-    /// worklist for exactly this reason; these traversals are still recursive,
-    /// and the measure recursion nests inside the layout one, so a single
-    /// shared counter bounds the true stack depth rather than each function's.
+    /// no log line.
     ///
-    /// 256 is a backstop, not a stack guarantee: the demo's deepest screen
-    /// reaches 42 (`maxObservedTraversalDepth`), so this leaves ~6× headroom
-    /// for real trees while keeping an optimized build's worst case inside the
-    /// main thread's 1 MB stack. Unoptimized builds have far larger frames and
-    /// run out well before the cap — which is why tests lower it rather than
-    /// building a tree deep enough to reach it.
+    /// 256 is a *stack guarantee*, not just a backstop, and that took work.
+    /// Layout, prepaint and the frame-path command walk were recursions whose
+    /// unoptimized frames ran 12 KB, 15 KB and 24 KB; against a 1 MB stack the
+    /// real ceiling was about 43 levels — an eighth of this number, and one
+    /// level above the deepest demo screen. All three are now explicit
+    /// worklists (`ScenePainter.paintNode` was the first, for the same
+    /// reason), so their depth costs an array element and no stack at all.
+    /// Measurement is still a recursion, because it returns a value up the
+    /// tree, and is held to roughly a kilobyte a level: 256 of those is about
+    /// a quarter of the stack, in debug, which is the worst case that ships.
+    /// `TraversalStackHeadroomTests` renders a tree at this exact depth and is
+    /// what keeps that true.
+    ///
+    /// The counter is shared across all four walks — measurement nests inside
+    /// layout, and the worklists publish their depth on it (see
+    /// `enterTraversal(atDepth:)`) — so it bounds the real nesting rather than
+    /// any one function's.
+    ///
+    /// The demo's deepest screen reaches 42 (`maxObservedTraversalDepth`), so
+    /// the cap leaves ~6× headroom for real trees.
     internal static var maximumTraversalDepth = 256
     private static var traversalDepth = 0
     private static var hasReportedTraversalDepthOverflow = false
@@ -3580,20 +3667,7 @@ public final class ViewNode {
     /// without recursing (and without a matching `leaveTraversal`).
     fileprivate static func enterTraversal() -> Bool {
         guard traversalDepth < maximumTraversalDepth else {
-            traversalDepthOverflowCount += 1
-            if !hasReportedTraversalDepthOverflow {
-                hasReportedTraversalDepthOverflow = true
-                FileHandle.standardError.write(
-                    Data(
-                        """
-                        [SwiftWindowsUI] view tree deeper than \
-                        \(maximumTraversalDepth) levels; the subtree below \
-                        that depth is not laid out or painted.
-
-                        """.utf8
-                    )
-                )
-            }
+            reportTraversalDepthOverflow()
             return false
         }
         traversalDepth += 1
@@ -3603,66 +3677,129 @@ public final class ViewNode {
         return true
     }
 
+    /// The same cap, the same counter, addressed by absolute depth instead of
+    /// by nesting — what an explicit-worklist traversal needs, since its
+    /// "depth" is a field in a heap record rather than a stack frame.
+    ///
+    /// It also *publishes* that depth on the shared counter, so the recursive
+    /// helpers a de-recursed traversal still calls (`markSubtreeRendered`,
+    /// `shiftCachedFrameRangesRecursively`) are bounded from where they were
+    /// really entered rather than from zero.
+    fileprivate static func enterTraversal(atDepth depth: Int) -> Bool {
+        guard depth < maximumTraversalDepth else {
+            reportTraversalDepthOverflow()
+            return false
+        }
+        traversalDepth = depth + 1
+        if traversalDepth > maxObservedTraversalDepth {
+            maxObservedTraversalDepth = traversalDepth
+        }
+        return true
+    }
+
+    private static func reportTraversalDepthOverflow() {
+        traversalDepthOverflowCount += 1
+        guard !hasReportedTraversalDepthOverflow else { return }
+        hasReportedTraversalDepthOverflow = true
+        FileHandle.standardError.write(
+            Data(
+                """
+                [SwiftWindowsUI] view tree deeper than \
+                \(maximumTraversalDepth) levels; the subtree below \
+                that depth is not laid out or painted.
+
+                """.utf8
+            )
+        )
+    }
+
     fileprivate static func leaveTraversal() {
         traversalDepth -= 1
     }
 
+    /// One node's entry in the layout traversal — the whole state a level
+    /// needs, which is why layout can afford to be a worklist.
+    private struct LayoutTraversalContext {
+        let node: ViewNode
+        let depth: Int
+    }
+
+    private enum LayoutTraversalStep {
+        case enter(LayoutTraversalContext)
+        /// Runs once the subtree below the node has been laid out: an
+        /// `.absolute` container's content size is the union of frames its
+        /// children only settle on down there, and the scroll anchor and the
+        /// clamped offset both read that size.
+        case finish(LayoutTraversalContext)
+    }
+
+    /// Layout, as an explicit worklist rather than a recursion.
+    ///
+    /// Every level of this walk also runs the *measure* recursion beneath it,
+    /// so the two share the main thread's 1 MB; at `-Onone` a level of layout
+    /// cost some five kilobytes of frame, which put `maximumTraversalDepth`
+    /// (256) four times over the stack it was supposed to be a backstop for.
+    /// De-recursed, a level costs an array element and the measure walk gets
+    /// the stack to itself.
     fileprivate func layoutSubtree(displayScale: Double) {
-        guard ViewNode.enterTraversal() else { return }
-        defer { ViewNode.leaveTraversal() }
-        runtime?.recordLayoutVisit()
+        let baseDepth = ViewNode.traversalDepth
+        defer { ViewNode.traversalDepth = baseDepth }
 
-        // Recomputed, never latched: a scrollable node's virtualization flag
-        // is only as true as the deferrals this pass is about to observe
-        // below it. Cleared here — before any descendant can defer — so the
-        // pass that reconciles a lazy stack into an eager one is also the
-        // pass that stops charging every later scroll a layout invalidation.
-        if scrollAxis != nil { hasVirtualizedDescendants = false }
+        var traversal: [LayoutTraversalStep] = [
+            .enter(LayoutTraversalContext(node: self, depth: 0))
+        ]
 
-        // Sanitize before the cache key is minted so the key, the geometry the
-        // painter reads, and the geometry the next pass compares against are
-        // all the same finite values.
-        resolvedFrame = sanitizedLayoutRect(resolvedFrame)
-        let layoutKey = ViewLayoutCacheKey(frame: resolvedFrame, displayScale: displayScale)
-        let layoutDirtyFlags = subtreeDirtyFlags.intersection([.layout, .children])
-        if layoutDirtyFlags.isEmpty, cachedLayoutKey == layoutKey {
-            runtime?.recordLayoutReuse()
-            resolvedScrollOffset = effectiveScrollOffset
+        while let traversalStep = traversal.popLast() {
+            let context: LayoutTraversalContext
+            switch traversalStep {
+            case .finish(let finishContext):
+                ViewNode.traversalDepth = baseDepth + finishContext.depth + 1
+                finishContext.node.finishLayoutPass()
+                continue
 
-            // A scroll frame dirties `.paint`, not `.layout`, so this early
-            // return — not the placement loop — is the path a scrolling list
-            // actually takes, and it is where rows that have just come into
-            // range have to be laid out. The window is recomputed here rather
-            // than carried, and every child is tested rather than only the
-            // dirty ones, because a deferred row's dirty flags were cleared
-            // by the painter's cull while it was off-screen.
-            if layoutMode.virtualizesChildren, let mainAxis = layoutMode.stackLayout?.axis {
-                let window = layoutVirtualizationWindow()
-                for child in children {
-                    if Self.isOutsideLayoutViewport(child.resolvedFrame, viewport: window, axis: mainAxis) {
-                        child.isLayoutDeferredByVirtualization = true
-                        virtualizationScrollAncestor?.hasVirtualizedDescendants = true
-                        runtime?.recordVirtualizedLayoutSkip()
-                        continue
-                    }
-                    let resumed = child.resumeVirtualizedLayout()
-                    if resumed || child.hasDirtySubtree {
-                        child.layoutSubtree(displayScale: displayScale)
-                    }
-                }
-            } else if hasDirtySubtree || isOnVirtualizationDescentPath {
-                // The descent-path term is what keeps a lazy stack reachable
-                // through a clean ancestor: a scroll dirties the scrollable
-                // node, not the panel between it and the stack, and a stack
-                // never reached is a stack that never resumes its rows.
-                for child in children where child.hasDirtySubtree || child.isOnVirtualizationDescentPath {
-                    child.layoutSubtree(displayScale: displayScale)
-                }
+            case .enter(let entryContext):
+                context = entryContext
             }
-            lastLayoutVisitPassID = runtime?.layoutPassID ?? 0
-            return
-        }
 
+            let node = context.node
+            guard ViewNode.enterTraversal(atDepth: baseDepth + context.depth) else { continue }
+            node.runtime?.recordLayoutVisit()
+
+            // Recomputed, never latched: a scrollable node's virtualization
+            // flag is only as true as the deferrals this pass is about to
+            // observe below it. Cleared here — before any descendant can defer
+            // — so the pass that reconciles a lazy stack into an eager one is
+            // also the pass that stops charging every later scroll a layout
+            // invalidation.
+            if node.scrollAxis != nil { node.hasVirtualizedDescendants = false }
+
+            // Sanitize before the cache key is minted so the key, the geometry
+            // the painter reads, and the geometry the next pass compares
+            // against are all the same finite values.
+            node.resolvedFrame = sanitizedLayoutRect(node.resolvedFrame)
+            let layoutKey = ViewLayoutCacheKey(frame: node.resolvedFrame, displayScale: displayScale)
+            let layoutDirtyFlags = node.subtreeDirtyFlags.intersection([.layout, .children])
+            if layoutDirtyFlags.isEmpty, node.cachedLayoutKey == layoutKey {
+                node.enqueueCleanPathChildren(into: &traversal, depth: context.depth)
+                node.lastLayoutVisitPassID = node.runtime?.layoutPassID ?? 0
+                continue
+            }
+
+            node.beginLayoutPass()
+
+            // The node's own frame is settled and its children's frames are
+            // computed here; `finish` closes the pass once they have been laid
+            // out. Pushed before the children so it pops after all of them.
+            traversal.append(.finish(context))
+            node.placeChildren(into: &traversal, depth: context.depth, layoutKey: layoutKey)
+        }
+    }
+
+    /// Everything that happens to a node before its children are placed:
+    /// the layout callback, `.position()`'s re-centring, and the scroll offset
+    /// a descendant `.lazyStack` will resolve its viewport against.
+    @inline(never)
+    private func beginLayoutPass() {
         onLayout?(resolvedFrame)
 
         if let position = position {
@@ -3683,393 +3820,581 @@ public final class ViewNode {
         // the assignment at the end of the pass stands as the authoritative
         // one and this is the best estimate available before it.
         resolvedScrollOffset = effectiveScrollOffset
+    }
 
+    /// Places the children and enqueues the ones that still have to be laid
+    /// out, deepest-last so the worklist pops them in order.
+    @inline(never)
+    private func placeChildren(
+        into traversal: inout [LayoutTraversalStep],
+        depth: Int,
+        layoutKey: ViewLayoutCacheKey
+    ) {
+        pendingLayoutKey = layoutKey
+        var descendants: [ViewNode] = []
         switch layoutMode {
         case .absolute:
+            layoutAbsoluteChildren(descendants: &descendants)
+
+        case .stack(let stackLayout), .lazyStack(let stackLayout):
+            layoutStackChildren(stackLayout: stackLayout, descendants: &descendants)
+
+        case .flex(let flexStyle):
+            layoutFlexChildren(flexStyle: flexStyle, descendants: &descendants)
+        }
+
+        for child in descendants.reversed() {
+            traversal.append(.enter(LayoutTraversalContext(node: child, depth: depth + 1)))
+        }
+    }
+
+    /// Closes a node's layout pass, once its subtree has been laid out.
+    @inline(never)
+    private func finishLayoutPass() {
+        if case .absolute = layoutMode {
+            // Read back rather than accumulated during placement: a child with
+            // `.position()` rewrites its own frame while *it* lays out, so the
+            // union is only correct once the subtree below has settled.
             var maxChildX: Double = 0
             var maxChildY: Double = 0
-
             for child in children {
-                let childConstraints = LayoutConstraints(
-                    maxWidth: remainingConstraintExtent(resolvedFrame.size.width, offset: child.frame.origin.x),
-                    maxHeight: remainingConstraintExtent(resolvedFrame.size.height, offset: child.frame.origin.y)
-                )
-                let size = child.sizeThatFits(in: childConstraints)
-                let resolvedSize = Size(
-                    width: child.explicitWidth ?? size.width,
-                    height: child.explicitHeight ?? size.height
-                )
-                child.resolvedFrame = Rect(origin: child.frame.origin, size: resolvedSize)
-                child.layoutSubtree(displayScale: displayScale)
                 maxChildX = max(maxChildX, child.resolvedFrame.maxX)
                 maxChildY = max(maxChildY, child.resolvedFrame.maxY)
             }
-
             resolvedContentSize = Size(
                 width: max(resolvedFrame.size.width, maxChildX),
                 height: max(resolvedFrame.size.height, maxChildY)
             )
+        }
 
-        case .stack(let stackLayout), .lazyStack(let stackLayout):
-            let contentRect = Rect(origin: .zero, size: resolvedFrame.size).inset(by: stackLayout.padding)
-            let visibleChildren = children.filter { !$0.isHidden }
-            let childConstraints = stackChildConstraints(for: contentRect.size, axis: stackLayout.axis)
-            let desiredSizes = visibleChildren.map { $0.sizeThatFits(in: childConstraints) }
-            let desiredMainSizes = desiredSizes.map { size in
-                stackLayout.axis == .vertical ? size.height : size.width
-            }
-            let spacingTotal = stackLayoutSpacingTotal(count: visibleChildren.count, spacing: stackLayout.spacing)
-            let availableMainExtent =
-                stackLayout.axis == .vertical ? max(0, contentRect.size.height) : max(0, contentRect.size.width)
-            let availableChildMainExtent = max(0, availableMainExtent - spacingTotal)
-            let allowsOverflowAlongMainAxis = scrollAxis == stackScrollAxis(for: stackLayout.axis)
+        resolvedContentSize = sanitizedLayoutSize(resolvedContentSize)
+        applyDefaultScrollAnchorAfterLayout()
+        if let pendingLayoutKey {
+            cachedLayoutKey = pendingLayoutKey
+        }
+        pendingLayoutKey = nil
+        resolvedScrollOffset = effectiveScrollOffset
+        lastLayoutVisitPassID = runtime?.layoutPassID ?? 0
+    }
 
-            // Shrink floors keep text-bearing content readable under
-            // pressure: a squeezed stack compresses padding, spacers, and
-            // flexible siblings before it crushes a label below its
-            // measured main-axis size (see stackShrinkFloorMainExtent).
-            // Computed only when a squeeze actually occurs. A floor
-            // protects a child from sibling pressure, never from a
-            // container that is smaller than the child alone, so each
-            // floor is capped at this node's full main extent (full, not
-            // the content box: floors may extend into padding — that is
-            // how padding compresses before text).
-            var shrinkFloors: [Double] = []
-            if !allowsOverflowAlongMainAxis,
-                stackLayout.distribution != .fillEqually,
-                desiredMainSizes.reduce(0, +) > availableChildMainExtent
-            {
-                let floorCap =
-                    stackLayout.axis == .vertical
-                    ? resolvedFrame.size.height : resolvedFrame.size.width
-                shrinkFloors = visibleChildren.map {
-                    min(
-                        $0.stackShrinkFloorMainExtent(along: stackLayout.axis, constraints: childConstraints),
-                        floorCap
-                    )
-                }
-            }
+    /// A clean node still has to let its dirty or newly-visible descendants
+    /// through: a scroll frame dirties `.paint`, not `.layout`, so this — not
+    /// the placement loop — is the path a scrolling list actually takes, and
+    /// it is where rows that have just come into range are laid out. The
+    /// window is recomputed here rather than carried, and every child is
+    /// tested rather than only the dirty ones, because a deferred row's dirty
+    /// flags were cleared by the painter's cull while it was off-screen.
+    @inline(never)
+    private func enqueueCleanPathChildren(
+        into traversal: inout [LayoutTraversalStep],
+        depth: Int
+    ) {
+        runtime?.recordLayoutReuse()
+        resolvedScrollOffset = effectiveScrollOffset
 
-            // Allocate main sizes with flex support
-            var allocatedMainSizes: [Double]
-            if allowsOverflowAlongMainAxis {
-                allocatedMainSizes = desiredMainSizes
-            } else if stackLayout.distribution == .fillEqually, !visibleChildren.isEmpty {
-                // Equality wins over content pressure: every child gets the
-                // same share of the track, shrink floors and flex do not
-                // apply. An unconstrained track falls back to the widest
-                // desired extent so intrinsic measurement stays equal too.
-                let share =
-                    availableChildMainExtent.isFinite
-                    ? max(0, availableChildMainExtent / Double(visibleChildren.count))
-                    : (desiredMainSizes.max() ?? 0)
-                allocatedMainSizes = [Double](repeating: share, count: visibleChildren.count)
-            } else {
-                allocatedMainSizes = allocateMainSizes(
-                    desiredSizes: desiredMainSizes,
-                    children: visibleChildren,
-                    axis: stackLayout.axis,
-                    availableExtent: availableChildMainExtent,
-                    shrinkFloors: shrinkFloors
-                )
-            }
-
-            // Apply flex grow/shrink
-            if !allowsOverflowAlongMainAxis, stackLayout.distribution != .fillEqually,
-                !visibleChildren.isEmpty
-            {
-                let allocatedTotal = allocatedMainSizes.reduce(0, +)
-                let remaining = availableChildMainExtent - allocatedTotal
-
-                if remaining > 0 {
-                    // Distribute remaining space to items with flexGrow > 0
-                    let totalGrow = visibleChildren.reduce(0.0) { $0 + $1.flexItem.grow }
-                    if totalGrow > 0 {
-                        var leftover = remaining
-                        for (i, child) in visibleChildren.enumerated() {
-                            guard child.flexItem.grow > 0 else { continue }
-                            let share: Double
-                            if i == visibleChildren.count - 1 {
-                                share = leftover
-                            } else {
-                                share = remaining * (child.flexItem.grow / totalGrow)
-                                leftover -= share
-                            }
-                            allocatedMainSizes[i] += share
-                        }
-                    }
-                } else if remaining < 0 {
-                    // Shrink items with flexShrink > 0, still honoring the
-                    // shrink floors so text is never crushed below its
-                    // measured main-axis size.
-                    let deficit = -remaining
-                    let totalShrink = visibleChildren.reduce(0.0) { $0 + $1.flexItem.shrink }
-                    if totalShrink > 0 {
-                        var leftover = deficit
-                        for (i, child) in visibleChildren.enumerated() {
-                            guard child.flexItem.shrink > 0 else { continue }
-                            let share: Double
-                            if i == visibleChildren.count - 1 {
-                                share = leftover
-                            } else {
-                                share = deficit * (child.flexItem.shrink / totalShrink)
-                                leftover -= share
-                            }
-                            allocatedMainSizes[i] = max(
-                                shrinkFloors.isEmpty ? 0 : shrinkFloors[i], allocatedMainSizes[i] - share)
-                        }
-                    }
-                }
-            }
-
-            let occupiedMainExtent = allocatedMainSizes.reduce(0, +) + spacingTotal
-
-            // Calculate spacing and start position based on distribution
-            let mainOrigin = stackLayout.axis == .vertical ? contentRect.origin.y : contentRect.origin.x
-            let mainCursorStart: Double
-            let effectiveSpacing: Double
-
-            switch stackLayout.distribution {
-            case .fill, .fillEqually:
-                effectiveSpacing = stackLayout.spacing
-                switch stackLayout.mainAlignment {
-                case .start:
-                    mainCursorStart = mainOrigin
-                case .center:
-                    mainCursorStart = mainOrigin + max(0, (availableMainExtent - occupiedMainExtent) * 0.5)
-                case .end:
-                    mainCursorStart = mainOrigin + max(0, availableMainExtent - occupiedMainExtent)
-                }
-
-            case .spaceBetween:
-                let itemsTotal = allocatedMainSizes.reduce(0, +)
-                let freeSpace = max(0, availableMainExtent - itemsTotal)
-                effectiveSpacing = visibleChildren.count > 1 ? freeSpace / Double(visibleChildren.count - 1) : 0
-                mainCursorStart = mainOrigin
-
-            case .spaceAround:
-                let itemsTotal = allocatedMainSizes.reduce(0, +)
-                let freeSpace = max(0, availableMainExtent - itemsTotal)
-                let slotSpace = visibleChildren.count > 0 ? freeSpace / Double(visibleChildren.count) : 0
-                effectiveSpacing = slotSpace
-                mainCursorStart = mainOrigin + slotSpace * 0.5
-
-            case .spaceEvenly:
-                let itemsTotal = allocatedMainSizes.reduce(0, +)
-                let freeSpace = max(0, availableMainExtent - itemsTotal)
-                let slotSpace = visibleChildren.count > 0 ? freeSpace / Double(visibleChildren.count + 1) : 0
-                effectiveSpacing = slotSpace
-                mainCursorStart = mainOrigin + slotSpace
-            }
-
-            // Padding compresses in placement as it does in allocation:
-            // when the occupied extent cannot fit the content box, the
-            // leading padding yields (down to the node's own edge) before
-            // children overflow the trailing edge. When content fits, the
-            // clamp is a no-op; scrollable axes keep natural placement.
-            var mainCursor = mainCursorStart
-            if !allowsOverflowAlongMainAxis {
-                let fullMainExtent =
-                    stackLayout.axis == .vertical ? resolvedFrame.size.height : resolvedFrame.size.width
-                mainCursor = max(0, min(mainCursorStart, fullMainExtent - occupiedMainExtent))
-            }
-            // nil for a plain `.stack` and for a `.lazyStack` with nothing
-            // scrollable above it, which is what makes virtualization opt-in
-            // and bounded rather than a guess.
-            let virtualizationWindow = layoutVirtualizationWindow()
-            var visibleIndex = 0
-            var maxCrossExtent: Double = 0
-
+        var descendants: [ViewNode] = []
+        if layoutMode.virtualizesChildren, let mainAxis = layoutMode.stackLayout?.axis {
+            let window = layoutVirtualizationWindow()
             for child in children {
-                if child.isHidden {
-                    child.resolvedFrame = Rect(x: 0, y: 0, width: 0, height: 0)
-                    continue
-                }
-
-                let desiredSize = desiredSizes[visibleIndex]
-                let allocatedMainSize = allocatedMainSizes[visibleIndex]
-                let childFrame: Rect
-
-                switch stackLayout.axis {
-                case .vertical:
-                    let proposedWidth = max(0, contentRect.size.width)
-                    let measuredWidth = min(desiredSize.width, proposedWidth)
-                    let width: Double
-                    if stackLayout.alignment == .stretch {
-                        width = proposedWidth
-                    } else if measuredWidth == 0, child.expandsAlongStackCrossAxis, proposedWidth > 0 {
-                        // macOS parity: a flexible-width child (a Color /
-                        // background-painted panel with no intrinsic or
-                        // explicit width) takes the stack's cross-axis
-                        // width instead of collapsing to zero.
-                        width = proposedWidth
-                    } else {
-                        width = measuredWidth
-                    }
-                    let height = max(0, allocatedMainSize)
-
-                    let x: Double
-                    let usesCustomAlignmentGuide: Bool
-                    if let guidedX = stackCrossOriginUsingAlignmentGuide(
-                        for: child,
-                        stackAxis: .vertical,
-                        stackAlignment: stackLayout.alignment,
-                        contentOrigin: contentRect.origin.x,
-                        contentExtent: contentRect.size.width,
-                        childExtent: width
-                    ) {
-                        x = guidedX
-                        usesCustomAlignmentGuide = true
-                    } else {
-                        usesCustomAlignmentGuide = false
-                        switch stackLayout.alignment {
-                        case .leading, .stretch, .firstTextBaseline, .customVertical:
-                            x = contentRect.origin.x
-                        case .center:
-                            x = contentRect.origin.x + max(0, (contentRect.size.width - width) * 0.5)
-                        case .trailing, .lastTextBaseline:
-                            x = contentRect.maxX - width
-                        case .customHorizontal:
-                            x = contentRect.origin.x
-                        }
-                    }
-
-                    childFrame = Rect(x: x, y: mainCursor, width: max(0, width), height: max(0, height))
-                    mainCursor += height + effectiveSpacing
-                    maxCrossExtent = max(
-                        maxCrossExtent,
-                        usesCustomAlignmentGuide ? max(0, x - contentRect.origin.x + width) : width
-                    )
-
-                case .horizontal:
-                    let width = max(0, allocatedMainSize)
-                    let proposedHeight = max(0, contentRect.size.height)
-                    let measuredHeight = min(desiredSize.height, proposedHeight)
-                    let height: Double
-                    if stackLayout.alignment == .stretch {
-                        height = proposedHeight
-                    } else if measuredHeight == 0, child.expandsAlongStackCrossAxis, proposedHeight > 0 {
-                        // macOS parity: flexible-height children take the
-                        // stack's cross-axis height (mirrors the vertical
-                        // case above).
-                        height = proposedHeight
-                    } else {
-                        height = measuredHeight
-                    }
-
-                    let y: Double
-                    let usesCustomAlignmentGuide: Bool
-                    if let guidedY = stackCrossOriginUsingAlignmentGuide(
-                        for: child,
-                        stackAxis: .horizontal,
-                        stackAlignment: stackLayout.alignment,
-                        contentOrigin: contentRect.origin.y,
-                        contentExtent: contentRect.size.height,
-                        childExtent: height
-                    ) {
-                        y = guidedY
-                        usesCustomAlignmentGuide = true
-                    } else {
-                        usesCustomAlignmentGuide = false
-                        switch stackLayout.alignment {
-                        case .leading, .stretch:
-                            y = contentRect.origin.y
-                        case .center:
-                            y = contentRect.origin.y + max(0, (contentRect.size.height - height) * 0.5)
-                        case .trailing:
-                            y = contentRect.maxY - height
-                        case .firstTextBaseline:
-                            y = contentRect.origin.y + max(0, contentRect.size.height * 0.8 - height * 0.8)
-                        case .lastTextBaseline:
-                            y = contentRect.origin.y + max(0, contentRect.size.height * 0.8 - height * 0.8)
-                        case .customHorizontal:
-                            y = contentRect.origin.y
-                        case .customVertical:
-                            y = contentRect.origin.y
-                        }
-                    }
-
-                    childFrame = Rect(x: mainCursor, y: y, width: max(0, width), height: max(0, height))
-                    mainCursor += width + effectiveSpacing
-                    maxCrossExtent = max(
-                        maxCrossExtent,
-                        usesCustomAlignmentGuide ? max(0, y - contentRect.origin.y + height) : height
-                    )
-                }
-
-                child.resolvedFrame = childFrame
-                if Self.isOutsideLayoutViewport(childFrame, viewport: virtualizationWindow, axis: stackLayout.axis) {
+                if Self.isOutsideLayoutViewport(child.resolvedFrame, viewport: window, axis: mainAxis) {
                     child.isLayoutDeferredByVirtualization = true
                     virtualizationScrollAncestor?.hasVirtualizedDescendants = true
                     runtime?.recordVirtualizedLayoutSkip()
-                } else {
-                    _ = child.resumeVirtualizedLayout()
-                    child.layoutSubtree(displayScale: displayScale)
+                    continue
                 }
-                visibleIndex += 1
+                let resumed = child.resumeVirtualizedLayout()
+                if resumed || child.hasDirtySubtree {
+                    descendants.append(child)
+                }
+            }
+        } else if hasDirtySubtree || isOnVirtualizationDescentPath {
+            // The descent-path term is what keeps a lazy stack reachable
+            // through a clean ancestor: a scroll dirties the scrollable node,
+            // not the panel between it and the stack, and a stack never
+            // reached is a stack that never resumes its rows.
+            for child in children where child.hasDirtySubtree || child.isOnVirtualizationDescentPath {
+                descendants.append(child)
+            }
+        }
+
+        for child in descendants.reversed() {
+            traversal.append(.enter(LayoutTraversalContext(node: child, depth: depth + 1)))
+        }
+    }
+
+    /// `.absolute`: every child keeps its own origin and is measured against
+    /// what is left of the container from there.
+    @inline(never)
+    private func layoutAbsoluteChildren(descendants: inout [ViewNode]) {
+        for child in children {
+            let childConstraints = LayoutConstraints(
+                maxWidth: remainingConstraintExtent(resolvedFrame.size.width, offset: child.frame.origin.x),
+                maxHeight: remainingConstraintExtent(resolvedFrame.size.height, offset: child.frame.origin.y)
+            )
+            let size = child.sizeThatFits(in: childConstraints)
+            let resolvedSize = Size(
+                width: child.explicitWidth ?? size.width,
+                height: child.explicitHeight ?? size.height
+            )
+            child.resolvedFrame = Rect(origin: child.frame.origin, size: resolvedSize)
+            descendants.append(child)
+        }
+    }
+
+    /// `.flex`: the engine solves the whole row or column, then each child is
+    /// placed at the frame it was given.
+    @inline(never)
+    private func layoutFlexChildren(flexStyle: FlexStyle, descendants: inout [ViewNode]) {
+        let layouts = flexChildLayouts(for: flexStyle)
+
+        var visibleIndex = 0
+        for child in children {
+            if child.isHidden {
+                child.resolvedFrame = Rect(x: 0, y: 0, width: 0, height: 0)
+                continue
             }
 
-            let contentMainExtent =
-                ((allowsOverflowAlongMainAxis ? desiredMainSizes : allocatedMainSizes).reduce(0, +) + spacingTotal
-                    + stackMainPadding(for: stackLayout))
-            let contentCrossExtent = maxCrossExtent + stackCrossPadding(for: stackLayout)
+            let childLayout = layouts[visibleIndex]
+            child.resolvedFrame = Rect(
+                x: childLayout.x, y: childLayout.y, width: childLayout.width, height: childLayout.height)
+            descendants.append(child)
+            visibleIndex += 1
+        }
 
-            switch stackLayout.axis {
-            case .vertical:
-                resolvedContentSize = Size(
-                    width: max(resolvedFrame.size.width, contentCrossExtent),
-                    height: max(resolvedFrame.size.height, contentMainExtent)
-                )
-            case .horizontal:
-                resolvedContentSize = Size(
-                    width: max(resolvedFrame.size.width, contentMainExtent),
-                    height: max(resolvedFrame.size.height, contentCrossExtent)
+        resolvedContentSize = resolvedFrame.size
+    }
+
+    /// `.stack` / `.lazyStack`: allocate the track, then walk it placing —
+    /// and, unless virtualization defers them, laying out — each child.
+    @inline(never)
+    private func layoutStackChildren(stackLayout: StackLayout, descendants: inout [ViewNode]) {
+        let allocation = stackAllocation(for: stackLayout)
+        // nil for a plain `.stack` and for a `.lazyStack` with nothing
+        // scrollable above it, which is what makes virtualization opt-in
+        // and bounded rather than a guess.
+        let virtualizationWindow = layoutVirtualizationWindow()
+        var cursor = StackPlacementCursor(mainCursor: allocation.mainCursorStart)
+
+        for child in children {
+            if placeStackChild(
+                child,
+                stackLayout: stackLayout,
+                allocation: allocation,
+                virtualizationWindow: virtualizationWindow,
+                cursor: &cursor
+            ) {
+                descendants.append(child)
+            }
+        }
+
+        resolvedContentSize = stackContentSize(
+            stackLayout: stackLayout, allocation: allocation, maxCrossExtent: cursor.maxCrossExtent)
+    }
+
+    /// Places one child of a stack and answers whether it should now be laid
+    /// out — false when it is hidden, or when virtualization defers it.
+    @inline(never)
+    private func placeStackChild(
+        _ child: ViewNode,
+        stackLayout: StackLayout,
+        allocation: StackAllocation,
+        virtualizationWindow: Rect?,
+        cursor: inout StackPlacementCursor
+    ) -> Bool {
+        if child.isHidden {
+            child.resolvedFrame = Rect(x: 0, y: 0, width: 0, height: 0)
+            return false
+        }
+
+        let placement = stackChildPlacement(
+            of: child,
+            stackLayout: stackLayout,
+            contentRect: allocation.contentRect,
+            desiredSize: allocation.desiredSizes[cursor.visibleIndex],
+            allocatedMainSize: allocation.allocatedMainSizes[cursor.visibleIndex],
+            mainCursor: cursor.mainCursor
+        )
+
+        child.resolvedFrame = placement.frame
+        cursor.mainCursor += placement.mainAdvance + allocation.effectiveSpacing
+        cursor.maxCrossExtent = max(cursor.maxCrossExtent, placement.crossExtent)
+        cursor.visibleIndex += 1
+
+        if Self.isOutsideLayoutViewport(
+            placement.frame, viewport: virtualizationWindow, axis: stackLayout.axis)
+        {
+            child.isLayoutDeferredByVirtualization = true
+            virtualizationScrollAncestor?.hasVirtualizedDescendants = true
+            runtime?.recordVirtualizedLayoutSkip()
+            return false
+        }
+
+        _ = child.resumeVirtualizedLayout()
+        return true
+    }
+
+    /// What a placed stack reports as its content size — the scrollable extent
+    /// its children occupied. Out of line for the recursion's sake.
+    @inline(never)
+    private func stackContentSize(
+        stackLayout: StackLayout,
+        allocation: StackAllocation,
+        maxCrossExtent: Double
+    ) -> Size {
+        let mainSizes =
+            allocation.allowsOverflowAlongMainAxis
+            ? allocation.desiredMainSizes : allocation.allocatedMainSizes
+        let contentMainExtent =
+            mainSizes.reduce(0, +) + allocation.spacingTotal + stackMainPadding(for: stackLayout)
+        let contentCrossExtent = maxCrossExtent + stackCrossPadding(for: stackLayout)
+
+        switch stackLayout.axis {
+        case .vertical:
+            return Size(
+                width: max(resolvedFrame.size.width, contentCrossExtent),
+                height: max(resolvedFrame.size.height, contentMainExtent)
+            )
+        case .horizontal:
+            return Size(
+                width: max(resolvedFrame.size.width, contentMainExtent),
+                height: max(resolvedFrame.size.height, contentCrossExtent)
+            )
+        }
+    }
+
+    /// Everything a stack decides *before* it starts placing children: how big
+    /// each one wants to be, how much of the track each one gets, and where
+    /// the first one starts.
+    ///
+    /// Out of line, and never inlined back. In an unoptimized build this
+    /// block's flex/shrink/distribution arithmetic is kilobytes of
+    /// temporaries, and it runs with the measure recursion live beneath it —
+    /// `sizeThatFits` on every visible child. Out of line those temporaries
+    /// are charged to a frame that is gone before the walk goes any deeper.
+    @inline(never)
+    private func stackAllocation(for stackLayout: StackLayout) -> StackAllocation {
+        let contentRect = Rect(origin: .zero, size: resolvedFrame.size).inset(by: stackLayout.padding)
+        let visibleChildren = children.filter { !$0.isHidden }
+        let childConstraints = stackChildConstraints(for: contentRect.size, axis: stackLayout.axis)
+        let desiredSizes = visibleChildren.map { $0.sizeThatFits(in: childConstraints) }
+        let desiredMainSizes = desiredSizes.map { size in
+            stackLayout.axis == .vertical ? size.height : size.width
+        }
+        let spacingTotal = stackLayoutSpacingTotal(count: visibleChildren.count, spacing: stackLayout.spacing)
+        let availableMainExtent =
+            stackLayout.axis == .vertical ? max(0, contentRect.size.height) : max(0, contentRect.size.width)
+        let availableChildMainExtent = max(0, availableMainExtent - spacingTotal)
+        let allowsOverflowAlongMainAxis = scrollAxis == stackScrollAxis(for: stackLayout.axis)
+
+        // Shrink floors keep text-bearing content readable under
+        // pressure: a squeezed stack compresses padding, spacers, and
+        // flexible siblings before it crushes a label below its
+        // measured main-axis size (see stackShrinkFloorMainExtent).
+        // Computed only when a squeeze actually occurs. A floor
+        // protects a child from sibling pressure, never from a
+        // container that is smaller than the child alone, so each
+        // floor is capped at this node's full main extent (full, not
+        // the content box: floors may extend into padding — that is
+        // how padding compresses before text).
+        var shrinkFloors: [Double] = []
+        if !allowsOverflowAlongMainAxis,
+            stackLayout.distribution != .fillEqually,
+            desiredMainSizes.reduce(0, +) > availableChildMainExtent
+        {
+            let floorCap =
+                stackLayout.axis == .vertical
+                ? resolvedFrame.size.height : resolvedFrame.size.width
+            shrinkFloors = visibleChildren.map {
+                min(
+                    $0.stackShrinkFloorMainExtent(along: stackLayout.axis, constraints: childConstraints),
+                    floorCap
                 )
             }
+        }
 
-        case .flex(let flexStyle):
-            let visibleChildren = children.filter { !$0.isHidden }
+        // Allocate main sizes with flex support
+        var allocatedMainSizes: [Double]
+        if allowsOverflowAlongMainAxis {
+            allocatedMainSizes = desiredMainSizes
+        } else if stackLayout.distribution == .fillEqually, !visibleChildren.isEmpty {
+            // Equality wins over content pressure: every child gets the
+            // same share of the track, shrink floors and flex do not
+            // apply. An unconstrained track falls back to the widest
+            // desired extent so intrinsic measurement stays equal too.
+            let share =
+                availableChildMainExtent.isFinite
+                ? max(0, availableChildMainExtent / Double(visibleChildren.count))
+                : (desiredMainSizes.max() ?? 0)
+            allocatedMainSizes = [Double](repeating: share, count: visibleChildren.count)
+        } else {
+            allocatedMainSizes = allocateMainSizes(
+                desiredSizes: desiredMainSizes,
+                children: visibleChildren,
+                axis: stackLayout.axis,
+                availableExtent: availableChildMainExtent,
+                shrinkFloors: shrinkFloors
+            )
+        }
 
-            let childInputs = visibleChildren.map { child -> FlexboxEngine.LayoutInput.ChildInput in
-                let intrinsicSize = child.intrinsicContentSize()
-                return FlexboxEngine.LayoutInput.ChildInput(
-                    itemStyle: child.flexItemStyle,
-                    intrinsicWidth: child.preferredSize?.width ?? intrinsicSize.width,
-                    intrinsicHeight: child.preferredSize?.height ?? intrinsicSize.height
-                )
+        // Apply flex grow/shrink
+        if !allowsOverflowAlongMainAxis, stackLayout.distribution != .fillEqually,
+            !visibleChildren.isEmpty
+        {
+            let allocatedTotal = allocatedMainSizes.reduce(0, +)
+            let remaining = availableChildMainExtent - allocatedTotal
+
+            if remaining > 0 {
+                // Distribute remaining space to items with flexGrow > 0
+                let totalGrow = visibleChildren.reduce(0.0) { $0 + $1.flexItem.grow }
+                if totalGrow > 0 {
+                    var leftover = remaining
+                    for (i, child) in visibleChildren.enumerated() {
+                        guard child.flexItem.grow > 0 else { continue }
+                        let share: Double
+                        if i == visibleChildren.count - 1 {
+                            share = leftover
+                        } else {
+                            share = remaining * (child.flexItem.grow / totalGrow)
+                            leftover -= share
+                        }
+                        allocatedMainSizes[i] += share
+                    }
+                }
+            } else if remaining < 0 {
+                // Shrink items with flexShrink > 0, still honoring the
+                // shrink floors so text is never crushed below its
+                // measured main-axis size.
+                let deficit = -remaining
+                let totalShrink = visibleChildren.reduce(0.0) { $0 + $1.flexItem.shrink }
+                if totalShrink > 0 {
+                    var leftover = deficit
+                    for (i, child) in visibleChildren.enumerated() {
+                        guard child.flexItem.shrink > 0 else { continue }
+                        let share: Double
+                        if i == visibleChildren.count - 1 {
+                            share = leftover
+                        } else {
+                            share = deficit * (child.flexItem.shrink / totalShrink)
+                            leftover -= share
+                        }
+                        allocatedMainSizes[i] = max(
+                            shrinkFloors.isEmpty ? 0 : shrinkFloors[i], allocatedMainSizes[i] - share)
+                    }
+                }
+            }
+        }
+
+        let occupiedMainExtent = allocatedMainSizes.reduce(0, +) + spacingTotal
+
+        // Calculate spacing and start position based on distribution
+        let mainOrigin = stackLayout.axis == .vertical ? contentRect.origin.y : contentRect.origin.x
+        let mainCursorStart: Double
+        let effectiveSpacing: Double
+
+        switch stackLayout.distribution {
+        case .fill, .fillEqually:
+            effectiveSpacing = stackLayout.spacing
+            switch stackLayout.mainAlignment {
+            case .start:
+                mainCursorStart = mainOrigin
+            case .center:
+                mainCursorStart = mainOrigin + max(0, (availableMainExtent - occupiedMainExtent) * 0.5)
+            case .end:
+                mainCursorStart = mainOrigin + max(0, availableMainExtent - occupiedMainExtent)
             }
 
-            let input = FlexboxEngine.LayoutInput(
+        case .spaceBetween:
+            let itemsTotal = allocatedMainSizes.reduce(0, +)
+            let freeSpace = max(0, availableMainExtent - itemsTotal)
+            effectiveSpacing = visibleChildren.count > 1 ? freeSpace / Double(visibleChildren.count - 1) : 0
+            mainCursorStart = mainOrigin
+
+        case .spaceAround:
+            let itemsTotal = allocatedMainSizes.reduce(0, +)
+            let freeSpace = max(0, availableMainExtent - itemsTotal)
+            let slotSpace = visibleChildren.count > 0 ? freeSpace / Double(visibleChildren.count) : 0
+            effectiveSpacing = slotSpace
+            mainCursorStart = mainOrigin + slotSpace * 0.5
+
+        case .spaceEvenly:
+            let itemsTotal = allocatedMainSizes.reduce(0, +)
+            let freeSpace = max(0, availableMainExtent - itemsTotal)
+            let slotSpace = visibleChildren.count > 0 ? freeSpace / Double(visibleChildren.count + 1) : 0
+            effectiveSpacing = slotSpace
+            mainCursorStart = mainOrigin + slotSpace
+        }
+
+        // Padding compresses in placement as it does in allocation:
+        // when the occupied extent cannot fit the content box, the
+        // leading padding yields (down to the node's own edge) before
+        // children overflow the trailing edge. When content fits, the
+        // clamp is a no-op; scrollable axes keep natural placement.
+        var mainCursor = mainCursorStart
+        if !allowsOverflowAlongMainAxis {
+            let fullMainExtent =
+                stackLayout.axis == .vertical ? resolvedFrame.size.height : resolvedFrame.size.width
+            mainCursor = max(0, min(mainCursorStart, fullMainExtent - occupiedMainExtent))
+        }
+
+        return StackAllocation(
+            contentRect: contentRect,
+            desiredSizes: desiredSizes,
+            desiredMainSizes: desiredMainSizes,
+            allocatedMainSizes: allocatedMainSizes,
+            spacingTotal: spacingTotal,
+            effectiveSpacing: effectiveSpacing,
+            mainCursorStart: mainCursor,
+            allowsOverflowAlongMainAxis: allowsOverflowAlongMainAxis
+        )
+    }
+
+    /// Where one child of a stack goes, and how much of the cross axis it
+    /// claims.
+    ///
+    /// Out of line for the same reason `stackAllocation` is: this switch is
+    /// the widest block in the placement loop, and that loop runs with the
+    /// measure recursion live beneath it — the one walk that still spends
+    /// stack per level, and so the one whose callers stay narrow.
+    @inline(never)
+    private func stackChildPlacement(
+        of child: ViewNode,
+        stackLayout: StackLayout,
+        contentRect: Rect,
+        desiredSize: Size,
+        allocatedMainSize: Double,
+        mainCursor: Double
+    ) -> StackChildPlacement {
+        switch stackLayout.axis {
+        case .vertical:
+            let proposedWidth = max(0, contentRect.size.width)
+            let measuredWidth = min(desiredSize.width, proposedWidth)
+            let width: Double
+            if stackLayout.alignment == .stretch {
+                width = proposedWidth
+            } else if measuredWidth == 0, child.expandsAlongStackCrossAxis, proposedWidth > 0 {
+                // macOS parity: a flexible-width child (a Color /
+                // background-painted panel with no intrinsic or explicit
+                // width) takes the stack's cross-axis width instead of
+                // collapsing to zero.
+                width = proposedWidth
+            } else {
+                width = measuredWidth
+            }
+            let height = max(0, allocatedMainSize)
+
+            let x: Double
+            let usesCustomAlignmentGuide: Bool
+            if let guidedX = stackCrossOriginUsingAlignmentGuide(
+                for: child,
+                stackAxis: .vertical,
+                stackAlignment: stackLayout.alignment,
+                contentOrigin: contentRect.origin.x,
+                contentExtent: contentRect.size.width,
+                childExtent: width
+            ) {
+                x = guidedX
+                usesCustomAlignmentGuide = true
+            } else {
+                usesCustomAlignmentGuide = false
+                switch stackLayout.alignment {
+                case .leading, .stretch, .firstTextBaseline, .customVertical:
+                    x = contentRect.origin.x
+                case .center:
+                    x = contentRect.origin.x + max(0, (contentRect.size.width - width) * 0.5)
+                case .trailing, .lastTextBaseline:
+                    x = contentRect.maxX - width
+                case .customHorizontal:
+                    x = contentRect.origin.x
+                }
+            }
+
+            return StackChildPlacement(
+                frame: Rect(x: x, y: mainCursor, width: max(0, width), height: max(0, height)),
+                mainAdvance: height,
+                crossExtent: usesCustomAlignmentGuide
+                    ? max(0, x - contentRect.origin.x + width) : width
+            )
+
+        case .horizontal:
+            let width = max(0, allocatedMainSize)
+            let proposedHeight = max(0, contentRect.size.height)
+            let measuredHeight = min(desiredSize.height, proposedHeight)
+            let height: Double
+            if stackLayout.alignment == .stretch {
+                height = proposedHeight
+            } else if measuredHeight == 0, child.expandsAlongStackCrossAxis, proposedHeight > 0 {
+                // macOS parity: flexible-height children take the stack's
+                // cross-axis height (mirrors the vertical case above).
+                height = proposedHeight
+            } else {
+                height = measuredHeight
+            }
+
+            let y: Double
+            let usesCustomAlignmentGuide: Bool
+            if let guidedY = stackCrossOriginUsingAlignmentGuide(
+                for: child,
+                stackAxis: .horizontal,
+                stackAlignment: stackLayout.alignment,
+                contentOrigin: contentRect.origin.y,
+                contentExtent: contentRect.size.height,
+                childExtent: height
+            ) {
+                y = guidedY
+                usesCustomAlignmentGuide = true
+            } else {
+                usesCustomAlignmentGuide = false
+                switch stackLayout.alignment {
+                case .leading, .stretch:
+                    y = contentRect.origin.y
+                case .center:
+                    y = contentRect.origin.y + max(0, (contentRect.size.height - height) * 0.5)
+                case .trailing:
+                    y = contentRect.maxY - height
+                case .firstTextBaseline:
+                    y = contentRect.origin.y + max(0, contentRect.size.height * 0.8 - height * 0.8)
+                case .lastTextBaseline:
+                    y = contentRect.origin.y + max(0, contentRect.size.height * 0.8 - height * 0.8)
+                case .customHorizontal:
+                    y = contentRect.origin.y
+                case .customVertical:
+                    y = contentRect.origin.y
+                }
+            }
+
+            return StackChildPlacement(
+                frame: Rect(x: mainCursor, y: y, width: max(0, width), height: max(0, height)),
+                mainAdvance: width,
+                crossExtent: usesCustomAlignmentGuide
+                    ? max(0, y - contentRect.origin.y + height) : height
+            )
+        }
+    }
+
+    /// The flex engine's answer for this node's visible children — the whole
+    /// measure-and-solve step, out of line so `layoutSubtree` carries the
+    /// resulting array and not the inputs that produced it.
+    @inline(never)
+    private func flexChildLayouts(for flexStyle: FlexStyle) -> [FlexboxEngine.ChildLayout] {
+        let visibleChildren = children.filter { !$0.isHidden }
+
+        let childInputs = visibleChildren.map { child -> FlexboxEngine.LayoutInput.ChildInput in
+            let intrinsicSize = child.intrinsicContentSize()
+            return FlexboxEngine.LayoutInput.ChildInput(
+                itemStyle: child.flexItemStyle,
+                intrinsicWidth: child.preferredSize?.width ?? intrinsicSize.width,
+                intrinsicHeight: child.preferredSize?.height ?? intrinsicSize.height
+            )
+        }
+
+        return FlexboxEngine.layout(
+            FlexboxEngine.LayoutInput(
                 containerWidth: resolvedFrame.size.width,
                 containerHeight: resolvedFrame.size.height,
                 style: flexStyle,
                 children: childInputs
             )
-
-            let layouts = FlexboxEngine.layout(input)
-
-            var visibleIndex = 0
-            for child in children {
-                if child.isHidden {
-                    child.resolvedFrame = Rect(x: 0, y: 0, width: 0, height: 0)
-                    continue
-                }
-
-                let childLayout = layouts[visibleIndex]
-                child.resolvedFrame = Rect(
-                    x: childLayout.x, y: childLayout.y, width: childLayout.width, height: childLayout.height)
-                child.layoutSubtree(displayScale: displayScale)
-                visibleIndex += 1
-            }
-
-            resolvedContentSize = resolvedFrame.size
-        }
-
-        resolvedContentSize = sanitizedLayoutSize(resolvedContentSize)
-        applyDefaultScrollAnchorAfterLayout()
-        cachedLayoutKey = layoutKey
-        resolvedScrollOffset = effectiveScrollOffset
-        lastLayoutVisitPassID = runtime?.layoutPassID ?? 0
+        )
     }
 
     /// The region of this node's own coordinate space — the space its
@@ -4085,8 +4410,8 @@ public final class ViewNode {
     /// into view and were never laid out. The walk is O(depth), once per
     /// lazy stack per pass.
     ///
-    /// Kept out of line so `layoutSubtree`'s stack frame — one of the two
-    /// deepest recursions in the stack — gains a call and not a rectangle.
+    /// Kept out of line so the placement loop it is called from gains a call
+    /// and not a rectangle.
     internal func layoutVirtualizationWindow() -> Rect? {
         guard layoutMode.virtualizesChildren else { return nil }
         var offsetX: Double = 0
@@ -4227,6 +4552,52 @@ public final class ViewNode {
         return children
     }
 
+    /// One node's entry in prepaint's explicit traversal.
+    private struct PrepaintTraversalContext {
+        let node: ViewNode
+        let parentOrigin: Point
+        let inheritedClip: RuntimeClipShape?
+        let inheritedOpacity: Float
+        let parentDispatchIndex: Int?
+        let inheritedInverseTransform: Transform2D?
+        let inheritedTransform: Transform2D
+        let inheritedColorEffects: [RetainedColorEffect]
+        let inheritedBlendMode: BlendMode
+        let depth: Int
+        /// A child is a candidate for deferral; the node a traversal is
+        /// *entered* at never is — it is either the root or a subtree being
+        /// resumed precisely because it was already deferred once.
+        let isDeferralCandidate: Bool
+    }
+
+    /// The half of a node's prepaint visit that can only run once its
+    /// descendants have contributed: its scroll indicator draws over them, and
+    /// the range it caches is not closed until they have all been recorded.
+    private struct PrepaintFinishState {
+        let node: ViewNode
+        let startIndex: PrepaintStateIndex
+        let cacheKey: ViewPaintCacheKey
+        let dispatchIndex: Int
+        let absoluteFrame: Rect
+        let inheritedTransform: Transform2D
+        let centeredTransform: Transform2D
+        let effectiveClip: RuntimeClipShape?
+        let effectiveOpacity: Float
+        let depth: Int
+    }
+
+    private enum PrepaintTraversalStep {
+        case enter(PrepaintTraversalContext)
+        case finish(PrepaintFinishState)
+    }
+
+    /// Prepaint's walk over the tree, as an explicit worklist.
+    ///
+    /// De-recursed for the same reason `appendCommands` was: an unoptimized
+    /// build gave this a 15 KB frame, and `maximumTraversalDepth` is 256 — a
+    /// cap the stack could not actually honour. Depth is now an integer in a
+    /// heap record, so the cap bounds the *tree*, which is what it was always
+    /// meant to mean.
     fileprivate func appendPrepaintState(
         into state: inout RuntimePrepaintState,
         parentOrigin: Point,
@@ -4241,250 +4612,302 @@ public final class ViewNode {
         displayScale: Double = 1,
         replayCount: inout Int
     ) {
-        let startIndex = PrepaintStateIndex(
-            dispatchIndex: state.dispatchNodes.count,
-            interactionIndex: state.interactions.count,
-            focusOrderIndex: state.focusOrder.count,
-            deferredSubtreeIndex: state.deferredSubtrees.count,
-            deferredDrawIndex: state.deferredDraws.count,
-            deferredPriority: state.nextDeferredPriority
-        )
+        let baseDepth = ViewNode.traversalDepth
+        defer { ViewNode.traversalDepth = baseDepth }
 
-        guard ViewNode.enterTraversal() else {
-            cachedPrepaintKey = nil
-            cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
-            return
+        var traversal: [PrepaintTraversalStep] = [
+            .enter(
+                PrepaintTraversalContext(
+                    node: self,
+                    parentOrigin: parentOrigin,
+                    inheritedClip: inheritedClip,
+                    inheritedOpacity: inheritedOpacity,
+                    parentDispatchIndex: parentDispatchIndex,
+                    inheritedInverseTransform: inheritedInverseTransform,
+                    inheritedTransform: inheritedTransform,
+                    inheritedColorEffects: inheritedColorEffects,
+                    inheritedBlendMode: inheritedBlendMode,
+                    depth: 0,
+                    isDeferralCandidate: false
+                )
+            )
+        ]
+
+        while let traversalStep = traversal.popLast() {
+            let context: PrepaintTraversalContext
+            switch traversalStep {
+            case .finish(let finish):
+                ViewNode.traversalDepth = baseDepth + finish.depth + 1
+                finish.node.appendScrollIndicatorDeferredDraw(
+                    into: &state,
+                    dispatchIndex: finish.dispatchIndex,
+                    absoluteFrame: finish.absoluteFrame,
+                    inheritedTransform: finish.inheritedTransform,
+                    centeredTransform: finish.centeredTransform,
+                    effectiveClip: finish.effectiveClip,
+                    effectiveOpacity: finish.effectiveOpacity
+                )
+                finish.node.cachedPrepaintKey = finish.cacheKey
+                finish.node.cachedPrepaintRange = PrepaintStateRange(
+                    start: finish.startIndex, end: state.currentIndex)
+                continue
+
+            case .enter(let entryContext):
+                context = entryContext
+            }
+
+            let node = context.node
+            let parentOrigin = context.parentOrigin
+            let inheritedClip = context.inheritedClip
+            let inheritedTransform = context.inheritedTransform
+
+            // Recorded, not descended into — and recorded before the depth cap
+            // is consulted, because in the recursion this was the *parent's*
+            // work, done without entering the child at all.
+            if context.isDeferralCandidate, node.paintsInDeferredPhase {
+                Self.appendDeferredSubtree(
+                    into: &state,
+                    child: node,
+                    parentDispatchIndex: context.parentDispatchIndex ?? 0,
+                    childOrigin: parentOrigin,
+                    effectiveClip: inheritedClip,
+                    effectiveOpacity: context.inheritedOpacity,
+                    nodeInverseTransform: context.inheritedInverseTransform,
+                    effectiveTransform: inheritedTransform,
+                    effectiveColorEffects: context.inheritedColorEffects,
+                    effectiveBlendMode: context.inheritedBlendMode
+                )
+                continue
+            }
+
+            let startIndex = state.currentIndex
+
+            guard ViewNode.enterTraversal(atDepth: baseDepth + context.depth) else {
+                node.cachedPrepaintKey = nil
+                node.cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
+                continue
+            }
+
+            if node.isHidden {
+                node.cachedPrepaintKey = nil
+                node.cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
+                continue
+            }
+
+            let absoluteFrame = Rect(
+                x: parentOrigin.x + node.resolvedFrame.origin.x,
+                y: parentOrigin.y + node.resolvedFrame.origin.y,
+                width: node.resolvedFrame.size.width,
+                height: node.resolvedFrame.size.height
+            )
+
+            let geometry = Self.prepaintGeometry(
+                of: absoluteFrame,
+                transform: node.transform,
+                inheritedTransform: inheritedTransform,
+                inheritedInverseTransform: context.inheritedInverseTransform
+            )
+            let effectiveTransform = geometry.effectiveTransform
+            let nodeInverseTransform = geometry.inverseTransform
+
+            if !inheritedClip.allowsDrawing(geometry.paintFrame) {
+                node.cachedPrepaintKey = nil
+                node.cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
+                continue
+            }
+
+            // One narrowing rule and one space, shared with the painter and
+            // the frame path (`RuntimeClipShape.intersecting`). Prepaint
+            // narrowed the *untransformed* frame while both paint paths
+            // narrowed the transformed one, so a rotated `.clipped()`
+            // container painted one region, accepted pointers in a second, and
+            // handed its deferred overlays a third.
+            var effectiveClip = inheritedClip
+            if node.clipsToBounds {
+                // R-ROT. Prepaint lowers the same placement the painter does,
+                // so a rotated `.clipped()` container narrows to the *turned*
+                // shape on both. Passing only `paintFrame` left interaction
+                // testing the bounding box while the painter composited the
+                // rotated one — a pointer accepted in a corner nothing was
+                // drawn in.
+                guard
+                    let clipped = Self.narrowedClip(
+                        inheritedClip, to: geometry.paintFrame, localFrame: absoluteFrame,
+                        transform: effectiveTransform, radii: node.cornerRadii,
+                        uniformRadius: node.cornerRadius)
+                else {
+                    node.cachedPrepaintKey = nil
+                    node.cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
+                    continue
+                }
+                effectiveClip = clipped
+            }
+
+            let effectiveOpacity = context.inheritedOpacity * Float(node.opacity)
+            let effectiveColorEffects = context.inheritedColorEffects + node.colorEffects
+            let effectiveBlendMode =
+                node.blendMode == .normal ? context.inheritedBlendMode : node.blendMode
+            // Keyed on the transformed frame, like the painter's: a replayed
+            // subtree carries the inverse transform it was recorded with, and
+            // an ancestor transform that moves an unclipped node leaves its
+            // untransformed frame — and so the old key — unchanged.
+            let cacheKey = node.paintCacheKey(
+                paintFrame: geometry.paintFrame,
+                effectiveTransform: effectiveTransform,
+                effectiveClip: effectiveClip,
+                effectiveOpacity: effectiveOpacity,
+                effectiveBlendMode: effectiveBlendMode,
+                colorEffects: effectiveColorEffects,
+                displayScale: displayScale
+            )
+
+            if let previousState,
+                !node.hasDirtySubtree,
+                node.cachedPrepaintKey == cacheKey,
+                let previousRange = node.cachedPrepaintRange
+            {
+                node.replayPrepaintState(
+                    into: &state,
+                    previousState: previousState,
+                    startIndex: startIndex,
+                    previousRange: previousRange,
+                    parentDispatchIndex: context.parentDispatchIndex,
+                    cacheKey: cacheKey
+                )
+                replayCount += 1
+                continue
+            }
+
+            let dispatchIndex = state.dispatchNodes.count
+            node.appendOwnPrepaintState(
+                into: &state,
+                dispatchIndex: dispatchIndex,
+                parentDispatchIndex: context.parentDispatchIndex,
+                absoluteFrame: absoluteFrame,
+                effectiveClip: effectiveClip,
+                nodeInverseTransform: nodeInverseTransform
+            )
+
+            let absoluteOrigin = Point(
+                x: parentOrigin.x + node.resolvedFrame.origin.x,
+                y: parentOrigin.y + node.resolvedFrame.origin.y
+            )
+
+            let childOrigin = Point(
+                x: absoluteOrigin.x - (node.scrollAxis == .horizontal ? node.resolvedScrollOffset : 0),
+                y: absoluteOrigin.y - (node.scrollAxis == .vertical ? node.resolvedScrollOffset : 0)
+            )
+
+            traversal.append(
+                .finish(
+                    PrepaintFinishState(
+                        node: node,
+                        startIndex: startIndex,
+                        cacheKey: cacheKey,
+                        dispatchIndex: dispatchIndex,
+                        absoluteFrame: absoluteFrame,
+                        inheritedTransform: inheritedTransform,
+                        centeredTransform: geometry.centeredTransform,
+                        effectiveClip: effectiveClip,
+                        effectiveOpacity: effectiveOpacity,
+                        depth: context.depth
+                    )
+                )
+            )
+
+            // Reversed so the worklist pops them in paint order: deferral
+            // priorities and dispatch indices are assigned in visit order, and
+            // the painter reads both as given.
+            for child in node.orderedChildrenForPaint().reversed() {
+                traversal.append(
+                    .enter(
+                        PrepaintTraversalContext(
+                            node: child,
+                            parentOrigin: childOrigin,
+                            inheritedClip: effectiveClip,
+                            inheritedOpacity: effectiveOpacity,
+                            parentDispatchIndex: dispatchIndex,
+                            inheritedInverseTransform: nodeInverseTransform,
+                            inheritedTransform: effectiveTransform,
+                            inheritedColorEffects: effectiveColorEffects,
+                            inheritedBlendMode: effectiveBlendMode,
+                            depth: context.depth + 1,
+                            isDeferralCandidate: true
+                        )
+                    )
+                )
+            }
         }
-        defer { ViewNode.leaveTraversal() }
+    }
 
-        if isHidden {
-            cachedPrepaintKey = nil
-            cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
-            return
+    /// The transform algebra `ScenePainter.paintNode` derives inline, kept out
+    /// of line here for the same reason `accumulatedPaintGeometry` is: three
+    /// `concatenating` calls and an inversion are several hundred bytes of
+    /// unoptimized temporaries, and prepaint is a recursion that pays for them
+    /// at every level.
+    @inline(never)
+    fileprivate static func prepaintGeometry(
+        of absoluteFrame: Rect,
+        transform: Transform2D,
+        inheritedTransform: Transform2D,
+        inheritedInverseTransform: Transform2D?
+    ) -> PrepaintGeometry {
+        guard !transform.isIdentity else {
+            return PrepaintGeometry(
+                centeredTransform: .identity,
+                effectiveTransform: inheritedTransform,
+                paintFrame: absoluteFrame.applying(transform: inheritedTransform),
+                inverseTransform: inheritedInverseTransform
+            )
         }
 
-        let absoluteFrame = Rect(
-            x: parentOrigin.x + resolvedFrame.origin.x,
-            y: parentOrigin.y + resolvedFrame.origin.y,
-            width: resolvedFrame.size.width,
-            height: resolvedFrame.size.height
-        )
+        let screenFrame = absoluteFrame.applying(transform: inheritedTransform)
+        let center = Point(x: screenFrame.midX, y: screenFrame.midY)
+        let centeredTransform = Transform2D.translation(x: -center.x, y: -center.y)
+            .concatenating(transform)
+            .concatenating(.translation(x: center.x, y: center.y))
+        // WS-19: ancestors first, then this node. See the note in
+        // `ScenePainter.paintNode` — the centred transform is a screen-space
+        // operator, so it composes after the map that produced the screen
+        // space it is centred in.
+        let effectiveTransform =
+            inheritedTransform.isIdentity
+            ? centeredTransform : inheritedTransform.concatenating(centeredTransform)
 
-        // The same transform algebra as `ScenePainter.paintNode`, derived here
-        // because prepaint's results are consumed by the painter as well as by
-        // interaction: a deferred subtree inherits `effectiveTransform` and the
-        // clip below verbatim, and the interaction record inverse-maps a
-        // pointer with `nodeInverseTransform`.
-        let centeredTransform: Transform2D
-        let effectiveTransform: Transform2D
-        if transform.isIdentity {
-            centeredTransform = .identity
-            effectiveTransform = inheritedTransform
-        } else {
-            let screenFrame = absoluteFrame.applying(transform: inheritedTransform)
-            let center = Point(x: screenFrame.midX, y: screenFrame.midY)
-            centeredTransform = Transform2D.translation(x: -center.x, y: -center.y)
-                .concatenating(transform)
-                .concatenating(.translation(x: center.x, y: center.y))
-            // WS-19: ancestors first, then this node. See the note in
-            // `ScenePainter.paintNode` — the centred transform is a
-            // screen-space operator, so it composes after the map that
-            // produced the screen space it is centred in.
-            effectiveTransform =
-                inheritedTransform.isIdentity
-                ? centeredTransform : inheritedTransform.concatenating(centeredTransform)
-        }
-        let paintFrame = absoluteFrame.applying(transform: effectiveTransform)
-
-        let nodeInverseTransform: Transform2D?
-        if transform.isIdentity {
-            nodeInverseTransform = inheritedInverseTransform
-        } else if let inverseTransform = centeredTransform.inverseOrNil() {
+        let inverseTransform: Transform2D?
+        if let inverse = centeredTransform.inverseOrNil() {
             // `(A·B)⁻¹ = B⁻¹·A⁻¹`: the inverse composes in the opposite order
             // to `effectiveTransform`, so a pointer is un-rotated by this node
             // before it is un-mapped by its ancestors.
             if let inheritedInverseTransform {
-                nodeInverseTransform = inverseTransform.concatenating(inheritedInverseTransform)
+                inverseTransform = inverse.concatenating(inheritedInverseTransform)
             } else {
-                nodeInverseTransform = inverseTransform
+                inverseTransform = inverse
             }
         } else {
-            nodeInverseTransform = inheritedInverseTransform
+            inverseTransform = inheritedInverseTransform
         }
 
-        if !inheritedClip.allowsDrawing(paintFrame) {
-            cachedPrepaintKey = nil
-            cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
-            return
-        }
-
-        // One narrowing rule and one space, shared with the painter and the
-        // frame path (`RuntimeClipShape.intersecting`). Prepaint narrowed the
-        // *untransformed* frame while both paint paths narrowed the
-        // transformed one, so a rotated `.clipped()` container painted one
-        // region, accepted pointers in a second, and handed its deferred
-        // overlays a third.
-        var effectiveClip = inheritedClip
-        if clipsToBounds {
-            // R-ROT. Prepaint lowers the same placement the painter does, so a
-            // rotated `.clipped()` container narrows to the *turned* shape on
-            // both. Passing only `paintFrame` left interaction testing the
-            // bounding box while the painter composited the rotated one — a
-            // pointer accepted in a corner nothing was drawn in.
-            guard
-                let clipped = Self.narrowedClip(
-                    inheritedClip, to: paintFrame, localFrame: absoluteFrame,
-                    transform: effectiveTransform, radii: cornerRadii, uniformRadius: cornerRadius)
-            else {
-                cachedPrepaintKey = nil
-                cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
-                return
-            }
-            effectiveClip = clipped
-        }
-
-        let effectiveOpacity = inheritedOpacity * Float(opacity)
-        let effectiveColorEffects = inheritedColorEffects + colorEffects
-        let effectiveBlendMode = blendMode == .normal ? inheritedBlendMode : blendMode
-        let resolvedHoverEffect = resolvedActiveHoverEffect
-        // Keyed on the transformed frame, like the painter's: a replayed
-        // subtree carries the inverse transform it was recorded with, and an
-        // ancestor transform that moves an unclipped node leaves its
-        // untransformed frame — and so the old key — unchanged.
-        let cacheKey = ViewPaintCacheKey(
-            bounds: paintFrame,
-            transform: effectiveTransform.matrix,
-            contentMask: effectiveClip,
-            opacity: effectiveOpacity,
-            blurRadius: blurRadius,
-            blurOpaque: blurOpaque,
-            contentBlurRadius: contentBlurRadius,
-            contentBlurOpaque: contentBlurOpaque,
-            blendMode: effectiveBlendMode,
-            isCompositingGroup: isCompositingGroup,
-            drawingGroup: drawingGroup,
-            colorEffects: effectiveColorEffects,
-            visualEffects: visualEffects,
-            viewMask: viewMask,
-            displayScale: displayScale,
-            isHovered: isHovered,
-            hoverEffect: resolvedHoverEffect,
-            isFocused: isFocused,
-            isFocusEffectDisabled: isFocusEffectDisabled
+        return PrepaintGeometry(
+            centeredTransform: centeredTransform,
+            effectiveTransform: effectiveTransform,
+            paintFrame: absoluteFrame.applying(transform: effectiveTransform),
+            inverseTransform: inverseTransform
         )
+    }
 
-        if let previousState,
-            !hasDirtySubtree,
-            cachedPrepaintKey == cacheKey,
-            let previousRange = cachedPrepaintRange
-        {
-            let dispatchDelta = startIndex.dispatchIndex - previousRange.start.dispatchIndex
-            let interactionDelta = startIndex.interactionIndex - previousRange.start.interactionIndex
-            let focusOrderDelta = startIndex.focusOrderIndex - previousRange.start.focusOrderIndex
-            let deferredSubtreeDelta = startIndex.deferredSubtreeIndex - previousRange.start.deferredSubtreeIndex
-            let deferredDrawDelta = startIndex.deferredDrawIndex - previousRange.start.deferredDrawIndex
-            let deferredPriorityDelta = startIndex.deferredPriority - previousRange.start.deferredPriority
-
-            let copiedDispatchNodes = previousState.dispatchNodes[
-                previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex
-            ]
-            .enumerated()
-            .map { offset, dispatchState in
-                var nextDispatchState = dispatchState
-                if let parentIndex = dispatchState.parentIndex {
-                    if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex ~= parentIndex {
-                        nextDispatchState.parentIndex = parentIndex + dispatchDelta
-                    } else {
-                        nextDispatchState.parentIndex = parentDispatchIndex
-                    }
-                } else {
-                    nextDispatchState.parentIndex = parentDispatchIndex
-                }
-                return nextDispatchState
-            }
-            state.dispatchNodes.append(contentsOf: copiedDispatchNodes)
-
-            let copiedInteractions = previousState.interactions[
-                previousRange.start.interactionIndex..<previousRange.end.interactionIndex
-            ]
-            .map { interaction in
-                var nextInteraction = interaction
-                nextInteraction.dispatchIndex += dispatchDelta
-                return nextInteraction
-            }
-            state.interactions.append(contentsOf: copiedInteractions)
-
-            let copiedFocusOrder = previousState.focusOrder[
-                previousRange.start.focusOrderIndex..<previousRange.end.focusOrderIndex
-            ]
-            .map { $0 + dispatchDelta }
-            state.focusOrder.append(contentsOf: copiedFocusOrder)
-
-            let copiedDeferredSubtrees = previousState.deferredSubtrees[
-                previousRange.start.deferredSubtreeIndex..<previousRange.end.deferredSubtreeIndex
-            ]
-            .map { deferredSubtree in
-                var nextDeferredSubtree = deferredSubtree
-                nextDeferredSubtree.priority += deferredPriorityDelta
-                if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex
-                    ~= deferredSubtree.parentDispatchIndex
-                {
-                    nextDeferredSubtree.parentDispatchIndex += dispatchDelta
-                } else if let parentDispatchIndex {
-                    nextDeferredSubtree.parentDispatchIndex = parentDispatchIndex
-                }
-                return nextDeferredSubtree
-            }
-            state.deferredSubtrees.append(contentsOf: copiedDeferredSubtrees)
-
-            let copiedDeferredDraws = previousState.deferredDraws[
-                previousRange.start.deferredDrawIndex..<previousRange.end.deferredDrawIndex
-            ]
-            .map { deferredDraw in
-                var nextDeferredDraw = deferredDraw
-                nextDeferredDraw.priority += deferredPriorityDelta
-                if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex
-                    ~= deferredDraw.parentDispatchIndex
-                {
-                    nextDeferredDraw.parentDispatchIndex += dispatchDelta
-                } else if let parentDispatchIndex {
-                    nextDeferredDraw.parentDispatchIndex = parentDispatchIndex
-                }
-                nextDeferredDraw.payload = deferredDraw.payload.remappedDispatchIndices(by: dispatchDelta)
-                return nextDeferredDraw
-            }
-            state.deferredDraws.append(contentsOf: copiedDeferredDraws)
-            state.nextDeferredPriority = max(
-                state.nextDeferredPriority,
-                startIndex.deferredPriority
-                    + (previousRange.end.deferredPriority - previousRange.start.deferredPriority)
-            )
-
-            shiftCachedPrepaintRangesRecursively(
-                dispatchDelta: dispatchDelta,
-                interactionDelta: interactionDelta,
-                focusOrderDelta: focusOrderDelta,
-                deferredSubtreeDelta: deferredSubtreeDelta,
-                deferredDrawDelta: deferredDrawDelta,
-                deferredPriorityDelta: deferredPriorityDelta
-            )
-            cachedPrepaintKey = cacheKey
-            cachedPrepaintRange = PrepaintStateRange(
-                start: startIndex,
-                end: PrepaintStateIndex(
-                    dispatchIndex: state.dispatchNodes.count,
-                    interactionIndex: state.interactions.count,
-                    focusOrderIndex: state.focusOrder.count,
-                    deferredSubtreeIndex: state.deferredSubtrees.count,
-                    deferredDrawIndex: state.deferredDraws.count,
-                    deferredPriority: state.nextDeferredPriority
-                )
-            )
-            replayCount += 1
-            return
-        }
-
-        let dispatchIndex = state.dispatchNodes.count
+    /// The dispatch, interaction and focus records a node contributes for
+    /// itself. Out of line: three record constructions the recursion would
+    /// otherwise carry at every level.
+    @inline(never)
+    private func appendOwnPrepaintState(
+        into state: inout RuntimePrepaintState,
+        dispatchIndex: Int,
+        parentDispatchIndex: Int?,
+        absoluteFrame: Rect,
+        effectiveClip: RuntimeClipShape?,
+        nodeInverseTransform: Transform2D?
+    ) {
         state.dispatchNodes.append(
             PrepaintDispatchState(
                 node: self,
@@ -4507,119 +4930,203 @@ public final class ViewNode {
         if isFocusable {
             state.focusOrder.append(dispatchIndex)
         }
-
-        let absoluteOrigin = Point(
-            x: parentOrigin.x + resolvedFrame.origin.x,
-            y: parentOrigin.y + resolvedFrame.origin.y
-        )
-
-        let childOrigin = Point(
-            x: absoluteOrigin.x - (scrollAxis == .horizontal ? resolvedScrollOffset : 0),
-            y: absoluteOrigin.y - (scrollAxis == .vertical ? resolvedScrollOffset : 0)
-        )
-
-        for child in orderedChildrenForPaint() {
-            if child.paintsInDeferredPhase {
-                state.deferredSubtrees.append(
-                    DeferredSubtreeState(
-                        priority: state.nextDeferredPriority,
-                        parentDispatchIndex: dispatchIndex,
-                        payload: DeferredSubtreePayload(
-                            node: child,
-                            parentOrigin: childOrigin,
-                            inheritedClip: effectiveClip,
-                            inheritedOpacity: effectiveOpacity,
-                            inheritedInverseTransform: nodeInverseTransform,
-                            inheritedTransform: effectiveTransform,
-                            inheritedColorEffects: effectiveColorEffects,
-                            inheritedBlendMode: effectiveBlendMode
-                        )
-                    )
-                )
-                state.nextDeferredPriority += 1
-                continue
-            }
-
-            child.appendPrepaintState(
-                into: &state,
-                parentOrigin: childOrigin,
-                inheritedClip: effectiveClip,
-                inheritedOpacity: effectiveOpacity,
-                parentDispatchIndex: dispatchIndex,
-                inheritedInverseTransform: nodeInverseTransform,
-                inheritedTransform: effectiveTransform,
-                inheritedColorEffects: effectiveColorEffects,
-                inheritedBlendMode: effectiveBlendMode,
-                previousState: previousState,
-                displayScale: displayScale,
-                replayCount: &replayCount
-            )
-        }
-
-        // Returned in painted space, in the same space as the `contentMask`
-        // below: the painter draws this rect verbatim and
-        // `deferredDrawContains` tests a screen point against both, so a track
-        // in layout space under a transform would be drawn where the viewport
-        // is not and clipped by a clip it no longer overlaps. It is *measured*
-        // in layout space, because the fraction of the content that is visible
-        // is a layout-space ratio — see `scrollIndicatorTrack`.
-        if effectiveOpacity > 0,
-            let track = scrollIndicatorTrack(
-                in: absoluteFrame, inheritedTransform: inheritedTransform, centeredTransform: centeredTransform)
-        {
-            let effectiveScrollIndicatorColor = scrollIndicatorColor.multipliedAlpha(by: effectiveOpacity)
-            state.deferredDraws.append(
-                DeferredDrawState(
-                    priority: state.nextDeferredPriority,
-                    parentDispatchIndex: dispatchIndex,
-                    contentMask: effectiveClip,
-                    payload: .scrollIndicator(
-                        ScrollIndicatorDeferredDrawPayload(
-                            node: self,
-                            dispatchIndex: dispatchIndex,
-                            track: track,
-                            color: effectiveScrollIndicatorColor,
-                            cornerRadius: min(track.indicatorRect.size.width, track.indicatorRect.size.height) * 0.5
-                        )
-                    ),
-                )
-            )
-            state.nextDeferredPriority += 1
-        }
-
-        cachedPrepaintKey = cacheKey
-        cachedPrepaintRange = PrepaintStateRange(
-            start: startIndex,
-            end: PrepaintStateIndex(
-                dispatchIndex: state.dispatchNodes.count,
-                interactionIndex: state.interactions.count,
-                focusOrderIndex: state.focusOrder.count,
-                deferredSubtreeIndex: state.deferredSubtrees.count,
-                deferredDrawIndex: state.deferredDraws.count,
-                deferredPriority: state.nextDeferredPriority
-            )
-        )
     }
 
-    /// A node's painted frame and the transform its children inherit — the
-    /// same algebra `ScenePainter.paintNode` and `appendPrepaintState` derive
-    /// inline (they also need the centred transform itself, for the pointer
-    /// inverse and the scroll-indicator mapping; the agreement between all
-    /// three is what `ClipAbstractionTests` pins).
+    /// A child that paints in the deferred phase is recorded, not descended
+    /// into. Out of line: the payload is nine inherited values, and building it
+    /// inline charged the recursion for all of them.
+    @inline(never)
+    private static func appendDeferredSubtree(
+        into state: inout RuntimePrepaintState,
+        child: ViewNode,
+        parentDispatchIndex: Int,
+        childOrigin: Point,
+        effectiveClip: RuntimeClipShape?,
+        effectiveOpacity: Float,
+        nodeInverseTransform: Transform2D?,
+        effectiveTransform: Transform2D,
+        effectiveColorEffects: [RetainedColorEffect],
+        effectiveBlendMode: BlendMode
+    ) {
+        state.deferredSubtrees.append(
+            DeferredSubtreeState(
+                priority: state.nextDeferredPriority,
+                parentDispatchIndex: parentDispatchIndex,
+                payload: DeferredSubtreePayload(
+                    node: child,
+                    parentOrigin: childOrigin,
+                    inheritedClip: effectiveClip,
+                    inheritedOpacity: effectiveOpacity,
+                    inheritedInverseTransform: nodeInverseTransform,
+                    inheritedTransform: effectiveTransform,
+                    inheritedColorEffects: effectiveColorEffects,
+                    inheritedBlendMode: effectiveBlendMode
+                )
+            )
+        )
+        state.nextDeferredPriority += 1
+    }
+
+    /// Returned in painted space, in the same space as the `contentMask`: the
+    /// painter draws this rect verbatim and `deferredDrawContains` tests a
+    /// screen point against both, so a track in layout space under a transform
+    /// would be drawn where the viewport is not and clipped by a clip it no
+    /// longer overlaps. It is *measured* in layout space, because the fraction
+    /// of the content that is visible is a layout-space ratio — see
+    /// `scrollIndicatorTrack`.
     ///
-    /// Out of line on purpose. `appendCommands` is the deepest recursion left
-    /// in the runtime — deep enough that `RuntimeClipShape` had to become a
-    /// class to keep its frame off the stack — and in an unoptimized build the
-    /// temporaries of three `concatenating` calls are several hundred bytes.
-    /// Here they live in one leaf frame instead of in all 256 levels; the
-    /// recursion pays only for the two values it actually carries.
+    /// Out of line for the recursion's sake, like its neighbours.
+    @inline(never)
+    private func appendScrollIndicatorDeferredDraw(
+        into state: inout RuntimePrepaintState,
+        dispatchIndex: Int,
+        absoluteFrame: Rect,
+        inheritedTransform: Transform2D,
+        centeredTransform: Transform2D,
+        effectiveClip: RuntimeClipShape?,
+        effectiveOpacity: Float
+    ) {
+        guard effectiveOpacity > 0,
+            let track = scrollIndicatorTrack(
+                in: absoluteFrame, inheritedTransform: inheritedTransform,
+                centeredTransform: centeredTransform)
+        else {
+            return
+        }
+
+        let effectiveScrollIndicatorColor = scrollIndicatorColor.multipliedAlpha(by: effectiveOpacity)
+        state.deferredDraws.append(
+            DeferredDrawState(
+                priority: state.nextDeferredPriority,
+                parentDispatchIndex: dispatchIndex,
+                contentMask: effectiveClip,
+                payload: .scrollIndicator(
+                    ScrollIndicatorDeferredDrawPayload(
+                        node: self,
+                        dispatchIndex: dispatchIndex,
+                        track: track,
+                        color: effectiveScrollIndicatorColor,
+                        cornerRadius: min(track.indicatorRect.size.width, track.indicatorRect.size.height)
+                            * 0.5
+                    )
+                ),
+            )
+        )
+        state.nextDeferredPriority += 1
+    }
+
+    /// Copying a clean subtree's records forward instead of rebuilding them.
+    /// Six array remaps with a closure each — the fattest block in the
+    /// recursion, and out of line so it is charged to one leaf frame.
+    @inline(never)
+    private func replayPrepaintState(
+        into state: inout RuntimePrepaintState,
+        previousState: RuntimePrepaintState,
+        startIndex: PrepaintStateIndex,
+        previousRange: PrepaintStateRange,
+        parentDispatchIndex: Int?,
+        cacheKey: ViewPaintCacheKey
+    ) {
+        let dispatchDelta = startIndex.dispatchIndex - previousRange.start.dispatchIndex
+        let interactionDelta = startIndex.interactionIndex - previousRange.start.interactionIndex
+        let focusOrderDelta = startIndex.focusOrderIndex - previousRange.start.focusOrderIndex
+        let deferredSubtreeDelta = startIndex.deferredSubtreeIndex - previousRange.start.deferredSubtreeIndex
+        let deferredDrawDelta = startIndex.deferredDrawIndex - previousRange.start.deferredDrawIndex
+        let deferredPriorityDelta = startIndex.deferredPriority - previousRange.start.deferredPriority
+
+        let copiedDispatchNodes = previousState.dispatchNodes[
+            previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex
+        ]
+        .enumerated()
+        .map { offset, dispatchState in
+            var nextDispatchState = dispatchState
+            if let parentIndex = dispatchState.parentIndex {
+                if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex ~= parentIndex {
+                    nextDispatchState.parentIndex = parentIndex + dispatchDelta
+                } else {
+                    nextDispatchState.parentIndex = parentDispatchIndex
+                }
+            } else {
+                nextDispatchState.parentIndex = parentDispatchIndex
+            }
+            return nextDispatchState
+        }
+        state.dispatchNodes.append(contentsOf: copiedDispatchNodes)
+
+        let copiedInteractions = previousState.interactions[
+            previousRange.start.interactionIndex..<previousRange.end.interactionIndex
+        ]
+        .map { interaction in
+            var nextInteraction = interaction
+            nextInteraction.dispatchIndex += dispatchDelta
+            return nextInteraction
+        }
+        state.interactions.append(contentsOf: copiedInteractions)
+
+        let copiedFocusOrder = previousState.focusOrder[
+            previousRange.start.focusOrderIndex..<previousRange.end.focusOrderIndex
+        ]
+        .map { $0 + dispatchDelta }
+        state.focusOrder.append(contentsOf: copiedFocusOrder)
+
+        let copiedDeferredSubtrees = previousState.deferredSubtrees[
+            previousRange.start.deferredSubtreeIndex..<previousRange.end.deferredSubtreeIndex
+        ]
+        .map { deferredSubtree in
+            var nextDeferredSubtree = deferredSubtree
+            nextDeferredSubtree.priority += deferredPriorityDelta
+            if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex
+                ~= deferredSubtree.parentDispatchIndex
+            {
+                nextDeferredSubtree.parentDispatchIndex += dispatchDelta
+            } else if let parentDispatchIndex {
+                nextDeferredSubtree.parentDispatchIndex = parentDispatchIndex
+            }
+            return nextDeferredSubtree
+        }
+        state.deferredSubtrees.append(contentsOf: copiedDeferredSubtrees)
+
+        let copiedDeferredDraws = previousState.deferredDraws[
+            previousRange.start.deferredDrawIndex..<previousRange.end.deferredDrawIndex
+        ]
+        .map { deferredDraw in
+            var nextDeferredDraw = deferredDraw
+            nextDeferredDraw.priority += deferredPriorityDelta
+            if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex
+                ~= deferredDraw.parentDispatchIndex
+            {
+                nextDeferredDraw.parentDispatchIndex += dispatchDelta
+            } else if let parentDispatchIndex {
+                nextDeferredDraw.parentDispatchIndex = parentDispatchIndex
+            }
+            nextDeferredDraw.payload = deferredDraw.payload.remappedDispatchIndices(by: dispatchDelta)
+            return nextDeferredDraw
+        }
+        state.deferredDraws.append(contentsOf: copiedDeferredDraws)
+        state.nextDeferredPriority = max(
+            state.nextDeferredPriority,
+            startIndex.deferredPriority
+                + (previousRange.end.deferredPriority - previousRange.start.deferredPriority)
+        )
+
+        shiftCachedPrepaintRangesRecursively(
+            dispatchDelta: dispatchDelta,
+            interactionDelta: interactionDelta,
+            focusOrderDelta: focusOrderDelta,
+            deferredSubtreeDelta: deferredSubtreeDelta,
+            deferredDrawDelta: deferredDrawDelta,
+            deferredPriorityDelta: deferredPriorityDelta
+        )
+        cachedPrepaintKey = cacheKey
+        cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: state.currentIndex)
+    }
+
     /// The clip a `clipsToBounds` node narrows to, with its rotation lowered.
     ///
-    /// Out of line for the same reason `accumulatedPaintGeometry` is:
-    /// `appendPrepaintState` is a recursion with almost no stack headroom, and
-    /// a `PaintPlacement` is three geometry values plus the temporaries
-    /// `lowering` builds to produce them. Here they live in one leaf frame
-    /// instead of in all 256 levels.
+    /// Out of line for the same reason `accumulatedPaintGeometry` is: a
+    /// `PaintPlacement` is three geometry values plus the temporaries
+    /// `lowering` builds to produce them, and a walk that visits every node
+    /// should pay for that once, in a leaf frame, rather than at every level.
     fileprivate static func narrowedClip(
         _ inheritedClip: RuntimeClipShape?,
         to paintFrame: Rect,
@@ -4634,6 +5141,15 @@ public final class ViewNode {
             rotation: placement.rotation, space: .painted)
     }
 
+    /// A node's painted frame and the transform its children inherit — the
+    /// same algebra `ScenePainter.paintNode` and `appendPrepaintState` derive
+    /// (they also need the centred transform itself, for the pointer inverse
+    /// and the scroll-indicator mapping; the agreement between all three is
+    /// what `ClipAbstractionTests` pins).
+    ///
+    /// Out of line on purpose: in an unoptimized build the temporaries of
+    /// three `concatenating` calls are several hundred bytes, and the frame
+    /// path's walk should carry only the two values it actually uses.
     fileprivate static func accumulatedPaintGeometry(
         of frame: Rect,
         transform: Transform2D,
@@ -4659,6 +5175,47 @@ public final class ViewNode {
         return (frame.applying(transform: effectiveTransform), effectiveTransform)
     }
 
+    /// One node's entry in the frame path's explicit traversal.
+    private struct FrameTraversalContext {
+        let node: ViewNode
+        let parentOrigin: Point
+        let inheritedClip: RuntimeClipShape?
+        let inheritedOpacity: Float
+        let inheritedBlendMode: BlendMode
+        let inheritedTransform: Transform2D
+        /// Nesting below the node the traversal was entered at. The cap is
+        /// applied to `baseDepth + depth`, so a subtree resumed from a deferred
+        /// draw is bounded from where it really sits in the tree.
+        let depth: Int
+    }
+
+    /// The post-children half of a node's visit: the command range it owns is
+    /// only known once its descendants have appended theirs.
+    private struct FrameNodeFinishState {
+        let node: ViewNode
+        let startIndex: Int
+        let cacheKey: ViewPaintCacheKey
+        let depth: Int
+    }
+
+    private enum FrameTraversalStep {
+        case enter(FrameTraversalContext)
+        case finish(FrameNodeFinishState)
+    }
+
+    /// The frame path's command walk, as an explicit worklist rather than a
+    /// recursion.
+    ///
+    /// This was the deepest and fattest recursion in the runtime: an
+    /// unoptimized build gave it a 23 KB frame, so a tree 43 levels deep — the
+    /// demo's deepest screen reaches 42 — exhausted the main thread's 1 MB
+    /// stack and took the process out with an access violation, no assertion,
+    /// no log. `ScenePainter.paintNode` was de-recursed for exactly this
+    /// reason and this is the same shape: `.enter` does everything a node can
+    /// do before its children, `.finish` does the one thing it can only do
+    /// after them, and both live on the heap. Depth now costs an array element,
+    /// not a stack frame, so `maximumTraversalDepth` is a policy about how deep
+    /// a tree may be rather than a bet on how big a frame is.
     fileprivate func appendCommands(
         into commands: inout [RenderCommand],
         parentOrigin: Point,
@@ -4670,101 +5227,247 @@ public final class ViewNode {
         displayScale: Double = 1,
         replayCount: inout Int
     ) {
-        let startIndex = commands.count
-        guard ViewNode.enterTraversal() else {
-            cachedFrameKey = nil
-            cachedFrameCommandRange = startIndex..<startIndex
-            markSubtreeRendered()
-            return
-        }
-        defer { ViewNode.leaveTraversal() }
+        // The shared depth counter is a stack-depth proxy for the recursions
+        // that are still recursions; this traversal borrows it so that nesting
+        // is accounted across the boundary in both directions.
+        let baseDepth = ViewNode.traversalDepth
+        defer { ViewNode.traversalDepth = baseDepth }
 
-        if isHidden {
-            cachedFrameKey = nil
-            cachedFrameCommandRange = startIndex..<startIndex
-            markSubtreeRendered()
-            return
-        }
+        var traversal: [FrameTraversalStep] = [
+            .enter(
+                FrameTraversalContext(
+                    node: self,
+                    parentOrigin: parentOrigin,
+                    inheritedClip: inheritedClip,
+                    inheritedOpacity: inheritedOpacity,
+                    inheritedBlendMode: inheritedBlendMode,
+                    inheritedTransform: inheritedTransform,
+                    depth: 0
+                )
+            )
+        ]
 
-        let absoluteFrame = Rect(
-            x: parentOrigin.x + resolvedFrame.origin.x,
-            y: parentOrigin.y + resolvedFrame.origin.y,
-            width: resolvedFrame.size.width,
-            height: resolvedFrame.size.height
-        )
+        while let traversalStep = traversal.popLast() {
+            let context: FrameTraversalContext
+            switch traversalStep {
+            case .finish(let state):
+                ViewNode.traversalDepth = baseDepth + state.depth + 1
+                state.node.cachedFrameKey = state.cacheKey
+                state.node.cachedFrameCommandRange = state.startIndex..<commands.count
+                state.node.markSubtreeRendered()
+                continue
 
-        // `paintFrame` is what this path draws *and* what it narrows the clip
-        // by, so it has to be the accumulated screen frame at every depth.
-        // Applying only the node's own transform left a child of a rotated
-        // container drawing at its transformed frame while being gated against
-        // a clip its untransformed frame was compared to — the mixed-space
-        // comparison one level down, and one the `RuntimeClipShape.Space`
-        // assertion cannot see because both sides say `.painted`.
-        let (paintFrame, effectiveTransform) = Self.accumulatedPaintGeometry(
-            of: absoluteFrame, transform: transform, inheritedTransform: inheritedTransform)
-
-        // Gap/Fix: Occlusion culling — skip the entire node early if it is
-        // fully outside the inherited clip bounds (before allocating any
-        // command structs). Uses the same subtree test as the scene path, so a
-        // zero-extent container inside the clip keeps painting its overflowing
-        // children on both paths instead of only on one of them.
-        if !inheritedClip.allowsSubtreeTraversal(bounds: paintFrame) {
-            cachedFrameKey = nil
-            cachedFrameCommandRange = startIndex..<startIndex
-            markSubtreeRendered()
-            return
-        }
-
-        // Gap/Fix: Lifecycle — fire onAppear the first time a node is rendered.
-        // Skip lifecycle callbacks for removal overlays; they have already
-        // appeared and we defer onDisappear until the transition finishes.
-        if !isRemovalOverlay {
-            if !hasAppeared {
-                hasAppeared = true
-                onAppear?()
-                onAppearWithNode?(self)
-                previousFrame = absoluteFrame
+            case .enter(let entryContext):
+                context = entryContext
             }
 
-            // Gap/Fix: Lifecycle — fire onSizeChange when the resolved frame differs
-            // from the previously recorded frame.
-            if let prev = previousFrame, prev != absoluteFrame {
-                onSizeChange?(absoluteFrame)
+            let node = context.node
+            let parentOrigin = context.parentOrigin
+            let inheritedClip = context.inheritedClip
+            let inheritedTransform = context.inheritedTransform
+            let startIndex = commands.count
+
+            guard ViewNode.enterTraversal(atDepth: baseDepth + context.depth) else {
+                node.cachedFrameKey = nil
+                node.cachedFrameCommandRange = startIndex..<startIndex
+                node.markSubtreeRendered()
+                continue
             }
+
+            if node.isHidden {
+                node.cachedFrameKey = nil
+                node.cachedFrameCommandRange = startIndex..<startIndex
+                node.markSubtreeRendered()
+                continue
+            }
+
+            let absoluteFrame = Rect(
+                x: parentOrigin.x + node.resolvedFrame.origin.x,
+                y: parentOrigin.y + node.resolvedFrame.origin.y,
+                width: node.resolvedFrame.size.width,
+                height: node.resolvedFrame.size.height
+            )
+
+            // `paintFrame` is what this path draws *and* what it narrows the
+            // clip by, so it has to be the accumulated screen frame at every
+            // depth. Applying only the node's own transform left a child of a
+            // rotated container drawing at its transformed frame while being
+            // gated against a clip its untransformed frame was compared to —
+            // the mixed-space comparison one level down, and one the
+            // `RuntimeClipShape.Space` assertion cannot see because both sides
+            // say `.painted`.
+            let (paintFrame, effectiveTransform) = Self.accumulatedPaintGeometry(
+                of: absoluteFrame, transform: node.transform, inheritedTransform: inheritedTransform)
+
+            // Gap/Fix: Occlusion culling — skip the entire node early if it is
+            // fully outside the inherited clip bounds (before allocating any
+            // command structs). Uses the same subtree test as the scene path,
+            // so a zero-extent container inside the clip keeps painting its
+            // overflowing children on both paths instead of only on one.
+            if !inheritedClip.allowsSubtreeTraversal(bounds: paintFrame) {
+                node.cachedFrameKey = nil
+                node.cachedFrameCommandRange = startIndex..<startIndex
+                node.markSubtreeRendered()
+                continue
+            }
+
+            node.fireFrameLifecycleCallbacks(absoluteFrame: absoluteFrame)
+
+            // The frame path emits its geometry at `paintFrame` — the node's
+            // own transform applied — so it has to clip there too. Clipping the
+            // untransformed `absoluteFrame` while drawing the transformed one
+            // made a rotated `.clipped()` container chop its content diagonally
+            // here and bleed past the visible edge on the scene path: two
+            // different regions for the same tree, swapped silently by
+            // `fallbackToFrameRenderer`.
+            var effectiveClip = inheritedClip
+            if node.clipsToBounds {
+                guard
+                    let clipped = inheritedClip.narrowed(
+                        to: paintFrame, radii: node.cornerRadii, uniformRadius: node.cornerRadius,
+                        space: .painted)
+                else {
+                    node.cachedFrameKey = nil
+                    node.cachedFrameCommandRange = startIndex..<startIndex
+                    node.markSubtreeRendered()
+                    continue
+                }
+                effectiveClip = clipped
+            }
+            let effectiveClipRect = effectiveClip?.rect
+
+            // Gap/Fix: Opacity group compositing — when a view has opacity < 1
+            // AND has children, the correct result requires compositing into an
+            // offscreen texture first. Without that, each child is blended
+            // individually, which causes overlapping children to double-blend.
+            // TODO: Opacity < 1 with overlapping children double-blends. Requires render-to-texture for correct compositing.
+            // GPUI/Zed instead carries opacity as an inherited paint scalar.
+            let effectiveOpacity = context.inheritedOpacity * Float(node.opacity)
+            let effectiveBlendMode =
+                node.blendMode == .normal ? context.inheritedBlendMode : node.blendMode
+            let cacheKey = node.paintCacheKey(
+                paintFrame: paintFrame,
+                effectiveTransform: effectiveTransform,
+                effectiveClip: effectiveClip,
+                effectiveOpacity: effectiveOpacity,
+                effectiveBlendMode: effectiveBlendMode,
+                colorEffects: node.colorEffects,
+                displayScale: displayScale
+            )
+            guard effectiveOpacity > 0 else {
+                node.cachedFrameKey = cacheKey
+                node.cachedFrameCommandRange = startIndex..<startIndex
+                node.markSubtreeRendered()
+                continue
+            }
+
+            if let previousRenderedFrame,
+                !node.hasDirtySubtree,
+                node.cachedFrameKey == cacheKey,
+                let previousRange = node.cachedFrameCommandRange
+            {
+                commands.append(contentsOf: previousRenderedFrame.commands[previousRange])
+                let delta = startIndex - previousRange.lowerBound
+                node.shiftCachedFrameRangesRecursively(by: delta)
+                node.cachedFrameKey = cacheKey
+                node.cachedFrameCommandRange = startIndex..<commands.count
+                node.markSubtreeRendered()
+                replayCount += 1
+                continue
+            }
+
+            let absoluteOrigin = Point(
+                x: parentOrigin.x + node.resolvedFrame.origin.x,
+                y: parentOrigin.y + node.resolvedFrame.origin.y
+            )
+
+            let childOrigin = Point(
+                x: absoluteOrigin.x - (node.scrollAxis == .horizontal ? node.resolvedScrollOffset : 0),
+                y: absoluteOrigin.y - (node.scrollAxis == .vertical ? node.resolvedScrollOffset : 0)
+            )
+
+            node.appendOwnCommands(
+                into: &commands,
+                paintFrame: paintFrame,
+                inheritedClip: inheritedClip,
+                effectiveClip: effectiveClip,
+                effectiveClipRect: effectiveClipRect,
+                effectiveOpacity: effectiveOpacity,
+                effectiveBlendMode: effectiveBlendMode,
+                displayScale: displayScale
+            )
+
+            traversal.append(
+                .finish(
+                    FrameNodeFinishState(
+                        node: node,
+                        startIndex: startIndex,
+                        cacheKey: cacheKey,
+                        depth: context.depth
+                    )
+                )
+            )
+
+            // Pushed in reverse so the worklist pops them in paint order: the
+            // command stream's order is the presentation order, exactly as it
+            // was when this walk recursed.
+            for child in node.orderedChildrenForPaint().reversed() {
+                guard !child.paintsInDeferredPhase else {
+                    continue
+                }
+                traversal.append(
+                    .enter(
+                        FrameTraversalContext(
+                            node: child,
+                            parentOrigin: childOrigin,
+                            inheritedClip: effectiveClip,
+                            inheritedOpacity: effectiveOpacity,
+                            inheritedBlendMode: effectiveBlendMode,
+                            inheritedTransform: effectiveTransform,
+                            depth: context.depth + 1
+                        )
+                    )
+                )
+            }
+        }
+    }
+
+    /// Gap/Fix: Lifecycle — fire onAppear the first time a node is rendered,
+    /// and onSizeChange when its resolved frame moved. Removal overlays are
+    /// skipped: they have already appeared, and onDisappear waits for the
+    /// transition to finish.
+    private func fireFrameLifecycleCallbacks(absoluteFrame: Rect) {
+        guard !isRemovalOverlay else { return }
+        if !hasAppeared {
+            hasAppeared = true
+            onAppear?()
+            onAppearWithNode?(self)
             previousFrame = absoluteFrame
         }
-
-        // The frame path emits its geometry at `paintFrame` — the node's own
-        // transform applied — so it has to clip there too. Clipping the
-        // untransformed `absoluteFrame` while drawing the transformed one made
-        // a rotated `.clipped()` container chop its content diagonally here and
-        // bleed past the visible edge on the scene path: two different regions
-        // for the same tree, swapped silently by `fallbackToFrameRenderer`.
-        var effectiveClip = inheritedClip
-        if clipsToBounds {
-            guard
-                let clipped = inheritedClip.narrowed(
-                    to: paintFrame, radii: cornerRadii, uniformRadius: cornerRadius, space: .painted)
-            else {
-                cachedFrameKey = nil
-                cachedFrameCommandRange = startIndex..<startIndex
-                markSubtreeRendered()
-                return
-            }
-            effectiveClip = clipped
+        if let prev = previousFrame, prev != absoluteFrame {
+            onSizeChange?(absoluteFrame)
         }
-        let effectiveClipRect = effectiveClip?.rect
+        previousFrame = absoluteFrame
+    }
 
-        // Gap/Fix: Opacity group compositing — when a view has opacity < 1 AND
-        // has children, the correct result requires compositing into an offscreen
-        // texture first. Without that, each child is blended individually, which
-        // causes overlapping children to double-blend.
-        // TODO: Opacity < 1 with overlapping children double-blends. Requires render-to-texture for correct compositing.
-        // GPUI/Zed instead carries opacity as an inherited paint scalar.
-        let effectiveOpacity = inheritedOpacity * Float(opacity)
-        let effectiveBlendMode = blendMode == .normal ? inheritedBlendMode : blendMode
-        let resolvedHoverEffect = resolvedActiveHoverEffect
-        let cacheKey = ViewPaintCacheKey(
+    /// The replay key both walks mint, out of line so each pays for one key
+    /// rather than for the twenty temporaries an unoptimized build
+    /// materializes to build it.
+    ///
+    /// The frame path keys on the node's own colour effects and prepaint on
+    /// the accumulated ones, because that is what each of them applies; the
+    /// rest of the key is identical by construction.
+    @inline(never)
+    private func paintCacheKey(
+        paintFrame: Rect,
+        effectiveTransform: Transform2D,
+        effectiveClip: RuntimeClipShape?,
+        effectiveOpacity: Float,
+        effectiveBlendMode: BlendMode,
+        colorEffects: [RetainedColorEffect],
+        displayScale: Double
+    ) -> ViewPaintCacheKey {
+        ViewPaintCacheKey(
             bounds: paintFrame,
             transform: effectiveTransform.matrix,
             contentMask: effectiveClip,
@@ -4781,41 +5484,35 @@ public final class ViewNode {
             viewMask: viewMask,
             displayScale: displayScale,
             isHovered: isHovered,
-            hoverEffect: resolvedHoverEffect,
+            hoverEffect: resolvedActiveHoverEffect,
             isFocused: isFocused,
             isFocusEffectDisabled: isFocusEffectDisabled
         )
-        guard effectiveOpacity > 0 else {
-            cachedFrameKey = cacheKey
-            cachedFrameCommandRange = startIndex..<startIndex
-            markSubtreeRendered()
-            return
-        }
+    }
 
-        if let previousRenderedFrame,
-            !hasDirtySubtree,
-            cachedFrameKey == cacheKey,
-            let previousRange = cachedFrameCommandRange
-        {
-            commands.append(contentsOf: previousRenderedFrame.commands[previousRange])
-            let delta = startIndex - previousRange.lowerBound
-            shiftCachedFrameRangesRecursively(by: delta)
-            cachedFrameKey = cacheKey
-            cachedFrameCommandRange = startIndex..<commands.count
-            markSubtreeRendered()
-            replayCount += 1
-            return
-        }
-
-        let absoluteOrigin = Point(
-            x: parentOrigin.x + resolvedFrame.origin.x,
-            y: parentOrigin.y + resolvedFrame.origin.y
-        )
-
-        let childOrigin = Point(
-            x: absoluteOrigin.x - (scrollAxis == .horizontal ? resolvedScrollOffset : 0),
-            y: absoluteOrigin.y - (scrollAxis == .vertical ? resolvedScrollOffset : 0)
-        )
+    /// Everything a node draws for *itself* on the frame path: decoration,
+    /// background, bitmap, text, canvas, and the blend-mode lowering over the
+    /// commands all of that produced.
+    ///
+    /// Out of line, and deliberately never inlined back. In an unoptimized
+    /// build every `FillRectCommand` / `RenderCommand` temporary in this block
+    /// claims its own stack slot — some thirty of them, tens of kilobytes in
+    /// total — and this was half of why `appendCommands` had a 24 KB frame
+    /// while it was still a recursion, enough to put a 43-level tree over the
+    /// main thread's 1 MB stack. The walk is a worklist now and this stays out
+    /// of line anyway: one leaf frame per node visited, popped before the next
+    /// one is. `TraversalStackHeadroomTests` pins the result.
+    @inline(never)
+    private func appendOwnCommands(
+        into commands: inout [RenderCommand],
+        paintFrame: Rect,
+        inheritedClip: RuntimeClipShape?,
+        effectiveClip: RuntimeClipShape?,
+        effectiveClipRect: Rect?,
+        effectiveOpacity: Float,
+        effectiveBlendMode: BlendMode,
+        displayScale: Double
+    ) {
         let directCommandStartIndex = commands.count
 
         // `FillRectCommand` only carries a uniform radius, so the frame path
@@ -5104,27 +5801,6 @@ public final class ViewNode {
                 commands[index].applyBlendMode(effectiveBlendMode)
             }
         }
-
-        for child in orderedChildrenForPaint() {
-            guard !child.paintsInDeferredPhase else {
-                continue
-            }
-            child.appendCommands(
-                into: &commands,
-                parentOrigin: childOrigin,
-                inheritedClip: effectiveClip,
-                inheritedOpacity: effectiveOpacity,
-                inheritedBlendMode: effectiveBlendMode,
-                inheritedTransform: effectiveTransform,
-                previousRenderedFrame: previousRenderedFrame,
-                displayScale: displayScale,
-                replayCount: &replayCount
-            )
-        }
-
-        cachedFrameKey = cacheKey
-        cachedFrameCommandRange = startIndex..<commands.count
-        markSubtreeRendered()
     }
 
     var resolvedActiveHoverEffect: RetainedHoverEffect? {
@@ -5382,10 +6058,47 @@ public final class ViewNode {
         }
     }
 
+    /// Intrinsic measurement — the one traversal in the runtime that is still
+    /// a recursion, and so the one that has to stay narrow.
+    ///
+    /// Layout and both paint walks are worklists; this one returns a value up
+    /// the tree, which a worklist can only express by threading results
+    /// through the node cache. Instead it is kept to a single small frame per
+    /// level: deciding *what* to measure and folding the children's sizes back
+    /// both happen out of line, so all that is live while the walk descends is
+    /// the plan, the sizes gathered so far, and the loop. `-Onone` frames are
+    /// what matter here — `TraversalStackHeadroomTests` measures the result at
+    /// `maximumTraversalDepth`.
     fileprivate func sizeThatFits(in constraints: LayoutConstraints) -> Size {
         guard ViewNode.enterTraversal() else { return .zero }
         defer { ViewNode.leaveTraversal() }
 
+        var plan = MeasurementPlan()
+        if let cached = beginMeasurement(constraints, into: &plan) {
+            return cached
+        }
+
+        var childSizes: [Size] = []
+        childSizes.reserveCapacity(children.count)
+        for child in children where !child.isHidden {
+            childSizes.append(
+                child.sizeThatFits(
+                    in: plan.measuresChildrenIndividually
+                        ? absoluteChildConstraints(for: child, in: plan.effectiveConstraints)
+                        : plan.childConstraints))
+        }
+
+        return finishMeasurement(plan: plan, childSizes: childSizes)
+    }
+
+    /// The cache probe and everything a node can decide before it measures a
+    /// single child. Returns the cached size when this measurement is already
+    /// known, in which case `plan` is not used.
+    @inline(never)
+    private func beginMeasurement(
+        _ constraints: LayoutConstraints,
+        into plan: inout MeasurementPlan
+    ) -> Size? {
         let displayScale = runtime?.displayScale ?? 1.0
         let effectiveConstraints = applyingLayoutConstraints(to: constraints)
         let cacheKey = ViewMeasureCacheKey(constraints: effectiveConstraints, displayScale: displayScale)
@@ -5395,79 +6108,127 @@ public final class ViewNode {
             return cachedMeasuredSize
         }
 
-        var measuredSize = bitmapContentSize() ?? textContentSize(in: effectiveConstraints) ?? .zero
+        plan.effectiveConstraints = effectiveConstraints
+        plan.cacheKey = cacheKey
+        plan.contentSize = bitmapContentSize() ?? textContentSize(in: effectiveConstraints) ?? .zero
 
         switch layoutMode {
         case .absolute:
-            var maxChildX = measuredSize.width
-            var maxChildY = measuredSize.height
-
-            for child in children where !child.isHidden {
-                let childConstraints = LayoutConstraints(
-                    maxWidth: remainingConstraintExtent(effectiveConstraints.maxWidth, offset: child.frame.origin.x),
-                    maxHeight: remainingConstraintExtent(effectiveConstraints.maxHeight, offset: child.frame.origin.y)
-                )
-                let childSize = child.sizeThatFits(in: childConstraints)
-                let resolvedWidth = child.explicitWidth ?? childSize.width
-                let resolvedHeight = child.explicitHeight ?? childSize.height
-                maxChildX = max(maxChildX, child.frame.origin.x + resolvedWidth)
-                maxChildY = max(maxChildY, child.frame.origin.y + resolvedHeight)
-            }
-
-            measuredSize = Size(width: maxChildX, height: maxChildY)
-
+            // Every child gets what is left of the container from its own
+            // origin, so this is the one mode whose proposal is per child.
+            plan.measuresChildrenIndividually = true
         case .stack(let stackLayout), .lazyStack(let stackLayout):
-            let contentConstraints = insetConstraints(effectiveConstraints, by: stackLayout.padding)
-            let childConstraints = stackChildConstraints(for: contentConstraints, axis: stackLayout.axis)
-            let visibleChildren = children.filter { !$0.isHidden }
-            let childSizes = visibleChildren.map { $0.sizeThatFits(in: childConstraints) }
-            let spacingTotal = stackLayoutSpacingTotal(count: childSizes.count, spacing: stackLayout.spacing)
-            let mainExtent =
-                childSizes.reduce(0.0) { partialResult, size in
-                    partialResult + (stackLayout.axis == .vertical ? size.height : size.width)
-                } + spacingTotal + stackMainPadding(for: stackLayout)
-            let crossExtent =
-                (childSizes.map { size in
-                    stackLayout.axis == .vertical ? size.width : size.height
-                }.max() ?? 0) + stackCrossPadding(for: stackLayout)
+            plan.childConstraints = stackChildConstraints(
+                for: insetConstraints(effectiveConstraints, by: stackLayout.padding),
+                axis: stackLayout.axis)
+        case .flex:
+            plan.childConstraints = .unconstrained
+        }
+        return nil
+    }
 
-            measuredSize = Size(
-                width: stackLayout.axis == .vertical ? crossExtent : mainExtent,
-                height: stackLayout.axis == .vertical ? mainExtent : crossExtent
-            )
+    @inline(never)
+    private func absoluteChildConstraints(
+        for child: ViewNode,
+        in effectiveConstraints: LayoutConstraints
+    ) -> LayoutConstraints {
+        LayoutConstraints(
+            maxWidth: remainingConstraintExtent(effectiveConstraints.maxWidth, offset: child.frame.origin.x),
+            maxHeight: remainingConstraintExtent(effectiveConstraints.maxHeight, offset: child.frame.origin.y)
+        )
+    }
 
+    /// Folds the children's measured sizes into this node's own size, applies
+    /// its explicit dimensions, and caches the answer.
+    @inline(never)
+    private func finishMeasurement(plan: MeasurementPlan, childSizes: [Size]) -> Size {
+        let measuredSize: Size
+        switch layoutMode {
+        case .absolute:
+            measuredSize = absoluteMeasuredSize(contentSize: plan.contentSize, childSizes: childSizes)
+        case .stack(let stackLayout), .lazyStack(let stackLayout):
+            measuredSize = Self.stackMeasuredSize(of: childSizes, stackLayout: stackLayout)
         case .flex(let flexStyle):
-            let visibleChildren = children.filter { !$0.isHidden }
-            let childSizes = visibleChildren.map { $0.sizeThatFits(in: .unconstrained) }
-            let isRow = flexStyle.direction == .row || flexStyle.direction == .rowReverse
-            let gapTotal = visibleChildren.count > 1 ? flexStyle.gap * Double(visibleChildren.count - 1) : 0
-
-            let mainExtent =
-                childSizes.reduce(0.0) { partialResult, size in
-                    partialResult + (isRow ? size.width : size.height)
-                } + gapTotal
-                + (isRow
-                    ? flexStyle.padding.leading + flexStyle.padding.trailing
-                    : flexStyle.padding.top + flexStyle.padding.bottom)
-
-            let crossExtent =
-                (childSizes.map { size in
-                    isRow ? size.height : size.width
-                }.max() ?? 0)
-                + (isRow
-                    ? flexStyle.padding.top + flexStyle.padding.bottom
-                    : flexStyle.padding.leading + flexStyle.padding.trailing)
-
-            measuredSize = Size(
-                width: isRow ? mainExtent : crossExtent,
-                height: isRow ? crossExtent : mainExtent
-            )
+            measuredSize = Self.flexMeasuredSize(of: childSizes, flexStyle: flexStyle)
         }
 
-        let resolvedSize = applyingExplicitDimensions(to: measuredSize, constraints: effectiveConstraints)
-        cachedMeasureKey = cacheKey
+        let resolvedSize = applyingExplicitDimensions(
+            to: measuredSize, constraints: plan.effectiveConstraints)
+        cachedMeasureKey = plan.cacheKey
         cachedMeasuredSize = resolvedSize
         return resolvedSize
+    }
+
+    @inline(never)
+    private func absoluteMeasuredSize(contentSize: Size, childSizes: [Size]) -> Size {
+        var maxChildX = contentSize.width
+        var maxChildY = contentSize.height
+
+        var index = 0
+        for child in children where !child.isHidden {
+            let childSize = childSizes[index]
+            index += 1
+            let resolvedWidth = child.explicitWidth ?? childSize.width
+            let resolvedHeight = child.explicitHeight ?? childSize.height
+            maxChildX = max(maxChildX, child.frame.origin.x + resolvedWidth)
+            maxChildY = max(maxChildY, child.frame.origin.y + resolvedHeight)
+        }
+
+        return Size(width: maxChildX, height: maxChildY)
+    }
+
+    /// The arithmetic a measured stack does over its children's sizes. Out of
+    /// line so the recursion above carries the array and not the six reduce /
+    /// map temporaries that fold it.
+    @inline(never)
+    private static func stackMeasuredSize(
+        of childSizes: [Size],
+        stackLayout: StackLayout
+    ) -> Size {
+        let spacingTotal = stackLayoutSpacingTotal(
+            count: childSizes.count, spacing: stackLayout.spacing)
+        let mainExtent =
+            childSizes.reduce(0.0) { partialResult, size in
+                partialResult + (stackLayout.axis == .vertical ? size.height : size.width)
+            } + spacingTotal + stackMainPadding(for: stackLayout)
+        let crossExtent =
+            (childSizes.map { size in
+                stackLayout.axis == .vertical ? size.width : size.height
+            }.max() ?? 0) + stackCrossPadding(for: stackLayout)
+
+        return Size(
+            width: stackLayout.axis == .vertical ? crossExtent : mainExtent,
+            height: stackLayout.axis == .vertical ? mainExtent : crossExtent
+        )
+    }
+
+    /// The flex equivalent of `stackMeasuredSize`, and out of line for the
+    /// same reason.
+    @inline(never)
+    private static func flexMeasuredSize(of childSizes: [Size], flexStyle: FlexStyle) -> Size {
+        let isRow = flexStyle.direction == .row || flexStyle.direction == .rowReverse
+        let gapTotal = childSizes.count > 1 ? flexStyle.gap * Double(childSizes.count - 1) : 0
+
+        let mainExtent =
+            childSizes.reduce(0.0) { partialResult, size in
+                partialResult + (isRow ? size.width : size.height)
+            } + gapTotal
+            + (isRow
+                ? flexStyle.padding.leading + flexStyle.padding.trailing
+                : flexStyle.padding.top + flexStyle.padding.bottom)
+
+        let crossExtent =
+            (childSizes.map { size in
+                isRow ? size.height : size.width
+            }.max() ?? 0)
+            + (isRow
+                ? flexStyle.padding.top + flexStyle.padding.bottom
+                : flexStyle.padding.leading + flexStyle.padding.trailing)
+
+        return Size(
+            width: isRow ? mainExtent : crossExtent,
+            height: isRow ? crossExtent : mainExtent
+        )
     }
 
     public func intrinsicContentSize() -> Size {

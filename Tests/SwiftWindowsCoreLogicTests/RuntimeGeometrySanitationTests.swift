@@ -229,16 +229,16 @@ final class RuntimeGeometrySanitationTests: XCTestCase {
 
     // MARK: - Traversal depth
 
-    /// Layout, measure, prepaint and the frame-path command walk are all
-    /// recursive; the painter was de-recursed precisely because stack depth is
-    /// a hazard. A pathological tree must produce a truncated picture and a
-    /// diagnostic, not an access violation.
+    /// Layout, prepaint and the frame-path command walk are explicit
+    /// worklists and measurement is a narrow recursion; a pathological tree
+    /// must produce a truncated picture and a diagnostic, not an access
+    /// violation.
     func testVeryDeepTreeRendersInsteadOfOverflowingTheStack() async {
         await MainActor.run {
-            // The cap is lowered rather than met head-on: an unoptimized build's
-            // layout/measure frames are large enough that a tree deep enough to
-            // reach the production cap would overflow the test process's stack
-            // before the cap could fire. Lowering it exercises the same guard.
+            // A lowered cap, so the *branch* is exercised cheaply on a 1,200-
+            // deep chain. That the stack can actually reach the production cap
+            // is a separate claim, and `TraversalStackHeadroomTests` makes it
+            // head-on.
             let productionCap = ViewNode.maximumTraversalDepth
             ViewNode.maximumTraversalDepth = 8
             defer { ViewNode.maximumTraversalDepth = productionCap }

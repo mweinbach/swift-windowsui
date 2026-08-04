@@ -187,6 +187,26 @@ struct PaintPlacement {
         )
     }
 
+    /// Turns a *displacement* by the lowered rotation. A vector has no
+    /// position, so there is no pivot: only the linear part applies.
+    ///
+    /// It exists for the one value the scene contract carries next to a rect
+    /// instead of inside it — `ShadowPrimitive.offset`, which both backends add
+    /// to the primitive's origin in screen space. A shadow's offset is authored
+    /// in the shadowed view's own space (`.shadow(y: 14)` on a card that is
+    /// then turned 90° casts to the card's *side*), so the offset has to arrive
+    /// already turned, or the halo slides down-screen while the card lies on
+    /// its side.
+    func turning(_ vector: Point) -> Point {
+        guard isRotated else { return vector }
+        let cosR = cos(rotation)
+        let sinR = sin(rotation)
+        return Point(
+            x: cosR * vector.x - sinR * vector.y,
+            y: sinR * vector.x + cosR * vector.y
+        )
+    }
+
     /// The axis-aligned region of the node's *unrotated* paint space that can
     /// still reach `rect` once the node's rotation is applied — the preimage
     /// of `rect` under `place`, widened to a box.

@@ -178,8 +178,8 @@ struct DemoDashboardScreen: View {
                     frame: layout.accentA,
                     fill: LinearGradient(
                         colors: [
-                            model.selectedModule.glowColor.opacity(0.32),
-                            model.selectedModule.stripeColor.opacity(0.10),
+                            model.selectedModule.glowColor.opacity(0.16),
+                            model.selectedModule.stripeColor.opacity(0.04),
                         ],
                         startPoint: .leading,
                         endPoint: .trailing
@@ -190,8 +190,8 @@ struct DemoDashboardScreen: View {
                     frame: layout.accentB,
                     fill: LinearGradient(
                         colors: [
-                            model.selectedModule.stripeColor.opacity(0.26),
-                            model.selectedModule.glowColor.opacity(0.08),
+                            model.selectedModule.stripeColor.opacity(0.13),
+                            model.selectedModule.glowColor.opacity(0.03),
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -342,6 +342,11 @@ struct DemoSidebar: View {
                 VStack(alignment: .leading, spacing: 14) {
                     DemoSectionTitle("Workspace")
 
+                    // No hand-computed row width: every child fills the
+                    // sidebar's own content width. The literal it used to carry
+                    // was wider than the padded panel, so each row hung a
+                    // couple of points over both edges of the surface it was
+                    // supposed to be inside.
                     ForEach(DemoModule.allCases, id: \.self) { module in
                         DemoModuleButton(
                             systemImage: module.systemImage,
@@ -352,11 +357,11 @@ struct DemoSidebar: View {
                         ) {
                             model.selectModule(module)
                         }
-                        .frame(width: layout.sidebarInnerWidth, alignment: .leading)
                     }
 
                     Color.clear
-                        .frame(width: layout.sidebarInnerWidth, height: 10)
+                        .frame(height: 10)
+                        .frame(maxWidth: .infinity)
                         .background(
                             LinearGradient(
                                 colors: [
@@ -378,24 +383,33 @@ struct DemoSidebar: View {
                     ) {
                         model.performAction("State panel opened")
                     }
-                    .frame(width: layout.sidebarInnerWidth, alignment: .leading)
 
                     DemoRowButton(
                         title: "Shortcuts",
                         detail: "Tab and wheel routing",
                         systemImage: "keyboard",
-                        accent: model.selectedModule.stripeColor
+                        accent: model.selectedModule.glowColor
                     ) {
                         model.performAction("Shortcuts opened")
                     }
-                    .frame(width: layout.sidebarInnerWidth, alignment: .leading)
                 }
+                // The width lives here, once, and it is the surface's own
+                // content width: a scroll view proposes no definite width to
+                // its content, so without it every greedy child in the column
+                // falls back to its own text and the sidebar frays into a
+                // ragged stack. The literal this replaced was `sidebarWidth -
+                // 16`, which was wider than the padded panel — every row hung
+                // over both edges of the surface it was supposed to be in.
+                .frame(width: layout.sidebarRowWidth, alignment: .leading)
                 .padding(layout.panelPadding)
             }
         }
     }
 }
 struct DemoCenterPane: View {
+    @Environment(\.colorScheme) private var colorScheme
+    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
+
     let model: DemoDashboardModel
     let layout: DemoLayout
 
@@ -420,17 +434,17 @@ struct DemoCenterPane: View {
                     VStack(alignment: .leading, spacing: 14) {
                         DemoMetricCard(
                             title: "Interactions", value: "\(model.interactionCount)", note: "Events tracked",
-                            accent: model.selectedModule.accentColor
+                            accent: theme.caption(model.selectedModule)
                         )
                         .frame(width: layout.contentInnerWidth, alignment: .leading)
                         DemoMetricCard(
                             title: "Module", value: model.selectedModule.label, note: model.selectedModule.summary,
-                            accent: model.selectedModule.accentColor
+                            accent: theme.caption(model.selectedModule)
                         )
                         .frame(width: layout.contentInnerWidth, alignment: .leading)
                         DemoMetricCard(
                             title: "Target", value: "Same source", note: "Import WinSwiftUI or SwiftUI",
-                            accent: Color(red: 0.30, green: 0.42, blue: 0.60, opacity: 0.95)
+                            accent: theme.neutralCaption
                         )
                         .frame(width: layout.contentInnerWidth, alignment: .leading)
                     }
@@ -438,17 +452,17 @@ struct DemoCenterPane: View {
                     HStack(alignment: .center, spacing: 18) {
                         DemoMetricCard(
                             title: "Interactions", value: "\(model.interactionCount)", note: "Events tracked",
-                            accent: model.selectedModule.accentColor
+                            accent: theme.caption(model.selectedModule)
                         )
                         .frame(width: layout.metricCardWidth, alignment: .leading)
                         DemoMetricCard(
                             title: "Module", value: model.selectedModule.label, note: model.selectedModule.summary,
-                            accent: model.selectedModule.accentColor
+                            accent: theme.caption(model.selectedModule)
                         )
                         .frame(width: layout.metricCardWidth, alignment: .leading)
                         DemoMetricCard(
                             title: "Target", value: "Same source", note: "Import WinSwiftUI or SwiftUI",
-                            accent: Color(red: 0.30, green: 0.42, blue: 0.60, opacity: 0.95)
+                            accent: theme.neutralCaption
                         )
                         .frame(width: layout.metricCardWidth, alignment: .leading)
                     }
@@ -572,7 +586,7 @@ struct DemoRightRail: View {
                         DemoSectionTitle("Detail track")
 
                         ForEach(model.selectedModule.cards, id: \.title) { card in
-                            DemoInfoCard(card: card)
+                            DemoInfoCard(card: card, module: model.selectedModule)
                         }
                     }
                 }
@@ -583,15 +597,18 @@ struct DemoRightRail: View {
                         DemoSectionTitle("Quick actions")
 
                         ForEach(model.selectedModule.actions, id: \.title) { action in
+                            // `glowColor`, not `stripeColor`: the icon chip
+                            // carries a near-white glyph, and the pale stripe
+                            // tint left it at a wash of white on white in the
+                            // light appearance.
                             DemoRowButton(
                                 title: action.title,
                                 detail: action.caption,
                                 systemImage: action.systemImage,
-                                accent: model.selectedModule.stripeColor
+                                accent: model.selectedModule.glowColor
                             ) {
                                 model.performAction(action.eventLabel)
                             }
-                            .frame(width: layout.railInnerWidth - 32, alignment: .leading)
                         }
                     }
                 }
@@ -612,12 +629,14 @@ struct DemoHeroCard: View {
         DemoTintedSurface(
             cornerRadius: layout.panelCornerRadius + 4,
             contentPadding: layout.panelPadding,
-            // Nearly opaque deep-navy stops: the headline/subtitle sit on this
-            // card, so it must stay dark over the light backdrop instead of
-            // washing out into mid-grey.
+            // The one card in the app with a tint of its own. It is a tint of
+            // the *appearance*, not a fixed navy: a deep module-tinted card in
+            // dark mode, a pale module-tinted one in light. It used to be navy
+            // in both, which put a dark slab in the middle of the light
+            // dashboard and made a light desktop read as a dark app.
             colors: [
-                model.selectedModule.panelStartColor,
-                model.selectedModule.panelEndColor,
+                theme.heroTop(model.selectedModule),
+                theme.heroBottom(model.selectedModule),
             ],
             stroke: theme.surfaceStrokeStrong,
             shadowColor: model.selectedModule.glowColor.opacity(0.12)
@@ -628,14 +647,17 @@ struct DemoHeroCard: View {
                     DemoCapsuleText(model.selectedModule.label, tint: model.selectedModule.glowColor)
                 }
 
+                // Semantic rungs, not white: the card is dark in one
+                // appearance and pale in the other, and `.primary` is the only
+                // value that is legible on both.
                 Text(model.selectedModule.headline)
                     .font(.system(size: layout.headlineSize, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
+                    .foregroundStyle(.primary)
                     .multilineTextAlignment(.leading)
 
                 Text(model.selectedModule.summary)
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundColor(Color(red: 1.0, green: 1.0, blue: 1.0, opacity: 0.72))
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
 
                 Color.clear
@@ -739,6 +761,7 @@ struct DemoGlassSurface<Content: View>: View {
     let fill: LinearGradient?
     let stroke: Color?
     let shadowColor: Color?
+    let elevation: DemoElevation
 
     init(
         cornerRadius: CGFloat = 30,
@@ -746,6 +769,7 @@ struct DemoGlassSurface<Content: View>: View {
         fill: LinearGradient? = nil,
         stroke: Color? = nil,
         shadowColor: Color? = nil,
+        elevation: DemoElevation = .panel,
         @ViewBuilder content: () -> Content
     ) {
         self.content = content()
@@ -754,6 +778,7 @@ struct DemoGlassSurface<Content: View>: View {
         self.fill = fill
         self.stroke = stroke
         self.shadowColor = shadowColor
+        self.elevation = elevation
     }
 
     private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
@@ -775,7 +800,39 @@ struct DemoGlassSurface<Content: View>: View {
             .padding(1)
             .background(stroke ?? theme.surfaceStroke)
             .cornerRadius(cornerRadius + 1)
-            .shadow(color: shadowColor ?? theme.shadow, radius: 8, x: 0, y: 14)
+            .shadow(
+                color: elevation.castsShadow ? (shadowColor ?? theme.shadow) : .clear,
+                radius: elevation.radius,
+                x: 0,
+                y: elevation.offsetY
+            )
+    }
+}
+
+/// How far off the page a surface sits. macOS has two answers, not one: a
+/// window-level panel casts a wide soft shadow, and a *control* — a push
+/// button, a source-list row — casts nothing, and is separated from its
+/// background by its own edge. Every surface in this demo used to take the
+/// panel value, which put an 8 pt halo 14 pt below a 38 pt pill and read as a
+/// slab that had come loose from the button.
+enum DemoElevation {
+    case panel
+    case control
+
+    var castsShadow: Bool { self == .panel }
+
+    var radius: CGFloat {
+        switch self {
+        case .panel: return 8
+        case .control: return 0
+        }
+    }
+
+    var offsetY: CGFloat {
+        switch self {
+        case .panel: return 14
+        case .control: return 0
+        }
     }
 }
 struct DemoTintedSurface<Content: View>: View {
@@ -787,6 +844,7 @@ struct DemoTintedSurface<Content: View>: View {
     let colors: [Color]
     let stroke: Color?
     let shadowColor: Color?
+    let elevation: DemoElevation
 
     init(
         cornerRadius: CGFloat = 24,
@@ -794,6 +852,7 @@ struct DemoTintedSurface<Content: View>: View {
         colors: [Color],
         stroke: Color? = nil,
         shadowColor: Color? = nil,
+        elevation: DemoElevation = .panel,
         @ViewBuilder content: () -> Content
     ) {
         self.content = content()
@@ -802,6 +861,7 @@ struct DemoTintedSurface<Content: View>: View {
         self.colors = colors
         self.stroke = stroke
         self.shadowColor = shadowColor
+        self.elevation = elevation
     }
 
     private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
@@ -820,7 +880,12 @@ struct DemoTintedSurface<Content: View>: View {
             .padding(1)
             .background(stroke ?? theme.surfaceStrokeStrong)
             .cornerRadius(cornerRadius + 1)
-            .shadow(color: shadowColor ?? theme.shadow, radius: 8, x: 0, y: 14)
+            .shadow(
+                color: elevation.castsShadow ? (shadowColor ?? theme.shadow) : .clear,
+                radius: elevation.radius,
+                x: 0,
+                y: elevation.offsetY
+            )
     }
 }
 struct DemoPanel<Content: View>: View {
@@ -849,13 +914,18 @@ struct DemoCapsuleText: View {
     }
 
     var body: some View {
+        // Two chips, two jobs. The plain one is a scrim on the hero card, so
+        // it takes the card's own contrast direction and `.primary` text. The
+        // tinted one is a *badge*, so it keeps its accent at full strength and
+        // near-white text — the 0.42 wash it used to carry was a legible blue
+        // on the old navy card and a ghost on the light one.
         Text(title)
             .font(.system(size: 10, weight: .semibold, design: .rounded))
             .foregroundColor(tint == nil ? Color.primary : theme.onTintedFillText)
             .multilineTextAlignment(.center)
             .lineLimit(1)
             .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
-            .background((tint ?? theme.fieldTop).opacity(tint == nil ? 0.84 : 0.42))
+            .background(tint == nil ? theme.heroChipFill : tint!.opacity(0.92))
             .cornerRadius(12)
             .padding(1)
             .background(theme.surfaceStroke)
@@ -915,7 +985,8 @@ struct DemoPillButton: View {
                 contentPadding: EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14),
                 colors: colors,
                 stroke: theme.surfaceStrokeStrong,
-                shadowColor: theme.shadow
+                shadowColor: theme.shadow,
+                elevation: .control
             ) {
                 Text(title)
                     .font(.system(size: 12, weight: .bold, design: .rounded))
@@ -943,7 +1014,8 @@ struct DemoModuleButton: View {
                 cornerRadius: 16,
                 contentPadding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
                 colors: colors,
-                stroke: theme.surfaceStroke
+                stroke: theme.surfaceStroke,
+                elevation: .control
             ) {
                 HStack(alignment: .center, spacing: 10) {
                     Image(systemName: systemImage)
@@ -958,8 +1030,17 @@ struct DemoModuleButton: View {
                         .lineLimit(1)
                         .layoutPriority(1)
                 }
-                .padding(EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14))
-                .frame(height: 42, alignment: .leading)
+                // Symmetric padding rather than a 42 pt fixed height: a
+                // sidebar row is as tall as its label plus its insets, which
+                // lands near the ~28 pt macOS source-list row. The fixed
+                // height left the label sitting in the top half of a box with
+                // an empty lower half.
+                .padding(EdgeInsets(top: 7, leading: 12, bottom: 7, trailing: 12))
+                // Greedy *inside* the surface, not around it: the fill has to
+                // reach the thing that draws the background, or the button
+                // stays the width of its own label and just sits at the
+                // leading edge of a wider invisible box.
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .buttonStyle(.plain)
@@ -985,7 +1066,8 @@ struct DemoRowButton: View {
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 ),
-                stroke: theme.surfaceStroke
+                stroke: theme.surfaceStroke,
+                elevation: .control
             ) {
                 HStack(alignment: .center, spacing: 14) {
                     Color.clear
@@ -1004,7 +1086,8 @@ struct DemoRowButton: View {
                         cornerRadius: 16,
                         contentPadding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
                         colors: [accent.opacity(0.90), accent.opacity(0.62)],
-                        stroke: theme.surfaceStroke
+                        stroke: theme.surfaceStroke,
+                        elevation: .control
                     ) {
                         Image(systemName: systemImage)
                             .foregroundColor(theme.onTintedFillText)
@@ -1027,6 +1110,11 @@ struct DemoRowButton: View {
                     }
                     .layoutPriority(1)
                 }
+                // A row in a column is as wide as the column. The fill goes
+                // inside the surface, where the background is drawn: outside
+                // it, the row keeps the width of its own longest line and a
+                // stack of them fans out into a ragged list of chips.
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .buttonStyle(.plain)
@@ -1057,6 +1145,7 @@ struct DemoMetricCard: View {
                     .foregroundColor(accent)
                     .multilineTextAlignment(.leading)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -1076,6 +1165,7 @@ struct DemoInfoCard: View {
     private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
 
     let card: DemoCard
+    let module: DemoModule
 
     var body: some View {
         DemoGlassSurface(
@@ -1100,9 +1190,13 @@ struct DemoInfoCard: View {
 
                 Text(card.meta)
                     .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .foregroundColor(card.accent)
+                    .foregroundColor(theme.caption(module))
                     .multilineTextAlignment(.leading)
             }
+            // A column of cards is a column: every card takes the column's
+            // width rather than its own longest line, or the rail reads as a
+            // pile of differently sized boxes with a ragged right edge.
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -1147,19 +1241,25 @@ struct DemoTheme {
 
     private func pick(light: Color, dark: Color) -> Color { isDark ? dark : light }
 
+    /// The window background. A window has one, and the tab bar the shell
+    /// draws above the dashboard is part of the same window: a green-to-cream
+    /// diagonal under a neutral system band put a visible seam across the top
+    /// of the light window and made the page look like a different surface
+    /// pasted under the chrome. What is left is a window grey with barely
+    /// enough gradient to keep the demo's diagonal.
     var backdropTop: Color {
         pick(
-            light: Color(red: 0.91, green: 0.95, blue: 0.92, opacity: 1.0),
+            light: Color(red: 0.945, green: 0.949, blue: 0.957, opacity: 1.0),
             dark: Color(red: 0.098, green: 0.098, blue: 0.102, opacity: 1.0))
     }
     var backdropMiddle: Color {
         pick(
-            light: Color(red: 0.88, green: 0.92, blue: 0.97, opacity: 1.0),
+            light: Color(red: 0.925, green: 0.929, blue: 0.937, opacity: 1.0),
             dark: Color(red: 0.118, green: 0.118, blue: 0.125, opacity: 1.0))
     }
     var backdropBottom: Color {
         pick(
-            light: Color(red: 0.96, green: 0.95, blue: 0.91, opacity: 1.0),
+            light: Color(red: 0.949, green: 0.945, blue: 0.937, opacity: 1.0),
             dark: Color(red: 0.086, green: 0.086, blue: 0.090, opacity: 1.0))
     }
     var surfaceTop: Color {
@@ -1191,6 +1291,41 @@ struct DemoTheme {
         pick(
             light: Color(red: 0.89, green: 0.92, blue: 0.96, opacity: 0.84),
             dark: Color(red: 0.137, green: 0.137, blue: 0.145, opacity: 0.84))
+    }
+    /// The hero card's fill, per appearance. The card is the one surface the
+    /// demo tints with the selected module, and the tint has to be a *light*
+    /// tint in light mode: a fixed deep navy over a light backdrop is a dark
+    /// app pasted onto a light desktop, which is what this used to look like.
+    func heroTop(_ module: DemoModule) -> Color {
+        pick(light: module.heroTopLight, dark: module.panelStartColor)
+    }
+
+    func heroBottom(_ module: DemoModule) -> Color {
+        pick(light: module.heroBottomLight, dark: module.panelEndColor)
+    }
+
+    /// The accent used for a *caption* — a card's meta line, a metric's note —
+    /// as opposed to the accent used for a fill. Text has to swap direction
+    /// with the appearance: the deep accent that reads on a light card is a
+    /// smudge on a dark one, which is what the meta lines used to be.
+    func caption(_ module: DemoModule) -> Color {
+        pick(light: module.accentColor, dark: module.stripeColor)
+    }
+
+    /// The same rung for a caption that belongs to no module.
+    var neutralCaption: Color {
+        pick(
+            light: Color(red: 0.30, green: 0.42, blue: 0.60, opacity: 0.98),
+            dark: Color(red: 0.66, green: 0.75, blue: 0.90, opacity: 0.92))
+    }
+
+    /// The fill behind a plain chip on the hero card: a light scrim on the
+    /// dark card, a dark scrim on the pale one, the way a macOS badge sits on
+    /// whatever it is on.
+    var heroChipFill: Color {
+        pick(
+            light: Color(red: 0.0, green: 0.0, blue: 0.0, opacity: 0.08),
+            dark: Color(red: 1.0, green: 1.0, blue: 1.0, opacity: 0.14))
     }
     var surfaceStroke: Color {
         pick(
@@ -1228,7 +1363,11 @@ struct DemoLayout {
     }
     var contentInnerWidth: CGFloat { max(380, contentWidth - 8) }
     var railInnerWidth: CGFloat { max(220, railWidth - 8) }
-    var sidebarInnerWidth: CGFloat { max(180, sidebarWidth - 16) }
+    /// The width of a row inside the sidebar: the surface's own width, minus
+    /// the 1 pt stroke ring it draws around itself and the panel padding.
+    var sidebarRowWidth: CGFloat {
+        max(150, sidebarWidth - 2 - panelPadding.leading - panelPadding.trailing)
+    }
     var metricCardWidth: CGFloat {
         max(120, (contentInnerWidth - gap * 2) / 3)
     }
@@ -1256,9 +1395,17 @@ struct DemoLayout {
             : EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
     }
 
+    // The two decorative washes live on the backdrop, *behind* the columns.
+    // The only backdrop a filled window still shows is the outer margin and
+    // the gutters between columns, so a wash that straddles a gutter is seen
+    // as a bright vertical sliver with two hard edges — which reads as a
+    // clipping bug, not as decoration. Both are kept inside the centre
+    // column's horizontal span, where the only backdrop they can reach is the
+    // horizontal band between two stacked cards, and both are dim enough to be
+    // ambient light rather than a shape.
     var accentA: CGRect {
         CGRect(
-            x: outerPadding + size.width * 0.18,
+            x: outerPadding + sidebarWidth + columnGap + contentWidth * 0.06,
             y: outerPadding + toolbarHeight + gap + 18,
             width: compact ? 160 : 240,
             height: compact ? 84 : 126
@@ -1267,9 +1414,9 @@ struct DemoLayout {
 
     var accentB: CGRect {
         CGRect(
-            x: outerPadding + size.width * 0.70,
+            x: outerPadding + sidebarWidth + columnGap + contentWidth * 0.44,
             y: outerPadding + toolbarHeight + heroHeight + gap * 2,
-            width: compact ? 132 : 180,
+            width: min(compact ? 132 : 180, contentWidth * 0.5),
             height: compact ? 68 : 94
         )
     }
@@ -1278,7 +1425,6 @@ struct DemoCard {
     let title: String
     let summary: String
     let meta: String
-    let accent: Color
 }
 struct DemoAction {
     let title: String
@@ -1392,43 +1538,63 @@ enum DemoModule: CaseIterable, Hashable {
         }
     }
 
+    /// The light-appearance hero stops: the same four hues, washed out to a
+    /// card that carries dark text. `panelStartColor` and `panelEndColor` stay
+    /// the dark-appearance pair.
+    var heroTopLight: Color {
+        switch self {
+        case .layout: return Color(red: 0.97, green: 0.98, blue: 1.0, opacity: 0.97)
+        case .input: return Color(red: 0.96, green: 0.99, blue: 0.99, opacity: 0.97)
+        case .animation: return Color(red: 1.0, green: 0.98, blue: 0.96, opacity: 0.97)
+        case .controls: return Color(red: 0.99, green: 0.97, blue: 1.0, opacity: 0.97)
+        }
+    }
+
+    var heroBottomLight: Color {
+        switch self {
+        case .layout: return Color(red: 0.85, green: 0.90, blue: 0.98, opacity: 0.94)
+        case .input: return Color(red: 0.84, green: 0.94, blue: 0.93, opacity: 0.94)
+        case .animation: return Color(red: 0.99, green: 0.91, blue: 0.84, opacity: 0.94)
+        case .controls: return Color(red: 0.92, green: 0.87, blue: 0.98, opacity: 0.94)
+        }
+    }
+
     var cards: [DemoCard] {
         switch self {
         case .layout:
             return [
                 DemoCard(
                     title: "Stack layout", summary: "Panels stretch with priority and padding",
-                    meta: "Retention-first measurement", accent: accentColor),
+                    meta: "Retention-first measurement"),
                 DemoCard(
                     title: "Clipping", summary: "Scissor-ready rect clipping through the render frame",
-                    meta: "Backend-neutral commands", accent: accentColor),
+                    meta: "Backend-neutral commands"),
             ]
         case .input:
             return [
                 DemoCard(
                     title: "Focus chain", summary: "Tab moves through focusable retained nodes",
-                    meta: "Window delegate to runtime", accent: accentColor),
+                    meta: "Window delegate to runtime"),
                 DemoCard(
                     title: "Press states", summary: "Buttons drive focused, pressed, and activated colors",
-                    meta: "Main-actor control lifecycle", accent: accentColor),
+                    meta: "Main-actor control lifecycle"),
             ]
         case .animation:
             return [
                 DemoCard(
                     title: "Tick driver", summary: "Window animation frames advance color transitions",
-                    meta: "Only when active", accent: accentColor),
+                    meta: "Only when active"),
                 DemoCard(
                     title: "Frame cache", summary: "Unchanged UI reuses the last render frame until invalidated",
-                    meta: "Retention redraws", accent: accentColor),
+                    meta: "Retention redraws"),
             ]
         case .controls:
             return [
                 DemoCard(
                     title: "Toggle and slider", summary: "Interactive binding-driven controls",
-                    meta: "Hit-test and focus", accent: accentColor),
+                    meta: "Hit-test and focus"),
                 DemoCard(
-                    title: "Text input", summary: "TextField and TextEditor with state", meta: "Keyboard routing",
-                    accent: accentColor),
+                    title: "Text input", summary: "TextField and TextEditor with state", meta: "Keyboard routing"),
             ]
         }
     }
@@ -1682,37 +1848,41 @@ struct DemoComponentRow: View {
     let component: DemoComponent
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        // One line, not two. A stacked version-over-status trailing block gave
+        // every row two text baselines and a 42 pt box; macOS list rows are a
+        // single line of about 24 pt, and the two values read perfectly well
+        // side by side because they are short and always in the same order.
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
             Label(component.name, systemImage: component.systemImage)
+                .lineLimit(1)
 
             Spacer(minLength: 8)
 
-            VStack(alignment: .trailing, spacing: 2) {
-                // `.secondary` rather than a fixed grey: a row inside a
-                // selection-bound List is drawn over the accent fill when
-                // selected, and the semantic colour is the one that
-                // brightens against a prominent background.
-                Text(component.version)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+            // `.secondary` rather than a fixed grey: a row inside a
+            // selection-bound List is drawn over the accent fill when
+            // selected, and the semantic colour is the one that brightens
+            // against a prominent background.
+            Text(component.version)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
 
-                // macOS reserves colour for the state that needs attention:
-                // Activity Monitor and System Settings leave the nominal row
-                // in secondary text and paint only the exceptional one, which
-                // is what makes the exceptional one visible at all.
-                //
-                // It is also the only version of this that survives selection.
-                // SwiftUI passes an app-authored colour straight through onto
-                // the selection fill — correct, and matched here — but the
-                // hand-mixed green it used to carry measured 1.2:1 on system
-                // blue. `.secondary` is a semantic rung, so it inverts to
-                // white with the rest of the selected row.
-                Text(component.statusLabel)
-                    .font(.footnote)
-                    .foregroundColor(component.isHealthy ? .secondary : .orange)
-                    .lineLimit(1)
-            }
+            // macOS reserves colour for the state that needs attention:
+            // Activity Monitor and System Settings leave the nominal row in
+            // secondary text and paint only the exceptional one, which is what
+            // makes the exceptional one visible at all.
+            //
+            // It is also the only version of this that survives selection.
+            // SwiftUI passes an app-authored colour straight through onto the
+            // selection fill — correct, and matched here — but the hand-mixed
+            // green it used to carry measured 1.2:1 on system blue.
+            // `.secondary` is a semantic rung, so it inverts to white with the
+            // rest of the selected row.
+            Text(component.statusLabel)
+                .font(.footnote)
+                .foregroundColor(component.isHealthy ? .secondary : .orange)
+                .lineLimit(1)
+                .frame(width: 72, alignment: .trailing)
         }
     }
 }

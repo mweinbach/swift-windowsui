@@ -73,10 +73,29 @@ final class RotationClosureTests: XCTestCase {
 
         let shadow = try XCTUnwrap(paint(node).layers[0].shadows.first)
         XCTAssertEqual(shadow.rotationRadians, 0)
-        // Byte-identical with the historic emission: frame outset by the
-        // spread and moved by the offset.
-        XCTAssertEqual(Double(shadow.x), 40 - 6 + 3, accuracy: 1e-9)
-        XCTAssertEqual(Double(shadow.y), 60 - 6 + 5, accuracy: 1e-9)
+        // The rect the backends fill — `(x + offset, y + offset)` — is the
+        // frame outset by the spread and moved by the offset. The offset rides
+        // in the primitive's own field rather than being folded into the
+        // origin; folding it in *and* filling in the field moved it twice.
+        XCTAssertEqual(Double(shadow.x + shadow.offsetX), 40 - 6 + 3, accuracy: 1e-9)
+        XCTAssertEqual(Double(shadow.y + shadow.offsetY), 60 - 6 + 5, accuracy: 1e-9)
+    }
+
+    /// The offset is authored in the shadowed view's own space, so a card
+    /// turned a quarter turn casts to its side, not down-screen.
+    func testARotatedNodeShadowOffsetTurnsWithTheNode() async throws {
+        let node = ViewNode(
+            frame: Rect(x: 40, y: 60, width: 80, height: 40),
+            backgroundColor: .white,
+            shadowColor: Color(red: 0, green: 0, blue: 0, alpha: 0.5),
+            shadowOffset: Point(x: 0, y: 10),
+            shadowSpread: 0,
+            transform: Transform2D(rotation: .pi / 2)
+        )
+
+        let shadow = try XCTUnwrap(paint(node).layers[0].shadows.first)
+        XCTAssertEqual(Double(shadow.offsetX), -10, accuracy: 1e-6, "down in the card's space is left on screen")
+        XCTAssertEqual(Double(shadow.offsetY), 0, accuracy: 1e-6)
     }
 
     /// The picture, not just the number: a 45° shadow's ink has to reach the

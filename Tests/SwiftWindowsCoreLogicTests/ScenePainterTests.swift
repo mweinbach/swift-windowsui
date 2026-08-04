@@ -59,6 +59,58 @@ struct ScenePainterTests {
         #expect(shadow.offsetY == 4)
     }
 
+    /// A node whose halo is offset far enough to be told apart from the node.
+    private func offsetShadowNode() -> ViewNode {
+        ViewNode(
+            frame: Rect(x: 40, y: 60, width: 80, height: 40),
+            backgroundColor: Color(red: 0, green: 0, blue: 1, alpha: 1),
+            shadowColor: Color(red: 0, green: 0, blue: 0, alpha: 0.5),
+            shadowOffset: Point(x: 2, y: 14),
+            shadowSpread: 3
+        )
+    }
+
+    /// P-DEMO. Both backends draw a shadow at `(x + offsetX, y + offsetY)`;
+    /// the painter used to *also* pre-offset the origin, so every halo landed
+    /// at twice the authored offset. On the demo's hero card that put the
+    /// `Open Layout` pill's slab on top of the `Cycle mode` pill below it,
+    /// where it read as a detached slab rather than as either pill's shadow.
+    @Test("A shadow's offset is applied once, not twice")
+    func shadowOffsetIsAppliedOnce() throws {
+        let scene = ScenePainter.paint(
+            root: offsetShadowNode(), clearColor: .black, surfaceSize: surfaceSize)
+        let shadow = try #require(scene.layers[0].shadows.first)
+
+        // The rect the backends actually fill: frame outset by the spread and
+        // moved by the offset exactly once.
+        #expect(shadow.x + shadow.offsetX == Float(40 - 3 + 2))
+        #expect(shadow.y + shadow.offsetY == Float(60 - 3 + 14))
+        #expect(shadow.width == Float(80 + 6))
+        #expect(shadow.height == Float(40 + 6))
+    }
+
+    /// The frame path offsets a shadow once, into the command's rect. The
+    /// scene path has to agree with it: the same tree cannot cast its halo in
+    /// two different places depending on which path the host took.
+    @Test("Scene and frame paths put a shadow in the same place")
+    func shadowAgreesWithFramePath() throws {
+        let scene = ScenePainter.paint(
+            root: offsetShadowNode(), clearColor: .black, surfaceSize: surfaceSize)
+        let shadow = try #require(scene.layers[0].shadows.first)
+
+        let frame = RetainedViewRuntime(root: offsetShadowNode()).renderFrame()
+        let frameShadow = try #require(
+            frame.commands.compactMap { command -> FillRectCommand? in
+                if case .fillRect(let fill) = command, fill.color.alpha == 0.5 { return fill }
+                return nil
+            }.first)
+
+        #expect(Double(shadow.x + shadow.offsetX) == frameShadow.rect.origin.x)
+        #expect(Double(shadow.y + shadow.offsetY) == frameShadow.rect.origin.y)
+        #expect(Double(shadow.width) == frameShadow.rect.size.width)
+        #expect(Double(shadow.height) == frameShadow.rect.size.height)
+    }
+
     @Test("Parent clip becomes the shadow content mask")
     func clippedParentMasksChildShadow() {
         let parent = ViewNode(

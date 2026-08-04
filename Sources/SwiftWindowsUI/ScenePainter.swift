@@ -731,12 +731,21 @@ public enum ScenePainter {
                     // diamond, with the corners glowing where the card has
                     // none. `placement.rotation` rides along on the primitive
                     // so both backends turn the soft envelope with it.
-                    let quadShadowRect =
-                        quadFrame
-                        .outset(by: max(0, node.shadowSpread))
-                        .offsetBy(dx: node.shadowOffset.x, dy: node.shadowOffset.y)
+                    //
+                    // The rect emitted here is the *unoffset* halo. Both
+                    // backends draw a shadow at `(x + offsetX, y + offsetY)`
+                    // — the rasterizer in `drawShadow`, the shader in
+                    // `ShadowPipeline` — so pre-offsetting the origin *and*
+                    // filling in the offset field moved every halo twice: a
+                    // `.shadow(y: 14)` pill cast its slab 28 pt down, detached
+                    // from the control, and disagreed with the frame path,
+                    // which offsets once. The offset is turned with the node
+                    // (it is authored in the shadowed view's own space) and
+                    // handed to the primitive whole.
+                    let quadShadowRect = quadFrame.outset(by: max(0, node.shadowSpread))
                     let scaledShadowRect = placement.placingDevice(
                         scaleRect(quadShadowRect, by: displayScale), displayScale: displayScale)
+                    let placedShadowOffset = placement.turning(node.shadowOffset)
                     let shadowClip = clipRectFloats(inheritedClip, surfaceSize: surfaceSize, displayScale: displayScale)
                     scene.addShadow(
                         ShadowPrimitive(
@@ -752,8 +761,8 @@ public enum ScenePainter {
                             colorB: effectiveShadowColor.blue,
                             colorA: effectiveShadowColor.alpha,
                             blurRadius: Float(node.shadowSpread * displayScale),
-                            offsetX: Float(node.shadowOffset.x * displayScale),
-                            offsetY: Float(node.shadowOffset.y * displayScale),
+                            offsetX: Float(placedShadowOffset.x * displayScale),
+                            offsetY: Float(placedShadowOffset.y * displayScale),
                             clipX: shadowClip.0,
                             clipY: shadowClip.1,
                             clipWidth: shadowClip.2,

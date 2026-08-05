@@ -115,7 +115,12 @@ final class ControlInteractionContinuityTests: XCTestCase {
     /// frame and held it for all forty sampled frames while `isHovered` was
     /// still true and the pointer had not moved a pixel.
     func testAButtonWhoseActionChangesStateStaysHoveredAfterTheRebuild() async {
-        let (runtime, _, counter) = makeCountingButtonHost()
+        // The host has to be held: `invalidateHandler` captures it weakly, so
+        // binding it to `_` here left the action running and *no rebuild
+        // happening at all* — the test drove the click but never reached the
+        // reconcile it is about.
+        let (runtime, host, counter) = makeCountingButtonHost()
+        defer { withExtendedLifetime(host) {} }
         guard let button = button(in: runtime) else { return XCTFail("no button in tree") }
         let centre = Point(x: absoluteFrame(of: button).midX, y: absoluteFrame(of: button).midY)
 
@@ -127,7 +132,10 @@ final class ControlInteractionContinuityTests: XCTestCase {
         runtime.pointerDown(at: centre)
         advance(runtime, &clock, by: 0.3)
         runtime.pointerUp(at: centre)
-        XCTAssertEqual(counter(), 1, "the action ran, so the tree was rebuilt")
+        XCTAssertEqual(counter(), 1, "the action ran")
+        XCTAssertNotNil(
+            findNode(runtime.root, where: { $0.text == "Bump 1" }),
+            "and the tree was actually rebuilt from it — the label carries the new state")
 
         // Frame by frame at 60 Hz: no frame may show the idle fill.
         for frame in 0..<40 {

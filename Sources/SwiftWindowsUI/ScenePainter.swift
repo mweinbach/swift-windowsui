@@ -507,8 +507,19 @@ public enum ScenePainter {
             // rotation is what the quad families carry. The two are the same
             // rect for any node that is not rotated.
             let placement = PaintPlacement.lowering(nodeLocalFrame, through: effectiveTransform)
-            let paintFrame = placement.boundingBox
-            let quadFrame = placement.frame
+            // L7-FONTS. A hairline rule is pinned to the device pixel grid
+            // before anything else reads its frame — see
+            // `devicePixelSnappedRule` for why a rule that is not pinned
+            // renders at half weight at 125% and 150%.
+            let pinsRule = snapsRuleToDevicePixels(node, placement: placement)
+            let paintFrame =
+                pinsRule
+                ? devicePixelSnappedRule(placement.boundingBox, displayScale: displayScale)
+                : placement.boundingBox
+            let quadFrame =
+                pinsRule
+                ? devicePixelSnappedRule(placement.frame, displayScale: displayScale)
+                : placement.frame
 
             // A degenerate frame paints none of the node's own decoration, but
             // it is not a reason to drop the subtree: macOS SwiftUI does not
@@ -3460,6 +3471,73 @@ public enum ScenePainter {
                         colorEffects: colorEffects
                     ), displayScale: displayScale), toLayer: layerIndex)
         }
+    }
+
+    /// Whether `node`'s own decoration is pinned to the device pixel grid.
+    ///
+    /// Only nodes the runtime has marked as separator rules, and only when
+    /// they are axis-aligned leaves. A rotated or scaled rule has no device
+    /// axis to pin to, and a rule with children would drag its own paint off
+    /// the frame its children are placed against.
+    static func snapsRuleToDevicePixels(_ node: ViewNode, placement: PaintPlacement) -> Bool {
+        node.isSeparatorRule && node.children.isEmpty && !placement.isRotated && !placement.isScaled
+    }
+
+    /// Pins a hairline rule to whole device pixels along its thin axis.
+    ///
+    /// ## Why a rule needs this
+    ///
+    /// Both backends rasterize a quad with the same rule: the pixel shader
+    /// runs only where a pixel *centre* falls inside the rect, and the
+    /// signed-distance term inside it can attenuate that coverage but never
+    /// extend it (the D3D11 vertex stage emits the rect itself, with no
+    /// antialiasing margin, and `GPUIQuadCoverage.geometryCovers` mirrors
+    /// that exactly). So a rect one device pixel thick sitting on a half
+    /// pixel — device y `12.5 ..< 13.5` — contains exactly one pixel centre,
+    /// at distance 0 from its edge, and draws at coverage `0.5`. Half the
+    /// rule's ink is not redistributed to the neighbouring row; it is simply
+    /// gone, and the separator renders at half its intended weight.
+    ///
+    /// At 100% and 200% that almost never happens, because a layout in whole
+    /// points lands on whole device pixels. At 125%, 150% and 175% it is the
+    /// common case: 10pt × 1.25 is 12.5. That is the whole reason hairline
+    /// weight looked inconsistent between integer and fractional scales.
+    ///
+    /// ## The policy
+    ///
+    /// The thin axis is snapped so the rule spans whole device pixels:
+    /// the extent rounds to the nearest whole pixel with a floor of one (a
+    /// rule never vanishes), and the origin is placed so the snapped span
+    /// keeps the rule's centre — it moves by at most half a device pixel from
+    /// where layout put it, and never changes which side of anything it is
+    /// on. The long axis is left exactly as laid out: its ends are covered by
+    /// whatever it runs between, and rounding them would shorten a rule that
+    /// is supposed to reach the edge.
+    ///
+    /// This is a *paint*-time pin. The node's layout frame is untouched, so
+    /// no sibling moves and no container re-measures.
+    static func devicePixelSnappedRule(_ rect: Rect, displayScale: Double) -> Rect {
+        guard displayScale.isFinite, displayScale > 0,
+            rect.size.width.isFinite, rect.size.height.isFinite,
+            rect.origin.x.isFinite, rect.origin.y.isFinite
+        else {
+            return rect
+        }
+
+        func snap(origin: Double, extent: Double) -> (origin: Double, extent: Double) {
+            let deviceOrigin = origin * displayScale
+            let deviceExtent = extent * displayScale
+            let snappedExtent = max(1, deviceExtent.rounded())
+            let snappedOrigin = (deviceOrigin + deviceExtent * 0.5 - snappedExtent * 0.5).rounded()
+            return (snappedOrigin / displayScale, snappedExtent / displayScale)
+        }
+
+        if rect.size.height <= rect.size.width {
+            let (y, height) = snap(origin: rect.origin.y, extent: rect.size.height)
+            return Rect(x: rect.origin.x, y: y, width: rect.size.width, height: height)
+        }
+        let (x, width) = snap(origin: rect.origin.x, extent: rect.size.width)
+        return Rect(x: x, y: rect.origin.y, width: width, height: rect.size.height)
     }
 
     private static func scaleRect(_ rect: Rect, by factor: Double) -> Rect {

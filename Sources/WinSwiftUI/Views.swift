@@ -4216,17 +4216,21 @@ private func navigationContainerComponent(
         // a bordered card floating over the content.
         let bandNode: ViewNode
         if let separatorColor = chrome.headerSeparatorColor {
+            // `isSeparatorRule` is not decoration: it is how a container
+            // knows a child is already a rule, and how the painter knows to
+            // pin it to the device pixel grid. This one used to be a hairline
+            // by thickness and colour only, so at 125% it drew at half the
+            // weight of every other rule in the window.
+            let bandRule = Controls.panel(
+                preferredSize: Size(width: 0, height: retainedHairlineThickness(for: context)),
+                backgroundColor: separatorColor,
+                isHitTestVisible: false
+            )
+            bandRule.isSeparatorRule = true
             bandNode = Controls.stackPanel(
                 stackLayout: .vertical(spacing: 0, alignment: .stretch),
                 isHitTestVisible: false,
-                children: [
-                    headerNode,
-                    Controls.panel(
-                        preferredSize: Size(width: 0, height: retainedHairlineThickness(for: context)),
-                        backgroundColor: separatorColor,
-                        isHitTestVisible: false
-                    ),
-                ]
+                children: [headerNode, bandRule]
             )
         } else {
             bandNode = headerNode

@@ -30,6 +30,138 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
     public var backendDisplayName: String { "D3D11 BATCH" }
 
+    /// What this backend is actually running on, plus its cumulative atlas
+    /// upload cost. The adapter half is resolved once per device and cached
+    /// against `deviceGeneration`, so a caller may read this every frame.
+    public var backendDiagnostics: BatchBackendDiagnostics? {
+        let adapter = resolvedAdapterDiagnostics()
+        return BatchBackendDiagnostics(
+            adapterDescription: adapter?.description,
+            adapterIsSoftware: adapter?.isSoftware,
+            adapterDedicatedVideoMemoryBytes: adapter?.dedicatedVRAM,
+            featureLevel: createdFeatureLevel.map(Self.featureLevelDisplayName(_:)),
+            atlasFullUploadCount: atlasFullUploadsForTesting,
+            atlasRegionUploadCount: atlasRegionUploadsForTesting,
+            atlasSkippedUploadCount: atlasSkippedUploadsForTesting,
+            atlasUploadedByteCount: atlasUploadedByteCount,
+            lastSubmitSeconds: lastSubmitSeconds,
+            lastPresentSeconds: lastPresentSeconds
+        )
+    }
+
+    @discardableResult
+    public func setPresentsWithVSync(_ enabled: Bool) -> Bool {
+        presentsWithVSync = enabled
+        return true
+    }
+
+    /// QPC seconds. Only called around the two phases of `render(scene:)`, so
+    /// the cost is two counter reads per frame.
+    private static func nowSeconds() -> Double {
+        var counter = LARGE_INTEGER()
+        var frequency = LARGE_INTEGER()
+        QueryPerformanceCounter(&counter)
+        QueryPerformanceFrequency(&frequency)
+        guard frequency.QuadPart != 0 else {
+            return 0
+        }
+        return Double(counter.QuadPart) / Double(frequency.QuadPart)
+    }
+
+    private static func featureLevelDisplayName(_ level: D3D_FEATURE_LEVEL) -> String {
+        switch level {
+        case D3D_FEATURE_LEVEL_12_1: return "12_1"
+        case D3D_FEATURE_LEVEL_12_0: return "12_0"
+        case D3D_FEATURE_LEVEL_11_1: return "11_1"
+        case D3D_FEATURE_LEVEL_11_0: return "11_0"
+        case D3D_FEATURE_LEVEL_10_1: return "10_1"
+        case D3D_FEATURE_LEVEL_10_0: return "10_0"
+        default: return "0x\(String(UInt32(level.rawValue), radix: 16))"
+        }
+    }
+
+    /// Walks device → `IDXGIDevice` → adapter → `GetDesc1`.
+    ///
+    /// Deliberately not `IDXGIFactory.EnumAdapters(0)`: on a hybrid laptop
+    /// adapter 0 is routinely the integrated part while the device was created
+    /// on the discrete one, and reporting the wrong adapter is worse than
+    /// reporting none. Asking the device which adapter it is on cannot be
+    /// wrong.
+    private func resolvedAdapterDiagnostics() -> (description: String, isSoftware: Bool, dedicatedVRAM: UInt64)? {
+        if let cachedAdapterDiagnostics, cachedAdapterDiagnosticsGeneration == deviceGeneration {
+            return cachedAdapterDiagnostics
+        }
+
+        guard let device, deviceGeneration != 0 else {
+            return nil
+        }
+
+        var dxgiDeviceRaw: UnsafeMutableRawPointer?
+        var dxgiDeviceIID = dxgiDeviceInterfaceID
+        let unknownDevice = UnsafeMutableRawPointer(device).assumingMemoryBound(to: IUnknown.self)
+        let queryHR = unknownDevice.pointee.lpVtbl.pointee.QueryInterface(
+            unknownDevice, &dxgiDeviceIID, &dxgiDeviceRaw)
+        guard queryHR >= 0, let dxgiDevice = dxgiDeviceRaw?.assumingMemoryBound(to: IDXGIDevice.self) else {
+            return nil
+        }
+        defer {
+            var releasable: UnsafeMutablePointer<IDXGIDevice>? = dxgiDevice
+            releaseCOM(&releasable)
+        }
+
+        var adapterPointer: UnsafeMutablePointer<IDXGIAdapter>?
+        let adapterHR = dxgiDevice.pointee.lpVtbl.pointee.GetAdapter(dxgiDevice, &adapterPointer)
+        guard adapterHR >= 0, let adapter = adapterPointer else {
+            return nil
+        }
+        defer {
+            var releasable: UnsafeMutablePointer<IDXGIAdapter>? = adapter
+            releaseCOM(&releasable)
+        }
+
+        // `IDXGIAdapter1.GetDesc1` carries the software flag; `IDXGIAdapter`
+        // alone does not, and that flag is the whole point of this query.
+        var adapter1Raw: UnsafeMutableRawPointer?
+        var adapter1IID = dxgiAdapter1InterfaceID
+        let unknownAdapter = UnsafeMutableRawPointer(adapter).assumingMemoryBound(to: IUnknown.self)
+        let adapter1HR = unknownAdapter.pointee.lpVtbl.pointee.QueryInterface(
+            unknownAdapter, &adapter1IID, &adapter1Raw)
+        guard adapter1HR >= 0, let adapter1 = adapter1Raw?.assumingMemoryBound(to: IDXGIAdapter1.self) else {
+            return nil
+        }
+        defer {
+            var releasable: UnsafeMutablePointer<IDXGIAdapter1>? = adapter1
+            releaseCOM(&releasable)
+        }
+
+        var descriptor = DXGI_ADAPTER_DESC1()
+        let descHR = adapter1.pointee.lpVtbl.pointee.GetDesc1(adapter1, &descriptor)
+        guard descHR >= 0 else {
+            return nil
+        }
+
+        let description = withUnsafeBytes(of: descriptor.Description) { raw -> String in
+            let units = raw.bindMemory(to: UInt16.self)
+            var scalars = String.UnicodeScalarView()
+            for unit in units {
+                guard unit != 0 else { break }
+                guard let scalar = Unicode.Scalar(UInt32(unit)) else { continue }
+                scalars.append(scalar)
+            }
+            return String(String.UnicodeScalarView(scalars))
+        }
+
+        let isSoftware = (descriptor.Flags & UINT(DXGI_ADAPTER_FLAG_SOFTWARE.rawValue)) != 0
+        let resolved = (
+            description: description,
+            isSoftware: isSoftware,
+            dedicatedVRAM: UInt64(descriptor.DedicatedVideoMemory)
+        )
+        cachedAdapterDiagnostics = resolved
+        cachedAdapterDiagnosticsGeneration = deviceGeneration
+        return resolved
+    }
+
     // MARK: - D3D11 Core State
 
     private var device: UnsafeMutablePointer<ID3D11Device>?
@@ -159,6 +291,23 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     internal private(set) var atlasFullUploadsForTesting: UInt64 = 0
     internal private(set) var atlasRegionUploadsForTesting: UInt64 = 0
     internal private(set) var atlasSkippedUploadsForTesting: UInt64 = 0
+    /// Bytes handed to the driver for atlas uploads. Counts alongside the
+    /// branch counters above because the branches do not imply the cost: a
+    /// region upload of 1900 rows and a full upload differ by a rounding
+    /// error, and the branch counter reports them as different kinds of frame.
+    internal private(set) var atlasUploadedByteCount: UInt64 = 0
+    /// Submit-vs-present split of the most recent `render(scene:)`.
+    private var lastSubmitSeconds: Double = 0
+    private var lastPresentSeconds: Double = 0
+    /// Presents are vblank-paced by default; a diagnostics run turns this off
+    /// to measure the app's own frame cost without the compositor's wait.
+    private var presentsWithVSync = true
+    /// Feature level `createDeviceIfNeeded` settled on, and the adapter the
+    /// device landed on. Queried once per device, not per frame: `GetDesc1`
+    /// is a driver round-trip.
+    private var createdFeatureLevel: D3D_FEATURE_LEVEL?
+    private var cachedAdapterDiagnostics: (description: String, isSoftware: Bool, dedicatedVRAM: UInt64)?
+    private var cachedAdapterDiagnosticsGeneration: UInt64?
 
     /// The GPU side of one image, keyed by content rather than by texture
     /// ID. Texture IDs are positional within a frame's registration order,
@@ -1057,6 +1206,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             return
         }
 
+        let submitStartedAt = Self.nowSeconds()
+
         var finishedScene = scene
         finishedScene.finish()
         let renderPlan = try Self.makeRenderPlan(for: finishedScene, cachedResources: cachedResourcesForTesting)
@@ -1157,7 +1308,10 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             }
         }
 
+        let presentStartedAt = Self.nowSeconds()
+        lastSubmitSeconds = presentStartedAt - submitStartedAt
         try presentFrame()
+        lastPresentSeconds = Self.nowSeconds() - presentStartedAt
     }
 
     /// Binds every piece of pipeline state the batched draws assume: the
@@ -1226,7 +1380,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             guard let swapChain else {
                 return
             }
-            let hr = swapChain.pointee.lpVtbl.pointee.Present(swapChain, 1, 0)
+            let hr = swapChain.pointee.lpVtbl.pointee.Present(swapChain, presentsWithVSync ? 1 : 0, 0)
             try handlePresentResult(hr)
         case .offscreen:
             deviceContext?.pointee.lpVtbl.pointee.Flush(deviceContext)
@@ -1607,6 +1761,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                     releaseCOM(&deviceContext)
                     device = createdDevice
                     deviceContext = createdContext
+                    createdFeatureLevel = featureLevel
                     deviceGeneration = Self.nextDeviceGeneration
                     Self.nextDeviceGeneration &+= 1
                     return
@@ -2218,6 +2373,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                     0
                 )
                 atlasRegionUploadsForTesting &+= 1
+                // Rows are uploaded whole (`rowPitch` per row), so the cost is
+                // the region's height times the atlas stride, not its area.
+                atlasUploadedByteCount &+= UInt64(region.height) &* UInt64(rowPitch)
             } else {
                 deviceContext.pointee.lpVtbl.pointee.UpdateSubresource(
                     deviceContext,
@@ -2229,6 +2387,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                     0
                 )
                 atlasFullUploadsForTesting &+= 1
+                atlasUploadedByteCount &+= UInt64(snapshot.height) &* UInt64(rowPitch)
             }
         }
 
@@ -2932,6 +3091,21 @@ public struct BatchRendererError: Error, ClassifiedPresentationFailure, CustomSt
         return "\(prefix) \(details)"
     }
 }
+// DXGI IIDs the Swift WinSDK overlay does not surface as constants, declared
+// the same way `D3D11Renderer` declares `IID_IDXGIFactory5_local`.
+private let dxgiDeviceInterfaceID = IID(
+    Data1: 0x54ec_77fa,
+    Data2: 0x1377,
+    Data3: 0x44e6,
+    Data4: (0x8c, 0x32, 0x88, 0xfd, 0x5f, 0x44, 0xc8, 0x4c)
+)
+private let dxgiAdapter1InterfaceID = IID(
+    Data1: 0x2903_8f61,
+    Data2: 0x3839,
+    Data3: 0x4626,
+    Data4: (0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05)
+)
+
 private let batchHresultHandle: HRESULT = HRESULT(bitPattern: 0x8007_0006)
 private let batchHresultInvalidArgument: HRESULT = HRESULT(bitPattern: 0x8007_0057)
 private let batchHresultOutOfMemory: HRESULT = HRESULT(bitPattern: 0x8007_000E)

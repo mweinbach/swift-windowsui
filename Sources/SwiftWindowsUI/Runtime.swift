@@ -7859,6 +7859,20 @@ public final class RetainedViewRuntime {
     internal var currentPrepaintState: RuntimePrepaintState { prepaintState }
     internal private(set) var lastFrameReplayCount = 0
     internal private(set) var lastSceneReplayCount = 0
+    /// How many `renderScene` calls actually repainted the tree, and how many
+    /// returned the retained copy untouched.
+    ///
+    /// The replay counters above are per-node and per-pass; these two are the
+    /// per-frame question a live measurement has to answer — whether the
+    /// window's steady state is "repaint everything at refresh rate" or
+    /// "hand back the cached scene". Nothing outside this module could tell
+    /// those apart, so the replay machinery's effect on a running window was
+    /// unfalsifiable from the host that drives it.
+    public private(set) var sceneRebuildCount: UInt64 = 0
+    public private(set) var sceneCacheHitCount: UInt64 = 0
+    /// Nodes the most recent scene repaint replayed from the previous scene
+    /// instead of repainting. Meaningful only for a frame that rebuilt.
+    public var lastSceneNodeReplayCount: Int { lastSceneReplayCount }
     /// Public read-only paint metrics for the most recently rendered scene.
     /// Captures GPU-vs-CPU path routing decisions so callers can observe
     /// the GPU promotion rate (see `ScenePaintMetrics.gpuPromotionRate`).
@@ -8354,6 +8368,7 @@ public final class RetainedViewRuntime {
         }
 
         if let cachedScene, !isDirty {
+            sceneCacheHitCount &+= 1
             lastSceneReplayCount = 0
             lastLayoutReuseCount = 0
             lastMeasureReuseCount = 0
@@ -8367,6 +8382,7 @@ public final class RetainedViewRuntime {
         if let interval = minimumFrameInterval, timestamp > 0, lastRenderTime > 0 {
             let elapsed = timestamp - lastRenderTime
             if elapsed < interval, let cachedScene {
+                sceneCacheHitCount &+= 1
                 lastSceneReplayCount = 0
                 lastLayoutReuseCount = 0
                 lastMeasureReuseCount = 0
@@ -8408,6 +8424,7 @@ public final class RetainedViewRuntime {
         var cachedSceneCopy = scene
         cachedSceneCopy.glyphAtlas = nil
         cachedSceneCopy.pixelGlyphAtlas = nil
+        sceneRebuildCount &+= 1
         lastSceneReplayCount = replayCount
         lastDeferredDrawSceneReplayCount = deferredDrawReplayCount
         lastDeferredDrawFrameReplayCount = 0

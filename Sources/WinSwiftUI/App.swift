@@ -67,7 +67,12 @@ extension App {
             let coordinator = WinSwiftUIWindowCoordinator(
                 sceneConfigurations: [app.body.makeWindowConfiguration()],
                 renderBackendFactory: resolved.factory,
-                backendResolution: resolved.resolution
+                backendResolution: resolved.resolution,
+                // `--diagnostics`: open the real window, drive it, measure it,
+                // write the report and close. Wired at the composition root
+                // rather than behind a build flag, because the session worth
+                // measuring is the one the product actually ships.
+                liveDiagnostics: LiveDiagnosticsConfiguration.fromCommandLine()
             )
             _ = try coordinator.run()
         } catch {
@@ -1835,6 +1840,64 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// Used by host tests to prove the real WinSwiftUIWindowHost routed converted input.
     var onInputEventRouted: ((WindowHostInputEvent) -> Void)?
 
+    /// Invoked after every frame this host actually presents, with what that
+    /// frame cost and what produced it. This is the seam the live diagnostics
+    /// run measures through: frame timing is a property of the running window,
+    /// and no offscreen snapshot can stand in for it.
+    var onFramePresented: ((LiveFrameSample) -> Void)?
+
+    /// The runtime this host drives. Exposed so a diagnostics run can read
+    /// scene counters that only exist while a window is live.
+    var hostedRuntime: RetainedViewRuntime {
+        runtime
+    }
+
+    /// What the active batch backend reports about its device, or `nil` when
+    /// the frame backend is presenting.
+    var activeBatchBackendDiagnostics: BatchBackendDiagnostics? {
+        guard activeBackend == .scene else { return nil }
+        return batchRenderer?.backendDiagnostics
+    }
+
+    /// Asks the active batch backend to stop pacing presents to vblank.
+    /// Returns whether it honoured the request.
+    @discardableResult
+    func setActiveBatchBackendVSync(_ enabled: Bool) -> Bool {
+        guard activeBackend == .scene, let batchRenderer else { return false }
+        return batchRenderer.setPresentsWithVSync(enabled)
+    }
+
+    // MARK: - Diagnostics input injection
+    //
+    // A live diagnostics run drives these instead of synthesizing Win32
+    // messages. They enter at exactly the point the wndproc enters — the
+    // `WindowDelegate` methods below — but take logical points directly,
+    // because a scripted step reasons in the runtime's coordinate space and
+    // converting to physical only to convert straight back would measure the
+    // conversion twice and hide a scale bug in the process.
+
+    /// Asks for one frame, so a session has a loop to observe even when the
+    /// window is idle and the animation timer is correctly stopped.
+    func requestDiagnosticsFrame() {
+        requestFrame(in: window)
+    }
+
+    func injectDiagnosticsPointerMove(to logicalPoint: Point) {
+        runtime.pointerMoved(to: logicalPoint)
+        commitRuntimeState(in: window, interactive: true)
+    }
+
+    func injectDiagnosticsScroll(at logicalPoint: Point, delta: Double) {
+        runtime.mouseWheel(at: logicalPoint, delta: delta, source: .wheelNotch)
+        commitRuntimeState(in: window, interactive: true)
+    }
+
+    func injectDiagnosticsClick(at logicalPoint: Point) {
+        runtime.pointerDown(at: logicalPoint)
+        runtime.pointerUp(at: logicalPoint)
+        commitRuntimeState(in: window, interactive: true)
+    }
+
     /// Per-window environment installed by the window coordinator. Nil for
     /// hosts created outside a coordinator (tests, single-window boots).
     var windowEnvironment: WindowSceneEnvironment?
@@ -2672,10 +2735,26 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         // One monotonic clock for every entry point, `WM_PAINT` included.
         let frameTimestamp = timestamp ?? frameClock()
 
+        // Only paid for when a diagnostics run is listening: `frameClock()` is
+        // a QPC round-trip, and this is the frame loop.
+        let isSamplingFrames = onFramePresented != nil
+        let frameStartedAt = isSamplingFrames ? frameClock() : 0
+        let rebuildsBefore = runtime.sceneRebuildCount
+        var sceneBuildEndedAt = frameStartedAt
+        var bindEndedAt = frameStartedAt
+        var primitiveCount = 0
+
         do {
             if activeBackend == .scene, let batchRenderer {
                 let scene = sceneRenderer(runtime, frameTimestamp)
+                if isSamplingFrames {
+                    sceneBuildEndedAt = frameClock()
+                    primitiveCount = scene.layers.reduce(0) { $0 + $1.paintOperations.count }
+                }
                 batchRenderer.bindResources(for: scene)
+                if isSamplingFrames {
+                    bindEndedAt = frameClock()
+                }
                 try batchRenderer.render(scene: scene)
                 noteSuccessfulSceneFrame()
             } else {
@@ -2724,10 +2803,37 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         // user interaction. Set through `pendingPresentation` — not
         // `window.invalidate()` — because this runs inside `WM_PAINT`'s
         // BeginPaint/EndPaint pair, where re-dirtying the region would spin.
+        // Sampled before the presentation bookkeeping below, so the submit
+        // figure is the backend's cost and not the frame loop's.
+        let renderEndedAt = isSamplingFrames ? frameClock() : 0
+
         let owesRepaint = activePresentationState.needsImmediateRepaint
         pendingPresentation =
             runtime.isDirty || runtime.hasActiveAnimations || inputRateTracker.isHighRate || owesRepaint
         syncAnimationDriver(for: window)
+
+        if let onFramePresented {
+            let frameEndedAt = frameClock()
+            let backendDiagnostics = activeBatchBackendDiagnostics
+            onFramePresented(
+                LiveFrameSample(
+                    presentedAt: frameEndedAt,
+                    totalSeconds: frameEndedAt - frameStartedAt,
+                    sceneBuildSeconds: sceneBuildEndedAt - frameStartedAt,
+                    bindSeconds: bindEndedAt - sceneBuildEndedAt,
+                    backendSubmitSeconds: backendDiagnostics?.lastSubmitSeconds ?? 0,
+                    backendPresentSeconds: backendDiagnostics?.lastPresentSeconds ?? 0,
+                    submitAndPresentSeconds: renderEndedAt - bindEndedAt,
+                    didRebuildScene: runtime.sceneRebuildCount != rebuildsBefore,
+                    nodeReplayCount: runtime.lastSceneNodeReplayCount,
+                    primitiveCount: primitiveCount,
+                    hadActiveAnimations: runtime.hasActiveAnimations,
+                    backend: activeBackend == .scene ? .scene : .frame,
+                    atlasUploadedByteCount: backendDiagnostics?.atlasUploadedByteCount ?? 0
+                )
+            )
+        }
+
         return true
     }
 

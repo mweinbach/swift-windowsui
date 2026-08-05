@@ -82,6 +82,13 @@ final class WinSwiftUIWindowCoordinator {
     private(set) var windows: [ManagedWindow] = []
     private var isTerminated = false
 
+    /// Set when the process was launched in `--diagnostics` mode. The session
+    /// attaches to the primary window only: a secondary window opened by the
+    /// scripted run would otherwise start a second measurement of the same
+    /// process and race the first one's report file.
+    private let liveDiagnosticsConfiguration: LiveDiagnosticsConfiguration?
+    private var liveDiagnosticsSession: LiveDiagnosticsSession?
+
     /// Hosts whose window has closed but whose deallocation is deferred.
     ///
     /// `windowDidClose` runs inside the wndproc frame that is handling
@@ -108,11 +115,13 @@ final class WinSwiftUIWindowCoordinator {
         backendResolution: RenderBackendResolution? = nil,
         hooks: WindowCoordinatorHooks = .win32,
         hostFactory: (@MainActor (WindowGroupConfiguration, Bool) -> WinSwiftUIWindowHost)? = nil,
-        sceneStorageScopeProvider: (@MainActor () -> String)? = nil
+        sceneStorageScopeProvider: (@MainActor () -> String)? = nil,
+        liveDiagnostics: LiveDiagnosticsConfiguration? = nil
     ) {
         precondition(!sceneConfigurations.isEmpty, "WinSwiftUIWindowCoordinator requires at least one scene.")
         self.sceneConfigurations = sceneConfigurations
         self.hooks = hooks
+        self.liveDiagnosticsConfiguration = liveDiagnostics
         self.hostFactory =
             hostFactory
             ?? { configuration, isPrimary in
@@ -260,6 +269,16 @@ final class WinSwiftUIWindowCoordinator {
             )
         )
         try hooks.startWindow(host)
+
+        // After `startWindow`: the session's first frame request needs a
+        // window that has been created and has a presenter attached, which is
+        // what `Win32Application.start` completes.
+        if isPrimary, let liveDiagnosticsConfiguration, liveDiagnosticsSession == nil {
+            let session = LiveDiagnosticsSession(configuration: liveDiagnosticsConfiguration, host: host)
+            liveDiagnosticsSession = session
+            session.start()
+        }
+
         return host
     }
 

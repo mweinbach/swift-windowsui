@@ -284,6 +284,8 @@ public final class Win32Window {
     /// trade a silent freeze for a silent stall. The coalescing `SetTimer`
     /// path drives frames from then on.
     private var isHighResolutionTimerUnavailable = false
+    /// Whether a close watchdog is armed, so it can be killed on destroy.
+    private var hasCloseWatchdog = false
     /// Whether this window still owns the `+1` its `GWLP_USERDATA` self
     /// reference took at creation. Released exactly once, in `WM_NCDESTROY`.
     private var ownsRetainedSelfReference = false
@@ -972,6 +974,37 @@ public final class Win32Window {
         PostMessageW(hwnd, UINT(WM_CLOSE), 0, 0)
     }
 
+    /// Closes this window after `seconds`, independently of the frame loop.
+    ///
+    /// The escape hatch for automated runs. Everything else that closes a
+    /// window rides the frame loop or the main-actor executor, and the message
+    /// loop drains neither on its own — so a window whose presenter never
+    /// attached, or whose animation timer stopped, stays on screen forever
+    /// with no way to reach it.
+    ///
+    /// Deliberately a plain `SetTimer` rather than the high-resolution timer
+    /// queue the frame loop uses: `SetTimer`'s synthesized `WM_TIMER` is
+    /// delivered by the modal size/move and menu pumps too, so the watchdog
+    /// still fires while the user is dragging the window. It is also the one
+    /// that cannot pile up — a watchdog that queued would be a second bug.
+    public func scheduleCloseWatchdog(afterSeconds seconds: Double) {
+        guard let hwnd, seconds > 0 else {
+            return
+        }
+
+        let milliseconds = UINT(max(1.0, (seconds * 1000).rounded()))
+        SetTimer(hwnd, Self.closeWatchdogTimerIdentifier, milliseconds, nil)
+        hasCloseWatchdog = true
+    }
+
+    private func cancelCloseWatchdogIfNeeded() {
+        guard hasCloseWatchdog, let hwnd else {
+            return
+        }
+        KillTimer(hwnd, Self.closeWatchdogTimerIdentifier)
+        hasCloseWatchdog = false
+    }
+
     public func setAnimationTimerEnabled(_ enabled: Bool, intervalMilliseconds: UINT = 16) {
         if enabled {
             // Recorded before the window check so the requested cadence
@@ -1360,6 +1393,12 @@ public final class Win32Window {
             return 0
 
         case UINT(WM_TIMER):
+            if UInt(truncatingIfNeeded: wParam) == Self.closeWatchdogTimerIdentifier {
+                cancelCloseWatchdogIfNeeded()
+                requestClose()
+                return 0
+            }
+
             if UInt(truncatingIfNeeded: wParam) == Self.animationTimerIdentifier {
                 // Release the post gate before the frame runs: a long frame may
                 // then queue exactly one further tick, which is the intended
@@ -1571,6 +1610,7 @@ public final class Win32Window {
 
         case UINT(WM_DESTROY):
             setAnimationTimerEnabled(false)
+            cancelCloseWatchdogIfNeeded()
             delegate?.windowWillClose(self)
             if postsQuitMessageOnDestroy {
                 PostQuitMessage(0)
@@ -1896,6 +1936,10 @@ public final class Win32Window {
     private static let className = "SwiftWindowsUI.MainWindow"
     private static var didRegisterClass = false
     private static let animationTimerIdentifier: UINT_PTR = 1
+    /// Distinct from the animation timer: the watchdog must not be cancelled
+    /// by the frame loop stopping its own timer, which is precisely the state
+    /// the watchdog exists to survive.
+    private static let closeWatchdogTimerIdentifier: UINT_PTR = 2
     private static let wheelPageScrollValue = UINT.max
 
     internal struct AnimationTimerConfiguration: Equatable {

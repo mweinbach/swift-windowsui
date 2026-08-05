@@ -3639,23 +3639,7 @@ public final class ViewNode {
         }
 
         let old = children[index]
-        old.onDismantlePlatformView?(old)
-        if old.transition.removal.kind != .identity {
-            old.isRemovalOverlay = true
-            old.applyRemovalTransition()
-            old.cachedFrameKey = nil
-            old.cachedFrameCommandRange = nil
-            old.cachedSceneKey = nil
-            old.cachedScenePaintRange = nil
-            runtime?.transitionOverlays.append(old)
-            runtime?.invalidate()
-            old.parent = nil
-            old.setRuntime(nil)
-        } else {
-            old.markSubtreeDisappeared()
-            old.parent = nil
-            old.setRuntime(nil)
-        }
+        detachRemovedChild(old)
 
         newChild.removeFromParent()
         newChild.parent = self
@@ -3671,6 +3655,15 @@ public final class ViewNode {
         }
 
         let removed = children.remove(at: index)
+        detachRemovedChild(removed)
+        invalidateRuntime()
+    }
+
+    /// Runs a child that has just left `children` through its removal
+    /// transition (or straight to disappearance) and unparents it. The single
+    /// place that decides what leaving looks like — shared by `removeChild`,
+    /// `replaceChild` and `setChildren`.
+    private func detachRemovedChild(_ removed: ViewNode) {
         removed.onDismantlePlatformView?(removed)
         if removed.transition.removal.kind != .identity {
             removed.isRemovalOverlay = true
@@ -3688,7 +3681,33 @@ public final class ViewNode {
             removed.parent = nil
             removed.setRuntime(nil)
         }
-        invalidateRuntime()
+    }
+
+    /// Replaces the child list wholesale with `nextChildren`, in that order.
+    ///
+    /// Children that survive keep their identity and everything hung on it;
+    /// children that are gone from the new list leave through
+    /// `detachRemovedChild`, exactly as `removeChild` would have taken them.
+    /// This is what lets reconciliation *move* a node instead of destroying
+    /// and rebuilding it: the index-walking API could only ever replace in
+    /// place, so a keyed match that changed position had no way to be
+    /// expressed.
+    func setChildren(_ nextChildren: [ViewNode]) {
+        let surviving = Set(nextChildren.map(ObjectIdentifier.init))
+        let departing = children.filter { !surviving.contains(ObjectIdentifier($0)) }
+        children = []
+        for child in departing {
+            detachRemovedChild(child)
+        }
+        for child in nextChildren {
+            if child.parent !== self {
+                child.removeFromParent()
+                child.parent = self
+            }
+            child.setRuntime(runtime)
+        }
+        children = nextChildren
+        invalidateRuntime(.children)
     }
 
     fileprivate func setRuntime(_ runtime: RetainedViewRuntime?) {

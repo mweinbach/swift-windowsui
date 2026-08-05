@@ -193,42 +193,79 @@ public final class ComponentHost {
         reconcileChildren(of: target, oldChildren: target.children, newNodes: source.children)
     }
 
-    /// Basic view-diffing reconciliation.  Walk old and new child lists in
-    /// parallel and reuse existing nodes when possible.
+    /// Keyed view-diffing reconciliation: identity first, position second.
+    ///
+    /// `nodeTag` is the stable identity a `ForEach` already writes onto every
+    /// row (`Views.swift`: `view.id("\(elementID)#\(index)")`). It used to be
+    /// consulted only as an equality test at the *same index*, which made it
+    /// worthless for the case it exists for: removing the head of a four-row
+    /// list mismatched at index 0, and at every index after it, so `replaceChild`
+    /// fired four times. One deletion produced four removal overlays — a ghost
+    /// copy of the entire previous list fading out on top of the new one — and
+    /// re-created every surviving row from opacity 0. Only a tail edit, where
+    /// index and identity happen to agree, behaved.
+    ///
+    /// Matching is two passes:
+    ///
+    /// 1. every tagged new node claims the old node carrying the same tag,
+    ///    wherever it sits;
+    /// 2. anything still unmatched takes the next unclaimed old node that
+    ///    `nodesMatch` accepts, scanning forward only. With no tags in play
+    ///    this is the old index walk exactly.
+    ///
+    /// Survivors then keep their identity *and move*, which is what lets the
+    /// frame animations installed by `updateNodeProperties` slide the rows
+    /// below a deleted one up under it, as SwiftUI and NSTableView both do.
     static func reconcileChildren(of parent: ViewNode, oldChildren: [ViewNode], newNodes: [ViewNode]) {
-        let oldCount = oldChildren.count
-        let newCount = newNodes.count
-        let commonCount = min(oldCount, newCount)
+        var matches = [ViewNode?](repeating: nil, count: newNodes.count)
+        var isClaimed = [Bool](repeating: false, count: oldChildren.count)
 
-        // Update nodes that exist at the same index.
-        for i in 0..<commonCount {
-            let oldNode = oldChildren[i]
-            let newNode = newNodes[i]
+        var oldIndicesByTag: [String: [Int]] = [:]
+        for (index, oldNode) in oldChildren.enumerated() {
+            guard let tag = oldNode.nodeTag else { continue }
+            oldIndicesByTag[tag, default: []].append(index)
+        }
 
-            if nodesMatch(oldNode, newNode) {
-                // Same structural type -- update properties in-place.
-                updateNodeProperties(target: oldNode, source: newNode)
-                // Recursively reconcile grandchildren.
-                reconcileChildren(of: oldNode, oldChildren: oldNode.children, newNodes: newNode.children)
-            } else {
-                // Structural mismatch -- replace the child.
-                parent.replaceChild(at: i, with: newNode)
+        if !oldIndicesByTag.isEmpty {
+            for (newIndex, newNode) in newNodes.enumerated() {
+                guard let tag = newNode.nodeTag, var candidates = oldIndicesByTag[tag], !candidates.isEmpty
+                else { continue }
+                let oldIndex = candidates.removeFirst()
+                oldIndicesByTag[tag] = candidates
+                matches[newIndex] = oldChildren[oldIndex]
+                isClaimed[oldIndex] = true
             }
         }
 
-        // Remove trailing old children that have no new counterpart.
-        if oldCount > newCount {
-            for i in stride(from: oldCount - 1, through: newCount, by: -1) {
-                parent.removeChild(at: i)
+        var cursor = 0
+        for (newIndex, newNode) in newNodes.enumerated() where matches[newIndex] == nil {
+            while cursor < oldChildren.count {
+                if isClaimed[cursor] {
+                    cursor += 1
+                    continue
+                }
+                if nodesMatch(oldChildren[cursor], newNode) {
+                    matches[newIndex] = oldChildren[cursor]
+                    isClaimed[cursor] = true
+                    cursor += 1
+                }
+                break
             }
         }
 
-        // Append new children that didn't exist before.
-        if newCount > oldCount {
-            for i in oldCount..<newCount {
-                parent.addChild(newNodes[i])
+        var nextChildren: [ViewNode] = []
+        nextChildren.reserveCapacity(newNodes.count)
+        for (newIndex, newNode) in newNodes.enumerated() {
+            guard let oldNode = matches[newIndex] else {
+                nextChildren.append(newNode)
+                continue
             }
+            updateNodeProperties(target: oldNode, source: newNode)
+            reconcileChildren(of: oldNode, oldChildren: oldNode.children, newNodes: newNode.children)
+            nextChildren.append(oldNode)
         }
+
+        parent.setChildren(nextChildren)
     }
 
     /// Two nodes "match" when they carry the same stable identity tag or, in

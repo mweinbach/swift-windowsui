@@ -207,15 +207,24 @@ struct DemoDashboardScreen: View {
                 VStack(alignment: .leading, spacing: layout.gap) {
                     DemoToolbar(model: model, layout: layout)
 
+                    // Only the columns the window can actually hold. What a
+                    // dropped column carried is not dropped with it — the
+                    // centre pane picks it up (see `DemoCenterPane`), so a
+                    // narrow window is a re-flow rather than a truncation.
                     HStack(alignment: .top, spacing: layout.columnGap) {
-                        DemoSidebar(model: model, layout: layout)
-                            .frame(width: layout.sidebarWidth, height: layout.bodyHeight, alignment: .topLeading)
+                        if layout.showsSidebar {
+                            DemoSidebar(model: model, layout: layout)
+                                .frame(
+                                    width: layout.sidebarWidth, height: layout.bodyHeight, alignment: .topLeading)
+                        }
 
                         DemoCenterPane(model: model, layout: layout)
                             .frame(width: layout.contentWidth, height: layout.bodyHeight, alignment: .topLeading)
 
-                        DemoRightRail(model: model, layout: layout)
-                            .frame(width: layout.railWidth, height: layout.bodyHeight, alignment: .topLeading)
+                        if layout.showsRail {
+                            DemoRightRail(model: model, layout: layout)
+                                .frame(width: layout.railWidth, height: layout.bodyHeight, alignment: .topLeading)
+                        }
                     }
                     .frame(height: layout.bodyHeight, alignment: .topLeading)
                 }
@@ -259,49 +268,53 @@ struct DemoToolbar: View {
                 }
                 .frame(width: layout.toolbarTitleWidth, alignment: .leading)
 
-                HStack(alignment: .center, spacing: 10) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                        .font(.system(size: 12))
+                if layout.showsToolbarSearch {
+                    HStack(alignment: .center, spacing: 10) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                            .font(.system(size: 12))
 
-                    Text("Search commands")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(1)
-                }
-                .padding(EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14))
-                .frame(width: layout.searchWidth, height: layout.pillHeight, alignment: .leading)
-                .background(
-                    LinearGradient(
-                        colors: [theme.fieldTop, theme.fieldBottom],
-                        startPoint: .top,
-                        endPoint: .bottom
+                        Text("Search commands")
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(1)
+                    }
+                    .padding(EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14))
+                    .frame(width: layout.searchWidth, height: layout.pillHeight, alignment: .leading)
+                    .background(
+                        LinearGradient(
+                            colors: [theme.fieldTop, theme.fieldBottom],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
                     )
-                )
-                .cornerRadius(layout.pillHeight * 0.5)
-                .padding(1)
-                .background(theme.surfaceStroke)
-                .cornerRadius(layout.pillHeight * 0.5 + 1)
-                .allowsHitTesting(false)
-                .layoutPriority(1)
+                    .cornerRadius(layout.pillHeight * 0.5)
+                    .padding(1)
+                    .background(theme.surfaceStroke)
+                    .cornerRadius(layout.pillHeight * 0.5 + 1)
+                    .allowsHitTesting(false)
+                    .layoutPriority(1)
+                }
 
                 Spacer(minLength: 0)
 
-                DemoPillButton(
-                    "D3D11",
-                    width: layout.backendWidth,
-                    colors: DemoTheme.readyFill
-                ) {
-                    model.performAction("Render stack ready")
-                }
+                if layout.showsToolbarStatusPills {
+                    DemoPillButton(
+                        "D3D11",
+                        width: layout.backendWidth,
+                        colors: DemoTheme.readyFill
+                    ) {
+                        model.performAction("Render stack ready")
+                    }
 
-                DemoPillButton(
-                    "Events \(model.interactionCount)",
-                    width: layout.eventsWidth,
-                    colors: DemoTheme.eventsFill
-                ) {
-                    model.performAction("Event HUD opened")
+                    DemoPillButton(
+                        "Events \(model.interactionCount)",
+                        width: layout.eventsWidth,
+                        colors: DemoTheme.eventsFill
+                    ) {
+                        model.performAction("Event HUD opened")
+                    }
                 }
 
                 DemoPillButton(
@@ -376,23 +389,7 @@ struct DemoSidebar: View {
                     DemoSectionTitle("Session")
                         .padding(.top, 6)
 
-                    DemoRowButton(
-                        title: "State",
-                        detail: model.lastAction,
-                        systemImage: "info.circle",
-                        accent: model.selectedModule.accentFill
-                    ) {
-                        model.performAction("State panel opened")
-                    }
-
-                    DemoRowButton(
-                        title: "Shortcuts",
-                        detail: "Tab and wheel routing",
-                        systemImage: "keyboard",
-                        accent: model.selectedModule.accentFill
-                    ) {
-                        model.performAction("Shortcuts opened")
-                    }
+                    DemoSessionRows(model: model)
                 }
                 // The width lives here, once, and it is the surface's own
                 // content width: a scroll view proposes no definite width to
@@ -407,6 +404,126 @@ struct DemoSidebar: View {
         }
     }
 }
+
+/// The sidebar's second group — session status rather than navigation. Lives
+/// on its own so the centre pane can host it verbatim in a window too narrow
+/// for a sidebar.
+struct DemoSessionRows: View {
+    let model: DemoDashboardModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            DemoRowButton(
+                title: "State",
+                detail: model.lastAction,
+                systemImage: "info.circle",
+                accent: model.selectedModule.accentFill
+            ) {
+                model.performAction("State panel opened")
+            }
+
+            DemoRowButton(
+                title: "Shortcuts",
+                detail: "Tab and wheel routing",
+                systemImage: "keyboard",
+                accent: model.selectedModule.accentFill
+            ) {
+                model.performAction("Shortcuts opened")
+            }
+        }
+    }
+}
+
+/// The module list, laid out the way a narrow window wants it: one scrolling
+/// row of chips above the content instead of a column beside it.
+///
+/// Horizontal rather than wrapped, because the set is small, ordered, and
+/// exactly one of them is selected — a segmented strip, which is what a
+/// desktop app collapses a four-item source list into. The scroll view is
+/// what keeps it honest at any width: the chips never shrink to fit, they
+/// scroll.
+struct DemoModuleStrip: View {
+    @Environment(\.colorScheme) private var colorScheme
+    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
+
+    let model: DemoDashboardModel
+    let layout: DemoLayout
+
+    var body: some View {
+        DemoPanel {
+            VStack(alignment: .leading, spacing: 10) {
+                DemoSectionTitle("Workspace")
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .center, spacing: 10) {
+                        ForEach(DemoModule.allCases, id: \.self) { module in
+                            let isSelected = model.selectedModule == module
+                            DemoModuleButton(
+                                systemImage: module.systemImage,
+                                title: module.label,
+                                colors: isSelected
+                                    ? module.accentFill : [theme.fieldTop, theme.fieldBottom],
+                                textColor: isSelected ? theme.onTintedFillText : Color.primary
+                            ) {
+                                model.selectModule(module)
+                            }
+                            .frame(width: layout.moduleChipWidth, alignment: .leading)
+                        }
+                    }
+                }
+                .frame(height: 40)
+            }
+        }
+    }
+}
+
+/// The detail rail's two panels, addressable on their own so they can be
+/// rendered at rail width beside the content or at content width beneath it.
+struct DemoDetailTrackPanel: View {
+    let model: DemoDashboardModel
+    let width: CGFloat
+
+    var body: some View {
+        DemoPanel {
+            // 12, not 14: the rail carries two panels in the height the
+            // centre pane spends on one, so its internal rhythm is a step
+            // tighter than the centre column's.
+            VStack(alignment: .leading, spacing: 12) {
+                DemoSectionTitle("Detail track")
+
+                ForEach(model.selectedModule.cards, id: \.title) { card in
+                    DemoInfoCard(card: card)
+                }
+            }
+        }
+        .frame(width: width, alignment: .leading)
+    }
+}
+
+struct DemoQuickActionsPanel: View {
+    let model: DemoDashboardModel
+    let width: CGFloat
+
+    var body: some View {
+        DemoPanel {
+            VStack(alignment: .leading, spacing: 12) {
+                DemoSectionTitle("Quick actions")
+
+                ForEach(model.selectedModule.actions, id: \.title) { action in
+                    DemoRowButton(
+                        title: action.title,
+                        detail: action.caption,
+                        systemImage: action.systemImage,
+                        accent: model.selectedModule.accentFill
+                    ) {
+                        model.performAction(action.eventLabel)
+                    }
+                }
+            }
+        }
+        .frame(width: width, alignment: .leading)
+    }
+}
 struct DemoCenterPane: View {
     let model: DemoDashboardModel
     let layout: DemoLayout
@@ -414,6 +531,16 @@ struct DemoCenterPane: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: layout.gap) {
+                // Whatever the shell could not fit beside this column arrives
+                // here instead of disappearing. Navigation goes above the
+                // content it navigates; the rail's reference panels go below
+                // the primary content but above the activity log; session
+                // status, the least urgent of the three, goes last.
+                if !layout.showsSidebar {
+                    DemoModuleStrip(model: model, layout: layout)
+                        .frame(width: layout.contentInnerWidth, alignment: .leading)
+                }
+
                 DemoHeroCard(model: model, layout: layout)
                     .frame(width: layout.contentInnerWidth, alignment: .leading)
 
@@ -470,6 +597,11 @@ struct DemoCenterPane: View {
                     .frame(width: layout.contentInnerWidth, alignment: .leading)
                 }
 
+                if !layout.showsRail {
+                    DemoDetailTrackPanel(model: model, width: layout.contentInnerWidth)
+                    DemoQuickActionsPanel(model: model, width: layout.contentInnerWidth)
+                }
+
                 DemoPanel {
                     VStack(alignment: .leading, spacing: 14) {
                         DemoSectionTitle("Activity")
@@ -485,6 +617,17 @@ struct DemoCenterPane: View {
                     }
                 }
                 .frame(width: layout.contentInnerWidth, alignment: .leading)
+
+                if !layout.showsSidebar {
+                    DemoPanel {
+                        VStack(alignment: .leading, spacing: 14) {
+                            DemoSectionTitle("Session")
+
+                            DemoSessionRows(model: model)
+                        }
+                    }
+                    .frame(width: layout.contentInnerWidth, alignment: .leading)
+                }
             }
         }
     }
@@ -594,37 +737,8 @@ struct DemoRightRail: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: layout.gap) {
-                DemoPanel {
-                    // 12, not 14: the rail carries two panels in the height
-                    // the centre pane spends on one, so its internal rhythm
-                    // is a step tighter than the centre column's.
-                    VStack(alignment: .leading, spacing: 12) {
-                        DemoSectionTitle("Detail track")
-
-                        ForEach(model.selectedModule.cards, id: \.title) { card in
-                            DemoInfoCard(card: card)
-                        }
-                    }
-                }
-                .frame(width: layout.railInnerWidth, alignment: .leading)
-
-                DemoPanel {
-                    VStack(alignment: .leading, spacing: 12) {
-                        DemoSectionTitle("Quick actions")
-
-                        ForEach(model.selectedModule.actions, id: \.title) { action in
-                            DemoRowButton(
-                                title: action.title,
-                                detail: action.caption,
-                                systemImage: action.systemImage,
-                                accent: model.selectedModule.accentFill
-                            ) {
-                                model.performAction(action.eventLabel)
-                            }
-                        }
-                    }
-                }
-                .frame(width: layout.railInnerWidth, alignment: .leading)
+                DemoDetailTrackPanel(model: model, width: layout.railInnerWidth)
+                DemoQuickActionsPanel(model: model, width: layout.railInnerWidth)
             }
         }
     }
@@ -704,42 +818,26 @@ struct DemoHeroCard: View {
                     .cornerRadius(2)
                     .allowsHitTesting(false)
 
-                if layout.compactActions {
-                    VStack(alignment: .leading, spacing: 12) {
-                        DemoPillButton(
-                            "Open \(model.selectedModule.label)",
-                            colors: model.selectedModule.accentFill
-                        ) {
-                            model.performAction("Opened \(model.selectedModule.label)")
-                        }
-
-                        DemoPillButton(
-                            "Cycle mode",
-                            colors: [theme.fieldTop, theme.fieldBottom],
-                            textColor: Color.primary
-                        ) {
-                            model.cycleModule()
-                        }
+                // One row, at every window size the app can be dragged to.
+                // See `DemoLayout.heroHeight` for why the stacked alternative
+                // is gone rather than fixed.
+                HStack(alignment: .center, spacing: 12) {
+                    DemoPillButton(
+                        "Open \(model.selectedModule.label)",
+                        colors: model.selectedModule.accentFill
+                    ) {
+                        model.performAction("Opened \(model.selectedModule.label)")
                     }
-                } else {
-                    HStack(alignment: .center, spacing: 12) {
-                        DemoPillButton(
-                            "Open \(model.selectedModule.label)",
-                            colors: model.selectedModule.accentFill
-                        ) {
-                            model.performAction("Opened \(model.selectedModule.label)")
-                        }
-                        .layoutPriority(1)
+                    .layoutPriority(1)
 
-                        DemoPillButton(
-                            "Cycle mode",
-                            colors: [theme.fieldTop, theme.fieldBottom],
-                            textColor: Color.primary
-                        ) {
-                            model.cycleModule()
-                        }
-                        .layoutPriority(1)
+                    DemoPillButton(
+                        "Cycle mode",
+                        colors: [theme.fieldTop, theme.fieldBottom],
+                        textColor: Color.primary
+                    ) {
+                        model.cycleModule()
                     }
+                    .layoutPriority(1)
                 }
             }
         }
@@ -1446,6 +1544,28 @@ struct DemoTheme {
             dark: Color(red: 0.0, green: 0.0, blue: 0.0, opacity: 0.36))
     }
 }
+/// Window-level facts about the demo that the app entry point and the
+/// responsive-layout tests both have to agree on.
+public enum DemoWindowMetrics {
+    /// The smallest window the dashboard shell is designed to hold, in
+    /// logical points of *client* area.
+    ///
+    /// 640x480 is the classic Windows floor and it is also exactly what this
+    /// shell is built down to: at 640 pt of width the dashboard is a single
+    /// column (both side columns have folded into it) whose content column
+    /// still clears its 420 pt floor, and at 480 pt of height the body band
+    /// still clears its 280 pt floor once the tab bar, window margins and
+    /// toolbar are taken out. `DemoResponsiveLayoutTests` pins both, so a
+    /// change that makes the layout need more room fails there rather than
+    /// shipping a window the user can drag into a broken state.
+    public static let minimumSize = CGSize(width: 640, height: 480)
+
+    /// What the tab bar takes off the top before the dashboard screen sees
+    /// the window. Approximate on purpose — it is used as a *budget* in the
+    /// height check, so overstating it is the safe direction.
+    static let tabBarAllowance: CGFloat = 72
+}
+
 struct DemoLayout {
     let size: CGSize
 
@@ -1457,8 +1577,64 @@ struct DemoLayout {
     var bodyHeight: CGFloat { max(280, size.height - outerPadding * 2 - toolbarHeight - gap) }
     var sidebarWidth: CGFloat { compact ? 220 : 236 }
     var railWidth: CGFloat { compact ? 260 : 292 }
+
+    /// The narrowest the centre column is allowed to get before the shell has
+    /// to give a side column up.
+    ///
+    /// It is a real floor, not a taste: below it the metric band stops
+    /// holding three cards, the hero's headline wraps to three lines inside a
+    /// fixed-height card, and every label in the window starts truncating.
+    var minimumContentWidth: CGFloat { 420 }
+
+    /// What the three columns and their gutters actually ask the window for,
+    /// given which of them this size carries. The invariant is that it never
+    /// exceeds `size.width`.
+    var occupiedWidth: CGFloat {
+        var total = outerPadding * 2 + contentWidth
+        if showsSidebar {
+            total += sidebarWidth + columnGap
+        }
+        if showsRail {
+            total += railWidth + columnGap
+        }
+        return total
+    }
+
+    /// Whether the window is wide enough to carry the detail rail beside the
+    /// centre column, and whether it is wide enough to carry the sidebar.
+    ///
+    /// These used to not exist: all three columns were laid out at every
+    /// window size, at fixed widths whose sum ignored the window. At 640 pt
+    /// they asked for 964 pt, the layout engine answered by driving all three
+    /// past their shrink floors, and the result was a 140 pt sidebar of
+    /// ellipses next to a hero card whose action pills had been crushed to
+    /// 2 pt tall. A column that does not fit is dropped — and its content
+    /// moves into the column that is still there (`DemoCenterPane`), which is
+    /// what makes this responsive rather than merely narrower.
+    var showsRail: Bool {
+        size.width >= outerPadding * 2 + sidebarWidth + railWidth + columnGap * 2 + minimumContentWidth
+    }
+
+    var showsSidebar: Bool {
+        size.width >= outerPadding * 2 + sidebarWidth + columnGap + minimumContentWidth
+    }
+
     var contentWidth: CGFloat {
-        max(420, size.width - outerPadding * 2 - sidebarWidth - railWidth - columnGap * 2)
+        var available = size.width - outerPadding * 2
+        if showsSidebar {
+            available -= sidebarWidth + columnGap
+        }
+        if showsRail {
+            available -= railWidth + columnGap
+        }
+        return max(minimumContentWidth, available)
+    }
+
+    /// Where the centre column starts, which is what the two decorative
+    /// washes are positioned against. It moves to the window's leading margin
+    /// when the sidebar is gone.
+    var contentOriginX: CGFloat {
+        outerPadding + (showsSidebar ? sidebarWidth + columnGap : 0)
     }
     // The content of a scrolling column is as wide as the column. These used
     // to reserve 8 pt for a scroll gutter, which stopped being a thing when
@@ -1473,6 +1649,11 @@ struct DemoLayout {
     var sidebarRowWidth: CGFloat {
         max(150, sidebarWidth - 2 - panelPadding.leading - panelPadding.trailing)
     }
+    /// A module chip in the collapsed strip. Wide enough for the longest
+    /// label ("Animation") beside its 18 pt glyph without truncating, and the
+    /// same for every chip so the strip reads as a segmented control rather
+    /// than a ragged row.
+    var moduleChipWidth: CGFloat { 132 }
     var metricCardWidth: CGFloat {
         max(120, (contentInnerWidth - gap * 2) / 3)
     }
@@ -1494,7 +1675,51 @@ struct DemoLayout {
     var eventsWidth: CGFloat { compact ? 116 : 128 }
     var modeWidth: CGFloat { compact ? 126 : 146 }
     var pillHeight: CGFloat { 34 }
+
+    /// The toolbar band's own content width, inside the window margin and the
+    /// 1 pt stroke ring the surface draws around itself.
+    private var toolbarBandWidth: CGFloat { size.width - outerPadding * 2 - 2 }
+
+    /// What the toolbar always carries: its insets, the title block, and the
+    /// mode pill (the one control in the band that does something).
+    private var toolbarFixedWidth: CGFloat {
+        toolbarPadding.leading + toolbarPadding.trailing + toolbarTitleWidth + modeWidth
+    }
+
+    /// Whether the band has room for the two status badges, and whether it
+    /// has room for the search field on top of them.
+    ///
+    /// The row is a fixed-width title, a fixed-width search field and three
+    /// fixed-width pills separated by `gap`. Nothing in it was optional, so a
+    /// 640 pt window asked for 636 pt of toolbar inside 604 pt of band and
+    /// answered with "WinSwi…", "D3…", "Even…", "Mod…" — four truncated
+    /// labels where a desktop app drops the secondary ones and keeps the rest
+    /// legible. The margin is `gap` so the decision does not sit on a knife
+    /// edge against text metrics.
+    var showsToolbarStatusPills: Bool {
+        toolbarBandWidth >= toolbarFixedWidth + backendWidth + eventsWidth + gap * 5
+    }
+
+    var showsToolbarSearch: Bool {
+        showsToolbarStatusPills
+            && toolbarBandWidth >= toolbarFixedWidth + backendWidth + eventsWidth + searchWidth + gap * 6
+    }
+
     var headlineSize: CGFloat { compact ? 24 : 30 }
+
+    /// The hero card is a fixed height so the metric band below it lands in
+    /// the same place at every window size, and it is one constant again.
+    ///
+    /// It used to be paired with a `compactActions` branch that stacked the
+    /// two action pills below 1180 pt of *window* while the height stayed
+    /// flat: every window under that asked for 249 pt of content inside a
+    /// 210 pt card, and a fixed-height card answers an overflow by squeezing
+    /// — the pills came out 28 pt at 900 and 0.9 pt at 640. The branch is
+    /// gone rather than corrected: the centre column now has an enforced
+    /// 420 pt floor (`minimumContentWidth`), which leaves 390 pt of card
+    /// interior for a pill row that measures about 240 at its longest module
+    /// label. There is no reachable window in which the row does not fit, so
+    /// there is nothing for a second row to be an answer to.
     var heroHeight: CGFloat { compact ? 210 : 232 }
     /// The plot's own height, scaled with the window the way `heroHeight` and
     /// `toolbarHeight` are. It used to be a flat 80 pt: a 736 pt wide plot
@@ -1504,16 +1729,6 @@ struct DemoLayout {
     /// rhythm, which is what puts the bottom of the scroll view in the gap
     /// between two cards instead of a dozen points into the top of one.
     var chartHeight: CGFloat { compact ? 112 : 128 }
-    /// Whether the hero card's two action pills have to stack.
-    ///
-    /// The *width* half of `compact`, and only that half. Stacking is an
-    /// answer to "there is no room beside it", which is a question about
-    /// width; asking `compact` also stacked them in a window that was merely
-    /// short, which is exactly backwards — it spends a second 50pt row of
-    /// height in the window with the least height to spend. The hero card is
-    /// a fixed height, so the extra row had nowhere to go and both pills were
-    /// squeezed from 38pt to about 15: a bold 12pt label in a 15pt capsule.
-    var compactActions: Bool { size.width < 1180 }
 
     var toolbarPadding: EdgeInsets {
         compact
@@ -1537,7 +1752,7 @@ struct DemoLayout {
     // ambient light rather than a shape.
     var accentA: CGRect {
         CGRect(
-            x: outerPadding + sidebarWidth + columnGap + contentWidth * 0.06,
+            x: contentOriginX + contentWidth * 0.06,
             y: outerPadding + toolbarHeight + gap + 18,
             width: compact ? 160 : 240,
             height: compact ? 84 : 126
@@ -1546,7 +1761,7 @@ struct DemoLayout {
 
     var accentB: CGRect {
         CGRect(
-            x: outerPadding + sidebarWidth + columnGap + contentWidth * 0.44,
+            x: contentOriginX + contentWidth * 0.44,
             y: outerPadding + toolbarHeight + heroHeight + gap * 2,
             width: min(compact ? 132 : 180, contentWidth * 0.5),
             height: compact ? 68 : 94

@@ -482,6 +482,43 @@ blit its commands 1:1, so a HiDPI frame snapshot fills only the top-left
 `logical` region of the surface. The tool warns when `--mode frame` is combined
 with a non-1 scale; use the scene path for density renders.
 
+## Responsive Layout Gate
+
+`DemoResponsiveLayoutTests` sweeps the dashboard shell across every window
+width and height the app can be dragged to. The demo's three columns used to
+be laid out at fixed widths whose sum never consulted the window: at 640 pt of
+window they asked for 964, the layout engine answered by driving all three past
+their shrink floors, and the window filled with ellipses beside a hero card
+whose action pills had been squeezed from 38 pt tall to 0.9. What the suite
+pins:
+
+- **`occupiedWidth <= size.width` at every swept size**, and the centre column
+  never under its 420 pt floor. This is the invariant that was violated.
+- **Columns are given up in order.** The detail rail folds first (below
+  ~964 pt), the sidebar second (below ~690 pt); a window can never carry a rail
+  without a sidebar. The toolbar gives up its search field, then its two status
+  badges, before it truncates anything.
+- **A fold re-flows, it does not drop.** Every section heading the 1280 pt
+  window shows is still somewhere in the 640 pt window's tree — the rail's two
+  panels and the sidebar's session rows move into the centre column, and the
+  module list becomes a horizontal strip above it.
+- **No label is crushed.** No text node ends up under 8 pt tall at any swept
+  size. (Truncation itself is resolved inside the painter from a
+  `maxContentWidth` and is not recorded on the node, so the tree cannot be
+  asked about the ellipsis directly; height is the axis it does carry, and it
+  fires on the same cause.)
+- **The declared window minimum is a size the shell survives.**
+  `DemoWindowMetrics.minimumSize` (640x480 logical client) is the number
+  `AppEntry` hands to `.windowMinSize`, so what `WM_GETMINMAXINFO` stops the
+  user's drag at and what the layout is tested at cannot drift apart. The suite
+  also checks it reaches the physical track size correctly at 96/120/144/192
+  DPI — 640x480 logical is 800x600 device at 125 %, not 640x480.
+
+Render the ladder by hand with
+`swift-windowsui-snapshot --logical-size 640x720 --screen dashboard` (and
+900x600, 1000x700, 1280x720, 1720x980) when changing the shell; 1280x720 and
+1720x980 should stay byte-identical unless the wide layout is what changed.
+
 ## Gallery Regression Gate
 
 `scripts/gallery-compare.ps1` turns the `swift-windowsui-gallery` tool into a visual regression gate for Supported-tier controls.

@@ -367,9 +367,18 @@ final class DemoScreensTests: XCTestCase {
         XCTAssertFalse(
             DemoLayout(size: CGSize(width: 1280, height: 720)).stacksMetrics,
             "a wide window keeps the band a row however short it is")
+        // L7-ADAPT moved the subject of "narrow" from the window to the
+        // column: at 880 pt the detail rail now folds away and the centre
+        // column gets 610 pt, which is a row. A 1000 pt window still carries
+        // all three columns, so its centre column is 456 pt — that is what a
+        // narrow *column* looks like now, and it stacks however tall the
+        // window is.
         XCTAssertTrue(
+            DemoLayout(size: CGSize(width: 1000, height: 900)).stacksMetrics,
+            "a narrow column stacks the band however tall the window is")
+        XCTAssertFalse(
             DemoLayout(size: CGSize(width: 880, height: 900)).stacksMetrics,
-            "a narrow one stacks it however tall it is")
+            "and a window that gave up its rail has a column wide enough for the row")
 
         let model = DemoDashboardModel()
         let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
@@ -672,34 +681,42 @@ final class DemoScreensTests: XCTestCase {
         XCTAssertNotNil(dot, "the degraded row carries an orange status dot")
     }
 
-    /// G5 item 4a. Stacking the hero card's two pills is a question about the
-    /// content column's *width*. It used to ask `compact`, which is also true
-    /// in a short window, so 1280x720 stacked them — and the hero card is a
-    /// fixed height, so the extra row had nowhere to go and both pills were
-    /// squeezed from 38pt to about 15.
-    func testHeroActionsStayARowInAWideShortWindow() async {
-        XCTAssertFalse(
-            DemoLayout(size: CGSize(width: 1280, height: 720)).compactActions,
-            "a wide window keeps the pills side by side however short it is")
-        XCTAssertTrue(
-            DemoLayout(size: CGSize(width: 820, height: 900)).compactActions,
-            "a narrow one stacks them however tall it is")
-
+    /// G5 item 4a, strengthened by L7-ADAPT. The hero card's two pills used to
+    /// stack below 1180 pt of window while the card's height stayed flat, so
+    /// the fixed-height card answered the overflow by squeezing them — 28 pt
+    /// at 900, 0.9 pt at 640. The stacking branch is gone: the centre column
+    /// now has an enforced 420 pt floor, which always has room for the row.
+    /// So the claim is no longer "a wide window keeps them a row", it is
+    /// "every window does".
+    func testHeroActionsStayARowAtEveryReachableWindowSize() async {
         let model = DemoDashboardModel()
-        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
 
-        guard
-            let open = firstNode(in: root, matching: { $0.text == "Open Layout" }),
-            let cycle = firstNode(in: root, matching: { $0.text == "Cycle mode" }),
-            let openPill = enclosingSurface(of: open)
-        else {
-            return XCTFail("expected both hero pills")
+        for size in [
+            IntSize(width: 640, height: 480),
+            IntSize(width: 640, height: 720),
+            IntSize(width: 900, height: 600),
+            IntSize(width: 1000, height: 900),
+            IntSize(width: 1280, height: 720),
+            IntSize(width: 1720, height: 980),
+        ] {
+            let root = laidOut(DemoRootView(model: model), size: size)
+
+            guard
+                let open = firstNode(in: root, matching: { $0.text == "Open Layout" }),
+                let cycle = firstNode(in: root, matching: { $0.text == "Cycle mode" }),
+                let openPill = enclosingSurface(of: open)
+            else {
+                return XCTFail("expected both hero pills at \(size.width)x\(size.height)")
+            }
+
+            XCTAssertEqual(
+                absoluteY(of: open), absoluteY(of: cycle), accuracy: 2,
+                "one row at \(size.width)x\(size.height)")
+            XCTAssertGreaterThanOrEqual(
+                openPill.resolvedFrame.size.height, 34,
+                "at \(size.width)x\(size.height) a pill is as tall as it asked to be, "
+                    + "not squeezed by an overflowing card")
         }
-
-        XCTAssertEqual(absoluteY(of: open), absoluteY(of: cycle), accuracy: 2, "one row")
-        XCTAssertGreaterThanOrEqual(
-            openPill.resolvedFrame.size.height, 34,
-            "a pill is as tall as it asked to be, not squeezed by an overflowing card")
     }
 
     /// G5 item 4b. The right rail is two panels in the height the centre pane

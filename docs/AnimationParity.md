@@ -172,6 +172,93 @@ expands from the control bounds and settles, and retracts the same way. The
 ring is keyed off focus itself, not the resolved ramp phase: a press outranks
 focus for the *fill*, but a pressed control that has focus still shows it.
 
+## The switch knob
+
+`NSSwitch` springs its knob across the track and cross-fades the track, and it
+does so whether or not the state change was wrapped in an animation. Both
+properties used to reach their end value in a single frame here: sampled at
+0.00 / 0.05 / 0.10 / 0.20 / 0.40s after a toggle, the track read
+`(0, 0.478, 1, 1)` and the knob's local x read 24.00 at every sample, so the
+20px of travel was never drawn.
+
+| Constant                                | Value                                        |
+|-----------------------------------------|----------------------------------------------|
+| `Controls.switchKnobAnimation`          | `Animation.snappy` - spring(response 0.5, damping fraction 0.85) |
+| Knob travel (effective)                 | 0.3125s - where the spring saturates          |
+| `Controls.switchTrackCrossfadeDuration` | 0.3125s ease-in-out, matching the travel      |
+
+The knob is `Animation.snappy` itself, read from the named spring rather than
+restated. Its *envelope* is `response * 5` (this stack's spring convention),
+but `AnimationEasing.spring` clamps its first overshoot, so the knob arrives at
+`0.25 * response` of normalised progress - 0.3125s. That is the number to
+compare against NSSwitch, and it is what the track cross-fade matches.
+
+The mechanism is `ViewNode.implicitReconcileAnimation`: a transaction the node
+carries for its *own* frame and fill changes. A control's state change rebuilds
+the tree with no `currentAnimationTransaction`, so `updateNodeProperties` had
+nothing to animate with; an explicit `withAnimation` still wins when both are
+present. The track's *gradient* ends animate alongside its colour
+(`AnimatedColorProperty.backgroundGradientStart` / `.backgroundGradientEnd`) -
+not a nicety: a gradient wins over `backgroundColor` at paint time, so a tween
+that moved only the colour under a snapped gradient would not be visible at all.
+
+## The text caret
+
+| Constant                                     | Value  |
+|----------------------------------------------|--------|
+| `RetainedViewRuntime.caretBlinkOnDuration`   | 0.5s   |
+| `RetainedViewRuntime.caretBlinkOffDuration`  | 0.5s   |
+| `RetainedViewRuntime.caretBlinkFadeDuration` | 0.1s   |
+
+`NSTextInsertionIndicator` blinks at roughly half a second each way, and fades
+rather than hard-toggling on recent macOS. Before this there was no blink
+machinery anywhere in the stack: with a `TextField` focused, `tickAnimations`
+returned false on every tick for two seconds and the caret's alpha never moved.
+
+The blink runs on the injected clock in `tickAnimations(at:)`, driving the
+opacity of the node marked `isTextInputCaret` under `focusedNode`. It is in
+`hasActiveAnimations` - it has to be, because a blink has no settled state: the
+host gates its timer on that property, and without it the caret would freeze
+mid-phase. It resets to fully on whenever focus changes and on every key the
+focused input handles, which macOS also does; a caret that blinked out on the
+keystroke that moved it would be unreadable exactly when it matters.
+
+## Scroll input provenance
+
+| Constant                            | Value                                  |
+|-------------------------------------|----------------------------------------|
+| `ViewNode.defaultScrollLineHeight`  | 16pt (13pt body at the 0.22 leading ratio) |
+| Default three-line notch            | 48pt                                   |
+| Momentum                            | `.precise` sources only                |
+
+A wheel `delta` is in **lines**: the Win32 host has already multiplied the
+physical notch by `SPI_GETWHEELSCROLLLINES` (default 3) before the runtime sees
+it, so `scrollStep` is a per-line distance. It defaulted to 64 - a notch-sized
+value in a line-sized slot - which put one notch at ~192px of step plus ~160px
+of glide, more than half a 600pt viewport. Measured with `delta = 1` on a 200pt
+scroll view: an immediate 64px jump, a glide reaching 117.68px, last motion at
+t = 0.667s.
+
+Momentum is now gated on `ScrollInputSource`. AppKit populates
+`NSEvent.momentumPhase` for gesture devices only - a trackpad or Magic Mouse -
+and a click-wheel detent is a bounded jump that stops when it stops. The decay
+constants above are right where they apply; what was wrong was applying them to
+a detent. Windows exposes the same distinction: a click wheel reports whole
+multiples of `WHEEL_DELTA`, a precision touchpad reports fractions of it, and
+`Win32Window.scrollInputSource(from:)` reads exactly that.
+
+## List edits animate one row
+
+Reconciliation matches on identity first (`nodeTag`, which `ForEach` already
+writes onto every row), position second. Removing anything but the tail of a
+list used to mismatch at the edit point and at every index after it: one head
+deletion from a four-row list spawned four removal overlays carrying the whole
+previous list at opacity 1.0, fading out on top of a new list whose every
+surviving row had been re-created and faded in from zero. A single-element
+removal now produces exactly one overlay at any index, and the survivors keep
+their identity *and* move, which is what lets the frame animations
+`updateNodeProperties` installs slide the rows below a deletion up under it.
+
 ## Why these values
 
 - **`Animation.default = 0.35s easeInOut`**: SwiftUI's documented default

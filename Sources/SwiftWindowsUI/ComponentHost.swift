@@ -310,7 +310,15 @@ public final class ComponentHost {
     private static func updateNodeProperties(target: ViewNode, source: ViewNode) {
         let oldFrame = target.frame
         let oldOpacity = target.opacity
+        let oldBackgroundColor = target.backgroundColor
+        let oldBackgroundGradient = target.backgroundGradient
         target.animationStates = source.animationStates
+        // A node may animate its own changes with no ambient `withAnimation`
+        // — `NSSwitch` does, and a rebuilt control's state change carries no
+        // transaction at all. The explicit one still wins when both are set.
+        let reconcileTransaction: (duration: Double, easing: AnimationEasing)? =
+            currentAnimationTransaction
+            ?? target.implicitReconcileAnimation.map { ($0.duration, $0.easing) }
 
         if oldFrame != source.frame {
             let now = Win32Window.currentTimestampSeconds()
@@ -325,7 +333,7 @@ public final class ComponentHost {
                     state.startTime = now
                     target.animationStates[.frameOriginX] = state
                     hasFrameAnimation = true
-                } else if let tx = currentAnimationTransaction {
+                } else if let tx = reconcileTransaction {
                     target.animationStates[.frameOriginX] = AnimationState(
                         startValue: oldFrame.origin.x, endValue: source.frame.origin.x,
                         startTime: now, duration: tx.duration, easing: tx.easing
@@ -343,7 +351,7 @@ public final class ComponentHost {
                     state.startTime = now
                     target.animationStates[.frameOriginY] = state
                     hasFrameAnimation = true
-                } else if let tx = currentAnimationTransaction {
+                } else if let tx = reconcileTransaction {
                     target.animationStates[.frameOriginY] = AnimationState(
                         startValue: oldFrame.origin.y, endValue: source.frame.origin.y,
                         startTime: now, duration: tx.duration, easing: tx.easing
@@ -361,7 +369,7 @@ public final class ComponentHost {
                     state.startTime = now
                     target.animationStates[.frameWidth] = state
                     hasFrameAnimation = true
-                } else if let tx = currentAnimationTransaction {
+                } else if let tx = reconcileTransaction {
                     target.animationStates[.frameWidth] = AnimationState(
                         startValue: oldFrame.size.width, endValue: source.frame.size.width,
                         startTime: now, duration: tx.duration, easing: tx.easing
@@ -379,7 +387,7 @@ public final class ComponentHost {
                     state.startTime = now
                     target.animationStates[.frameHeight] = state
                     hasFrameAnimation = true
-                } else if let tx = currentAnimationTransaction {
+                } else if let tx = reconcileTransaction {
                     target.animationStates[.frameHeight] = AnimationState(
                         startValue: oldFrame.size.height, endValue: source.frame.size.height,
                         startTime: now, duration: tx.duration, easing: tx.easing
@@ -400,6 +408,10 @@ public final class ComponentHost {
         if target.backgroundGradient != source.backgroundGradient {
             target.backgroundGradient = source.backgroundGradient
         }
+        target.applyImplicitFillTween(
+            fromBackgroundColor: oldBackgroundColor,
+            fromBackgroundGradient: oldBackgroundGradient
+        )
         if target.bitmapSurface != source.bitmapSurface { target.bitmapSurface = source.bitmapSurface }
         target.canvasDraw = source.canvasDraw
         if target.text != source.text { target.text = source.text }
@@ -445,7 +457,7 @@ public final class ComponentHost {
                 state.endValue = source.opacity
                 state.startTime = Win32Window.currentTimestampSeconds()
                 target.animationStates[.opacity] = state
-            } else if let tx = currentAnimationTransaction {
+            } else if let tx = reconcileTransaction {
                 target.animationStates[.opacity] = AnimationState(
                     startValue: oldOpacity, endValue: source.opacity,
                     startTime: Win32Window.currentTimestampSeconds(),
@@ -613,7 +625,7 @@ public final class ComponentHost {
                     state.startTime = now
                     target.animationStates[.transformScaleX] = state
                     hasTransformAnimation = true
-                } else if let tx = currentAnimationTransaction {
+                } else if let tx = reconcileTransaction {
                     target.animationStates[.transformScaleX] = AnimationState(
                         startValue: oldTransform.scaleX, endValue: source.transform.scaleX,
                         startTime: now, duration: tx.duration, easing: tx.easing
@@ -631,7 +643,7 @@ public final class ComponentHost {
                     state.startTime = now
                     target.animationStates[.transformScaleY] = state
                     hasTransformAnimation = true
-                } else if let tx = currentAnimationTransaction {
+                } else if let tx = reconcileTransaction {
                     target.animationStates[.transformScaleY] = AnimationState(
                         startValue: oldTransform.scaleY, endValue: source.transform.scaleY,
                         startTime: now, duration: tx.duration, easing: tx.easing
@@ -649,7 +661,7 @@ public final class ComponentHost {
                     state.startTime = now
                     target.animationStates[.transformTranslationX] = state
                     hasTransformAnimation = true
-                } else if let tx = currentAnimationTransaction {
+                } else if let tx = reconcileTransaction {
                     target.animationStates[.transformTranslationX] = AnimationState(
                         startValue: oldTransform.translationX, endValue: source.transform.translationX,
                         startTime: now, duration: tx.duration, easing: tx.easing
@@ -667,7 +679,7 @@ public final class ComponentHost {
                     state.startTime = now
                     target.animationStates[.transformTranslationY] = state
                     hasTransformAnimation = true
-                } else if let tx = currentAnimationTransaction {
+                } else if let tx = reconcileTransaction {
                     target.animationStates[.transformTranslationY] = AnimationState(
                         startValue: oldTransform.translationY, endValue: source.transform.translationY,
                         startTime: now, duration: tx.duration, easing: tx.easing
@@ -685,7 +697,7 @@ public final class ComponentHost {
                     state.startTime = now
                     target.animationStates[.transformRotation] = state
                     hasTransformAnimation = true
-                } else if let tx = currentAnimationTransaction {
+                } else if let tx = reconcileTransaction {
                     target.animationStates[.transformRotation] = AnimationState(
                         startValue: oldTransform.rotation, endValue: source.transform.rotation,
                         startTime: now, duration: tx.duration, easing: tx.easing

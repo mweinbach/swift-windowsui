@@ -172,7 +172,7 @@ public enum UI {
         shadowSpread: Double = 0,
         cornerRadius: Double = 0,
         stackLayout: StackLayout,
-        scrollStep: Double = 64,
+        scrollStep: Double = ViewNode.defaultScrollLineHeight,
         scrollIndicatorColor: Color = Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 0.26),
         scrollIndicatorHoverColor: Color = Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.45),
         scrollIndicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.72),
@@ -296,7 +296,7 @@ public enum UI {
             mainAlignment: .start
         ),
         scrollAxis: ScrollAxis? = nil,
-        scrollStep: Double = 64,
+        scrollStep: Double = ViewNode.defaultScrollLineHeight,
         scrollIndicatorColor: Color = Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 0.26),
         scrollIndicatorHoverColor: Color = Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.45),
         scrollIndicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.72),

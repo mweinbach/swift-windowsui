@@ -875,8 +875,11 @@ final class RetainedViewRuntimeTests: XCTestCase {
             _ = runtime.renderFrame()
             XCTAssertFalse(runtime.hasActiveAnimations)
 
-            // Wheel impulse: immediate jump + seeded momentum.
-            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: -3)
+            // Precision-device impulse: immediate jump + seeded momentum.
+            // A click-wheel detent gets no momentum at all — AppKit gives a
+            // momentum phase only to gesture devices — so the source has to be
+            // stated for this to be the scroll it is testing.
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: -3, source: .precise)
             let offsetAfterWheel = scrollPanel.scrollOffset
             XCTAssertEqual(offsetAfterWheel, 60)
             XCTAssertTrue(runtime.hasActiveAnimations, "Wheel impulse should seed momentum")
@@ -932,7 +935,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             // Scroll up hard (positive delta = toward 0). Velocity points
             // toward the top edge.
-            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: 5)
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: 5, source: .precise)
             XCTAssertEqual(scrollPanel.scrollOffset, 0, "Wheel clamps logical offset at top")
 
             let t0 = Win32Window.currentTimestampSeconds()

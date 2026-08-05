@@ -544,7 +544,7 @@ public enum Controls {
         shadowSpread: Double = 0,
         cornerRadius: Double = 0,
         stackLayout: StackLayout,
-        scrollStep: Double = 64,
+        scrollStep: Double = ViewNode.defaultScrollLineHeight,
         scrollIndicatorColor: Color = Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 0.26),
         scrollIndicatorHoverColor: Color = Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.45),
         scrollIndicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.72),
@@ -766,7 +766,7 @@ public enum Controls {
             mainAlignment: .start
         ),
         scrollAxis: ScrollAxis? = nil,
-        scrollStep: Double = 64,
+        scrollStep: Double = ViewNode.defaultScrollLineHeight,
         scrollIndicatorColor: Color = Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 0.26),
         scrollIndicatorHoverColor: Color = Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.45),
         scrollIndicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.72),
@@ -1312,6 +1312,28 @@ public enum Controls {
 
     // MARK: - Toggle / Switch
 
+    /// The knob's travel across the track: `Animation.snappy` itself —
+    /// response 0.5, damping fraction 0.85 (bounce 0.15) — taken from the
+    /// named spring rather than restated, so it cannot drift from the constant
+    /// `docs/AnimationParity.md` pins.
+    ///
+    /// The envelope is `response * 5` (this stack's spring convention), but
+    /// `AnimationEasing.spring` clamps its first overshoot, so the knob is
+    /// *there* at `0.25 * response` of normalised progress — 0.3125s of
+    /// travel. That is the number to compare against NSSwitch, and it is what
+    /// `switchTrackCrossfadeDuration` matches.
+    public static let switchKnobAnimation = AnimationTransaction(
+        duration: Animation.snappy.duration, easing: Animation.snappy.easing)
+
+    /// Where the knob's spring saturates: the interval the travel actually
+    /// occupies, and therefore the interval the track's fill cross-fades over
+    /// so the two read as one movement.
+    public static let switchTrackCrossfadeDuration = Animation.snappy.duration * 0.125
+
+    /// The track's fill cross-fade.
+    public static let switchTrackAnimation = AnimationTransaction(
+        duration: switchTrackCrossfadeDuration, easing: .easeInOut)
+
     public static func toggle(
         runtime: RetainedViewRuntime,
         isOn: Bool,
@@ -1397,6 +1419,22 @@ public enum Controls {
             isHitTestVisible: false,
             children: [thumb]
         )
+        // NSSwitch springs its knob across and cross-fades its track, and it
+        // does so whether or not the state change was wrapped in an animation
+        // — so the switch carries its own transaction rather than waiting for
+        // an ambient one that a rebuilt control never has. `Animation.snappy`
+        // (response 0.5 / dampingFraction 0.85) is the pinned constant for
+        // exactly this class of control-scale motion; see
+        // `docs/AnimationParity.md`.
+        //
+        // Both halves matter. Before this the thumb reached its end position
+        // in a single frame — measured at every sample from 0.0s to 0.4s,
+        // local x = 24.00, with the 20px of travel never drawn — and the
+        // track's fill jumped from (0.270,0.306,0.360) to (0,0.478,1) on the
+        // same frame.
+        thumb.implicitReconcileAnimation = Self.switchKnobAnimation
+        track.implicitReconcileAnimation = Self.switchTrackAnimation
+
         track.onLayout = { bounds in
             let resolvedWidth = max(0, bounds.size.width)
             let resolvedHeight = max(0, bounds.size.height)

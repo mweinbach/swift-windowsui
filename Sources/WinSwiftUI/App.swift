@@ -2199,17 +2199,27 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double) {
+        self.window(window, mouseWheelAt: point, delta: delta, source: .wheelNotch)
+    }
+
+    func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double, source: ScrollInputSource) {
         let scaleFactor = window.effectiveScaleFactor
         let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
-        runtime.mouseWheel(at: logicalPoint, delta: delta)
+        runtime.mouseWheel(at: logicalPoint, delta: delta, source: source)
         onInputEventRouted?(.mouseWheel(point: logicalPoint, delta: delta, axis: nil, scaleFactor: scaleFactor))
         commitRuntimeState(in: window, interactive: true)
     }
 
     func window(_ window: Win32Window, horizontalScrollAt point: Point, delta: Double) {
+        self.window(window, horizontalScrollAt: point, delta: delta, source: .wheelNotch)
+    }
+
+    func window(
+        _ window: Win32Window, horizontalScrollAt point: Point, delta: Double, source: ScrollInputSource
+    ) {
         let scaleFactor = window.effectiveScaleFactor
         let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
-        runtime.mouseWheel(at: logicalPoint, delta: delta, axis: .horizontal)
+        runtime.mouseWheel(at: logicalPoint, delta: delta, axis: .horizontal, source: source)
         onInputEventRouted?(.mouseWheel(point: logicalPoint, delta: delta, axis: .horizontal, scaleFactor: scaleFactor))
         commitRuntimeState(in: window, interactive: true)
     }

@@ -14131,6 +14131,10 @@ private func updateTextInputEditingChrome(
         caretNode.backgroundColor = caretColor
         caretNode.preferredSize = caretSize
         caretNode.isHitTestVisible = false
+        // The runtime blinks it: NSTextInsertionIndicator is on ~0.5s, off
+        // ~0.5s, and a steady caret is one of the fastest tells that a text
+        // field is not a real system control.
+        caretNode.isTextInputCaret = true
         return caretNode
     }
     // Short tinted tail visualizing a selected trailing newline.

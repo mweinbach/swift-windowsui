@@ -2036,9 +2036,23 @@ public final class ViewNode {
         }
     }
 
+    /// One *line* of scroll, because that is what a wheel delta counts: the
+    /// Win32 host converts a notch into `SPI_GETWHEELSCROLLLINES` lines
+    /// (default 3) before the runtime sees it.
+    ///
+    /// It used to default to 64 — a notch-sized value sitting in a line-sized
+    /// slot, so one physical notch moved ~192px of step plus ~160px of glide,
+    /// more than half a 600pt viewport. 16 is the body line box this stack
+    /// pins (`MacOSControlMetrics.Typography`: 13pt at the 0.22 standard
+    /// leading ratio), which puts a default three-line notch at 48pt, in the
+    /// band `NSScrollView` lands in.
     public var scrollStep: Double {
         didSet { invalidateRuntime(.paint) }
     }
+
+    /// The per-line scroll distance a scrollable node uses when nothing sets
+    /// one. See `scrollStep`.
+    public nonisolated static let defaultScrollLineHeight: Double = 16
 
     public var showsScrollIndicator: Bool {
         didSet { invalidateRuntime(.paint) }
@@ -2783,6 +2797,23 @@ public final class ViewNode {
     /// re-applies it after every reconciliation.
     public var interactionSurface: RetainedInteractionSurface?
 
+    /// An animation this node applies to its own frame and fill changes at
+    /// reconciliation time, with or without an ambient `withAnimation`.
+    ///
+    /// For the handful of controls that animate on macOS *regardless* of what
+    /// the app asked for — `NSSwitch` is the one this exists for; its knob
+    /// springs across and its track cross-fades whether or not the state
+    /// change was wrapped in an animation. A rebuilt control's state change
+    /// carries no `currentAnimationTransaction`, so without this the knob
+    /// reached its end position in a single frame and the 20px of travel was
+    /// never drawn.
+    public var implicitReconcileAnimation: AnimationTransaction?
+
+    /// Marks this node as a text input's insertion indicator, so the runtime
+    /// can blink it. Set by the text-input chrome builder; nothing else in the
+    /// tree carries it.
+    public var isTextInputCaret = false
+
     public var onPointerEnter: (() -> Void)?
     public var onPointerExit: (() -> Void)?
     public var onPointerMove: ((Point) -> Void)?
@@ -3103,7 +3134,7 @@ public final class ViewNode {
         sensoryFeedback: RetainedSensoryFeedback? = nil,
         scrollAxis: ScrollAxis? = nil,
         scrollOffset: Double = 0,
-        scrollStep: Double = 64,
+        scrollStep: Double = ViewNode.defaultScrollLineHeight,
         showsScrollIndicator: Bool = false,
         scrollIndicatorColor: Color = Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 0.26),
         scrollIndicatorIdleColor: Color? = nil,
@@ -7120,6 +7151,10 @@ public final class ViewNode {
             return shadowColor
         case .scrollIndicator:
             return scrollIndicatorColor
+        case .backgroundGradientStart:
+            return backgroundGradient?.startColor ?? backgroundColor ?? .clear
+        case .backgroundGradientEnd:
+            return backgroundGradient?.endColor ?? backgroundColor ?? .clear
         }
     }
 
@@ -7135,6 +7170,39 @@ public final class ViewNode {
             shadowColor = color
         case .scrollIndicator:
             scrollIndicatorColor = color
+        case .backgroundGradientStart:
+            backgroundGradient = backgroundGradient?.replacingStartColor(with: color)
+        case .backgroundGradientEnd:
+            backgroundGradient = backgroundGradient?.replacingEndColor(with: color)
+        }
+    }
+
+    /// Cross-fades this node's fill from where it was to what the build just
+    /// wrote, for a node that animates its own changes
+    /// (`implicitReconcileAnimation`).
+    ///
+    /// The gradient ends are animated too, and that is not a nicety: a
+    /// gradient wins over `backgroundColor` at paint time, so a tween that
+    /// moved only the colour under a snapped gradient would not be visible at
+    /// all.
+    func applyImplicitFillTween(fromBackgroundColor: Color?, fromBackgroundGradient: GradientType?) {
+        guard let animation = implicitReconcileAnimation, animation.duration > 0, let runtime else {
+            return
+        }
+
+        let timestamp = Win32Window.currentTimestampSeconds()
+        if let fromBackgroundColor, let target = backgroundColor, fromBackgroundColor != target {
+            backgroundColor = fromBackgroundColor
+            runtime.animateColor(.background, of: self, to: target, duration: animation.duration, at: timestamp)
+        }
+        if let fromBackgroundGradient, let target = backgroundGradient, fromBackgroundGradient != target {
+            let startColor = target.startColor
+            let endColor = target.endColor
+            backgroundGradient = fromBackgroundGradient
+            runtime.animateColor(
+                .backgroundGradientStart, of: self, to: startColor, duration: animation.duration, at: timestamp)
+            runtime.animateColor(
+                .backgroundGradientEnd, of: self, to: endColor, duration: animation.duration, at: timestamp)
         }
     }
 
@@ -7595,7 +7663,16 @@ public final class RetainedViewRuntime {
         !colorAnimations.isEmpty || buttonRepeatState != nil || !scrollMomenta.isEmpty
             || !scrollPresentedTweens.isEmpty || !transitionOverlays.isEmpty
             || !scrollIndicatorReveals.isEmpty
+            || hasBlinkingCaret
             || hasNodeAnimationsInFlight
+    }
+
+    /// A focused text input's caret needs a tick forever, not until something
+    /// settles — the blink has no end state. Without it in the gate the host
+    /// switches its timer off and the caret freezes wherever the last frame
+    /// left it, which is the failure mode the comment above documents.
+    private var hasBlinkingCaret: Bool {
+        focusedCaretNode() != nil
     }
 
     /// Nodes with at least one in-flight per-property animation, maintained
@@ -7824,6 +7901,88 @@ public final class RetainedViewRuntime {
     /// Runs the reveal state machine on the animation clock. Returns true only
     /// when a tween was actually started, so a scroller sitting in its hold
     /// does not bill the host for a redraw every frame.
+    // MARK: - Caret blink
+
+    /// macOS blinks `NSTextInsertionIndicator` on for about half a second and
+    /// off for about half a second, fading rather than hard-toggling on
+    /// recent releases. A steady caret is one of the fastest tells that a text
+    /// field is not a real system control, and before this there was no blink
+    /// machinery anywhere in the stack: `tickAnimations` returned false on
+    /// every tick for two seconds with the field focused and the caret's alpha
+    /// pinned at its build value.
+    static let caretBlinkOnDuration: Double = 0.5
+    static let caretBlinkOffDuration: Double = 0.5
+    /// The edges are ramps, not steps.
+    static let caretBlinkFadeDuration: Double = 0.1
+
+    /// When the current blink cycle started. `nil` means no focused caret, or
+    /// a caret that has just been reset and will start its cycle on the next
+    /// tick. Reset — to fully on — happens on focus change, on any key the
+    /// focused input handles, and whenever the caret moves, all of which macOS
+    /// does too: a caret that blinked out mid-typing would be unreadable.
+    private var caretBlinkCycleStart: Double?
+
+    /// The caret under the focused node, if the focused node is a text input
+    /// currently showing one.
+    private func focusedCaretNode() -> ViewNode? {
+        guard let focusedNode else { return nil }
+        return Self.firstCaretNode(in: focusedNode)
+    }
+
+    private static func firstCaretNode(in node: ViewNode) -> ViewNode? {
+        if node.isTextInputCaret { return node }
+        for child in node.children {
+            if let found = firstCaretNode(in: child) { return found }
+        }
+        return nil
+    }
+
+    /// Restarts the blink at fully on. Called from every event that moves the
+    /// caret or changes what it is pointing at.
+    func resetCaretBlink() {
+        caretBlinkCycleStart = nil
+        if let caret = focusedCaretNode(), caret.opacity != 1 {
+            caret.opacity = 1
+            invalidate()
+        }
+    }
+
+    /// The blink phase's opacity at `elapsed` seconds into a cycle.
+    static func caretBlinkOpacity(atElapsed elapsed: Double) -> Double {
+        let period = caretBlinkOnDuration + caretBlinkOffDuration
+        let fade = min(caretBlinkFadeDuration, min(caretBlinkOnDuration, caretBlinkOffDuration))
+        let phase = elapsed.truncatingRemainder(dividingBy: period)
+        if phase < caretBlinkOnDuration - fade {
+            return 1
+        }
+        if phase < caretBlinkOnDuration {
+            return 1 - (phase - (caretBlinkOnDuration - fade)) / fade
+        }
+        if phase < period - fade {
+            return 0
+        }
+        return (phase - (period - fade)) / fade
+    }
+
+    private func tickCaretBlink(at timestamp: Double) -> Bool {
+        guard let caret = focusedCaretNode() else {
+            caretBlinkCycleStart = nil
+            return false
+        }
+        guard let cycleStart = caretBlinkCycleStart else {
+            caretBlinkCycleStart = timestamp
+            if caret.opacity != 1 {
+                caret.opacity = 1
+                return true
+            }
+            return false
+        }
+        let opacity = Self.caretBlinkOpacity(atElapsed: max(0, timestamp - cycleStart))
+        guard caret.opacity != opacity else { return false }
+        caret.opacity = opacity
+        return true
+    }
+
     private func tickScrollIndicatorReveals(at timestamp: Double) -> Bool {
         guard !scrollIndicatorReveals.isEmpty else { return false }
 
@@ -8127,7 +8286,22 @@ public final class RetainedViewRuntime {
         }
     }
 
-    public func mouseWheel(at point: Point, delta: Double, axis: ScrollAxis? = nil) {
+    /// `delta` is in *lines* (the host has already multiplied the notch by
+    /// `SPI_GETWHEELSCROLLLINES`), so `scrollStep` is a per-line distance.
+    ///
+    /// `source` decides whether the scroll glides. Momentum is a gesture-device
+    /// behaviour — AppKit populates `NSEvent.momentumPhase` for a trackpad or
+    /// Magic Mouse and never for a click wheel — and this stack was giving the
+    /// trackpad calibration to every wheel event: one line of wheel input
+    /// travelled 117.7px, a 64px step plus 53.7px of glide over two thirds of
+    /// a second. The decay constants are right where they apply; what was
+    /// wrong was applying them to a detent.
+    public func mouseWheel(
+        at point: Point,
+        delta: Double,
+        axis: ScrollAxis? = nil,
+        source: ScrollInputSource = .wheelNotch
+    ) {
         let scrollTarget = scrollTarget(at: point, axis: axis) ?? nearestScrollableNode(from: hoveredNode, axis: axis)
         guard let scrollableNode = scrollTarget else {
             return
@@ -8137,7 +8311,9 @@ public final class RetainedViewRuntime {
         let appliedDelta = scrollableNode.applyMouseWheelDelta(delta)
         if appliedDelta != 0 {
             updateHoverTarget(to: hitTest(at: point))
-            seedScrollMomentum(for: scrollableNode, wheelDelta: delta, appliedOffsetDelta: appliedDelta)
+            if source == .precise {
+                seedScrollMomentum(for: scrollableNode, wheelDelta: delta, appliedOffsetDelta: appliedDelta)
+            }
         }
     }
 
@@ -8298,6 +8474,10 @@ public final class RetainedViewRuntime {
     }
 
     public func keyDown(_ event: KeyboardEvent) {
+        // Typing restarts the blink at fully on. macOS does the same, and for
+        // the same reason: a caret that blinked out on the keystroke that
+        // moved it would be unreadable exactly when it matters.
+        resetCaretBlink()
         switch event.key {
         case .tab:
             moveFocus(reverse: event.modifiers.contains(.shift))
@@ -8489,6 +8669,7 @@ public final class RetainedViewRuntime {
         // Before the colour tweens are advanced below, so a reveal or a fade
         // started this tick makes progress on this tick rather than the next.
         let didStartScrollIndicatorTween = tickScrollIndicatorReveals(at: timestamp)
+        let didBlinkCaret = tickCaretBlink(at: timestamp)
         let didAdvancePropertyAnimations = tickPropertyAnimations(node: root, at: timestamp)
 
         var didAdvanceOverlayAnimations = false
@@ -8514,8 +8695,8 @@ public final class RetainedViewRuntime {
 
         guard !colorAnimations.isEmpty else {
             return didAdvanceButtonRepeat || didAdvanceScrollMomenta || didAdvanceScrollPresentedTweens
-                || didStartScrollIndicatorTween || didAdvancePropertyAnimations || didAdvanceOverlayAnimations
-                || !completedOverlays.isEmpty
+                || didStartScrollIndicatorTween || didBlinkCaret || didAdvancePropertyAnimations
+                || didAdvanceOverlayAnimations || !completedOverlays.isEmpty
         }
 
         var didUpdateAnyAnimation = false
@@ -8543,8 +8724,8 @@ public final class RetainedViewRuntime {
         }
 
         return didUpdateAnyAnimation || didAdvanceButtonRepeat || didAdvanceScrollMomenta
-            || didAdvanceScrollPresentedTweens || didStartScrollIndicatorTween || didAdvancePropertyAnimations
-            || didAdvanceOverlayAnimations || !completedOverlays.isEmpty
+            || didAdvanceScrollPresentedTweens || didStartScrollIndicatorTween || didBlinkCaret
+            || didAdvancePropertyAnimations || didAdvanceOverlayAnimations || !completedOverlays.isEmpty
     }
 
     // MARK: - Scroll Momentum
@@ -9705,6 +9886,7 @@ public final class RetainedViewRuntime {
         focusedNode = nextFocusedNode
         focusedNode?.isFocused = true
         focusedNode?.onFocusEnter?()
+        resetCaretBlink()
         applyInteractionChrome(to: previousNode)
         applyInteractionChrome(to: nextFocusedNode)
         invalidate()
@@ -9738,6 +9920,13 @@ public enum AnimatedColorProperty: Hashable, Sendable {
     case outline
     case shadow
     case scrollIndicator
+    /// The two ends of a node's background gradient, animated as ordinary
+    /// colours so a fill that is *painted* as a gradient — which is every
+    /// control surface with a sheen, and the gradient wins over
+    /// `backgroundColor` at paint time — can cross-fade at all. Multi-stop
+    /// gradients move only at their ends.
+    case backgroundGradientStart
+    case backgroundGradientEnd
 }
 
 /// The state-dependent chrome of one control, as a value the runtime resolves.

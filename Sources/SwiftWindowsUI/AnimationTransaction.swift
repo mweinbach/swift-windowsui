@@ -7,6 +7,19 @@ import SwiftWindowsCore
 @MainActor
 public var currentAnimationTransaction: (duration: Double, easing: AnimationEasing)?
 
+/// A duration/easing pair a node carries for its own property changes,
+/// independent of any ambient `withAnimation`. See
+/// `ViewNode.implicitReconcileAnimation`.
+public struct AnimationTransaction: Sendable, Equatable {
+    public var duration: Double
+    public var easing: AnimationEasing
+
+    public init(duration: Double, easing: AnimationEasing) {
+        self.duration = duration
+        self.easing = easing
+    }
+}
+
 /// Full SwiftUI `Transaction` context propagated by `withTransaction`.
 /// When present, property-change reconciliation reads `animation` and
 /// `disablesAnimations` from this transaction in addition to the legacy

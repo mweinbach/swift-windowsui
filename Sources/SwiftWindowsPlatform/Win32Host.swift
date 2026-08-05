@@ -60,6 +60,11 @@ public protocol WindowDelegate: AnyObject {
     func window(_ window: Win32Window, pointerMovedTo point: Point)
     func windowPointerDidLeave(_ window: Win32Window)
     func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double)
+    /// The wheel event with its provenance. `delta` is in lines; `source`
+    /// separates a click-wheel detent -- which must not glide -- from a
+    /// precision-touchpad gesture, which must. Defaults to forwarding to the
+    /// three-argument form so existing conformances keep working.
+    func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double, source: ScrollInputSource)
     func window(_ window: Win32Window, leftMouseDownAt point: Point)
     func window(_ window: Win32Window, leftMouseUpAt point: Point)
     func window(_ window: Win32Window, keyDown event: KeyboardEvent)
@@ -70,6 +75,8 @@ public protocol WindowDelegate: AnyObject {
     func windowDidReceiveRightClick(_ window: Win32Window, event: MouseEvent)
     func windowDidReceiveDoubleClick(_ window: Win32Window, event: MouseEvent)
     func window(_ window: Win32Window, horizontalScrollAt point: Point, delta: Double)
+    func window(
+        _ window: Win32Window, horizontalScrollAt point: Point, delta: Double, source: ScrollInputSource)
     func windowDidChangeVisibility(_ window: Win32Window, isVisible: Bool)
     func windowDidChangeSystemSettings(_ window: Win32Window)
     func window(_ window: Win32Window, middleMouseDownAt point: Point)
@@ -95,6 +102,11 @@ extension WindowDelegate {
     public func window(_ window: Win32Window, pointerMovedTo point: Point) {}
     public func windowPointerDidLeave(_ window: Win32Window) {}
     public func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double) {}
+    public func window(
+        _ window: Win32Window, mouseWheelAt point: Point, delta: Double, source: ScrollInputSource
+    ) {
+        self.window(window, mouseWheelAt: point, delta: delta)
+    }
     public func window(_ window: Win32Window, leftMouseDownAt point: Point) {}
     public func window(_ window: Win32Window, leftMouseUpAt point: Point) {}
     public func window(_ window: Win32Window, keyDown event: KeyboardEvent) {}
@@ -105,6 +117,11 @@ extension WindowDelegate {
     public func windowDidReceiveRightClick(_ window: Win32Window, event: MouseEvent) {}
     public func windowDidReceiveDoubleClick(_ window: Win32Window, event: MouseEvent) {}
     public func window(_ window: Win32Window, horizontalScrollAt point: Point, delta: Double) {}
+    public func window(
+        _ window: Win32Window, horizontalScrollAt point: Point, delta: Double, source: ScrollInputSource
+    ) {
+        self.window(window, horizontalScrollAt: point, delta: delta)
+    }
     public func windowDidChangeVisibility(_ window: Win32Window, isVisible: Bool) {}
     public func windowDidChangeSystemSettings(_ window: Win32Window) {}
     public func window(_ window: Win32Window, middleMouseDownAt point: Point) {}
@@ -1367,17 +1384,20 @@ public final class Win32Window {
         case UINT(WM_MOUSEWHEEL):
             let point = Self.clientPoint(fromScreenLParam: lParam, hwnd: hwnd)
             let modifiers = Self.currentKeyboardModifiers()
+            let source = Self.scrollInputSource(from: wParam)
             if modifiers.contains(.shift) {
                 delegate?.window(
                     self,
                     horizontalScrollAt: point,
-                    delta: Self.mouseWheelDelta(from: wParam, unit: .characters)
+                    delta: Self.mouseWheelDelta(from: wParam, unit: .characters),
+                    source: source
                 )
             } else {
                 delegate?.window(
                     self,
                     mouseWheelAt: point,
-                    delta: Self.mouseWheelDelta(from: wParam, unit: .lines)
+                    delta: Self.mouseWheelDelta(from: wParam, unit: .lines),
+                    source: source
                 )
             }
             return 0
@@ -1386,7 +1406,8 @@ public final class Win32Window {
             delegate?.window(
                 self,
                 horizontalScrollAt: Self.clientPoint(fromScreenLParam: lParam, hwnd: hwnd),
-                delta: Self.mouseWheelDelta(from: wParam, unit: .characters)
+                delta: Self.mouseWheelDelta(from: wParam, unit: .characters),
+                source: Self.scrollInputSource(from: wParam)
             )
             return 0
 
@@ -1770,6 +1791,17 @@ public final class Win32Window {
         )
         ScreenToClient(hwnd, &point)
         return Point(x: Double(point.x), y: Double(point.y))
+    }
+
+    /// A click wheel reports whole multiples of `WHEEL_DELTA`; a precision
+    /// touchpad (and a Magic-Mouse-class device) reports fractions of it as
+    /// the finger moves. That is the only signal Windows gives for the
+    /// distinction AppKit exposes as `NSEvent.momentumPhase`, and it is
+    /// enough: momentum belongs to the gesture, never to the detent.
+    static func scrollInputSource(from wParam: WPARAM) -> ScrollInputSource {
+        let highWord = UInt16((UInt(truncatingIfNeeded: wParam) >> 16) & 0xFFFF)
+        let magnitude = abs(Int(Int16(bitPattern: highWord)))
+        return magnitude != 0 && magnitude % Int(WHEEL_DELTA) == 0 ? .wheelNotch : .precise
     }
 
     private static func mouseWheelDelta(from wParam: WPARAM, unit: MouseWheelUnit) -> Double {

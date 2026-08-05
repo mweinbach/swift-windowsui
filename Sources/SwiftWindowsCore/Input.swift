@@ -45,6 +45,22 @@ public enum KeyboardKey: UInt32, Sendable {
     case space = 0x20
     case mediaPlayPause = 0xB3
 }
+/// Where a scroll delta came from, which is the difference between a scroll
+/// that should glide and one that should stop when it stops.
+///
+/// AppKit gives a momentum phase only to gesture devices — `NSEvent`'s
+/// `momentumPhase` is populated for a trackpad or a Magic Mouse and never for
+/// a click wheel. A discrete notch on macOS is a bounded jump. Windows makes
+/// the same distinction available: a precision touchpad sends `WM_MOUSEWHEEL`
+/// in fractions of `WHEEL_DELTA`, a click wheel in whole multiples of it.
+public enum ScrollInputSource: Sendable, Equatable {
+    /// One or more whole detents of a click wheel.
+    case wheelNotch
+    /// A continuous gesture: precision touchpad, Magic Mouse, or a synthetic
+    /// high-resolution delta.
+    case precise
+}
+
 public struct KeyboardEvent: Sendable {
     public var keyCode: UInt32
     public var modifiers: KeyboardModifiers

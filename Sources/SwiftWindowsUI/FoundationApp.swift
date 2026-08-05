@@ -124,7 +124,14 @@ public final class FoundationApp: WindowDelegate {
     }
 
     public func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double) {
-        runtime.mouseWheel(at: logicalPoint(point, scaleFactor: window.scaleFactor), delta: delta)
+        self.window(window, mouseWheelAt: point, delta: delta, source: .wheelNotch)
+    }
+
+    public func window(
+        _ window: Win32Window, mouseWheelAt point: Point, delta: Double, source: ScrollInputSource
+    ) {
+        runtime.mouseWheel(
+            at: logicalPoint(point, scaleFactor: window.scaleFactor), delta: delta, source: source)
         commitRuntimeState(in: window)
     }
 

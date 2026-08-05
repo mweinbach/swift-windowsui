@@ -253,6 +253,41 @@ public enum GradientType: Equatable, Sendable {
         }
     }
 
+    /// The same gradient with its first stop recoloured — the animatable end
+    /// of a two-stop control sheen. Position and axis are untouched.
+    public func replacingStartColor(with color: Color) -> GradientType {
+        replacingStop(at: 0, with: color)
+    }
+
+    /// The same gradient with its last stop recoloured.
+    public func replacingEndColor(with color: Color) -> GradientType {
+        switch self {
+        case .linear(let g): return replacingStop(at: max(0, g.stops.count - 1), with: color)
+        case .radial(let g): return replacingStop(at: max(0, g.stops.count - 1), with: color)
+        case .conic(let g): return replacingStop(at: max(0, g.stops.count - 1), with: color)
+        }
+    }
+
+    private func replacingStop(at index: Int, with color: Color) -> GradientType {
+        func recoloured(_ stops: [GradientStop]) -> [GradientStop] {
+            guard stops.indices.contains(index) else { return stops }
+            var next = stops
+            next[index] = GradientStop(color: color, position: stops[index].position)
+            return next
+        }
+        switch self {
+        case .linear(var g):
+            g.stops = recoloured(g.stops)
+            return .linear(g)
+        case .radial(var g):
+            g.stops = recoloured(g.stops)
+            return .radial(g)
+        case .conic(var g):
+            g.stops = recoloured(g.stops)
+            return .conic(g)
+        }
+    }
+
     public func withMultipliedOpacity(_ opacity: Double) -> GradientType {
         let floatOpacity = Float(opacity)
         switch self {

@@ -194,11 +194,60 @@ Two things this measurement fixed that arithmetic alone would not have:
   presents after a self-paced run drain into an empty DXGI queue and return in
   0.04 ms whatever the compositor is doing. Probes that trusted them handed
   pacing back twice in one run and measured 10.9 and then 20.3 fps.
-- The self-paced schedule is pinned to the **runtime pacing floor, not the
-  display period**. Frames arrive on a timer-queue timer whose accuracy is the
-  ~15.6 ms system tick; a schedule at 16.667 ms rejected every second tick for
-  being a millisecond early and then waited a whole further tick, measuring
-  49 fps from a gate that was arithmetically correct.
+- The self-paced schedule was initially pinned to the **runtime pacing floor,
+  not the display period**, because frames arrived on a timer-queue timer
+  whose accuracy was the ~15.6 ms system tick; a schedule at 16.667 ms
+  rejected every second tick for being a millisecond early and then waited a
+  whole further tick, measuring 49 fps from a gate that was arithmetically
+  correct. That floor-pinned schedule overshot instead (~62 fps, 13.8 ms
+  median gap, the invented slots filled with byte-identical replays), which
+  is what the timer-resolution work below removed: with 1 ms wakes the
+  schedule sits on the true period.
+
+### 2026-08 — production smoothness: every presented frame differs, on the period, from the first frame
+
+Four follow-up fixes to the watchdog era above, measured on the same machine
+(release, RTX 5090, headless virtual 1024×768 @ 60 Hz, 30 s scripted paced
+runs; `artifacts/perf/l9-after-*.json`, motion capture in
+`artifacts/motion-l9/`):
+
+1. **Timer resolution.** The process never raised the system timer
+   resolution, so every frame timer quantized to the ~15.6 ms tick.
+   `Win32Window` now holds `timeBeginPeriod(1)` exactly while an animation
+   timer runs.
+2. **Self-paced cadence on the true period.** The gate schedules on
+   16.667 ms instead of the 14.4 ms pacing floor.
+3. **Duplicate presents skipped.** The runtime's `contentRevision` moves only
+   on real rebuilds; an animating frame whose revision is already on screen
+   is not presented.
+4. **The pacing verdict is persisted** per adapter+display
+   (`%LOCALAPPDATA%\swift-windowsui\present-pacing.json`); later launches
+   start self-paced with one immediate confirmation probe, and the probe
+   backoff jumps to its 30 s cap after 2 consecutive failures.
+
+| Measure | Round 8 (watchdog era) | Now |
+| --- | --- | --- |
+| Byte-identical frames while animating (pixel capture) | 14 of 35 (40 %) | **2 of 32 (6 %)** |
+| Median presented-frame gap, self-paced | 13.8 ms | **15.95 ms** (mean 16.79) |
+| Steady-state fps, paced 30 s run | ~62 between probes / 53.7 over run | **59.5** steady / 57.4 over run (warm launch) |
+| Launch on a broken compositor | ~1.5 s slideshow + probes, every launch | slideshow **once ever**; warm launch: 0 engagements, 1 probe inside warmup |
+| Recovery probes in a 30 s broken session | 3 | **2** cold (backoff at cap after 2), **1** warm |
+| Unpaced animating frame, p50 / p95 | 0.23 / 0.64 ms | 0.26 / 0.65 ms (unchanged) |
+
+The hover-fade capture is the pixel-level proof: during the fade every
+presented frame differs (~2 200 px changing per frame, one frame per display
+period). The two residual identical frames sit at fade *onset* — the tree is
+rebuilt with sub-quantum value changes (revision moves, pixels do not), which
+a revision check cannot see. The post-fade duplicates in a capture are idle
+pump frames: an idle window presents on explicit request by design, because
+the requester (the diagnostics loop, the input-rate tracker) is owed a frame
+it can observe.
+
+Also honest: ~5 % of self-paced slots still miss (p95 present gap ~31 ms,
+one skipped period) under the sustained 40-interactions/s scripted load —
+the same dropped-tick phenomenon the round-8 capture showed at 26–28 ms
+spacing, now spaced by the corrected schedule. The phase-locked schedule
+absorbs each miss without bursting; the long-run rate stays the display's.
 
 ### Debug builds are not the measurement
 

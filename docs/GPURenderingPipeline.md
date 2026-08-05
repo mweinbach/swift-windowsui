@@ -1534,6 +1534,61 @@ above half of it, so two rebuilds cannot share one vsync interval. A paced
 frame returns the cached scene/frame and *leaves the dirty flags set*, so the
 content still reaches the screen on the next tick.
 
+**Timer resolution.** Every timer the frame loop rides — the timer-queue
+frame timer, the coalescing `SetTimer` fallback, and the 1 ms deferral wake
+the self-paced gate arms — fires on the system interrupt period, ~15.6 ms by
+default. `Win32Window` raises it to 1 ms with `timeBeginPeriod(1)` exactly
+while an animation timer is running and releases it the moment the timer
+stops (`updateTimerResolutionHold`; injectable
+`TimerResolutionController` seam). Power policy as much as timing policy:
+the raise bills the whole machine, so an idle window holds nothing, and
+interval re-arms — which the deferral wake performs constantly — ride one
+hold rather than churning the WinMM pair.
+
+**Present pacing.** `PresentPacingPolicy`
+(`Sources/SwiftWindowsGraphics/PresentPacing.swift`) is the watchdog that
+takes the pacing job away from a compositor that blocks `Present(1)`
+pathologically (measured ~252 ms per present on a headless virtual display,
+through both presenters) and hands it to the host's self-paced frame gate.
+Deliberately a renderer-neutral value type — no clock, no threads, no I/O —
+driven entirely by the presents fed to it. Around it:
+
+- *The self-paced gate schedules on the true display period.* While timers
+  quantized to the 15.6 ms tick it had to schedule on the runtime's pacing
+  floor (~14.4 ms at 60 Hz), which overshot — ~62 delivered fps with a
+  13.8 ms median gap, the extra slots filled with byte-identical replays.
+  With 1 ms wakes the schedule is phase-locked to the period: deadlines
+  advance by whole periods, `selfPacedEarlyTolerance` (1.5 ms) absorbs the
+  whole-millisecond remainder the timer cannot express, and the long-run
+  rate is the display's (measured: 15.95 ms median / 16.79 ms mean gap,
+  59.5 fps steady).
+- *A frame that would present the pixels already on screen is skipped.* The
+  runtime bumps `contentRevision` only when `renderFrame`/`renderScene`
+  actually rebuilds — never on a cache hit or pacing-floor replay — and the
+  host drops a present whose revision is already on screen. Only while an
+  animation is active (its next tick supplies the frame that differs; an
+  idle window's explicit requests must keep presenting or the requester
+  starves), and never when a device rebuild owes the screen pixels
+  (`needsImmediateRepaint`). Skips are counted
+  (`skippedIdenticalPresentCount`) and reported in the diagnostics JSON.
+- *The verdict is remembered across sessions.* `PresentPacingMemoryStore`
+  (host layer, `%LOCALAPPDATA%\swift-windowsui\present-pacing.json`, keyed
+  by adapter + display identity) persists `requiresSelfPacing`. At attach
+  the host seeds **both** presenters via `adoptRememberedSelfPacing()`:
+  self-paced from the first present, an immediate confirmation probe, and
+  the probe backoff pre-seeded at its cap — so a still-broken display pays
+  one probe hitch per launch instead of re-earning ~1.5 s of slideshow
+  evidence, and a fixed display passes the probe, returns to vsync, and the
+  memory is dropped. Healthy machines never create the file.
+- *Probes are contiguous by physics, so they are rare by policy.* A probe's
+  judged presents must be consecutive — DXGI queues `MaximumFrameLatency`
+  presents before `Present` waits, so nonadjacent paced presents measure
+  queue depth, not the display (the empty-queue deception
+  `probeWarmupFrames` exists for). The softener is the backoff jump:
+  after `failedProbesBeforeBackoffCap` (2) consecutive failures the
+  interval goes straight to the 30 s ceiling instead of climbing 4 → 8 →
+  16. A display *change* still probes immediately.
+
 **Recovery ladder.** `scheduleBatchBackendRecoveryIfNeeded` no longer resets
 the backoff on every downgrade. A healthy device with one unrenderable scene
 re-attaches trivially (`createDeviceIfNeeded`, the factory and
@@ -1597,6 +1652,26 @@ for a setting the app does not read.
   tick sequence renders ≥ 55 frames per simulated second at 60 Hz; two
   rebuilds cannot share a vsync interval; `WM_PAINT` frames carry the host
   clock, never `0`.
+- `TimerResolutionHoldTests` — the 1 ms hold follows a *running* animation
+  timer exactly: raised once however often the interval changes, released
+  exactly once on stop, never raised for a window with no timer.
+- `SelfPacedFrameGateTests` — the gate is inert while the display paces;
+  self-paced, it delivers the display's cadence, defers early frames to a
+  timed wake, and — under an emulated 1 ms-accurate timer — locks to the
+  period (≤ 61.5 fps, median gap on the period; the old floor-pinned
+  schedule measures 69.5 fps / 14.0 ms there).
+- `IdenticalPresentSkipTests` — an animating frame whose content revision is
+  already on screen is skipped with the frame loop still armed; the next
+  real change presents; idle requests keep presenting; a device rebuild
+  presents unconditionally.
+- `PresentPacingWatchdogTests` — the engage bar, the probe warmup against
+  the empty-queue deception, the backoff jump to the cap after two failed
+  probes, and the remembered-verdict adoption contract (pristine sessions
+  only, immediate confirmation probe, cap-seeded backoff).
+- `PresentPacingMemoryTests` — the store round-trips, drops entries rather
+  than writing reassurances, forgets corrupt files; the host seeds both
+  presenters from a remembered verdict, files an engagement, and drops the
+  memory when a probe passes.
 - `BatchRecoveryBackoffTests` — the ladder grows 5 → 10 → 20 → 40 → 60 across
   downgrades, a sustained healthy run retires it, a `.sceneContent` failure is
   not retried against an unchanged tree, `.permanent` schedules nothing.

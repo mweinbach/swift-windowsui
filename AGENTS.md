@@ -59,5 +59,6 @@ compatibility changes.
 - `docs/WinSwiftUI.md` — what the compatibility layer is and how it maps onto the runtime.
 - `docs/CompatibilityStatus.md` — what is safe to use today in the shared-source subset.
 - `docs/MacOSDesignParity.md`, `docs/AnimationParity.md` — pinned macOS design and animation constants, enforced by parity tests.
+- `docs/Typography.md` — the UI face and its optical sizes, and how glyphs and hairlines land on device pixels at fractional DPI.
 - `docs/MacOSReferenceParityWorkflow.md` — producing macOS reference renders and comparing them against Windows output.
 - `docs/StabilizationRoadmap.md` — the phased plan toward release quality.

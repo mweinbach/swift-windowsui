@@ -17368,6 +17368,15 @@ extension Font {
         size
     }
 
+    /// The font family this run is set in.
+    ///
+    /// The UI designs resolve through ``SystemUIFontFace``, which picks the
+    /// installed Windows 11 variable face at the optical size this run's
+    /// *point* size calls for, and the classic Segoe UI on Windows 10. It is
+    /// keyed on `size` rather than a single per-process family name because
+    /// optical size is per run: a 10pt caption and a 26pt title in the same
+    /// window are set in two different cuts of the same design.
+    @MainActor
     var resolvedFamily: String {
         if let family {
             return family
@@ -17375,7 +17384,7 @@ extension Font {
 
         switch design {
         case .default, .rounded:
-            return "Segoe UI"
+            return SystemUIFontFace.family(forPointSize: size)
         case .serif:
             return "Georgia"
         case .monospaced:

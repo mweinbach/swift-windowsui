@@ -38,6 +38,13 @@ beside it.
 Line height is `size + lineSpacing`, which is what the text renderer sets as
 DirectWrite's uniform line height.
 
+### The face those sizes are set in
+
+This document pins the point *sizes*. The family they resolve to —
+Segoe UI Variable at the optical size each size calls for on Windows 11,
+classic Segoe UI on Windows 10 — is `docs/Typography.md`, along with how
+glyphs and hairlines land on device pixels at 125% and 150%.
+
 ### `Font.system(size:)` is points
 
 `Font.resolvedNativeTextSize` used to be

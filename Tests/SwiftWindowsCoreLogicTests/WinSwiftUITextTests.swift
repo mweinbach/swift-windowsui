@@ -58,9 +58,13 @@ final class WinSwiftUITextTests: XCTestCase {
             )
 
             XCTAssertEqual(textBoldNode.textStyle.weight, .regular)
-            XCTAssertEqual(textMonospacedNode.textStyle.fontFamily, "Segoe UI")
+            // `.monospaced(false)` returns to the UI design, which resolves
+            // through the system UI face — `SystemUIFontFaceTests` owns which
+            // family that is; this pins that the design routing came back.
+            let uiFamily = SystemUIFontFace.family(forPointSize: Font.body.size)
+            XCTAssertEqual(textMonospacedNode.textStyle.fontFamily, uiFamily)
             XCTAssertEqual(inheritedNode.children[0].textStyle.fontFamily, "Cascadia Mono")
-            XCTAssertEqual(inheritedNode.children[1].textStyle.fontFamily, "Segoe UI")
+            XCTAssertEqual(inheritedNode.children[1].textStyle.fontFamily, uiFamily)
             XCTAssertEqual(inheritedNode.children[2].textStyle.weight, .regular)
         }
     }

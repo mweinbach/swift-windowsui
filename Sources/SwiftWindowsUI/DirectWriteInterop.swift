@@ -147,6 +147,26 @@ struct IDWriteBitmapRenderTarget { var lpVtbl: UnsafeMutablePointer<IDWriteBitma
 struct IDWriteRenderingParams { var lpVtbl: UnsafeMutablePointer<IDWriteRenderingParamsVtbl>? }
 struct IDWriteTextRenderer { var lpVtbl: UnsafeMutablePointer<IDWriteTextRendererVtbl>? }
 struct IDWriteTypography { var lpVtbl: UnsafeMutablePointer<IDWriteTypographyVtbl>? }
+struct IDWriteFontCollection { var lpVtbl: UnsafeMutablePointer<IDWriteFontCollectionVtbl>? }
+/// `IDWriteFontCollection`, in ABI order. Only `FindFamilyName` is typed:
+/// it is the one honest answer to "is this face installed", because
+/// `CreateTextFormat` succeeds for families that are not.
+struct IDWriteFontCollectionVtbl {
+    var QueryInterface: DWQueryInterfaceProc
+    var AddRef: DWAddRefProc
+    var Release: DWReleaseProc
+    var GetFontFamilyCount: UnsafeMutableRawPointer?
+    var GetFontFamily: UnsafeMutableRawPointer?
+    var FindFamilyName: DWFindFamilyNameProc
+    var GetFontFromFontFace: UnsafeMutableRawPointer?
+}
+typealias DWGetSystemFontCollectionProc =
+    @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<UnsafeMutableRawPointer?>?, WindowsBool) -> HRESULT
+typealias DWFindFamilyNameProc =
+    @convention(c) (
+        UnsafeMutableRawPointer?, UnsafePointer<WCHAR>?, UnsafeMutablePointer<UINT32>?,
+        UnsafeMutablePointer<WindowsBool>?
+    ) -> HRESULT
 typealias DWQueryInterfaceProc =
     @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<GUID>?, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) ->
     HRESULT
@@ -371,7 +391,7 @@ struct IDWriteFactoryVtbl {
     var QueryInterface: DWQueryInterfaceProc
     var AddRef: DWAddRefProc
     var Release: DWReleaseProc
-    var GetSystemFontCollection: UnsafeMutableRawPointer?
+    var GetSystemFontCollection: DWGetSystemFontCollectionProc
     var CreateCustomFontCollection: UnsafeMutableRawPointer?
     var RegisterFontCollectionLoader: UnsafeMutableRawPointer?
     var UnregisterFontCollectionLoader: UnsafeMutableRawPointer?

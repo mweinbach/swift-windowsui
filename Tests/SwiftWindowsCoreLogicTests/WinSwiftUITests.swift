@@ -2846,7 +2846,10 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(node.textStyle.scale, 1.8)
             XCTAssertEqual(node.textStyle.nativeFontSize, 18)
             XCTAssertEqual(node.textStyle.weight, .semibold)
-            XCTAssertEqual(node.textStyle.fontFamily, "Segoe UI")
+            // `.rounded` is a UI design, so it resolves through the system UI
+            // face at this run's optical size. The face names themselves are
+            // `SystemUIFontFaceTests`' business; what this pins is the routing.
+            XCTAssertEqual(node.textStyle.fontFamily, SystemUIFontFace.family(forPointSize: 18))
         }
     }
 
@@ -3059,7 +3062,7 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(textNode.textStyle.nativeFontSize, 14)
             XCTAssertEqual(textNode.textStyle.weight, .semibold)
-            XCTAssertEqual(textNode.textStyle.fontFamily, "Segoe UI")
+            XCTAssertEqual(textNode.textStyle.fontFamily, SystemUIFontFace.family(forPointSize: 14))
         }
     }
 
@@ -3182,7 +3185,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(inheritedNode.children[0].textStyle.fontFamily, "Georgia")
             XCTAssertEqual(inheritedNode.children[0].textStyle.nativeFontSize, 16)
             XCTAssertEqual(inheritedNode.children[0].textStyle.weight, .bold)
-            XCTAssertEqual(inheritedNode.children[1].textStyle.fontFamily, "Segoe UI")
+            XCTAssertEqual(
+                inheritedNode.children[1].textStyle.fontFamily, SystemUIFontFace.family(forPointSize: 16))
             XCTAssertEqual(styleNode.textStyle.fontFamily, "Georgia")
             XCTAssertEqual(styleNode.textStyle.weight, .semibold)
         }
@@ -3740,13 +3744,14 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(node.children[0].textStyle.color, optionalColor)
             XCTAssertEqual(node.children[0].textStyle.nativeFontSize, 18)
             XCTAssertEqual(node.children[0].textStyle.weight, .semibold)
-            XCTAssertEqual(node.children[0].textStyle.fontFamily, "Segoe UI")
+            XCTAssertEqual(node.children[0].textStyle.fontFamily, SystemUIFontFace.family(forPointSize: 18))
 
             XCTAssertEqual(node.children[1].textStyle.color, inheritedColor)
             // `.font(nil)` clears the ambient font to the system default.
             XCTAssertEqual(node.children[1].textStyle.nativeFontSize, Font.body.size)
             XCTAssertEqual(node.children[1].textStyle.weight, .regular)
-            XCTAssertEqual(node.children[1].textStyle.fontFamily, "Segoe UI")
+            XCTAssertEqual(
+                node.children[1].textStyle.fontFamily, SystemUIFontFace.family(forPointSize: Font.body.size))
 
             XCTAssertEqual(node.children[2].textStyle.color, optionalColor)
             XCTAssertEqual(node.children[3].children[0].textStyle.color, optionalColor)
@@ -5529,7 +5534,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(child.textStyle.scale, 1.8)
             XCTAssertEqual(child.textStyle.nativeFontSize, 18)
             XCTAssertEqual(child.textStyle.weight, .semibold)
-            XCTAssertEqual(child.textStyle.fontFamily, "Segoe UI")
+            XCTAssertEqual(child.textStyle.fontFamily, SystemUIFontFace.family(forPointSize: 18))
             XCTAssertEqual(child.textStyle.alignment, .leading)
             XCTAssertNil(child.textStyle.maximumNumberOfLines)
         }

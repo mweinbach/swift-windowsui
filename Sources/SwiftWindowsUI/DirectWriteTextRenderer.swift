@@ -28,6 +28,19 @@ enum DirectWriteTextRenderer {
         DirectWriteSystem.shared?.measuredLineWidthForTesting(text, style: style)
     }
 
+    /// Whether `family` names a font family that is actually installed.
+    ///
+    /// The only correct answer to that question, because
+    /// `IDWriteFactory.CreateTextFormat` returns `S_OK` for families that are
+    /// not installed and substitutes silently at layout time — so a stack that
+    /// asks for "Segoe UI Variable Text" on Windows 10 gets a format, a
+    /// layout, and glyphs, all of them from some other face. `nil` means
+    /// DirectWrite itself is unavailable and the caller has no evidence
+    /// either way.
+    static func isFontFamilyInstalled(_ family: String) -> Bool? {
+        DirectWriteSystem.shared?.isFontFamilyInstalled(family)
+    }
+
     /// Test seam: DirectWrite shaping probes run for tracking coherence since
     /// the last `resetShapedGlyphCountCacheForTesting()`. Every probe is a full
     /// text layout plus a glyph-run capture on the main actor.
@@ -329,6 +342,35 @@ private final class DirectWriteSystem {
 
     func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> Size? {
         layout(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)?.measuredSize
+    }
+
+    /// `IDWriteFontCollection.FindFamilyName` against the system collection.
+    ///
+    /// The collection is fetched per call with `checkForUpdates: false`: this
+    /// runs a handful of times per process (once per candidate face, memoized
+    /// above), so caching the collection would only pin a COM object for the
+    /// life of the process to save nothing.
+    func isFontFamilyInstalled(_ family: String) -> Bool {
+        guard !family.isEmpty else {
+            return false
+        }
+        var collectionRaw: UnsafeMutableRawPointer?
+        let hr = factory.pointee.lpVtbl!.pointee.GetSystemFontCollection(
+            UnsafeMutableRawPointer(factory), &collectionRaw, WindowsBool(false))
+        guard isSuccess(hr), let collectionRaw else {
+            return false
+        }
+        var collection: UnsafeMutablePointer<IDWriteFontCollection>? = collectionRaw.assumingMemoryBound(
+            to: IDWriteFontCollection.self)
+        defer { releaseDirectWriteCOM(&collection) }
+
+        var index: UINT32 = 0
+        var exists = WindowsBool(false)
+        let findHR = withWideString(family) { name in
+            collection!.pointee.lpVtbl!.pointee.FindFamilyName(
+                UnsafeMutableRawPointer(collection!), name, &index, &exists)
+        }
+        return isSuccess(findHR) && exists.boolValue
     }
 
     func layout(

@@ -9,7 +9,6 @@ import SwiftWindowsPlatform
 public struct ControlAnimationStyle: Sendable {
     public var focusDuration: Double
     public var pressDuration: Double
-    public var activationDuration: Double
 
     /// Uniform scale a control is drawn at while the pointer is held down.
     ///
@@ -47,12 +46,10 @@ public struct ControlAnimationStyle: Sendable {
     public init(
         focusDuration: Double = 0.18,
         pressDuration: Double = 0.14,
-        activationDuration: Double = 0.18,
         pressedScale: Double = 1
     ) {
         self.focusDuration = focusDuration
         self.pressDuration = pressDuration
-        self.activationDuration = activationDuration
         self.pressedScale = pressedScale
     }
 
@@ -63,7 +60,6 @@ public struct SurfacePalette: Sendable {
     public var hovered: Color
     public var focused: Color
     public var pressed: Color
-    public var activated: Color
     public var disabledBackground: Color
     public var disabledForeground: Color
     public var disabledBorder: Color
@@ -88,7 +84,6 @@ public struct SurfacePalette: Sendable {
         hovered: Color? = nil,
         focused: Color,
         pressed: Color,
-        activated: Color? = nil,
         disabledBackground: Color = Color(red: 0.22, green: 0.24, blue: 0.28, alpha: 0.60),
         disabledForeground: Color = Color(red: 0.55, green: 0.58, blue: 0.62, alpha: 0.70),
         disabledBorder: Color = Color(red: 0.40, green: 0.42, blue: 0.46, alpha: 0.30),
@@ -99,7 +94,6 @@ public struct SurfacePalette: Sendable {
         self.hovered = hovered ?? focused
         self.focused = focused
         self.pressed = pressed
-        self.activated = activated ?? focused
         self.disabledBackground = disabledBackground
         self.disabledForeground = disabledForeground
         self.disabledBorder = disabledBorder
@@ -111,8 +105,7 @@ public struct SurfacePalette: Sendable {
         idle: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.92),
         hovered: Color(red: 0.12, green: 0.16, blue: 0.22, alpha: 0.92),
         focused: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.92),
-        pressed: Color(red: 0.06, green: 0.08, blue: 0.12, alpha: 0.92),
-        activated: Color(red: 0.14, green: 0.18, blue: 0.26, alpha: 0.92)
+        pressed: Color(red: 0.06, green: 0.08, blue: 0.12, alpha: 0.92)
     )
 }
 public enum BorderStyle: Sendable, Equatable {
@@ -147,7 +140,6 @@ public struct SurfaceChrome: Sendable {
     public var borderHoveredColor: Color
     public var borderFocusedColor: Color
     public var borderPressedColor: Color
-    public var borderActivatedColor: Color
     public var borderWidth: Double
     public var borderTopWidth: Double?
     public var borderRightWidth: Double?
@@ -161,7 +153,6 @@ public struct SurfaceChrome: Sendable {
     public var shadowHoveredColor: Color
     public var shadowFocusedColor: Color
     public var shadowPressedColor: Color
-    public var shadowActivatedColor: Color
     public var shadowOffset: Point
     public var shadowSpread: Double
 
@@ -170,7 +161,6 @@ public struct SurfaceChrome: Sendable {
         borderHoveredColor: Color? = nil,
         borderFocusedColor: Color? = nil,
         borderPressedColor: Color? = nil,
-        borderActivatedColor: Color? = nil,
         borderWidth: Double = 0,
         borderTopWidth: Double? = nil,
         borderRightWidth: Double? = nil,
@@ -184,7 +174,6 @@ public struct SurfaceChrome: Sendable {
         shadowHoveredColor: Color? = nil,
         shadowFocusedColor: Color? = nil,
         shadowPressedColor: Color? = nil,
-        shadowActivatedColor: Color? = nil,
         shadowOffset: Point = .zero,
         shadowSpread: Double = 0
     ) {
@@ -192,7 +181,6 @@ public struct SurfaceChrome: Sendable {
         self.borderHoveredColor = borderHoveredColor ?? borderColor
         self.borderFocusedColor = borderFocusedColor ?? borderHoveredColor ?? borderColor
         self.borderPressedColor = borderPressedColor ?? borderFocusedColor ?? borderColor
-        self.borderActivatedColor = borderActivatedColor ?? borderFocusedColor ?? borderColor
         self.borderWidth = borderWidth
         self.borderTopWidth = borderTopWidth
         self.borderRightWidth = borderRightWidth
@@ -206,7 +194,6 @@ public struct SurfaceChrome: Sendable {
         self.shadowHoveredColor = shadowHoveredColor ?? shadowColor
         self.shadowFocusedColor = shadowFocusedColor ?? shadowHoveredColor ?? shadowColor
         self.shadowPressedColor = shadowPressedColor ?? shadowFocusedColor ?? shadowColor
-        self.shadowActivatedColor = shadowActivatedColor ?? shadowFocusedColor ?? shadowColor
         self.shadowOffset = shadowOffset
         self.shadowSpread = shadowSpread
     }
@@ -949,104 +936,53 @@ public enum Controls {
         }
 
         node.buttonRepeatBehavior = repeatBehavior
-        let interactionState = ButtonInteractionState()
-
-        func applySurfaceState(duration: Double) {
-            let backgroundColor: Color
-            let borderColor: Color
-            let shadowColor: Color
-
-            if interactionState.isPressed {
-                backgroundColor = palette.pressed
-                borderColor = chrome.borderPressedColor
-                shadowColor = chrome.shadowPressedColor
-            } else if interactionState.isFocused {
-                backgroundColor = palette.focused
-                borderColor = chrome.borderFocusedColor
-                shadowColor = chrome.shadowFocusedColor
-            } else if interactionState.isHovered {
-                backgroundColor = palette.hovered
-                borderColor = chrome.borderHoveredColor
-                shadowColor = chrome.shadowHoveredColor
-            } else {
-                backgroundColor = palette.idle
-                borderColor = chrome.borderColor
-                shadowColor = chrome.shadowColor
-            }
-
-            animate(.background, node, in: runtime, to: backgroundColor, duration: duration)
-            animate(.border, node, in: runtime, to: borderColor, duration: duration)
-            animate(.shadow, node, in: runtime, to: shadowColor, duration: duration)
-            if appliesSurfaceSheen {
-                // The sheen end stops track the (animated) surface colors so
-                // the gradient follows hover/press state changes.
-                node.backgroundGradient = backgroundSheen(for: backgroundColor)
-                node.borderGradient = borderSheen(for: borderColor)
-            }
-        }
-
-        // Everything a press does *beyond* the fill ramp above. Both of these
-        // are opt-in and both are no-ops for a macOS-parity style, which
-        // answers a press with its `pressed` fill and nothing else — so the
-        // default control installs no transform animation and no opacity
-        // animation on pointer-down at all.
-        func applyPressAffordance(_ node: ViewNode?, pressed: Bool, duration: Double) {
-            if animation.pressedScale != 1 {
-                animateScale(node, to: pressed ? animation.pressedScale : 1.0, duration: duration)
-            }
-            if palette.pressedContentOpacity != 1 {
-                animateOpacity(node, to: pressed ? palette.pressedContentOpacity : 1.0, duration: duration)
-            }
-        }
-
-        node.onPointerEnter = {
-            interactionState.isHovered = true
-            applySurfaceState(duration: animation.focusDuration)
-        }
-        node.onPointerExit = { [weak node] in
-            interactionState.isHovered = false
-            interactionState.isPressed = false
-            applySurfaceState(duration: animation.focusDuration)
-            applyPressAffordance(node, pressed: false, duration: animation.focusDuration)
-        }
         node.isFocusable = true
-        node.onFocusEnter = { [weak node] in
-            interactionState.isFocused = true
-            applySurfaceState(duration: animation.focusDuration)
-            animate(.outline, node, in: runtime, to: chrome.focusRingColor, duration: animation.focusDuration)
-        }
-        node.onFocusExit = { [weak node] in
-            interactionState.isFocused = false
-            interactionState.isPressed = false
-            applySurfaceState(duration: animation.focusDuration)
-            applyPressAffordance(node, pressed: false, duration: animation.focusDuration)
-            animate(.outline, node, in: runtime, to: .clear, duration: animation.focusDuration)
-        }
-        node.onPointerDown = { [weak node] in
-            interactionState.isPressed = true
-            applySurfaceState(duration: animation.pressDuration)
-            applyPressAffordance(node, pressed: true, duration: animation.pressDuration)
-        }
-        node.onPointerUpInside = { [weak node] in
-            interactionState.isPressed = false
-            applySurfaceState(duration: animation.focusDuration)
-            applyPressAffordance(node, pressed: false, duration: animation.focusDuration)
-        }
-        node.onPointerUpOutside = { [weak node] in
-            interactionState.isPressed = false
-            applySurfaceState(duration: animation.focusDuration)
-            applyPressAffordance(node, pressed: false, duration: animation.focusDuration)
-        }
-        node.onActivate = { [weak node] in
-            interactionState.isPressed = false
-            animate(.background, node, in: runtime, to: palette.activated, duration: animation.activationDuration)
-            animate(.border, node, in: runtime, to: chrome.borderActivatedColor, duration: animation.activationDuration)
-            animate(.shadow, node, in: runtime, to: chrome.shadowActivatedColor, duration: animation.activationDuration)
-            if appliesSurfaceSheen {
-                node?.backgroundGradient = backgroundSheen(for: palette.activated)
-                node?.borderGradient = borderSheen(for: chrome.borderActivatedColor)
-            }
-            applyPressAffordance(node, pressed: false, duration: animation.activationDuration)
+
+        // The ramp goes on the node as data; the runtime resolves it against
+        // the pointer and focus state it alone knows, and re-applies it after
+        // every rebuild. This used to be six closures over a build-scope
+        // `ButtonInteractionState`, which had two defects a fill ramp cannot
+        // survive: `updateNodeProperties` overwrote the animated colours with
+        // the rebuilt *idle* values (so any `@State` change de-hovered every
+        // control under the pointer, permanently — the pointer is already
+        // inside, so `updateHoverTarget` never re-enters), and the closures
+        // themselves were copied onto the retained node still holding the
+        // discarded build's node, so after one rebuild they animated an
+        // orphan and hover never worked on that control again.
+        //
+        // There is no separate "activated" colour any more. It was pinned to
+        // `pressed` in every appearance-resolved ramp, so the activation tween
+        // parked the control on its held-down fill and nothing was scheduled
+        // to leave it: a clicked button stayed pressed until the pointer left.
+        // AppKit has no such state — `NSButtonCell` releases its highlight on
+        // mouseUp and *then* sends the action — so pointer-up resolves to
+        // whatever the pointer is actually doing, which is hover.
+        node.interactionSurface = RetainedInteractionSurface(
+            idleBackground: palette.idle,
+            hoveredBackground: palette.hovered,
+            focusedBackground: palette.focused,
+            pressedBackground: palette.pressed,
+            idleBorder: chrome.borderColor,
+            hoveredBorder: chrome.borderHoveredColor,
+            focusedBorder: chrome.borderFocusedColor,
+            pressedBorder: chrome.borderPressedColor,
+            idleShadow: chrome.shadowColor,
+            hoveredShadow: chrome.shadowHoveredColor,
+            focusedShadow: chrome.shadowFocusedColor,
+            pressedShadow: chrome.shadowPressedColor,
+            focusRingColor: chrome.focusRingColor,
+            focusRingWidth: chrome.focusRingWidth,
+            pressedScale: animation.pressedScale,
+            pressedContentOpacity: palette.pressedContentOpacity,
+            appliesSurfaceSheen: appliesSurfaceSheen,
+            hoverDuration: animation.focusDuration,
+            pressDuration: animation.pressDuration,
+            focusDuration: animation.focusDuration
+        )
+        // The ring grows out of the edge, so it starts with no width at all.
+        node.outlineWidth = 0
+
+        node.onActivate = {
             action?()
         }
         node.onRepeatActivate = {
@@ -1630,12 +1566,16 @@ public enum Controls {
 
         if isEnabled {
             sliderRoot.isFocusable = true
-            sliderRoot.onFocusEnter = { [weak sliderRoot] in
-                animate(.outline, sliderRoot, in: runtime, to: chrome.focusRingColor, duration: 0.12)
-            }
-            sliderRoot.onFocusExit = { [weak sliderRoot] in
-                animate(.outline, sliderRoot, in: runtime, to: .clear, duration: 0.12)
-            }
+            // Ring as data, resolved by the runtime: see the note in
+            // `Controls.button`. Same 0.12s the closures used.
+            sliderRoot.interactionSurface = RetainedInteractionSurface(
+                focusRingColor: chrome.focusRingColor,
+                focusRingWidth: chrome.focusRingWidth,
+                hoverDuration: 0.12,
+                pressDuration: 0.12,
+                focusDuration: 0.12
+            )
+            sliderRoot.outlineWidth = 0
             sliderRoot.onDragStart = { point in
                 state.startX = point.x
                 state.startValue = clampedValue
@@ -2130,59 +2070,6 @@ public enum Controls {
         )
     }
 
-    /// Animates a node's uniform scale toward `targetScale` over `duration`
-    /// seconds with ease-out.
-    ///
-    /// Only reached by a style that has opted into a press scale
-    /// (`ControlAnimationStyle.pressedScale != 1`); a macOS-parity control
-    /// never changes geometry under the pointer.
-    fileprivate static func animateScale(
-        _ node: ViewNode?,
-        to targetScale: Double,
-        duration: Double,
-        easing: AnimationEasing = .easeOut
-    ) {
-        guard let node else { return }
-        let now = Win32Window.currentTimestampSeconds()
-        let startX = node.transform.scaleX
-        let startY = node.transform.scaleY
-        // Mark transform as the steady-state target so the runtime knows
-        // where to interpolate to once the animation completes.
-        node.transform.scaleX = targetScale
-        node.transform.scaleY = targetScale
-        node.animationStates[.transformScaleX] = AnimationState(
-            startValue: startX, endValue: targetScale,
-            startTime: now, duration: duration, easing: easing
-        )
-        node.animationStates[.transformScaleY] = AnimationState(
-            startValue: startY, endValue: targetScale,
-            startTime: now, duration: duration, easing: easing
-        )
-    }
-
-    /// Animates a node's opacity toward `targetOpacity` over `duration`
-    /// seconds with ease-out.
-    ///
-    /// Only reached by a palette that has opted into a press dim
-    /// (`SurfacePalette.pressedContentOpacity != 1`) — the borderless ramps,
-    /// which have no fill to change.
-    fileprivate static func animateOpacity(
-        _ node: ViewNode?,
-        to targetOpacity: Double,
-        duration: Double,
-        easing: AnimationEasing = .easeOut
-    ) {
-        guard let node else { return }
-        let now = Win32Window.currentTimestampSeconds()
-        let start = node.opacity
-        // Same contract as `animateScale`: the stored property is the
-        // steady-state target, the animation state is the tween to it.
-        node.opacity = targetOpacity
-        node.animationStates[.opacity] = AnimationState(
-            startValue: start, endValue: targetOpacity,
-            startTime: now, duration: duration, easing: easing
-        )
-    }
 }
 extension ViewNode {
     fileprivate func configured(_ update: (ViewNode) -> Void) -> ViewNode {
@@ -2200,11 +2087,6 @@ private final class SplitViewState {
         self.dragStartRatio = ratio
         self.bounds = .zero
     }
-}
-private final class ButtonInteractionState {
-    var isHovered = false
-    var isFocused = false
-    var isPressed = false
 }
 private final class SliderDragState {
     var startX: Double = 0

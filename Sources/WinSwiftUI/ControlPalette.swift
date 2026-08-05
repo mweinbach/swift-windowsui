@@ -439,7 +439,6 @@ extension ControlPalette {
             hovered: controlSurfaceHovered,
             focused: controlSurfaceHovered,
             pressed: controlSurfacePressed,
-            activated: controlSurfacePressed,
             disabledBackground: quaternaryFill,
             disabledForeground: disabledLabel,
             disabledBorder: quaternaryLabel
@@ -455,7 +454,6 @@ extension ControlPalette {
             hovered: accentHovered(accent),
             focused: accentHovered(accent),
             pressed: accentPressed(accent),
-            activated: accentPressed(accent),
             disabledBackground: quaternaryFill,
             disabledForeground: disabledLabel,
             disabledBorder: quaternaryLabel

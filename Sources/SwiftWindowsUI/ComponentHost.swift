@@ -53,6 +53,13 @@ public final class ComponentHost {
 
         Self.reconcileChildren(of: runtime.root, oldChildren: oldChildren, newNodes: newNodes)
         Self.applyNewNodeTransitionsRecursively(in: runtime.root)
+        // A build does not know where the pointer is, so `updateNodeProperties`
+        // has just rewritten every interaction-animated colour from the idle
+        // value the builder produced. The runtime does know, and puts them
+        // back — without which any `@State` change anywhere in the window
+        // leaves every control under the pointer painted dead until the
+        // pointer leaves and comes back.
+        runtime.restoreInteractionChrome()
         runtime.pendingMatchedGeometryCheck = true
     }
 

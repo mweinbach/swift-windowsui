@@ -40,7 +40,9 @@ final class ControlGeometryTests: XCTestCase {
                 // The focus/press/activate lifecycle hooks must stay intact.
                 XCTAssertTrue(button.isFocusable)
                 XCTAssertNotNil(button.onActivate)
-                XCTAssertNotNil(button.onPointerDown)
+                // The press ramp is data the runtime resolves, not a closure
+                // the build installs — see `RetainedInteractionSurface`.
+                XCTAssertNotNil(button.interactionSurface?.pressedBackground)
             }
         }
     }

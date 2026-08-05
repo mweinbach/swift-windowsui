@@ -251,7 +251,6 @@ Two other things had to be true before any of that reached a pixel:
 | `ControlPalette.pressedContentOpacity` | 0.72 | Borderless styles only: no bezel to move, so AppKit darkens the contents. |
 | `ControlAnimationStyle.default.focusDuration` | 0.18s | Hover/focus cross-fade.            |
 | `ControlAnimationStyle.default.pressDuration` | 0.14s | Press-state colour cross-fade.     |
-| `ControlAnimationStyle.default.activationDuration` | 0.18s | Activation flash.            |
 
 ## A pressed control does not move
 

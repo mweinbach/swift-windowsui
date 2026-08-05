@@ -60,7 +60,7 @@ where `dampingFraction = 1 − extraBounce`.
 |-------------------------------------------|-------|--------------------------------------------------------|
 | `ControlAnimationStyle.default.focusDuration`   | 0.18s | Hover / focus cross-fade.                              |
 | `ControlAnimationStyle.default.pressDuration`   | 0.14s | Press-state colour cross-fade.                         |
-| `ControlAnimationStyle.default.activationDuration` | 0.18s | Activation flash.                                   |
+| Focus-ring width tween                          | 0 → `MacOSControlMetrics.FocusRing.strokeWidth` over `focusDuration`, ease-out. |
 | `ControlAnimationStyle.default.pressedScale`    | 1     | **A macOS control does not scale on press.** See below. |
 | `ControlAnimationStyle.tactilePressedScale`     | 0.97  | The shrink, kept as an opt-in for a style that asks.    |
 | `ControlPalette.pressedContentOpacity`          | 0.72  | Borderless styles only: AppKit darkens *contents* when there is no bezel. |
@@ -105,14 +105,72 @@ gets when it does not ask.
 
 ### The durations, reviewed
 
-`focusDuration` 0.18s, `pressDuration` 0.14s and `activationDuration` 0.18s
-were reviewed against macOS feel alongside the scale decision and left alone.
-They sit in the right band: AppKit's hover and focus-ring cross-fades are
-around a sixth of a second, and the press highlight is quicker than the hover
-it replaces, which is the ordering these three encode. The one known
-simplification is that AppKit's press highlight snaps in faster than it fades
-out, where this stack uses one duration in each direction — not worth churning
-a constant over without a measurement to move it to.
+`focusDuration` 0.18s and `pressDuration` 0.14s were reviewed against macOS
+feel alongside the scale decision and left alone. They sit in the right band:
+AppKit's hover and focus-ring cross-fades are around a sixth of a second, and
+the press highlight is quicker than the hover it replaces, which is the
+ordering these two encode. The one known simplification is that AppKit's press
+highlight snaps in faster than it fades out, where this stack uses one duration
+in each direction — not worth churning a constant over without a measurement to
+move it to.
+
+`activationDuration` is gone, and with it `SurfacePalette.activated`,
+`SurfaceChrome.borderActivatedColor` and `shadowActivatedColor`. There is no
+third colour past `pressed` on macOS: `NSButtonCell` releases its highlight on
+mouseUp and *then* sends the action. Here the activation tween animated to
+`palette.activated`, which every appearance-resolved ramp set equal to
+`palette.pressed` — so it parked the control on its held-down fill and nothing
+was scheduled to leave it. Measured: a clicked button held bg alpha 0.220 for
+three seconds with `hasActiveAnimations` false from 0.3s, recovering only when
+the pointer left the control. Pointer-up now resolves the ramp against the
+phase the pointer is actually in, which is hover.
+
+## Interaction chrome is runtime-resolved, not build-installed
+
+A control's state colours are data on the node
+(`ViewNode.interactionSurface: RetainedInteractionSurface`) and the runtime
+resolves them against `hoveredNode` / `focusedNode` / `pressedNode`, the three
+things a view build cannot know. `ComponentHost.reload()` ends by calling
+`RetainedViewRuntime.restoreInteractionChrome()`, which re-applies them
+**instantly** — a rebuild is not an interaction, and the chrome it restores was
+already on screen a frame ago, so replaying the 0.18s ramp would be a flicker.
+
+This replaced six closures per control over a build-scope interaction state,
+which had two failures a fill ramp cannot survive:
+
+- `updateNodeProperties` overwrites `backgroundColor`, `borderColor`,
+  `outlineColor` and `shadowColor` from the fresh build on every
+  reconciliation, so any `@State` change anywhere in the window repainted every
+  control under the pointer at its **idle** fill — permanently, because the
+  pointer was already inside and `updateHoverTarget` returns early when the hit
+  node has not changed. `WinSwiftUI`'s `invalidateHandler` reloads
+  synchronously, so this was every state change in every app.
+- The closures captured the node of the build that installed them, and the
+  reconciler copies closures onto the retained node. After one rebuild they
+  animated a discarded orphan, so hover, focus and press did nothing at all on
+  that control for the rest of the session — leaving and re-entering included.
+
+## One focus ring, one owner
+
+`ViewNode.focusEffectCommands` — a hardcoded 2pt
+`Color(0.25, 0.55, 1, 0.75)` halo, unaware of both the appearance palette and
+the animation clock — stands down for any node that paints its own ring
+(`interactionSurface.focusRingColor` set, or a non-zero `outlineWidth`). It
+remains the fallback for a focusable node with no ring of its own.
+
+A focused bordered button used to carry both: a scanline through its edge read
+two 2px bands of different blue (light appearance: `106,173,246` beside
+`47,140,252`), on two timelines — the runtime's halo at full strength on frame
+zero, the control's own ring fading in behind it over 0.18s, so mid-fade the
+outer band was still grey next to a solid blue inner one. The survivor is the
+control's ring: appearance-resolved, animated on the injected clock, and its
+width is the pinned `MacOSControlMetrics.FocusRing.strokeWidth`.
+
+The ring's width animates alongside its colour (0 → `focusRingWidth`,
+ease-out, over `focusDuration`). AppKit's ring is not an alpha cross-fade; it
+expands from the control bounds and settles, and retracts the same way. The
+ring is keyed off focus itself, not the resolved ramp phase: a press outranks
+focus for the *fill*, but a pressed control that has focus still shows it.
 
 ## Why these values
 

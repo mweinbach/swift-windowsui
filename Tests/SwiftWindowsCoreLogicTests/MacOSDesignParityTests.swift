@@ -166,7 +166,6 @@ final class MacOSDesignParityTests: XCTestCase {
         let style = ControlAnimationStyle.default
         XCTAssertEqual(style.focusDuration, 0.18, accuracy: 0.001)
         XCTAssertEqual(style.pressDuration, 0.14, accuracy: 0.001)
-        XCTAssertEqual(style.activationDuration, 0.18, accuracy: 0.001)
     }
 
     /// A macOS control's press feedback is a *fill* change with identical

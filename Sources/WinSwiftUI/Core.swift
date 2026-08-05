@@ -13740,7 +13740,6 @@ public struct ButtonSurfaceStyle: Sendable {
             hovered: .clear,
             focused: .clear,
             pressed: .clear,
-            activated: .clear,
             pressedContentOpacity: ControlPalette.pressedContentOpacity
         ),
         chrome: SurfaceChrome(),
@@ -13764,7 +13763,6 @@ public struct ButtonSurfaceStyle: Sendable {
                 hovered: ControlPalette.lightened(red, by: 0.08),
                 focused: ControlPalette.lightened(red, by: 0.08),
                 pressed: ControlPalette.darkened(red, by: 0.12),
-                activated: ControlPalette.darkened(red, by: 0.12),
                 disabledBackground: palette.quaternaryFill,
                 disabledForeground: palette.disabledLabel,
                 disabledBorder: palette.quaternaryLabel

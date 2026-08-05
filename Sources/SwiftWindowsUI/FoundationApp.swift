@@ -1390,22 +1390,19 @@ private enum DemoModule: CaseIterable {
             return SurfacePalette(
                 idle: Color(red: 0.22, green: 0.31, blue: 0.41, alpha: 0.96),
                 focused: Color(red: 0.27, green: 0.40, blue: 0.52, alpha: 0.98),
-                pressed: Color(red: 0.77, green: 0.87, blue: 0.95, alpha: 1.0),
-                activated: Color(red: 0.92, green: 0.97, blue: 1.0, alpha: 1.0)
+                pressed: Color(red: 0.77, green: 0.87, blue: 0.95, alpha: 1.0)
             )
         case .input:
             return SurfacePalette(
                 idle: Color(red: 0.20, green: 0.35, blue: 0.38, alpha: 0.96),
                 focused: Color(red: 0.27, green: 0.49, blue: 0.52, alpha: 0.98),
-                pressed: Color(red: 0.73, green: 0.93, blue: 0.90, alpha: 1.0),
-                activated: Color(red: 0.90, green: 0.99, blue: 0.96, alpha: 1.0)
+                pressed: Color(red: 0.73, green: 0.93, blue: 0.90, alpha: 1.0)
             )
         case .animation:
             return SurfacePalette(
                 idle: Color(red: 0.39, green: 0.29, blue: 0.21, alpha: 0.96),
                 focused: Color(red: 0.56, green: 0.42, blue: 0.29, alpha: 0.98),
-                pressed: Color(red: 0.99, green: 0.85, blue: 0.63, alpha: 1.0),
-                activated: Color(red: 1.0, green: 0.95, blue: 0.84, alpha: 1.0)
+                pressed: Color(red: 0.99, green: 0.85, blue: 0.63, alpha: 1.0)
             )
         }
     }
@@ -1441,8 +1438,7 @@ private enum DemoModule: CaseIterable {
         return SurfacePalette(
             idle: base.focused,
             focused: base.pressed,
-            pressed: base.pressed,
-            activated: base.pressed
+            pressed: base.pressed
         )
     }
 }

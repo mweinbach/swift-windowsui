@@ -291,7 +291,9 @@ final class ControlAppearanceChromeTests: XCTestCase {
                 XCTAssertEqual(bezel.cornerRadius, MacOSControlMetrics.ColorWell.cornerRadius, accuracy: 0.001)
                 // Hover affordance: the bezel carries the bordered-control
                 // ramp, which is only expressible on a button surface.
-                XCTAssertNotNil(bezel.onPointerEnter, "\(scheme): the well lights up under the pointer")
+                XCTAssertNotNil(
+                    bezel.interactionSurface?.hoveredBackground,
+                    "\(scheme): the well lights up under the pointer")
                 XCTAssertFalse(bezel.isFocusable, "the row is the focus stop, not the bezel inside it")
                 // …and it is the node a click on the swatch lands on:
                 // activation does not bubble in the retained runtime, so a

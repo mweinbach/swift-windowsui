@@ -117,7 +117,6 @@ final class AnimationParityReferenceTests: XCTestCase {
         let style = ControlAnimationStyle.default
         XCTAssertEqual(style.focusDuration, 0.18, accuracy: 0.001)
         XCTAssertEqual(style.pressDuration, 0.14, accuracy: 0.001)
-        XCTAssertEqual(style.activationDuration, 0.18, accuracy: 0.001)
     }
 
     /// macOS does not scale a control on press — an AppKit cell highlights in

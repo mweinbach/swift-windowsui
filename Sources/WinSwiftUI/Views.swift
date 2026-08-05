@@ -4967,7 +4967,6 @@ public struct TabView: View {
                         hovered: ControlPalette.lightened(palette.segmentedSelectedFill, by: 0.08),
                         focused: ControlPalette.lightened(palette.segmentedSelectedFill, by: 0.08),
                         pressed: ControlPalette.darkened(palette.segmentedSelectedFill, by: 0.10),
-                        activated: ControlPalette.darkened(palette.segmentedSelectedFill, by: 0.10),
                         disabledForeground: palette.disabledLabel
                     )
                     : SurfacePalette(
@@ -4975,7 +4974,6 @@ public struct TabView: View {
                         hovered: palette.quaternaryFill,
                         focused: palette.quaternaryFill,
                         pressed: palette.tertiaryFill,
-                        activated: palette.tertiaryFill,
                         disabledForeground: palette.disabledLabel
                     )
 
@@ -13721,18 +13719,27 @@ private func textInputComponent(
         }
 
         node.isFocusable = true
-        node.onFocusEnter = { [weak node] in
-            node?.borderColor = context.tint
-            node?.outlineColor = ControlPalette.opaque(context.tint)
-                .opacity(Double(ControlPalette.focusRingAlpha))
-            node?.outlineWidth = MacOSControlMetrics.FocusRing.strokeWidth
+        // The bezel and ring are the runtime's to resolve — see
+        // `RetainedInteractionSurface`. Setting them from these closures meant
+        // a focused field lost its ring on the next rebuild (the build writes
+        // the unfocused border back), and, worse, the closures were copied
+        // onto the retained node still addressing the *discarded* build's
+        // node, so after one rebuild focusing the field changed nothing at
+        // all. What is left here is the part that genuinely belongs to the
+        // field: the editing callback and the caret/selection chrome.
+        node.interactionSurface = RetainedInteractionSurface(
+            idleBorder: style.borderColor,
+            focusedBorder: context.tint,
+            focusRingColor: ControlPalette.opaque(context.tint)
+                .opacity(Double(ControlPalette.focusRingAlpha)),
+            focusRingWidth: MacOSControlMetrics.FocusRing.strokeWidth
+        )
+        node.outlineWidth = 0
+        node.onFocusEnter = {
             onEditingChanged?(true)
             refreshChrome()
         }
-        node.onFocusExit = { [weak node] in
-            node?.borderColor = style.borderColor
-            node?.outlineColor = .clear
-            node?.outlineWidth = 0
+        node.onFocusExit = {
             onEditingChanged?(false)
             refreshChrome()
         }
@@ -15784,8 +15791,7 @@ public struct Toggle: View {
                 idle: .clear,
                 hovered: palette.quaternaryFill,
                 focused: palette.quaternaryFill,
-                pressed: palette.secondaryFill,
-                activated: palette.secondaryFill
+                pressed: palette.secondaryFill
             ),
             onToggle: { newValue in
                 binding.wrappedValue = newValue
@@ -15865,8 +15871,7 @@ public struct Toggle: View {
                 idle: .clear,
                 hovered: Color(red: 0.253, green: 0.253, blue: 0.253, alpha: 0.44),
                 focused: Color(red: 0.24, green: 0.32, blue: 0.42, alpha: 0.56),
-                pressed: Color(red: 0.30, green: 0.40, blue: 0.52, alpha: 0.64),
-                activated: Color(red: 0.30, green: 0.40, blue: 0.52, alpha: 0.64)
+                pressed: Color(red: 0.30, green: 0.40, blue: 0.52, alpha: 0.64)
             ),
             chrome: SurfaceChrome(
                 borderColor: .clear,
@@ -15914,8 +15919,7 @@ public struct Toggle: View {
                 idle: context.tint.opacity(0.82),
                 hovered: context.tint.opacity(0.90),
                 focused: context.tint.opacity(0.96),
-                pressed: context.tint,
-                activated: context.tint
+                pressed: context.tint
             )
             : surfaceStyle.palette
         let children: [ViewNode]
@@ -16304,7 +16308,6 @@ public struct Picker<SelectionValue: Hashable>: View {
                     hovered: ControlPalette.lightened(palette.segmentedSelectedFill, by: 0.08),
                     focused: ControlPalette.lightened(palette.segmentedSelectedFill, by: 0.08),
                     pressed: ControlPalette.darkened(palette.segmentedSelectedFill, by: 0.10),
-                    activated: ControlPalette.darkened(palette.segmentedSelectedFill, by: 0.10),
                     disabledForeground: palette.disabledLabel
                 )
                 : SurfacePalette(
@@ -16318,7 +16321,6 @@ public struct Picker<SelectionValue: Hashable>: View {
                     // gone (E6-PRESS) the fill is the entire affordance, and
                     // `systemFill` is the rung macOS presses a segment to.
                     pressed: palette.systemFill,
-                    activated: palette.systemFill,
                     disabledForeground: palette.disabledLabel
                 )
 
@@ -16800,8 +16802,7 @@ public struct Picker<SelectionValue: Hashable>: View {
             idle: tint.opacity(0.82),
             hovered: tint.opacity(0.90),
             focused: tint.opacity(0.96),
-            pressed: tint,
-            activated: tint
+            pressed: tint
         )
     }
 
@@ -16810,8 +16811,7 @@ public struct Picker<SelectionValue: Hashable>: View {
             idle: Color(red: 0.225, green: 0.225, blue: 0.225, alpha: 0.78),
             hovered: Color(red: 0.282, green: 0.282, blue: 0.282, alpha: 0.86),
             focused: Color(red: 0.26, green: 0.35, blue: 0.47, alpha: 0.90),
-            pressed: Color(red: 0.31, green: 0.42, blue: 0.56, alpha: 0.96),
-            activated: Color(red: 0.36, green: 0.48, blue: 0.63, alpha: 0.96)
+            pressed: Color(red: 0.31, green: 0.42, blue: 0.56, alpha: 0.96)
         )
     }
 }
@@ -17284,7 +17284,6 @@ public struct Stepper: View {
         joinedChrome.shadowHoveredColor = .clear
         joinedChrome.shadowFocusedColor = .clear
         joinedChrome.shadowPressedColor = .clear
-        joinedChrome.shadowActivatedColor = .clear
         // A macOS stepper arrow is a small wedge with air around it, not a
         // glyph sized to the half it sits in. The icon bitmap is stretched
         // into the node's own rect, so this box *is* the arrow's size.

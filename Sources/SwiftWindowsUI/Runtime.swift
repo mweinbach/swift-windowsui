@@ -2769,6 +2769,20 @@ public final class ViewNode {
     /// because it is stored on the retained ViewNode rather than in @State.
     public var phaseAnimatorState: PhaseAnimatorState?
 
+    /// The colour ramp this node answers pointer, focus and press state with.
+    ///
+    /// It is *data*, resolved by the runtime, precisely because the build
+    /// cannot know where the pointer is. A control that installed its state
+    /// colours from build-scope closures had two unfixable problems: every
+    /// rebuild overwrote `backgroundColor` (and border, outline, shadow) with
+    /// the freshly built *idle* value while the pointer was still on the
+    /// control, and the copied closures went on addressing the discarded
+    /// build's node, so hover never worked again for the rest of the session.
+    /// Both are gone when the runtime — which is the only thing that knows
+    /// `hoveredNode` / `focusedNode` / `pressedNode` — owns the resolution and
+    /// re-applies it after every reconciliation.
+    public var interactionSurface: RetainedInteractionSurface?
+
     public var onPointerEnter: (() -> Void)?
     public var onPointerExit: (() -> Void)?
     public var onPointerMove: ((Point) -> Void)?
@@ -6025,6 +6039,23 @@ public final class ViewNode {
         guard isFocused, isFocusable, !isFocusEffectDisabled else {
             return []
         }
+        // One ring, one owner. A node that carries its own focus ring — every
+        // `Controls.button`, every text field — was getting two: this 2pt
+        // hardcoded `Color(0.25, 0.55, 1, 0.75)` halo, which knows nothing
+        // about the appearance palette and nothing about the animation clock,
+        // painted at full strength on the frame focus arrived, and *behind* it
+        // the control's own 4pt palette ring fading in over 0.18s. A scanline
+        // through a focused bordered button read two 2px bands of different
+        // blue (light: 106,173,246 beside 47,140,252), and mid-fade the outer
+        // band was still grey while the inner one was already solid.
+        //
+        // The survivor is the control's own ring: it is appearance-resolved,
+        // it is animated on the injected clock, and its width is the pinned
+        // `MacOSControlMetrics.FocusRing.strokeWidth`. This one stays only as
+        // the fallback for a focusable node that paints no ring of its own.
+        guard interactionSurface?.focusRingColor == nil, outlineWidth <= 0 else {
+            return []
+        }
 
         let width = 2.0
         let ringRect = absoluteFrame.outset(by: width)
@@ -8117,6 +8148,7 @@ public final class RetainedViewRuntime {
         updateHoverTarget(to: hitNode)
         pressedNode = hitNode
         hitNode?.onPointerDown?()
+        applyInteractionChrome(to: hitNode)
         beginButtonRepeatIfNeeded(for: hitNode)
     }
 
@@ -8153,6 +8185,14 @@ public final class RetainedViewRuntime {
 
         if let pressedNode {
             let didRepeat = endButtonRepeat(for: pressedNode)
+            // The press ends *before* the action runs. AppKit releases the
+            // cell highlight on mouseUp and only then sends the action, and
+            // the ordering matters here for a second reason: the action is
+            // what changes `@State`, which rebuilds the tree — and the rebuild
+            // ends in `restoreInteractionChrome`, which has to find the press
+            // already lifted or it restores the control to its held-down fill.
+            self.pressedNode = nil
+            applyInteractionChrome(to: pressedNode)
             if pressedNode === hitNode {
                 pressedNode.onPointerUpInside?()
                 pressedNode.onPointerUpInsideAt?(point)
@@ -8754,6 +8794,11 @@ public final class RetainedViewRuntime {
             case .opacity:
                 if node.opacity != value {
                     node.opacity = value
+                    didUpdate = true
+                }
+            case .outlineWidth:
+                if node.outlineWidth != value {
+                    node.outlineWidth = value
                     didUpdate = true
                 }
             case .frameOriginX:
@@ -9452,6 +9497,151 @@ public final class RetainedViewRuntime {
         hoveredNode = nextHoveredNode
         hoveredNode?.isHovered = true
         hoveredNode?.onPointerEnter?()
+        applyInteractionChrome(to: previousNode)
+        applyInteractionChrome(to: nextHoveredNode)
+    }
+
+    // MARK: - Interaction chrome
+
+    /// Which ramp entry `node` should currently be painted at.
+    ///
+    /// The runtime is the only authority for this: `hoveredNode`,
+    /// `focusedNode` and `pressedNode` live here, and a view build has no way
+    /// to know any of them. Precedence matches what the control builders
+    /// resolved by hand — a press outranks focus outranks hover.
+    public func interactionPhase(for node: ViewNode) -> RetainedInteractionSurface.Phase {
+        if node === pressedNode {
+            return .pressed
+        }
+        if node.isFocused {
+            return .focused
+        }
+        if node.isHovered {
+            return .hovered
+        }
+        return .idle
+    }
+
+    /// Paints `node` at the ramp entry its current phase resolves to.
+    ///
+    /// `animated: false` is for a restore rather than an interaction: the
+    /// chrome being re-applied was already on screen a frame ago, so it snaps
+    /// back instead of replaying the ramp the pointer earned when it arrived.
+    func applyInteractionChrome(to node: ViewNode?, animated: Bool = true) {
+        guard let node, let surface = node.interactionSurface else {
+            return
+        }
+
+        let phase = interactionPhase(for: node)
+        let duration = animated ? surface.duration(intoPhase: phase) : 0
+        let timestamp = Win32Window.currentTimestampSeconds()
+
+        if let background = surface.background(for: phase) {
+            animateColor(.background, of: node, to: background, duration: duration, at: timestamp)
+            if surface.appliesSurfaceSheen {
+                node.backgroundGradient = Controls.backgroundSheen(for: background)
+            }
+        }
+        if let border = surface.border(for: phase) {
+            animateColor(.border, of: node, to: border, duration: duration, at: timestamp)
+            if surface.appliesSurfaceSheen {
+                node.borderGradient = Controls.borderSheen(for: border)
+            }
+        }
+        if let shadow = surface.shadow(for: phase) {
+            animateColor(.shadow, of: node, to: shadow, duration: duration, at: timestamp)
+        }
+
+        if let focusRingColor = surface.focusRingColor {
+            // Keyed off focus itself, not the resolved phase: a press outranks
+            // focus for the *fill*, but AppKit keeps the ring on a focused
+            // control the whole time the mouse is held down on it.
+            let isFocused = node.isFocused
+            animateColor(
+                .outline, of: node, to: isFocused ? focusRingColor : .clear,
+                duration: duration, at: timestamp)
+            // macOS does not cross-fade the ring's alpha in place: it grows
+            // out of the control's edge. Animating the width alongside the
+            // colour is what makes it read as a ring arriving rather than a
+            // blue haze resolving. See `docs/AnimationParity.md`.
+            animateOutlineWidth(
+                of: node, to: isFocused ? surface.focusRingWidth : 0,
+                duration: duration, at: timestamp)
+        }
+
+        let isPressed = phase == .pressed
+        if surface.pressedScale != 1 {
+            animateScale(of: node, to: isPressed ? surface.pressedScale : 1, duration: duration, at: timestamp)
+        }
+        if surface.pressedContentOpacity != 1 {
+            animateOpacity(
+                of: node, to: isPressed ? surface.pressedContentOpacity : 1,
+                duration: duration, at: timestamp)
+        }
+    }
+
+    /// Re-applies interaction chrome to every node the runtime currently
+    /// considers hovered, focused or pressed.
+    ///
+    /// Called at the end of every reconciliation. A rebuild rewrites
+    /// `backgroundColor`, `borderColor`, `outlineColor` and `shadowColor` from
+    /// a build that does not know where the pointer is, so without this the
+    /// control under the pointer drops to its idle fill on the next `@State`
+    /// change anywhere in the window and stays there — the pointer is already
+    /// inside it, so `updateHoverTarget` short-circuits and never re-enters.
+    public func restoreInteractionChrome() {
+        applyInteractionChrome(to: hoveredNode, animated: false)
+        if focusedNode !== hoveredNode {
+            applyInteractionChrome(to: focusedNode, animated: false)
+        }
+        if pressedNode !== hoveredNode, pressedNode !== focusedNode {
+            applyInteractionChrome(to: pressedNode, animated: false)
+        }
+    }
+
+    private func animateOutlineWidth(of node: ViewNode, to target: Double, duration: Double, at timestamp: Double) {
+        guard duration > 0, node.outlineWidth != target else {
+            node.animationStates[.outlineWidth] = nil
+            node.outlineWidth = target
+            return
+        }
+        // The stored width stays where it is and the tween drives it, unlike
+        // `animateScale`'s steady-state-target convention: a ring that jumped
+        // to its end width on the frame the animation *started* would vanish
+        // outright on focus loss instead of retracting into the edge.
+        node.animationStates[.outlineWidth] = AnimationState(
+            startValue: node.outlineWidth, endValue: target, startTime: timestamp, duration: duration,
+            easing: .easeOut)
+    }
+
+    private func animateScale(of node: ViewNode, to target: Double, duration: Double, at timestamp: Double) {
+        guard duration > 0 else {
+            node.animationStates[.transformScaleX] = nil
+            node.animationStates[.transformScaleY] = nil
+            node.transform.scaleX = target
+            node.transform.scaleY = target
+            return
+        }
+        let startX = node.transform.scaleX
+        let startY = node.transform.scaleY
+        node.transform.scaleX = target
+        node.transform.scaleY = target
+        node.animationStates[.transformScaleX] = AnimationState(
+            startValue: startX, endValue: target, startTime: timestamp, duration: duration, easing: .easeOut)
+        node.animationStates[.transformScaleY] = AnimationState(
+            startValue: startY, endValue: target, startTime: timestamp, duration: duration, easing: .easeOut)
+    }
+
+    private func animateOpacity(of node: ViewNode, to target: Double, duration: Double, at timestamp: Double) {
+        guard duration > 0 else {
+            node.animationStates[.opacity] = nil
+            node.opacity = target
+            return
+        }
+        let start = node.opacity
+        node.opacity = target
+        node.animationStates[.opacity] = AnimationState(
+            startValue: start, endValue: target, startTime: timestamp, duration: duration, easing: .easeOut)
     }
 
     private func updateScrollIndicatorHover(to nextIndicatorHit: ScrollIndicatorHit?) {
@@ -9496,6 +9686,8 @@ public final class RetainedViewRuntime {
         focusedNode = nextFocusedNode
         focusedNode?.isFocused = true
         focusedNode?.onFocusEnter?()
+        applyInteractionChrome(to: previousNode)
+        applyInteractionChrome(to: nextFocusedNode)
         invalidate()
         onAccessibilityFocusChanged?(nextFocusedNode)
     }
@@ -9527,6 +9719,140 @@ public enum AnimatedColorProperty: Hashable, Sendable {
     case outline
     case shadow
     case scrollIndicator
+}
+
+/// The state-dependent chrome of one control, as a value the runtime resolves.
+///
+/// Every colour is optional so a control can opt into only the part it owns: a
+/// push button carries the whole fill/border/shadow ramp, a text field and a
+/// slider carry a focus ring and nothing else. `nil` means "leave that
+/// property alone", which is what keeps a field's bezel from being repainted
+/// by a hover the platform does not give it.
+///
+/// Phase precedence is pressed > focused > hovered > idle, matching the order
+/// the control builders resolved by hand before the runtime took it over.
+public struct RetainedInteractionSurface: Sendable, Equatable {
+    public enum Phase: Sendable, Equatable {
+        case idle
+        case hovered
+        case focused
+        case pressed
+    }
+
+    public var idleBackground: Color?
+    public var hoveredBackground: Color?
+    public var focusedBackground: Color?
+    public var pressedBackground: Color?
+
+    public var idleBorder: Color?
+    public var hoveredBorder: Color?
+    public var focusedBorder: Color?
+    public var pressedBorder: Color?
+
+    public var idleShadow: Color?
+    public var hoveredShadow: Color?
+    public var focusedShadow: Color?
+    public var pressedShadow: Color?
+
+    /// The keyboard focus ring: `outlineColor` while focused, `.clear`
+    /// otherwise, with `outlineWidth` expanding from 0 to `focusRingWidth`.
+    public var focusRingColor: Color?
+    public var focusRingWidth: Double
+
+    /// Press affordances beyond the fill. Both are `1` — no change — for a
+    /// macOS-parity control; see `ControlAnimationStyle.pressedScale` and
+    /// `SurfacePalette.pressedContentOpacity`.
+    public var pressedScale: Double
+    public var pressedContentOpacity: Double
+
+    /// Whether the resolved background/border colours also drive the node's
+    /// sheen gradients.
+    public var appliesSurfaceSheen: Bool
+
+    public var hoverDuration: Double
+    public var pressDuration: Double
+    public var focusDuration: Double
+
+    public init(
+        idleBackground: Color? = nil,
+        hoveredBackground: Color? = nil,
+        focusedBackground: Color? = nil,
+        pressedBackground: Color? = nil,
+        idleBorder: Color? = nil,
+        hoveredBorder: Color? = nil,
+        focusedBorder: Color? = nil,
+        pressedBorder: Color? = nil,
+        idleShadow: Color? = nil,
+        hoveredShadow: Color? = nil,
+        focusedShadow: Color? = nil,
+        pressedShadow: Color? = nil,
+        focusRingColor: Color? = nil,
+        focusRingWidth: Double = 0,
+        pressedScale: Double = 1,
+        pressedContentOpacity: Double = 1,
+        appliesSurfaceSheen: Bool = false,
+        hoverDuration: Double = 0.18,
+        pressDuration: Double = 0.14,
+        focusDuration: Double = 0.18
+    ) {
+        self.idleBackground = idleBackground
+        self.hoveredBackground = hoveredBackground
+        self.focusedBackground = focusedBackground
+        self.pressedBackground = pressedBackground
+        self.idleBorder = idleBorder
+        self.hoveredBorder = hoveredBorder
+        self.focusedBorder = focusedBorder
+        self.pressedBorder = pressedBorder
+        self.idleShadow = idleShadow
+        self.hoveredShadow = hoveredShadow
+        self.focusedShadow = focusedShadow
+        self.pressedShadow = pressedShadow
+        self.focusRingColor = focusRingColor
+        self.focusRingWidth = focusRingWidth
+        self.pressedScale = pressedScale
+        self.pressedContentOpacity = pressedContentOpacity
+        self.appliesSurfaceSheen = appliesSurfaceSheen
+        self.hoverDuration = hoverDuration
+        self.pressDuration = pressDuration
+        self.focusDuration = focusDuration
+    }
+
+    public func background(for phase: Phase) -> Color? {
+        switch phase {
+        case .pressed: return pressedBackground ?? focusedBackground ?? hoveredBackground ?? idleBackground
+        case .focused: return focusedBackground ?? hoveredBackground ?? idleBackground
+        case .hovered: return hoveredBackground ?? idleBackground
+        case .idle: return idleBackground
+        }
+    }
+
+    public func border(for phase: Phase) -> Color? {
+        switch phase {
+        case .pressed: return pressedBorder ?? focusedBorder ?? hoveredBorder ?? idleBorder
+        case .focused: return focusedBorder ?? hoveredBorder ?? idleBorder
+        case .hovered: return hoveredBorder ?? idleBorder
+        case .idle: return idleBorder
+        }
+    }
+
+    public func shadow(for phase: Phase) -> Color? {
+        switch phase {
+        case .pressed: return pressedShadow ?? focusedShadow ?? hoveredShadow ?? idleShadow
+        case .focused: return focusedShadow ?? hoveredShadow ?? idleShadow
+        case .hovered: return hoveredShadow ?? idleShadow
+        case .idle: return idleShadow
+        }
+    }
+
+    /// The duration the transition *into* `phase` runs for. A press lands
+    /// quicker than the hover it replaces, which is the ordering AppKit uses.
+    public func duration(intoPhase phase: Phase) -> Double {
+        switch phase {
+        case .pressed: return pressDuration
+        case .focused: return focusDuration
+        case .hovered, .idle: return hoverDuration
+        }
+    }
 }
 private struct ColorAnimationKey: Hashable {
     let nodeIdentifier: ObjectIdentifier
@@ -9669,6 +9995,9 @@ func clipAllowsSubtreeTraversal(clip: Rect?, bounds: Rect) -> Bool {
 public enum AnimatableProperty: Hashable, Sendable {
     case opacity
     case backgroundColor
+    /// The keyboard focus ring's stroke width. macOS grows the ring out of the
+    /// control's edge rather than fading a full-width ring up from nothing.
+    case outlineWidth
     case frameOriginX
     case frameOriginY
     case frameWidth

@@ -68,7 +68,9 @@ final class ControlChromePolishTests: XCTestCase {
             for (button, name) in [(decrement, "Decrement"), (increment, "Increment")] {
                 XCTAssertTrue(button.isFocusable)
                 XCTAssertNotNil(button.onActivate)
-                XCTAssertNotNil(button.onPointerDown)
+                // The press ramp is data on the node now, resolved by the
+                // runtime — see `RetainedInteractionSurface`.
+                XCTAssertNotNil(button.interactionSurface?.pressedBackground)
                 XCTAssertEqual(button.accessibilityLabel, name)
                 // Joined chrome: the ring belongs to the bezel, not to each
                 // half, and the elevated shadow is gone either way.

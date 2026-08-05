@@ -406,7 +406,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 palette: palette,
                 chrome: SurfaceChrome(),
                 repeatBehavior: .enabled,
-                animation: ControlAnimationStyle(focusDuration: 0, pressDuration: 0, activationDuration: 0),
+                animation: ControlAnimationStyle(focusDuration: 0, pressDuration: 0),
                 action: {
                     activationCount += 1
                 }
@@ -457,7 +457,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 palette: palette,
                 chrome: SurfaceChrome(),
                 repeatBehavior: .enabled,
-                animation: ControlAnimationStyle(focusDuration: 0, pressDuration: 0, activationDuration: 0),
+                animation: ControlAnimationStyle(focusDuration: 0, pressDuration: 0),
                 action: {
                     activationCount += 1
                 }
@@ -497,7 +497,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 palette: palette,
                 chrome: SurfaceChrome(),
                 repeatBehavior: .disabled,
-                animation: ControlAnimationStyle(focusDuration: 0, pressDuration: 0, activationDuration: 0),
+                animation: ControlAnimationStyle(focusDuration: 0, pressDuration: 0),
                 action: {
                     activationCount += 1
                 }
@@ -524,8 +524,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
             let palette = SurfacePalette(
                 idle: Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 1),
                 focused: Color(red: 0.3, green: 0.4, blue: 0.5, alpha: 1),
-                pressed: Color(red: 0.5, green: 0.6, blue: 0.7, alpha: 1),
-                activated: Color(red: 0.7, green: 0.8, blue: 0.9, alpha: 1)
+                pressed: Color(red: 0.5, green: 0.6, blue: 0.7, alpha: 1)
             )
             let root = ViewNode(
                 frame: Rect(x: 0, y: 0, width: 80, height: 40),
@@ -538,7 +537,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 cornerRadius: 4,
                 palette: palette,
                 chrome: SurfaceChrome(),
-                animation: ControlAnimationStyle(focusDuration: 0, pressDuration: 0, activationDuration: 0)
+                animation: ControlAnimationStyle(focusDuration: 0, pressDuration: 0)
             )
             button.isFocusEffectDisabled = true
             root.addChild(button)
@@ -569,12 +568,16 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
 
+            // Activating a control does not repaint it. There is no third
+            // colour past `pressed`: AppKit releases the highlight on mouseUp
+            // and *then* sends the action, so a keyboard activation leaves the
+            // button exactly where it was — focused, because it still is.
             XCTAssertEqual(
                 fillRectCommands(in: runtime.renderFrame()),
                 [
                     FillRectCommand(
                         rect: Rect(x: 10, y: 8, width: 30, height: 16),
-                        color: palette.activated,
+                        color: palette.focused,
                         cornerRadius: 4
                     )
                 ]
@@ -984,7 +987,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 cornerRadius: 4,
                 palette: palette,
                 chrome: SurfaceChrome(),
-                animation: ControlAnimationStyle(focusDuration: 0.12, pressDuration: 0.1, activationDuration: 0.12),
+                animation: ControlAnimationStyle(focusDuration: 0.12, pressDuration: 0.1),
                 action: {}
             )
             root.addChild(button)
@@ -1033,7 +1036,6 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 animation: ControlAnimationStyle(
                     focusDuration: 0.12,
                     pressDuration: 0.1,
-                    activationDuration: 0.12,
                     pressedScale: ControlAnimationStyle.tactilePressedScale
                 ),
                 action: {}
@@ -1065,7 +1067,6 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 hovered: .clear,
                 focused: .clear,
                 pressed: .clear,
-                activated: .clear,
                 pressedContentOpacity: 0.72
             )
             let root = ViewNode(

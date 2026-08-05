@@ -62,7 +62,7 @@ final class ContinuousAnimationCrossViewTests: XCTestCase {
             cornerRadius: 8,
             palette: palette,
             chrome: SurfaceChrome(),
-            animation: ControlAnimationStyle(focusDuration: 0.12, pressDuration: 0.10, activationDuration: 0.14),
+            animation: ControlAnimationStyle(focusDuration: 0.12, pressDuration: 0.10),
             action: {}
         )
 

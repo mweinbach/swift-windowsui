@@ -4922,6 +4922,19 @@ public struct TabView: View {
                 fallbackLayout: .stack(.vertical(alignment: .stretch))
             )
             .makeNode(runtime: runtime)
+            // Selecting a different tab replaces the page rather than editing
+            // it. Without an identity that moves with the selection the
+            // reconciler matched the outgoing page to the incoming one by
+            // position and rewrote it in place, so the switch was a hard cut:
+            // a live capture of the demo switching screens showed 92 % of the
+            // window changing in a single frame with nothing in flight on
+            // either side of it, where macOS cross-dissolves. Tagging the page
+            // with the selected index makes the old page depart — which is
+            // what turns it into a fading removal overlay — and the new one
+            // arrive, which is what gives it an insertion transition to play.
+            pageNode.nodeTag = "tabview-page:\(selectedIndex)"
+            pageNode.transition = RetainedTransition(kind: .opacity)
+            pageNode.implicitReconcileAnimation = Self.retainedTabPageCrossfadeAnimation
             var children = [tabBarNode, pageNode]
             if let pageIndexNode = Self.retainedPageIndexNode(
                 selectedIndex: selectedIndex,
@@ -4951,6 +4964,18 @@ public struct TabView: View {
     static let retainedTabBandInsets = EdgeInsets(top: 12, leading: 16, bottom: 0, trailing: 16)
     /// Gap between the tab band and the page it selects.
     static let retainedTabPageSpacing: Double = 10
+
+    /// The cross-dissolve between two pages.
+    ///
+    /// `NSTabViewController`'s automatic transition is a cross-fade, and
+    /// SwiftUI's `TabView` on macOS dissolves rather than cutting. 0.25 s
+    /// ease-in-out, the same interval and curve the disclosure reveal uses:
+    /// both are "one piece of the window is replaced by another", and giving
+    /// them different timings would read as two different apps. Carried on
+    /// the node rather than waiting for an ambient `withAnimation`, because a
+    /// tab press never has one.
+    static let retainedTabPageCrossfadeAnimation = AnimationTransaction(
+        duration: Controls.disclosureDuration, easing: .easeInOut)
 
     private func selectedPageIndex() -> Int {
         guard !content.isEmpty else {

@@ -1986,6 +1986,20 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         return batchRenderer.setPresentsWithVSync(enabled)
     }
 
+    /// Asks the active batch backend to keep a CPU copy of every frame it
+    /// presents. Returns whether it honoured the request.
+    @discardableResult
+    func setActiveBatchBackendFrameCapture(_ enabled: Bool) -> Bool {
+        guard activeBackend == .scene, let batchRenderer else { return false }
+        return batchRenderer.setCapturesPresentedFrames(enabled)
+    }
+
+    /// The pixels of the most recently presented frame, consumed.
+    func takeCapturedPresentedFrame() -> BitmapSurface? {
+        guard activeBackend == .scene, let batchRenderer else { return nil }
+        return batchRenderer.takeCapturedPresentedFrame()
+    }
+
     // MARK: - Diagnostics input injection
     //
     // A live diagnostics run drives these instead of synthesizing Win32

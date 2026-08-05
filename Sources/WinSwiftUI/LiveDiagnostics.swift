@@ -83,22 +83,45 @@ public struct LiveDiagnosticsConfiguration: Equatable, Sendable {
     /// Whether to unpace presents for the run, so frame times measure the
     /// app's own cost rather than the compositor's vblank wait.
     public var disablesVSync: Bool
+    /// Whether the run reads its own presented frames back and writes them as
+    /// a numbered image sequence.
+    ///
+    /// Off by default and deliberately so: the readback is a full-surface
+    /// GPU stall on every frame. A run with this on is measuring *pixels* —
+    /// whether the motion a counter claims actually reached the screen — and
+    /// its frame times are not comparable with a normal run's.
+    public var capturesMotion: Bool
+    /// Directory the frame sequence and its manifest are written to.
+    public var motionOutputDirectory: String
+    /// How many consecutive presented frames to keep. Frames are held in
+    /// memory and written when the run ends, because encoding a PNG between
+    /// two presents would stretch the very timeline being captured.
+    public var motionFrameCount: Int
 
     public init(
         durationSeconds: Double = 10,
         outputPath: String = "artifacts/live-diagnostics.json",
         exercisesInput: Bool = true,
-        disablesVSync: Bool = false
+        disablesVSync: Bool = false,
+        capturesMotion: Bool = false,
+        motionOutputDirectory: String = "artifacts/motion",
+        motionFrameCount: Int = 60
     ) {
         self.durationSeconds = max(0.5, durationSeconds)
         self.outputPath = outputPath
         self.exercisesInput = exercisesInput
         self.disablesVSync = disablesVSync
+        self.capturesMotion = capturesMotion
+        self.motionOutputDirectory = motionOutputDirectory
+        self.motionFrameCount = max(4, motionFrameCount)
     }
 
     /// `--diagnostics [--diagnostics-seconds N] [--diagnostics-output PATH]
-    /// [--diagnostics-no-input]`, or `SWIFT_WINDOWSUI_DIAGNOSTICS=1` with the
-    /// matching `_SECONDS` / `_OUTPUT` variables.
+    /// [--diagnostics-no-input] [--diagnostics-no-vsync]
+    /// [--diagnostics-capture-motion [--diagnostics-motion-frames N]
+    /// [--diagnostics-motion-output DIR]]`, or
+    /// `SWIFT_WINDOWSUI_DIAGNOSTICS=1` with the matching `_SECONDS` /
+    /// `_OUTPUT` variables.
     public static func fromCommandLine(
         _ arguments: [String] = CommandLine.arguments,
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -132,6 +155,18 @@ public struct LiveDiagnosticsConfiguration: Equatable, Sendable {
 
         if arguments.contains("--diagnostics-no-vsync") {
             configuration.disablesVSync = true
+        }
+
+        if arguments.contains("--diagnostics-capture-motion") {
+            configuration.capturesMotion = true
+        }
+
+        if let directory = value(of: "--diagnostics-motion-output", in: arguments), !directory.isEmpty {
+            configuration.motionOutputDirectory = directory
+        }
+
+        if let frames = value(of: "--diagnostics-motion-frames", in: arguments), let parsed = Int(frames) {
+            configuration.motionFrameCount = max(4, parsed)
         }
 
         return configuration
@@ -173,6 +208,13 @@ final class LiveDiagnosticsSession {
     private var scriptedStepIndex = 0
     private var didExhaustScript = false
     private var didDisableVSync = false
+
+    /// Motion capture state. `nil` unless the run asked for it.
+    private var motionRecorder: MotionCaptureRecorder?
+    private var motionScript = MotionCaptureScript()
+    private var didEnableFrameCapture = false
+    private var motionSummary: [String: Any]?
+    private var motionFailureDetail: String?
 
     /// Seconds of the run treated as warmup. The first frames populate the
     /// glyph atlas, compile nothing (shaders are already in the binary) but do
@@ -244,12 +286,120 @@ final class LiveDiagnosticsSession {
             atlasBytesAtWarmupEnd = sample.atlasUploadedByteCount
         }
 
-        if configuration.exercisesInput {
+        if configuration.capturesMotion {
+            // A capture run replaces the sustained hover/scroll stream with
+            // its own script. The two cannot share a session: a pointer sweep
+            // firing forty times a second repaints the window on every frame,
+            // and every frame of the sequence would then differ everywhere
+            // for reasons that have nothing to do with the animation the
+            // capture is about.
+            advanceMotionCapture(elapsed: elapsed, sample: sample)
+        } else if configuration.exercisesInput {
             advanceScript(elapsed: elapsed)
         }
 
         if elapsed >= configuration.durationSeconds {
             finish()
+        }
+    }
+
+    // MARK: - Motion capture
+
+    /// Drives the motion sequence: waits out the warmup, turns the backend's
+    /// self-readback on, then records every frame and steps the script by
+    /// captured-frame index until the sequence is full.
+    private func advanceMotionCapture(elapsed: Double, sample: LiveFrameSample) {
+        guard let host else { return }
+
+        guard elapsed >= Self.warmupSeconds else {
+            // Nothing is captured during warmup. The first frames populate
+            // the glyph atlas and the present-pacing watchdog has not yet
+            // decided what is pacing this display, so their spacing is not
+            // the spacing the animation will actually be shown at.
+            return
+        }
+
+        if !didEnableFrameCapture {
+            didEnableFrameCapture = true
+            guard host.setActiveBatchBackendFrameCapture(true) else {
+                motionFailureDetail =
+                    "the active backend does not support presented-frame readback"
+                report("Live diagnostics: \(motionFailureDetail!); motion capture skipped.")
+                return
+            }
+            motionRecorder = MotionCaptureRecorder(frameLimit: configuration.motionFrameCount)
+            report("Live diagnostics: capturing \(configuration.motionFrameCount) presented frames.")
+            return
+        }
+
+        guard let recorder = motionRecorder else { return }
+
+        if let surface = host.takeCapturedPresentedFrame() {
+            recorder.record(
+                surface,
+                presentedAt: sample.presentedAt,
+                step: motionScript.step.rawValue,
+                hadActiveAnimations: sample.hadActiveAnimations
+            )
+        }
+
+        if let action = motionScript.advance(capturedFrameCount: recorder.frames.count) {
+            perform(action, in: host)
+        }
+
+        if recorder.isComplete {
+            finish()
+        }
+    }
+
+    private func perform(_ step: MotionCaptureScript.Step, in host: WinSwiftUIWindowHost) {
+        let targets = MotionCaptureScript.targets(from: host.hostedRuntime.activatableControlCenters())
+        switch step {
+        case .baseline:
+            break
+        case .hoverFade:
+            // A pointer that arrives and stays. The fade is the interaction
+            // chrome's own tween, so this is the one step that starts an
+            // animation without changing any state.
+            guard let point = targets.navigation ?? targets.content else {
+                motionFailureDetail = "no pressable control to hover"
+                return
+            }
+            host.injectDiagnosticsPointerMove(to: point)
+        case .screenSwitch:
+            guard let point = targets.navigation else {
+                motionFailureDetail = "no navigation control to switch screens with"
+                return
+            }
+            host.injectDiagnosticsClick(at: point)
+        case .controlActivate:
+            guard let point = targets.content else {
+                motionFailureDetail = "no content control to activate"
+                return
+            }
+            // Hover first, then press, in two frames' worth of one call: a
+            // press with the pointer never having arrived exercises a path no
+            // user takes.
+            host.injectDiagnosticsPointerMove(to: point)
+            host.injectDiagnosticsClick(at: point)
+        }
+    }
+
+    private func finishMotionCapture(host: WinSwiftUIWindowHost) {
+        guard configuration.capturesMotion else { return }
+        host.setActiveBatchBackendFrameCapture(false)
+        guard let recorder = motionRecorder, !recorder.frames.isEmpty else {
+            return
+        }
+        do {
+            motionSummary = try recorder.write(to: configuration.motionOutputDirectory)
+            report(
+                "Live diagnostics: wrote \(recorder.frames.count) motion frames to "
+                    + "\(configuration.motionOutputDirectory)."
+            )
+        } catch {
+            motionFailureDetail = "writing the frame sequence failed: \(error)"
+            report("Live diagnostics: \(motionFailureDetail!)")
         }
     }
 
@@ -382,6 +532,7 @@ final class LiveDiagnosticsSession {
         }
         host.onFramePresented = nil
         host.hostedRuntime.collectsPhaseTimings = false
+        finishMotionCapture(host: host)
 
         do {
             let json = try buildReportJSON(host: host)
@@ -429,6 +580,20 @@ final class LiveDiagnosticsSession {
         report["vsyncDisabledForRun"] = didDisableVSync
         report["vsyncDisableRequested"] = configuration.disablesVSync
         report["scriptedStepsExecuted"] = executedStepCounts
+
+        if configuration.capturesMotion {
+            var motion: [String: Any] = ["requested": true]
+            motion["backendSupportedReadback"] = motionFailureDetail == nil && motionSummary != nil
+            if let motionSummary {
+                for (key, value) in motionSummary {
+                    motion[key] = value
+                }
+            }
+            if let motionFailureDetail {
+                motion["failure"] = motionFailureDetail
+            }
+            report["motionCapture"] = motion
+        }
 
         report["backend"] = [
             "activeBackend": health.activeBackend.rawValue,

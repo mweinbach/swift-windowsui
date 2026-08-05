@@ -66,6 +66,42 @@ where `dampingFraction = 1 − extraBounce`.
 | `ControlAnimationStyle.tactilePressedScale`     | 0.97  | The shrink, kept as an opt-in for a style that asks.    |
 | `ControlPalette.pressedContentOpacity`          | 0.72  | Borderless styles only: AppKit darkens *contents* when there is no bezel. |
 | `RetainedViewRuntime.defaultColorAnimationEasing` | `.easeInOut` | Every colour cross-fade's curve. See below. |
+| `Controls.disclosureDuration`                   | 0.25s | Disclosure reveal, ease-in-out.                        |
+| `TabView.retainedTabPageCrossfadeAnimation`     | 0.25s | Tab page cross-dissolve, ease-in-out. See below.       |
+
+### A tab switch dissolves
+
+`NSTabViewController`'s automatic transition is a cross-fade, and SwiftUI's
+`TabView` on macOS dissolves rather than cutting. This stack cut: `TabView`
+built the selected page as an untagged child, so the reconciler matched the
+outgoing page to the incoming one by position and rewrote it in place, and
+nothing was inserted or removed for a transition to attach to.
+
+Found in pixels rather than in a counter. A live motion capture
+(`--diagnostics-capture-motion`, `docs/Testing.md`) of the demo switching
+screens showed **one frame in which 92 % of the window changed, with twenty
+byte-identical frames after it** and nothing in flight on either side. Every
+animation test in the suite passed while that was true.
+
+The page now carries `nodeTag = "tabview-page:<index>"`, an opacity
+transition and the cross-fade transaction, so the old page departs as a
+fading removal overlay while the new one fades in under it. The same capture
+after the change shows the switch resolved into twelve distinct presented
+frames across ~0.26s. Fitting every intermediate frame as a blend of the two
+settled endpoints gives a strictly decreasing coefficient — 1.000, 0.998,
+0.994, 0.969, 0.921, 0.837, 0.712, 0.452, 0.329, 0.120, 0.012, 0.000 — whose
+slow-fast-slow shape is the ease-in-out curve read straight off the screen.
+The duration is `Controls.disclosureDuration`: both are "one piece of the
+window is replaced by another", and giving them different timings would read
+as two different apps.
+
+`TabPageCrossfadeTests` pins all of it, including the half that the capture
+also caught — pressing a button on the freshly-switched-to page used to blank
+the window and fade it in again, because `applyNewNodeTransitionsRecursively`
+fires on `!hasAppeared`, and `hasAppeared` is set by the paint traversal,
+which does not reach every node it retains. An insertion transition is a
+statement about arriving, and a node arrives once: `didPlayInsertionTransition`
+now says so directly.
 
 ## Press feedback is a fill change, not a transform
 

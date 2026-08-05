@@ -106,6 +106,55 @@ Supporting counts from the same run:
   switches — new glyphs on newly visited screens. Once a screen has been
   visited, revisiting it uploads nothing.
 
+### 2026-08 — what a screen switch costs, and where
+
+The frame budget above measures frames. A screen switch is not a frame: the
+tree rebuild that produces the new screen runs in the message handler that
+changed the state, returns to the wndproc, and only the *next* `WM_PAINT`
+lays the result out and paints it. So `sceneBuildSeconds` never included body
+evaluation, node construction or reconciliation, and the most expensive part
+of the most expensive interaction in the app was invisible to every frame
+measurement taken of it.
+
+The diagnostics run now charges rebuild wall clock to the frame that ships
+its result and splits it three ways, splits the frame's own build into layout
+and paint, and ranks `costliestUpdates` by the sum — which is what the user
+waits for. All of it is off unless a session asks for it: three QPC
+round-trips per rebuild is not a cost a shipping window should carry.
+
+Release, unpaced, same machine and workload as above
+(`artifacts/perf/l8s-before-novsync.json` vs `l8s-final-novsync.json`):
+
+| Phase of one screen switch | Before | After |
+| --- | --- | --- |
+| Body evaluation (`View` bodies → `Component`) | 0.05 ms | 0.05 ms |
+| Node construction (`Component` → `ViewNode`) | 5.6 ms | 6.0 ms |
+| Reconcile (new nodes onto the retained tree) | 9.2 ms | 2.1 ms |
+| Layout | 6.3 ms | 2.5 ms |
+| Paint | 0.9 ms | 0.5 ms |
+| **Worst frame in the run** | **7.4 ms** | **5.7 ms** |
+| **User-visible cost of the worst update** | **22.3 ms** | **16.7 ms** |
+
+Two things were doing work nobody asked for. `updateNodeProperties` assigned
+a dozen heap-backed properties unconditionally — the canvas draw, the
+accessibility actions, the swipe actions, the preference and layout value
+bags, fifty event handlers — and several of those observe themselves and walk
+the node's ancestors marking them dirty; every node in the window paid on
+every state change whether or not it had any of them. And `setChildren`
+invalidated `.children` even when handed back the identical list in the
+identical order, which is what a reconcile does for almost every node: the
+layout pass believed it and re-descended subtrees nothing had touched.
+`ComponentHostTests.testReconcilingAnUnchangedNodeLeavesItClean` pins the
+result.
+
+Two caveats, both honest. The worst frame varies run to run — 5.7 ms and
+8.6 ms across two consecutive runs, against 7.4 and 9.4 before — and a switch
+frame now also composites the outgoing page for the quarter-second the
+cross-dissolve lasts. And **node construction is untouched and is now the
+largest remaining piece**: a rebuild allocates a fresh `ViewNode` per node to
+copy onto the retained one, and `ViewNode` carries some 380 stored
+properties. That is a shape problem, not a hot spot.
+
 ### 2026-08 — the presentation pacing watchdog
 
 The 4.05 fps column above is what a user of that machine actually saw, and no

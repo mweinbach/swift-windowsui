@@ -135,6 +135,29 @@ public protocol BatchRenderBackend: AnyObject {
     /// Render a complete GPUIScene.
     func render(scene: GPUIScene) throws
 
+    /// Asks the backend to keep a CPU copy of every frame it presents, so a
+    /// caller can read the pixels that actually went to the screen. Returns
+    /// whether the backend honoured the request.
+    ///
+    /// This is self-readback of the backend's own render target, taken
+    /// between the last draw and the present — not a desktop or window
+    /// capture, and not a second render through a different path. It is the
+    /// only way to make a claim about *motion* falsifiable: every animation
+    /// assertion the test suite makes is about counters and sampled node
+    /// values, and a fade that advances perfectly in the runtime while the
+    /// screen shows two frames and a jump satisfies every one of them.
+    ///
+    /// Expensive by construction — a full-surface GPU-to-CPU copy stalls the
+    /// pipeline — so it is off unless asked for, and a run that turns it on
+    /// is measuring pixels, not frame times.
+    func setCapturesPresentedFrames(_ enabled: Bool) -> Bool
+
+    /// The most recently presented frame's pixels, or `nil` when capture is
+    /// off, unsupported, or no frame has been presented since it was turned
+    /// on. Consuming it clears it, so a caller polling once per frame cannot
+    /// mistake a repeated frame for a new one.
+    func takeCapturedPresentedFrame() -> BitmapSurface?
+
     /// Asks the backend to stop (or resume) pacing presents to the display's
     /// vblank. Returns whether the backend honoured the request.
     ///
@@ -184,4 +207,12 @@ extension BatchRenderBackend {
     /// A backend with no swap chain has no pacing to disable.
     @discardableResult
     public func setPresentsWithVSync(_ enabled: Bool) -> Bool { false }
+
+    /// A backend with no render target of its own has no presented frame to
+    /// read back. Refusing is honest; the caller checks the return value and
+    /// reports that the run captured nothing.
+    @discardableResult
+    public func setCapturesPresentedFrames(_ enabled: Bool) -> Bool { false }
+
+    public func takeCapturedPresentedFrame() -> BitmapSurface? { nil }
 }

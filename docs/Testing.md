@@ -578,3 +578,67 @@ The gallery executable also accepts `--entries <csv>` and `--output-dir <path>` 
 renderer now produces. **Open every regenerated PNG before committing it**, and
 say in the commit which entries moved and why. A baseline accepted unseen turns
 the gate from a check on the renderer into a record of whatever it last did.
+
+## Live Motion Capture
+
+Every animation assertion in the suite is about counters and about values
+sampled out of the runtime, and none of those can fail the way an animation
+actually fails. A fade that advances perfectly in the runtime while the screen
+shows the start, one middle frame and the end satisfies a timeline-sampling
+test completely and reads as a step to the person watching. Only the presented
+pixels can tell the two apart.
+
+```powershell
+.build\x86_64-unknown-windows-msvc\release\swift-windowsui.exe `
+  --diagnostics --diagnostics-capture-motion `
+  --diagnostics-seconds 40 `
+  --diagnostics-motion-frames 60 `
+  --diagnostics-motion-output artifacts/motion `
+  --diagnostics-output artifacts/perf/motion.json
+```
+
+This is **self-readback of the app's own swap chain**, taken between the last
+draw and the present — not a desktop or window capture, so the screenshot
+contract holds. The readback runs in `D3D11BatchRenderer` behind
+`BatchRenderBackend.setCapturesPresentedFrames(_:)`, which is off in every
+shipping run. It has to be taken *before* `Present`: the chain is
+`FLIP_DISCARD`, where the back buffer is undefined the instant the present is
+queued, and a capture taken afterwards often reads the previous frame — the
+exact failure that would make a stuttering animation look smooth.
+
+The run writes `artifacts/motion/frame-NNN.png` plus a `manifest.json` giving,
+for every consecutive pair: the wall-clock gap, how many pixels changed, the
+mean and maximum channel delta over the changed pixels, and the bounding box of
+the change. Frames are held in memory and encoded when the run ends — encoding
+between two presents would stretch the timeline being measured.
+
+The scripted sequence is indexed on captured frames, not seconds, so the phase
+boundaries are checkable against the images: frames 0-1 settled, frame 2 a
+pointer arrives on a control (`hover-fade`), frame 20 that control is pressed
+(`screen-switch`), frame 40 a control on the new screen is pressed
+(`control-activate`). Targets come from
+`RetainedViewRuntime.activatableControlCenters()` — the hit-test's own frames —
+rather than fractions of the window, which miss the moment the layout re-flows.
+
+What to read the manifest for:
+
+- **`longestIdenticalRunWhileAnimating`** — the number that says slideshow.
+  Read this one, not `longestIdenticalRun`: an idle window repeating itself is
+  correct behaviour and dominates the unrestricted count. A run of identical
+  frames while the runtime says something is animating is either a wasted
+  present or a dropped step.
+- **A single frame with a large `changedFraction` and nothing on either side**
+  is a cut, not a transition. That is how the missing tab cross-fade was found:
+  one frame changed 92 % of the window with 20 identical frames after it.
+- **`meanAbsoluteDeltaOverChangedPixels` per frame** across a fade is the
+  step size. Many small steps is smooth; one big step is not.
+- **`medianFrameGapMs`** — read this first. Nine steps of one colour level is
+  a smooth fade at 16 ms a frame and a quarter-second freeze at 250, and the
+  images look identical either way. On a display whose compositor stalls
+  `Present`, give the run enough `--diagnostics-seconds` for the pacing
+  watchdog to engage before the capture starts (40 s is comfortable); the
+  manifest's gap will read ~16 ms once it has.
+
+A capture run's frame times are not comparable with a normal run's: the
+readback is a full-surface GPU stall on every frame. Use it for pixels and
+`--diagnostics-no-vsync` for timings.

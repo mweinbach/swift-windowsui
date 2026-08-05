@@ -2914,6 +2914,23 @@ public final class ViewNode {
     /// Cleared the moment the node actually appears, so a later removal and
     /// re-insertion transitions normally.
     internal var isInitialBuildNode = false
+
+    /// Whether this node has already played the transition it arrived with.
+    ///
+    /// `applyNewNodeTransitionsRecursively` fires on `!hasAppeared`, and
+    /// `hasAppeared` is set by the paint traversal — which does not reach
+    /// every node it retains, so the two are not the same question. A node
+    /// the traversal never marked would play its insertion transition again
+    /// on every subsequent rebuild: a `TabView` page faded in correctly on the
+    /// switch, and then faded in *again* every time a button on it was
+    /// pressed, because pressing the button rebuilds the tree and the page
+    /// still looked un-appeared. Caught in a motion capture, where a button
+    /// press blanked the whole window for a quarter of a second.
+    ///
+    /// An insertion transition is a statement about arriving, and a node
+    /// arrives once. Cleared with `hasAppeared` when the node really leaves,
+    /// so a removal and a genuine re-insertion transition normally.
+    internal var didPlayInsertionTransition = false
     public internal(set) var isRemovalOverlay: Bool = false
     private var previousFrame: Rect?
     private var lifecycleTasks: [String: Task<Void, Never>] = [:]
@@ -3824,8 +3841,10 @@ public final class ViewNode {
             hasAppeared = false
         }
         // A node that leaves and comes back is a real insertion the second
-        // time, whatever it was on the host's first build.
+        // time, whatever it was on the host's first build — and whatever it
+        // played on the way in the first time.
         isInitialBuildNode = false
+        didPlayInsertionTransition = false
 
         for child in children {
             child.markSubtreeDisappeared()
@@ -7291,6 +7310,7 @@ public final class ViewNode {
     func applyInsertionTransition() {
         let insertion = transition.insertion
         guard insertion.kind != .identity else { return }
+        didPlayInsertionTransition = true
 
         // Ambient `withAnimation` first, then the node's own transaction (a
         // control whose state change is its own — a disclosure, a switch —
@@ -9638,6 +9658,38 @@ public final class RetainedViewRuntime {
 
     private func hitTest(at point: Point) -> ViewNode? {
         node(for: hitDispatchIndex(at: point))
+    }
+
+    /// Window-space centres of the controls that respond to a press, in the
+    /// order the paint traversal registered them.
+    ///
+    /// A scripted diagnostics run has to press a real control, and the two
+    /// alternatives are both worse. Hard-coded fractions of the window miss
+    /// the moment the layout re-flows — six scripted "screen switches" in the
+    /// existing run land on two, and the session cannot tell. Calling the
+    /// runtime's activation directly skips the hit test the press exists to
+    /// exercise. These are the frames the hit test itself uses, so a point
+    /// taken from here is a point the hit test will resolve to that control.
+    public func activatableControlCenters() -> [Point] {
+        updateResolvedLayout()
+        var centers: [Point] = []
+        centers.reserveCapacity(prepaintState.interactions.count)
+        for interaction in prepaintState.interactions {
+            let node = interaction.node
+            guard node.isHitTestVisible, node.onActivate != nil else {
+                continue
+            }
+            let frame = interaction.frame
+            guard frame.size.width > 0, frame.size.height > 0 else {
+                continue
+            }
+            let center = Point(x: frame.midX, y: frame.midY)
+            guard interaction.containsForHitTesting(center) else {
+                continue
+            }
+            centers.append(center)
+        }
+        return centers
     }
 
     private func scrollTargetDispatchIndex(at point: Point, axis: ScrollAxis? = nil) -> Int? {

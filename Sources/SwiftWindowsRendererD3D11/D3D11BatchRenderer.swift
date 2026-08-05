@@ -57,6 +57,20 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         return true
     }
 
+    @discardableResult
+    public func setCapturesPresentedFrames(_ enabled: Bool) -> Bool {
+        capturesPresentedFrames = enabled
+        if !enabled {
+            capturedPresentedFrame = nil
+        }
+        return true
+    }
+
+    public func takeCapturedPresentedFrame() -> BitmapSurface? {
+        defer { capturedPresentedFrame = nil }
+        return capturedPresentedFrame
+    }
+
     public var presentPacing: PresentPacingStatus {
         presentPacingPolicy.status
     }
@@ -207,6 +221,13 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     }
 
     private var renderTargetKind: RenderTargetKind = .swapChain
+
+    /// Whether every frame is copied back to the CPU on its way to the
+    /// screen, and the copy the last frame left. See
+    /// `setCapturesPresentedFrames(_:)` — off in every shipping run.
+    private var capturesPresentedFrames = false
+    private var capturedPresentedFrame: BitmapSurface?
+
     private var offscreenTexture: UnsafeMutablePointer<ID3D11Texture2D>?
     /// Driver preference the current offscreen attach was made with, so a
     /// device-loss rebuild recreates the same kind of device.
@@ -1338,8 +1359,15 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             }
         }
 
+        // Between the two clocks on purpose. The capture is measurement
+        // scaffolding that stalls the GPU, and charging it to either the
+        // submit or the present figure would make a capture run's timings
+        // lie about the app. It still shows up in the whole-frame number,
+        // which is honest: the frame really did take that long.
+        lastSubmitSeconds = Self.nowSeconds() - submitStartedAt
+        capturePresentedFrameIfRequested()
+
         let presentStartedAt = Self.nowSeconds()
-        lastSubmitSeconds = presentStartedAt - submitStartedAt
         try presentFrame()
         let presentEndedAt = Self.nowSeconds()
         lastPresentSeconds = presentEndedAt - presentStartedAt
@@ -1649,15 +1677,51 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                 details: "The renderer is not attached to an offscreen render target."
             )
         }
+        return try readPixels(of: offscreenTexture, operation: "Read offscreen pixels")
+    }
+
+    /// Copies the frame the swap chain is about to present into a
+    /// `BitmapSurface`, so a diagnostics run can look at the pixels that go
+    /// to the screen.
+    ///
+    /// Taken *before* `Present`, and that is not an optimisation: this chain
+    /// is `FLIP_DISCARD`, where the back buffer's contents are undefined the
+    /// moment the present is queued. A capture taken afterwards reads
+    /// whatever the driver left behind, which on this machine is often the
+    /// previous frame — the exact failure mode that would make a stuttering
+    /// animation look smooth in the capture.
+    private func capturePresentedFrameIfRequested() {
+        guard capturesPresentedFrames, renderTargetKind == .swapChain else {
+            return
+        }
+        guard let backBuffer = try? acquireBackBuffer() else {
+            return
+        }
+        var owned: UnsafeMutablePointer<ID3D11Texture2D>? = backBuffer
+        defer { releaseCOM(&owned) }
+        capturedPresentedFrame = try? readPixels(of: backBuffer, operation: "Capture presented frame")
+    }
+
+    /// GPU-to-CPU readback of a render target, as BGRA in the same byte order
+    /// `GPUIRawSceneRasterizer` produces.
+    ///
+    /// The result is tagged premultiplied: it is the output of a
+    /// premultiplied blend state. With the usual opaque clear colour the two
+    /// conventions coincide byte for byte, which is why parity scenes clear
+    /// to alpha 1.
+    private func readPixels(
+        of texture: UnsafeMutablePointer<ID3D11Texture2D>,
+        operation: String
+    ) throws -> BitmapSurface {
         guard let device, let deviceContext else {
-            throw BatchRendererError(operation: "Read offscreen pixels", hresult: batchHresultHandle)
+            throw BatchRendererError(operation: operation, hresult: batchHresultHandle)
         }
 
         // Read the target's own dimensions rather than the requested size:
         // a zero-size resize leaves the previous texture in place, and a
         // staging copy has to match the source exactly.
         var descriptor = D3D11_TEXTURE2D_DESC()
-        offscreenTexture.pointee.lpVtbl.pointee.GetDesc(offscreenTexture, &descriptor)
+        texture.pointee.lpVtbl.pointee.GetDesc(texture, &descriptor)
         let width = Int(descriptor.Width)
         let height = Int(descriptor.Height)
         descriptor.Usage = D3D11_USAGE_STAGING
@@ -1674,7 +1738,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
 
         let destination = UnsafeMutableRawPointer(staging).assumingMemoryBound(to: ID3D11Resource.self)
-        let source = UnsafeMutableRawPointer(offscreenTexture).assumingMemoryBound(to: ID3D11Resource.self)
+        let source = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
         deviceContext.pointee.lpVtbl.pointee.CopyResource(deviceContext, destination, source)
 
         var mapped = D3D11_MAPPED_SUBRESOURCE()

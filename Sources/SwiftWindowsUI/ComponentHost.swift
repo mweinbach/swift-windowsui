@@ -212,7 +212,9 @@ public final class ComponentHost {
     }
 
     static func applyNewNodeTransitionsRecursively(in node: ViewNode) {
-        if !node.hasAppeared, !node.isInitialBuildNode, node.transition.kind != .identity {
+        if !node.hasAppeared, !node.isInitialBuildNode, !node.didPlayInsertionTransition,
+            node.transition.kind != .identity
+        {
             node.applyInsertionTransition()
         }
         for child in node.children {

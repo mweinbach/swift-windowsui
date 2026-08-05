@@ -67,10 +67,12 @@ final class AnimationStressTests: XCTestCase {
             let (runtime, containers) = makeStressRuntime()
             // Seed wheel momentum on every scroll container in alternating
             // directions to exercise both positive and negative momentum and
-            // ensure both edges' rubber-band paths fire.
+            // ensure both edges' rubber-band paths fire. The source has to be
+            // a gesture: a click-wheel detent seeds no momentum at all, so a
+            // notch here would leave the stress scene with nothing to settle.
             for (index, container) in containers.enumerated() {
                 let delta: Double = index.isMultiple(of: 2) ? -4 : 4
-                runtime.mouseWheel(at: container.frame.midpoint, delta: delta)
+                runtime.mouseWheel(at: container.frame.midpoint, delta: delta, source: .precise)
             }
 
             XCTAssertTrue(runtime.hasActiveAnimations, "Stress scene should start with active momentum")

@@ -38,9 +38,15 @@ final class ChromeCompositionTests: XCTestCase {
             let node = makeChromeNode(Button("Tap Me") {})
 
             // Pinned chrome constants: 1pt hairline border, 4pt focus ring
-            // (MacOSControlMetrics.FocusRing.strokeWidth).
+            // (MacOSControlMetrics.FocusRing.strokeWidth). The ring's *width*
+            // is 0 at rest and grows out of the edge when focus arrives, so
+            // the pinned value lives on the interaction surface the runtime
+            // resolves — see `docs/AnimationParity.md`.
             XCTAssertEqual(node.borderWidth, 1, accuracy: 0.001)
-            XCTAssertEqual(node.outlineWidth, MacOSControlMetrics.FocusRing.strokeWidth, accuracy: 0.001)
+            XCTAssertEqual(node.outlineWidth, 0, accuracy: 0.001)
+            XCTAssertEqual(
+                node.interactionSurface?.focusRingWidth ?? -1,
+                MacOSControlMetrics.FocusRing.strokeWidth, accuracy: 0.001)
 
             // Subtle vertical gradient: bottom stop darker than the (idle)
             // top stop. Big Sur+ keeps 96% of the luminance, not the 82%
@@ -382,12 +388,15 @@ final class ChromeCompositionTests: XCTestCase {
             let placeholder = try XCTUnwrap(flattened(node).first { $0.text == "Name" })
             XCTAssertLessThan(placeholder.textStyle.color.alpha, 0.7)
 
-            // Accent focus ring at the pinned macOS stroke width.
-            node.onFocusEnter?()
-            XCTAssertEqual(node.outlineWidth, MacOSControlMetrics.FocusRing.strokeWidth, accuracy: 0.001)
-            XCTAssertGreaterThanOrEqual(node.outlineColor.alpha, 0.5)
-            node.onFocusExit?()
-            XCTAssertEqual(node.outlineWidth, 0, accuracy: 0.001)
+            // Accent focus ring at the pinned macOS stroke width. The ramp
+            // is data the runtime resolves against its own focus target, not
+            // something the field's own closure paints: see
+            // `ControlInteractionContinuityTests` for the timeline, and the
+            // rebuild that used to strip a focused field's ring.
+            let surface = try XCTUnwrap(node.interactionSurface)
+            XCTAssertEqual(surface.focusRingWidth, MacOSControlMetrics.FocusRing.strokeWidth, accuracy: 0.001)
+            XCTAssertGreaterThanOrEqual(try XCTUnwrap(surface.focusRingColor).alpha, 0.5)
+            XCTAssertEqual(node.outlineWidth, 0, accuracy: 0.001, "no ring until focus arrives")
         }
     }
 

@@ -132,7 +132,13 @@ final class WinSwiftUIWindowCoordinator {
                     // Only the primary window writes the startup probe;
                     // secondary windows must not overwrite it on open.
                     startupProbeConfiguration: isPrimary ? .fromEnvironment() : nil,
-                    backendResolution: backendResolution
+                    backendResolution: backendResolution,
+                    // Real windows remember the pacing watchdog's verdict
+                    // across sessions, so a launch on a compositor that was
+                    // broken yesterday starts self-paced instead of replaying
+                    // the 1.5 s evidence slideshow. Hosts built directly
+                    // (tests, embedders) default to no memory.
+                    presentPacingMemory: .standard
                 )
             }
         self.sceneStorageScopeProvider =

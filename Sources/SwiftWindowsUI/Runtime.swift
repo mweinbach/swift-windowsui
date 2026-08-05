@@ -7922,6 +7922,15 @@ public final class RetainedViewRuntime {
     /// unfalsifiable from the host that drives it.
     public private(set) var sceneRebuildCount: UInt64 = 0
     public private(set) var sceneCacheHitCount: UInt64 = 0
+    /// Monotonic revision of the built output, bumped exactly when
+    /// `renderFrame` or `renderScene` actually rebuilds — never on a cache
+    /// hit or a pacing-floor replay. Two calls that return the same revision
+    /// returned byte-identical content, which is what lets the host skip a
+    /// present that would replace the screen's pixels with themselves.
+    /// Backend-neutral on purpose: one counter covers both output shapes, so
+    /// a backend switch (which drops the other path's cache and rebuilds)
+    /// always moves it.
+    public private(set) var contentRevision: UInt64 = 0
     /// Whether `renderScene` splits its own wall clock into layout and paint.
     ///
     /// Off by default and paid for by nobody who has not asked: the split
@@ -8412,6 +8421,7 @@ public final class RetainedViewRuntime {
         cachedFrame = frame
         cachedScene = nil
         cachedSceneAtlasGeneration = nil
+        contentRevision &+= 1
         if timestamp > 0 {
             lastRenderTime = timestamp
         }
@@ -8499,6 +8509,7 @@ public final class RetainedViewRuntime {
         cachedSceneCopy.glyphAtlas = nil
         cachedSceneCopy.pixelGlyphAtlas = nil
         sceneRebuildCount &+= 1
+        contentRevision &+= 1
         lastSceneReplayCount = replayCount
         lastDeferredDrawSceneReplayCount = deferredDrawReplayCount
         lastDeferredDrawFrameReplayCount = 0

@@ -106,6 +106,24 @@ public struct PresentPacingPolicy: Equatable, Sendable {
         public var maximumProbeInterval: Double
         /// How the probe interval grows after each failed probe.
         public var probeBackoffFactor: Double
+        /// Consecutive failed probes after which the interval stops climbing
+        /// the ladder and jumps straight to ``maximumProbeInterval``.
+        ///
+        /// A probe is not free: its judged presents block for whatever the
+        /// broken compositor charges (~250 ms each here), and they must be
+        /// *consecutive* paced presents — DXGI queues `MaximumFrameLatency`
+        /// presents before `Present` waits, so spreading them across
+        /// nonadjacent frames would re-empty the queue between judged frames
+        /// and every one of them would measure queue depth instead of the
+        /// display (the deception ``probeWarmupFrames`` exists for; see
+        /// `PresentPacingWatchdogTests.testAProbeIsNotFooledByAnEmptyPresentQueue`).
+        /// A probe stall is therefore irreducibly a contiguous ~1 s hitch,
+        /// and the only real softener is probing less often once the evidence
+        /// is strong. Two failed probes on the same display are strong
+        /// evidence; a display *change* still probes immediately regardless
+        /// of the backoff (`setDisplayFrameInterval`), so laziness here never
+        /// delays recovery on dock.
+        public var failedProbesBeforeBackoffCap: Int
 
         public init(
             windowSize: Int = 30,
@@ -117,7 +135,8 @@ public struct PresentPacingPolicy: Equatable, Sendable {
             probeJudgedFrames: Int = 3,
             initialProbeInterval: Double = 2.0,
             maximumProbeInterval: Double = 30.0,
-            probeBackoffFactor: Double = 2.0
+            probeBackoffFactor: Double = 2.0,
+            failedProbesBeforeBackoffCap: Int = 2
         ) {
             self.windowSize = max(1, windowSize)
             self.engageMultiple = max(1.0, engageMultiple)
@@ -129,6 +148,7 @@ public struct PresentPacingPolicy: Equatable, Sendable {
             self.initialProbeInterval = max(0, initialProbeInterval)
             self.maximumProbeInterval = max(initialProbeInterval, maximumProbeInterval)
             self.probeBackoffFactor = max(1.0, probeBackoffFactor)
+            self.failedProbesBeforeBackoffCap = max(1, failedProbesBeforeBackoffCap)
         }
 
         public static let standard = Configuration()
@@ -154,6 +174,10 @@ public struct PresentPacingPolicy: Equatable, Sendable {
     /// to. The engage decision is these two and nothing else.
     public private(set) var consecutiveBlockedPresents = 0
     public private(set) var consecutiveBlockedSeconds: Double = 0
+    /// Recovery probes that have failed in a row on this display. Drives the
+    /// backoff jump (``Configuration/failedProbesBeforeBackoffCap``); reset by
+    /// a successful probe, a fresh engagement and a display change.
+    public private(set) var consecutiveFailedProbes = 0
     /// Paced presents observed in the probe currently running.
     private var probeFramesObserved = 0
 
@@ -236,12 +260,44 @@ public struct PresentPacingPolicy: Equatable, Sendable {
         displayFrameInterval = sanitized
         clearWindow()
         probeIntervalSeconds = configuration.initialProbeInterval
+        consecutiveFailedProbes = 0
         nextProbeAt = 0
         if mode == .selfPaced {
             mode = .probingDisplay
             probeFramesObserved = 0
             probeCount += 1
         }
+    }
+
+    /// Starts the session self-paced on the strength of a previous session's
+    /// evidence, instead of re-earning it through a fresh slideshow.
+    ///
+    /// The engage bar exists to protect a healthy display from a trigger-happy
+    /// watchdog, but it makes every launch on a permanently broken compositor
+    /// pay ~1.5 s of blocked presents before pacing recovers — the same
+    /// evidence, re-collected. A host that persisted the last session's
+    /// decision calls this before the first present. Only a pristine policy
+    /// adopts: once this session has evidence of its own — presents observed,
+    /// an engagement, a probe — the memory is stale relative to what the
+    /// policy has actually seen and is ignored.
+    ///
+    /// The adopted state schedules an immediate recovery probe (the display
+    /// may have been fixed since last session, and the memory must not outlive
+    /// the pathology), but seeds the backoff at its ceiling: the remembered
+    /// evidence plus one failed confirmation probe is as strong as evidence
+    /// gets, so a launch on a still-broken display pays one probe stall and
+    /// then goes quiet for ``Configuration/maximumProbeInterval``. A probe
+    /// that passes hands the display the pacing job back and resets the
+    /// ladder, exactly as it does for an in-session engagement.
+    public mutating func adoptRememberedSelfPacing() {
+        guard mode == .displayPaced, engagementCount == 0, probeCount == 0, sampleCount == 0 else {
+            return
+        }
+
+        mode = .selfPaced
+        probeIntervalSeconds = configuration.maximumProbeInterval
+        nextProbeAt = 0
+        clearWindow()
     }
 
     /// Explicit vsync override, for measurement runs. While set, the watchdog
@@ -331,6 +387,7 @@ public struct PresentPacingPolicy: Equatable, Sendable {
         mode = .selfPaced
         engagementCount += 1
         probeIntervalSeconds = configuration.initialProbeInterval
+        consecutiveFailedProbes = 0
         nextProbeAt = now + probeIntervalSeconds
         clearWindow()
     }
@@ -350,10 +407,20 @@ public struct PresentPacingPolicy: Equatable, Sendable {
         if presentSeconds > displayFrameInterval * configuration.releaseMultiple {
             mode = .selfPaced
             probeFramesObserved = 0
-            probeIntervalSeconds = min(
-                probeIntervalSeconds * configuration.probeBackoffFactor,
-                configuration.maximumProbeInterval
-            )
+            consecutiveFailedProbes += 1
+            // Each judged frame of a failed probe blocked the user for a
+            // quarter second, and repeating that on a geometric ladder is
+            // five visible hitches in the first minute. Once enough probes
+            // in a row have failed, the evidence is strong: stop climbing
+            // and go straight to the ceiling.
+            if consecutiveFailedProbes >= configuration.failedProbesBeforeBackoffCap {
+                probeIntervalSeconds = configuration.maximumProbeInterval
+            } else {
+                probeIntervalSeconds = min(
+                    probeIntervalSeconds * configuration.probeBackoffFactor,
+                    configuration.maximumProbeInterval
+                )
+            }
             nextProbeAt = now + probeIntervalSeconds
             return
         }
@@ -370,6 +437,7 @@ public struct PresentPacingPolicy: Equatable, Sendable {
         mode = .displayPaced
         probeFramesObserved = 0
         probeIntervalSeconds = configuration.initialProbeInterval
+        consecutiveFailedProbes = 0
         clearWindow()
     }
 

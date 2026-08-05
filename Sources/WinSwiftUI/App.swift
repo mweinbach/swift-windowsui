@@ -1654,6 +1654,18 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private let inputRateTracker = WindowInputRateTracker()
     private let undoManager = UndoManager()
 
+    /// Where a pacing verdict outlives the process, or `nil` for hosts that
+    /// do not persist one (tests, direct embedders). See
+    /// ``PresentPacingMemoryStore``; the production coordinator passes the
+    /// per-user standard store.
+    private let presentPacingMemory: PresentPacingMemoryStore?
+    /// The adapter+display key this window's verdict is filed under.
+    /// Computed at presenter attach and refreshed on display change.
+    private var presentPacingMemoryKey: String?
+    /// The verdict last handed to the store, so the frame loop's bookkeeping
+    /// is one comparison per frame rather than one store call.
+    private var lastPersistedPacingVerdict: Bool?
+
     // UI Automation bridge (Phase 2): exposes the retained tree to UIA via
     // WM_GETOBJECT and raises focus/structure events. Owned for the window's
     // lifetime; provider callbacks re-project live state on every call.
@@ -1809,24 +1821,47 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// the same defect this group is fixing one layer up.
     private static let selfPacedEarlyTolerance = 0.0015
     private var pendingPresentation = false
+    /// The runtime content revision the active presenter last put on screen,
+    /// or `nil` when nothing certain is there — before the first present, and
+    /// after any event that replaces the pixels underneath the bookkeeping
+    /// (a presenter attach, a backend switch, a resize).
+    ///
+    /// This is the duplicate-present gate's memory. Measured before it
+    /// existed: ~40 % of the frames presented during a hover fade were
+    /// byte-identical to the previous frame — the animation timer ticked, no
+    /// animated value moved far enough to dirty the tree, and the frame loop
+    /// shipped the cached scene anyway because `pendingPresentation` was
+    /// standing. Pixel-identical presents cost a bind, a submit, a present
+    /// and (self-paced) a whole schedule slot, and buy nothing a user can
+    /// see.
+    private var lastPresentedContentRevision: UInt64?
+    /// Presents skipped because the content revision had not moved. Surfaced
+    /// in the live diagnostics so the skip is measurable, not assumed.
+    private(set) var skippedIdenticalPresentCount = 0
     /// Frame-clock deadline the self-paced gate is holding the next frame to,
     /// or `0` when the display is pacing us and the gate is inert.
     private var selfPacedFrameDueAt: Double = 0
     /// One display period, as last reported by the monitor this window is on.
     /// What the backends' pacing watchdogs judge a present against.
     private var displayFrameInterval: Double = 1.0 / 60.0
-    /// The interval the self-paced gate schedules frames on.
+    /// The interval the self-paced gate schedules frames on: one true display
+    /// period.
     ///
-    /// Deliberately the runtime's pacing floor and not the display period.
-    /// Windows delivers this app's frames on a timer-queue timer, whose
-    /// accuracy is the system clock tick — ~15.6 ms, *below* a 60 Hz period —
-    /// so a schedule pinned to 16.667 ms rejects roughly every second tick for
-    /// arriving a millisecond early and then waits a whole further tick for the
-    /// next one. Measured: 49 fps against a 60 Hz display, from a gate that was
-    /// arithmetically correct. Scheduling on the floor the timer can actually
-    /// hit costs a few frames a second the compositor discards and buys back
-    /// the ~15 it was dropping.
-    private var selfPacedFrameInterval = WinSwiftUIWindowHost.pacingInterval(forRefreshRate: 60)
+    /// This was the runtime's pacing floor (~14.4 ms at 60 Hz) for as long as
+    /// the timers underneath it ran on the default ~15.6 ms system tick — a
+    /// schedule pinned to 16.667 ms rejected roughly every second tick for
+    /// arriving a millisecond early and measured 49 fps on a 60 Hz display.
+    /// But a floor below the period overshoots by construction: the same
+    /// machine then delivered ~62 frames a second with a 13.8 ms median gap,
+    /// and the frames the schedule invented were byte-identical replays the
+    /// runtime's own floor refused to rebuild. The host now raises the system
+    /// timer resolution to 1 ms while any animation timer runs
+    /// (`Win32Window.updateTimerResolutionHold`), so the deferral wake the
+    /// gate arms actually lands at its deadline and the schedule can be the
+    /// display's: deadlines advance by whole periods, the long-run rate is
+    /// exactly the refresh rate, and ``selfPacedEarlyTolerance`` absorbs the
+    /// whole-millisecond remainder the timer still cannot express.
+    private var selfPacedFrameInterval = 1.0 / 60.0
     private var startupProbeCompleted = false
     private var isWindowActive = true
     private var isWindowVisible = true
@@ -2071,9 +2106,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         startupPresentationMode: StartupPresentationMode = .fromEnvironment(),
         startupProbeConfiguration: StartupProbeConfiguration? = .fromEnvironment(),
         recoveryPolicy: BatchBackendRecoveryPolicy = .standard,
-        backendResolution: RenderBackendResolution? = nil
+        backendResolution: RenderBackendResolution? = nil,
+        presentPacingMemory: PresentPacingMemoryStore? = nil
     ) {
         self.backendResolution = backendResolution
+        self.presentPacingMemory = presentPacingMemory
         self.configuration = configuration
         self.window = Win32Window(
             title: configuration.title,
@@ -2260,6 +2297,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         isPresenterUnavailable = false
         presenterAttachAttemptCount = 0
         nextPresenterAttachAttemptAt = nil
+        invalidatePresentedContentTracking()
+        seedPresentPacingFromMemoryIfRemembered()
         let scaleFactor = Win32Window.effectiveScaleFactor(for: surface.scaleFactor)
         runtime.displayScale = scaleFactor
         // Claim, not assign: with a second window open this host's scale is not
@@ -2574,6 +2613,14 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     func windowDidChangeDisplay(_ window: Win32Window) {
         syncAnimationDriver(for: window)
+        // The verdict is filed per display; the one in front of the window
+        // now is not the one the key described. The watchdog itself probes
+        // immediately on the interval change (`setDisplayFrameInterval`), and
+        // whatever it concludes is re-filed under the new key.
+        if presentPacingMemory != nil, isRendererReady {
+            presentPacingMemoryKey = computePresentPacingMemoryKey()
+            lastPersistedPacingVerdict = nil
+        }
     }
 
     func windowDidChangeSystemSettings(_ window: Win32Window) {
@@ -2996,6 +3043,10 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                     primitiveCount = scene.layers.reduce(0) { $0 + $1.paintOperations.count }
                     visitedNodeCount = scene.paintMetrics.nodesVisited
                 }
+                if shouldSkipIdenticalPresent() {
+                    recordSkippedIdenticalPresent(in: window)
+                    return false
+                }
                 batchRenderer.bindResources(for: scene)
                 if isSamplingFrames {
                     bindEndedAt = frameClock()
@@ -3003,7 +3054,12 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                 try batchRenderer.render(scene: scene)
                 noteSuccessfulSceneFrame()
             } else {
-                try renderer.render(frame: runtime.renderFrame(at: frameTimestamp))
+                let frame = runtime.renderFrame(at: frameTimestamp)
+                if shouldSkipIdenticalPresent() {
+                    recordSkippedIdenticalPresent(in: window)
+                    return false
+                }
+                try renderer.render(frame: frame)
             }
         } catch {
             guard activeBackend == .scene else {
@@ -3051,6 +3107,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         // Sampled before the presentation bookkeeping below, so the submit
         // figure is the backend's cost and not the frame loop's.
         let renderEndedAt = isSamplingFrames ? frameClock() : 0
+
+        // What is on screen is now exactly this revision; the next frame that
+        // would present the same one has nothing to add.
+        lastPresentedContentRevision = runtime.contentRevision
+        persistPacingVerdictIfChanged()
 
         let owesRepaint = activePresentationState.needsImmediateRepaint
         pendingPresentation =
@@ -3116,11 +3177,118 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             return
         }
         displayFrameInterval = seconds
-        selfPacedFrameInterval = Self.pacingInterval(forRefreshRate: max(1, Int((1.0 / seconds).rounded())))
+        // The gate schedules on the true period — see `selfPacedFrameInterval`.
+        selfPacedFrameInterval = seconds
         // A display change invalidates the deadline the old one set.
         selfPacedFrameDueAt = 0
         batchRenderer?.setDisplayFrameInterval(seconds)
         renderer.setDisplayFrameInterval(seconds)
+    }
+
+    /// Whether the frame about to be presented is byte-identical to the one
+    /// already on screen, and may therefore be dropped.
+    ///
+    /// Only while an animation is active, deliberately. An animating window's
+    /// timer keeps ticking, so a skipped duplicate is followed by a tick that
+    /// advances the animation and presents a frame that differs — smoothness
+    /// is preserved and the duplicate simply vanishes. An idle window has no
+    /// such next tick: its presents are driven by explicit requests (a
+    /// diagnostics pump, the input-rate tracker), and refusing those would
+    /// starve the very loop that asked. A device rebuild
+    /// (`needsImmediateRepaint`) presents unconditionally — the swap chain's
+    /// pixels are gone even though the revision says nothing changed.
+    private func shouldSkipIdenticalPresent() -> Bool {
+        guard runtime.hasActiveAnimations,
+            !activePresentationState.needsImmediateRepaint,
+            let lastPresented = lastPresentedContentRevision,
+            lastPresented == runtime.contentRevision
+        else {
+            return false
+        }
+        return true
+    }
+
+    /// Books a skipped duplicate: the frame loop stays armed (the animation
+    /// that made the skip safe still needs its next tick), the schedule slot
+    /// the self-paced gate granted is simply left unused, and the skip is
+    /// counted where diagnostics can see it.
+    private func recordSkippedIdenticalPresent(in window: Win32Window) {
+        skippedIdenticalPresentCount += 1
+        pendingPresentation =
+            runtime.isDirty || runtime.hasActiveAnimations || inputRateTracker.isHighRate
+        syncAnimationDriver(for: window)
+    }
+
+    /// Forgets what is on screen, so the next frame presents unconditionally.
+    /// Called wherever the pixels underneath the bookkeeping are replaced:
+    /// presenter attach, backend switch, resize.
+    private func invalidatePresentedContentTracking() {
+        lastPresentedContentRevision = nil
+    }
+
+    // MARK: - Present-pacing memory
+
+    /// The key this window's pacing verdict is filed under: the adapter that
+    /// presents plus the display it presents to. Either changing is a new
+    /// bargain, judged fresh.
+    private func computePresentPacingMemoryKey() -> String {
+        let adapter =
+            activeBatchBackendDiagnostics?.adapterDescription
+            ?? (activeBackend == .scene
+                ? batchRenderer?.backendDisplayName ?? renderer.backendDisplayName
+                : renderer.backendDisplayName)
+        return "\(adapter)|\(window.displayIdentity())"
+    }
+
+    /// Consults the persisted verdict at presenter attach and seeds *both*
+    /// presenters when it says self-paced — the frame fallback carries the
+    /// same watchdog, and a downgrade mid-session must not resurrect the
+    /// launch slideshow. First launch on a broken machine still pays the
+    /// evidence bar once; every later launch starts smooth and pays one
+    /// immediate confirmation probe instead
+    /// (`PresentPacingPolicy.adoptRememberedSelfPacing`).
+    private func seedPresentPacingFromMemoryIfRemembered() {
+        guard let presentPacingMemory else {
+            return
+        }
+
+        let key = computePresentPacingMemoryKey()
+        presentPacingMemoryKey = key
+        lastPersistedPacingVerdict = nil
+        guard presentPacingMemory.remembersSelfPacing(forKey: key) else {
+            return
+        }
+
+        batchRenderer?.adoptRememberedSelfPacing()
+        renderer.adoptRememberedSelfPacing()
+    }
+
+    /// Files the watchdog's current verdict after a presented frame. Only the
+    /// two settled modes are verdicts: a probe in flight and a measurement
+    /// override say nothing about the display. `selfPaced` writes the memory;
+    /// `displayPaced` — the launch default, and where a passed probe lands —
+    /// drops it, which is exactly "drop the memory when a probe passes".
+    private func persistPacingVerdictIfChanged() {
+        guard let presentPacingMemory, let presentPacingMemoryKey else {
+            return
+        }
+
+        let verdict: Bool?
+        switch activePresentPacing.mode {
+        case .selfPaced:
+            verdict = true
+        case .displayPaced:
+            verdict = false
+        case .probingDisplay, .unsynchronized:
+            verdict = nil
+        }
+
+        guard let verdict, verdict != lastPersistedPacingVerdict else {
+            return
+        }
+
+        lastPersistedPacingVerdict = verdict
+        presentPacingMemory.setRemembersSelfPacing(verdict, forKey: presentPacingMemoryKey)
     }
 
     /// Whether the self-paced frame gate lets this frame through.
@@ -3371,6 +3539,9 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     private func resizeActiveRenderer(to size: IntSize, in window: Win32Window) throws {
+        // Resized swap-chain buffers do not carry the old pixels; whatever
+        // revision was on screen is gone with them.
+        invalidatePresentedContentTracking()
         if activeBackend == .scene, let batchRenderer {
             do {
                 try batchRenderer.resize(to: size)
@@ -3427,6 +3598,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         try renderer.resize(to: surface.pixelSize)
         activeBackend = .frame
         isRendererReady = true
+        invalidatePresentedContentTracking()
         updatePresentationSelection(reason: reason)
         scheduleBatchBackendRecoveryIfNeeded()
     }
@@ -3526,6 +3698,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             try batchRenderer.attach(to: surface)
             try batchRenderer.resize(to: surface.pixelSize)
             activeBackend = .scene
+            invalidatePresentedContentTracking()
             nextBatchRecoveryAttemptAt = nil
             // The interval is deliberately *not* reset here: a successful
             // re-attach on a healthy device says nothing about whether the

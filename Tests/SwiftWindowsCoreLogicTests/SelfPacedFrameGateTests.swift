@@ -172,6 +172,74 @@ final class SelfPacedFrameGateTests: XCTestCase {
         )
     }
 
+    /// Emulates the real frame loop under a 1 ms-accurate timer, which is what
+    /// the resolution hold (`Win32Window.updateTimerResolutionHold`) buys: a
+    /// paint request lands immediately (`InvalidateRect` → `WM_PAINT`), and
+    /// when the gate defers it, the wake the host armed arrives exactly its
+    /// interval later. Returns the frame-clock timestamps of rendered frames.
+    private func driveOnArmedTimerCadence(
+        host: WinSwiftUIWindowHost,
+        window: Win32Window,
+        clock: FakeRecoveryClock,
+        log: FrameLog,
+        seconds: Double
+    ) -> [Double] {
+        var renderedAt: [Double] = []
+        let endAt = clock.now + seconds
+        while clock.now < endAt {
+            let before = log.count
+            host.requestDiagnosticsFrame()
+            host.windowNeedsDisplay(window)
+            if log.count > before {
+                renderedAt.append(clock.now)
+            }
+
+            // Sleep to the wake the host just armed, then deliver it.
+            let interval = Double(max(host.currentTimerState.intervalMilliseconds, 1)) / 1000.0
+            clock.now += interval
+            let beforeTick = log.count
+            host.window(window, animationFrameAt: clock.now)
+            if log.count > beforeTick {
+                renderedAt.append(clock.now)
+            }
+        }
+        return renderedAt
+    }
+
+    /// The 62-on-60Hz overshoot, pinned. The gate used to schedule on the
+    /// runtime's pacing floor (~14.4 ms) because the timers underneath it ran
+    /// on the 15.6 ms system tick; once the host holds 1 ms resolution while
+    /// animating, wakes land at their deadlines and the schedule must be the
+    /// display period itself — ~60 delivered frames a second with a median
+    /// gap on the period, not ~70 invented slots filled with replays.
+    func testASelfPacedHostLocksToTheDisplayPeriodOnceWakesLandOnTime() async {
+        let batch = FakeBatchRenderBackend()
+        let clock = FakeRecoveryClock(5_000)
+        let log = FrameLog()
+        let (host, window) = makeHost(batch: batch, clock: clock, log: log)
+
+        batch.presentPacing = PresentPacingStatus(mode: .selfPaced, displayFrameInterval: 1.0 / 60.0)
+
+        let renderedAt = driveOnArmedTimerCadence(host: host, window: window, clock: clock, log: log, seconds: 2.0)
+
+        let framesPerSecond = Double(renderedAt.count) / 2.0
+        XCTAssertGreaterThanOrEqual(framesPerSecond, 57, "The schedule must still deliver the display's rate.")
+        XCTAssertLessThanOrEqual(
+            framesPerSecond,
+            61.5,
+            "62+ fps on a 60 Hz display is the gate presenting frames the display has no slot for."
+        )
+
+        let gaps = zip(renderedAt.dropFirst(), renderedAt).map { ($0 - $1) * 1000 }.sorted()
+        let medianGap = gaps[gaps.count / 2]
+        XCTAssertGreaterThanOrEqual(
+            medianGap,
+            15.9,
+            "A median gap under the display period means the schedule is running ahead of the display."
+        )
+        XCTAssertLessThanOrEqual(medianGap, 17.5, "And a median gap far over it means dropped slots.")
+    }
+
     func testTheHostTellsTheBackendWhatOneDisplayPeriodCosts() async {
         let batch = FakeBatchRenderBackend()
         let clock = FakeRecoveryClock(5_000)

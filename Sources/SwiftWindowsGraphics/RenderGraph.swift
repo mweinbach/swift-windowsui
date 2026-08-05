@@ -100,6 +100,11 @@ public protocol RenderBackend: AnyObject {
     /// has something to judge present costs against.
     func setDisplayFrameInterval(_ seconds: Double)
 
+    /// Hands the backend a previous session's pacing verdict. Same contract
+    /// as `BatchRenderBackend.adoptRememberedSelfPacing()`: the fallback
+    /// carries the same watchdog, so it starts from the same memory.
+    func adoptRememberedSelfPacing()
+
     func attach(to surface: SurfaceDescriptor) throws
     func resize(to size: IntSize) throws
     func render(frame: RenderFrame) throws
@@ -133,6 +138,9 @@ extension RenderBackend {
     public var presentPacing: PresentPacingStatus { PresentPacingStatus() }
 
     public func setDisplayFrameInterval(_ seconds: Double) {}
+
+    /// A backend with no pacing watchdog has nothing to seed.
+    public func adoptRememberedSelfPacing() {}
 }
 public struct RenderFrame: Equatable, Sendable {
     public var clearColor: Color

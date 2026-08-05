@@ -79,6 +79,10 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         presentPacingPolicy.setDisplayFrameInterval(seconds)
     }
 
+    public func adoptRememberedSelfPacing() {
+        presentPacingPolicy.adoptRememberedSelfPacing()
+    }
+
     /// QPC seconds. Only called around the two phases of `render(scene:)`, so
     /// the cost is two counter reads per frame.
     private static func nowSeconds() -> Double {

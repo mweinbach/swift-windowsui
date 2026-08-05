@@ -44,6 +44,10 @@ public final class CPUBatchRenderer: BatchRenderBackend, RenderBackend {
 
     public func setDisplayFrameInterval(_ seconds: Double) {}
 
+    /// No watchdog, so no memory to seed. Stated explicitly for the same
+    /// dual-conformance reason as ``presentationState``.
+    public func adoptRememberedSelfPacing() {}
+
     /// The most recently rendered frame, available after a successful
     /// ``render(scene:)`` call.  Tests and visual tooling read this to
     /// compare against GPU output.

@@ -355,6 +355,172 @@ final class PresentPacingWatchdogTests: XCTestCase {
         )
     }
 
+    // MARK: - The remembered verdict (persistence seam)
+
+    func testARememberedVerdictStartsSelfPacedWithoutReEarningTheEvidence() async {
+        var policy = makePolicy()
+
+        policy.adoptRememberedSelfPacing()
+
+        XCTAssertEqual(policy.mode, .selfPaced, "The launch slideshow is the evidence bar replayed; memory skips it.")
+        XCTAssertFalse(policy.presentsOnVBlank)
+        XCTAssertTrue(policy.requiresSelfPacing)
+        XCTAssertEqual(
+            policy.engagementCount,
+            0,
+            "Adoption is a previous session's engagement, not this one's; the flap counter must stay honest."
+        )
+    }
+
+    func testAnAdoptedPolicyProbesOnTheVeryFirstPresent() async {
+        var policy = makePolicy()
+        policy.adoptRememberedSelfPacing()
+
+        // The display may have been fixed since last session; the memory must
+        // not outlive the pathology. The first present opens the probe.
+        policy.recordPresent(seconds: 0.00003, frameCostSeconds: Self.appFrameCost, at: 1_000)
+
+        XCTAssertEqual(policy.mode, .probingDisplay)
+        XCTAssertEqual(policy.probeCount, 1)
+    }
+
+    func testAPassedConfirmationProbeDropsBackToDisplayPacingAndResetsTheLadder() async {
+        var policy = makePolicy()
+        policy.adoptRememberedSelfPacing()
+
+        var now = 1_000.0
+        policy.recordPresent(seconds: 0.00003, frameCostSeconds: Self.appFrameCost, at: now)
+        for _ in 0..<7 {
+            now += Self.sixtyHertz
+            policy.recordPresent(seconds: Self.healthyPresent, frameCostSeconds: Self.appFrameCost, at: now)
+        }
+
+        XCTAssertEqual(policy.mode, .displayPaced, "A fixed display gets the pacing job back within one probe.")
+        XCTAssertEqual(
+            policy.probeIntervalSeconds,
+            PresentPacingPolicy.Configuration.standard.initialProbeInterval,
+            accuracy: 1e-9,
+            "Recovery retires the remembered evidence; the ladder starts over."
+        )
+    }
+
+    func testAFailedConfirmationProbeGoesQuietForTheMaximumInterval() async {
+        var policy = makePolicy()
+        policy.adoptRememberedSelfPacing()
+
+        var now = 1_000.0
+        policy.recordPresent(seconds: 0.00003, frameCostSeconds: Self.appFrameCost, at: now)
+        XCTAssertEqual(policy.mode, .probingDisplay)
+        for _ in 0..<4 {
+            now += 0.001
+            policy.recordPresent(seconds: 0.00004, frameCostSeconds: Self.appFrameCost, at: now)
+        }
+        now += Self.pathologicalPresent
+        policy.recordPresent(seconds: Self.pathologicalPresent, frameCostSeconds: Self.appFrameCost, at: now)
+
+        XCTAssertEqual(policy.mode, .selfPaced)
+        XCTAssertEqual(
+            policy.probeIntervalSeconds,
+            PresentPacingPolicy.Configuration.standard.maximumProbeInterval,
+            accuracy: 1e-9,
+            "Remembered evidence plus one failed confirmation is as strong as evidence gets: one launch hitch, then quiet."
+        )
+    }
+
+    func testAdoptionIsIgnoredOnceTheSessionHasItsOwnEvidence() async {
+        var policy = makePolicy()
+        feed(&policy, presentSeconds: Self.healthyPresent, count: 30)
+
+        policy.adoptRememberedSelfPacing()
+
+        XCTAssertEqual(
+            policy.mode,
+            .displayPaced,
+            "Thirty healthy presents outrank a memory from yesterday; a stale file must not unpace a working display."
+        )
+    }
+
+    // MARK: - Probe backoff jump
+
+    /// The probe-hitch softener. Each failed probe costs its judged frames —
+    /// ~250 ms of blocked present per judged frame on this machine, a visible
+    /// contiguous freeze — and the geometric ladder (2, 4, 8, 16, 30) buys
+    /// five of those in the first minute. Spreading a probe's presents across
+    /// nonadjacent frames cannot soften it: DXGI queues `MaximumFrameLatency`
+    /// presents before `Present` waits, so non-consecutive paced presents
+    /// measure queue depth, not the display (the deception
+    /// `testAProbeIsNotFooledByAnEmptyPresentQueue` pins). The only honest
+    /// softener is probing less often once the evidence is strong.
+    func testRepeatedProbeFailuresJumpTheBackoffToTheCap() async {
+        var policy = makePolicy(
+            configuration: PresentPacingPolicy.Configuration(
+                initialProbeInterval: 1,
+                maximumProbeInterval: 30,
+                probeBackoffFactor: 2,
+                failedProbesBeforeBackoffCap: 2
+            )
+        )
+        var now = feed(&policy, presentSeconds: Self.pathologicalPresent, count: 6)
+        XCTAssertEqual(policy.mode, .selfPaced)
+
+        func failProbe() {
+            now += policy.probeIntervalSeconds + 0.5
+            policy.recordPresent(seconds: 0.00003, frameCostSeconds: Self.appFrameCost, at: now)
+            XCTAssertEqual(policy.mode, .probingDisplay)
+            for _ in 0..<4 {
+                now += 0.001
+                policy.recordPresent(seconds: 0.00004, frameCostSeconds: Self.appFrameCost, at: now)
+            }
+            now += Self.pathologicalPresent
+            policy.recordPresent(
+                seconds: Self.pathologicalPresent, frameCostSeconds: Self.appFrameCost, at: now)
+            XCTAssertEqual(policy.mode, .selfPaced)
+        }
+
+        failProbe()
+        XCTAssertEqual(policy.probeIntervalSeconds, 2, accuracy: 1e-9, "The first failure climbs the ladder normally.")
+
+        failProbe()
+        XCTAssertEqual(
+            policy.probeIntervalSeconds,
+            30,
+            accuracy: 1e-9,
+            "Two failed probes on the same display are strong evidence: jump to the cap instead of hitching through 4, 8, 16."
+        )
+    }
+
+    func testASuccessfulProbeResetsTheFailureRun() async {
+        var policy = makePolicy(
+            configuration: PresentPacingPolicy.Configuration(
+                initialProbeInterval: 1,
+                maximumProbeInterval: 30,
+                probeBackoffFactor: 2,
+                failedProbesBeforeBackoffCap: 2
+            )
+        )
+        var now = feed(&policy, presentSeconds: Self.pathologicalPresent, count: 6)
+
+        // One failed probe...
+        now += policy.probeIntervalSeconds + 0.5
+        policy.recordPresent(seconds: 0.00003, frameCostSeconds: Self.appFrameCost, at: now)
+        for _ in 0..<4 {
+            now += 0.001
+            policy.recordPresent(seconds: 0.00004, frameCostSeconds: Self.appFrameCost, at: now)
+        }
+        now += Self.pathologicalPresent
+        policy.recordPresent(seconds: Self.pathologicalPresent, frameCostSeconds: Self.appFrameCost, at: now)
+
+        // ...then a probe that passes: the display is healthy again.
+        now += policy.probeIntervalSeconds + 0.5
+        policy.recordPresent(seconds: 0.00003, frameCostSeconds: Self.appFrameCost, at: now)
+        for _ in 0..<7 {
+            now += Self.sixtyHertz
+            policy.recordPresent(seconds: Self.healthyPresent, frameCostSeconds: Self.appFrameCost, at: now)
+        }
+        XCTAssertEqual(policy.mode, .displayPaced)
+        XCTAssertEqual(policy.consecutiveFailedProbes, 0, "Recovery retires the failure run along with the ladder.")
+    }
+
     // MARK: - The explicit measurement override
 
     func testAnExplicitVSyncOverrideSuspendsTheWatchdogAndRestoresIt() async {

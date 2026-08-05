@@ -65,9 +65,20 @@ final class FakeRenderBackend: RenderBackend {
     /// engaged — the frame path carries the same watchdog as the batch path.
     var presentPacing = PresentPacingStatus()
     private(set) var displayFrameIntervals: [Double] = []
+    /// Times the host handed this backend a remembered pacing verdict.
+    private(set) var adoptRememberedSelfPacingCallCount = 0
 
     func setDisplayFrameInterval(_ seconds: Double) {
         displayFrameIntervals.append(seconds)
+    }
+
+    func adoptRememberedSelfPacing() {
+        adoptRememberedSelfPacingCallCount += 1
+        // Mirror the real contract: an adopted policy reports self-pacing
+        // from its first status read, so the host's verdict bookkeeping sees
+        // what a seeded live backend would show it.
+        presentPacing = PresentPacingStatus(
+            mode: .selfPaced, displayFrameInterval: presentPacing.displayFrameInterval)
     }
 
     func attach(to surface: SurfaceDescriptor) throws {
@@ -145,9 +156,19 @@ final class FakeBatchRenderBackend: BatchRenderBackend {
     /// taken the pacing job away from a compositor that blocks `Present`.
     var presentPacing = PresentPacingStatus()
     private(set) var displayFrameIntervals: [Double] = []
+    /// Times the host handed this backend a remembered pacing verdict.
+    private(set) var adoptRememberedSelfPacingCallCount = 0
 
     func setDisplayFrameInterval(_ seconds: Double) {
         displayFrameIntervals.append(seconds)
+    }
+
+    func adoptRememberedSelfPacing() {
+        adoptRememberedSelfPacingCallCount += 1
+        // Mirror the real contract: an adopted policy reports self-pacing
+        // from its first status read.
+        presentPacing = PresentPacingStatus(
+            mode: .selfPaced, displayFrameInterval: presentPacing.displayFrameInterval)
     }
 
     func attach(to surface: SurfaceDescriptor) throws {

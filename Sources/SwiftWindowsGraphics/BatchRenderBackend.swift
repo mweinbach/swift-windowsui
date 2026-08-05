@@ -123,6 +123,14 @@ public protocol BatchRenderBackend: AnyObject {
     /// which is the case the watchdog most needs to hear about.
     func setDisplayFrameInterval(_ seconds: Double)
 
+    /// Hands the backend a previous session's pacing verdict: this
+    /// adapter+display pair blocked paced presents pathologically last time.
+    /// A backend with a pacing watchdog starts self-paced with an immediate
+    /// recovery probe instead of re-earning the evidence through a fresh
+    /// launch slideshow (see `PresentPacingPolicy.adoptRememberedSelfPacing`);
+    /// a backend without one ignores it.
+    func adoptRememberedSelfPacing()
+
     /// Attach to a platform window surface.
     func attach(to surface: SurfaceDescriptor) throws
 
@@ -196,6 +204,9 @@ extension BatchRenderBackend {
     public var presentPacing: PresentPacingStatus { PresentPacingStatus() }
 
     public func setDisplayFrameInterval(_ seconds: Double) {}
+
+    /// A backend with no pacing watchdog has nothing to seed.
+    public func adoptRememberedSelfPacing() {}
 
     public func bindResources(for scene: GPUIScene) {}
 

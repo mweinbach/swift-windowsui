@@ -26,6 +26,45 @@ final class Win32AnimationTimerGate: Sendable {
     }
 }
 
+/// Injectable seam over the process-wide multimedia timer resolution.
+///
+/// Every timer this host owns — the timer-queue frame timer, the coalescing
+/// `SetTimer` fallback, and the 1 ms deferral wake the self-paced frame gate
+/// arms — fires on the system interrupt period, which defaults to ~15.6 ms.
+/// `useHighResolutionTimer` promised a high-resolution cadence and delivered
+/// none: a "16 ms" timer quantized to the 15.6 ms tick, and a 1 ms deferral
+/// wake could land a whole system tick late. Measured on a 60 Hz display,
+/// that was a median presented-frame gap of 13.8 ms instead of 16.7, ~62
+/// delivered frames a second instead of 60, and byte-identical frames filling
+/// the slots the schedule missed.
+///
+/// `timeBeginPeriod(1)` raises the interrupt rate process-wide; Windows keeps
+/// it raised only while this process has the matching `timeEndPeriod`
+/// outstanding, and charges the whole machine power for it. The window
+/// therefore holds it exactly while an animation timer is running — the only
+/// interval in which anything here is timing-sensitive — and releases it the
+/// moment the timer stops. The protocol exists so the transition logic is
+/// testable without changing a live machine's interrupt rate.
+public protocol TimerResolutionController: AnyObject {
+    /// Raises the system timer resolution to 1 ms. Every call must be
+    /// balanced by exactly one `lower()`.
+    func raise()
+    /// Releases one outstanding `raise()`.
+    func lower()
+}
+
+/// The live controller: WinMM's `timeBeginPeriod`/`timeEndPeriod`, which
+/// refcount per process, so nested holds from several windows compose.
+final class WinMMTimerResolutionController: TimerResolutionController {
+    func raise() {
+        timeBeginPeriod(1)
+    }
+
+    func lower() {
+        timeEndPeriod(1)
+    }
+}
+
 private func win32HighResolutionTimerCallback(_ param: UnsafeMutableRawPointer?, _: UInt8) {
     guard let param else {
         return
@@ -269,6 +308,15 @@ public final class Win32Window {
 
     // High-resolution timer support
     public var useHighResolutionTimer: Bool = false
+    /// Injectable seam for the system timer resolution; the default is the
+    /// live WinMM pair. Tests substitute a recorder so the hold transitions
+    /// are provable without touching the machine's interrupt rate.
+    internal var timerResolutionController: any TimerResolutionController = WinMMTimerResolutionController()
+    /// Whether this window currently holds the 1 ms resolution. One hold per
+    /// window, held exactly while its animation timer runs: interval changes
+    /// and modal-loop refreshes cycle the OS timer many times per second and
+    /// must not churn `timeBeginPeriod`/`timeEndPeriod` with it.
+    private var holdsRaisedTimerResolution = false
     private var highResTimerHandle: HANDLE?
     private var highResTimerGate: Win32AnimationTimerGate?
     private var animationTimerIntervalMilliseconds: UINT = 0
@@ -1029,6 +1077,7 @@ public final class Win32Window {
             stopCurrentAnimationTimer()
             startAnimationTimer(using: configuration)
             isAnimationTimerRunning = true
+            updateTimerResolutionHold()
             return
         }
 
@@ -1038,6 +1087,40 @@ public final class Win32Window {
 
         stopCurrentAnimationTimer()
         isAnimationTimerRunning = false
+        updateTimerResolutionHold()
+    }
+
+    /// Aligns the process timer-resolution hold with the animation timer's
+    /// lifecycle: raised while a timer is driving frames, released the moment
+    /// it stops. Idempotent, so restarts that merely change the interval (the
+    /// self-paced deferral wake, modal-loop refreshes) never churn the
+    /// underlying `timeBeginPeriod`/`timeEndPeriod` pair.
+    private func updateTimerResolutionHold() {
+        let shouldHold = isAnimationTimerRunning
+        guard shouldHold != holdsRaisedTimerResolution else {
+            return
+        }
+
+        holdsRaisedTimerResolution = shouldHold
+        if shouldHold {
+            timerResolutionController.raise()
+        } else {
+            timerResolutionController.lower()
+        }
+    }
+
+    /// Whether this window currently holds the raised system timer
+    /// resolution. Internal so tests can pin the hold to the timer lifecycle.
+    internal var holdsRaisedTimerResolutionForTesting: Bool {
+        holdsRaisedTimerResolution
+    }
+
+    /// Headless seam standing in for the timer lifecycle an HWND-backed
+    /// `setAnimationTimerEnabled` drives: flips the running flag and applies
+    /// the same resolution-hold rule, without installing an OS timer.
+    internal func setAnimationTimerRunningForTesting(_ running: Bool) {
+        isAnimationTimerRunning = running
+        updateTimerResolutionHold()
     }
 
     public func currentClientSize() -> IntSize {
@@ -1118,6 +1201,67 @@ public final class Win32Window {
     }
 
     // MARK: - Monitor refresh rate
+
+    /// A stable identity for the display this window is presenting to:
+    /// device name plus current mode, e.g. `\\.\DISPLAY1 1024x768@60`.
+    ///
+    /// Exists so a pacing decision can be remembered *per display*: the
+    /// verdict "this compositor blocks paced presents" belongs to the
+    /// headless virtual monitor that earned it, not to the real monitor the
+    /// same machine gets docked to tomorrow. Device name alone is not enough
+    /// — `\\.\DISPLAY1` survives a monitor swap — so the mode is part of the
+    /// identity, which errs toward forgetting (a resolution change re-earns
+    /// the decision through one probe) rather than toward misremembering.
+    ///
+    /// Not an HMONITOR: monitor handles are not stable across sessions, and
+    /// the whole point of this identity is to outlive the process.
+    public func displayIdentity() -> String {
+        if let testDisplayIdentityOverride {
+            return testDisplayIdentityOverride
+        }
+
+        guard let hwnd else {
+            return "no-display"
+        }
+
+        let monitor = MonitorFromWindow(hwnd, DWORD(MONITOR_DEFAULTTONEAREST))
+        var monitorInfoEx = MONITORINFOEXW()
+        monitorInfoEx.cbSize = DWORD(MemoryLayout<MONITORINFOEXW>.size)
+
+        guard
+            withUnsafeMutablePointer(
+                to: &monitorInfoEx,
+                {
+                    $0.withMemoryRebound(to: MONITORINFO.self, capacity: 1) {
+                        GetMonitorInfoW(monitor, $0)
+                    }
+                })
+        else {
+            return "unknown-display"
+        }
+
+        let deviceName = withUnsafePointer(to: monitorInfoEx.szDevice) { tuplePointer in
+            tuplePointer.withMemoryRebound(to: WCHAR.self, capacity: 32) { wide in
+                String(decodingCString: wide, as: UTF16.self)
+            }
+        }
+
+        var devMode = DEVMODEW()
+        devMode.dmSize = WORD(MemoryLayout<DEVMODEW>.size)
+        let hasMode = withUnsafeMutablePointer(to: &monitorInfoEx.szDevice.0) { device in
+            EnumDisplaySettingsW(device, DWORD(bitPattern: -1), &devMode)
+        }
+
+        guard hasMode else {
+            return deviceName
+        }
+
+        return "\(deviceName) \(devMode.dmPelsWidth)x\(devMode.dmPelsHeight)@\(devMode.dmDisplayFrequency)"
+    }
+
+    /// Headless seam for `displayIdentity()`, which otherwise needs a live
+    /// monitor.
+    internal var testDisplayIdentityOverride: String?
 
     private func queryMonitorRefreshRate() -> UINT {
         if let testMonitorRefreshRateOverride {

@@ -195,6 +195,10 @@ final class SoftwareWindowRenderBackend: BatchRenderBackend, RenderBackend {
 
     func setDisplayFrameInterval(_ seconds: Double) {}
 
+    /// No watchdog, so no memory to seed. Stated rather than inherited, same
+    /// as above.
+    func adoptRememberedSelfPacing() {}
+
     /// The last frame handed to the presenter, kept for the same reason
     /// `CPUBatchRenderer` keeps one: snapshot tooling and pixel assertions.
     var lastRenderedBitmap: BitmapSurface? { rasterizer.lastRenderedBitmap }

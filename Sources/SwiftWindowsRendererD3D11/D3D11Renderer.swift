@@ -110,6 +110,10 @@ public final class D3D11Renderer: RenderBackend {
         presentPacingPolicy.setDisplayFrameInterval(seconds)
     }
 
+    public func adoptRememberedSelfPacing() {
+        presentPacingPolicy.adoptRememberedSelfPacing()
+    }
+
     /// QPC seconds. Read twice per present, which is the only place the frame
     /// path needs a clock.
     private static func nowSeconds() -> Double {

@@ -686,6 +686,15 @@ final class LiveDiagnosticsSession {
         let backendPresentMs = timedSamples.map { $0.backendPresentSeconds * 1000 }.sorted()
         let refreshIntervalMs = 1000.0 / Double(refreshRate)
         let droppedEstimate = frameTimesMs.filter { $0 > refreshIntervalMs * 1.5 }.count
+        // The spacing of presented frames, which the frame-time percentiles
+        // cannot show: a 0.6 ms frame every 13 ms and one every 16.7 ms cost
+        // the same and look completely different in motion. The median here
+        // is the number the self-paced gate is judged by — it must sit on
+        // the display period, not under it.
+        let presentGapsMs = zip(timedSamples.dropFirst(), timedSamples)
+            .map { ($0.presentedAt - $1.presentedAt) * 1000 }
+            .filter { $0 > 0 }
+            .sorted()
 
         report["frames"] = [
             "presentedTotal": samples.count,
@@ -704,6 +713,7 @@ final class LiveDiagnosticsSession {
             "submitAndPresentMs": percentileSummary(submitMs),
             "backendSubmitMs": percentileSummary(backendSubmitMs),
             "backendPresentMs": percentileSummary(backendPresentMs),
+            "presentGapMs": percentileSummary(presentGapsMs),
             "refreshIntervalMs": refreshIntervalMs,
             "framesOverRefreshBudget": droppedEstimate,
             "framesOverRefreshBudgetFraction": frameTimesMs.isEmpty
@@ -754,6 +764,11 @@ final class LiveDiagnosticsSession {
         var scene: [String: Any] = [:]
         scene["runtimeSceneRebuildCount"] = host.hostedRuntime.sceneRebuildCount
         scene["runtimeSceneCacheHitCount"] = host.hostedRuntime.sceneCacheHitCount
+        // Frames the host refused to present because they were byte-identical
+        // to what was already on screen. Nonzero during animations whose
+        // values advance more slowly than the timer ticks; every one of these
+        // used to be a presented duplicate that pixel diffing counted.
+        scene["skippedIdenticalPresents"] = host.skippedIdenticalPresentCount
         scene["framesThatRebuiltScene"] = rebuilds
         scene["framesThatReplayedScene"] = timedSamples.count - rebuilds
         // Replay is only interesting where it is hard: a frame with an

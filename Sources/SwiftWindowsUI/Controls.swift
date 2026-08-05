@@ -1334,6 +1334,33 @@ public enum Controls {
     public static let switchTrackAnimation = AnimationTransaction(
         duration: switchTrackCrossfadeDuration, easing: .easeInOut)
 
+    // MARK: - DisclosureGroup
+
+    /// A disclosure opens over `NSAnimationContext.defaultDuration` — 0.25s,
+    /// the interval `NSOutlineView`'s animator proxy turns its triangle and
+    /// reveals its rows over. SwiftUI's `DisclosureGroup` on macOS animates its
+    /// expansion by default; this stack expanded in a single frame, with the
+    /// body content at full opacity and full height on the first frame after
+    /// the rebuild and nothing in flight for the runtime to tick.
+    public static let disclosureDuration: Double = 0.25
+
+    /// The chevron's turn and the content's reveal, as one transaction so the
+    /// two read as a single movement. Carried by the node rather than waiting
+    /// on an ambient `withAnimation`: a disclosure's own state change never
+    /// has one, exactly as a switch's does not.
+    public static let disclosureAnimation = AnimationTransaction(
+        duration: disclosureDuration, easing: .easeInOut)
+
+    /// A closed disclosure points right; an open one points down. One glyph
+    /// that turns, not two glyphs that swap — a swap is a step function no
+    /// amount of tweening reaches.
+    public static let disclosureOpenRotation: Double = Double.pi / 2
+
+    /// How far the revealed content rises into place, in points. AppKit's
+    /// disclosure slides its rows out from under the header rather than
+    /// cross-fading them in place.
+    public static let disclosureContentRevealOffset: Double = 6
+
     public static func toggle(
         runtime: RetainedViewRuntime,
         isOn: Bool,
@@ -2104,7 +2131,7 @@ public enum Controls {
             of: node,
             to: color,
             duration: duration,
-            at: Win32Window.currentTimestampSeconds()
+            at: runtime.clock()
         )
     }
 

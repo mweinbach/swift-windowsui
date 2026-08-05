@@ -10,6 +10,11 @@ public final class ComponentHost {
 
     private var buildComponents: (() -> [Component])?
 
+    /// False until this host has produced a tree. The first tree is the
+    /// window's initial state, not an insertion into it, so nothing in it
+    /// transitions — see `isInitialBuildNode`.
+    private(set) var hasPerformedInitialBuild = false
+
     /// Optional predicate that can skip rebuilds when it returns false.
     public var shouldUpdate: (() -> Bool)?
 
@@ -52,7 +57,17 @@ public final class ComponentHost {
         let newNodes = buildComponents().map { $0.makeNode(runtime: runtime) }
 
         Self.reconcileChildren(of: runtime.root, oldChildren: oldChildren, newNodes: newNodes)
-        Self.applyNewNodeTransitionsRecursively(in: runtime.root)
+        if hasPerformedInitialBuild {
+            Self.applyNewNodeTransitionsRecursively(in: runtime.root)
+        } else {
+            // The window's first tree animates itself in on nothing: SwiftUI
+            // plays a transition on insertion into an existing container, not
+            // on the container's own first render. Marking rather than simply
+            // not calling, because a `@State` change between here and the first
+            // frame would find the same nodes still un-appeared.
+            hasPerformedInitialBuild = true
+            Self.markInitialBuildNodesRecursively(in: runtime.root)
+        }
         // A build does not know where the pointer is, so `updateNodeProperties`
         // has just rewritten every interaction-animated colour from the idle
         // value the builder produced. The runtime does know, and puts them
@@ -173,11 +188,23 @@ public final class ComponentHost {
     }
 
     static func applyNewNodeTransitionsRecursively(in node: ViewNode) {
-        if !node.hasAppeared, node.transition.kind != .identity {
+        if !node.hasAppeared, !node.isInitialBuildNode, node.transition.kind != .identity {
             node.applyInsertionTransition()
         }
         for child in node.children {
             applyNewNodeTransitionsRecursively(in: child)
+        }
+    }
+
+    /// Stamps a host's first tree so nothing in it plays an insertion
+    /// transition. Nodes that have already appeared (the host root itself)
+    /// are left alone.
+    static func markInitialBuildNodesRecursively(in node: ViewNode) {
+        if !node.hasAppeared {
+            node.isInitialBuildNode = true
+        }
+        for child in node.children {
+            markInitialBuildNodesRecursively(in: child)
         }
     }
 
@@ -321,7 +348,7 @@ public final class ComponentHost {
             ?? target.implicitReconcileAnimation.map { ($0.duration, $0.easing) }
 
         if oldFrame != source.frame {
-            let now = Win32Window.currentTimestampSeconds()
+            let now = target.animationClockNow
             var newOrigin = oldFrame.origin
             var newSize = oldFrame.size
             var hasFrameAnimation = false
@@ -455,12 +482,12 @@ public final class ComponentHost {
             if var state = target.animationStates[.opacity] {
                 state.startValue = oldOpacity
                 state.endValue = source.opacity
-                state.startTime = Win32Window.currentTimestampSeconds()
+                state.startTime = target.animationClockNow
                 target.animationStates[.opacity] = state
             } else if let tx = reconcileTransaction {
                 target.animationStates[.opacity] = AnimationState(
                     startValue: oldOpacity, endValue: source.opacity,
-                    startTime: Win32Window.currentTimestampSeconds(),
+                    startTime: target.animationClockNow,
                     duration: tx.duration, easing: tx.easing
                 )
             } else {
@@ -616,7 +643,7 @@ public final class ComponentHost {
             let oldTransform = target.transform
             var newTransform = oldTransform
             var hasTransformAnimation = false
-            let now = Win32Window.currentTimestampSeconds()
+            let now = target.animationClockNow
 
             if oldTransform.scaleX != source.transform.scaleX {
                 if var state = target.animationStates[.transformScaleX] {

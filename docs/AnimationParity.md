@@ -52,6 +52,7 @@ where `dampingFraction = 1 − extraBounce`.
 | Rubber-band stiffness `k`                        | 180                                                           |
 | Rubber-band damping `c`                          | 27 (slightly under critical for `m = 1`)                      |
 | Rubber-band maximum overshoot                    | 80 logical px                                                 |
+| Edge-push stretch coefficient `c`                | 0.55 (WebKit `ScrollElasticityController`) — see below        |
 | Keyboard-scroll viewport tween duration          | 0.22s ease-out (cubic)                                        |
 
 ## Control transitions
@@ -64,6 +65,7 @@ where `dampingFraction = 1 − extraBounce`.
 | `ControlAnimationStyle.default.pressedScale`    | 1     | **A macOS control does not scale on press.** See below. |
 | `ControlAnimationStyle.tactilePressedScale`     | 0.97  | The shrink, kept as an opt-in for a style that asks.    |
 | `ControlPalette.pressedContentOpacity`          | 0.72  | Borderless styles only: AppKit darkens *contents* when there is no bezel. |
+| `RetainedViewRuntime.defaultColorAnimationEasing` | `.easeInOut` | Every colour cross-fade's curve. See below. |
 
 ## Press feedback is a fill change, not a transform
 
@@ -259,6 +261,155 @@ removal now produces exactly one overlay at any index, and the survivors keep
 their identity *and* move, which is what lets the frame animations
 `updateNodeProperties` installs slide the rows below a deletion up under it.
 
+## Colour cross-fades are eased, and hold their hue
+
+Two properties of every colour tween in the runtime, both measured wrong before
+and both pinned by `InteractionTimelineFidelityTests`.
+
+**The curve.** `ViewColorAnimation.progress(at:)` returned `elapsed / duration`
+with no curve, straight into `Color.interpolated`. Sampling a hover-in on a
+bordered `Button` every 10 ms gave 0.1000, 0.1027, 0.1055 ... 0.1500 at
+t = 0.180 - a delta of exactly 0.00278 at every step from the first to the last.
+The border (0.1400 -> 0.2800), the press ramp (0.1500 -> 0.2200 over 0.14s), the
+focus-ring fade and the scroll-indicator reveal and fade were all the same
+straight line. AppKit's implicit property changes run on
+`kCAMediaTimingFunctionEaseInEaseOut` and `NSAnimationContext` inherits it, and
+this runtime's *other* animation mechanism (`AnimationState`, which drives
+`.animation()` and transitions) already eased - so the two disagreed about
+curve. `ViewColorAnimation` now carries an `easing`, defaulting to
+`RetainedViewRuntime.defaultColorAnimationEasing` = `.easeInOut`.
+
+That `.easeInOut` is the quadratic form the per-property path evaluates, not the
+cubic bezier `(0.42, 0, 0.58, 1)` CoreAnimation does. The two differ by at most
+**0.012 of progress**, at t ~ 0.60; over the widest colour tween in the stack
+that is under half a step of 8-bit alpha. Agreeing with the other mechanism is
+worth more than matching the bezier in the third decimal.
+
+Completion is decided on elapsed time, never on the eased value: a spring curve
+reaches 1 well before it settles, and retiring there would park the colour at an
+overshoot.
+
+**The hue.** `Color.interpolated` lerped red, green, blue and alpha
+independently and *unpremultiplied*. `.clear` is `(0, 0, 0, 0)`, so every fade
+that started or ended there dragged RGB toward black in lockstep with alpha. A
+white overlay scroll thumb (target alpha 0.48) rasterised as (0.069, 0.069,
+0.069) at 8 ms of its 0.12s reveal and (0.347, 0.347, 0.347) at 42 ms - a
+near-black smudge on its way to being a thumb - and reversed on the 0.45s
+fade-out. A light-appearance accent focus ring rasterised (171, 188, 206) at the
+half-way point of its 0.18s fade where accent-over-background is
+(171, 205, 241): green off by 17/255, blue by 35/255, so the ring read grey for
+the first half of its appearance. The light-appearance scroll thumb hid this
+because its target is already black.
+
+Interpolation is premultiplied now - premultiply both endpoints, lerp,
+unpremultiply, guarding zero alpha - the rule CoreAnimation applies to layer
+colour properties and CSS applies to gradient stops. Endpoints that share an
+alpha are bit-identical to the old result, which is every opaque cross-fade and
+every sheen gradient in the stack; the only gallery baseline that moved was a
+rounded card corner, by 1-2 units of 255 on 490 antialiased pixels.
+
+## One animation clock
+
+`tickAnimations(at:)` takes an injected timestamp. Every *start* time used to be
+stamped from `Win32Window.currentTimestampSeconds()` instead - control tweens
+(`Controls.animate`), insertion and removal transitions, momentum seeding,
+scroll-indicator press/release and hover, keyboard-scroll tweens,
+matched-geometry, and `ComponentHost`'s property reconcile. In production both
+are the same QPC source, so nothing was broken at runtime; the cost was entirely
+in verifiability. A test could tick a timeline it could not place a tween on,
+which is why the gallery's interaction tier renders at
+`gallerySettledTimestamp = 1e12` and by construction captures only settled end
+states - and why a stuck pressed fill and a two-tone focus ring both shipped.
+
+`RetainedViewRuntime.clock` is now the single source of "now" for the whole
+interaction layer, defaulting to `Win32Window.currentTimestampSeconds`. Nodes
+reach it through `ViewNode.animationClockNow`. Override it and mid-tween
+assertions become writable, which is what every case in
+`InteractionTimelineFidelityTests` does.
+
+## The first tree is a state, not an insertion
+
+`ComponentHost.reload()` called `applyNewNodeTransitionsRecursively`
+unconditionally, and that helper fires an insertion transition for any node with
+`!hasAppeared`. On the very first `setContent` nothing has appeared, so every
+transition-bearing node in the window animated in at once: a three-row list with
+`.transition(.opacity)` read back at opacity 0.000 on all three rows immediately
+after its first build, 0.175 a tenth of a second later, settling only after the
+full 0.35s. SwiftUI plays a transition on insertion *into* a container, not on
+the container's own first render.
+
+The host tracks `hasPerformedInitialBuild` and stamps its first tree with
+`ViewNode.isInitialBuildNode`, which suppresses the transition. It is a mark and
+not merely a skipped call because `hasAppeared` is set at *render*: a state
+change between `setContent` and the first frame would otherwise find the same
+nodes still un-appeared and animate them. The mark clears the moment the node
+appears, and on `markSubtreeDisappeared`, so a node that leaves and comes back
+transitions normally.
+
+## The disclosure opens
+
+| Constant                                 | Value | Notes                                                                                               |
+|------------------------------------------|-------|-----------------------------------------------------------------------------------------------------|
+| `Controls.disclosureDuration`             | 0.25s | `NSAnimationContext.defaultDuration`; NSOutlineView turns its triangle and reveals its rows over it. |
+| `Controls.disclosureOpenRotation`         | pi/2  | Closed points right, open points down.                                                              |
+| `Controls.disclosureContentRevealOffset`  | 6 pt  | The body slides out from under the header.                                                          |
+
+`DisclosureGroup` expanded in a single frame: node count went 7 -> 10 on one
+rebuild, `hasActiveAnimations` was false immediately after, and every text
+node's opacity read 1.00 at t = 0.00 / 0.10 / 0.35. The chevron was two glyphs
+that swapped ("V" open, ">" closed) - a step function no amount of tweening can
+reach. It is one glyph that turns now, carrying `implicitReconcileAnimation` so
+the turn does not depend on the caller wrapping the toggle in `withAnimation` (a
+disclosure's own state change never has an ambient transaction, exactly as a
+switch's does not), and the revealed content carries an opacity + offset
+transition on the same transaction. `applyInsertionTransition` /
+`applyRemovalTransition` fall back to the node's own transaction between the
+ambient one and the 0.35s default.
+
+The container's *height* still changes in one frame - stack children have no
+animated intrinsic height in this layout engine - so a collapse drops the layout
+while the removal overlay fades where it stood.
+
+## A wheel push against a stationary edge
+
+The rubber band was documented (`k = 180`, `c = 27`, 80 px cap) and unreachable
+from rest. `mouseWheel` seeded momentum only when the applied delta was
+non-zero, and the spring branch in `tickScrollMomenta` ran only when an
+already-moving glide hit a bound. Pushing the wheel against a scroll view
+already sitting at offset 0 and ticking at 60 Hz for two seconds measured offset
+0.0000, overshoot 0.000 and `hasActiveAnimations` false at every sample - and no
+indicator flash either, because the reveal is routed through
+`ViewNode.scrollOffset`'s `didSet` and the offset never changed. AppKit bounces
+on a direct edge push and shows the scroller for an input it cannot act on.
+
+A fully refused push now converts into overshoot through
+`RetainedViewRuntime.rubberBandStretch(forRefusedDistance:viewportDimension:)` -
+`(1 - 1/(d*c/D + 1)) * D/c` with `c = 0.55`, WebKit's
+`ScrollElasticityController` constant and the curve AppKit's overscroll resists
+with. Unit slope at zero, so the first few points track the push; asymptotic to
+`D/c`, so leaning harder gives back progressively less; capped at the same
+80 px. A zero-velocity momentum entry hands it to the existing spring branch,
+and the indicator is revealed explicitly. A view with nothing to scroll still
+sits perfectly still.
+
+## Phase animators run on the frame clock
+
+`PhaseAnimator` advanced on a detached `Task` awaiting
+`Task.sleep(nanoseconds:)` per phase. The sleep is wall-clock and unsynchronised
+with the frame clock, so a boundary landed wherever the scheduler put it rather
+than on a frame, and it could not be reproduced under a controlled clock at all.
+A pending sleep was also represented nowhere in `hasActiveAnimations`: for a
+phase whose animation is nil or zero-duration nothing else is registered, so the
+runtime looked idle between phases and the host was free to switch its timer
+off.
+
+Phases are `RetainedViewRuntime.scheduleDeferredRebuild(key:delay:perform:)`
+deadlines now - the same shape as `tickScrollIndicatorReveals`, fired from
+`tickAnimations(at:)`, counted in `hasActiveAnimations`, and armed one boundary
+at a time by the rebuild the previous boundary caused. The boundary is passed
+its phase index rather than reading it back off the tree, because `start` runs
+inside the build with the node not yet reconciled into `runtime.root`.
+
 ## Why these values
 
 - **`Animation.default = 0.35s easeInOut`**: SwiftUI's documented default
@@ -278,3 +429,12 @@ their identity *and* move, which is what lets the frame animations
 - **Rubber-band `k = 180`, `c = 27`**: Spring with natural frequency
   ~13 rad/s, slightly underdamped (`ζ ≈ 1.0`) so the overshoot settles
   in roughly 150 ms with one perceptible decay rather than visible bounce.
+- **Colour cross-fade curve `.easeInOut`**: CoreAnimation's default timing for
+  an implicit property change is `kCAMediaTimingFunctionEaseInEaseOut`; the
+  quadratic form here is within 0.012 of progress of that bezier everywhere and
+  is the same curve the runtime's per-property mechanism uses.
+- **`Controls.disclosureDuration = 0.25s`**: `NSAnimationContext`'s default
+  duration, which is what `NSOutlineView`'s animator proxy expands over.
+- **Edge-push stretch coefficient `0.55`**: WebKit's
+  `ScrollElasticityController` constant, written against AppKit's own
+  overscroll feel and unchanged since.

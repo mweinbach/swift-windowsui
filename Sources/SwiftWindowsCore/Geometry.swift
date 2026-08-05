@@ -481,13 +481,47 @@ public struct Color: Equatable, Sendable {
         (red, green, blue, alpha)
     }
 
+    /// Blends toward `other`, interpolating in *premultiplied* space.
+    ///
+    /// Lerping unpremultiplied RGBA is the obvious implementation and the wrong
+    /// one: `.clear` is `(0, 0, 0, 0)`, so every fade that starts or ends there
+    /// drags red, green and blue toward black in lockstep with alpha. A white
+    /// overlay scroll thumb revealing at 0.48 alpha rasterised as a near-black
+    /// smudge for the first third of its fade (0.069 grey at 8ms, 0.347 at
+    /// 42ms) before becoming white; a light-appearance accent focus ring
+    /// rasterised grey-blue (171, 188, 206) at the half-way point of its 0.18s
+    /// fade instead of the accent-over-background it should be (171, 205, 241).
+    ///
+    /// Premultiplying both endpoints, lerping, and unpremultiplying holds the
+    /// hue constant across the whole fade — the rule CoreAnimation applies to
+    /// layer colour properties and CSS applies to gradient stops. Endpoints
+    /// that share an alpha are unaffected: the premultiplied and plain results
+    /// are identical there, which is every opaque cross-fade and every sheen
+    /// gradient in the stack.
     public func interpolated(to other: Color, progress: Double) -> Color {
-        let clampedProgress = Float(min(max(progress, 0), 1))
+        if progress <= 0 { return self }
+        if progress >= 1 { return other }
+
+        let t = Float(progress)
+        let outAlpha = alpha + (other.alpha - alpha) * t
+        guard outAlpha > 0 else {
+            // Both endpoints transparent, or a fade that lands exactly on zero:
+            // there is no premultiplied colour to recover. Carry the hue of
+            // whichever endpoint has one so the value stays a transparent
+            // *accent* rather than a transparent black.
+            let source = alpha > 0 ? self : other
+            return Color(red: source.red, green: source.green, blue: source.blue, alpha: 0)
+        }
+
+        let premultipliedRed = red * alpha + (other.red * other.alpha - red * alpha) * t
+        let premultipliedGreen = green * alpha + (other.green * other.alpha - green * alpha) * t
+        let premultipliedBlue = blue * alpha + (other.blue * other.alpha - blue * alpha) * t
+
         return Color(
-            red: red + (other.red - red) * clampedProgress,
-            green: green + (other.green - green) * clampedProgress,
-            blue: blue + (other.blue - blue) * clampedProgress,
-            alpha: alpha + (other.alpha - alpha) * clampedProgress
+            red: premultipliedRed / outAlpha,
+            green: premultipliedGreen / outAlpha,
+            blue: premultipliedBlue / outAlpha,
+            alpha: outAlpha
         )
     }
 

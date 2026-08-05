@@ -181,7 +181,22 @@ final class ViewSnapshotTests: XCTestCase {
         }
     }
 
-    func testTransitionOpacityStartsTransparent() async throws {
+    /// A snapshot of a host's *first* build shows the view, not the first
+    /// frame of a fade it should never have played.
+    ///
+    /// These two used to assert the opposite — an invisible centre pixel —
+    /// which was the bug rather than the contract: `reload()` fired an
+    /// insertion transition for every transition-bearing node in a window's
+    /// initial tree, because `applyNewNodeTransitionsRecursively` keys off
+    /// `!hasAppeared` and on a first build nothing has appeared. SwiftUI plays
+    /// a transition on insertion *into* a container, not on the container's own
+    /// first render, and a snapshot renderer is the clearest case: it builds
+    /// once and rasterises, so under the old rule every `.transition()` in an
+    /// offscreen render came out at its "from" value.
+    ///
+    /// The insertion case — where these values *are* correct — is driven
+    /// through a live host in `InteractionTimelineFidelityTests`.
+    func testTransitionOpacityDoesNotPlayOnAFirstBuild() async throws {
         try await MainActor.run {
             let bitmap = try ViewSnapshot.rasterize(
                 component: Component { _ in
@@ -196,13 +211,12 @@ final class ViewSnapshotTests: XCTestCase {
                 clearColor: .black
             )
 
-            // Transition should start at opacity 0, so the panel is invisible.
             let center = bitmap.pixelColor(atX: 10, y: 10)
-            XCTAssertEqual(Double(center?.red ?? 0), 0, accuracy: 0.05)
+            XCTAssertEqual(Double(center?.red ?? 0), 1, accuracy: 0.05)
         }
     }
 
-    func testTransitionScaleStartsScaledDown() async throws {
+    func testTransitionScaleDoesNotPlayOnAFirstBuild() async throws {
         try await MainActor.run {
             let bitmap = try ViewSnapshot.rasterize(
                 component: Component { _ in
@@ -217,9 +231,8 @@ final class ViewSnapshotTests: XCTestCase {
                 clearColor: .black
             )
 
-            // Scaled to 0 means the panel should be invisible at the center.
             let center = bitmap.pixelColor(atX: 10, y: 10)
-            XCTAssertEqual(Double(center?.red ?? 0), 0, accuracy: 0.05)
+            XCTAssertEqual(Double(center?.red ?? 0), 1, accuracy: 0.05)
         }
     }
 }

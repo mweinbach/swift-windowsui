@@ -23,6 +23,10 @@ final class GeometryTests: XCTestCase {
         )
     }
 
+    /// Interpolation is premultiplied — see `Color.interpolated`. Endpoints
+    /// that differ in alpha no longer land on the plain component midpoint,
+    /// which is the whole point: the plain midpoint is the value that dragged
+    /// every fade from `.clear` through black.
     func testColorInterpolationClampsProgress() {
         let start = Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 0.4)
         let end = Color(red: 0.9, green: 0.8, blue: 0.7, alpha: 0.6)
@@ -30,10 +34,22 @@ final class GeometryTests: XCTestCase {
 
         XCTAssertEqual(start.interpolated(to: end, progress: -1), start)
         XCTAssertEqual(start.interpolated(to: end, progress: 2), end)
-        XCTAssertEqual(midpoint.red, 0.5, accuracy: 0.0001)
-        XCTAssertEqual(midpoint.green, 0.5, accuracy: 0.0001)
-        XCTAssertEqual(midpoint.blue, 0.5, accuracy: 0.0001)
+
+        // (0.1·0.4 + 0.9·0.6) / 2 / 0.5 = 0.58, and so on per channel.
+        XCTAssertEqual(midpoint.red, 0.58, accuracy: 0.0001)
+        XCTAssertEqual(midpoint.green, 0.56, accuracy: 0.0001)
+        XCTAssertEqual(midpoint.blue, 0.54, accuracy: 0.0001)
         XCTAssertEqual(midpoint.alpha, 0.5, accuracy: 0.0001)
+
+        // Equal alphas are the unchanged case, and the one every opaque
+        // cross-fade and every sheen gradient in the stack takes.
+        let opaqueStart = Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 1)
+        let opaqueEnd = Color(red: 0.9, green: 0.8, blue: 0.7, alpha: 1)
+        let opaqueMid = opaqueStart.interpolated(to: opaqueEnd, progress: 0.5)
+        XCTAssertEqual(opaqueMid.red, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(opaqueMid.green, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(opaqueMid.blue, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(opaqueMid.alpha, 1, accuracy: 0.0001)
     }
 
     // MARK: - Path.contains

@@ -1047,11 +1047,16 @@ private enum GalleryInteraction {
 }
 
 /// Far enough past any control tween's start that every one of them has
-/// completed. `ViewColorAnimation.progress` and `tickPropertyAnimations` both
-/// clamp to 1, so the settled value is the ramp's END colour — deterministic
-/// regardless of the wall clock the tween was started against. Rendering at
-/// the tween's start time instead would capture whatever fraction of the
-/// 0.14–0.18s animation the machine happened to be at, which is not a gate.
+/// completed. `ViewColorAnimation.elapsedFraction` and `tickPropertyAnimations`
+/// both clamp to 1, so the settled value is the ramp's END colour —
+/// deterministic regardless of the clock the tween was started against.
+///
+/// This tier deliberately pins *end states*: a baseline of a fraction of a
+/// tween is a baseline of the machine's scheduling, not of the design. It is no
+/// longer a workaround, though. `RetainedViewRuntime.clock` makes a tween's own
+/// timeline addressable, so a mid-tween value is now assertable — in a test
+/// rather than in an image gate, which is where a curve belongs:
+/// `InteractionTimelineFidelityTests` samples exactly those frames.
 private let gallerySettledTimestamp: Double = 1e12
 
 @MainActor

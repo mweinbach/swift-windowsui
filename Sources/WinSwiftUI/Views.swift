@@ -286,66 +286,107 @@ public struct GeometryProxy3D {
         anchor.value
     }
 }
+/// Advances a `PhaseAnimator` from one phase to the next.
+///
+/// This used to be a detached `Task` per animator, awaiting
+/// `Task.sleep(nanoseconds:)` for each phase's duration. Two things were wrong
+/// with that and neither was about the animator. The sleep is wall-clock and
+/// unsynchronised with the frame clock, so a phase boundary landed wherever the
+/// scheduler put it rather than on a frame — and it could not be reproduced
+/// under a controlled clock at all. And a pending sleep was invisible to
+/// `hasActiveAnimations`: for a phase whose animation is nil or zero-duration
+/// there is nothing else registered, so the runtime looked idle between phases
+/// and the host was free to switch its timer off.
+///
+/// It is a deadline on the runtime's animation clock now — the same shape as
+/// every other timed mechanism in the runtime — armed one boundary at a time
+/// and re-armed by the rebuild the boundary causes.
 @MainActor
 public final class PhaseAnimatorTaskManager: @unchecked Sendable {
     public static let shared = PhaseAnimatorTaskManager()
-    private var tasks: [String: Task<Void, Never>] = [:]
+
+    private struct ScheduledPhase {
+        weak var runtime: RetainedViewRuntime?
+    }
+
+    private var scheduled: [String: ScheduledPhase] = [:]
 
     private init() {}
 
+    /// Arms the boundary out of the phase the build just produced.
+    ///
+    /// `currentPhaseIndex` is passed rather than read back off the tree
+    /// because `start` is called from inside the build, with the node it
+    /// describes not yet reconciled into `runtime.root` — a lookup there finds
+    /// the previous tree, or on a first build nothing at all. The *fire*
+    /// closure does look the node up, by which point the tree is in place.
     public func start<Phase: Equatable>(
         key: String,
         runtime: RetainedViewRuntime,
         signature: String,
         phases: [Phase],
+        currentPhaseIndex: Int,
         animation: @escaping (Phase) -> Animation?,
         invalidate: @escaping () -> Void
     ) {
-        tasks[key]?.cancel()
-        tasks[key] = Task { @MainActor [weak self, weak runtime] in
-            guard let self = self else { return }
-            guard let runtime = runtime else {
-                self.tasks.removeValue(forKey: key)
+        cancel(key: key)
+        armNextPhase(
+            key: key, runtime: runtime, signature: signature, phases: phases, index: currentPhaseIndex,
+            animation: animation, invalidate: invalidate)
+    }
+
+    private func armNextPhase<Phase: Equatable>(
+        key: String,
+        runtime: RetainedViewRuntime,
+        signature: String,
+        phases: [Phase],
+        index: Int,
+        animation: @escaping (Phase) -> Animation?,
+        invalidate: @escaping () -> Void
+    ) {
+        guard index >= 0, index < phases.count - 1 else {
+            cancel(key: key)
+            return
+        }
+
+        let duration = animation(phases[index])?.duration ?? 0.0
+        scheduled[key] = ScheduledPhase(runtime: runtime)
+        runtime.scheduleDeferredRebuild(key: key, delay: duration) { [weak self, weak runtime] in
+            guard let self, let runtime else { return }
+            self.scheduled.removeValue(forKey: key)
+
+            guard let node = self.findNode(in: runtime.root, signature: signature),
+                let current = node.phaseAnimatorState,
+                current.phasesSignature == signature,
+                current.currentPhaseIndex == index
+            else {
                 return
             }
-            for i in 1..<phases.count {
-                let animationForPhase = animation(phases[i - 1])
-                let duration = animationForPhase?.duration ?? 0.0
-                do {
-                    if duration > 0 {
-                        try await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
-                    } else {
-                        await Task.yield()
-                    }
-                } catch {
-                    self.tasks.removeValue(forKey: key)
-                    return
-                }
 
-                guard let node = self.findNode(in: runtime.root, signature: signature) else {
-                    self.tasks.removeValue(forKey: key)
-                    return
-                }
-                if let state = node.phaseAnimatorState,
-                    state.phasesSignature == signature,
-                    state.currentPhaseIndex == i - 1
-                {
-                    node.phaseAnimatorState?.currentPhaseIndex = i
-                    node.phaseAnimatorState?.phaseStartTime = Win32Window.currentTimestampSeconds()
-                    invalidate()
-                }
+            node.phaseAnimatorState?.currentPhaseIndex = index + 1
+            node.phaseAnimatorState?.phaseStartTime = runtime.clock()
+            invalidate()
+
+            // The rebuild normally re-arms this through `start`. It does not
+            // when the host refused the rebuild (`shouldUpdate`), so the
+            // sequence is armed here too rather than stalling mid-run.
+            if self.scheduled[key] == nil {
+                self.armNextPhase(
+                    key: key, runtime: runtime, signature: signature, phases: phases, index: index + 1,
+                    animation: animation, invalidate: invalidate)
             }
-            self.tasks.removeValue(forKey: key)
         }
     }
 
     public func hasActiveTask(key: String) -> Bool {
-        tasks[key] != nil
+        scheduled[key] != nil
     }
 
     public func cancel(key: String) {
-        tasks[key]?.cancel()
-        tasks.removeValue(forKey: key)
+        guard let entry = scheduled.removeValue(forKey: key) else {
+            return
+        }
+        entry.runtime?.cancelDeferredRebuild(key: key)
     }
 
     private func findNode(in root: ViewNode, signature: String) -> ViewNode? {
@@ -526,7 +567,10 @@ public struct PhaseAnimator<Phase: Equatable>: View {
         let triggerDescription = self.triggerDescription
 
         return Component { runtime in
-            let now = Win32Window.currentTimestampSeconds()
+            // The same clock the phase deadline is armed on: a build that read
+            // the wall clock while the boundary was scheduled on the injected
+            // one would compare two unrelated timelines.
+            let now = runtime.clock()
 
             // Search the old runtime tree for an existing PhaseAnimator state.
             let oldState = Self.findState(in: runtime.root, signature: signature)
@@ -628,6 +672,7 @@ public struct PhaseAnimator<Phase: Equatable>: View {
                     runtime: runtime,
                     signature: signature,
                     phases: phases,
+                    currentPhaseIndex: phaseIndex,
                     animation: animation,
                     invalidate: invalidate
                 )
@@ -11213,8 +11258,12 @@ public struct DisclosureGroup: View {
 
         return Component { runtime in
             let isOpen = binding?.wrappedValue ?? fallbackState.isExpanded
+            // One glyph that turns. It used to be two glyphs that swap ("V"
+            // open, ">" closed), which is a step function: the header was
+            // rebuilt with the opposite character and there was nothing in
+            // flight for the runtime to tick. NSOutlineView turns its triangle.
             let chevronNode = Controls.label(
-                isOpen ? "V" : ">",
+                ">",
                 preferredSize: Size(width: 18, height: 24),
                 color: context.foregroundColor,
                 scale: 1.3,
@@ -11222,6 +11271,8 @@ public struct DisclosureGroup: View {
                 lineBreakMode: .truncateTail,
                 maximumNumberOfLines: 1
             )
+            chevronNode.transform = Transform2D(rotation: isOpen ? Controls.disclosureOpenRotation : 0)
+            chevronNode.implicitReconcileAnimation = Controls.disclosureAnimation
             let labelNode = labelComponent.makeNode(runtime: runtime)
             let headerContent = Controls.stackPanel(
                 layoutPriority: 1,
@@ -11258,6 +11309,18 @@ public struct DisclosureGroup: View {
                     isHitTestVisible: false,
                     children: [contentNode]
                 )
+                // The body slides out from under the header and fades, the
+                // reveal AppKit gives a disclosure. The reconciler seeds this
+                // for us on both edges: an inserted node with a non-identity
+                // transition gets `applyInsertionTransition`, and a removed one
+                // becomes a transition overlay that fades out where it stood.
+                insetContent.transition = RetainedTransition(
+                    kind: .combined(
+                        RetainedTransition(kind: .opacity),
+                        RetainedTransition(kind: .offset(x: 0, y: -Controls.disclosureContentRevealOffset))
+                    )
+                )
+                insetContent.implicitReconcileAnimation = Controls.disclosureAnimation
                 children.append(insetContent)
             }
 

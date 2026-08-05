@@ -2899,6 +2899,21 @@ public final class ViewNode {
     public var geometryReaderBuiltSize: Size?
 
     internal private(set) var hasAppeared = false
+
+    /// Marks a node that arrived in its host's *first* build.
+    ///
+    /// SwiftUI does not play a transition for a view that is present in the
+    /// first render of its container: the initial tree is a state, not an
+    /// insertion. The runtime used to play one for every transition-bearing
+    /// node in the window at launch, because `applyNewNodeTransitionsRecursively`
+    /// fires on `!hasAppeared` and on the first build nothing has appeared yet.
+    /// `hasAppeared` cannot carry this on its own — it is set at *render*, and a
+    /// state change between `setContent` and the first frame would otherwise
+    /// find the whole tree still un-appeared and animate it in.
+    ///
+    /// Cleared the moment the node actually appears, so a later removal and
+    /// re-insertion transitions normally.
+    internal var isInitialBuildNode = false
     public internal(set) var isRemovalOverlay: Bool = false
     private var previousFrame: Rect?
     private var lifecycleTasks: [String: Task<Void, Never>] = [:]
@@ -2907,6 +2922,19 @@ public final class ViewNode {
     public private(set) var children: [ViewNode]
 
     fileprivate weak var runtime: RetainedViewRuntime?
+
+    /// "Now" on the animation clock of the runtime this node belongs to.
+    ///
+    /// `runtime` is fileprivate, so every seeding site outside this file —
+    /// `ComponentHost`'s reconcile in particular — goes through here rather
+    /// than reaching for the wall clock. A detached node (built but not yet
+    /// reconciled into a tree) has no runtime and falls back to the wall clock,
+    /// which is the same value in production and unreachable by a tween in a
+    /// test, since a detached node has no tweens.
+    internal var animationClockNow: Double {
+        runtime?.clock() ?? Win32Window.currentTimestampSeconds()
+    }
+
     internal var resolvedFrame: Rect
     internal var resolvedContentSize: Size
     internal var resolvedScrollOffset: Double
@@ -3763,6 +3791,9 @@ public final class ViewNode {
             cancelLifecycleTasks()
             hasAppeared = false
         }
+        // A node that leaves and comes back is a real insertion the second
+        // time, whatever it was on the host's first build.
+        isInitialBuildNode = false
 
         for child in children {
             child.markSubtreeDisappeared()
@@ -5615,6 +5646,7 @@ public final class ViewNode {
         guard !isRemovalOverlay else { return }
         if !hasAppeared {
             hasAppeared = true
+            isInitialBuildNode = false
             onAppear?()
             onAppearWithNode?(self)
             if scrollIndicatorsFlashOnAppear {
@@ -6933,6 +6965,24 @@ public final class ViewNode {
         return nextOffset - previousOffset
     }
 
+    /// The part of a wheel push the bounds refuse, in offset units.
+    ///
+    /// Positive means the push wanted to go past `maxScrollOffset`, negative
+    /// past 0. Zero when the push lands inside the range, when the node cannot
+    /// scroll at all, or when its content fits — a view with nothing to scroll
+    /// should sit still, not bounce.
+    ///
+    /// Must be read *before* `applyMouseWheelDelta`, which moves the offset out
+    /// from under it.
+    fileprivate func refusedMouseWheelDelta(_ delta: Double) -> Double {
+        guard isScrollable, maxScrollOffset > 0 else {
+            return 0
+        }
+
+        let proposedOffset = scrollOffset - delta * scrollStep
+        return proposedOffset - clampedScrollOffset(for: proposedOffset)
+    }
+
     fileprivate func applyKeyboardScroll(_ key: KeyboardKey) -> Bool {
         guard isScrollable else {
             return false
@@ -7190,7 +7240,7 @@ public final class ViewNode {
             return
         }
 
-        let timestamp = Win32Window.currentTimestampSeconds()
+        let timestamp = animationClockNow
         if let fromBackgroundColor, let target = backgroundColor, fromBackgroundColor != target {
             backgroundColor = fromBackgroundColor
             runtime.animateColor(.background, of: self, to: target, duration: animation.duration, at: timestamp)
@@ -7210,10 +7260,13 @@ public final class ViewNode {
         let insertion = transition.insertion
         guard insertion.kind != .identity else { return }
 
-        let tx = currentAnimationTransaction
+        // Ambient `withAnimation` first, then the node's own transaction (a
+        // control whose state change is its own — a disclosure, a switch —
+        // never has an ambient one), then the SwiftUI default.
+        let tx = currentAnimationTransaction ?? implicitReconcileAnimation.map { ($0.duration, $0.easing) }
         let duration = tx?.duration ?? 0.35
         let easing = tx?.easing ?? .easeInOut
-        let now = Win32Window.currentTimestampSeconds()
+        let now = animationClockNow
 
         applySingleTransition(insertion, duration: duration, easing: easing, now: now)
     }
@@ -7321,10 +7374,10 @@ public final class ViewNode {
         let removal = transition.removal
         guard removal.kind != .identity else { return }
 
-        let tx = currentAnimationTransaction
+        let tx = currentAnimationTransaction ?? implicitReconcileAnimation.map { ($0.duration, $0.easing) }
         let duration = tx?.duration ?? 0.35
         let easing = tx?.easing ?? .easeInOut
-        let now = Win32Window.currentTimestampSeconds()
+        let now = animationClockNow
 
         applySingleRemovalTransition(removal, duration: duration, easing: easing, now: now)
     }
@@ -7647,6 +7700,24 @@ public final class RetainedViewRuntime {
         didSet { invalidate() }
     }
 
+    /// The single source of "now" for every animation this runtime owns.
+    ///
+    /// `tickAnimations(at:)` takes an injected timestamp, but a tween's *start*
+    /// time is stamped wherever the tween is seeded — a pointer event, a
+    /// reconcile, a wheel notch — none of which are handed a timestamp. Those
+    /// sites used to read `Win32Window.currentTimestampSeconds()` directly,
+    /// which in production is the same QPC source the host ticks with, but in a
+    /// test is a clock the test cannot address. The consequence was structural:
+    /// no test could assert a value while a tween was in flight, because it
+    /// could not place the tween's start on the timeline it was ticking. The
+    /// gallery's interaction tier renders at `t = 1e12` for exactly this
+    /// reason, and by construction only ever captured settled end states.
+    ///
+    /// Every start-time stamp in the runtime, in `Controls`, and in
+    /// `ComponentHost`'s reconcile now reads this. Override it and the whole
+    /// interaction layer runs on the timeline you choose.
+    public var clock: @MainActor () -> Double = { Win32Window.currentTimestampSeconds() }
+
     /// True while anything in this runtime still needs a frame tick. The host
     /// gates its animation timer on exactly this value, so every animation
     /// mechanism has to be represented: the runtime-level ones (colour tweens,
@@ -7659,12 +7730,77 @@ public final class RetainedViewRuntime {
     /// is moving at all: a revealed overlay scroller waiting out its hold has
     /// no tween in flight, and if the host switched its timer off there the
     /// deadline would never arrive and the thumb would stay up forever.
+    /// `deferredRebuilds` is there for the same reason one step up: a
+    /// `PhaseAnimator` between two phases has nothing tweening, and if the
+    /// timer stopped there the next phase would never start.
     public var hasActiveAnimations: Bool {
         !colorAnimations.isEmpty || buttonRepeatState != nil || !scrollMomenta.isEmpty
             || !scrollPresentedTweens.isEmpty || !transitionOverlays.isEmpty
             || !scrollIndicatorReveals.isEmpty
+            || !deferredRebuilds.isEmpty
             || hasBlinkingCaret
             || hasNodeAnimationsInFlight
+    }
+
+    // MARK: - Deferred rebuilds
+
+    private struct DeferredRebuild {
+        var deadline: Double
+        var action: @MainActor () -> Void
+    }
+
+    private var deferredRebuilds: [String: DeferredRebuild] = [:]
+
+    /// Runs `action` once, from `tickAnimations(at:)`, after `delay` on this
+    /// runtime's animation clock — and reports the pending wait through
+    /// `hasActiveAnimations` so the host keeps ticking until it fires.
+    ///
+    /// `PhaseAnimator` used to advance on a detached `Task` awaiting
+    /// `Task.sleep(nanoseconds:)`. That sleep is wall-clock and unsynchronised
+    /// with the frame clock, so a phase boundary landed wherever the scheduler
+    /// happened to put it rather than on a frame; and nothing in
+    /// `hasActiveAnimations` represented a phase animator waiting out a phase,
+    /// so a phase with a nil or zero-duration animation left the runtime with
+    /// nothing registered and the host free to switch its timer off between
+    /// phases. Both are properties of the timer, not of the animator, which is
+    /// why the fix belongs here: this is the same shape as
+    /// `tickScrollIndicatorReveals`, and it makes phase timing reproducible
+    /// under a controlled clock, which a sleep can never be.
+    public func scheduleDeferredRebuild(
+        key: String, delay: Double, perform action: @escaping @MainActor () -> Void
+    ) {
+        deferredRebuilds[key] = DeferredRebuild(deadline: clock() + max(0, delay), action: action)
+        invalidate()
+    }
+
+    public func hasDeferredRebuild(key: String) -> Bool {
+        deferredRebuilds[key] != nil
+    }
+
+    public func cancelDeferredRebuild(key: String) {
+        deferredRebuilds.removeValue(forKey: key)
+    }
+
+    /// Fires every deadline that has come due, in key order so a frame that
+    /// carries several is deterministic. Entries are removed before their
+    /// actions run: an action rebuilds, and a rebuild is entitled to schedule
+    /// the next phase.
+    private func tickDeferredRebuilds(at timestamp: Double) -> Bool {
+        guard !deferredRebuilds.isEmpty else { return false }
+
+        let dueKeys = deferredRebuilds.filter { $0.value.deadline <= timestamp }.keys.sorted()
+        guard !dueKeys.isEmpty else { return false }
+
+        var due: [@MainActor () -> Void] = []
+        for key in dueKeys {
+            if let entry = deferredRebuilds.removeValue(forKey: key) {
+                due.append(entry.action)
+            }
+        }
+        for action in due {
+            action()
+        }
+        return true
     }
 
     /// A focused text input's caret needs a tick forever, not until something
@@ -7835,6 +7971,58 @@ public final class RetainedViewRuntime {
     // Cap on rubber-band excursion so a fast flick doesn't yank the content
     // far beyond the viewport.
     private static let scrollRubberBandMax: Double = 80
+    // Resistance coefficient for a push against a bound the scroll is already
+    // resting on. This is WebKit's `ScrollElasticityController` constant, the
+    // same value AppKit's overscroll resists with: the stretch approaches
+    // `dimension / c` asymptotically, tracks the push 1:1 for the first few
+    // pixels, and gives back progressively less the harder the user leans on
+    // it. Without a resistance term a single three-line notch would jump
+    // straight to the 80pt cap and the bounce would read as a lurch.
+    nonisolated static let scrollRubberBandStretchCoefficient: Double = 0.55
+
+    /// WebKit/AppKit overscroll stretch: how far a refused push of `distance`
+    /// actually moves the content, against a viewport of `dimension`.
+    ///
+    /// `(1 - 1/(d·c/D + 1)) · D/c` — unit slope at d = 0, asymptotic to D/c.
+    nonisolated static func rubberBandStretch(
+        forRefusedDistance distance: Double,
+        viewportDimension dimension: Double
+    ) -> Double {
+        guard dimension > 0 else { return 0 }
+        let coefficient = scrollRubberBandStretchCoefficient
+        let magnitude = abs(distance)
+        let stretch = (1.0 - (1.0 / (magnitude * coefficient / dimension + 1.0))) * dimension / coefficient
+        return distance < 0 ? -stretch : stretch
+    }
+
+    /// Answers a wheel push against a bound the scroll is already sitting on:
+    /// the refused travel becomes visible overshoot, and a zero-velocity
+    /// momentum entry hands it to the spring branch of `tickScrollMomenta`,
+    /// which is what springs it back. Nothing else in the runtime could reach
+    /// that branch from rest.
+    fileprivate func beginEdgeRubberBand(for node: ViewNode, refusedOffsetDelta: Double) {
+        guard node.isScrollable, refusedOffsetDelta != 0 else {
+            return
+        }
+
+        let dimension = node.scrollAxis == .vertical ? node.resolvedFrame.size.height : node.resolvedFrame.size.width
+        let stretch = Self.rubberBandStretch(forRefusedDistance: refusedOffsetDelta, viewportDimension: dimension)
+        guard stretch != 0 else {
+            return
+        }
+
+        let key = ObjectIdentifier(node)
+        // A second push while the band is still out adds to the excursion
+        // rather than restarting it, so holding the wheel down leans further
+        // in instead of stuttering.
+        let combined = node.scrollOvershoot + stretch
+        node.scrollOvershoot = max(min(combined, Self.scrollRubberBandMax), -Self.scrollRubberBandMax)
+        var state = scrollMomenta[key] ?? ScrollMomentumState(node: node, velocity: 0, lastTime: clock())
+        state.node = node
+        state.lastTime = clock()
+        scrollMomenta[key] = state
+        invalidate()
+    }
 
     // Keyboard scroll (PageUp/Down, Home, End, arrow keys) jumps `scrollOffset`
     // to its new target synchronously so external observers see the value
@@ -8308,13 +8496,32 @@ public final class RetainedViewRuntime {
         }
 
         cancelScrollPresentedTween(for: scrollableNode)
+        let refusedDelta = scrollableNode.refusedMouseWheelDelta(delta)
         let appliedDelta = scrollableNode.applyMouseWheelDelta(delta)
         if appliedDelta != 0 {
             updateHoverTarget(to: hitTest(at: point))
             if source == .precise {
                 seedScrollMomentum(for: scrollableNode, wheelDelta: delta, appliedOffsetDelta: appliedDelta)
             }
+            return
         }
+
+        // Nothing moved. Either the node has nothing to scroll — in which case
+        // `refusedMouseWheelDelta` is 0 and there is genuinely nothing to say —
+        // or the user is pushing against a bound they are already sitting on.
+        // The rubber band used to be unreachable from there: the spring branch
+        // in `tickScrollMomenta` only ran when an *already gliding* scroll ran
+        // into an edge, so a push against a stationary top produced no bounce,
+        // no overshoot and not even an indicator flash. AppKit bounces on a
+        // direct edge push, and shows the scroller for an input it cannot act
+        // on so the user can see where they are.
+        guard refusedDelta != 0 else {
+            return
+        }
+
+        updateHoverTarget(to: hitTest(at: point))
+        beginEdgeRubberBand(for: scrollableNode, refusedOffsetDelta: refusedDelta)
+        revealScrollIndicator(for: scrollableNode)
     }
 
     public func pointerDown(at point: Point) {
@@ -8327,7 +8534,7 @@ public final class RetainedViewRuntime {
             activeScrollIndicatorNode = scrollIndicatorHit.node
             animateColor(
                 .scrollIndicator, of: scrollIndicatorHit.node, to: scrollIndicatorHit.node.scrollIndicatorActiveColor,
-                duration: 0.10, at: Win32Window.currentTimestampSeconds())
+                duration: 0.10, at: clock())
             return
         }
 
@@ -8360,7 +8567,7 @@ public final class RetainedViewRuntime {
                     ? node.scrollIndicatorHoverColor : node.restingScrollIndicatorColor
                 animateColor(
                     .scrollIndicator, of: node, to: targetColor, duration: 0.12,
-                    at: Win32Window.currentTimestampSeconds())
+                    at: clock())
             }
             return
         }
@@ -8630,15 +8837,34 @@ public final class RetainedViewRuntime {
         return true
     }
 
+    /// The curve every colour cross-fade runs on unless a caller names another.
+    ///
+    /// AppKit's implicit property changes run on `kCAMediaTimingFunctionEase
+    /// InEaseOut` and `NSAnimationContext` inherits it, so a hover, focus or
+    /// press cross-fade on macOS is eased at both ends. This stack's colour
+    /// tweens used to be a straight ramp — measurably so: a hover-in sampled
+    /// every 10ms stepped by exactly 0.00278 alpha from the first frame to the
+    /// last. The per-property path (`AnimationState`) already eased, so the
+    /// runtime's two animation mechanisms disagreed about curve.
+    ///
+    /// `.easeInOut` here is the quadratic form `AnimationState` uses rather
+    /// than the cubic bezier `(0.42, 0, 0.58, 1)` CoreAnimation evaluates; the
+    /// two differ by at most 0.012 of progress (at t ≈ 0.60), which on the
+    /// widest colour tween in the stack is under half a step of 8-bit alpha.
+    /// Matching the other mechanism exactly is worth more than matching the
+    /// bezier to the third decimal.
+    public static let defaultColorAnimationEasing: AnimationEasing = .easeInOut
+
     public func animateBackgroundColor(
-        of node: ViewNode, to targetColor: Color, duration: Double = 0.18, at timestamp: Double
+        of node: ViewNode, to targetColor: Color, duration: Double = 0.18, at timestamp: Double,
+        easing: AnimationEasing = RetainedViewRuntime.defaultColorAnimationEasing
     ) {
-        animateColor(.background, of: node, to: targetColor, duration: duration, at: timestamp)
+        animateColor(.background, of: node, to: targetColor, duration: duration, at: timestamp, easing: easing)
     }
 
     public func animateColor(
         _ property: AnimatedColorProperty, of node: ViewNode, to targetColor: Color, duration: Double = 0.18,
-        at timestamp: Double
+        at timestamp: Double, easing: AnimationEasing = RetainedViewRuntime.defaultColorAnimationEasing
     ) {
         let animationKey = ColorAnimationKey(node: node, property: property)
         let startingColor = node.color(for: property)
@@ -8655,13 +8881,18 @@ public final class RetainedViewRuntime {
             startColor: startingColor,
             endColor: targetColor,
             startTime: timestamp,
-            duration: duration
+            duration: duration,
+            easing: easing
         )
         invalidate()
     }
 
     @discardableResult
     public func tickAnimations(at timestamp: Double) -> Bool {
+        // First, because a due rebuild produces the tree the rest of this tick
+        // advances — a phase boundary that landed this frame should be animated
+        // from this frame, not from the next one.
+        let didRunDeferredRebuild = tickDeferredRebuilds(at: timestamp)
         sweepAnimatingNodes()
         let didAdvanceButtonRepeat = advanceButtonRepeat(at: timestamp)
         let didAdvanceScrollMomenta = tickScrollMomenta(at: timestamp)
@@ -8694,9 +8925,9 @@ public final class RetainedViewRuntime {
         }
 
         guard !colorAnimations.isEmpty else {
-            return didAdvanceButtonRepeat || didAdvanceScrollMomenta || didAdvanceScrollPresentedTweens
-                || didStartScrollIndicatorTween || didBlinkCaret || didAdvancePropertyAnimations
-                || didAdvanceOverlayAnimations || !completedOverlays.isEmpty
+            return didRunDeferredRebuild || didAdvanceButtonRepeat || didAdvanceScrollMomenta
+                || didAdvanceScrollPresentedTweens || didStartScrollIndicatorTween || didBlinkCaret
+                || didAdvancePropertyAnimations || didAdvanceOverlayAnimations || !completedOverlays.isEmpty
         }
 
         var didUpdateAnyAnimation = false
@@ -8711,21 +8942,26 @@ public final class RetainedViewRuntime {
                 continue
             }
 
-            let progress = animation.progress(at: timestamp)
+            // Retire on elapsed time, paint on the curve: an eased value can
+            // reach 1 before the tween is over (and, for a spring, pass it).
+            let fraction = animation.elapsedFraction(at: timestamp)
+            let progress = animation.easing.apply(fraction)
             let nextColor = animation.startColor.interpolated(to: animation.endColor, progress: progress)
             if node.color(for: animation.property) != nextColor {
                 node.setColor(nextColor, for: animation.property)
                 didUpdateAnyAnimation = true
             }
 
-            if progress >= 1 {
+            if fraction >= 1 {
+                node.setColor(animation.endColor, for: animation.property)
                 colorAnimations.removeValue(forKey: animationKey)
             }
         }
 
-        return didUpdateAnyAnimation || didAdvanceButtonRepeat || didAdvanceScrollMomenta
-            || didAdvanceScrollPresentedTweens || didStartScrollIndicatorTween || didBlinkCaret
-            || didAdvancePropertyAnimations || didAdvanceOverlayAnimations || !completedOverlays.isEmpty
+        return didUpdateAnyAnimation || didRunDeferredRebuild || didAdvanceButtonRepeat
+            || didAdvanceScrollMomenta || didAdvanceScrollPresentedTweens || didStartScrollIndicatorTween
+            || didBlinkCaret || didAdvancePropertyAnimations || didAdvanceOverlayAnimations
+            || !completedOverlays.isEmpty
     }
 
     // MARK: - Scroll Momentum
@@ -8755,7 +8991,7 @@ public final class RetainedViewRuntime {
             state.velocity += impulse
         }
         state.node = node
-        state.lastTime = Win32Window.currentTimestampSeconds()
+        state.lastTime = clock()
         scrollMomenta[key] = state
         invalidate()
     }
@@ -8895,7 +9131,7 @@ public final class RetainedViewRuntime {
         var currentNodes: [String: [String: (node: ViewNode, frame: Rect)]] = [:]
         collectCurrentMatchedGeometryNodes(from: root, into: &currentNodes)
 
-        let now = Win32Window.currentTimestampSeconds()
+        let now = clock()
         let tx = currentAnimationTransaction
         let duration = tx?.duration ?? 0.35
         let easing = tx?.easing ?? .easeInOut
@@ -9476,7 +9712,7 @@ public final class RetainedViewRuntime {
         scrollPresentedTweens[key] = ScrollPresentedTween(
             node: node,
             startDelta: combinedStart,
-            startTime: Win32Window.currentTimestampSeconds(),
+            startTime: clock(),
             duration: Self.scrollKeyboardTweenDuration
         )
         invalidate()
@@ -9734,7 +9970,7 @@ public final class RetainedViewRuntime {
 
         let phase = interactionPhase(for: node)
         let duration = animated ? surface.duration(intoPhase: phase) : 0
-        let timestamp = Win32Window.currentTimestampSeconds()
+        let timestamp = clock()
 
         if let background = surface.background(for: phase) {
             animateColor(.background, of: node, to: background, duration: duration, at: timestamp)
@@ -9858,7 +10094,7 @@ public final class RetainedViewRuntime {
                 of: previousNode,
                 to: previousNode.restingScrollIndicatorColor,
                 duration: 0.12,
-                at: Win32Window.currentTimestampSeconds()
+                at: clock()
             )
         }
 
@@ -9870,7 +10106,7 @@ public final class RetainedViewRuntime {
                 of: nextNode,
                 to: nextNode.scrollIndicatorHoverColor,
                 duration: 0.12,
-                at: Win32Window.currentTimestampSeconds()
+                at: clock()
             )
         }
     }
@@ -10078,10 +10314,11 @@ private final class ViewColorAnimation {
     let endColor: Color
     let startTime: Double
     let duration: Double
+    let easing: AnimationEasing
 
     init(
         node: ViewNode, property: AnimatedColorProperty, startColor: Color, endColor: Color, startTime: Double,
-        duration: Double
+        duration: Double, easing: AnimationEasing
     ) {
         self.node = node
         self.property = property
@@ -10089,15 +10326,26 @@ private final class ViewColorAnimation {
         self.endColor = endColor
         self.startTime = startTime
         self.duration = duration
+        self.easing = easing
     }
 
-    func progress(at timestamp: Double) -> Double {
+    /// Fraction of `duration` elapsed, with no curve applied.
+    ///
+    /// Completion is decided on this and never on the eased value: a spring
+    /// curve passes through 1 well before it settles, and retiring the tween
+    /// there would leave the colour parked at an overshoot.
+    func elapsedFraction(at timestamp: Double) -> Double {
         let elapsed = timestamp - startTime
         guard duration > 0 else {
             return 1
         }
 
         return min(max(elapsed / duration, 0), 1)
+    }
+
+    /// The curved fraction the colour is interpolated at.
+    func progress(at timestamp: Double) -> Double {
+        easing.apply(elapsedFraction(at: timestamp))
     }
 }
 /// The frame path's keyboard focus ring: an annulus around `paintFrame`,

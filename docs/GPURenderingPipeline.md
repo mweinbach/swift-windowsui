@@ -1457,6 +1457,38 @@ factory, availability), so "healthy hardware D3D11", "running on WARP"
 tree at 0×0, resize the swap chain to zero and raise a UIA structure change,
 then do it again on restore.
 
+**A drag is paced by the display, not by the mouse.** A modal size/move loop
+delivers `WM_SIZE` continuously, at mouse-report rate. The host's handler
+answered each message with a full `componentHost.reload()`, a UIA
+`raiseStructureChanged()` and a swap-chain `ResizeBuffers`; forty messages
+between two presented frames cost forty of each, so a border drag queued
+frames' worth of work per frame it could show and ran further behind the
+pointer the longer it lasted. `Win32Window.isInLiveResize` (the
+`WM_ENTERSIZEMOVE`…`WM_EXITSIZEMOVE` interval) now splits the two cases:
+
+- Inside a drag, the newest size is held in `pendingLiveResizeSize` and a
+  frame is requested. `renderCurrentFrame` applies it once, at the top of the
+  frame — before the presenter check, so the runtime's root is the window's
+  size even on a frame that cannot present. `requestFrame` both invalidates
+  the window and enables the animation timer, and the modal loop runs that
+  timer at `USER_TIMER_MINIMUM`, so the frame that consumes the pending size
+  is not contingent on `WM_PAINT` reaching a busy queue.
+- The accessibility structure-change notification is *owed*, not repeated: it
+  is raised once when the window settles. A screen reader wants one
+  notification per drag, and the bridge re-projects the whole retained tree on
+  every query.
+- Outside a drag — programmatic resize, maximize, restore, `WM_DPICHANGED` —
+  nothing is deferred. Those are discrete events and one rebuild each is the
+  right answer; `WM_EXITSIZEMOVE` redelivers the final size through this path,
+  which is what makes the settled layout immediate rather than one frame late.
+
+Note the rebuild is kept, not skipped: measured on the demo dashboard at
+1280x720 (debug), a `setRootSize`-only relayout costs *more* than a rebuild
+plus relayout (113 ms vs 75 ms), because the dashboard's body is inside a
+`GeometryReader` — without a rebuild the runtime spends a whole layout pass
+discovering the reader's slot moved, rebuilds its subtree, and lays out again.
+Coalescing the messages is the fix; dropping the rebuild is not.
+
 **Invariants**
 - `Win32WindowLifecycleTests` — a destroyed window forgets its handle and
   balances its self reference exactly once (a real HWND, skipped where one
@@ -1468,6 +1500,11 @@ then do it again on restore.
   rect changes nothing; a closed host outlives its close callback.
 - `RenderBackendAvailabilityTests` — the probe contract and the composition
   root's substitution.
+- `LiveResizeCoalescingTests` — forty size messages inside one drag cost one
+  rebuild and one swap-chain resize, not forty; the newest size is the one
+  that lands; the drag's final delivery applies immediately and leaves nothing
+  pending; the structure notification is raised once, at the end; a resize
+  outside a drag is still synchronous; a mid-drag DPI change carries its scale.
 
 ## 4e. Frame clock, pacing, and DPI-correct window configuration
 

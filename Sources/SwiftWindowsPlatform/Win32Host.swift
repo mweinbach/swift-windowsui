@@ -1240,6 +1240,19 @@ public final class Win32Window {
         animationTimerUsesHighResolution = false
     }
 
+    /// Whether the window is inside a modal move/size loop — the interval
+    /// between `WM_ENTERSIZEMOVE` and `WM_EXITSIZEMOVE`, which is where an
+    /// interactive border drag lives.
+    ///
+    /// It matters to the delegate because that loop delivers `WM_SIZE` at
+    /// mouse-report rate rather than at frame rate: a handler that does a
+    /// frame's worth of work per message does it tens of times per displayed
+    /// frame and falls behind the pointer. Knowing it is a drag is what lets
+    /// the host coalesce those messages down to one relayout per frame and
+    /// hold back the notifications a drag has no business emitting a hundred
+    /// times (`raiseStructureChanged`).
+    public var isInLiveResize: Bool { isInSizeMove }
+
     private func refreshAnimationTimerIfNeeded() {
         guard isAnimationTimerRunning else {
             return

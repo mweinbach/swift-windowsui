@@ -1807,6 +1807,33 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// the ComponentHost dependency set.
     private(set) var skippedObservedObjectReloadCount = 0
 
+    /// The client size the last `WM_SIZE` reported while the window was in a
+    /// modal drag, waiting for a frame to consume it.
+    ///
+    /// A modal size/move loop delivers `WM_SIZE` at mouse-report rate. Every
+    /// one of those messages used to run a full view-tree rebuild, a UIA
+    /// structure-change notification and a swap-chain `ResizeBuffers`
+    /// synchronously, so a drag queued tens of frame-sized units of work per
+    /// frame it could actually show and ran further behind the pointer the
+    /// longer it went on. Holding the size here and applying it once, at the
+    /// top of the frame the resize asks for, is what makes the work rate a
+    /// function of the display rather than of the mouse.
+    private var pendingLiveResizeSize: IntSize?
+
+    /// Whether a drag has changed the tree since the last accessibility
+    /// structure-change notification. A screen reader wants one notification
+    /// when the window settles, not one per mouse report.
+    private var owesResizeAccessibilityNotification = false
+
+    /// Number of view-tree rebuilds the resize path has performed. Observable
+    /// so a test can prove a burst of size messages inside a drag collapses
+    /// into one rebuild instead of one per message.
+    private(set) var executedResizeRebuildCount = 0
+
+    /// Number of accessibility structure-change notifications the resize path
+    /// has raised.
+    private(set) var executedResizeAccessibilityNotificationCount = 0
+
     /// Counter for observed object registrations.
     /// Used for testing dependency registration tracking.
     private(set) var observedObjectRegistrationCount = 0
@@ -2224,6 +2251,37 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             return
         }
 
+        // Inside a modal drag the same handler was doing a frame's worth of
+        // work per mouse report. Record the newest size, ask for a frame, and
+        // let the frame apply it: intermediate sizes the display never showed
+        // cost one assignment each instead of a rebuild, a UIA notification
+        // and a `ResizeBuffers`. The pump that consumes it is guaranteed —
+        // `requestFrame` both invalidates the window and enables the
+        // animation timer, and the modal loop runs that timer at
+        // `USER_TIMER_MINIMUM`.
+        if window.isInLiveResize {
+            pendingLiveResizeSize = size
+            requestFrame(in: window)
+            return
+        }
+
+        applyResize(size, in: window, requestsFrame: true)
+    }
+
+    /// Applies a client size to the runtime, the surface descriptor and the
+    /// active renderer.
+    ///
+    /// - Parameter requestsFrame: false when the caller is already inside the
+    ///   frame this resize is for. `requestFrame` calls `InvalidateRect`, and
+    ///   doing that from inside `WM_PAINT`'s BeginPaint/EndPaint pair
+    ///   re-dirties the region the paint just validated — the window spins.
+    private func applyResize(_ size: IntSize, in window: Win32Window, requestsFrame: Bool) {
+        // Whatever the drag left behind is superseded by this size, including
+        // when this call *is* the drag's final `WM_EXITSIZEMOVE` delivery.
+        // Without this the next frame would rebuild a second time for a size
+        // the window already has.
+        pendingLiveResizeSize = nil
+
         do {
             let scaleFactor = window.effectiveScaleFactor
             runtime.displayScale = scaleFactor
@@ -2235,12 +2293,57 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             surfaceDescriptor?.scaleFactor = scaleFactor
             runtime.setRootSize(logicalSize(for: size, scaleFactor: scaleFactor))
             componentHost.reload()
-            uiaBridge?.raiseStructureChanged()
+            executedResizeRebuildCount += 1
+
+            // A drag is one structural event, not a hundred. The bridge
+            // re-projects the whole retained tree on every query, so telling a
+            // screen reader the structure changed on each mouse report is both
+            // useless to it and expensive here; the notification is owed until
+            // the window settles.
+            if window.isInLiveResize {
+                owesResizeAccessibilityNotification = true
+            } else {
+                owesResizeAccessibilityNotification = false
+                uiaBridge?.raiseStructureChanged()
+                executedResizeAccessibilityNotificationCount += 1
+            }
+
             try resizeActiveRenderer(to: size, in: window)
-            requestFrame(in: window)
+
+            if requestsFrame {
+                requestFrame(in: window)
+            }
         } catch {
             report(error)
         }
+    }
+
+    /// Consumes the size a drag left behind, at the top of the frame that
+    /// drag asked for. Returns whether anything was applied.
+    @discardableResult
+    private func applyPendingLiveResizeIfNeeded(in window: Win32Window) -> Bool {
+        guard let pending = pendingLiveResizeSize else {
+            // The drag ended without another `WM_SIZE` carrying a new size
+            // (the pointer came back to where it started). The structure
+            // notification is still owed.
+            flushDeferredResizeAccessibilityNotificationIfNeeded(in: window)
+            return false
+        }
+
+        pendingLiveResizeSize = nil
+        applyResize(pending, in: window, requestsFrame: false)
+        flushDeferredResizeAccessibilityNotificationIfNeeded(in: window)
+        return true
+    }
+
+    private func flushDeferredResizeAccessibilityNotificationIfNeeded(in window: Win32Window) {
+        guard owesResizeAccessibilityNotification, !window.isInLiveResize else {
+            return
+        }
+
+        owesResizeAccessibilityNotification = false
+        uiaBridge?.raiseStructureChanged()
+        executedResizeAccessibilityNotificationCount += 1
     }
 
     func windowNeedsDisplay(_ window: Win32Window) {
@@ -2703,6 +2806,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     @discardableResult
     private func renderCurrentFrame(in window: Win32Window, timestamp: Double? = nil) -> Bool {
+        // The drag's newest size, applied once, here — not once per mouse
+        // report in the wndproc. Before the presenter check, so the runtime's
+        // root is the window's size even on a frame that cannot be presented.
+        applyPendingLiveResizeIfNeeded(in: window)
+
         if !isRendererReady {
             // Never invalidate from here: this runs inside `WM_PAINT`'s
             // BeginPaint/EndPaint pair, where `InvalidateRect` re-dirties the

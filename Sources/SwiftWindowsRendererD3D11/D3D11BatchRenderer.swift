@@ -45,7 +45,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             atlasSkippedUploadCount: atlasSkippedUploadsForTesting,
             atlasUploadedByteCount: atlasUploadedByteCount,
             lastSubmitSeconds: lastSubmitSeconds,
-            lastPresentSeconds: lastPresentSeconds
+            lastPresentSeconds: lastPresentSeconds,
+            lastDrawCallCount: lastDrawCallCount,
+            lastDrawnInstanceCount: lastDrawnInstanceCount
         )
     }
 
@@ -299,6 +301,17 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// Submit-vs-present split of the most recent `render(scene:)`.
     private var lastSubmitSeconds: Double = 0
     private var lastPresentSeconds: Double = 0
+    /// Instanced draws the most recent `render(scene:)` issued, and the number
+    /// of primitives they covered between them.
+    ///
+    /// These are the two halves of "is `presentationOrder()` coalescing?".
+    /// A scene of N primitives that draws in N calls is presentation order
+    /// defeating the batcher — the family batches exist so a run of same-family
+    /// primitives collapses into one `DrawInstanced`. Only the ratio is
+    /// meaningful, so both are reported; a draw count alone cannot distinguish
+    /// a well-batched heavy frame from a badly batched light one.
+    internal private(set) var lastDrawCallCount = 0
+    internal private(set) var lastDrawnInstanceCount = 0
     /// Presents are vblank-paced by default; a diagnostics run turns this off
     /// to measure the app's own frame cost without the compositor's wait.
     private var presentsWithVSync = true
@@ -1207,6 +1220,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
 
         let submitStartedAt = Self.nowSeconds()
+        lastDrawCallCount = 0
+        lastDrawnInstanceCount = 0
 
         var finishedScene = scene
         finishedScene.finish()
@@ -2526,6 +2541,16 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
     // MARK: - Render Batches
 
+    /// Records one instanced draw against the current frame's totals. Called
+    /// immediately before every `DrawInstanced` this backend issues, so the
+    /// counters describe the frame that is being submitted rather than the
+    /// plan that was built for it — a step that guards out before its draw
+    /// (empty range, missing buffer) must not be counted as a draw.
+    private func noteDrawCall(instanceCount: Int) {
+        lastDrawCallCount &+= 1
+        lastDrawnInstanceCount &+= instanceCount
+    }
+
     /// Unified batch draw: uploads instances to a structured buffer, binds
     /// shaders and SRV, issues a single DrawInstanced call, then unbinds.
     private func renderBatch<T>(
@@ -2569,6 +2594,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             deviceContext.pointee.lpVtbl.pointee.PSSetSamplers(deviceContext, 0, 1, &samplerPtr)
         }
 
+        noteDrawCall(instanceCount: instanceCount)
         deviceContext.pointee.lpVtbl.pointee.DrawInstanced(deviceContext, 6, UINT(instanceCount), 0, 0)
 
         var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = nil
@@ -2618,6 +2644,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
         var samplerPtr: UnsafeMutablePointer<ID3D11SamplerState>? = samplerState
         deviceContext.pointee.lpVtbl.pointee.PSSetSamplers(deviceContext, 0, 1, &samplerPtr)
+        noteDrawCall(instanceCount: instanceCount)
         deviceContext.pointee.lpVtbl.pointee.DrawInstanced(deviceContext, 6, UINT(instanceCount), 0, 0)
 
         var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = nil
@@ -2667,6 +2694,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
         var samplerPtr: UnsafeMutablePointer<ID3D11SamplerState>? = samplerState
         deviceContext.pointee.lpVtbl.pointee.PSSetSamplers(deviceContext, 0, 1, &samplerPtr)
+        noteDrawCall(instanceCount: instanceCount)
         deviceContext.pointee.lpVtbl.pointee.DrawInstanced(deviceContext, 6, UINT(instanceCount), 0, 0)
 
         var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = nil

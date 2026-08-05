@@ -35,6 +35,13 @@ struct LiveFrameSample {
     var hadActiveAnimations: Bool
     var backend: PresentationBackendKind
     var atlasUploadedByteCount: UInt64
+    /// Instanced draws this frame issued, and the primitives they covered.
+    var drawCallCount: Int
+    var drawnInstanceCount: Int
+    /// View nodes the paint traversal entered. Meaningful only on frames that
+    /// rebuilt: a cache-hit frame ships the scene an earlier frame built and
+    /// carries that frame's metrics with it.
+    var visitedNodeCount: Int
 }
 
 // MARK: - Configuration
@@ -240,67 +247,76 @@ final class LiveDiagnosticsSession {
     /// `RetainedViewRuntime` directly, so the measurement covers the
     /// coordinate conversion, the input-rate tracker and the frame-request
     /// policy, which is where a live session's cost actually lives.
+    /// Interactions per second the sustained phase drives. Well above a human
+    /// hand, deliberately: the point is to keep something animating on every
+    /// frame, not to imitate a user.
+    private static let sustainedStepsPerSecond: Double = 40
+
     private lazy var script: [ScriptStep] = {
         var steps: [ScriptStep] = []
 
-        // Hover sweep: 24 pointer moves across the window over 1.2s.
-        for index in 0..<24 {
-            let progress = Double(index) / 23.0
+        // The interaction phase runs from the end of warmup to the end of the
+        // run, so `--diagnostics-seconds` buys more measurement rather than
+        // more idling. The previous script stopped at a fixed 8.8 s and left
+        // the tail of every run idle, which is why the whole-run percentiles
+        // described a window sitting still.
+        let phaseStart = Self.warmupSeconds + 0.1
+        let phaseEnd = max(phaseStart + 1.0, configuration.durationSeconds - 0.2)
+        let phaseSpan = phaseEnd - phaseStart
+        let stepCount = max(8, Int(phaseSpan * Self.sustainedStepsPerSecond))
+
+        // One interleaved stream rather than three separate bursts. A hover
+        // that moves while a scroll glides while a screen fades is the state
+        // the frame budget has to survive; measuring them one at a time
+        // measures three easier problems.
+        for index in 0..<stepCount {
+            let progress = Double(index) / Double(max(stepCount - 1, 1))
+            let at = phaseStart + progress * phaseSpan
+
+            // Hover: a triangle wave across the content area, so every step
+            // crosses rows and starts hover transitions instead of settling.
+            let sweep = abs((progress * 6.0).truncatingRemainder(dividingBy: 2.0) - 1.0)
             steps.append(
-                ScriptStep(atSeconds: 1.6 + progress * 1.2, name: "hover") { host in
+                ScriptStep(atSeconds: at, name: "hover") { host in
                     let size = host.currentLogicalRootSize
-                    let point = Point(
-                        x: Double(size.width) * (0.08 + 0.84 * progress),
-                        y: Double(size.height) * (0.20 + 0.55 * progress)
+                    host.injectDiagnosticsPointerMove(
+                        to: Point(
+                            x: Double(size.width) * (0.30 + 0.62 * sweep),
+                            y: Double(size.height) * (0.20 + 0.62 * (1.0 - sweep))
+                        )
                     )
-                    host.injectDiagnosticsPointerMove(to: point)
                 }
             )
+
+            // Scroll: a notch every third step, alternating direction every
+            // half-second so momentum and the rubber band both stay live.
+            if index % 3 == 0 {
+                let goesDown = Int(at * 2.0) % 2 == 0
+                steps.append(
+                    ScriptStep(atSeconds: at, name: goesDown ? "scroll-down" : "scroll-up") { host in
+                        let size = host.currentLogicalRootSize
+                        host.injectDiagnosticsScroll(
+                            at: Point(x: Double(size.width) * 0.6, y: Double(size.height) * 0.6),
+                            delta: goesDown ? -120 : 120
+                        )
+                    }
+                )
+            }
         }
 
-        // Scroll bursts: notches down then up, each triggering momentum.
-        for index in 0..<12 {
-            let progress = Double(index) / 11.0
-            steps.append(
-                ScriptStep(atSeconds: 3.2 + progress * 1.6, name: "scroll-down") { host in
-                    let size = host.currentLogicalRootSize
-                    host.injectDiagnosticsScroll(
-                        at: Point(x: Double(size.width) * 0.6, y: Double(size.height) * 0.6),
-                        delta: -120
-                    )
-                }
-            )
-        }
-        for index in 0..<12 {
-            let progress = Double(index) / 11.0
-            steps.append(
-                ScriptStep(atSeconds: 5.2 + progress * 1.6, name: "scroll-up") { host in
-                    let size = host.currentLogicalRootSize
-                    host.injectDiagnosticsScroll(
-                        at: Point(x: Double(size.width) * 0.6, y: Double(size.height) * 0.6),
-                        delta: 120
-                    )
-                }
-            )
-        }
-
-        // Screen switches: the sidebar sits in the left column, so a click at
-        // a fixed fraction of it lands on a navigation row for any reasonable
-        // window size. A miss costs the switch, not the run.
-        let switchTargets: [(Double, Double, Double)] = [
-            (7.2, 0.08, 0.28),
-            (8.0, 0.08, 0.36),
-            (8.8, 0.08, 0.20),
-        ]
-        for (at, xFraction, yFraction) in switchTargets {
+        // Screen switches spread through the phase: the sidebar sits in the
+        // left column, so a click at a fixed fraction of it lands on a
+        // navigation row for any reasonable window size. A miss costs the
+        // switch, not the run.
+        let switchFractions: [Double] = [0.28, 0.36, 0.20, 0.28, 0.36, 0.20]
+        for (index, yFraction) in switchFractions.enumerated() {
+            let at = phaseStart + phaseSpan * (Double(index) + 0.5) / Double(switchFractions.count)
             steps.append(
                 ScriptStep(atSeconds: at, name: "screen-switch") { host in
                     let size = host.currentLogicalRootSize
-                    let point = Point(
-                        x: Double(size.width) * xFraction,
-                        y: Double(size.height) * yFraction
+                    host.injectDiagnosticsClick(
+                        at: Point(x: Double(size.width) * 0.08, y: Double(size.height) * yFraction)
                     )
-                    host.injectDiagnosticsClick(at: point)
                 }
             )
         }
@@ -415,7 +431,20 @@ final class LiveDiagnosticsSession {
             let warmBytes =
                 diagnostics.atlasUploadedByteCount >= atlasBytesAtWarmupEnd
                 ? diagnostics.atlasUploadedByteCount - atlasBytesAtWarmupEnd : 0
+            // Bytes-per-frame divides a handful of large uploads across
+            // thousands of frames and reports a steady state that never
+            // happened. The frame that pays 1 MB is the frame that hitches, so
+            // count the frames that paid anything at all.
+            var uploadingFrames = 0
+            var previousBytes = atlasBytesAtWarmupEnd
+            for sample in timedSamples {
+                if sample.atlasUploadedByteCount > previousBytes {
+                    uploadingFrames += 1
+                }
+                previousBytes = max(previousBytes, sample.atlasUploadedByteCount)
+            }
             report["atlas"] = [
+                "framesThatUploadedAfterWarmup": uploadingFrames,
                 "fullUploadCount": diagnostics.atlasFullUploadCount,
                 "regionUploadCount": diagnostics.atlasRegionUploadCount,
                 "skippedUploadCount": diagnostics.atlasSkippedUploadCount,
@@ -462,21 +491,87 @@ final class LiveDiagnosticsSession {
             "framesOverRefreshBudget": droppedEstimate,
             "framesOverRefreshBudgetFraction": frameTimesMs.isEmpty
                 ? 0 : Double(droppedEstimate) / Double(frameTimesMs.count),
+            // The whole-run percentiles above average an animating frame
+            // together with an idle repaint, and in a session that is mostly
+            // idle the animating cost disappears into the tail. Animation
+            // smoothness is a claim about exactly one of those populations, so
+            // it gets measured as one.
+            "whileAnimating": frameCostBlock(
+                timedSamples.filter(\.hadActiveAnimations), refreshIntervalMs: refreshIntervalMs),
+            "whileIdle": frameCostBlock(
+                timedSamples.filter { !$0.hadActiveAnimations }, refreshIntervalMs: refreshIntervalMs),
         ]
 
+        // The percentiles hide the frames that actually get seen as a stutter.
+        // A p99 of 4 ms and a max of 52 ms are the same distribution to a
+        // reader and completely different experiences to a user, and "when did
+        // the 52 ms land" is the question that separates a cold-cache cost
+        // paid once per screen from a hitch on every navigation.
+        let slowestFirst = timedSamples.sorted { $0.totalSeconds > $1.totalSeconds }
+        report["worstFrames"] =
+            slowestFirst
+            .prefix(8)
+            .map { sample in
+                [
+                    "atSeconds": sampleElapsed(sample),
+                    "frameTimeMs": sample.totalSeconds * 1000,
+                    "sceneBuildMs": sample.sceneBuildSeconds * 1000,
+                    "bindResourcesMs": sample.bindSeconds * 1000,
+                    "backendSubmitMs": sample.backendSubmitSeconds * 1000,
+                    "backendPresentMs": sample.backendPresentSeconds * 1000,
+                    "didRebuildScene": sample.didRebuildScene,
+                    "nodeReplayCount": sample.nodeReplayCount,
+                    "hadActiveAnimations": sample.hadActiveAnimations,
+                ] as [String: Any]
+            }
+
         let rebuilds = timedSamples.filter(\.didRebuildScene).count
-        report["scene"] = [
-            "runtimeSceneRebuildCount": host.hostedRuntime.sceneRebuildCount,
-            "runtimeSceneCacheHitCount": host.hostedRuntime.sceneCacheHitCount,
-            "framesThatRebuiltScene": rebuilds,
-            "framesThatReplayedScene": timedSamples.count - rebuilds,
-            "lastNodeReplayCount": samples.last?.nodeReplayCount ?? 0,
-            "lastPrimitiveCount": samples.last?.primitiveCount ?? 0,
-            "maxPrimitiveCount": samples.map(\.primitiveCount).max() ?? 0,
-            "gpuPromotionRate": health.lastScenePaintMetrics.gpuPromotionRate,
-            "pathsRasterizedOnCPU": health.lastScenePaintMetrics.pathsRasterizedOnCPU,
-            "pathsPromotedToGPU": health.lastScenePaintMetrics.pathsPromotedToGPU,
-        ]
+        let animatingSamples = timedSamples.filter(\.hadActiveAnimations)
+        let animatingRebuilds = animatingSamples.filter(\.didRebuildScene).count
+        let drawCalls = timedSamples.map { Double($0.drawCallCount) }.sorted()
+        let drawnInstances = timedSamples.reduce(0) { $0 + $1.drawnInstanceCount }
+        let totalDrawCalls = timedSamples.reduce(0) { $0 + $1.drawCallCount }
+        let animatingReplayRate: Double =
+            animatingSamples.isEmpty
+            ? 0 : Double(animatingSamples.count - animatingRebuilds) / Double(animatingSamples.count)
+        let coalescingRatio: Double =
+            totalDrawCalls == 0 ? 0 : Double(drawnInstances) / Double(totalDrawCalls)
+        var scene: [String: Any] = [:]
+        scene["runtimeSceneRebuildCount"] = host.hostedRuntime.sceneRebuildCount
+        scene["runtimeSceneCacheHitCount"] = host.hostedRuntime.sceneCacheHitCount
+        scene["framesThatRebuiltScene"] = rebuilds
+        scene["framesThatReplayedScene"] = timedSamples.count - rebuilds
+        // Replay is only interesting where it is hard: a frame with an
+        // animation running has, by construction, something that changed. A
+        // 99 % replay rate over an idle session says nothing about it.
+        scene["animatingFramesThatRebuiltScene"] = animatingRebuilds
+        scene["animatingFramesThatReplayedScene"] = animatingSamples.count - animatingRebuilds
+        scene["animatingReplayRate"] = animatingReplayRate
+        // Subtree replay, on the frames where it is the only thing standing
+        // between an animation and a full-tree repaint. Reported over the
+        // rebuild frames alone: a whole-scene cache hit reports zero replayed
+        // nodes by definition, and averaging those in reads as "replay is
+        // dead" on a session that never needed it.
+        let rebuildSamples = timedSamples.filter(\.didRebuildScene)
+        scene["nodeReplaysPerRebuildFrame"] = percentileSummary(
+            rebuildSamples.map { Double($0.nodeReplayCount) }.sorted())
+        scene["rebuildFramesWithZeroNodeReplay"] = rebuildSamples.filter { $0.nodeReplayCount == 0 }.count
+        // What a rebuilt frame actually redid. The replay count above counts
+        // *ranges*, and one range can be a single row or the whole root, so it
+        // cannot distinguish the cheapest frame from the most expensive one.
+        // This can: the maximum is what a full-tree walk costs, and the median
+        // is what an animating frame costs against it.
+        scene["nodesVisitedPerRebuildFrame"] = percentileSummary(
+            rebuildSamples.map { Double($0.visitedNodeCount) }.sorted())
+        scene["maxNodesVisited"] = timedSamples.map(\.visitedNodeCount).max() ?? 0
+        scene["lastPrimitiveCount"] = samples.last?.primitiveCount ?? 0
+        scene["maxPrimitiveCount"] = samples.map(\.primitiveCount).max() ?? 0
+        scene["drawCallsPerFrame"] = percentileSummary(drawCalls)
+        scene["drawCoalescingRatio"] = coalescingRatio
+        scene["gpuPromotionRate"] = health.lastScenePaintMetrics.gpuPromotionRate
+        scene["pathsRasterizedOnCPU"] = health.lastScenePaintMetrics.pathsRasterizedOnCPU
+        scene["pathsPromotedToGPU"] = health.lastScenePaintMetrics.pathsPromotedToGPU
+        report["scene"] = scene
 
         report["animation"] = [
             "hasActiveAnimationsAtEnd": health.hasActiveAnimations,
@@ -489,6 +584,28 @@ final class LiveDiagnosticsSession {
 
         return try JSONSerialization.data(
             withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+    }
+
+    /// The cost of one population of frames: how many there were, what they
+    /// cost end to end, what they spent building the scene, and how many blew
+    /// the refresh budget. Same shape whichever population it describes, so
+    /// the animating and idle blocks are directly comparable.
+    private func frameCostBlock(
+        _ population: [LiveFrameSample],
+        refreshIntervalMs: Double
+    ) -> [String: Any] {
+        let totals = population.map { $0.totalSeconds * 1000 }.sorted()
+        let overBudget = totals.filter { $0 > refreshIntervalMs }.count
+        return [
+            "frameCount": population.count,
+            "frameTimeMs": percentileSummary(totals),
+            "sceneBuildMs": percentileSummary(population.map { $0.sceneBuildSeconds * 1000 }.sorted()),
+            "backendSubmitMs": percentileSummary(population.map { $0.backendSubmitSeconds * 1000 }.sorted()),
+            "backendPresentMs": percentileSummary(population.map { $0.backendPresentSeconds * 1000 }.sorted()),
+            "framesOverRefreshBudget": overBudget,
+            "framesOverRefreshBudgetFraction": totals.isEmpty
+                ? 0 : Double(overBudget) / Double(totals.count),
+        ]
     }
 
     private func sampleElapsed(_ sample: LiveFrameSample) -> Double {

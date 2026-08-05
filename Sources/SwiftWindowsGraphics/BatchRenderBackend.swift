@@ -50,6 +50,18 @@ public struct BatchBackendDiagnostics: Equatable, Sendable {
     /// waiting look identical from outside the backend and need opposite
     /// fixes.
     public var lastPresentSeconds: Double = 0
+    /// Instanced draw calls the last frame issued.
+    ///
+    /// The observable half of `presentationOrder()` coalescing. Family batches
+    /// only pay off if a run of same-family primitives collapses into one
+    /// draw; a scene whose draw count tracks its primitive count is a scene
+    /// where interleaving has defeated the batcher, and no amount of GPU
+    /// headroom hides per-draw state changes at that rate.
+    public var lastDrawCallCount: Int = 0
+    /// Primitives those draws covered between them. `lastDrawnInstanceCount /
+    /// lastDrawCallCount` is the coalescing ratio — the number that says
+    /// whether batching happened, which neither figure says alone.
+    public var lastDrawnInstanceCount: Int = 0
 
     public init(
         adapterDescription: String? = nil,
@@ -61,7 +73,9 @@ public struct BatchBackendDiagnostics: Equatable, Sendable {
         atlasSkippedUploadCount: UInt64 = 0,
         atlasUploadedByteCount: UInt64 = 0,
         lastSubmitSeconds: Double = 0,
-        lastPresentSeconds: Double = 0
+        lastPresentSeconds: Double = 0,
+        lastDrawCallCount: Int = 0,
+        lastDrawnInstanceCount: Int = 0
     ) {
         self.adapterDescription = adapterDescription
         self.adapterIsSoftware = adapterIsSoftware
@@ -73,6 +87,8 @@ public struct BatchBackendDiagnostics: Equatable, Sendable {
         self.atlasUploadedByteCount = atlasUploadedByteCount
         self.lastSubmitSeconds = lastSubmitSeconds
         self.lastPresentSeconds = lastPresentSeconds
+        self.lastDrawCallCount = lastDrawCallCount
+        self.lastDrawnInstanceCount = lastDrawnInstanceCount
     }
 }
 

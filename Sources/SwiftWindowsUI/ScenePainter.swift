@@ -405,6 +405,11 @@ public enum ScenePainter {
                 context = entryContext
             }
 
+            // Counted on entry, before any of the reasons this node might not
+            // paint: entering it is the work replay avoids, and a node that
+            // enters and then culls has already cost the traversal.
+            scene.paintMetrics.nodesVisited += 1
+
             let node = context.node
             let parentOrigin = context.parentOrigin
             let inheritedClip = context.inheritedClip

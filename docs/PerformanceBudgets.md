@@ -28,6 +28,9 @@ budget test blocks release sign-off.
 
 | Budget | Bound | Enforcing test |
 | --- | --- | --- |
+| Animating frame traversal | With one of 40 sibling subtrees animating (281-node probe tree), no rebuilt frame enters more than 80 view nodes — the animating branch plus one visit per replayed sibling, measured 47. Counted through `ScenePaintMetrics.nodesVisited`; with subtree replay disabled the same frame walks 227 | `AnimationFrameCostGateTests.testAnimatingOneSubtreeDoesNotWalkTheWholeTree` |
+| Traversal holds for the whole animation | Zero of the ~32 frames a momentum ride rebuilds may exceed that bound. A cache invalidated once and never repopulated passes the first-frames test and fails this one | `AnimationFrameCostGateTests.testFrameCostHoldsForTheWholeLifeOfAnAnimation` |
+| Settled window rebuilds nothing | Once `hasActiveAnimations` clears, 20 further tick+render pairs leave `sceneRebuildCount` unchanged — every frame served from the whole-scene cache | `AnimationFrameCostGateTests.testASettledWindowStopsRebuildingScenes` |
 | Animations settle | Wheel momentum + rubber-band springs + presented-delta tweens all complete within 1500 simulated frames (25 s at 60 fps); `hasActiveAnimations` returns `false`, overshoot and presented delta zero out | `AnimationStressTests.testSustainedTickingSettlesAllAnimations` |
 | Primitive topology stability | Across 200 rounds of scroll/keyboard/pointer mutation, layer count is unchanged and quad count drifts by at most one scroll-indicator quad per scroll container | `AnimationStressTests.testDynamicMutationPreservesScenePrimitiveTopology` |
 | Sustained input | 500 wheel events interleaved with ticks leave scroll offsets within `[0, maxScrollOffset]` with zero overshoot, and everything settles within 1500 frames | `AnimationStressTests.testRepeatedWheelAndTickPreservesRuntimeIntegrity` |
@@ -44,6 +47,71 @@ budget test blocks release sign-off.
 | Text raster cache | 256 entries and 64 MiB (`TextRasterCache` defaults), whichever binds first; LRU eviction keeps both bounds invariant. `TextRasterCache.shared` serves every whole-string raster in the stack — `Controls.icon` and the frame path's `NativeTextRenderer` / `DirectWriteTextRenderer` `appendCommands`, both through `FramePathTextRaster` — keyed by content, style, raster size **and** device scale. Deliberately a process global, not a runtime property: the justification is at the declaration, and `installForTesting` is the seam | `PerformanceBudgetGateTests.testTextRasterCacheEnforcesEntryCountAndMemoryBudgets`, `…testTextRasterCacheEnforcesMemoryBudgetBelowEntryCap`, `CacheComplexityAndReclamationTests.testIconRasterizationIsServedFromTheSharedRasterCache`, `…testFramePathTextIsRasterizedOnceAndServedFromTheCacheAfterwards`, `…testFramePathRasterKeysSeparateScaleFactors` |
 | Glyph atlas reclamation cost | Reusing a cell eviction returned is not a recycle: with the atlas full, a frame that introduces one new glyph costs **zero** discarded paint passes, and the frame after a reclaim runs one pass with replay disabled rather than two. A pass that frees a cell it already drew from is still discarded | `GlyphAtlasExhaustionSafetyTests.testOneNewGlyphPerFrameAgainstAFullAtlasCostsNoRepaint`, `…testAFrameAfterReclamationStartsWithReplayDisabled`, `…testReusingACellThisPassAlreadyDrewFromStillDiscardsThePass` |
 | Font-availability probes | 512 entries (`NativeFontAvailability.maxCacheEntries`), LRU by access stamp. The key is `(family, character)` over an app-supplied alphabet, so it is unbounded without this | `CacheComplexityAndReclamationTests.testFontAvailabilityProbeCacheIsBounded` |
+
+## Live measurements
+
+The gates above are counts, on purpose. This section is the other half: what
+the real window actually measured, so the counts can be judged against
+something. These are wall-clock numbers from a real session and are therefore
+**evidence, not gates** — nothing here is asserted by a test, and a different
+machine will produce different figures.
+
+Reproduce with `swift-windowsui --diagnostics`, which opens the real window,
+drives a scripted hover / scroll / screen-switch workload through the normal
+input entry points, closes itself, and writes a JSON report. Add
+`--diagnostics-no-vsync` to unpace presents and measure the app's own cost
+rather than the compositor's vblank wait, `--diagnostics-seconds N` to
+lengthen the run, `--diagnostics-output PATH` to place the report.
+
+### 2026-08 — release build, RTX 5090, 12 s scripted run
+
+The report separates **animating** frames from idle ones. Whole-run
+percentiles are close to meaningless for this question: a session that is
+mostly idle serves most of its frames from one whole-scene cache hit, and the
+frames that actually have to do work vanish into the tail.
+
+| Measure | Unpaced (`--diagnostics-no-vsync`) | vsync-paced |
+| --- | --- | --- |
+| Frames per second over the run | 1482 | 4.05 |
+| Frame time while animating, p50 / p95 / p99 | 0.225 / 0.635 / 1.457 ms | 256.3 ms p50 |
+| Worst frame in the run | 6.89 ms | 262 ms |
+| Animating frames over the 16.67 ms refresh budget | **0 of 612** | 40 of 40 |
+| Scene build, p50 (whole run) | 0.147 ms | 0.577 ms |
+| Backend submit, p50 | 0.119 ms | 0.057 ms |
+| Backend present, p50 | 0.016 ms | **255.4 ms** |
+
+Read together: the app's own per-frame cost is 0.6 ms and the paced frame is
+256 ms, so **99.75 % of a paced frame is the wait inside `Present`**, not work
+this process does. On the machine that produced these numbers that wait is
+environmental — a headless/virtual 1024x768 @ 60 Hz display with no EDID,
+where `Present(sync=1)` blocks roughly fifteen vblanks. The Direct2D frame
+backend (`SWIFT_WINDOWSUI_FRAME_DEBUG=1`) measures the same 254 ms through a
+completely different renderer, which is what rules out renderer code as the
+cause. **This has not been reproduced or ruled out on a physical monitor**, and
+until it is, the paced column says nothing about the app.
+
+What the unpaced column does establish, and what the gates above protect: at
+p95 the animating frame has ~26x headroom against a 60 Hz budget and ~13x
+against 120 Hz, and the single worst frame of the run still fits inside one
+120 Hz frame.
+
+Supporting counts from the same run:
+
+- **Traversal.** A full-tree walk is 484 nodes. A rebuilt frame walks a median
+  of 1 (the whole root replays as a single cached range) and a p95 of 163.
+  Subtree replay is doing the work the budget assumes.
+- **Batching.** 80 instanced draws per frame covering ~760 primitives, a
+  coalescing ratio of 9.5. Submission of that scene costs 0.119 ms.
+- **Atlas.** 8 frames uploaded anything after warmup, across six screen
+  switches — new glyphs on newly visited screens. Once a screen has been
+  visited, revisiting it uploads nothing.
+
+### Debug builds are not the measurement
+
+The same run in a debug build reports animating p95 2.7 ms / p99 4.3 ms and a
+worst frame of 52 ms — about 5.8x the release cost, and the 52 ms is a
+cold-cache screen paint that release does in 10 ms. Any frame-time figure
+quoted without its configuration is unusable; quote release, or say debug.
 
 ## Raising a budget
 

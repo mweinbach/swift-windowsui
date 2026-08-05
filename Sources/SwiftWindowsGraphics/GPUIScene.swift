@@ -478,6 +478,21 @@ public struct ScenePaintMetrics: Equatable, Sendable {
     /// when it changes and nothing at all when it does not, so this is the
     /// counter that says whether a `.blur()` is amortized.
     public var contentBlurPassesReused: Int = 0
+    /// View nodes the paint traversal entered to produce this scene.
+    ///
+    /// The direct measure of how much of the tree a frame redid, and the one
+    /// the animating frame budget is written against. A replayed subtree costs
+    /// exactly one visit however many descendants it has — the traversal
+    /// copies its cached paint range and never descends — so this number
+    /// separates "one row is animating" from "the whole window repainted",
+    /// which the replay count alone cannot: a frame that replays the entire
+    /// root in a single range and a frame that replays nothing both report one
+    /// replay, and they differ by the whole tree.
+    ///
+    /// Counts the main traversal only. Subtree paints that render into their
+    /// own scene — a rasterized compositing group, an isolated `.blur()`
+    /// bitmap — carry their own metrics with that scene.
+    public var nodesVisited: Int = 0
     /// Text-pipeline degradations observed while painting this scene.
     public var textDiagnostics: TextRenderDiagnostics = TextRenderDiagnostics()
 

@@ -2743,6 +2743,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         var sceneBuildEndedAt = frameStartedAt
         var bindEndedAt = frameStartedAt
         var primitiveCount = 0
+        var visitedNodeCount = 0
 
         do {
             if activeBackend == .scene, let batchRenderer {
@@ -2750,6 +2751,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                 if isSamplingFrames {
                     sceneBuildEndedAt = frameClock()
                     primitiveCount = scene.layers.reduce(0) { $0 + $1.paintOperations.count }
+                    visitedNodeCount = scene.paintMetrics.nodesVisited
                 }
                 batchRenderer.bindResources(for: scene)
                 if isSamplingFrames {
@@ -2829,7 +2831,10 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                     primitiveCount: primitiveCount,
                     hadActiveAnimations: runtime.hasActiveAnimations,
                     backend: activeBackend == .scene ? .scene : .frame,
-                    atlasUploadedByteCount: backendDiagnostics?.atlasUploadedByteCount ?? 0
+                    atlasUploadedByteCount: backendDiagnostics?.atlasUploadedByteCount ?? 0,
+                    drawCallCount: backendDiagnostics?.lastDrawCallCount ?? 0,
+                    drawnInstanceCount: backendDiagnostics?.lastDrawnInstanceCount ?? 0,
+                    visitedNodeCount: visitedNodeCount
                 )
             )
         }

@@ -2459,6 +2459,92 @@ seam that exists and is unused — so the honest state is: layout work is
 bounded by the viewport, construction is bounded by the data, and the
 budget tests say so in numbers.
 
+Re-verified 2026-08 at source, because the shape of the blocker matters
+more than the fact of it. `ForEach.init` calls
+`Self.buildContentViews(data:id:content:)`, which calls `content(element)`
+in a loop over the whole collection; every one of the four `ForEach`
+initializers (keyed, `Identifiable`, and the two binding-backed
+`Collection` ones) takes a **non-escaping** `content` and consumes it
+there. `data` survives — `public let data: Data` — but the closure that
+turns an element into views does not, so the thing a lazy builder would
+need to call is gone before `makeComponent` exists. And
+`ViewBuilder.buildExpression(_: ForEach<Data, ID>)` returns
+`expression.contentViews`, so the `ForEach` value itself is discarded at
+the enclosing block. Threading a lazy child-builder through
+`composeComponent` therefore cannot help: by the time `composeComponent`
+runs, its argument is already `[AnyView]`, one per row.
+
+##### The shape the seam would have
+
+Written out so the next attempt starts from a design rather than from the
+same rediscovery. Four pieces, in the order they have to land, each with
+the invariant it must not break.
+
+**1. A lazy currency for `ViewBuilder`.** `[AnyView]` cannot express "rows
+not yet made", so lazy containers need a second currency — a
+`LazyContentSequence` value carrying, per segment, either a materialised
+`[AnyView]` or an unmaterialised `(count, (Int) -> [AnyView])`. Blocks mix
+freely (`Section { header }; ForEach(rows) { … }; footer`), so the
+sequence is a list of segments, not a single provider.
+`ViewBuilder.buildExpression(_: ForEach)` stops flattening and contributes
+an unmaterialised segment; `buildBlock` concatenates segments.
+*Invariant:* `LazyContentSequence.materialiseAll()` must be exactly
+today's `[AnyView]`, element for element, because every eager container
+keeps consuming that — this is what makes the change incremental instead
+of a fork.
+
+**2. `ForEach` retaining its element closure.** `content` becomes
+`@escaping`, and `contentViews` becomes a computed materialisation.
+The three things that decorate rows today have to move from decorating an
+array to decorating a *row function*: `onDelete`/`onMove`/`onInsert` wrap
+each produced row in `DynamicListEditMetadataView`, and the per-row
+`.id("\(elementID)#\(index)")` is minted inside `buildContentViews`. Both
+compose as functions of `(element, index)` with no loss.
+*Invariant:* the id string a row gets must not depend on how many rows
+were materialised before it, or reconciliation identity moves when the
+window scrolls.
+
+**3. A runtime node that materialises children on demand.** `.lazyStack`
+gains a child provider — `count`, `materialise(index) -> ViewNode`, and a
+cache of the materialised range — and `layoutStackChildren` walks indices
+rather than `children`. Everything downstream of `children` is what makes
+this the expensive step, and each needs an answer, not a shrug:
+reconciliation (`ComponentHost.reconcileChildren` walks old against new by
+index — it must diff the materialised ranges and leave the rest alone),
+hit testing and the prepaint dispatch table (built from `children`; an
+unmaterialised row has no node to dispatch to, which is correct, because
+it is off screen), accessibility projection (today it walks nodes; it
+would have to report `count` and project only the window, which is what
+every platform accessibility API for a virtualised list expects anyway),
+and the replay-cache keys, which are per node and so simply do not exist
+for a row that does not.
+*Invariant:* a materialised row must be indistinguishable from an eagerly
+built one. `LazyStackVirtualizationTests` already pins this from the other
+side — a lazy tree and an eager tree must render identically — and it is
+the right test to keep pointing at.
+
+**4. An estimated extent for unmaterialised rows.** Placement needs to
+know where row 900 goes without building rows 0…899. v1: measure the first
+materialised row and use its main-axis extent as a constant estimate for
+every unmaterialised one, refreshed whenever the window materialises a row
+of a different extent. This is what makes the change *observable* rather
+than free: `resolvedContentSize` — and therefore the scrollbar length and
+the scroll clamp — becomes an estimate for non-uniform rows, exact for
+uniform ones. It must be documented at the call site and pinned by a test
+that a uniform list's content size is unchanged to the pixel.
+
+**Blocked by:** step 1 and step 2 together are a compatibility-surface
+change to `ViewBuilder` and `ForEach` — the two types every view in the
+demo and every consumer of the flattened array goes through — and step 3
+is a new runtime node kind whose children are not a stored array. Neither
+half is useful alone: retaining the closure with no lazy currency still
+flattens at the block, and a provider-backed node with no lazy currency
+has nothing to provide. That is why the cost is *pinned* today
+(`PerformanceBudgetGateTests.testLazyListConstructionCostIsPinnedAtFiveThousandRows`,
+10,003 nodes for 5,000 rows) rather than partially deferred: a half-landed
+seam would trade a documented linear cost for an undocumented correctness
+gap in scroll extents.
+
 #### Why `List` is not virtualized yet
 
 `List` is the dominant long-list surface and its scroll panel *is* its

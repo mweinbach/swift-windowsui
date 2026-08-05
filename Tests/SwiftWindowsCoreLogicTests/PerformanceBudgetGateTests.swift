@@ -221,6 +221,45 @@ final class PerformanceBudgetGateTests: XCTestCase {
         }
     }
 
+    /// The construction budget at the scale the layout budget is pinned at,
+    /// so the two halves of the same list are measured against the same
+    /// 5,000 rows in the same 200pt viewport.
+    ///
+    /// `testLazyListLayoutVisitsAreProportionalToTheViewport` bounds the
+    /// descent at **200** visits per pass. This bounds construction — and the
+    /// number is two orders of magnitude larger, because construction is not
+    /// virtualized: `ForEach` materialises one `AnyView` per element inside
+    /// its own initializer, `ViewBuilder.buildExpression` flattens that array
+    /// into the enclosing block before `LazyVStack.init` runs, and
+    /// `retainedLazyStackChildren` builds a `ViewNode` subtree per `AnyView`.
+    /// None of that can see a viewport (see `docs/GPURenderingPipeline.md`,
+    /// "Why lazy construction needs an API", for the seam it would take).
+    ///
+    /// So the assertion is deliberately two-sided. The upper bound catches a
+    /// per-row cost regression or a superlinear one. The *lower* bound is the
+    /// interesting half: it fails the day construction becomes lazy, which is
+    /// the day this test has to be rewritten into the O(window) budget it is
+    /// standing in for.
+    func testLazyListConstructionCostIsPinnedAtFiveThousandRows() async {
+        await MainActor.run {
+            let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
+                of: LazyListBudgetProbe(rowCount: 5000),
+                size: IntSize(width: 240, height: 200),
+                displayScale: 1)
+            let nodes = Self.nodeCount(snapshot.runtime.root)
+            // Measured 2026-08: 10,003 nodes for 5,000 rows — two per row
+            // plus the scroll/stack chrome, exactly the 500-row slope.
+            XCTAssertGreaterThan(
+                nodes, 5000,
+                "construction is not virtualized today; if this now fails, lazy construction landed and "
+                    + "this test owes an O(viewport) bound instead — got \(nodes) nodes")
+            XCTAssertLessThan(
+                nodes, 12000,
+                "per-row construction cost must stay the documented small constant and must not go "
+                    + "superlinear; got \(nodes) nodes for 5,000 rows")
+        }
+    }
+
     private static func nodeCount(_ node: ViewNode) -> Int {
         node.children.reduce(1) { $0 + nodeCount($1) }
     }

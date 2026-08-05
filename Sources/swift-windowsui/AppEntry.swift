@@ -25,6 +25,21 @@ struct SwiftWindowsUIDemoApp: App {
         }
     #endif
 
+    #if !canImport(SwiftUI)
+        /// The smallest window the demo's layout is designed to hold, taken
+        /// from the demo itself so the number the window enforces and the
+        /// number the layout is tested at cannot drift apart. Windows
+        /// enforces it through `WM_GETMINMAXINFO`, so the user's drag stops
+        /// there rather than continuing into a size the shell has no answer
+        /// for.
+        private static var minimumWindowSize: IntSize {
+            IntSize(
+                width: Int32(DemoWindowMetrics.minimumSize.width),
+                height: Int32(DemoWindowMetrics.minimumSize.height)
+            )
+        }
+    #endif
+
     var body: some Scene {
         // The id registers the scene with the window coordinator so the
         // settings screen's `openWindow(id:)` can spawn additional windows
@@ -32,5 +47,12 @@ struct SwiftWindowsUIDemoApp: App {
         WindowGroup("Swift Windows UI", id: "main-dashboard") {
             DemoRootView(model: model)
         }
+        // Windows-only: SwiftUI proper has no `windowMinSize` scene modifier
+        // (its nearest equivalent is a content floor plus
+        // `.windowResizability(.contentMinSize)`), and the demo's shared
+        // source must keep building against it unchanged.
+        #if !canImport(SwiftUI)
+            .windowMinSize(Self.minimumWindowSize)
+        #endif
     }
 }

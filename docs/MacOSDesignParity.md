@@ -663,6 +663,27 @@ to macOS visual effects views.
 | `ultraThick`  | 0.72       | 40                       |
 | `bar`         | 0.64       | 18                       |
 
+### A material's tint is a pair, like every other semantic colour
+
+The alphas above are pinned in both appearances. The **tint they are applied
+to** is not: `Material.retainedFallbackColor` is the *light* value — white —
+exactly as `Color.orange` holds the light value and `resolvedForVisualEnvironment`
+supplies the dark one. `Material.retainedTint(for:)` is that resolution, and
+`.background(_:)` calls it.
+
+A material is a translucent version of *a surface*, and on a near-black page
+that surface is not white. Drawn as white at 0.64 the `.bar` material painted a
+light grey slab across the top of a dark window — the brightest object in the
+app, sitting on top of the page it is supposed to belong to, which is the same
+failure `.background(.quaternary)` had before it became the page tone.
+
+Which surface depends on the kind:
+
+| Kind    | Dark tint            | Why |
+|---------|----------------------|-----|
+| `bar`   | `base` at the kind's alpha | A bar is window chrome. It sits at the page tone and the hairline along its edge carries the boundary — the rule Finder's status bar and Xcode's debug bar follow. |
+| others  | `surface3` at the kind's alpha | A menu, popover or sheet *floats*: it is a surface above the page, so it tints toward the elevated one. |
+
 ## System colors
 
 A system colour is a *pair*, not a value. Apple publishes two sRGB
@@ -898,6 +919,9 @@ Remaining recorded divergences, with rationale:
 | List row separator     | Sibling 1px panel between rows   | The retained model has no per-side border, so the rule is a node rather than a bottom edge on the row. It therefore costs one physical pixel of layout height per gap, where AppKit draws the grid line inside the row rect. |
 | Grouped-form row rule  | Spans the box's *content* width  | The section's horizontal padding is applied by the stack to every child, and a full-bleed rule would need a negative margin the retained layout has no concept of. macOS bleeds the rule to the box edge. |
 | Stepper bezel height   | `2 × (buttonSize.height + delta) + 1px` | The seam is a node, so the joined pair costs one physical pixel more than twice a half — the same separator-thickness divergence the list row rule records. |
+| **Demo token mirror**  | `DemoPalette` / `DemoMetrics` in `SwiftWindowsDemo` | The demo is same-source with macOS SwiftUI and therefore cannot import `ControlPalette`. It carries a portable mirror of the ramp instead, and `DemoScreensTests.testDemoPaletteMirrorsTheStackPalette` / `testDemoMetricsMirrorTheStackScales` assert every value against the role the stack resolves, so the two tables cannot drift. |
+| **Settings row icons**  | No icon column               | The design spec makes the column optional per group. The vector symbol set this stack ships covers navigation and status rather than settings nouns, so six rows would carry the fallback glyph — worse than no column at all. |
+| **Hero card height**    | `minHeight` 172, not a fixed height | 172 is the card's rhythm, but at this stack's leading ratio the five rungs plus a 24 pt padding measure ~182. A fixed-height card answers an overflow by squeezing its children, which is how a 28 pt control came out 19 pt tall. The card grows by the handful of points the line boxes need. |
 
 ## What's deliberately NOT pinned here
 

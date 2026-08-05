@@ -77,7 +77,7 @@ final class DemoScreensTests: XCTestCase {
         XCTAssertEqual(model.selectedComponentID, model.components.first?.id)
     }
 
-    // MARK: - Demo-authored layout
+    // MARK: - Helpers
 
     /// Builds and lays out a demo view through the same headless path the
     /// screenshot tool takes, and hands back the laid-out root so a test can
@@ -94,8 +94,24 @@ final class DemoScreensTests: XCTestCase {
         return nil
     }
 
+    private func allNodes(in root: ViewNode, matching predicate: (ViewNode) -> Bool) -> [ViewNode] {
+        var found: [ViewNode] = []
+        var stack: [ViewNode] = [root]
+        while let node = stack.popLast() {
+            if predicate(node) { found.append(node) }
+            stack.append(contentsOf: node.children)
+        }
+        return found
+    }
+
+    /// Text nodes are matched case-insensitively throughout: an eyebrow is
+    /// written sentence-case in source and uppercased by `.textCase`, so the
+    /// tree may carry either spelling.
+    private func textNode(in root: ViewNode, _ text: String) -> ViewNode? {
+        firstNode(in: root, matching: { $0.text?.caseInsensitiveCompare(text) == .orderedSame })
+    }
+
     /// The surface a piece of text is drawn on: the nearest rounded ancestor.
-    /// For the demo's cards and rows, that is the card.
     private func enclosingSurface(of node: ViewNode) -> ViewNode? {
         var current = node.parent
         while let candidate = current {
@@ -115,89 +131,6 @@ final class DemoScreensTests: XCTestCase {
         return y
     }
 
-    /// P-DEMO item 2. Every data-screen row used to carry a two-line trailing
-    /// block — version stacked over status — which made the row a ~42 pt box
-    /// once the list's own insets were added. A macOS list row is one line.
-    func testComponentRowIsOneLineTall() async {
-        let first = DemoComponent.defaults[0]
-        let second = DemoComponent.defaults[1]
-        let node = laidOut(
-            VStack(alignment: .leading, spacing: 0) {
-                DemoComponentRow(component: first)
-                DemoComponentRow(component: second)
-            },
-            size: IntSize(width: 480, height: 400)
-        )
-
-        guard
-            let firstName = firstNode(in: node, matching: { $0.text == first.name }),
-            let secondName = firstNode(in: node, matching: { $0.text == second.name })
-        else {
-            return XCTFail("expected both component names to be laid out")
-        }
-
-        let pitch = absoluteY(of: secondName) - absoluteY(of: firstName)
-        XCTAssertGreaterThan(pitch, 10, "the rows are stacked, so the pitch is the first row's height")
-        XCTAssertLessThan(
-            pitch, 28,
-            "a one-line row; the stacked version-over-status block made this a two-line box")
-    }
-
-    /// P-DEMO item 2, the structural half: the version and the status badge
-    /// share one line, so they sit on one baseline rather than stacking.
-    func testComponentRowPutsVersionAndStatusOnOneLine() async {
-        let component = DemoComponent.defaults[0]
-        let node = laidOut(
-            DemoComponentRow(component: component), size: IntSize(width: 480, height: 120))
-
-        guard
-            let version = firstNode(in: node, matching: { $0.text == component.version }),
-            let status = firstNode(in: node, matching: { $0.text == component.statusLabel })
-        else {
-            return XCTFail("expected the row to carry a version and a status label")
-        }
-
-        XCTAssertEqual(
-            version.resolvedFrame.origin.y, status.resolvedFrame.origin.y, accuracy: 4,
-            "version and status are one line, not a stacked trailing block")
-    }
-
-    /// P-DEMO item 4. Sibling cards in the right rail are as wide as the rail,
-    /// not as wide as their own longest line — the rail used to read as a pile
-    /// of differently sized boxes with a ragged right edge.
-    func testDetailTrackCardsShareTheColumnWidth() async {
-        let cards = DemoModule.layout.cards
-        XCTAssertGreaterThanOrEqual(cards.count, 2)
-
-        let columnWidth = 240.0
-        let node = laidOut(
-            VStack(alignment: .leading, spacing: 14) {
-                DemoInfoCard(card: cards[0])
-                DemoInfoCard(card: cards[1])
-            }
-            .frame(width: columnWidth),
-            size: IntSize(width: 400, height: 500)
-        )
-
-        let widths = cards.prefix(2).compactMap { card -> Double? in
-            guard
-                let title = firstNode(in: node, matching: { $0.text == card.title }),
-                let surface = enclosingSurface(of: title)
-            else { return nil }
-            return surface.resolvedFrame.size.width
-        }
-
-        XCTAssertEqual(widths.count, 2, "expected both cards to draw a rounded surface")
-        XCTAssertEqual(
-            widths[0], widths[1], accuracy: 0.5,
-            "two cards in one column are one width")
-        XCTAssertGreaterThan(
-            widths[0], columnWidth - 40,
-            "and that width is the column's, not the longest line's")
-    }
-
-    // MARK: - G4-COMPOSE: demo composition
-
     private func absoluteX(of node: ViewNode) -> Double {
         var x = 0.0
         var current: ViewNode? = node
@@ -208,227 +141,6 @@ final class DemoScreensTests: XCTestCase {
         return x
     }
 
-    /// The bottom edge of the lowest piece of text in the tree. Panels fill
-    /// the window whether or not anything is in them, so the *text* is what
-    /// says where a screen's content actually stops.
-    private func lowestTextBottom(in root: ViewNode) -> Double {
-        var lowest = 0.0
-        var stack: [(node: ViewNode, y: Double)] = [(root, 0)]
-        while let entry = stack.popLast() {
-            let top = entry.y + entry.node.resolvedFrame.origin.y
-            if let text = entry.node.text, !text.isEmpty {
-                lowest = max(lowest, top + entry.node.resolvedFrame.size.height)
-            }
-            for child in entry.node.children {
-                stack.append((child, top))
-            }
-        }
-        return lowest
-    }
-
-    private func widestRoundedSurfaceWidth(in root: ViewNode) -> Double {
-        var widest = 0.0
-        var stack: [ViewNode] = [root]
-        while let node = stack.popLast() {
-            if node.cornerRadius > 0 {
-                widest = max(widest, node.resolvedFrame.size.width)
-            }
-            stack.append(contentsOf: node.children)
-        }
-        return widest
-    }
-
-    /// G4 item 1. The data screen used to size its list at
-    /// `proxy.size.height - 224` and then let the detail block measure
-    /// whatever it measured. The detail block came in well under 224, so the
-    /// screen ended in a bare strip of window about 75 pt tall. A greedy list
-    /// takes exactly what its siblings leave, so the detail block lands on the
-    /// bottom inset at every window size.
-    func testDataScreenDetailBlockLandsOnTheBottomInset() async {
-        let size = IntSize(width: 1280, height: 720)
-        let model = DemoDashboardModel()
-        model.selectedScreen = .data
-        let root = laidOut(DemoRootView(model: model), size: size)
-
-        let bottom = lowestTextBottom(in: root)
-        XCTAssertGreaterThan(
-            bottom, Double(size.height) - 44,
-            "the detail block is pinned under a greedy list, so it ends on the screen's bottom inset")
-        XCTAssertLessThanOrEqual(
-            bottom, Double(size.height),
-            "and it stays inside the window")
-    }
-
-    /// G4 item 2. The right rail reserved 8 pt of its own width for a scroll
-    /// gutter. Overlay scrollers float over the content instead of taking
-    /// layout space, so the reservation only pulled the rail's cards 8 pt
-    /// short of the toolbar edge directly above them.
-    func testRightRailCardsSpanTheFullRailWidth() async {
-        let layout = DemoLayout(size: CGSize(width: 1280, height: 655))
-        let model = DemoDashboardModel()
-        let root = laidOut(
-            DemoRightRail(model: model, layout: layout)
-                .frame(width: layout.railWidth, height: 520, alignment: .topLeading),
-            size: IntSize(width: 420, height: 560)
-        )
-
-        XCTAssertEqual(
-            widestRoundedSurfaceWidth(in: root), layout.railWidth, accuracy: 0.5,
-            "a rail card is as wide as the rail; there is no scroll gutter to reserve")
-    }
-
-    /// G4 item 3 + FINAL item 4. A metric card's caption and a section
-    /// eyebrow are the same kind of thing, so they sit on the same rung. The
-    /// caption used to be `.tertiary`, which measured 1.86:1 against the
-    /// light card fill — a shape rather than a word. The card's *note* is a
-    /// caption too: it used to take a per-module accent, so "Events tracked"
-    /// sat in link blue next to "Import WinSwiftUI or SwiftUI" in slate. One
-    /// rule — captions are `.secondary`; an accent means interactive.
-    func testCardCaptionsSitOnTheSecondaryRung() async {
-        let root = laidOut(
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Reference rung")
-                    .foregroundStyle(.secondary)
-
-                DemoMetricCard(
-                    title: "Interactions", value: "0", note: "Events tracked")
-
-                DemoRowButton(
-                    title: "State", detail: "Ready", systemImage: "info.circle",
-                    accent: DemoModule.layout.accentFill
-                ) {}
-
-                DemoInfoCard(card: DemoModule.layout.cards[0])
-            }
-            .frame(width: 260),
-            size: IntSize(width: 320, height: 500)
-        )
-
-        guard
-            let reference = firstNode(in: root, matching: { $0.text == "Reference rung" }),
-            let metricTitle = firstNode(in: root, matching: { $0.text == "Interactions" }),
-            let metricNote = firstNode(in: root, matching: { $0.text == "Events tracked" }),
-            let rowDetail = firstNode(in: root, matching: { $0.text == "Ready" }),
-            let cardMeta = firstNode(
-                in: root, matching: { $0.text == DemoModule.layout.cards[0].meta })
-        else {
-            return XCTFail("expected the reference rung and all four caption kinds")
-        }
-
-        XCTAssertEqual(
-            metricTitle.textStyle.color, reference.textStyle.color,
-            "a metric card's caption reads at the same prominence as a section eyebrow")
-        XCTAssertEqual(
-            metricNote.textStyle.color, reference.textStyle.color,
-            "and so does its note — the accent is reserved for interactive text")
-        XCTAssertEqual(
-            rowDetail.textStyle.color, reference.textStyle.color,
-            "so does a row's subtitle")
-        XCTAssertEqual(
-            cardMeta.textStyle.color, reference.textStyle.color,
-            "and an info card's meta line")
-    }
-
-    /// G4 item 4. System Settings puts the noun in the label column and the
-    /// value beside its stepper in the control column. The row used to fold
-    /// the value into the label — "Items Per Page: 10" — which made it the one
-    /// row in the pane whose label was a sentence.
-    func testItemsPerPageRowKeepsTheValueOutOfTheLabel() async {
-        let model = DemoDashboardModel()
-        model.selectedScreen = .settings
-        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
-
-        XCTAssertNil(
-            firstNode(in: root, matching: { ($0.text ?? "").hasPrefix("Items Per Page:") }),
-            "the value does not live inside the label")
-
-        guard
-            let label = firstNode(in: root, matching: { $0.text == "Items Per Page" }),
-            let value = firstNode(in: root, matching: { $0.text == "\(model.itemsPerPage)" })
-        else {
-            return XCTFail("expected a bare label and a separate value")
-        }
-
-        XCTAssertEqual(
-            absoluteY(of: label), absoluteY(of: value), accuracy: 6,
-            "label and value share the row's baseline")
-        XCTAssertGreaterThan(
-            absoluteX(of: value), absoluteX(of: label),
-            "and the value is in the control column, to the right of the label column")
-    }
-
-    /// G4 item 5. Whether the three metric cards stack is a question about the
-    /// content column's *width*. It used to ask `compact`, which is also true
-    /// in a short window: the default 1280x720 window stacked the band,
-    /// tripling its height in the window with the least height to spend, and
-    /// the bottom of the scroll view came down across the middle of the
-    /// third card.
-    func testMetricBandStaysARowInAWideShortWindow() async {
-        XCTAssertFalse(
-            DemoLayout(size: CGSize(width: 1280, height: 720)).stacksMetrics,
-            "a wide window keeps the band a row however short it is")
-        // L7-ADAPT moved the subject of "narrow" from the window to the
-        // column: at 880 pt the detail rail now folds away and the centre
-        // column gets 610 pt, which is a row. A 1000 pt window still carries
-        // all three columns, so its centre column is 456 pt — that is what a
-        // narrow *column* looks like now, and it stacks however tall the
-        // window is.
-        XCTAssertTrue(
-            DemoLayout(size: CGSize(width: 1000, height: 900)).stacksMetrics,
-            "a narrow column stacks the band however tall the window is")
-        XCTAssertFalse(
-            DemoLayout(size: CGSize(width: 880, height: 900)).stacksMetrics,
-            "and a window that gave up its rail has a column wide enough for the row")
-
-        let model = DemoDashboardModel()
-        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
-
-        guard
-            let interactions = firstNode(in: root, matching: { $0.text == "Interactions" }),
-            let module = firstNode(in: root, matching: { $0.text == "Module" }),
-            let target = firstNode(in: root, matching: { $0.text == "Target" })
-        else {
-            return XCTFail("expected the three metric captions")
-        }
-
-        XCTAssertEqual(absoluteY(of: interactions), absoluteY(of: module), accuracy: 2)
-        XCTAssertEqual(absoluteY(of: module), absoluteY(of: target), accuracy: 2)
-    }
-
-    /// G4 item 5, the fold itself. The centre pane scrolls, so its bottom edge
-    /// cuts the column somewhere; what it must not do is cut a card in half.
-    /// The sidebar is framed at `layout.bodyHeight`, so its bottom edge *is*
-    /// the centre pane's viewport bottom — the fold.
-    func testDashboardFoldLandsInAGapNotAcrossACard() async {
-        let model = DemoDashboardModel()
-        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
-
-        guard
-            let workspace = firstNode(
-                in: root,
-                matching: { $0.text?.caseInsensitiveCompare("Workspace") == .orderedSame }),
-            let sidebar = enclosingSurface(of: workspace),
-            let moduleCaption = firstNode(in: root, matching: { $0.text == "Module" }),
-            let moduleCard = enclosingSurface(of: moduleCaption)
-        else {
-            return XCTFail("expected a sidebar surface and a Module metric card")
-        }
-
-        let fold = absoluteY(of: sidebar) + sidebar.resolvedFrame.size.height
-        let cardTop = absoluteY(of: moduleCard)
-        let cardBottom = cardTop + moduleCard.resolvedFrame.size.height
-
-        XCTAssertGreaterThan(fold, 0, "the sidebar is framed at the body height")
-        XCTAssertFalse(
-            cardTop < fold && cardBottom > fold,
-            "the fold at \(fold) runs through the Module card (\(cardTop)...\(cardBottom))")
-        XCTAssertLessThanOrEqual(
-            cardBottom, fold,
-            "and the band is fully above it, not pushed off the bottom entirely")
-    }
-
-    // MARK: - G5-COMPOSE: demo composition
-
     /// The fill a piece of text is drawn on: the nearest ancestor carrying a
     /// non-transparent background. A demo surface draws its fill and its
     /// corner on two different nodes, so "the nearest rounded ancestor" and
@@ -436,6 +148,18 @@ final class DemoScreensTests: XCTestCase {
     private func nearestFill(above node: ViewNode) -> Color? {
         var current = node.parent
         while let candidate = current {
+            if let fill = candidate.backgroundColor, fill.alpha > 0 { return fill }
+            current = candidate.parent
+        }
+        return nil
+    }
+
+    /// The same, for a surface filled with a gradient: a quad resolves a
+    /// gradient from its first stop, so that stop is the fill.
+    private func nearestGradientStart(above node: ViewNode) -> Color? {
+        var current = node.parent
+        while let candidate = current {
+            if let gradient = candidate.backgroundGradient { return gradient.startColor }
             if let fill = candidate.backgroundColor, fill.alpha > 0 { return fill }
             current = candidate.parent
         }
@@ -463,70 +187,465 @@ final class DemoScreensTests: XCTestCase {
         return (max(a, b) + 0.05) / (min(a, b) + 0.05)
     }
 
-    /// G5 item 1. The demo writes a near-white label on every fill it tints
-    /// itself, so those fills have to be colours rather than washes of one.
-    ///
-    /// They used to be `glowColor`/`stripeColor` — pale hues carrying alpha,
-    /// meant to be laid *over* something. Composited onto a light window the
-    /// "Open Layout" pill resolved to #88BDF2 and its label measured 1.9:1;
-    /// on the dark window the same pill only reached 2.4:1. An opaque fill
-    /// has no appearance to vary with, which is why one ramp answers for
-    /// both.
-    func testEveryTintedFillCarriesItsNearWhiteLabelAtFourPointFive() async {
-        let label = DemoTheme(colorScheme: .light).onTintedFillText
+    private func chroma(of color: Color) -> Float {
+        max(color.red, max(color.green, color.blue)) - min(color.red, min(color.green, color.blue))
+    }
+
+    // MARK: - The design system reaches the demo
+
+    /// The demo is same-source with macOS SwiftUI, so it cannot import
+    /// `ControlPalette`; it carries a portable mirror of the ramp instead.
+    /// This is what stops the mirror becoming a second design system: every
+    /// token the demo paints with is asserted against the role the stack
+    /// resolves for the same appearance, so a value changed in one place and
+    /// not the other fails here rather than in a screenshot three weeks later.
+    func testDemoPaletteMirrorsTheStackPalette() async {
+        for scheme in [ColorScheme.dark, ColorScheme.light] {
+            let demo = DemoPalette(colorScheme: scheme)
+            let stack = ControlPalette.resolve(colorScheme: scheme)
+
+            XCTAssertEqual(demo.base, stack.base, "\(scheme) base")
+            XCTAssertEqual(demo.surface0, stack.surface0, "\(scheme) surface0")
+            XCTAssertEqual(demo.surface1, stack.surface1, "\(scheme) surface1")
+            XCTAssertEqual(demo.surface2, stack.surface2, "\(scheme) surface2")
+            XCTAssertEqual(demo.surface3, stack.surface3, "\(scheme) surface3")
+
+            XCTAssertEqual(demo.strokeSubtle, stack.separator, "\(scheme) strokeSubtle")
+            XCTAssertEqual(demo.stroke, stack.controlBorder, "\(scheme) stroke")
+            XCTAssertEqual(demo.strokeStrong, stack.controlBorderStrong, "\(scheme) strokeStrong")
+            XCTAssertEqual(demo.edgeHighlight, stack.raisedSurfaceHighlight, "\(scheme) edgeHighlight")
+
+            XCTAssertEqual(demo.accentInk, stack.accentForeground, "\(scheme) accent ink")
+            XCTAssertEqual(demo.accentFill, stack.accentFill, "\(scheme) accent fill")
+            XCTAssertEqual(
+                demo.accentFillHovered, stack.accentFillHovered, "\(scheme) accent fill hovered")
+            XCTAssertEqual(
+                demo.accentFillPressed, stack.accentFillPressed, "\(scheme) accent fill pressed")
+            XCTAssertEqual(demo.accentWash, stack.accentWash, "\(scheme) accent wash")
+            XCTAssertEqual(demo.accentWashStrong, stack.accentWashStrong, "\(scheme) accent wash strong")
+
+            XCTAssertEqual(demo.success, stack.success, "\(scheme) success")
+            XCTAssertEqual(demo.warning, stack.warning, "\(scheme) warning")
+            XCTAssertEqual(demo.danger, stack.danger, "\(scheme) danger")
+            XCTAssertEqual(
+                demo.statusWash(demo.warning), stack.statusWash(stack.warning), "\(scheme) status wash")
+
+            XCTAssertEqual(
+                demo.cardShadow, stack.groupedContainerShadow, "\(scheme) card shadow")
+            XCTAssertEqual(
+                demo.cardShadowRadius, MacOSControlMetrics.GroupBox.shadowSpread, accuracy: 0.001,
+                "\(scheme) card shadow radius")
+            XCTAssertEqual(
+                demo.cardShadowOffsetY, MacOSControlMetrics.GroupBox.shadowOffsetY, accuracy: 0.001,
+                "\(scheme) card shadow offset")
+            XCTAssertEqual(demo.heroShadow, Elevation.e4.color(for: scheme), "\(scheme) hero shadow")
+            XCTAssertEqual(
+                demo.heroShadowRadius, Elevation.e4.radius(for: scheme), accuracy: 0.001,
+                "\(scheme) hero shadow radius")
+        }
+    }
+
+    /// And the geometry scales: the demo may only spend steps the system has.
+    func testDemoMetricsMirrorTheStackScales() async {
+        XCTAssertEqual(DemoMetrics.s1, MacOSControlMetrics.Spacing.s1, accuracy: 0.001)
+        XCTAssertEqual(DemoMetrics.s2, MacOSControlMetrics.Spacing.s2, accuracy: 0.001)
+        XCTAssertEqual(DemoMetrics.s3, MacOSControlMetrics.Spacing.s3, accuracy: 0.001)
+        XCTAssertEqual(DemoMetrics.s4, MacOSControlMetrics.Spacing.s4, accuracy: 0.001)
+        XCTAssertEqual(DemoMetrics.s5, MacOSControlMetrics.Spacing.s5, accuracy: 0.001)
+        XCTAssertEqual(DemoMetrics.s6, MacOSControlMetrics.Spacing.s6, accuracy: 0.001)
+        XCTAssertEqual(DemoMetrics.s8, MacOSControlMetrics.Spacing.s8, accuracy: 0.001)
+
+        XCTAssertEqual(DemoMetrics.radiusXS, MacOSControlMetrics.Radius.xs, accuracy: 0.001)
+        XCTAssertEqual(DemoMetrics.radiusSM, MacOSControlMetrics.Radius.sm, accuracy: 0.001)
+        XCTAssertEqual(DemoMetrics.radiusMD, MacOSControlMetrics.Radius.md, accuracy: 0.001)
+        XCTAssertEqual(DemoMetrics.radiusLG, MacOSControlMetrics.Radius.lg, accuracy: 0.001)
+        XCTAssertEqual(DemoMetrics.radiusXL, MacOSControlMetrics.Radius.xl, accuracy: 0.001)
         XCTAssertEqual(
-            label, DemoTheme(colorScheme: .dark).onTintedFillText,
-            "one label colour on tinted fills, in both appearances")
+            DemoMetrics.radiusXL, MacOSControlMetrics.Radius.maximum, accuracy: 0.001,
+            "nothing in the app is rounder than the largest radius the system allows")
 
-        var ramps: [(name: String, colors: [Color])] = [
-            ("ready", DemoTheme.readyFill),
-            ("events", DemoTheme.eventsFill),
-        ]
+        XCTAssertEqual(DemoMetrics.controlHeight, 28, accuracy: 0.001)
+        XCTAssertEqual(
+            DemoMetrics.navRowHeight, MacOSControlMetrics.List.sidebarRowHeight, accuracy: 0.001)
+        XCTAssertEqual(
+            DemoMetrics.settingsColumnWidth, MacOSControlMetrics.Form.contentMaxWidth, accuracy: 0.001)
+    }
+
+    /// Every corner the demo draws is on the radius scale, and nothing on any
+    /// screen exceeds 12. The 16 / 20 / 22 / 24 / 26 / 30 the demo used to
+    /// carry is what made it read as a consumer toy however correct its tones
+    /// were.
+    func testNoCornerOnAnyScreenExceedsTheRadiusScale() async {
+        for screen in DemoScreen.allCases {
+            let root = snapshotScreen(screen).runtime.root
+            let offenders = allNodes(in: root) { node in
+                // A capsule is `h / 2` by construction — a status dot, a
+                // meter, a toggle track — and is allowed to exceed the scale
+                // because it *is* the shape, not a rounded rectangle.
+                let radius = node.cornerRadius
+                guard radius > MacOSControlMetrics.Radius.maximum + 1 else { return false }
+                let shortestSide = min(node.resolvedFrame.size.width, node.resolvedFrame.size.height)
+                return radius < shortestSide * 0.5 - 0.5
+            }
+            XCTAssertTrue(
+                offenders.isEmpty,
+                "\(screen): \(offenders.count) surface(s) rounder than 12pt, e.g. "
+                    + "\(offenders.first.map { "\($0.cornerRadius)pt on \($0.resolvedFrame.size)" } ?? "")")
+        }
+    }
+
+    // MARK: - One signature
+
+    /// The signature, and the whole of it: stop 1 is the accent fill, stop 2
+    /// rotates per module, and every stop carries white at 5:1 so the hero's
+    /// headline *and* its subtitle stay legible across the ramp.
+    func testEveryHeroGradientStopCarriesWhite() async {
+        var stops: [(String, Color)] = [("accent fill", DemoSignature.accentFill)]
         for module in DemoModule.allCases {
-            ramps.append((String(describing: module), module.accentFill))
+            stops.append((String(describing: module), module.signatureStop))
         }
 
-        for ramp in ramps {
-            for (index, stop) in ramp.colors.enumerated() {
-                XCTAssertEqual(
-                    stop.alpha, 1, accuracy: 0.001,
-                    "\(ramp.name) stop \(index) is a wash, not a fill")
-                let ratio = contrastRatio(text: label, over: stop)
-                XCTAssertGreaterThanOrEqual(
-                    ratio, 4.5,
-                    "\(ramp.name) stop \(index) measures \(String(format: "%.2f", ratio)):1")
-            }
-        }
-    }
-
-    /// The same for the hero card's tinted badge, which takes its fill from a
-    /// caller and used to knock it back to 0.92 on the way in.
-    func testTintedBadgeKeepsItsFillOpaque() async {
-        let model = DemoDashboardModel()
-        for scheme in [ColorScheme.light, ColorScheme.dark] {
-            let root = laidOut(
-                DemoCapsuleText(model.selectedModule.label, tint: model.selectedModule.fillTop)
-                    .environment(\.colorScheme, scheme),
-                size: IntSize(width: 200, height: 80)
-            )
-            guard
-                let text = firstNode(in: root, matching: { $0.text == model.selectedModule.label }),
-                let fill = nearestFill(above: text)
-            else {
-                return XCTFail("expected a badge surface with a fill in \(scheme)")
-            }
-            XCTAssertEqual(fill.alpha, 1, accuracy: 0.001, "a badge fill is a fill")
+        for stop in stops {
+            XCTAssertEqual(stop.1.alpha, 1, accuracy: 0.001, "\(stop.0) is a wash, not a fill")
+            let ratio = contrastRatio(text: Color.white, over: stop.1)
             XCTAssertGreaterThanOrEqual(
-                contrastRatio(text: DemoTheme(colorScheme: scheme).onTintedFillText, over: fill),
-                4.5)
+                ratio, 5.0,
+                "\(stop.0) measures \(String(format: "%.2f", ratio)):1 against white")
+        }
+
+        // The subtitle rung is the tighter of the two, and it is measured
+        // against **stop 1**: the gradient runs topLeading to bottomTrailing
+        // and the subtitle sits in the card's upper-left third, where the ramp
+        // has barely left the accent fill. The rotating stop only reaches the
+        // opposite corner, where nothing is written.
+        let subtitle = contrastRatio(
+            text: DemoPalette(colorScheme: .dark).onAccentSecondary, over: DemoSignature.accentFill)
+        XCTAssertGreaterThanOrEqual(
+            subtitle, 4.5,
+            "the hero subtitle measures \(String(format: "%.2f", subtitle)):1 on the accent fill")
+    }
+
+    /// **Exactly one saturated surface per screen.** Marks may take the accent
+    /// — a chart bar, a meter fill, a selection indicator — but only one
+    /// *surface* in the window is allowed to be a plate of colour, and on the
+    /// dashboard it is the hero.
+    func testOnlyOneSaturatedSurfacePerScreen() async {
+        for screen in DemoScreen.allCases {
+            let root = snapshotScreen(screen).runtime.root
+            let saturated = allNodes(in: root) { node in
+                guard let fill = node.backgroundColor, fill.alpha > 0.9 else { return false }
+                guard chroma(of: fill) > 0.15 else { return false }
+                return node.resolvedFrame.size.width >= 200
+            }
+            XCTAssertLessThanOrEqual(
+                saturated.count, 1,
+                "\(screen) carries \(saturated.count) saturated surfaces; the design allows one")
         }
     }
 
-    /// G5 item 2. `.navigationTitle` is drawn by the pane's chrome at the
-    /// pane's own leading edge, so in a 1280pt window "Settings" sat 320pt
-    /// away from the 640pt column it was titling, with nothing under it in
-    /// between. The title belongs on the column.
-    func testSettingsTitleSitsOnTheContentColumn() async {
+    /// The hero is the *same card* in both appearances. An opaque fill has no
+    /// appearance behind it to vary with, and that single decision is most of
+    /// what makes the light appearance a sibling rather than a paler cousin.
+    func testHeroIsIdenticalInBothAppearances() async {
+        var fills: [Color] = []
+        for scheme in [ColorScheme.dark, ColorScheme.light] {
+            let model = DemoDashboardModel()
+            let root = laidOut(
+                DemoRootView(model: model).environment(\.colorScheme, scheme),
+                size: IntSize(width: 1280, height: 720))
+            guard
+                let headline = textNode(in: root, model.selectedModule.headline),
+                let fill = nearestGradientStart(above: headline)
+            else {
+                return XCTFail("expected a hero headline on a filled card in \(scheme)")
+            }
+            fills.append(fill)
+            XCTAssertGreaterThanOrEqual(
+                contrastRatio(text: Color.white, over: fill), 5.0,
+                "\(scheme): the hero headline clears 5:1")
+        }
+
+        XCTAssertEqual(fills.count, 2)
+        XCTAssertEqual(fills[0], fills[1], "the hero resolves to one fill in both appearances")
+        XCTAssertEqual(fills[0], DemoSignature.accentFill, "and that fill is the signature's first stop")
+    }
+
+    // MARK: - Dashboard composition
+
+    /// The chart is built from views, so every part of it is a node: four
+    /// gridlines behind the bars, a baseline visibly stronger than a gridline,
+    /// a labelled y axis, a labelled x axis, and a value on the tallest bar.
+    /// And **no plot background box** — the card is the plot's background.
+    func testChartCarriesItsAxesAndNoPlotBox() async {
+        let model = DemoDashboardModel()
+        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
+        let palette = DemoPalette(colorScheme: .dark)
+
+        XCTAssertNotNil(textNode(in: root, "Render pipeline"), "the chart names itself")
+
+        let bars = DemoChartCard.bars(interactions: model.interactionCount)
+        for bar in bars {
+            XCTAssertNotNil(
+                textNode(in: root, bar.label), "the x axis labels bar \(bar.label)")
+        }
+
+        // Axis maximum: the quarter step is a nice number, so every tick is.
+        XCTAssertNotNil(textNode(in: root, "0"), "the y axis is labelled at the baseline")
+        XCTAssertNotNil(textNode(in: root, "10"), "and at its quarters")
+        XCTAssertNotNil(textNode(in: root, "40"), "and at its maximum")
+
+        let peak = bars.max { $0.value < $1.value }
+        XCTAssertNotNil(
+            textNode(in: root, "\(Int((peak?.value ?? 0).rounded()))"),
+            "the tallest bar always carries its value")
+
+        let gridlines = allNodes(in: root) { node in
+            node.backgroundColor == palette.strokeSubtle
+                && node.resolvedFrame.size.height <= 1.5
+                && node.resolvedFrame.size.width > 200
+        }
+        XCTAssertGreaterThanOrEqual(gridlines.count, 4, "four gridlines behind the bars")
+
+        let baselines = allNodes(in: root) { node in
+            node.backgroundColor == palette.strokeStrong
+                && node.resolvedFrame.size.height <= 1.5
+                && node.resolvedFrame.size.width > 200
+                && node.resolvedFrame.size.width < 1200
+        }
+        XCTAssertGreaterThanOrEqual(
+            baselines.count, 1, "and a baseline drawn in the structural hairline, not the gridline one")
+    }
+
+    /// The stat card's hierarchy is carried by weight and rung, not by size:
+    /// the eyebrow and the note sit on the third rung and the value on the
+    /// first, one point of size apart from the body around them.
+    func testStatCardSeparatesItsValueFromItsCaptions() async {
+        let root = laidOut(
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Third rung").foregroundStyle(.tertiary)
+                Text("First rung").foregroundStyle(.primary)
+
+                DemoStatCard(
+                    card: DemoStat(
+                        title: "Interactions",
+                        systemImage: "bolt.fill",
+                        value: "12",
+                        delta: .up("12%"),
+                        note: "vs last run"
+                    )
+                )
+                .frame(width: 220)
+            }
+            .frame(width: 260),
+            size: IntSize(width: 320, height: 400)
+        )
+
+        guard
+            let third = textNode(in: root, "Third rung"),
+            let first = textNode(in: root, "First rung"),
+            let eyebrow = textNode(in: root, "Interactions"),
+            let note = textNode(in: root, "vs last run"),
+            let value = textNode(in: root, "12")
+        else {
+            return XCTFail("expected both reference rungs and the card's three lines")
+        }
+
+        XCTAssertEqual(
+            eyebrow.textStyle.color, third.textStyle.color,
+            "a stat card's eyebrow is a label, not a string you read on the way past")
+        XCTAssertEqual(note.textStyle.color, third.textStyle.color, "and so is its note")
+        XCTAssertEqual(
+            value.textStyle.color, first.textStyle.color,
+            "the metric itself is the one thing on the card you are meant to read")
+        XCTAssertGreaterThan(
+            value.textStyle.nativeFontSize ?? 0, eyebrow.textStyle.nativeFontSize ?? 0,
+            "and it is the largest thing on the card")
+    }
+
+    /// Every number that changes at runtime is set in tabular figures, so a
+    /// count ticking from 9 to 10 does not shove the label beside it.
+    func testRuntimeNumbersAreTabular() async {
+        let model = DemoDashboardModel()
+        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
+
+        guard let events = firstNode(in: root, matching: { $0.text == "0" }) else {
+            return XCTFail("expected the toolbar's event count")
+        }
+        XCTAssertTrue(
+            events.textStyle.monospacedDigits,
+            "a live count is tabular or the row beside it moves every time it changes")
+    }
+
+    /// Sibling cards in the right rail are as wide as the rail's content
+    /// column, not as wide as their own longest line — the rail used to read
+    /// as a pile of differently sized boxes with a ragged right edge.
+    func testDetailTrackCardsShareTheColumnWidth() async {
+        let cards = DemoModule.layout.cards
+        XCTAssertGreaterThanOrEqual(cards.count, 2)
+
+        let columnWidth = 240.0
+        let node = laidOut(
+            VStack(alignment: .leading, spacing: 10) {
+                DemoInfoCard(card: cards[0])
+                DemoInfoCard(card: cards[1])
+            }
+            .frame(width: columnWidth),
+            size: IntSize(width: 400, height: 500)
+        )
+
+        let widths = cards.prefix(2).compactMap { card -> Double? in
+            guard
+                let title = textNode(in: node, card.title),
+                let surface = enclosingSurface(of: title)
+            else { return nil }
+            return surface.resolvedFrame.size.width
+        }
+
+        XCTAssertEqual(widths.count, 2, "expected both cards to draw a rounded surface")
+        XCTAssertEqual(
+            widths[0], widths[1], accuracy: 0.5,
+            "two cards in one column are one width")
+        XCTAssertGreaterThan(
+            widths[0], columnWidth - 40,
+            "and that width is the column's, not the longest line's")
+    }
+
+    /// The rail is a column, not a panel: its cards span the rail inside its
+    /// own 12pt gutter, and nothing wraps them in a second container.
+    func testRightRailCardsSpanTheRailColumn() async {
+        let layout = DemoLayout(size: CGSize(width: 1280, height: 655))
+        let model = DemoDashboardModel()
+        let root = laidOut(
+            DemoRightRail(model: model, layout: layout)
+                .frame(width: layout.railWidth, height: 520, alignment: .topLeading),
+            size: IntSize(width: 420, height: 560)
+        )
+
+        var widest = 0.0
+        for node in allNodes(in: root, matching: { $0.cornerRadius > 0 }) {
+            widest = max(widest, node.resolvedFrame.size.width)
+        }
+        XCTAssertEqual(
+            widest, layout.railInnerWidth, accuracy: 1,
+            "a rail card is as wide as the rail's content column")
+    }
+
+    /// Whether the three stat cards stack is a question about the content
+    /// column's *width* and nothing else. It used to ask `compact`, which is
+    /// also true in a short window, so a wide short window stacked the band —
+    /// tripling its height in the window with the least height to spend.
+    func testStatBandStaysARowInAWideShortWindow() async {
+        XCTAssertFalse(
+            DemoLayout(size: CGSize(width: 1280, height: 720)).stacksMetrics,
+            "a wide window keeps the band a row however short it is")
+        XCTAssertTrue(
+            DemoLayout(size: CGSize(width: 1000, height: 900)).stacksMetrics,
+            "a narrow column stacks the band however tall the window is")
+        XCTAssertFalse(
+            DemoLayout(size: CGSize(width: 880, height: 900)).stacksMetrics,
+            "and a window that gave up its rail has a column wide enough for the row")
+
+        let model = DemoDashboardModel()
+        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
+
+        guard
+            let interactions = textNode(in: root, "Interactions"),
+            let module = textNode(in: root, "Module"),
+            let frameCost = textNode(in: root, "Frame time")
+        else {
+            return XCTFail("expected the three stat eyebrows")
+        }
+
+        XCTAssertEqual(absoluteY(of: interactions), absoluteY(of: module), accuracy: 2)
+        XCTAssertEqual(absoluteY(of: module), absoluteY(of: frameCost), accuracy: 2)
+    }
+
+    /// The centre pane scrolls, so its bottom edge cuts the column somewhere;
+    /// what it must not do is cut a card in half. The stat band is the last
+    /// thing the default window is expected to hold whole.
+    func testDashboardFoldLeavesTheStatBandWhole() async {
+        let size = IntSize(width: 1280, height: 720)
+        let model = DemoDashboardModel()
+        let root = laidOut(DemoRootView(model: model), size: size)
+
+        guard
+            let moduleCaption = textNode(in: root, "Module"),
+            let moduleCard = enclosingSurface(of: moduleCaption)
+        else {
+            return XCTFail("expected a Module stat card")
+        }
+
+        let fold = Double(size.height)
+        let cardTop = absoluteY(of: moduleCard)
+        let cardBottom = cardTop + moduleCard.resolvedFrame.size.height
+
+        XCTAssertFalse(
+            cardTop < fold && cardBottom > fold,
+            "the fold at \(fold) runs through the Module card (\(cardTop)...\(cardBottom))")
+        XCTAssertLessThanOrEqual(
+            cardBottom, fold,
+            "and the band is fully above it, not pushed off the bottom entirely")
+    }
+
+    /// The hero's action row is one row at every window size the shell can be
+    /// dragged to, and its buttons keep the system's control height. The pills
+    /// used to be squeezed to 0.9pt at 640 by a fixed-height card that could
+    /// not hold what the narrow branch put in it.
+    func testHeroActionsStayARowAtEveryReachableWindowSize() async {
+        let model = DemoDashboardModel()
+
+        for size in [
+            IntSize(width: 640, height: 480),
+            IntSize(width: 640, height: 720),
+            IntSize(width: 900, height: 600),
+            IntSize(width: 1000, height: 900),
+            IntSize(width: 1280, height: 720),
+            IntSize(width: 1720, height: 980),
+        ] {
+            let root = laidOut(DemoRootView(model: model), size: size)
+
+            guard
+                let open = textNode(in: root, "Open Layout"),
+                let cycle = textNode(in: root, "Cycle mode"),
+                let openButton = enclosingSurface(of: open)
+            else {
+                return XCTFail("expected both hero buttons at \(size.width)x\(size.height)")
+            }
+
+            XCTAssertEqual(
+                absoluteY(of: open), absoluteY(of: cycle), accuracy: 2,
+                "one row at \(size.width)x\(size.height)")
+            XCTAssertGreaterThanOrEqual(
+                openButton.resolvedFrame.size.height, DemoMetrics.controlHeight,
+                "at \(size.width)x\(size.height) a button is as tall as it asked to be, "
+                    + "not squeezed by an overflowing card")
+        }
+    }
+
+    /// The rail carries two cards and two flat rows in the height the centre
+    /// pane spends on one card. Its last row has to be whole and above the
+    /// fold, or the column reads as cut off.
+    func testRightRailFitsAboveTheFold() async {
+        let size = IntSize(width: 1280, height: 720)
+        let model = DemoDashboardModel()
+        let root = laidOut(DemoRootView(model: model), size: size)
+
+        guard let resize = textNode(in: root, "Resize Panes") else {
+            return XCTFail("expected the last quick-action row")
+        }
+
+        let rowBottom = absoluteY(of: resize) + resize.resolvedFrame.size.height
+        XCTAssertLessThanOrEqual(
+            rowBottom, Double(size.height),
+            "the rail's last row is whole and above the fold")
+    }
+
+    // MARK: - Settings
+
+    /// A settings pane is a **leading-anchored column**. The title sits on the
+    /// section boxes' own edge, and that edge is the page margin — not the
+    /// middle of a 1280pt window with ~340pt of dead space on each side.
+    func testSettingsColumnIsLeadingAnchored() async {
         let model = DemoDashboardModel()
         model.selectedScreen = .settings
         let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
@@ -535,40 +654,313 @@ final class DemoScreensTests: XCTestCase {
             let title = firstNode(
                 in: root,
                 matching: { $0.text == "Settings" && ($0.textStyle.nativeFontSize ?? 0) > 20 }),
-            let sectionHeader = firstNode(in: root, matching: { $0.text == "Profile" })
+            let sectionHeader = textNode(in: root, "Profile")
         else {
-            return XCTFail("expected a large pane title and a section header")
+            return XCTFail("expected a pane title and a section header")
         }
 
         XCTAssertEqual(
             absoluteX(of: title), absoluteX(of: sectionHeader), accuracy: 8,
             "the title leads on the same edge as the section headers under it")
-        XCTAssertGreaterThan(
-            absoluteX(of: title), 200,
-            "and it is inside the centred column, not at the window's edge")
+        XCTAssertLessThanOrEqual(
+            absoluteX(of: title), DemoMetrics.s6 + 4,
+            "and that edge is the page margin, not the centre of the window")
     }
 
-    /// G5 item 3 + FINAL item 2. The inspector used to be a paragraph after
-    /// the list, split from it by a hairline in a 12pt gap — both standing on
-    /// the same window background, so the block read as floating text. macOS
-    /// closes an inspector with a *bar*: its own scrim, a rule along its top
-    /// edge. What the scrim is differs by appearance: a dark-mode bar is
-    /// *lighter* than the window (the white quaternary rung), but a light
-    /// bottom bar is never darker than the window it closes — Finder's status
-    /// bar sits at the window tone and lets the divider do the work. The
-    /// light `.quaternary` background used to composite the black label rung
-    /// to #D5D5D5 on the #ECECEC window, and the bar's four secondary strings
-    /// measured 4.28:1.
-    func testDataInspectorSitsOnABarRatherThanTheWindow() async {
-        for scheme in [ColorScheme.light, ColorScheme.dark] {
+    /// A section header is a **heading**, not an eyebrow: 15/600 on the
+    /// primary rung, attached to the group under it. The 11pt dim uppercase
+    /// string it used to be belongs to neither of the boxes it floats between.
+    func testSettingsSectionHeadersAreHeadingsNotEyebrows() async {
+        let model = DemoDashboardModel()
+        model.selectedScreen = .settings
+        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
+
+        guard
+            let header = firstNode(in: root, matching: { $0.text == "Preferences" }),
+            let body = firstNode(in: root, matching: { $0.text == "Sound Effects" })
+        else {
+            return XCTFail("expected a section header and a row title")
+        }
+
+        XCTAssertEqual(
+            header.textStyle.nativeFontSize ?? 0,
+            MacOSControlMetrics.Typography.formSectionHeaderSize,
+            accuracy: 0.5,
+            "a settings section header is the `section` role")
+        XCTAssertGreaterThan(
+            header.textStyle.nativeFontSize ?? 0, body.textStyle.nativeFontSize ?? 0,
+            "and it reads as a heading over the rows it names")
+    }
+
+    /// Every settings row reads left to right: label, then control. The
+    /// trailing-aligned label gutter is a System Settings idiom and the most
+    /// obviously borrowed thing the pane used to do.
+    func testSettingsRowsReadLabelThenControl() async {
+        let model = DemoDashboardModel()
+        model.selectedScreen = .settings
+        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
+
+        XCTAssertNil(
+            firstNode(in: root, matching: { ($0.text ?? "").hasPrefix("Items Per Page:") }),
+            "the value does not live inside the label")
+
+        guard
+            let label = firstNode(in: root, matching: { $0.text == "Items Per Page" }),
+            let value = firstNode(in: root, matching: { $0.text == "\(model.itemsPerPage)" })
+        else {
+            return XCTFail("expected a bare label and a separate value")
+        }
+
+        XCTAssertEqual(
+            absoluteY(of: label), absoluteY(of: value), accuracy: 8,
+            "label and value share the row")
+        XCTAssertGreaterThan(
+            absoluteX(of: value), absoluteX(of: label),
+            "and the control is trailing, the label leading")
+
+        // The label column starts at the box's own inset — every row on the
+        // same edge — rather than being right-aligned into a shared gutter.
+        let rowLabels = ["Display Name", "Theme", "Items Per Page"].compactMap { title in
+            firstNode(in: root, matching: { node in node.text == title })
+        }
+        XCTAssertEqual(rowLabels.count, 3)
+        for label in rowLabels.dropFirst() {
+            XCTAssertEqual(
+                absoluteX(of: label), absoluteX(of: rowLabels[0]), accuracy: 1,
+                "every row's label leads on the same edge")
+        }
+    }
+
+    /// Exactly one filled accent button on the pane, and the destructive
+    /// action is not it: a filled red button in a settings list is a threat,
+    /// not an option.
+    func testSettingsHasOneFilledAccentButton() async {
+        let model = DemoDashboardModel()
+        model.selectedScreen = .settings
+        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 900))
+
+        guard
+            let save = textNode(in: root, "Save Settings"),
+            let reset = textNode(in: root, "Reset To Defaults")
+        else {
+            return XCTFail("expected the actions row")
+        }
+
+        XCTAssertEqual(
+            nearestFill(above: save), DemoSignature.accentFill,
+            "Save Settings is the pane's one accent moment")
+
+        let resetFill = nearestFill(above: reset)
+        XCTAssertNotNil(resetFill)
+        XCTAssertLessThan(
+            chroma(of: resetFill ?? .clear), 0.1,
+            "Reset To Defaults is a neutral chassis; only its label is in danger")
+        XCTAssertEqual(
+            reset.textStyle.color, DemoPalette(colorScheme: .dark).danger,
+            "and the label is the one that carries the warning")
+    }
+
+    /// No section header is left orphaned on the fold line — a heading fully
+    /// visible with nothing of its group under it captions the bottom edge of
+    /// the window rather than the rows it names.
+    func testNoSettingsHeaderIsOrphanedOnTheFold() async {
+        let size = IntSize(width: 1280, height: 720)
+        let model = DemoDashboardModel()
+        model.selectedScreen = .settings
+        let root = laidOut(DemoRootView(model: model), size: size)
+
+        let fold = Double(size.height)
+        let groups = [
+            ("Profile", "Display Name"),
+            ("Preferences", "Enable Animations"),
+            ("Resources", "Storage Used"),
+            ("Actions", "Save Settings"),
+        ]
+
+        for group in groups {
+            guard let header = firstNode(in: root, matching: { $0.text == group.0 }) else {
+                return XCTFail("expected the \(group.0) header")
+            }
+            let headerBottom = absoluteY(of: header) + header.resolvedFrame.size.height
+            guard headerBottom < fold else { continue }
+
+            guard let firstRow = firstNode(in: root, matching: { $0.text == group.1 }) else {
+                return XCTFail("expected \(group.1) under \(group.0)")
+            }
+            XCTAssertLessThan(
+                absoluteY(of: firstRow), fold,
+                "\(group.0) is visible but its first row is not — an orphaned heading on the fold")
+        }
+    }
+
+    // MARK: - Data
+
+    /// One row, one line, one height for the table. The rows used to carry a
+    /// stacked version-over-status block, which made every row a two-line box.
+    func testComponentRowIsOneLineTall() async {
+        let first = DemoComponent.defaults[0]
+        let second = DemoComponent.defaults[1]
+        let metrics = DemoTableMetrics(width: 480)
+        let node = laidOut(
+            VStack(alignment: .leading, spacing: 0) {
+                DemoComponentRow(component: first, metrics: metrics, isSelected: false) {}
+                DemoComponentRow(component: second, metrics: metrics, isSelected: false) {}
+            },
+            size: IntSize(width: 480, height: 400)
+        )
+
+        guard
+            let firstName = textNode(in: node, first.name),
+            let secondName = textNode(in: node, second.name)
+        else {
+            return XCTFail("expected both component names to be laid out")
+        }
+
+        let pitch = absoluteY(of: secondName) - absoluteY(of: firstName)
+        XCTAssertEqual(
+            pitch, DemoMetrics.listRowHeight + 1, accuracy: 1.5,
+            "the pitch is one row plus its rule")
+    }
+
+    /// The table is a table: a header row of four labelled columns whose
+    /// trailing columns line up with the data under them.
+    func testTableHeaderColumnsLineUpWithTheirData() async {
+        let size = IntSize(width: 1280, height: 720)
+        let model = DemoDashboardModel()
+        model.selectedScreen = .data
+        let root = laidOut(DemoRootView(model: model), size: size)
+
+        for column in ["Component", "Version", "Load", "Status"] {
+            XCTAssertNotNil(textNode(in: root, column), "the table names its \(column) column")
+        }
+
+        guard
+            let versionHeader = textNode(in: root, "Version"),
+            let versionCell = textNode(in: root, DemoComponent.defaults[0].version)
+        else {
+            return XCTFail("expected a version header and a version cell")
+        }
+
+        let headerRight = absoluteX(of: versionHeader) + versionHeader.resolvedFrame.size.width
+        let cellRight = absoluteX(of: versionCell) + versionCell.resolvedFrame.size.width
+        XCTAssertEqual(
+            headerRight, cellRight, accuracy: 3,
+            "a trailing column header ends on the same edge as the values under it")
+    }
+
+    /// The Load column is what makes the table read as a product rather than a
+    /// list: a meter, then the number. And the meter's own colour reports the
+    /// state — accent ink until the load is the story.
+    func testLoadColumnDrawsAMeter() async {
+        let palette = DemoPalette(colorScheme: .dark)
+        XCTAssertEqual(DemoMeter.fillColor(for: 0.34, palette: palette), palette.accentInk)
+        XCTAssertEqual(DemoMeter.fillColor(for: 0.80, palette: palette), palette.warning)
+        XCTAssertEqual(DemoMeter.fillColor(for: 0.95, palette: palette), palette.danger)
+
+        let component = DemoComponent.defaults[0]
+        let root = laidOut(
+            DemoComponentRow(
+                component: component, metrics: DemoTableMetrics(width: 900), isSelected: false
+            ) {},
+            size: IntSize(width: 900, height: 80)
+        )
+
+        XCTAssertNotNil(textNode(in: root, component.loadPercent), "the load is also written out")
+
+        let track = allNodes(in: root) { node in
+            node.backgroundColor == palette.surface3
+                && node.resolvedFrame.size.height <= DemoMetrics.meterThickness + 0.5
+        }
+        XCTAssertFalse(track.isEmpty, "the load cell draws a meter track")
+    }
+
+    /// The exception gets the chip; the normal case stays quiet. `Healthy` is
+    /// a dot beside a secondary word with no fill behind it at all.
+    func testOnlyTheDegradedStatusCarriesAChip() async {
+        let degraded = DemoComponent.defaults.first { !$0.isHealthy }
+        let healthy = DemoComponent.defaults.first { $0.isHealthy }
+        guard let degraded, let healthy else {
+            return XCTFail("the fixture data carries both states")
+        }
+        let palette = DemoPalette(colorScheme: .dark)
+
+        let degradedRoot = laidOut(
+            DemoStatusCell(component: degraded).environment(\.colorScheme, .dark),
+            size: IntSize(width: 200, height: 40))
+        let healthyRoot = laidOut(
+            DemoStatusCell(component: healthy).environment(\.colorScheme, .dark),
+            size: IntSize(width: 200, height: 40))
+
+        guard
+            let degradedWord = textNode(in: degradedRoot, degraded.statusLabel),
+            let healthyWord = textNode(in: healthyRoot, healthy.statusLabel)
+        else {
+            return XCTFail("expected both status words")
+        }
+
+        XCTAssertEqual(
+            degradedWord.textStyle.color, palette.warning,
+            "the exception says so in its own hue")
+        XCTAssertEqual(
+            nearestFill(above: degradedWord), palette.statusWash(palette.warning),
+            "on a wash, not a saturated fill")
+
+        XCTAssertNotEqual(
+            healthyWord.textStyle.color, palette.success,
+            "the nominal case is a dot beside plain text")
+        XCTAssertNil(
+            nearestFill(above: healthyWord),
+            "and it carries no chip at all")
+
+        let dots = allNodes(in: healthyRoot) { node in
+            node.backgroundColor == palette.success
+                && node.resolvedFrame.size.width <= DemoMetrics.dotSize + 0.5
+        }
+        XCTAssertEqual(dots.count, 1, "the healthy row's colour rides a dot")
+    }
+
+    /// The selected row is a wash with a thin leading bar, not a full-bleed
+    /// saturated band with white text on it — the loudest object in the app
+    /// for the least important reason.
+    func testSelectedRowIsAWashWithALeadingBar() async {
+        let component = DemoComponent.defaults[0]
+        let palette = DemoPalette(colorScheme: .dark)
+        let root = laidOut(
+            DemoComponentRow(
+                component: component, metrics: DemoTableMetrics(width: 900), isSelected: true
+            ) {}
+            .environment(\.colorScheme, .dark),
+            size: IntSize(width: 900, height: 80)
+        )
+
+        guard let name = textNode(in: root, component.name) else {
+            return XCTFail("expected the row's name")
+        }
+        XCTAssertEqual(
+            nearestFill(above: name), palette.accentWashStrong,
+            "a selected row is a wash on the page's own ladder")
+
+        let indicators = allNodes(in: root) { node in
+            node.backgroundColor == palette.accentInk
+                && node.resolvedFrame.size.width <= 2.5
+                && node.resolvedFrame.size.height >= DemoMetrics.listRowHeight - 1
+        }
+        XCTAssertEqual(indicators.count, 1, "and a 2px accent bar at its leading edge says which one")
+    }
+
+    /// The footer inspector is a *bar*: its own material, closed at the top by
+    /// a structural hairline, and never brighter than the table it closes in
+    /// dark or darker than it in light.
+    func testDataInspectorSitsOnABarRatherThanAboveOrBelowThePage() async {
+        for scheme in [ColorScheme.dark, ColorScheme.light] {
             let model = DemoDashboardModel()
             model.selectedScreen = .data
             let root = laidOut(
                 DemoRootView(model: model).environment(\.colorScheme, scheme),
                 size: IntSize(width: 1280, height: 720))
 
-            guard let load = firstNode(in: root, matching: { $0.text == "Current load" }) else {
-                return XCTFail("expected the inspector's load caption in \(scheme)")
+            guard let load = textNode(in: root, "Current load") else {
+                return XCTFail("expected the inspector's load eyebrow in \(scheme)")
             }
 
             var bar: ViewNode?
@@ -587,161 +979,44 @@ final class DemoScreensTests: XCTestCase {
                 return XCTFail("the inspector has no bar behind it in \(scheme)")
             }
 
-            // One rule in both appearances now: a bar sits at the page tone
-            // and the hairline above it carries the edge. Drawn as a wash the
-            // rung fails in whichever appearance it is not tuned for — the
-            // light black wash landed the bar *below* the page it closed, and
-            // the dark white wash lifted the footer well above the table over
-            // it, which reads as a second window pinned to the bottom.
-            let palette = ControlPalette.resolve(colorScheme: scheme)
-            XCTAssertEqual(
-                fill, palette.windowBackground,
-                "\(scheme): a bottom bar sits at the page tone, not above or below it")
-            XCTAssertGreaterThanOrEqual(
-                contrastRatio(text: palette.secondaryLabel, over: fill), 4.5,
-                "\(scheme): the bar's secondary strings clear WCAG AA on the bar tone")
+            let demo = DemoPalette(colorScheme: scheme)
+            let composited = Color(
+                red: fill.red * fill.alpha + demo.base.red * (1 - fill.alpha),
+                green: fill.green * fill.alpha + demo.base.green * (1 - fill.alpha),
+                blue: fill.blue * fill.alpha + demo.base.blue * (1 - fill.alpha),
+                alpha: 1
+            )
+            let barLuminance = relativeLuminance(of: composited)
+            let bodyLuminance = relativeLuminance(of: demo.surface0)
+
+            if scheme == .dark {
+                XCTAssertLessThanOrEqual(
+                    barLuminance, bodyLuminance + 0.002,
+                    "a dark bar is never brighter than the table it closes")
+            } else {
+                XCTAssertGreaterThanOrEqual(
+                    barLuminance, bodyLuminance - 0.02,
+                    "a light bar is never darker than the table it closes")
+            }
         }
     }
 
-    /// FINAL item 6. The settings pane's rhythm decides where the default
-    /// window's scroll fold lands. It has to land in the *gap* between the
-    /// "Resources" box and the "Actions" header: at the old 24/22 rhythm the
-    /// header sat fully visible just above the fold with its box below it —
-    /// an orphaned eyebrow captioning the bottom edge of the window.
-    func testSettingsFoldLandsBetweenResourcesAndActions() async {
+    /// The inspector is pinned to the bottom of the window at every size: a
+    /// greedy table takes exactly what its siblings leave.
+    func testDataScreenInspectorLandsOnTheBottomInset() async {
+        let size = IntSize(width: 1280, height: 720)
         let model = DemoDashboardModel()
-        model.selectedScreen = .settings
-        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
+        model.selectedScreen = .data
+        let root = laidOut(DemoRootView(model: model), size: size)
 
-        guard
-            let syncButton = firstNode(in: root, matching: { $0.text == "Sync Now" }),
-            let resourcesBox = enclosingSurface(of: syncButton),
-            let actionsHeader = firstNode(in: root, matching: { $0.text == "Actions" })
-        else {
-            return XCTFail("expected the Resources box and the Actions header")
+        var lowest = 0.0
+        for node in allNodes(in: root, matching: { ($0.text ?? "").isEmpty == false }) {
+            lowest = max(lowest, absoluteY(of: node) + node.resolvedFrame.size.height)
         }
 
-        let fold = 720.0
-        let boxBottom = absoluteY(of: resourcesBox) + resourcesBox.resolvedFrame.size.height
-        XCTAssertLessThan(boxBottom, fold, "the Resources box closes above the fold")
         XCTAssertGreaterThan(
-            absoluteY(of: actionsHeader), fold,
-            "and the Actions header opens below it — never orphaned on the fold line")
-    }
-
-    /// FINAL item 1. The Degraded status carries its orange on a *symbol*
-    /// and keeps the word `.secondary`: bare `.orange` 10pt text composites
-    /// to 2.2:1 on the white list. The nominal rows stay undecorated, the
-    /// way Activity Monitor leaves them.
-    func testDegradedStatusIsADotBesideSecondaryText() async {
-        let degraded = DemoComponent.defaults.first { !$0.isHealthy }
-        let healthy = DemoComponent.defaults.first { $0.isHealthy }
-        guard let degraded, let healthy else {
-            return XCTFail("the fixture data carries both states")
-        }
-
-        let root = laidOut(
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Reference rung").foregroundStyle(.secondary)
-                DemoComponentRow(component: degraded)
-                DemoComponentRow(component: healthy)
-            },
-            size: IntSize(width: 480, height: 200)
-        )
-
-        guard
-            let reference = firstNode(in: root, matching: { $0.text == "Reference rung" }),
-            let degradedWord = firstNode(in: root, matching: { $0.text == degraded.statusLabel }),
-            let healthyWord = firstNode(in: root, matching: { $0.text == healthy.statusLabel })
-        else {
-            return XCTFail("expected both status words")
-        }
-
-        XCTAssertEqual(
-            degradedWord.textStyle.color, reference.textStyle.color,
-            "the word is legible text, not an accent swatch")
-        XCTAssertEqual(healthyWord.textStyle.color, reference.textStyle.color)
-
-        // The orange lives on the dot — a small filled shape on the degraded
-        // row only.
-        var dot: ViewNode?
-        var stack: [ViewNode] = [root]
-        while let node = stack.popLast() {
-            if let fill = node.backgroundColor, fill.red > 0.9, fill.green > 0.4, fill.green < 0.75,
-                fill.blue < 0.2, node.resolvedFrame.size.width <= 8
-            {
-                dot = node
-                break
-            }
-            stack.append(contentsOf: node.children)
-        }
-        XCTAssertNotNil(dot, "the degraded row carries an orange status dot")
-    }
-
-    /// G5 item 4a, strengthened by L7-ADAPT. The hero card's two pills used to
-    /// stack below 1180 pt of window while the card's height stayed flat, so
-    /// the fixed-height card answered the overflow by squeezing them — 28 pt
-    /// at 900, 0.9 pt at 640. The stacking branch is gone: the centre column
-    /// now has an enforced 420 pt floor, which always has room for the row.
-    /// So the claim is no longer "a wide window keeps them a row", it is
-    /// "every window does".
-    func testHeroActionsStayARowAtEveryReachableWindowSize() async {
-        let model = DemoDashboardModel()
-
-        for size in [
-            IntSize(width: 640, height: 480),
-            IntSize(width: 640, height: 720),
-            IntSize(width: 900, height: 600),
-            IntSize(width: 1000, height: 900),
-            IntSize(width: 1280, height: 720),
-            IntSize(width: 1720, height: 980),
-        ] {
-            let root = laidOut(DemoRootView(model: model), size: size)
-
-            guard
-                let open = firstNode(in: root, matching: { $0.text == "Open Layout" }),
-                let cycle = firstNode(in: root, matching: { $0.text == "Cycle mode" }),
-                let openPill = enclosingSurface(of: open)
-            else {
-                return XCTFail("expected both hero pills at \(size.width)x\(size.height)")
-            }
-
-            XCTAssertEqual(
-                absoluteY(of: open), absoluteY(of: cycle), accuracy: 2,
-                "one row at \(size.width)x\(size.height)")
-            XCTAssertGreaterThanOrEqual(
-                openPill.resolvedFrame.size.height, 34,
-                "at \(size.width)x\(size.height) a pill is as tall as it asked to be, "
-                    + "not squeezed by an overflowing card")
-        }
-    }
-
-    /// G5 item 4b. The right rail is two panels in the height the centre pane
-    /// spends on one, so it carries a tighter internal rhythm. At the centre
-    /// column's rhythm it ran ~30pt past the bottom of its scroll view and
-    /// the fold went through the middle of the "Resize Panes" row.
-    func testRightRailFitsAboveTheFold() async {
-        let model = DemoDashboardModel()
-        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
-
-        guard
-            let workspace = firstNode(
-                in: root,
-                matching: { $0.text?.caseInsensitiveCompare("Workspace") == .orderedSame }),
-            let sidebar = enclosingSurface(of: workspace),
-            let resize = firstNode(in: root, matching: { $0.text == "Resize Panes" }),
-            let resizeRow = enclosingSurface(of: resize)
-        else {
-            return XCTFail("expected a sidebar surface and the last quick-action row")
-        }
-
-        let fold = absoluteY(of: sidebar) + sidebar.resolvedFrame.size.height
-        let rowTop = absoluteY(of: resizeRow)
-        let rowBottom = rowTop + resizeRow.resolvedFrame.size.height
-
-        XCTAssertFalse(
-            rowTop < fold && rowBottom > fold,
-            "the fold at \(fold) runs through the Resize Panes row (\(rowTop)...\(rowBottom))")
-        XCTAssertLessThanOrEqual(rowBottom, fold, "the rail's last row is whole and above the fold")
+            lowest, Double(size.height) - DemoMetrics.footerHeight,
+            "the inspector is pinned under a greedy table, so it ends on the bottom inset")
+        XCTAssertLessThanOrEqual(lowest, Double(size.height), "and it stays inside the window")
     }
 }

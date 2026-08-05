@@ -1149,6 +1149,17 @@ public struct ScrollAnchor: Sendable, Equatable, Hashable {
     public init() {}
 }
 public typealias Transaction = SwiftWindowsCore.Transaction
+/// `@Binding` — the property wrapper a child view declares when its parent
+/// owns the state.
+///
+/// The type has always been here (it is what `$state` projects, and what every
+/// control in this module takes), but it lived in `SwiftWindowsCore` with no
+/// alias in the module app code actually imports. So `Binding<Value>` was
+/// spellable inside the stack and *not* spellable in an app: `@Binding var
+/// hoveredIndex: Int?` — the ordinary way a SwiftUI view hands state to a
+/// subview — failed with "unknown attribute 'Binding'". One alias, and
+/// same-source app code stops having to route child state through closures.
+public typealias Binding = SwiftWindowsCore.Binding
 public protocol VectorArithmetic: AdditiveArithmetic {
     mutating func scale(by rhs: Double)
     var magnitudeSquared: Double { get }
@@ -14936,6 +14947,35 @@ public struct Material: ShapeStyle, Sendable, Equatable {
         }
     }
 
+    /// The tint this material actually paints, for one appearance.
+    ///
+    /// `retainedFallbackColor` above is the **light** value — the same
+    /// convention `Color.orange` follows, where the static holds one
+    /// appearance and the resolver supplies the other. A material is a
+    /// translucent version of *a surface*, and on a near-black page that
+    /// surface is not white: `.bar` at white 0.64 painted a light grey slab
+    /// across the top of a dark window, which is the brightest object in the
+    /// app sitting on top of the page it is supposed to belong to.
+    ///
+    /// Which surface depends on the kind. A **bar** is window chrome, so it
+    /// tints toward the page tone and lets its hairline carry the edge;
+    /// everything thicker **floats** (menu, popover, sheet), so it tints
+    /// toward the elevated surface. The published alpha is unchanged in both
+    /// appearances — it is the pinned part.
+    public func retainedTint(for colorScheme: ColorScheme) -> Color {
+        guard colorScheme == .dark else {
+            return retainedFallbackColor
+        }
+        let palette = ControlPalette.resolve(colorScheme: .dark)
+        let surface = kind == .bar ? palette.base : palette.surface3
+        return Color(
+            red: surface.red,
+            green: surface.green,
+            blue: surface.blue,
+            alpha: retainedFallbackColor.alpha
+        )
+    }
+
     /// Backdrop blur radius in logical pixels per material kind. Calibrated
     /// to feel close to macOS Big Sur+ defaults: thicker materials use a
     /// larger blur so the obscured content is genuinely indistinct.
@@ -22204,7 +22244,32 @@ extension View {
     }
 
     public func background<S: ShapeStyle>(_ style: S, ignoresSafeAreaEdges edges: Edge.Set = .all) -> some View {
-        background(style.retainedForegroundStyle, ignoresSafeAreaEdges: edges)
+        // A material is the one shape style whose *tint* depends on the
+        // appearance it lands in, and `retainedForegroundStyle` flattens the
+        // kind away before anything with a context can see it. Resolve it
+        // here, where the kind is still known.
+        if let material = style as? Material {
+            return AnyView(materialBackground(material))
+        }
+        return AnyView(background(style.retainedForegroundStyle, ignoresSafeAreaEdges: edges))
+    }
+
+    fileprivate func materialBackground(_ material: Material) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            let tint = material.retainedTint(for: context.colorScheme)
+            let blurRadius = material.retainedBlurRadius
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                return Controls.stackPanel(
+                    backgroundColor: tint,
+                    blurRadius: blurRadius,
+                    stackLayout: .vertical(alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: [childNode]
+                )
+            }
+        }
     }
 
     public func background(ignoresSafeAreaEdges edges: Edge.Set = .all) -> some View {

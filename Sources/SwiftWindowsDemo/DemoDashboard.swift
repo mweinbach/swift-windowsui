@@ -51,7 +51,7 @@ public final class DemoDashboardModel: ObservableObject {
     @Published public var selectedComponentID: Int? = DemoComponent.defaults.first?.id
 
     // Integration surface state (color picker, file importer, drop target)
-    @Published var accentColor: Color = .blue
+    @Published var accentColor: Color = DemoSignature.accentFill
 
     public init() {}
 
@@ -104,6 +104,11 @@ public final class DemoDashboardModel: ObservableObject {
         selectedComponentID = components.first?.id
     }
 
+    func selectComponent(_ component: DemoComponent) {
+        selectedComponentID = component.id
+        performAction("Selected \(component.name)")
+    }
+
     func noteImportedFile(_ url: URL) {
         performAction("Imported \(url.lastPathComponent)")
     }
@@ -137,6 +142,592 @@ public final class DemoDashboardModel: ObservableObject {
         }
     }
 }
+
+// MARK: - The signature
+
+/// The app's whole chromatic personality, in five values.
+///
+/// "Quiet ink, one signature": the page is achromatic, and exactly one object
+/// per screen is saturated. That object is filled with `heroGradient`, whose
+/// first stop is always `accentFill` — only the second stop rotates per
+/// module, so four modules read as four identities without ever becoming four
+/// design languages. Everything else that needs the accent (bars, indicators,
+/// meters, buttons) takes `accentFill` or the appearance's accent *ink*
+/// (`DemoPalette.accentInk`), never a module tint.
+///
+/// Restyling the app later is a change to the five hexes below. No view may
+/// write a violet of its own.
+enum DemoSignature {
+    /// Stop 1 of the signature gradient, and the accent **as an opaque fill**
+    /// under white text: the same value in both appearances, because an
+    /// opaque fill has no appearance behind it to vary with. White on it
+    /// clears 5.9:1. (`ControlPalette.accentFill` / `Color.accentColor`.)
+    static let accentFill = DemoPalette.hex(0x5B_4D_E0)
+
+    /// Stop 2, per module. Every one of these clears 5:1 with white, so the
+    /// hero's headline *and* its subtitle stay legible across the whole ramp.
+    /// The signature written **on white** — the hero's inverse primary
+    /// button, which is the strongest gesture the design has. 8.4:1 on white.
+    static let accentInkOnWhite = DemoPalette.hex(0x3F_33_C6)
+
+    static let layoutStop = DemoPalette.hex(0x2F_63_D8)
+    static let inputStop = DemoPalette.hex(0x14_71_7E)
+    static let animationStop = DemoPalette.hex(0xC0_39_7A)
+    static let controlsStop = DemoPalette.hex(0x8A_3F_D4)
+}
+
+// MARK: - Design tokens
+
+/// The design system's colour roles, resolved for one appearance.
+///
+/// This is the demo's portable mirror of `WinSwiftUI.ControlPalette`: the demo
+/// is same-source with macOS SwiftUI and so cannot import the Windows control
+/// palette, but it must not invent a second design system either.
+/// `DemoDesignTokenParityTests` asserts every value below against the
+/// corresponding `ControlPalette` / `DesignTokens` role, so the two tables
+/// cannot drift — a token changed in the stack fails the demo's test until it
+/// is changed here too.
+///
+/// Text is *not* here. The four text rungs are `.primary` / `.secondary` /
+/// `.tertiary` / `.quaternary`, which the system resolves per appearance and
+/// per contrast setting through the same `LabelHierarchy` machinery the
+/// controls use.
+struct DemoPalette {
+    let colorScheme: ColorScheme
+
+    init(colorScheme: ColorScheme) {
+        self.colorScheme = colorScheme
+    }
+
+    static func hex(_ value: UInt32, _ opacity: Double = 1) -> Color {
+        Color(
+            red: Double((value >> 16) & 0xFF) / 255,
+            green: Double((value >> 8) & 0xFF) / 255,
+            blue: Double(value & 0xFF) / 255,
+            opacity: opacity
+        )
+    }
+
+    /// A light-appearance wash, mixed from the page's own ink rather than
+    /// from pure black: on a cool near-white page a pure-black hairline reads
+    /// a shade warm, and `#0C0C0E` at the same alpha does not.
+    static func ink(_ opacity: Double) -> Color { hex(0x0C_0C_0E, opacity) }
+
+    /// A dark-appearance wash. Kept off the `LabelHierarchy` sentinel alphas
+    /// (0.95 / 0.80 / 0.66 / 0.62 / 0.47 / 0.30 / 0.18 on pure white), which
+    /// the appearance resolver reads as text rungs and would flip to ink in a
+    /// light window.
+    static func white(_ opacity: Double) -> Color {
+        Color(red: 1, green: 1, blue: 1, opacity: opacity)
+    }
+
+    var isDark: Bool { colorScheme == .dark }
+
+    private func pick(dark: Color, light: Color) -> Color { isDark ? dark : light }
+
+    // MARK: Neutral ramp
+
+    /// Window backdrop, sidebar and rail columns, page gutters.
+    var base: Color { pick(dark: Self.hex(0x0C_0C_0E), light: Self.hex(0xF2_F3_F5)) }
+    /// Content wells, scroll wells, table bodies.
+    var surface0: Color { pick(dark: Self.hex(0x11_11_13), light: Self.hex(0xF7_F8_FA)) }
+    /// **Cards.** The one and only card fill.
+    var surface1: Color { pick(dark: Self.hex(0x17_17_1A), light: Self.hex(0xFF_FF_FF)) }
+    /// The card material's bottom stop — `surface1` one −0.03 composite step
+    /// down. The travel is at the edge of perception, and that is exactly what
+    /// separates a surface from a rectangle of paint.
+    var surface1Bottom: Color { pick(dark: Self.hex(0x15_15_18), light: Self.hex(0xFB_FB_FC)) }
+    /// Inside a card: fields, chips, icon tiles, segmented track, row hover.
+    var surface2: Color { pick(dark: Self.hex(0x1E_1E_22), light: Self.hex(0xF1_F2_F5)) }
+    /// Pressed / active / selected-neutral; menu and popover body.
+    var surface3: Color { pick(dark: Self.hex(0x26_26_2B), light: Self.hex(0xE6_E8_EC)) }
+
+    // MARK: Hairlines
+
+    /// Separators, table and form row rules, chart gridlines.
+    var strokeSubtle: Color { pick(dark: Self.white(0.06), light: Self.ink(0.07)) }
+    /// Card ring, chip ring, field ring.
+    var stroke: Color { pick(dark: Self.white(0.09), light: Self.ink(0.10)) }
+    /// Band edges, popover ring, control bezel, chart baseline.
+    var strokeStrong: Color { pick(dark: Self.white(0.14), light: Self.ink(0.15)) }
+    /// Top stop of every ring. A dark ring is brightest at the top; a light
+    /// ring withdraws at the top and closes at the bottom — the same lighting
+    /// read the other way round.
+    var edgeHighlight: Color { pick(dark: Self.white(0.10), light: Self.white(0.75)) }
+
+    // MARK: Accent — one accent, two roles
+
+    /// The accent **as ink**: chart bars, selection indicators, active glyphs,
+    /// meters, link text. It varies with the appearance behind it, because ink
+    /// always does.
+    var accentInk: Color { pick(dark: Self.hex(0x8B_7C_FF), light: Self.hex(0x5B_4D_E0)) }
+    /// The accent **as an opaque fill** under white text.
+    var accentFill: Color { DemoSignature.accentFill }
+    /// The lightness move an accent fill makes for state. Never an alpha
+    /// ramp: a "half-disabled" looking fill is what a wash reads as.
+    var accentFillHovered: Color { Self.hex(0x6A_5D_E8) }
+    var accentFillPressed: Color { Self.hex(0x4A_3E_C4) }
+    /// Selected nav row, hovered chart column, tag chips.
+    var accentWash: Color { accentInk.opacity(isDark ? 0.14 : 0.10) }
+    /// Selected row in a focused list — one step up from `accentWash`.
+    var accentWashStrong: Color { accentInk.opacity(isDark ? 0.20 : 0.15) }
+
+    // MARK: Status
+
+    /// Status rides a 6–7pt dot, a meter fill or 11pt chip text — never a
+    /// large fill, never body text, never a button fill.
+    var success: Color { pick(dark: Self.hex(0x3F_D0_8A), light: Self.hex(0x0B_7A_52)) }
+    var warning: Color { pick(dark: Self.hex(0xF5_B9_3C), light: Self.hex(0xA4_5A_00)) }
+    var danger: Color { pick(dark: Self.hex(0xFF_6F_6F), light: Self.hex(0xC6_2B_22)) }
+
+    func statusWash(_ status: Color) -> Color { status.opacity(isDark ? 0.14 : 0.10) }
+
+    // MARK: Content on a filled accent surface
+
+    /// The label ladder rebased onto white. Written as literal alphas rather
+    /// than as `.secondary` / `.tertiary` because the hero is the *same* card
+    /// in both appearances: the semantic rungs would flip to ink in a light
+    /// window and put dark text on a saturated card.
+    var onAccentPrimary: Color { Self.white(1) }
+    var onAccentSecondary: Color { Self.white(0.88) }
+    var onAccentTertiary: Color { Self.white(0.65) }
+
+    // MARK: Elevation
+
+    /// **The appearance-conditional card rule.** In dark a card is `surface1`
+    /// closed by a hairline and casts nothing — a shadow under a near-black
+    /// card on a near-black page is invisible work, and at any visible alpha
+    /// it fills the gutter beside the card with a smear instead of page tone.
+    /// In light a white card on `#F2F3F5` takes `e1`: a 3pt blur at y 1 that
+    /// reads as a paper lift.
+    var cardShadow: Color { isDark ? Color.clear : Self.ink(0.06) }
+    var cardShadowRadius: CGFloat { 3 }
+    var cardShadowOffsetY: CGFloat { 1 }
+
+    /// `e4` — the hero card only, and the one tinted shadow in the app.
+    var heroShadow: Color { DemoSignature.accentFill.opacity(isDark ? 0.22 : 0.16) }
+    var heroShadowRadius: CGFloat { isDark ? 28 : 24 }
+    var heroShadowOffsetY: CGFloat { 10 }
+}
+
+/// The spacing, radius and row-height scales.
+///
+/// A 4/8 grid and nothing else is legal; no radius exceeds 12; a band that
+/// touches a window edge is square and closed by a hairline. Mirrors
+/// `MacOSControlMetrics.Spacing` / `.Radius`, pinned by the same parity test
+/// as the colour table.
+enum DemoMetrics {
+    static let s1: CGFloat = 4
+    static let s2: CGFloat = 8
+    static let s3: CGFloat = 12
+    static let s4: CGFloat = 16
+    static let s5: CGFloat = 20
+    static let s6: CGFloat = 24
+    static let s8: CGFloat = 32
+    static let s10: CGFloat = 40
+    static let s12: CGFloat = 48
+    static let s16: CGFloat = 64
+
+    /// Chart bar caps, selection indicator bars, mini meters.
+    static let radiusXS: CGFloat = 3
+    /// Controls: button, field, segment pill, nav row, table row.
+    static let radiusSM: CGFloat = 6
+    /// Chip, icon tile, segmented track, badge.
+    static let radiusMD: CGFloat = 8
+    /// Cards, form section boxes.
+    static let radiusLG: CGFloat = 10
+    /// Hero, popover, menu, sheet.
+    static let radiusXL: CGFloat = 12
+
+    static let navRowHeight: CGFloat = 30
+    static let listRowHeight: CGFloat = 36
+    static let tableHeaderHeight: CGFloat = 32
+    static let chipHeight: CGFloat = 22
+    static let controlHeight: CGFloat = 28
+    static let toolbarHeight: CGFloat = 48
+    static let footerHeight: CGFloat = 64
+    static let dataHeaderHeight: CGFloat = 56
+
+    static let sidebarWidth: CGFloat = 220
+    static let railWidth: CGFloat = 260
+    static let settingsColumnWidth: CGFloat = 720
+
+    /// Meter and progress track: 4 tall, fully rounded.
+    static let meterThickness: CGFloat = 4
+    /// A status dot.
+    static let dotSize: CGFloat = 6
+    /// The sanctioned icon tile — an empty state's glyph, the footer
+    /// inspector's subject. Every *other* icon in the app is a bare glyph.
+    static let iconTile: CGFloat = 28
+}
+
+/// The type ramp — Segoe UI Variable at 400 / 500 / 600 and nothing heavier.
+///
+/// **The weight axis is the hierarchy tool, not size.** `cardTitle` (14/600 on
+/// the primary rung) and `body` (13/400 on the secondary rung) are one point
+/// apart and read as clearly different roles, because weight *and* rung both
+/// move. `design: .rounded` appears nowhere: rounded is a soft consumer voice,
+/// and every app at this bar is set in a neutral grotesque.
+enum DemoType {
+    static var hero: Font { .system(size: 28, weight: .semibold) }
+    static var screenTitle: Font { .system(size: 22, weight: .semibold) }
+    static var titleSub: Font { .system(size: 13, weight: .regular) }
+    static var section: Font { .system(size: 15, weight: .semibold) }
+    static var cardTitle: Font { .system(size: 14, weight: .semibold) }
+    static var metric: Font { Font.system(size: 26, weight: .semibold).monospacedDigit() }
+    static var metricSmall: Font { Font.system(size: 18, weight: .semibold).monospacedDigit() }
+    static var body: Font { .system(size: 13, weight: .regular) }
+    static var bodyStrong: Font { .system(size: 13, weight: .medium) }
+    static var bodySelected: Font { .system(size: 13, weight: .semibold) }
+    static var controlLabel: Font { .system(size: 12, weight: .medium) }
+    static var controlLabelStrong: Font { .system(size: 12, weight: .semibold) }
+    static var caption: Font { .system(size: 11, weight: .regular) }
+    static var captionStrong: Font { Font.system(size: 11, weight: .medium).monospacedDigit() }
+    static var eyebrow: Font { .system(size: 11, weight: .semibold) }
+    static var axis: Font { Font.system(size: 10, weight: .regular).monospacedDigit() }
+    static var badge: Font { .system(size: 11, weight: .medium) }
+    static var hint: Font { Font.system(size: 10, weight: .medium) }
+    static var numeric: Font { Font.system(size: 11, weight: .semibold).monospacedDigit() }
+}
+
+// MARK: - Chrome atoms
+
+/// A group eyebrow. The only uppercase role in the system, and it is set by
+/// `.textCase(.uppercase)` on a sentence-case string so the system supplies
+/// the tracking capitals need.
+struct DemoEyebrow: View {
+    let title: String
+
+    init(_ title: String) {
+        self.title = title
+    }
+
+    var body: some View {
+        Text(title)
+            .font(DemoType.eyebrow)
+            .textCase(.uppercase)
+            .foregroundStyle(.tertiary)
+            .multilineTextAlignment(.leading)
+            .lineLimit(1)
+    }
+}
+
+/// A 1pt rule. Every structural edge in the app is one of these; nothing is
+/// separated by a gutter between floating panels.
+struct DemoRule: View {
+    let color: Color
+    let axis: Axis
+    let length: CGFloat?
+
+    enum Axis { case horizontal, vertical }
+
+    init(_ color: Color, axis: Axis = .horizontal, length: CGFloat? = nil) {
+        self.color = color
+        self.axis = axis
+        self.length = length
+    }
+
+    /// A rule with no stated length is **greedy**: a hairline that only
+    /// stretches when its parent happens to stretch it is a hairline that
+    /// silently measures zero — which is how four chart gridlines and the
+    /// hero's lit edge came to be in the tree at 0pt wide.
+    @ViewBuilder
+    var body: some View {
+        if axis == .vertical {
+            color.frame(width: 1, height: length)
+        } else if let length {
+            color.frame(width: length, height: 1)
+        } else {
+            color.frame(height: 1).frame(maxWidth: .infinity)
+        }
+    }
+}
+
+/// The one and only card: `surface1` under a two-stop material, closed by a
+/// top-lit hairline ring at `r-lg`, flat in dark and lifted by `e1` in light.
+struct DemoCard<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let content: Content
+    let padding: EdgeInsets
+    let cornerRadius: CGFloat
+
+    init(
+        padding: CGFloat = DemoMetrics.s3,
+        cornerRadius: CGFloat = DemoMetrics.radiusLG,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.content = content()
+        self.padding = EdgeInsets(
+            top: padding, leading: padding, bottom: padding, trailing: padding)
+        self.cornerRadius = cornerRadius
+    }
+
+    init(
+        padding: EdgeInsets,
+        cornerRadius: CGFloat = DemoMetrics.radiusLG,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.content = content()
+        self.padding = padding
+        self.cornerRadius = cornerRadius
+    }
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    var body: some View {
+        content
+            .padding(padding)
+            .background(
+                LinearGradient(
+                    colors: [palette.surface1, palette.surface1Bottom],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .cornerRadius(cornerRadius)
+            .padding(1)
+            .background(
+                LinearGradient(
+                    colors: [palette.edgeHighlight, palette.stroke],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .cornerRadius(cornerRadius + 1)
+            .shadow(
+                color: palette.cardShadow,
+                radius: palette.cardShadowRadius,
+                x: 0,
+                y: palette.cardShadowOffsetY
+            )
+    }
+}
+
+/// A bare monochrome glyph — the app's *only* icon treatment outside the two
+/// sanctioned 28x28 tiles. It rests on the third text rung, promotes to the
+/// second on hover, and takes accent ink when the object it names is the
+/// active selection. Never a filled rounded-square chip.
+struct DemoRowGlyph: View {
+    let systemImage: String
+    let size: CGFloat
+    let accent: Color?
+    let isHighlighted: Bool
+
+    init(
+        _ systemImage: String,
+        size: CGFloat = 15,
+        accent: Color? = nil,
+        isHighlighted: Bool = false
+    ) {
+        self.systemImage = systemImage
+        self.size = size
+        self.accent = accent
+        self.isHighlighted = isHighlighted
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if let accent {
+            Image(systemName: systemImage)
+                .font(.system(size: size))
+                .foregroundColor(accent)
+        } else {
+            Image(systemName: systemImage)
+                .font(.system(size: size))
+                .foregroundStyle(isHighlighted ? .secondary : .tertiary)
+        }
+    }
+}
+
+/// A status dot. Colour rides a symbol, never a word and never a fill.
+struct DemoStatusDot: View {
+    let color: Color
+    let size: CGFloat
+
+    init(_ color: Color, size: CGFloat = DemoMetrics.dotSize) {
+        self.color = color
+        self.size = size
+    }
+
+    var body: some View {
+        color
+            .frame(width: size, height: size)
+            .cornerRadius(size * 0.5)
+    }
+}
+
+/// A 4pt meter. The track is the neutral recess, the fill is accent ink —
+/// until the value is high enough that the *status* is the story.
+struct DemoMeter: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let value: Double
+    let width: CGFloat
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    static func fillColor(for value: Double, palette: DemoPalette) -> Color {
+        if value > 0.90 { return palette.danger }
+        if value > 0.75 { return palette.warning }
+        return palette.accentInk
+    }
+
+    var body: some View {
+        let clamped = min(1, max(0, value))
+        let thickness = DemoMetrics.meterThickness
+        return ZStack(alignment: .leading) {
+            palette.surface3
+                .frame(width: width, height: thickness)
+                .cornerRadius(thickness * 0.5)
+
+            Self.fillColor(for: clamped, palette: palette)
+                .frame(width: max(thickness, width * CGFloat(clamped)), height: thickness)
+                .cornerRadius(thickness * 0.5)
+        }
+        .frame(width: width, height: thickness, alignment: .leading)
+    }
+}
+
+/// The sanctioned 28x28 icon tile — an empty state's subject, the footer
+/// inspector's subject. Every other icon in the app is a bare monochrome
+/// glyph on the page.
+struct DemoIconTile: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let systemImage: String
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 15))
+            .foregroundStyle(.secondary)
+            .frame(width: DemoMetrics.iconTile, height: DemoMetrics.iconTile)
+            .background(palette.surface2)
+            .cornerRadius(DemoMetrics.radiusMD)
+            .padding(1)
+            .background(palette.stroke)
+            .cornerRadius(DemoMetrics.radiusMD + 1)
+    }
+}
+
+/// Every button in the demo, in the four shapes the design system has: a
+/// neutral bordered chassis, the one accent fill, the hero's inverse white
+/// primary, and a ghost on a saturated card.
+///
+/// A pressed control does not move: the fill and the label carry the whole
+/// affordance.
+struct DemoButton: View {
+    enum Kind {
+        case neutral
+        case accent
+        case inverse
+        case ghost
+    }
+
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovering = false
+
+    let title: String
+    let kind: Kind
+    let labelColor: Color?
+    let horizontalPadding: CGFloat
+    let perform: @MainActor @Sendable () -> Void
+
+    init(
+        _ title: String,
+        kind: Kind = .neutral,
+        labelColor: Color? = nil,
+        horizontalPadding: CGFloat = DemoMetrics.s3,
+        perform: @escaping @MainActor @Sendable () -> Void
+    ) {
+        self.title = title
+        self.kind = kind
+        self.labelColor = labelColor
+        self.horizontalPadding = horizontalPadding
+        self.perform = perform
+    }
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    private var fill: Color {
+        switch kind {
+        case .neutral:
+            return isHovering ? palette.surface3 : palette.surface2
+        case .accent:
+            return isHovering ? palette.accentFillHovered : palette.accentFill
+        case .inverse:
+            // Appearance-independent, like the card it sits on: the hero is
+            // the same object in both appearances, so its buttons are too.
+            return isHovering ? DemoPalette(colorScheme: .light).base : DemoPalette.white(1)
+        case .ghost:
+            return DemoPalette.white(isHovering ? 0.22 : 0.14)
+        }
+    }
+
+    private var ring: Color {
+        switch kind {
+        case .neutral: return palette.strokeStrong
+        case .accent: return palette.accentFill
+        case .inverse: return DemoPalette.white(0.9)
+        case .ghost: return DemoPalette.white(0.24)
+        }
+    }
+
+    /// The label colour, when it is a colour. A neutral button's label is the
+    /// *primary text rung* — a semantic style, not a value — so that branch
+    /// returns nil and the label is written with `.foregroundStyle(.primary)`.
+    private var foreground: Color? {
+        if let labelColor { return labelColor }
+        switch kind {
+        case .neutral: return nil
+        case .accent: return DemoPalette.white(1)
+        // The strongest gesture in the app, and it costs nothing: a white
+        // fill with the signature in the label.
+        case .inverse: return DemoSignature.accentInkOnWhite
+        case .ghost: return DemoPalette.white(1)
+        }
+    }
+
+    private var font: Font {
+        kind == .neutral ? DemoType.controlLabel : DemoType.controlLabelStrong
+    }
+
+    var body: some View {
+        Button(action: perform) {
+            HStack(alignment: .center, spacing: 0) {
+                if let foreground {
+                    Text(title)
+                        .font(font)
+                        .foregroundColor(foreground)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(1)
+                } else {
+                    Text(title)
+                        .font(font)
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, horizontalPadding)
+            .frame(height: DemoMetrics.controlHeight)
+            .background(fill)
+            .cornerRadius(DemoMetrics.radiusSM)
+            .padding(1)
+            .background(ring)
+            .cornerRadius(DemoMetrics.radiusSM + 1)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovering = hovering
+        }
+    }
+}
+
+// MARK: - Shell
+
 public struct DemoRootView: View {
     @ObservedObject var model: DemoDashboardModel
 
@@ -169,328 +760,1221 @@ public struct DemoRootView: View {
     }
 }
 
-/// The original control-center dashboard, hosted as the first tab of `DemoRootView`.
+// MARK: - Dashboard
+
+/// The control-center dashboard: two chrome bands on the page tone, then
+/// three columns separated by full-height hairlines.
+///
+/// Nothing here is a floating panel. The sidebar and the rail are *columns* —
+/// no fill, no ring, no corner — and the only thing between them and the
+/// content is a 1px rule. That is what stops the shell reading as three
+/// stacked rounded slabs.
 struct DemoDashboardScreen: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var model: DemoDashboardModel
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
 
     var body: some View {
         GeometryReader { proxy in
             let layout = DemoLayout(size: proxy.size)
 
-            ZStack(alignment: .topLeading) {
-                DemoBackdrop(size: proxy.size)
+            VStack(alignment: .leading, spacing: 0) {
+                DemoToolbar(model: model, layout: layout)
 
-                DemoAccent(
-                    frame: layout.accentA,
-                    fill: LinearGradient(
-                        colors: [
-                            model.selectedModule.glowColor.opacity(0.16),
-                            model.selectedModule.stripeColor.opacity(0.04),
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
+                // Only the columns the window can actually hold. What a
+                // dropped column carried is not dropped with it — the centre
+                // pane picks it up (see `DemoCenterPane`), so a narrow window
+                // is a re-flow rather than a truncation.
+                HStack(alignment: .top, spacing: 0) {
+                    if layout.showsSidebar {
+                        DemoSidebar(model: model, layout: layout)
+                            .frame(
+                                width: layout.sidebarWidth, height: layout.bodyHeight,
+                                alignment: .topLeading)
 
-                DemoAccent(
-                    frame: layout.accentB,
-                    fill: LinearGradient(
-                        colors: [
-                            model.selectedModule.stripeColor.opacity(0.13),
-                            model.selectedModule.glowColor.opacity(0.03),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-
-                VStack(alignment: .leading, spacing: layout.gap) {
-                    DemoToolbar(model: model, layout: layout)
-
-                    // Only the columns the window can actually hold. What a
-                    // dropped column carried is not dropped with it — the
-                    // centre pane picks it up (see `DemoCenterPane`), so a
-                    // narrow window is a re-flow rather than a truncation.
-                    HStack(alignment: .top, spacing: layout.columnGap) {
-                        if layout.showsSidebar {
-                            DemoSidebar(model: model, layout: layout)
-                                .frame(
-                                    width: layout.sidebarWidth, height: layout.bodyHeight, alignment: .topLeading)
-                        }
-
-                        DemoCenterPane(model: model, layout: layout)
-                            .frame(width: layout.contentWidth, height: layout.bodyHeight, alignment: .topLeading)
-
-                        if layout.showsRail {
-                            DemoRightRail(model: model, layout: layout)
-                                .frame(width: layout.railWidth, height: layout.bodyHeight, alignment: .topLeading)
-                        }
+                        DemoRule(palette.strokeSubtle, axis: .vertical, length: layout.bodyHeight)
                     }
-                    .frame(height: layout.bodyHeight, alignment: .topLeading)
+
+                    DemoCenterPane(model: model, layout: layout)
+                        .frame(width: layout.contentWidth, height: layout.bodyHeight, alignment: .topLeading)
+
+                    if layout.showsRail {
+                        DemoRule(palette.strokeSubtle, axis: .vertical, length: layout.bodyHeight)
+
+                        DemoRightRail(model: model, layout: layout)
+                            .frame(width: layout.railWidth, height: layout.bodyHeight, alignment: .topLeading)
+                    }
                 }
-                .padding(layout.outerPadding)
-                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+                .frame(height: layout.bodyHeight, alignment: .topLeading)
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+            .background(palette.base)
         }
     }
 }
+
+/// The toolbar band: 48 tall, on the `.bar` material, closed by a structural
+/// hairline, and carrying exactly one chromatic object (the module glyph) and
+/// one status hue (a 6pt dot).
 struct DemoToolbar: View {
     @Environment(\.colorScheme) private var colorScheme
-    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
 
-    let model: DemoDashboardModel
+    @ObservedObject var model: DemoDashboardModel
     let layout: DemoLayout
 
-    var body: some View {
-        // The toolbar band is a panel like any other; it used to restate the
-        // panel's own default fill only to run it corner to corner, which put
-        // a left-to-right lightness ramp across the top of the window.
-        DemoGlassSurface(
-            cornerRadius: layout.toolbarCornerRadius,
-            contentPadding: layout.toolbarPadding,
-            stroke: theme.surfaceStrokeStrong,
-            shadowColor: theme.shadow
-        ) {
-            HStack(alignment: .center, spacing: layout.gap) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("WinSwiftUI")
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundStyle(.primary)
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(1)
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
 
-                    Text("Same-source dashboard demo")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(1)
-                }
-                .frame(width: layout.toolbarTitleWidth, alignment: .leading)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: DemoMetrics.s3) {
+                // One line. The "Same-source dashboard demo" subtitle this
+                // used to carry forced the band to 72pt and said nothing.
+                Text("WinSwiftUI")
+                    .font(DemoType.cardTitle)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
 
                 if layout.showsToolbarSearch {
-                    HStack(alignment: .center, spacing: 10) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-                            .font(.system(size: 12))
-
-                        Text("Search commands")
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.leading)
-                            .lineLimit(1)
-                    }
-                    .padding(EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14))
-                    .frame(width: layout.searchWidth, height: layout.pillHeight, alignment: .leading)
-                    .background(
-                        LinearGradient(
-                            colors: [theme.fieldTop, theme.fieldBottom],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .cornerRadius(layout.pillHeight * 0.5)
-                    .padding(1)
-                    .background(theme.surfaceStroke)
-                    .cornerRadius(layout.pillHeight * 0.5 + 1)
-                    .allowsHitTesting(false)
-                    .layoutPriority(1)
+                    DemoSearchField(width: layout.searchWidth)
                 }
 
                 Spacer(minLength: 0)
 
                 if layout.showsToolbarStatusPills {
-                    DemoPillButton(
-                        "D3D11",
-                        width: layout.backendWidth,
-                        colors: DemoTheme.readyFill
-                    ) {
-                        model.performAction("Render stack ready")
-                    }
+                    DemoToolbarChip {
+                        HStack(alignment: .center, spacing: DemoMetrics.s2 - 2) {
+                            DemoStatusDot(palette.success)
 
-                    DemoPillButton(
-                        "Events \(model.interactionCount)",
-                        width: layout.eventsWidth,
-                        colors: DemoTheme.eventsFill
-                    ) {
-                        model.performAction("Event HUD opened")
-                    }
-                }
-
-                DemoPillButton(
-                    model.selectedModule.statusLabel,
-                    width: layout.modeWidth,
-                    colors: model.selectedModule.accentFill
-                ) {
-                    model.cycleModule()
-                }
-            }
-        }
-        .frame(height: layout.toolbarHeight, alignment: .leading)
-    }
-}
-struct DemoSidebar: View {
-    @Environment(\.colorScheme) private var colorScheme
-    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
-
-    let model: DemoDashboardModel
-    let layout: DemoLayout
-
-    var body: some View {
-        DemoGlassSurface(
-            cornerRadius: layout.panelCornerRadius,
-            contentPadding: .zero,
-            fill: LinearGradient(
-                colors: [theme.sidebarTop, theme.sidebarBottom],
-                startPoint: .top,
-                endPoint: .bottom
-            ),
-            stroke: theme.surfaceStrokeStrong
-        ) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    DemoSectionTitle("Workspace")
-
-                    // No hand-computed row width: every child fills the
-                    // sidebar's own content width. The literal it used to carry
-                    // was wider than the padded panel, so each row hung a
-                    // couple of points over both edges of the surface it was
-                    // supposed to be inside.
-                    //
-                    // A macOS source list fills the selected row with the
-                    // accent and writes it in white — in *both* appearances.
-                    // The selected row used to carry the module's glow at 0.92
-                    // under a `.primary` label, which is a white label on a
-                    // pale blue in the dark appearance.
-                    ForEach(DemoModule.allCases, id: \.self) { module in
-                        let isSelected = model.selectedModule == module
-                        DemoModuleButton(
-                            systemImage: module.systemImage,
-                            title: module.label,
-                            colors: isSelected ? module.accentFill : [theme.fieldTop, theme.fieldBottom],
-                            textColor: isSelected ? theme.onTintedFillText : Color.primary
-                        ) {
-                            model.selectModule(module)
+                            Text("D3D11")
+                                .font(DemoType.captionStrong)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
                         }
                     }
 
-                    // A group boundary, the way a macOS source list draws one: a
-                    // second eyebrow, not a rule. The 4pt accent bar that
-                    // used to sit here had no semantic job — it was not a
-                    // selection indicator (the selected row already carries
-                    // the accent fill), not a separator (nothing in a source
-                    // list separates with saturated colour), and not a
-                    // progress bar (though at full width it read as one at
-                    // 100%). The two rows under it are a different *kind* of
-                    // thing from the module list — session status, not
-                    // navigation — and the sidebar already speaks the
-                    // eyebrow language: "Workspace" introduces the first
-                    // group, so "Session" introduces the second.
-                    DemoSectionTitle("Session")
-                        .padding(.top, 6)
+                    DemoToolbarChip {
+                        HStack(alignment: .center, spacing: DemoMetrics.s2 - 2) {
+                            Text("Events")
+                                .font(DemoType.caption)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
 
-                    DemoSessionRows(model: model)
+                            Text("\(model.interactionCount)")
+                                .font(DemoType.numeric)
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                        }
+                    }
                 }
-                // The width lives here, once, and it is the surface's own
-                // content width: a scroll view proposes no definite width to
-                // its content, so without it every greedy child in the column
-                // falls back to its own text and the sidebar frays into a
-                // ragged stack. The literal this replaced was `sidebarWidth -
-                // 16`, which was wider than the padded panel — every row hung
-                // over both edges of the surface it was supposed to be in.
-                .frame(width: layout.sidebarRowWidth, alignment: .leading)
-                .padding(layout.panelPadding)
+
+                DemoModeButton(model: model)
+            }
+            // The band's own content width, stated once: a row with a
+            // `Spacer` needs a definite width to distribute, and without it
+            // every intrinsic child in the band is measured against a
+            // proposal it never sees.
+            .frame(width: layout.toolbarContentWidth, alignment: .leading)
+            .padding(.horizontal, DemoMetrics.s4)
+            .frame(height: DemoMetrics.toolbarHeight)
+            .background(.bar)
+
+            DemoRule(palette.strokeStrong, length: layout.size.width)
+        }
+    }
+}
+
+/// A toolbar chip: not a pill button, because it is not a button. 22 tall,
+/// `r-md`, the recess fill and the card ring, intrinsic width.
+///
+/// The caller supplies its own `HStack`. A container that re-wraps a
+/// `@ViewBuilder` result in a stack of its own turns N children into one
+/// opaque view, and the layout that view gets is *absolute* — every child at
+/// the same origin. That is what drew "Events" and its count on top of each
+/// other.
+struct DemoToolbarChip<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    var body: some View {
+        content
+            .padding(.horizontal, DemoMetrics.s2)
+            .frame(height: DemoMetrics.chipHeight)
+            .background(palette.surface2)
+            .cornerRadius(DemoMetrics.radiusMD)
+            .padding(1)
+            .background(palette.stroke)
+            .cornerRadius(DemoMetrics.radiusMD + 1)
+    }
+}
+
+/// The one clickable thing on the band, so the only thing shaped like a
+/// button.
+struct DemoModeButton: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovering = false
+
+    @ObservedObject var model: DemoDashboardModel
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    var body: some View {
+        Button(action: { model.cycleModule() }) {
+            HStack(alignment: .center, spacing: DemoMetrics.s2) {
+                Image(systemName: model.selectedModule.systemImage)
+                    .font(.system(size: 12))
+                    .foregroundColor(palette.accentInk)
+
+                Text(model.selectedModule.label)
+                    .font(DemoType.controlLabel)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, DemoMetrics.s3)
+            .frame(height: DemoMetrics.controlHeight)
+            .background(isHovering ? palette.surface3 : palette.surface2)
+            .cornerRadius(DemoMetrics.radiusSM)
+            .padding(1)
+            .background(palette.strokeStrong)
+            .cornerRadius(DemoMetrics.radiusSM + 1)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovering = hovering
+        }
+    }
+}
+
+/// The toolbar's search field. A recess with a ring, a glyph, a placeholder
+/// and the shortcut hint — the shape every command palette in this class of
+/// app has.
+struct DemoSearchField: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let width: CGFloat
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: DemoMetrics.s2) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 13))
+                .foregroundStyle(.tertiary)
+
+            Text("Search commands")
+                .font(DemoType.controlLabel)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+
+            Text("Ctrl K")
+                .font(DemoType.hint)
+                .foregroundStyle(.quaternary)
+                .lineLimit(1)
+                .padding(.horizontal, DemoMetrics.s1)
+                .frame(height: DemoMetrics.s4)
+                .background(palette.surface3)
+                .cornerRadius(DemoMetrics.radiusXS)
+        }
+        .padding(.horizontal, DemoMetrics.s2 + 2)
+        .frame(width: width, height: DemoMetrics.controlHeight)
+        .background(palette.surface2)
+        .cornerRadius(DemoMetrics.radiusSM)
+        .padding(1)
+        .background(palette.stroke)
+        .cornerRadius(DemoMetrics.radiusSM + 1)
+        .allowsHitTesting(false)
+    }
+}
+
+/// The sidebar column. Not a panel: no container, no fill, no corner — only
+/// the page tone and a rule on its trailing edge.
+struct DemoSidebar: View {
+    @ObservedObject var model: DemoDashboardModel
+    let layout: DemoLayout
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                DemoEyebrow("Workspace")
+                    .padding(.leading, DemoMetrics.s3)
+                    .padding(.bottom, DemoMetrics.s2)
+
+                DemoNavList(model: model)
+
+                // 24 above, 8 below: an eyebrow belongs to what is *under*
+                // it, and the 3:1 ratio is what stops a section header
+                // floating between two groups.
+                DemoEyebrow("Session")
+                    .padding(.top, DemoMetrics.s6)
+                    .padding(.leading, DemoMetrics.s3)
+                    .padding(.bottom, DemoMetrics.s2)
+
+                DemoSessionRows(model: model)
+            }
+            .frame(width: layout.sidebarInnerWidth, alignment: .leading)
+            .padding(DemoMetrics.s3)
+        }
+    }
+}
+
+struct DemoNavList: View {
+    @ObservedObject var model: DemoDashboardModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(DemoModule.allCases, id: \.self) { module in
+                DemoNavRow(
+                    systemImage: module.systemImage,
+                    title: module.label,
+                    isSelected: model.selectedModule == module
+                ) {
+                    model.selectModule(module)
+                }
             }
         }
     }
 }
 
-/// The sidebar's second group — session status rather than navigation. Lives
-/// on its own so the centre pane can host it verbatim in a window too narrow
-/// for a sidebar.
-struct DemoSessionRows: View {
-    let model: DemoDashboardModel
+/// A navigation row: 30 tall, transparent at rest, an accent wash and a
+/// 3x14 leading indicator when selected. No fill of its own, ever.
+struct DemoNavRow: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovering = false
+
+    let systemImage: String
+    let title: String
+    let isSelected: Bool
+    let perform: @MainActor @Sendable () -> Void
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    private var fill: Color {
+        if isSelected { return palette.accentWash }
+        return isHovering ? palette.surface1 : Color.clear
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            DemoRowButton(
-                title: "State",
-                detail: model.lastAction,
-                systemImage: "info.circle",
-                accent: model.selectedModule.accentFill
-            ) {
-                model.performAction("State panel opened")
+        Button(action: perform) {
+            HStack(alignment: .center, spacing: 0) {
+                // The indicator, pinned to the row's leading edge.
+                (isSelected ? palette.accentInk : Color.clear)
+                    .frame(width: 3, height: 14)
+                    .cornerRadius(DemoMetrics.radiusXS)
+
+                HStack(alignment: .center, spacing: DemoMetrics.s2) {
+                    DemoRowGlyph(
+                        systemImage,
+                        accent: isSelected ? palette.accentInk : nil,
+                        isHighlighted: isHovering
+                    )
+
+                    Text(title)
+                        .font(isSelected ? DemoType.bodySelected : DemoType.bodyStrong)
+                        .foregroundStyle(isSelected || isHovering ? .primary : .secondary)
+                        .lineLimit(1)
+                }
+                .padding(.leading, DemoMetrics.s2 - 1)
+
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, DemoMetrics.radiusXS)
+            .frame(height: DemoMetrics.navRowHeight)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(fill)
+            .cornerRadius(DemoMetrics.radiusSM)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovering = hovering
+        }
+    }
+}
+
+/// The sidebar's second group — session status rather than navigation. Two
+/// plain key/value rows: no card, no icon chip, no accent slab. It lives on
+/// its own so the centre pane can host it verbatim in a window too narrow for
+/// a sidebar.
+struct DemoSessionRows: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject var model: DemoDashboardModel
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            DemoSessionRow(dot: palette.success, title: "State", value: model.lastAction)
+            DemoSessionRow(dot: nil, title: "Shortcuts", value: "Tab · Wheel")
+        }
+    }
+}
+
+struct DemoSessionRow: View {
+    let dot: Color?
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: DemoMetrics.s2) {
+            if let dot {
+                DemoStatusDot(dot)
             }
 
-            DemoRowButton(
-                title: "Shortcuts",
-                detail: "Tab and wheel routing",
-                systemImage: "keyboard",
-                accent: model.selectedModule.accentFill
-            ) {
-                model.performAction("Shortcuts opened")
-            }
+            Text(title)
+                .font(DemoType.body)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            Spacer(minLength: DemoMetrics.s2)
+
+            Text(value)
+                .font(DemoType.captionStrong)
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
         }
+        .padding(.horizontal, DemoMetrics.s3)
+        .frame(height: DemoMetrics.navRowHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 /// The module list, laid out the way a narrow window wants it: one scrolling
-/// row of chips above the content instead of a column beside it.
-///
-/// Horizontal rather than wrapped, because the set is small, ordered, and
-/// exactly one of them is selected — a segmented strip, which is what a
-/// desktop app collapses a four-item source list into. The scroll view is
-/// what keeps it honest at any width: the chips never shrink to fit, they
-/// scroll.
+/// row of nav chips above the content instead of a column beside it.
 struct DemoModuleStrip: View {
-    @Environment(\.colorScheme) private var colorScheme
-    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
-
-    let model: DemoDashboardModel
+    @ObservedObject var model: DemoDashboardModel
     let layout: DemoLayout
 
     var body: some View {
-        DemoPanel {
-            VStack(alignment: .leading, spacing: 10) {
-                DemoSectionTitle("Workspace")
+        VStack(alignment: .leading, spacing: DemoMetrics.s2) {
+            DemoEyebrow("Workspace")
 
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .center, spacing: 10) {
-                        ForEach(DemoModule.allCases, id: \.self) { module in
-                            let isSelected = model.selectedModule == module
-                            DemoModuleButton(
-                                systemImage: module.systemImage,
-                                title: module.label,
-                                colors: isSelected
-                                    ? module.accentFill : [theme.fieldTop, theme.fieldBottom],
-                                textColor: isSelected ? theme.onTintedFillText : Color.primary
-                            ) {
-                                model.selectModule(module)
-                            }
-                            .frame(width: layout.moduleChipWidth, alignment: .leading)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .center, spacing: DemoMetrics.s2) {
+                    ForEach(DemoModule.allCases, id: \.self) { module in
+                        DemoNavRow(
+                            systemImage: module.systemImage,
+                            title: module.label,
+                            isSelected: model.selectedModule == module
+                        ) {
+                            model.selectModule(module)
                         }
+                        .frame(width: layout.moduleChipWidth, alignment: .leading)
                     }
                 }
-                .frame(height: 40)
+            }
+            .frame(height: DemoMetrics.navRowHeight + 2)
+        }
+    }
+}
+
+/// The centre column: the page's content well, an ambience band behind it,
+/// and the page margin inside it.
+struct DemoCenterPane: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject var model: DemoDashboardModel
+    let layout: DemoLayout
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            palette.surface0
+                .frame(width: layout.contentWidth, height: layout.bodyHeight)
+
+            // One band, no shape, no edge that can read as a clipping bug.
+            // (The two blurred rounded rects this replaced straddled the
+            // gutters and read as bright slivers with hard edges.)
+            LinearGradient(
+                colors: [palette.accentInk.opacity(0.055), palette.accentInk.opacity(0)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(width: layout.contentWidth, height: layout.ambienceHeight)
+            .allowsHitTesting(false)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: layout.sectionGap) {
+                    // Whatever the shell could not fit beside this column
+                    // arrives here instead of disappearing.
+                    if !layout.showsSidebar {
+                        DemoModuleStrip(model: model, layout: layout)
+                            .frame(width: layout.contentInnerWidth, alignment: .leading)
+                    }
+
+                    DemoHeroCard(model: model, layout: layout)
+                        .frame(width: layout.contentInnerWidth, alignment: .leading)
+
+                    VStack(alignment: .leading, spacing: layout.cardGap) {
+                        DemoChartCard(model: model, layout: layout)
+                            .frame(width: layout.contentInnerWidth, alignment: .leading)
+
+                        DemoStatBand(model: model, layout: layout)
+                            .frame(width: layout.contentInnerWidth, alignment: .leading)
+                    }
+
+                    if !layout.showsRail {
+                        DemoDetailTrackSection(model: model, width: layout.contentInnerWidth)
+                        DemoQuickActionsSection(model: model, width: layout.contentInnerWidth)
+                    }
+
+                    DemoActivityCard(model: model)
+                        .frame(width: layout.contentInnerWidth, alignment: .leading)
+
+                    if !layout.showsSidebar {
+                        VStack(alignment: .leading, spacing: DemoMetrics.s2) {
+                            DemoEyebrow("Session")
+
+                            DemoSessionRows(model: model)
+                        }
+                        .frame(width: layout.contentInnerWidth, alignment: .leading)
+                    }
+                }
+                .padding(layout.pageMargin)
+            }
+            .frame(width: layout.contentWidth, height: layout.bodyHeight, alignment: .topLeading)
+        }
+    }
+}
+
+/// The hero — the one saturated object on the screen, and the only gradient
+/// in the app.
+///
+/// The card is **identical in light and dark**: an opaque fill has no
+/// appearance behind it to vary with, and that single decision is what makes
+/// the light appearance a true sibling rather than a paler cousin.
+struct DemoHeroCard: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject var model: DemoDashboardModel
+    let layout: DemoLayout
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // The lit edge. A saturated card needs no outer ring — a ring is
+            // what made it read as pasted on — but it does need to look lit,
+            // and a 1px inset highlight along the top is that.
+            DemoPalette.white(0.2)
+                .frame(height: 1)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, DemoMetrics.radiusXL)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Control center")
+                    .font(DemoType.eyebrow)
+                    .textCase(.uppercase)
+                    .foregroundColor(palette.onAccentTertiary)
+                    .lineLimit(1)
+
+                Text(model.selectedModule.headline)
+                    .font(DemoType.hero)
+                    .foregroundColor(palette.onAccentPrimary)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+                    .padding(.top, DemoMetrics.s3)
+
+                Text(model.selectedModule.summary)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundColor(palette.onAccentSecondary)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+                    .padding(.top, DemoMetrics.s1 + 2)
+
+                HStack(alignment: .center, spacing: DemoMetrics.s2 + 2) {
+                    DemoButton(
+                        "Open \(model.selectedModule.label)",
+                        kind: .inverse,
+                        horizontalPadding: DemoMetrics.s4
+                    ) {
+                        model.performAction("Opened \(model.selectedModule.label)")
+                    }
+                    .layoutPriority(1)
+
+                    DemoButton("Cycle mode", kind: .ghost, horizontalPadding: DemoMetrics.s4 - 2) {
+                        model.cycleModule()
+                    }
+                    .layoutPriority(1)
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, DemoMetrics.s5)
+            }
+            .padding(DemoMetrics.s6)
+        }
+        // `minHeight`, not `height`: 172 is the card's rhythm, but a
+        // fixed-height card answers an overflow by *squeezing its children* —
+        // which is how the action row came out 19pt tall for a 28pt control.
+        // The card grows instead, and at every reachable window size it grows
+        // by the handful of points the line boxes actually need.
+        .frame(minHeight: layout.heroHeight, alignment: .topLeading)
+        .background(
+            LinearGradient(
+                colors: [DemoSignature.accentFill, model.selectedModule.signatureStop],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .cornerRadius(DemoMetrics.radiusXL)
+        .shadow(
+            color: palette.heroShadow,
+            radius: palette.heroShadowRadius,
+            x: 0,
+            y: palette.heroShadowOffsetY
+        )
+    }
+}
+
+/// Three stat cards across, 12 apart. No icon chip, no accent, no gradient,
+/// no per-card tint: an eyebrow, a tabular metric, and a delta.
+struct DemoStatBand: View {
+    @ObservedObject var model: DemoDashboardModel
+    let layout: DemoLayout
+
+    @ViewBuilder
+    var body: some View {
+        if layout.stacksMetrics {
+            VStack(alignment: .leading, spacing: layout.cardGap) {
+                ForEach(cards, id: \.title) { card in
+                    DemoStatCard(card: card)
+                        .frame(width: layout.contentInnerWidth, alignment: .leading)
+                }
+            }
+        } else {
+            HStack(alignment: .top, spacing: layout.cardGap) {
+                ForEach(cards, id: \.title) { card in
+                    DemoStatCard(card: card)
+                        .frame(width: layout.statCardWidth, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    private var cards: [DemoStat] {
+        [
+            DemoStat(
+                title: "Interactions",
+                systemImage: "bolt.fill",
+                value: "\(model.interactionCount)",
+                delta: model.interactionCount > 0 ? .up("12%") : .flat,
+                note: "vs last run"
+            ),
+            DemoStat(
+                title: "Module",
+                systemImage: model.selectedModule.systemImage,
+                value: model.selectedModule.label,
+                delta: .flat,
+                note: model.selectedModule.detailLine
+            ),
+            DemoStat(
+                title: "Frame time",
+                systemImage: "chart.bar",
+                value: "0.6",
+                delta: .improved("4%"),
+                note: "ms per frame"
+            ),
+        ]
+    }
+}
+
+struct DemoStat {
+    enum Delta {
+        /// A rise in a metric where more is better.
+        case up(String)
+        /// A fall in a metric where more is better.
+        case down(String)
+        /// A fall in a metric where *less* is better — frame cost, latency.
+        /// The arrow points down and the hue still says "good", because the
+        /// colour reports the news rather than the direction.
+        case improved(String)
+        case flat
+    }
+
+    let title: String
+    let systemImage: String
+    let value: String
+    let delta: Delta
+    let note: String
+}
+
+struct DemoStatCard: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let card: DemoStat
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    var body: some View {
+        DemoCard(padding: DemoMetrics.s4) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .center, spacing: DemoMetrics.s2) {
+                    Image(systemName: card.systemImage)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.tertiary)
+
+                    DemoEyebrow(card.title)
+                }
+
+                Text(card.value)
+                    .font(DemoType.metric)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .padding(.top, DemoMetrics.s2 + 2)
+
+                HStack(alignment: .center, spacing: DemoMetrics.s2 - 2) {
+                    DemoDeltaLabel(delta: card.delta)
+
+                    Text(card.note)
+                        .font(DemoType.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, DemoMetrics.s1 + 2)
+
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(height: 104, alignment: .topLeading)
+    }
+}
+
+struct DemoDeltaLabel: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let delta: DemoStat.Delta
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    /// A delta is a 7pt triangle and a 10/600 label in the status hue — no
+    /// fill, no chip, no pill.
+    @ViewBuilder
+    var body: some View {
+        HStack(alignment: .center, spacing: 3) {
+            if let glyph {
+                Image(systemName: glyph)
+                    .font(.system(size: 7))
+                    .foregroundColor(tint)
+
+                Text(amount)
+                    .font(DemoType.hint)
+                    .foregroundColor(tint)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private var glyph: String? {
+        switch delta {
+        case .up: return "arrowtriangle.up.fill"
+        case .down, .improved: return "arrowtriangle.down.fill"
+        case .flat: return nil
+        }
+    }
+
+    private var amount: String {
+        switch delta {
+        case .up(let value): return value
+        case .down(let value): return value
+        case .improved(let value): return value
+        case .flat: return ""
+        }
+    }
+
+    private var tint: Color {
+        switch delta {
+        case .up, .improved: return palette.success
+        case .down: return palette.danger
+        case .flat: return palette.warning
+        }
+    }
+}
+
+// MARK: - Chart
+
+enum DemoChartRange: String, CaseIterable, Hashable {
+    case day
+    case week
+    case all
+
+    var label: String {
+        switch self {
+        case .day: return "24h"
+        case .week: return "7d"
+        case .all: return "All"
+        }
+    }
+}
+
+struct DemoChartBar: Hashable {
+    let index: Int
+    let value: Double
+    let label: String
+}
+
+/// "Render pipeline" — a chart built from views, not from `Canvas`.
+///
+/// `Canvas` can draw the marks but not be *hovered*: its content is one node
+/// with no hit testing, and the column read this chart needs is per-bar. Views
+/// also get the gradient story right, since a `GraphicsContext` gradient on a
+/// path degrades to its first stop in this stack.
+struct DemoChartCard: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var hoveredIndex: Int?
+    @State private var range: DemoChartRange = .day
+
+    @ObservedObject var model: DemoDashboardModel
+    let layout: DemoLayout
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    private var bars: [DemoChartBar] {
+        Self.bars(interactions: model.interactionCount)
+    }
+
+    var body: some View {
+        DemoCard(padding: DemoMetrics.s5) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .center, spacing: DemoMetrics.s3) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Render pipeline")
+                            .font(DemoType.cardTitle)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+
+                        Text("Draw calls per frame — last 10 frames")
+                            .font(DemoType.caption)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: DemoMetrics.s2)
+
+                    if layout.showsChartLegend {
+                        HStack(alignment: .center, spacing: DemoMetrics.s2 - 2) {
+                            DemoStatusDot(palette.accentInk)
+
+                            Text("Frame cost")
+                                .font(DemoType.caption)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
+                    }
+
+                    DemoRangePicker(range: $range)
+                }
+                .frame(height: DemoMetrics.s6)
+
+                DemoChartPlot(
+                    bars: bars,
+                    width: layout.chartInnerWidth,
+                    height: layout.chartPlotHeight,
+                    hoveredIndex: $hoveredIndex
+                )
+                .padding(.top, DemoMetrics.s4)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// A deterministic, seed-style series so a screenshot stays stable across
+    /// runs but still moves with the interaction count.
+    static func bars(interactions: Int) -> [DemoChartBar] {
+        let pattern: [Double] = [0.35, 0.52, 0.40, 0.68, 0.56, 0.82, 0.64, 0.94, 0.72, 0.58]
+        return pattern.enumerated().map { index, base in
+            let phase = (Double(index) + Double(interactions) * 0.13).truncatingRemainder(dividingBy: 1)
+            let value = min(1, max(0.10, base + phase * 0.10)) * 40
+            return DemoChartBar(index: index, value: value, label: "\(index + 1)")
+        }
+    }
+}
+
+struct DemoRangePicker: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Binding var range: DemoChartRange
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 0) {
+            ForEach(DemoChartRange.allCases, id: \.self) { option in
+                DemoRangeSegment(option: option, isSelected: option == range) {
+                    range = option
+                }
+            }
+        }
+        .padding(2)
+        .background(palette.surface2)
+        .cornerRadius(DemoMetrics.radiusMD)
+    }
+}
+
+struct DemoRangeSegment: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let option: DemoChartRange
+    let isSelected: Bool
+    let perform: @MainActor @Sendable () -> Void
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    var body: some View {
+        Button(action: perform) {
+            Text(option.label)
+                .font(DemoType.captionStrong)
+                .foregroundStyle(isSelected ? .primary : .tertiary)
+                .lineLimit(1)
+                .padding(.horizontal, DemoMetrics.s2)
+                .frame(height: DemoMetrics.s5)
+                .background(isSelected ? palette.surface3 : Color.clear)
+                .cornerRadius(DemoMetrics.radiusSM)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// The plot: a left gutter of y labels, four gridlines behind the bars, a
+/// baseline visibly stronger than a gridline, and x labels under the marks.
+/// The card is the plot's background — there is no tint box inside it.
+struct DemoChartPlot: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let bars: [DemoChartBar]
+    let width: CGFloat
+    let height: CGFloat
+    @Binding var hoveredIndex: Int?
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    private static let gutter: CGFloat = 40
+    private static let labelGap: CGFloat = 8
+    private static let barGap: CGFloat = 8
+    private static let bottomStrip: CGFloat = 20
+
+    private var plotWidth: CGFloat { max(80, width - Self.gutter) }
+
+    /// The axis maximum, rounded up so that *every* gridline is a number a
+    /// reader recognises: the quarter step is a nice 1 / 2 / 5 x 10^n and the
+    /// maximum is four of them. Rounding only the top of the axis is what
+    /// produces the "50 / 38 / 25 / 13" ladder, where three of the four
+    /// labels are noise.
+    private var axisMax: Double {
+        let peak = bars.map(\.value).max() ?? 1
+        guard peak > 0 else { return 4 }
+        let quarter = peak / 4
+        var step = 1.0
+        while step * 10 <= quarter { step *= 10 }
+        let candidates = [step, step * 2, step * 5, step * 10]
+        let niceQuarter = candidates.first { $0 >= quarter } ?? quarter
+        return niceQuarter * 4
+    }
+
+    private var barWidth: CGFloat {
+        let count = CGFloat(max(1, bars.count))
+        let available = plotWidth - Self.barGap * (count - 1)
+        return min(40, max(12, available / count))
+    }
+
+    private var showsEveryLabel: Bool { bars.count <= 10 && barWidth >= 24 }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            DemoChartAxisLabels(axisMax: axisMax, height: height)
+                .frame(width: Self.gutter - Self.labelGap, alignment: .trailing)
+
+            Color.clear.frame(width: Self.labelGap, height: 1)
+
+            VStack(alignment: .leading, spacing: 0) {
+                ZStack(alignment: .bottomLeading) {
+                    DemoChartGridlines(color: palette.strokeSubtle, width: plotWidth, height: height)
+                        .frame(width: plotWidth, height: height)
+
+                    DemoChartBars(
+                        bars: bars,
+                        axisMax: axisMax,
+                        barWidth: barWidth,
+                        gap: Self.barGap,
+                        height: height,
+                        hoveredIndex: $hoveredIndex
+                    )
+                    .frame(width: plotWidth, height: height, alignment: .bottomLeading)
+                }
+                .frame(width: plotWidth, height: height)
+
+                // The baseline is a *structural* hairline, and it reaches back
+                // under the y-label gutter: a chart stands on one line.
+                DemoRule(palette.strokeStrong, length: plotWidth)
+
+                DemoChartXLabels(
+                    bars: bars,
+                    barWidth: barWidth,
+                    gap: Self.barGap,
+                    showsEveryLabel: showsEveryLabel,
+                    hoveredIndex: hoveredIndex
+                )
+                .frame(width: plotWidth, height: Self.bottomStrip, alignment: .topLeading)
+            }
+        }
+        .frame(width: width, height: height + Self.bottomStrip + 1, alignment: .topLeading)
+    }
+}
+
+struct DemoChartAxisLabels: View {
+    let axisMax: Double
+    let height: CGFloat
+
+    var body: some View {
+        let rowHeight = height / 4
+        return VStack(alignment: .trailing, spacing: 0) {
+            ForEach(ticks, id: \.self) { tick in
+                Text(tick)
+                    .font(DemoType.axis)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(1)
+                    .frame(height: rowHeight, alignment: .top)
+            }
+
+            Text("0")
+                .font(DemoType.axis)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+                .frame(height: 12, alignment: .top)
+        }
+        .frame(height: height + 12, alignment: .top)
+    }
+
+    private var ticks: [String] {
+        [1.0, 0.75, 0.5, 0.25].map { fraction in
+            "\(Int((axisMax * fraction).rounded()))"
+        }
+    }
+}
+
+struct DemoChartGridlines: View {
+    let color: Color
+    let width: CGFloat
+    let height: CGFloat
+
+    var body: some View {
+        let rowHeight = height / 4
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach([0, 1, 2, 3], id: \.self) { _ in
+                VStack(alignment: .leading, spacing: 0) {
+                    DemoRule(color, length: width)
+
+                    Spacer(minLength: 0)
+                }
+                .frame(width: width, height: rowHeight)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+struct DemoChartBars: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let bars: [DemoChartBar]
+    let axisMax: Double
+    let barWidth: CGFloat
+    let gap: CGFloat
+    let height: CGFloat
+    @Binding var hoveredIndex: Int?
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    private var peakIndex: Int {
+        bars.max { $0.value < $1.value }?.index ?? 0
+    }
+
+    /// The group is centred when it is narrower than the plot: a bar series
+    /// pinned to the left of a wide plot reads as a chart that failed to load
+    /// the rest of its data.
+    var body: some View {
+        HStack(alignment: .bottom, spacing: gap) {
+            Spacer(minLength: 0)
+
+            ForEach(bars, id: \.index) { bar in
+                DemoChartBarMark(
+                    bar: bar,
+                    axisMax: axisMax,
+                    width: barWidth,
+                    height: height,
+                    isPeak: bar.index == peakIndex,
+                    hoveredIndex: $hoveredIndex
+                )
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+struct DemoChartBarMark: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let bar: DemoChartBar
+    let axisMax: Double
+    let width: CGFloat
+    let height: CGFloat
+    let isPeak: Bool
+    @Binding var hoveredIndex: Int?
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    private var isHovered: Bool { hoveredIndex == bar.index }
+
+    private var emphasised: Bool { isHovered || (hoveredIndex == nil && isPeak) }
+
+    private var fill: Color {
+        if emphasised { return palette.accentInk }
+        if hoveredIndex != nil { return palette.accentInk.opacity(0.30) }
+        return palette.accentInk.opacity(0.55)
+    }
+
+    var body: some View {
+        let barHeight = max(2, height * CGFloat(min(1, bar.value / max(axisMax, 0.001))))
+        return VStack(alignment: .center, spacing: 0) {
+            Spacer(minLength: 0)
+
+            if emphasised {
+                Text("\(Int(bar.value.rounded()))")
+                    .font(DemoType.captionStrong)
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
+                    .padding(.bottom, DemoMetrics.s1 + 2)
+            }
+
+            UnevenRoundedRectangle(
+                topLeadingRadius: DemoMetrics.radiusXS,
+                topTrailingRadius: DemoMetrics.radiusXS
+            )
+            .fill(fill)
+            .frame(width: width, height: barHeight)
+        }
+        .frame(width: width, height: height, alignment: .bottom)
+        .background(isHovered ? palette.accentWash : Color.clear)
+        .onHover { hovering in
+            if hovering {
+                hoveredIndex = bar.index
+            } else if hoveredIndex == bar.index {
+                hoveredIndex = nil
             }
         }
     }
 }
 
-/// The detail rail's two panels, addressable on their own so they can be
-/// rendered at rail width beside the content or at content width beneath it.
-struct DemoDetailTrackPanel: View {
-    let model: DemoDashboardModel
+struct DemoChartXLabels: View {
+    let bars: [DemoChartBar]
+    let barWidth: CGFloat
+    let gap: CGFloat
+    let showsEveryLabel: Bool
+    let hoveredIndex: Int?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: gap) {
+            Spacer(minLength: 0)
+
+            ForEach(bars, id: \.index) { bar in
+                Text(showsEveryLabel || bar.index % 2 == 0 ? bar.label : " ")
+                    .font(hoveredIndex == bar.index ? DemoType.captionStrong : DemoType.axis)
+                    .foregroundStyle(hoveredIndex == bar.index ? .primary : .tertiary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
+                    .frame(width: barWidth, alignment: .center)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.top, DemoMetrics.s1)
+    }
+}
+
+// MARK: - Activity and rail
+
+struct DemoActivityCard: View {
+    @ObservedObject var model: DemoDashboardModel
+
+    var body: some View {
+        DemoCard(padding: DemoMetrics.s4) {
+            VStack(alignment: .leading, spacing: DemoMetrics.s2) {
+                Text("Activity")
+                    .font(DemoType.cardTitle)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(model.recentEvents.prefix(5).enumerated()), id: \.offset) { entry in
+                        DemoActivityRow(
+                            title: entry.element,
+                            detail: model.selectedModule.detailLine,
+                            systemImage: model.selectedModule.systemImage
+                        )
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+struct DemoActivityRow: View {
+    let title: String
+    let detail: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: DemoMetrics.s2) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15))
+                .foregroundStyle(.tertiary)
+
+            Text(title)
+                .font(DemoType.bodyStrong)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+
+            Spacer(minLength: DemoMetrics.s3)
+
+            Text(detail)
+                .font(DemoType.caption)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+        }
+        .frame(height: DemoMetrics.listRowHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// The rail's first group: two cards, not two cards inside a panel. The third
+/// nesting level is what generates card soup.
+struct DemoDetailTrackSection: View {
+    @ObservedObject var model: DemoDashboardModel
     let width: CGFloat
 
     var body: some View {
-        DemoPanel {
-            // 12, not 14: the rail carries two panels in the height the
-            // centre pane spends on one, so its internal rhythm is a step
-            // tighter than the centre column's.
-            VStack(alignment: .leading, spacing: 12) {
-                DemoSectionTitle("Detail track")
+        VStack(alignment: .leading, spacing: DemoMetrics.s2) {
+            DemoEyebrow("Detail track")
 
+            VStack(alignment: .leading, spacing: DemoMetrics.s2 + 2) {
                 ForEach(model.selectedModule.cards, id: \.title) { card in
                     DemoInfoCard(card: card)
                 }
@@ -500,22 +1984,48 @@ struct DemoDetailTrackPanel: View {
     }
 }
 
-struct DemoQuickActionsPanel: View {
-    let model: DemoDashboardModel
+struct DemoInfoCard: View {
+    let card: DemoTrackCard
+
+    var body: some View {
+        DemoCard(padding: DemoMetrics.s3 + 2) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(card.title)
+                    .font(DemoType.cardTitle)
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+
+                Text(card.summary)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .padding(.top, DemoMetrics.s1)
+
+                Text(card.meta)
+                    .font(DemoType.caption)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+                    .padding(.top, DemoMetrics.s1 + 2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// The rail's second group: flat rows, no cards. A quick action is one line.
+struct DemoQuickActionsSection: View {
+    @ObservedObject var model: DemoDashboardModel
     let width: CGFloat
 
     var body: some View {
-        DemoPanel {
-            VStack(alignment: .leading, spacing: 12) {
-                DemoSectionTitle("Quick actions")
+        VStack(alignment: .leading, spacing: DemoMetrics.s2) {
+            DemoEyebrow("Quick actions")
 
+            VStack(alignment: .leading, spacing: 0) {
                 ForEach(model.selectedModule.actions, id: \.title) { action in
-                    DemoRowButton(
-                        title: action.title,
-                        detail: action.caption,
-                        systemImage: action.systemImage,
-                        accent: model.selectedModule.accentFill
-                    ) {
+                    DemoQuickActionRow(action: action) {
                         model.performAction(action.eventLabel)
                     }
                 }
@@ -524,1026 +2034,66 @@ struct DemoQuickActionsPanel: View {
         .frame(width: width, alignment: .leading)
     }
 }
-struct DemoCenterPane: View {
-    let model: DemoDashboardModel
-    let layout: DemoLayout
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: layout.gap) {
-                // Whatever the shell could not fit beside this column arrives
-                // here instead of disappearing. Navigation goes above the
-                // content it navigates; the rail's reference panels go below
-                // the primary content but above the activity log; session
-                // status, the least urgent of the three, goes last.
-                if !layout.showsSidebar {
-                    DemoModuleStrip(model: model, layout: layout)
-                        .frame(width: layout.contentInnerWidth, alignment: .leading)
-                }
-
-                DemoHeroCard(model: model, layout: layout)
-                    .frame(width: layout.contentInnerWidth, alignment: .leading)
-
-                DemoPanel {
-                    VStack(alignment: .leading, spacing: 10) {
-                        DemoSectionTitle("Render pipeline")
-
-                        // The panel's own content width, not a literal 32 that
-                        // happened to be near it: the panel pads by 14 in a
-                        // compact window and 16 otherwise, so the flat 32 left
-                        // the plot short of the panel's right inset in one of
-                        // the two and over it in the other.
-                        DemoRenderPipelineChart(model: model)
-                            .frame(
-                                width: layout.contentInnerWidth
-                                    - layout.panelPadding.leading - layout.panelPadding.trailing - 2,
-                                height: layout.chartHeight
-                            )
-                            .clipped()
-                    }
-                }
-                .frame(width: layout.contentInnerWidth, alignment: .leading)
-
-                if layout.stacksMetrics {
-                    VStack(alignment: .leading, spacing: 14) {
-                        DemoMetricCard(
-                            title: "Interactions", value: "\(model.interactionCount)", note: "Events tracked"
-                        )
-                        .frame(width: layout.contentInnerWidth, alignment: .leading)
-                        DemoMetricCard(
-                            title: "Module", value: model.selectedModule.label, note: model.selectedModule.summary
-                        )
-                        .frame(width: layout.contentInnerWidth, alignment: .leading)
-                        DemoMetricCard(
-                            title: "Target", value: "Same source", note: "Import WinSwiftUI or SwiftUI"
-                        )
-                        .frame(width: layout.contentInnerWidth, alignment: .leading)
-                    }
-                } else {
-                    HStack(alignment: .center, spacing: 18) {
-                        DemoMetricCard(
-                            title: "Interactions", value: "\(model.interactionCount)", note: "Events tracked"
-                        )
-                        .frame(width: layout.metricCardWidth, alignment: .leading)
-                        DemoMetricCard(
-                            title: "Module", value: model.selectedModule.label, note: model.selectedModule.summary
-                        )
-                        .frame(width: layout.metricCardWidth, alignment: .leading)
-                        DemoMetricCard(
-                            title: "Target", value: "Same source", note: "Import WinSwiftUI or SwiftUI"
-                        )
-                        .frame(width: layout.metricCardWidth, alignment: .leading)
-                    }
-                    .frame(width: layout.contentInnerWidth, alignment: .leading)
-                }
-
-                if !layout.showsRail {
-                    DemoDetailTrackPanel(model: model, width: layout.contentInnerWidth)
-                    DemoQuickActionsPanel(model: model, width: layout.contentInnerWidth)
-                }
-
-                DemoPanel {
-                    VStack(alignment: .leading, spacing: 14) {
-                        DemoSectionTitle("Activity")
-
-                        ForEach(model.recentEvents.prefix(5), id: \.self) { event in
-                            DemoActivityCard(
-                                title: event,
-                                detail: model.selectedModule.detailLine,
-                                systemImage: model.selectedModule.systemImage,
-                                accent: model.selectedModule.accentFill
-                            )
-                        }
-                    }
-                }
-                .frame(width: layout.contentInnerWidth, alignment: .leading)
-
-                if !layout.showsSidebar {
-                    DemoPanel {
-                        VStack(alignment: .leading, spacing: 14) {
-                            DemoSectionTitle("Session")
-
-                            DemoSessionRows(model: model)
-                        }
-                    }
-                    .frame(width: layout.contentInnerWidth, alignment: .leading)
-                }
-            }
-        }
-    }
-}
-
-/// Canvas-driven mini bar chart embedded in the dashboard's center pane.
-/// Demonstrates the SwiftUI-shape `GraphicsContext` API (fillRect with color
-/// and linear-gradient shading, `drawLayer`, `translateBy`) against the same
-/// shared demo source compatible with macOS SwiftUI.
-struct DemoRenderPipelineChart: View {
+struct DemoQuickActionRow: View {
     @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovering = false
 
-    let model: DemoDashboardModel
+    let action: DemoAction
+    let perform: @MainActor @Sendable () -> Void
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
 
     var body: some View {
-        let plotBackground = DemoTheme(colorScheme: colorScheme).fieldTop
-        let glow = model.selectedModule.glowColor
-        let stripe = model.selectedModule.stripeColor
-        let interactions = max(1, model.interactionCount)
-        // A deterministic, seed-style bar series so the screenshot stays
-        // stable across runs but still varies with interaction count + module.
-        let bars = Self.bars(interactions: interactions, glow: glow, stripe: stripe)
+        Button(action: perform) {
+            HStack(alignment: .center, spacing: DemoMetrics.s2) {
+                Image(systemName: action.systemImage)
+                    .font(.system(size: 15))
+                    .foregroundStyle(isHovering ? .secondary : .tertiary)
 
-        return Canvas { ctx, size in
-            // Backing tint so the chart panel reads as one block.
-            ctx.fill(
-                Rect(x: 0, y: 0, width: size.width, height: size.height),
-                with: .linearGradient(
-                    Gradient(colors: [
-                        plotBackground.opacity(0.55),
-                        plotBackground.opacity(0.30),
-                    ]),
-                    startPoint: CGPoint(x: size.width / 2, y: 0),
-                    endPoint: CGPoint(x: size.width / 2, y: size.height)
-                )
-            )
+                Text(action.title)
+                    .font(DemoType.bodyStrong)
+                    .foregroundStyle(isHovering ? .primary : .secondary)
+                    .lineLimit(1)
 
-            let count = bars.count
-            guard count > 0 else { return }
-            let gap: CGFloat = 6
-            let barWidth = max(2, (size.width - gap * CGFloat(count - 1)) / CGFloat(count))
-            let baselineY: CGFloat = size.height - 8
+                Spacer(minLength: DemoMetrics.s2)
 
-            var index = 0
-            while index < count {
-                let bar = bars[index]
-                let x = CGFloat(index) * (barWidth + gap)
-                let barHeight = max(2, bar.value * (size.height - 18))
-
-                ctx.drawLayer { sub in
-                    sub.translateBy(x: x, y: baselineY - barHeight)
-                    sub.opacity = 0.85 + bar.emphasis * 0.15
-                    // Square corners read as a filled table cell; a real chart
-                    // bar carries a small radius. Keep it under half the bar
-                    // width so a thin series never turns into a column of
-                    // capsules.
-                    //
-                    // A solid shading, not the gradient the square bar used:
-                    // `GraphicsContext` gradients are a *rect* feature in this
-                    // stack (docs/CompatibilityStatus.md — `Canvas` is Partial),
-                    // and a same-source demo must not read as correct only
-                    // because a gap degrades quietly. The bar keeps its
-                    // per-bar emphasis through the layer opacity above.
-                    let radius = min(2.5, barWidth / 2)
-                    sub.fill(
-                        Path(
-                            roundedRect: CGRect(x: 0, y: 0, width: barWidth, height: barHeight),
-                            cornerRadius: radius
-                        ),
-                        with: .color(bar.fill)
-                    )
-                }
-
-                index += 1
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.quaternary)
             }
+            .padding(.horizontal, DemoMetrics.s2)
+            .frame(height: DemoMetrics.s8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isHovering ? palette.surface1 : Color.clear)
+            .cornerRadius(DemoMetrics.radiusSM)
         }
-    }
-
-    private struct Bar {
-        let value: CGFloat
-        let emphasis: CGFloat
-        let fill: Color
-    }
-
-    private static func bars(interactions: Int, glow: Color, stripe: Color) -> [Bar] {
-        let pattern: [CGFloat] = [0.35, 0.52, 0.40, 0.68, 0.56, 0.82, 0.64, 0.94, 0.72, 0.58]
-        return pattern.enumerated().map { index, base in
-            let phase = (Double(index) + Double(interactions) * 0.13).truncatingRemainder(dividingBy: 1)
-            let value = min(1, max(0.10, base + CGFloat(phase) * 0.10))
-            let emphasis = CGFloat(phase)
-            // One series, two module tones: the taller half of the series
-            // carries the module's glow, the shorter its stripe. A chart reads
-            // as a chart because its bars share a colour, not because each one
-            // is a gradient.
-            return Bar(
-                value: value,
-                emphasis: emphasis,
-                fill: base >= 0.6 ? glow : stripe
-            )
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovering = hovering
         }
     }
 }
+
+/// The rail column. Like the sidebar: a column, not a panel.
 struct DemoRightRail: View {
-    let model: DemoDashboardModel
+    @ObservedObject var model: DemoDashboardModel
     let layout: DemoLayout
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: layout.gap) {
-                DemoDetailTrackPanel(model: model, width: layout.railInnerWidth)
-                DemoQuickActionsPanel(model: model, width: layout.railInnerWidth)
+            VStack(alignment: .leading, spacing: DemoMetrics.s6) {
+                DemoDetailTrackSection(model: model, width: layout.railInnerWidth)
+
+                DemoQuickActionsSection(model: model, width: layout.railInnerWidth)
             }
+            .padding(DemoMetrics.s3)
         }
     }
 }
-struct DemoHeroCard: View {
-    @Environment(\.colorScheme) private var colorScheme
-    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
 
-    let model: DemoDashboardModel
-    let layout: DemoLayout
+// MARK: - Layout
 
-    var body: some View {
-        DemoTintedSurface(
-            cornerRadius: layout.panelCornerRadius + 4,
-            contentPadding: layout.panelPadding,
-            // The one card in the app with a tint of its own. It is a tint of
-            // the *appearance*, not a fixed navy: a deep module-tinted card in
-            // dark mode, a pale module-tinted one in light. It used to be navy
-            // in both, which put a dark slab in the middle of the light
-            // dashboard and made a light desktop read as a dark app.
-            colors: [
-                theme.heroTop(model.selectedModule),
-                theme.heroBottom(model.selectedModule),
-            ],
-            stroke: theme.surfaceStrokeStrong,
-            // A glow-tinted halo under the dark hero, the neutral panel
-            // shadow under the light one: a blue shadow on a light window
-            // reads as a cool smudge, not as ambience.
-            shadowColor: colorScheme == .dark
-                ? model.selectedModule.glowColor.opacity(0.12)
-                : theme.shadow
-        ) {
-            // 14, not 18. Five rungs at 18 plus a 38pt pill row measured 214
-            // inside a 210pt card, and a fixed-height card answers an
-            // overflow by squeezing: the pills came out 31pt tall rather than
-            // the 38 they asked for. The card's height is what the metric
-            // band below it is positioned against, so the rhythm gives way
-            // here rather than the card growing.
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .center, spacing: 10) {
-                    DemoCapsuleText("Control center")
-                    DemoCapsuleText(model.selectedModule.label, tint: model.selectedModule.fillTop)
-                }
-
-                // Semantic rungs, not white: the card is dark in one
-                // appearance and pale in the other, and `.primary` is the only
-                // value that is legible on both.
-                Text(model.selectedModule.headline)
-                    .font(.system(size: layout.headlineSize, weight: .bold, design: .rounded))
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.leading)
-
-                Text(model.selectedModule.summary)
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.leading)
-
-                // The accent rule takes the accent *fill*, not the glow it
-                // used to: a pale hue at 0.94 alpha over a pale hero card is
-                // the same colour as the card, and the rule was invisible in
-                // the light appearance. 4pt rather than 12, for the same
-                // reason as the sidebar's — a saturated band that wide across
-                // a card is a progress bar, not a rule.
-                Color.clear
-                    .frame(
-                        width: layout.contentInnerWidth
-                            - layout.panelPadding.leading - layout.panelPadding.trailing - 2,
-                        height: 4
-                    )
-                    .background(
-                        LinearGradient(
-                            colors: model.selectedModule.accentFill,
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .cornerRadius(2)
-                    .allowsHitTesting(false)
-
-                // One row, at every window size the app can be dragged to.
-                // See `DemoLayout.heroHeight` for why the stacked alternative
-                // is gone rather than fixed.
-                HStack(alignment: .center, spacing: 12) {
-                    DemoPillButton(
-                        "Open \(model.selectedModule.label)",
-                        colors: model.selectedModule.accentFill
-                    ) {
-                        model.performAction("Opened \(model.selectedModule.label)")
-                    }
-                    .layoutPriority(1)
-
-                    DemoPillButton(
-                        "Cycle mode",
-                        colors: [theme.fieldTop, theme.fieldBottom],
-                        textColor: Color.primary
-                    ) {
-                        model.cycleModule()
-                    }
-                    .layoutPriority(1)
-                }
-            }
-        }
-        .frame(height: layout.heroHeight, alignment: .leading)
-    }
-}
-struct DemoBackdrop: View {
-    @Environment(\.colorScheme) private var colorScheme
-    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
-
-    let size: CGSize
-
-    var body: some View {
-        Color.clear
-            .frame(width: size.width, height: size.height)
-            .background(
-                LinearGradient(
-                    colors: [
-                        theme.backdropTop,
-                        theme.backdropMiddle,
-                        theme.backdropBottom,
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .allowsHitTesting(false)
-    }
-}
-struct DemoGlassSurface<Content: View>: View {
-    // A default cannot be a stored constant any more: the appearance is
-    // only known once the view is in an environment.
-    @Environment(\.colorScheme) private var colorScheme
-
-    let content: Content
-    let cornerRadius: CGFloat
-    let contentPadding: EdgeInsets
-    let fill: LinearGradient?
-    let stroke: Color?
-    let shadowColor: Color?
-    let elevation: DemoElevation
-
-    init(
-        cornerRadius: CGFloat = 30,
-        contentPadding: EdgeInsets = EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
-        fill: LinearGradient? = nil,
-        stroke: Color? = nil,
-        shadowColor: Color? = nil,
-        elevation: DemoElevation = .panel,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.content = content()
-        self.cornerRadius = cornerRadius
-        self.contentPadding = contentPadding
-        self.fill = fill
-        self.stroke = stroke
-        self.shadowColor = shadowColor
-        self.elevation = elevation
-    }
-
-    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
-
-    /// A panel is lit from above, so its gradient runs top to bottom.
-    ///
-    /// It used to run corner to corner, which on a card far wider than it is
-    /// tall is very nearly a *horizontal* gradient: a 730×140 pt card moved
-    /// nine levels from its left edge to its right one and one level from its
-    /// top to its bottom. Both halves of that are wrong — panels do not get
-    /// lighter on one side, and the vertical fall is the only part of the
-    /// gradient the eye reads as depth — which is why these cards audited as
-    /// flat single-colour fills despite being authored as gradients.
-    private var resolvedFill: LinearGradient {
-        fill
-            ?? LinearGradient(
-                colors: [theme.surfaceTop, theme.surfaceBottom],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-    }
-
-    /// The panel's hairline, brightest along its top edge.
-    private var resolvedStroke: LinearGradient {
-        LinearGradient(
-            colors: [theme.surfaceHighlight, stroke ?? theme.surfaceStroke],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-    }
-
-    var body: some View {
-        content
-            .padding(contentPadding)
-            .background(resolvedFill)
-            .cornerRadius(cornerRadius)
-            .padding(1)
-            .background(resolvedStroke)
-            .cornerRadius(cornerRadius + 1)
-            .shadow(
-                color: elevation.castsShadow ? (shadowColor ?? theme.shadow) : .clear,
-                radius: elevation.radius,
-                x: 0,
-                y: elevation.offsetY
-            )
-    }
-}
-
-/// How far off the page a surface sits. macOS has two answers, not one: a
-/// window-level panel casts a wide soft shadow, and a *control* — a push
-/// button, a source-list row — casts nothing, and is separated from its
-/// background by its own edge. Every surface in this demo used to take the
-/// panel value, which put an 8 pt halo 14 pt below a 38 pt pill and read as a
-/// slab that had come loose from the button.
-enum DemoElevation {
-    case panel
-    case control
-
-    var castsShadow: Bool { self == .panel }
-
-    var radius: CGFloat {
-        switch self {
-        case .panel: return 8
-        case .control: return 0
-        }
-    }
-
-    var offsetY: CGFloat {
-        switch self {
-        case .panel: return 14
-        case .control: return 0
-        }
-    }
-}
-struct DemoTintedSurface<Content: View>: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    let content: Content
-    let cornerRadius: CGFloat
-    let contentPadding: EdgeInsets
-    let colors: [Color]
-    let stroke: Color?
-    let shadowColor: Color?
-    let elevation: DemoElevation
-
-    init(
-        cornerRadius: CGFloat = 24,
-        contentPadding: EdgeInsets = EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16),
-        colors: [Color],
-        stroke: Color? = nil,
-        shadowColor: Color? = nil,
-        elevation: DemoElevation = .panel,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.content = content()
-        self.cornerRadius = cornerRadius
-        self.contentPadding = contentPadding
-        self.colors = colors
-        self.stroke = stroke
-        self.shadowColor = shadowColor
-        self.elevation = elevation
-    }
-
-    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
-
-    var body: some View {
-        content
-            .padding(contentPadding)
-            .background(
-                // Top to bottom, like every other panel: a tinted card is
-                // still a card, and a corner-to-corner tint on a wide surface
-                // reads as a lighting direction no window has.
-                LinearGradient(
-                    colors: colors,
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .cornerRadius(cornerRadius)
-            .padding(1)
-            .background(
-                LinearGradient(
-                    colors: [theme.surfaceHighlight, stroke ?? theme.surfaceStrokeStrong],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .cornerRadius(cornerRadius + 1)
-            .shadow(
-                color: elevation.castsShadow ? (shadowColor ?? theme.shadow) : .clear,
-                radius: elevation.radius,
-                x: 0,
-                y: elevation.offsetY
-            )
-    }
-}
-struct DemoPanel<Content: View>: View {
-    let content: Content
-
-    init(@ViewBuilder content: () -> Content) {
-        self.content = content()
-    }
-
-    var body: some View {
-        DemoGlassSurface {
-            content
-        }
-    }
-}
-struct DemoCapsuleText: View {
-    @Environment(\.colorScheme) private var colorScheme
-    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
-
-    let title: String
-    let tint: Color?
-
-    init(_ title: String, tint: Color? = nil) {
-        self.title = title
-        self.tint = tint
-    }
-
-    var body: some View {
-        // Two chips, two jobs. The plain one is a scrim on the hero card, so
-        // it takes the card's own contrast direction and `.primary` text. The
-        // tinted one is a *badge*, so it keeps its accent at full strength and
-        // near-white text — the 0.42 wash it used to carry was a legible blue
-        // on the old navy card and a ghost on the light one.
-        Text(title)
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
-            .foregroundColor(tint == nil ? Color.primary : theme.onTintedFillText)
-            .multilineTextAlignment(.center)
-            .lineLimit(1)
-            .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
-            // The badge takes its tint at full strength. The 0.92 it used to
-            // apply was the last of the washes: a badge fill is an accent
-            // fill, and a caller hands one over already opaque.
-            .background(tint == nil ? theme.heroChipFill : tint!)
-            .cornerRadius(12)
-            .padding(1)
-            .background(theme.surfaceStroke)
-            .cornerRadius(13)
-    }
-}
-struct DemoSectionTitle: View {
-    let title: String
-
-    init(_ title: String) {
-        self.title = title
-    }
-
-    var body: some View {
-        // The one place the demo genuinely wants small caps: a group
-        // eyebrow, the way an NSTableView group row or a sidebar heading
-        // reads. Expressing it as `.textCase(.uppercase)` on a sentence-case
-        // string — rather than typing the string in caps — is what lets the
-        // system set it as caps *and* apply the tracking caps need.
-        Text(title)
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
-            .textCase(.uppercase)
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.leading)
-            .lineLimit(1)
-    }
-}
-struct DemoPillButton: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    let title: String
-    let width: CGFloat?
-    let colors: [Color]
-    let textColor: Color?
-    let perform: @MainActor @Sendable () -> Void
-
-    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
-
-    init(
-        _ title: String,
-        width: CGFloat? = nil,
-        colors: [Color],
-        textColor: Color? = nil,
-        perform: @escaping @MainActor @Sendable () -> Void
-    ) {
-        self.title = title
-        self.width = width
-        self.colors = colors
-        self.textColor = textColor
-        self.perform = perform
-    }
-
-    var body: some View {
-        Button(action: perform) {
-            DemoTintedSurface(
-                cornerRadius: 20,
-                contentPadding: EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14),
-                colors: colors,
-                stroke: theme.surfaceStrokeStrong,
-                shadowColor: theme.shadow,
-                elevation: .control
-            ) {
-                Text(title)
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .foregroundColor(textColor ?? theme.onTintedFillText)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(1)
-                    .frame(width: width, height: 38)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-}
-struct DemoModuleButton: View {
-    @Environment(\.colorScheme) private var colorScheme
-    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
-
-    let systemImage: String
-    let title: String
-    let colors: [Color]
-    /// The label rung the row's own fill asks for: `.primary` on the neutral
-    /// field, near-white on the accent fill of a selected row.
-    let textColor: Color
-    let perform: @MainActor @Sendable () -> Void
-
-    var body: some View {
-        Button(action: perform) {
-            DemoTintedSurface(
-                cornerRadius: 16,
-                contentPadding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
-                colors: colors,
-                stroke: theme.surfaceStroke,
-                elevation: .control
-            ) {
-                HStack(alignment: .center, spacing: 10) {
-                    Image(systemName: systemImage)
-                        .foregroundColor(textColor)
-                        .font(.system(size: 14))
-                        .frame(width: 18, height: 18)
-
-                    Text(title)
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundColor(textColor)
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(1)
-                        .layoutPriority(1)
-                }
-                // Symmetric padding rather than a 42 pt fixed height: a
-                // sidebar row is as tall as its label plus its insets, which
-                // lands near the ~28 pt macOS source-list row. The fixed
-                // height left the label sitting in the top half of a box with
-                // an empty lower half.
-                .padding(EdgeInsets(top: 7, leading: 12, bottom: 7, trailing: 12))
-                // Greedy *inside* the surface, not around it: the fill has to
-                // reach the thing that draws the background, or the button
-                // stays the width of its own label and just sits at the
-                // leading edge of a wider invisible box.
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-}
-struct DemoRowButton: View {
-    @Environment(\.colorScheme) private var colorScheme
-    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
-
-    let title: String
-    let detail: String
-    let systemImage: String
-    /// The row's accent *fill* ramp, not a glow to wash the chip in: the
-    /// icon chip carries a near-white glyph, and a glow at 0.90 alpha put
-    /// that glyph on a pastel in the light appearance.
-    let accent: [Color]
-    let perform: @MainActor @Sendable () -> Void
-
-    var body: some View {
-        Button(action: perform) {
-            DemoGlassSurface(
-                cornerRadius: 20,
-                contentPadding: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14),
-                fill: LinearGradient(
-                    colors: [theme.fieldTop, theme.fieldBottom],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ),
-                stroke: theme.surfaceStroke,
-                elevation: .control
-            ) {
-                HStack(alignment: .center, spacing: 14) {
-                    Color.clear
-                        .frame(width: 8, height: 44)
-                        .background(
-                            LinearGradient(
-                                colors: accent,
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .cornerRadius(4)
-                        .allowsHitTesting(false)
-
-                    DemoTintedSurface(
-                        cornerRadius: 16,
-                        contentPadding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
-                        colors: accent,
-                        stroke: theme.surfaceStroke,
-                        elevation: .control
-                    ) {
-                        Image(systemName: systemImage)
-                            .foregroundColor(theme.onTintedFillText)
-                            .font(.system(size: 15))
-                            .frame(width: 30, height: 30)
-                    }
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(title)
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
-                            .foregroundStyle(.primary)
-                            .multilineTextAlignment(.leading)
-                            .lineLimit(1)
-
-                        // `.secondary`, not `.tertiary`: this line is the
-                        // row's subtitle — content — and macOS keeps the
-                        // tertiary rung for decoration and disabled chrome.
-                        // On the light card the tertiary rung measured
-                        // 1.88:1, which is a smudge, not a caption.
-                        Text(detail)
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.leading)
-                            .lineLimit(1)
-                    }
-                    .layoutPriority(1)
-                }
-                // A row in a column is as wide as the column. The fill goes
-                // inside the surface, where the background is drawn: outside
-                // it, the row keeps the width of its own longest line and a
-                // stack of them fans out into a ragged list of chips.
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-}
-struct DemoMetricCard: View {
-    let title: String
-    let value: String
-    let note: String
-
-    var body: some View {
-        DemoGlassSurface(cornerRadius: 26) {
-            VStack(alignment: .leading, spacing: 10) {
-                // The card's caption sits on the same rung as the section
-                // headers around it ("WORKSPACE", "RENDER PIPELINE"), which
-                // is `.secondary`. On the light card the tertiary rung this
-                // used to carry measured 1.86:1 against the card fill — the
-                // titles were legible only as a shape.
-                Text(title)
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(1)
-
-                Text(value)
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.leading)
-
-                // One rule for captions across the app: a caption is
-                // `.secondary`, and an accent means "you can click this".
-                // These notes used to take a per-module accent, so "Events
-                // tracked" sat in link blue next to "Import WinSwiftUI or
-                // SwiftUI" in slate — two colours for one row of identical
-                // roles, neither of them interactive.
-                Text(note)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.leading)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-}
-struct DemoActivityCard: View {
-    let title: String
-    let detail: String
-    let systemImage: String
-    let accent: [Color]
-
-    var body: some View {
-        DemoRowButton(title: title, detail: detail, systemImage: systemImage, accent: accent) {}
-            .allowsHitTesting(false)
-    }
-}
-struct DemoInfoCard: View {
-    @Environment(\.colorScheme) private var colorScheme
-    private var theme: DemoTheme { DemoTheme(colorScheme: colorScheme) }
-
-    let card: DemoCard
-
-    var body: some View {
-        // A rail card's own rhythm, tighter than a centre-pane panel's: 14pt
-        // insets and a 6pt line gap, so the two cards plus the quick-action
-        // panel under them are a column the default window can hold whole.
-        // At 18/8 the rail ran ~30pt past the bottom of its scroll view and
-        // the fold went through the middle of the last row button.
-        DemoGlassSurface(
-            cornerRadius: 24,
-            contentPadding: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14),
-            fill: LinearGradient(
-                colors: [theme.fieldTop, theme.fieldBottom],
-                startPoint: .top,
-                endPoint: .bottom
-            ),
-            stroke: theme.surfaceStroke
-        ) {
-            VStack(alignment: .leading, spacing: 6) {
-                // A headline, not a title2: 20pt bold on a 260pt rail card
-                // is the largest type on the screen after the hero headline,
-                // for the smallest card.
-                Text(card.title)
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.leading)
-
-                Text(card.summary)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.leading)
-
-                // Same rule as every caption in the app: `.secondary`, with
-                // the accent reserved for things that can be clicked. The
-                // per-module tint this carried made a static meta line the
-                // most saturated text on the rail.
-                Text(card.meta)
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.leading)
-            }
-            // A column of cards is a column: every card takes the column's
-            // width rather than its own longest line, or the rail reads as a
-            // pile of differently sized boxes with a ragged right edge.
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-}
-struct DemoAccent: View {
-    let frame: CGRect
-    let fill: LinearGradient
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Color.clear.frame(height: frame.origin.y)
-
-            HStack(alignment: .center, spacing: 0) {
-                Color.clear.frame(width: frame.origin.x)
-                Color.clear
-                    .frame(width: frame.size.width, height: frame.size.height)
-                    .background(fill)
-                    .cornerRadius(32)
-                    .allowsHitTesting(false)
-            }
-        }
-        .allowsHitTesting(false)
-    }
-}
-/// The dashboard's surface palette, resolved for one appearance.
-///
-/// This used to be a single unconditional *light* theme with no
-/// `colorScheme` awareness, while the settings and data screens used bare
-/// system controls, which are appearance-driven. Three screens of one app
-/// therefore met in the middle of a `TabView` with two independent
-/// hardcoded appearances — and the dashboard's dark-slate secondary text
-/// was also being applied on the dark data screen, where it measured 2.7:1.
-///
-/// Text hierarchy is not here at all any more: it is `.primary`,
-/// `.secondary` and `.tertiary`, which the system resolves for whichever
-/// appearance the view is actually in. Only the *surfaces* — which are a
-/// design choice this demo is making, not a system role — carry values,
-/// and they carry one per appearance.
-struct DemoTheme {
-    let colorScheme: ColorScheme
-
-    private var isDark: Bool { colorScheme == .dark }
-
-    private func pick(light: Color, dark: Color) -> Color { isDark ? dark : light }
-
-    /// The window background. A window has one, and the tab bar the shell
-    /// draws above the dashboard is part of the same window: a green-to-cream
-    /// diagonal under a neutral system band put a visible seam across the top
-    /// of the light window and made the page look like a different surface
-    /// pasted under the chrome. What is left is a window grey with barely
-    /// enough gradient to keep the demo's diagonal.
-    var backdropTop: Color {
-        pick(
-            light: Color(red: 0.945, green: 0.949, blue: 0.957, opacity: 1.0),
-            dark: Color(red: 0.098, green: 0.098, blue: 0.102, opacity: 1.0))
-    }
-    var backdropMiddle: Color {
-        pick(
-            light: Color(red: 0.925, green: 0.929, blue: 0.937, opacity: 1.0),
-            dark: Color(red: 0.118, green: 0.118, blue: 0.125, opacity: 1.0))
-    }
-    var backdropBottom: Color {
-        pick(
-            light: Color(red: 0.949, green: 0.945, blue: 0.937, opacity: 1.0),
-            dark: Color(red: 0.086, green: 0.086, blue: 0.090, opacity: 1.0))
-    }
-    var surfaceTop: Color {
-        pick(
-            light: Color(red: 0.99, green: 0.99, blue: 1.0, opacity: 0.92),
-            dark: Color(red: 0.196, green: 0.196, blue: 0.204, opacity: 0.92))
-    }
-    var surfaceBottom: Color {
-        pick(
-            light: Color(red: 0.93, green: 0.95, blue: 0.98, opacity: 0.86),
-            dark: Color(red: 0.157, green: 0.157, blue: 0.165, opacity: 0.86))
-    }
-    var fieldTop: Color {
-        pick(
-            light: Color(red: 0.97, green: 0.98, blue: 1.0, opacity: 0.96),
-            dark: Color(red: 0.235, green: 0.235, blue: 0.243, opacity: 0.96))
-    }
-    var fieldBottom: Color {
-        pick(
-            light: Color(red: 0.91, green: 0.94, blue: 0.98, opacity: 0.90),
-            dark: Color(red: 0.184, green: 0.184, blue: 0.192, opacity: 0.90))
-    }
-    var sidebarTop: Color {
-        pick(
-            light: Color(red: 0.95, green: 0.96, blue: 0.98, opacity: 0.90),
-            dark: Color(red: 0.169, green: 0.169, blue: 0.176, opacity: 0.90))
-    }
-    var sidebarBottom: Color {
-        pick(
-            light: Color(red: 0.89, green: 0.92, blue: 0.96, opacity: 0.84),
-            dark: Color(red: 0.137, green: 0.137, blue: 0.145, opacity: 0.84))
-    }
-    /// The hero card's fill, per appearance. The card is the one surface the
-    /// demo tints with the selected module, and the tint has to be a *light*
-    /// tint in light mode: a fixed deep navy over a light backdrop is a dark
-    /// app pasted onto a light desktop, which is what this used to look like.
-    func heroTop(_ module: DemoModule) -> Color {
-        pick(light: module.heroTopLight, dark: module.panelStartColor)
-    }
-
-    func heroBottom(_ module: DemoModule) -> Color {
-        pick(light: module.heroBottomLight, dark: module.panelEndColor)
-    }
-
-    /// The fill behind a plain chip on the hero card: a light scrim on the
-    /// dark card, a dark scrim on the pale one, the way a macOS badge sits on
-    /// whatever it is on.
-    var heroChipFill: Color {
-        pick(
-            light: Color(red: 0.0, green: 0.0, blue: 0.0, opacity: 0.08),
-            dark: Color(red: 1.0, green: 1.0, blue: 1.0, opacity: 0.14))
-    }
-    var surfaceStroke: Color {
-        pick(
-            light: Color(red: 0.0, green: 0.0, blue: 0.0, opacity: 0.10),
-            dark: Color(red: 1.0, green: 1.0, blue: 1.0, opacity: 0.10))
-    }
-    /// The top edge of a panel's hairline. macOS lights a surface from above
-    /// in both appearances: on a dark window that reads as a white highlight
-    /// along the card's top edge, and on a light one as the ring withdrawing
-    /// at the top and closing at the bottom. Matches the system treatment the
-    /// runtime gives a `GroupBox` and a `Form` section box, so a card the
-    /// demo draws itself and a card the framework draws are lit the same way.
-    var surfaceHighlight: Color {
-        pick(
-            light: Color(red: 1.0, green: 1.0, blue: 1.0, opacity: 0.55),
-            dark: Color(red: 1.0, green: 1.0, blue: 1.0, opacity: 0.16))
-    }
-    var surfaceStrokeStrong: Color {
-        pick(
-            light: Color(red: 0.0, green: 0.0, blue: 0.0, opacity: 0.16),
-            dark: Color(red: 1.0, green: 1.0, blue: 1.0, opacity: 0.16))
-    }
-    /// The label colour on a *tinted* fill the demo chose itself (a pill, a
-    /// hero card): those fills are dark in both appearances, so the label on
-    /// them is near-white in both.
-    var onTintedFillText: Color { Color(red: 1.0, green: 1.0, blue: 1.0, opacity: 0.95) }
-
-    /// The two toolbar pills that report a fixed fact rather than the
-    /// selected module. Opaque, for the reason `DemoModule.fillTop` gives:
-    /// these used to be a green and a blue carrying 0.92-ish alpha, which on
-    /// the light toolbar composited to a pastel with a white label on it.
-    static let readyFill: [Color] = [
-        Color(red: 0.165, green: 0.478, blue: 0.333, opacity: 1.0),
-        Color(red: 0.122, green: 0.369, blue: 0.255, opacity: 1.0),
-    ]
-    static let eventsFill: [Color] = [
-        Color(red: 0.235, green: 0.376, blue: 0.600, opacity: 1.0),
-        Color(red: 0.180, green: 0.290, blue: 0.471, opacity: 1.0),
-    ]
-    /// Panel shadows, per appearance. Dark mode carries the depth in its
-    /// shadows because a white hairline barely reads there. A light macOS
-    /// window is the opposite — a System Settings box casts black at ~0.04 —
-    /// and the 0.12 this used to be blanketed every gutter of the light
-    /// dashboard in a #CFD5DA smudge: with 14–18pt gaps and a 14pt shadow
-    /// offset, the *shadows* were the only "window background" the filled
-    /// screen ever showed, and the page graded a step darker and cooler
-    /// than the window tone its backdrop actually is.
-    var shadow: Color {
-        pick(
-            light: Color(red: 0.0, green: 0.0, blue: 0.0, opacity: 0.05),
-            dark: Color(red: 0.0, green: 0.0, blue: 0.0, opacity: 0.36))
-    }
-}
 /// Window-level facts about the demo that the app entry point and the
 /// responsive-layout tests both have to agree on.
 public enum DemoWindowMetrics {
@@ -1554,10 +2104,8 @@ public enum DemoWindowMetrics {
     /// shell is built down to: at 640 pt of width the dashboard is a single
     /// column (both side columns have folded into it) whose content column
     /// still clears its 420 pt floor, and at 480 pt of height the body band
-    /// still clears its 280 pt floor once the tab bar, window margins and
-    /// toolbar are taken out. `DemoResponsiveLayoutTests` pins both, so a
-    /// change that makes the layout need more room fails there rather than
-    /// shipping a window the user can drag into a broken state.
+    /// still clears its 280 pt floor once the tab bar and the toolbar are
+    /// taken out. `DemoResponsiveLayoutTests` pins both.
     public static let minimumSize = CGSize(width: 640, height: 480)
 
     /// What the tab bar takes off the top before the dashboard screen sees
@@ -1570,215 +2118,137 @@ struct DemoLayout {
     let size: CGSize
 
     var compact: Bool { size.width < 1180 || size.height < 760 }
-    var outerPadding: CGFloat { compact ? 18 : 24 }
-    var gap: CGFloat { compact ? 14 : 18 }
-    var columnGap: CGFloat { compact ? 14 : 18 }
-    var toolbarHeight: CGFloat { compact ? 72 : 80 }
-    var bodyHeight: CGFloat { max(280, size.height - outerPadding * 2 - toolbarHeight - gap) }
-    var sidebarWidth: CGFloat { compact ? 220 : 236 }
-    var railWidth: CGFloat { compact ? 260 : 292 }
+
+    // MARK: Page rhythm
+
+    /// The page margin inside the content column. The columns themselves are
+    /// full-bleed: a shell separated by gutters between floating panels is
+    /// what read as stacked slabs.
+    var pageMargin: CGFloat { compact ? DemoMetrics.s5 : DemoMetrics.s6 }
+    /// Group to next group.
+    var sectionGap: CGFloat { compact ? DemoMetrics.s5 : DemoMetrics.s6 }
+    /// Card to sibling card.
+    var cardGap: CGFloat { DemoMetrics.s3 }
+
+    var toolbarHeight: CGFloat { DemoMetrics.toolbarHeight }
+    var sidebarWidth: CGFloat { DemoMetrics.sidebarWidth }
+    var railWidth: CGFloat { DemoMetrics.railWidth }
+    var hairline: CGFloat { 1 }
+
+    var bodyHeight: CGFloat { max(280, size.height - toolbarHeight) }
 
     /// The narrowest the centre column is allowed to get before the shell has
-    /// to give a side column up.
-    ///
-    /// It is a real floor, not a taste: below it the metric band stops
-    /// holding three cards, the hero's headline wraps to three lines inside a
-    /// fixed-height card, and every label in the window starts truncating.
+    /// to give a side column up. A real floor, not a taste: below it the stat
+    /// band stops holding three cards and every label starts truncating.
     var minimumContentWidth: CGFloat { 420 }
 
-    /// What the three columns and their gutters actually ask the window for,
-    /// given which of them this size carries. The invariant is that it never
-    /// exceeds `size.width`.
-    var occupiedWidth: CGFloat {
-        var total = outerPadding * 2 + contentWidth
-        if showsSidebar {
-            total += sidebarWidth + columnGap
-        }
-        if showsRail {
-            total += railWidth + columnGap
-        }
-        return total
-    }
-
-    /// Whether the window is wide enough to carry the detail rail beside the
-    /// centre column, and whether it is wide enough to carry the sidebar.
-    ///
-    /// These used to not exist: all three columns were laid out at every
-    /// window size, at fixed widths whose sum ignored the window. At 640 pt
-    /// they asked for 964 pt, the layout engine answered by driving all three
-    /// past their shrink floors, and the result was a 140 pt sidebar of
-    /// ellipses next to a hero card whose action pills had been crushed to
-    /// 2 pt tall. A column that does not fit is dropped — and its content
-    /// moves into the column that is still there (`DemoCenterPane`), which is
-    /// what makes this responsive rather than merely narrower.
-    var showsRail: Bool {
-        size.width >= outerPadding * 2 + sidebarWidth + railWidth + columnGap * 2 + minimumContentWidth
-    }
-
+    /// Whether the window is wide enough to carry the sidebar, and whether it
+    /// is wide enough to carry the detail rail as well. A column that does not
+    /// fit is dropped — and its content moves into the column that is still
+    /// there, which is what makes this responsive rather than merely narrower.
     var showsSidebar: Bool {
-        size.width >= outerPadding * 2 + sidebarWidth + columnGap + minimumContentWidth
+        size.width >= sidebarWidth + hairline + minimumContentWidth
+    }
+
+    var showsRail: Bool {
+        size.width >= sidebarWidth + railWidth + hairline * 2 + minimumContentWidth
     }
 
     var contentWidth: CGFloat {
-        var available = size.width - outerPadding * 2
+        var available = size.width
         if showsSidebar {
-            available -= sidebarWidth + columnGap
+            available -= sidebarWidth + hairline
         }
         if showsRail {
-            available -= railWidth + columnGap
+            available -= railWidth + hairline
         }
         return max(minimumContentWidth, available)
     }
 
-    /// Where the centre column starts, which is what the two decorative
-    /// washes are positioned against. It moves to the window's leading margin
-    /// when the sidebar is gone.
-    var contentOriginX: CGFloat {
-        outerPadding + (showsSidebar ? sidebarWidth + columnGap : 0)
+    /// What the columns and their rules actually ask the window for. The
+    /// invariant is that it never exceeds `size.width`.
+    var occupiedWidth: CGFloat {
+        var total = contentWidth
+        if showsSidebar {
+            total += sidebarWidth + hairline
+        }
+        if showsRail {
+            total += railWidth + hairline
+        }
+        return total
     }
-    // The content of a scrolling column is as wide as the column. These used
-    // to reserve 8 pt for a scroll gutter, which stopped being a thing when
-    // the scrollers became overlay scrollers: the reservation just pulled
-    // every card in the centre pane and the right rail 8 pt short of the
-    // toolbar's right edge directly above them, so the window's right margin
-    // read as two different margins depending on which band you looked at.
-    var contentInnerWidth: CGFloat { max(380, contentWidth) }
-    var railInnerWidth: CGFloat { max(220, railWidth) }
-    /// The width of a row inside the sidebar: the surface's own width, minus
-    /// the 1 pt stroke ring it draws around itself and the panel padding.
-    var sidebarRowWidth: CGFloat {
-        max(150, sidebarWidth - 2 - panelPadding.leading - panelPadding.trailing)
-    }
-    /// A module chip in the collapsed strip. Wide enough for the longest
-    /// label ("Animation") beside its 18 pt glyph without truncating, and the
-    /// same for every chip so the strip reads as a segmented control rather
-    /// than a ragged row.
+
+    var contentInnerWidth: CGFloat { max(360, contentWidth - pageMargin * 2) }
+    var sidebarInnerWidth: CGFloat { sidebarWidth - DemoMetrics.s3 * 2 }
+    var railInnerWidth: CGFloat { railWidth - DemoMetrics.s3 * 2 }
+
+    /// A nav chip in the collapsed strip.
     var moduleChipWidth: CGFloat { 132 }
-    var metricCardWidth: CGFloat {
-        max(120, (contentInnerWidth - gap * 2) / 3)
+
+    // MARK: Content metrics
+
+    var heroHeight: CGFloat { 172 }
+    var ambienceHeight: CGFloat { 320 }
+    var chartPlotHeight: CGFloat { compact ? 120 : 148 }
+    /// The plot's own width: the card's interior less its 20pt padding and
+    /// the 1pt ring it draws around itself.
+    var chartInnerWidth: CGFloat { max(240, contentInnerWidth - DemoMetrics.s5 * 2 - 2) }
+    var showsChartLegend: Bool { chartInnerWidth >= 460 }
+
+    var statCardWidth: CGFloat {
+        max(120, (contentInnerWidth - cardGap * 2) / 3)
     }
-    /// Whether the three metric cards have to stack into a column.
-    ///
-    /// This is a question about the *content column's width* — can a card
-    /// still hold a 24 pt value and a note? — and nothing else. It used to
-    /// ask `compact`, which is also true in a short window, so a window that
-    /// was wide and short stacked the band: exactly backwards. It tripled the
-    /// band's height in the window with the least height to spend, and pushed
-    /// the third card halfway past the bottom of the scroll view, where it
-    /// read as a sliced-off box with a cut-in-half title.
-    var stacksMetrics: Bool { metricCardWidth < 190 }
-    var toolbarCornerRadius: CGFloat { compact ? 22 : 26 }
-    var panelCornerRadius: CGFloat { compact ? 22 : 26 }
-    var toolbarTitleWidth: CGFloat { compact ? 180 : 220 }
+
+    /// Whether the three stat cards have to stack. A question about the
+    /// *content column's width* and nothing else.
+    var stacksMetrics: Bool { statCardWidth < 180 }
+
+    // MARK: Toolbar
+
+    /// The toolbar row's own width, inside the band's 16pt insets.
+    var toolbarContentWidth: CGFloat { max(320, size.width - DemoMetrics.s4 * 2) }
+
+    var wordmarkWidth: CGFloat { compact ? 90 : 110 }
     var searchWidth: CGFloat { compact ? 220 : 280 }
-    var backendWidth: CGFloat { compact ? 96 : 112 }
-    var eventsWidth: CGFloat { compact ? 116 : 128 }
-    var modeWidth: CGFloat { compact ? 126 : 146 }
-    var pillHeight: CGFloat { 34 }
+    var statusChipWidth: CGFloat { 96 }
+    var eventsChipWidth: CGFloat { 92 }
+    var modeButtonWidth: CGFloat { compact ? 120 : 132 }
 
-    /// The toolbar band's own content width, inside the window margin and the
-    /// 1 pt stroke ring the surface draws around itself.
-    private var toolbarBandWidth: CGFloat { size.width - outerPadding * 2 - 2 }
-
-    /// What the toolbar always carries: its insets, the title block, and the
-    /// mode pill (the one control in the band that does something).
+    /// What the band always carries: its insets, the wordmark, and the mode
+    /// button (the one control in the band that acts).
     private var toolbarFixedWidth: CGFloat {
-        toolbarPadding.leading + toolbarPadding.trailing + toolbarTitleWidth + modeWidth
+        DemoMetrics.s4 * 2 + wordmarkWidth + modeButtonWidth
     }
 
-    /// Whether the band has room for the two status badges, and whether it
-    /// has room for the search field on top of them.
-    ///
-    /// The row is a fixed-width title, a fixed-width search field and three
-    /// fixed-width pills separated by `gap`. Nothing in it was optional, so a
-    /// 640 pt window asked for 636 pt of toolbar inside 604 pt of band and
-    /// answered with "WinSwi…", "D3…", "Even…", "Mod…" — four truncated
-    /// labels where a desktop app drops the secondary ones and keeps the rest
-    /// legible. The margin is `gap` so the decision does not sit on a knife
-    /// edge against text metrics.
+    /// The row drops its secondary chrome rather than truncating it. Nothing
+    /// in the old band was optional, so a 640pt window asked for 636pt of
+    /// toolbar inside 604pt of band and answered with four ellipses.
     var showsToolbarStatusPills: Bool {
-        toolbarBandWidth >= toolbarFixedWidth + backendWidth + eventsWidth + gap * 5
+        size.width >= toolbarFixedWidth + statusChipWidth + eventsChipWidth + DemoMetrics.s3 * 4
     }
 
     var showsToolbarSearch: Bool {
         showsToolbarStatusPills
-            && toolbarBandWidth >= toolbarFixedWidth + backendWidth + eventsWidth + searchWidth + gap * 6
-    }
-
-    var headlineSize: CGFloat { compact ? 24 : 30 }
-
-    /// The hero card is a fixed height so the metric band below it lands in
-    /// the same place at every window size, and it is one constant again.
-    ///
-    /// It used to be paired with a `compactActions` branch that stacked the
-    /// two action pills below 1180 pt of *window* while the height stayed
-    /// flat: every window under that asked for 249 pt of content inside a
-    /// 210 pt card, and a fixed-height card answers an overflow by squeezing
-    /// — the pills came out 28 pt at 900 and 0.9 pt at 640. The branch is
-    /// gone rather than corrected: the centre column now has an enforced
-    /// 420 pt floor (`minimumContentWidth`), which leaves 390 pt of card
-    /// interior for a pill row that measures about 240 at its longest module
-    /// label. There is no reachable window in which the row does not fit, so
-    /// there is nothing for a second row to be an answer to.
-    var heroHeight: CGFloat { compact ? 210 : 232 }
-    /// The plot's own height, scaled with the window the way `heroHeight` and
-    /// `toolbarHeight` are. It used to be a flat 80 pt: a 736 pt wide plot
-    /// 80 pt tall is a strip rather than a card, the bars had no room to
-    /// differentiate, and the band was the one part of the column that did
-    /// not grow with the window. The taller plot also coarsens the column's
-    /// rhythm, which is what puts the bottom of the scroll view in the gap
-    /// between two cards instead of a dozen points into the top of one.
-    var chartHeight: CGFloat { compact ? 112 : 128 }
-
-    var toolbarPadding: EdgeInsets {
-        compact
-            ? EdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14)
-            : EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)
-    }
-
-    var panelPadding: EdgeInsets {
-        compact
-            ? EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
-            : EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
-    }
-
-    // The two decorative washes live on the backdrop, *behind* the columns.
-    // The only backdrop a filled window still shows is the outer margin and
-    // the gutters between columns, so a wash that straddles a gutter is seen
-    // as a bright vertical sliver with two hard edges — which reads as a
-    // clipping bug, not as decoration. Both are kept inside the centre
-    // column's horizontal span, where the only backdrop they can reach is the
-    // horizontal band between two stacked cards, and both are dim enough to be
-    // ambient light rather than a shape.
-    var accentA: CGRect {
-        CGRect(
-            x: contentOriginX + contentWidth * 0.06,
-            y: outerPadding + toolbarHeight + gap + 18,
-            width: compact ? 160 : 240,
-            height: compact ? 84 : 126
-        )
-    }
-
-    var accentB: CGRect {
-        CGRect(
-            x: contentOriginX + contentWidth * 0.44,
-            y: outerPadding + toolbarHeight + heroHeight + gap * 2,
-            width: min(compact ? 132 : 180, contentWidth * 0.5),
-            height: compact ? 68 : 94
-        )
+            && size.width
+                >= toolbarFixedWidth + statusChipWidth + eventsChipWidth + searchWidth + DemoMetrics.s3 * 5
     }
 }
-struct DemoCard {
+
+// MARK: - Content
+
+struct DemoTrackCard {
     let title: String
     let summary: String
     let meta: String
 }
+
 struct DemoAction {
     let title: String
     let caption: String
     let systemImage: String
     let eventLabel: String
 }
+
 enum DemoModule: CaseIterable, Hashable {
     case layout
     case input
@@ -1794,7 +2264,8 @@ enum DemoModule: CaseIterable, Hashable {
         }
     }
 
-    var statusLabel: String { "Mode: \(label)" }
+    var statusLabel: String { label }
+
     var headline: String {
         switch self {
         case .layout: return "Pure Swift layout core"
@@ -1815,10 +2286,10 @@ enum DemoModule: CaseIterable, Hashable {
 
     var detailLine: String {
         switch self {
-        case .layout: return "Stack  Scroll  Clip  Intrinsic"
-        case .input: return "Hover  Press  Focus  Activate"
-        case .animation: return "Timers  Palettes  State  Redraw"
-        case .controls: return "Toggle  Slider  Step  Pick"
+        case .layout: return "Stack · Scroll · Clip"
+        case .input: return "Hover · Press · Focus"
+        case .animation: return "Timers · State · Redraw"
+        case .controls: return "Toggle · Slider · Pick"
         }
     }
 
@@ -1831,149 +2302,55 @@ enum DemoModule: CaseIterable, Hashable {
         }
     }
 
-    var glowColor: Color {
+    /// Stop 2 of the signature gradient — the *only* thing a module tints in
+    /// the whole app. Stop 1 is always `DemoSignature.accentFill`, and
+    /// everything else (bars, indicators, chips, buttons, meters) takes the
+    /// neutral accent. That is what kills the "three clashing hues" read while
+    /// keeping module identity.
+    var signatureStop: Color {
         switch self {
-        case .layout: return Color(red: 0.42, green: 0.68, blue: 0.96, opacity: 0.94)
-        case .input: return Color(red: 0.36, green: 0.80, blue: 0.74, opacity: 0.94)
-        case .animation: return Color(red: 1.0, green: 0.69, blue: 0.44, opacity: 0.96)
-        case .controls: return Color(red: 0.72, green: 0.48, blue: 0.96, opacity: 0.94)
+        case .layout: return DemoSignature.layoutStop
+        case .input: return DemoSignature.inputStop
+        case .animation: return DemoSignature.animationStop
+        case .controls: return DemoSignature.controlsStop
         }
     }
 
-    var stripeColor: Color {
-        switch self {
-        case .layout: return Color(red: 0.58, green: 0.80, blue: 1.0, opacity: 0.90)
-        case .input: return Color(red: 0.56, green: 0.88, blue: 0.82, opacity: 0.90)
-        case .animation: return Color(red: 1.0, green: 0.80, blue: 0.54, opacity: 0.92)
-        case .controls: return Color(red: 0.82, green: 0.62, blue: 1.0, opacity: 0.90)
-        }
-    }
-
-    var fillColor: Color {
-        switch self {
-        case .layout: return Color(red: 0.19, green: 0.25, blue: 0.38, opacity: 0.84)
-        case .input: return Color(red: 0.16, green: 0.28, blue: 0.30, opacity: 0.84)
-        case .animation: return Color(red: 0.20, green: 0.19, blue: 0.24, opacity: 0.84)
-        case .controls: return Color(red: 0.28, green: 0.20, blue: 0.36, opacity: 0.84)
-        }
-    }
-
-    /// Top stop of the module's **accent fill** — the colour under a
-    /// near-white label on a pill, a chip, or a selected source-list row.
-    ///
-    /// This is opaque on purpose, and it is the whole point of the value.
-    /// `glowColor` and `stripeColor` are *glows*: pale hues carrying alpha,
-    /// meant to be laid over something. Using them as a fill composited the
-    /// pale hue onto whatever was behind it, so on a light window the "Open
-    /// Layout" pill resolved to #88BDF2 and its white label measured 1.9:1 —
-    /// and even on the dark window it only reached 2.4:1. An accent fill is
-    /// not a wash of an accent: it is a colour, and macOS picks it dark
-    /// enough that the label it was chosen for is legible on it. Every stop
-    /// here clears 4.5:1 against the 0.95-alpha white the demo writes on it,
-    /// in both appearances, because an opaque fill has no appearance to vary
-    /// with.
-    var fillTop: Color {
-        switch self {
-        case .layout: return Color(red: 0.118, green: 0.431, blue: 0.808, opacity: 1.0)
-        case .input: return Color(red: 0.059, green: 0.463, blue: 0.525, opacity: 1.0)
-        case .animation: return Color(red: 0.659, green: 0.322, blue: 0.0, opacity: 1.0)
-        case .controls: return Color(red: 0.482, green: 0.294, blue: 0.737, opacity: 1.0)
-        }
-    }
-
-    /// Bottom stop of the accent fill: the same hue a step down, so a filled
-    /// control is lit from above like every other surface in the demo.
-    var fillBottom: Color {
-        switch self {
-        case .layout: return Color(red: 0.078, green: 0.329, blue: 0.624, opacity: 1.0)
-        case .input: return Color(red: 0.039, green: 0.357, blue: 0.412, opacity: 1.0)
-        case .animation: return Color(red: 0.514, green: 0.247, blue: 0.0, opacity: 1.0)
-        case .controls: return Color(red: 0.376, green: 0.227, blue: 0.576, opacity: 1.0)
-        }
-    }
-
-    /// The accent fill as the two-stop ramp the demo's tinted surfaces take.
-    var accentFill: [Color] { [fillTop, fillBottom] }
-
-    var panelStartColor: Color {
-        switch self {
-        case .layout: return Color(red: 0.18, green: 0.24, blue: 0.37, opacity: 0.97)
-        case .input: return Color(red: 0.15, green: 0.25, blue: 0.29, opacity: 0.97)
-        case .animation: return Color(red: 0.17, green: 0.16, blue: 0.22, opacity: 0.97)
-        case .controls: return Color(red: 0.24, green: 0.18, blue: 0.34, opacity: 0.97)
-        }
-    }
-
-    var panelEndColor: Color {
-        switch self {
-        case .layout: return Color(red: 0.11, green: 0.16, blue: 0.27, opacity: 0.94)
-        case .input: return Color(red: 0.10, green: 0.18, blue: 0.22, opacity: 0.94)
-        case .animation: return Color(red: 0.11, green: 0.10, blue: 0.15, opacity: 0.94)
-        case .controls: return Color(red: 0.17, green: 0.13, blue: 0.24, opacity: 0.94)
-        }
-    }
-
-    /// The light-appearance hero stops: the same four hues, pale enough to
-    /// carry dark text but tinted enough to carry *weight*. `panelStartColor`
-    /// and `panelEndColor` stay the dark-appearance pair. The old stops
-    /// started three levels off white and the hero read as one more white
-    /// card in the column; its dark twin works because it is unmistakably a
-    /// blue card. The headline and the `.secondary` summary sit in the upper
-    /// half of the ramp, which is what bounds how deep the bottom stop can
-    /// go: the summary must clear 4.5:1 against the mid-card fill.
-    var heroTopLight: Color {
-        switch self {
-        case .layout: return Color(red: 0.945, green: 0.965, blue: 1.0, opacity: 0.97)
-        case .input: return Color(red: 0.94, green: 0.985, blue: 0.98, opacity: 0.97)
-        case .animation: return Color(red: 1.0, green: 0.965, blue: 0.935, opacity: 0.97)
-        case .controls: return Color(red: 0.975, green: 0.95, blue: 1.0, opacity: 0.97)
-        }
-    }
-
-    var heroBottomLight: Color {
-        switch self {
-        case .layout: return Color(red: 0.80, green: 0.87, blue: 0.97, opacity: 0.94)
-        case .input: return Color(red: 0.79, green: 0.915, blue: 0.90, opacity: 0.94)
-        case .animation: return Color(red: 0.985, green: 0.865, blue: 0.755, opacity: 0.94)
-        case .controls: return Color(red: 0.885, green: 0.815, blue: 0.965, opacity: 0.94)
-        }
-    }
-
-    var cards: [DemoCard] {
+    var cards: [DemoTrackCard] {
         switch self {
         case .layout:
             return [
-                DemoCard(
+                DemoTrackCard(
                     title: "Stack layout", summary: "Panels stretch with priority and padding",
                     meta: "Retention-first measurement"),
-                DemoCard(
+                DemoTrackCard(
                     title: "Clipping", summary: "Scissor-ready rect clipping through the render frame",
                     meta: "Backend-neutral commands"),
             ]
         case .input:
             return [
-                DemoCard(
+                DemoTrackCard(
                     title: "Focus chain", summary: "Tab moves through focusable retained nodes",
                     meta: "Window delegate to runtime"),
-                DemoCard(
+                DemoTrackCard(
                     title: "Press states", summary: "Buttons drive focused, pressed, and activated colors",
                     meta: "Main-actor control lifecycle"),
             ]
         case .animation:
             return [
-                DemoCard(
+                DemoTrackCard(
                     title: "Tick driver", summary: "Window animation frames advance color transitions",
                     meta: "Only when active"),
-                DemoCard(
+                DemoTrackCard(
                     title: "Frame cache", summary: "Unchanged UI reuses the last render frame until invalidated",
                     meta: "Retention redraws"),
             ]
         case .controls:
             return [
-                DemoCard(
+                DemoTrackCard(
                     title: "Toggle and slider", summary: "Interactive binding-driven controls",
                     meta: "Hit-test and focus"),
-                DemoCard(
+                DemoTrackCard(
                     title: "Text input", summary: "TextField and TextEditor with state", meta: "Keyboard routing"),
             ]
         }
@@ -2021,8 +2398,6 @@ enum DemoModule: CaseIterable, Hashable {
     }
 }
 
-// MARK: - Multi-screen shell
-
 /// Top-level screens of the product-style demo, navigated through `TabView`.
 public enum DemoScreen: String, CaseIterable, Hashable {
     case dashboard
@@ -2064,6 +2439,7 @@ public struct DemoComponent: Identifiable, Hashable, Sendable {
 
     var isHealthy: Bool { load < 0.85 }
     var statusLabel: String { isHealthy ? "Healthy" : "Degraded" }
+    var loadPercent: String { "\(Int((load * 100).rounded()))%" }
 
     static let defaults: [DemoComponent] = [
         DemoComponent(
@@ -2095,330 +2471,704 @@ public struct DemoComponent: Identifiable, Hashable, Sendable {
 
 // MARK: - Settings screen
 
-/// Settings-style form exercising Supported-tier controls: text field,
-/// segmented picker, stepper, toggles, slider, gauge, progress, and buttons.
+/// A settings pane, not a System Settings clone.
+///
+/// The trailing-aligned label gutter, the centred 640pt column and the 10pt
+/// uppercase eyebrows floating between boxes are gone. What is here is a
+/// leading-anchored column of section boxes whose rows read left to right:
+/// label, then control.
 struct DemoSettingsScreen: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var model: DemoDashboardModel
     @Environment(\.openWindow) private var openWindow
     @State private var isImporterPresented = false
 
-    /// Width of the settings pane's content column, and the gutter between
-    /// that column's edge and the section boxes inside it.
-    ///
-    /// A settings pane is a *column*, not a page: System Settings runs one a
-    /// little over 600pt wide and lets the window keep whatever margin is
-    /// left. The demo has to name the column because it wants the title on
-    /// it — a `.navigationTitle` is drawn by the pane's chrome at the pane's
-    /// own leading edge, which in a 1280pt window put "Settings" 320pt away
-    /// from the form it was titling, with nothing under it in between.
-    private let columnWidth: CGFloat = 640
-    private let columnGutter: CGFloat = 20
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
 
     var body: some View {
-        NavigationStack {
-            // The form is taller than small windows; scroll instead of
-            // squeezing sections until their tracks vanish.
-            ScrollView {
-                // 32 above the title and 32 under it: a settings pane's own
-                // rhythm, and the numbers that put the default window's
-                // scroll fold in the *gap* between the "Resources" box and
-                // the "Actions" header. At 24/22 the fold landed 16pt later:
-                // the header was fully visible with nothing under it — an
-                // orphaned eyebrow captioning the bottom edge of the window.
-                // The title used to start 6pt under the tab bar, which is
-                // not a page inset, it is a collision.
-                VStack(alignment: .leading, spacing: 32) {
-                    // The title travels with the column: it sits on the
-                    // section boxes' own leading edge, so the window's wide
-                    // side margins read as the margins of one centred pane
-                    // rather than as empty space next to a stray heading.
-                    Text("Settings")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                        .lineLimit(1)
-                        .padding(.horizontal, columnGutter)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Settings")
+                    .font(DemoType.screenTitle)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .padding(.top, DemoMetrics.s8)
 
-                    Form {
-                        Section("Profile") {
+                Text("Configure the demo shell")
+                    .font(DemoType.titleSub)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .padding(.top, DemoMetrics.s1)
+
+                DemoSettingsSection("Profile") {
+                    VStack(alignment: .leading, spacing: 0) {
+                        DemoSettingsRow(title: "Display Name", isFirst: true) {
                             TextField("Display Name", text: $model.displayName)
+                                .labelsHidden()
+                                .frame(width: 200)
+                        }
 
+                        DemoSettingsRow(title: "Theme") {
                             Picker("Theme", selection: $model.theme) {
                                 Text("System").tag(DemoThemeOption.system)
                                 Text("Light").tag(DemoThemeOption.light)
                                 Text("Dark").tag(DemoThemeOption.dark)
                             }
                             .pickerStyle(.segmented)
-
-                            // System Settings puts the noun in the label
-                            // column and the value beside its stepper in the
-                            // control column. Folding the value into the
-                            // label — "Items Per Page: 10" — makes the one
-                            // row in the pane whose label is a sentence, and
-                            // leaves the control column holding a bezel with
-                            // nothing to be about.
-                            //
-                            // And the value is a *field*, not a numeral
-                            // floating in the row: macOS pairs NSStepper
-                            // with a text-field bezel (Date & Time, TextEdit
-                            // page setup — every stepper in the OS), because
-                            // the pair is one compound control that can also
-                            // be typed into.
-                            LabeledContent("Items Per Page") {
-                                HStack(spacing: 8) {
-                                    TextField(
-                                        "Items Per Page",
-                                        value: $model.itemsPerPage,
-                                        format: .number
-                                    )
-                                    .labelsHidden()
-                                    .frame(width: 44)
-
-                                    Stepper(
-                                        "Items Per Page",
-                                        value: $model.itemsPerPage,
-                                        in: 5...30,
-                                        step: 5
-                                    )
-                                    .labelsHidden()
-                                }
-                            }
+                            .labelsHidden()
                         }
 
-                        Section("Preferences") {
-                            Toggle("Enable Animations", isOn: $model.animationsEnabled)
-                            Toggle("Sound Effects", isOn: $model.soundEffectsEnabled)
-                            Toggle("Share Usage Data", isOn: $model.shareUsageData)
+                        DemoSettingsRow(title: "Items Per Page") {
+                            HStack(spacing: DemoMetrics.s1) {
+                                TextField(
+                                    "Items Per Page",
+                                    value: $model.itemsPerPage,
+                                    format: .number
+                                )
+                                .labelsHidden()
+                                .frame(width: 44)
 
-                            ColorPicker("Accent Color", selection: $model.accentColor)
-
-                            // No explicit `Divider()` here: a grouped Form
-                            // section rules between every pair of rows on its
-                            // own, the way System Settings does. One written
-                            // here would be the only double rule in the pane.
-                            Slider(value: $model.fontScale, in: 0.8...1.4) {
-                                Text("Font Scale")
-                            }
-                        }
-
-                        Section("Resources") {
-                            Gauge(value: model.storageUsed, in: 0...1) {
-                                Text("Storage Used")
-                            }
-
-                            ProgressView("Sync Progress", value: model.syncProgress)
-
-                            Button("Sync Now") {
-                                model.runSync()
-                            }
-                        }
-
-                        Section("Actions") {
-                            Button("Save Settings") {
-                                model.saveSettings()
-                            }
-
-                            Button("Reset To Defaults", role: .destructive) {
-                                model.resetSettings()
-                            }
-
-                            Button("Open Second Window") {
-                                openWindow(id: "main-dashboard")
-                            }
-
-                            Button("Import File…") {
-                                isImporterPresented = true
+                                Stepper(
+                                    "Items Per Page",
+                                    value: $model.itemsPerPage,
+                                    in: 5...30,
+                                    step: 5
+                                )
+                                .labelsHidden()
                             }
                         }
                     }
                 }
-                // The column, then the centring. Two frames rather than one:
-                // the inner one is the pane's own width, the outer one is the
-                // window it is centred in. A `Form` fills whatever width it
-                // is offered and centres its section boxes inside that, so
-                // without the inner frame the column would be the window and
-                // the title would be at the window's edge again.
-                .frame(maxWidth: columnWidth, alignment: .leading)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 32)
-            }
-            .fileImporter(
-                isPresented: $isImporterPresented,
-                allowedContentTypes: [.image, .plainText]
-            ) { result in
-                if case .success(let url) = result {
-                    model.noteImportedFile(url)
+
+                DemoSettingsSection("Preferences") {
+                    VStack(alignment: .leading, spacing: 0) {
+                        DemoSettingsRow(title: "Enable Animations", isFirst: true) {
+                            Toggle("Enable Animations", isOn: $model.animationsEnabled)
+                                .labelsHidden()
+                        }
+
+                        DemoSettingsRow(title: "Sound Effects") {
+                            Toggle("Sound Effects", isOn: $model.soundEffectsEnabled)
+                                .labelsHidden()
+                        }
+
+                        // Two rows in the pane carry a description, and no
+                        // more: past that the pane stops being a form and
+                        // starts being a document.
+                        DemoSettingsRow(
+                            title: "Share Usage Data",
+                            description: "Send anonymous frame timings to the render team"
+                        ) {
+                            Toggle("Share Usage Data", isOn: $model.shareUsageData)
+                                .labelsHidden()
+                        }
+
+                        DemoSettingsRow(title: "Accent Color") {
+                            ColorPicker("Accent Color", selection: $model.accentColor)
+                                .labelsHidden()
+                        }
+
+                        DemoSettingsRow(
+                            title: "Font Scale",
+                            description: "Scales every label in the demo shell"
+                        ) {
+                            HStack(spacing: DemoMetrics.s2) {
+                                Slider(value: $model.fontScale, in: 0.8...1.4) {
+                                    Text("Font Scale")
+                                }
+                                .labelsHidden()
+                                .frame(width: 200)
+
+                                Text(scaleLabel)
+                                    .font(DemoType.captionStrong)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.trailing)
+                                    .lineLimit(1)
+                                    .frame(width: 36, alignment: .trailing)
+                            }
+                        }
+                    }
                 }
+
+                DemoSettingsSection("Resources") {
+                    VStack(alignment: .leading, spacing: 0) {
+                        DemoSettingsRow(title: "Storage Used", isFirst: true) {
+                            DemoSettingsMeter(value: model.storageUsed)
+                        }
+
+                        DemoSettingsRow(title: "Sync Progress") {
+                            DemoSettingsMeter(value: model.syncProgress)
+                        }
+
+                        DemoSettingsRow(title: "Sync Now") {
+                            DemoButton("Sync") {
+                                model.runSync()
+                            }
+                        }
+                    }
+                }
+
+                // A left-aligned row of buttons, not full-width rows. Exactly
+                // one of them is filled: a settings pane that shouts twice has
+                // told you nothing about which button matters.
+                Text("Actions")
+                    .font(DemoType.section)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .padding(.top, DemoMetrics.s6)
+                    .padding(.bottom, DemoMetrics.s2)
+
+                HStack(alignment: .center, spacing: DemoMetrics.s2) {
+                    DemoButton("Save Settings", kind: .accent, horizontalPadding: DemoMetrics.s4) {
+                        model.saveSettings()
+                    }
+
+                    // A neutral chassis with a danger label. A filled red
+                    // button in a settings list is a threat, not an option.
+                    DemoButton("Reset To Defaults", labelColor: palette.danger) {
+                        model.resetSettings()
+                    }
+
+                    DemoButton("Open Second Window") {
+                        openWindow(id: "main-dashboard")
+                    }
+
+                    DemoButton("Import File…") {
+                        isImporterPresented = true
+                    }
+
+                    Spacer(minLength: 0)
+                }
+
+                Text("Changes apply immediately")
+                    .font(DemoType.caption)
+                    .foregroundStyle(.quaternary)
+                    .lineLimit(1)
+                    .padding(.top, DemoMetrics.s6)
+                    .padding(.bottom, DemoMetrics.s8)
             }
+            .frame(width: DemoMetrics.settingsColumnWidth, alignment: .leading)
+            .padding(.horizontal, DemoMetrics.s6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(palette.surface0)
+        .fileImporter(
+            isPresented: $isImporterPresented,
+            allowedContentTypes: [.image, .plainText]
+        ) { result in
+            if case .success(let url) = result {
+                model.noteImportedFile(url)
+            }
+        }
+    }
+
+    private var scaleLabel: String {
+        "\(Int((model.fontScale * 100).rounded()))%"
+    }
+}
+
+/// A settings section: a heading attached to the group under it — 24 above,
+/// 8 below — and a card holding the rows.
+struct DemoSettingsSection<Content: View>: View {
+    let title: String
+    let content: Content
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title)
+                .font(DemoType.section)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .padding(.top, DemoMetrics.s6)
+                .padding(.bottom, DemoMetrics.s2)
+
+            // The caller supplies the row stack. Re-wrapping a
+            // `@ViewBuilder` result in a stack here would hand the card one
+            // opaque view holding N rows, and a view like that is laid out
+            // absolutely — which drew every row of a section on top of the
+            // first one.
+            DemoCard(
+                padding: EdgeInsets(top: 0, leading: DemoMetrics.s4, bottom: 0, trailing: DemoMetrics.s4)
+            ) {
+                content
+            }
+        }
+    }
+}
+
+/// A settings row: leading label, trailing control. 36 tall, or 52 when it
+/// carries a description.
+///
+/// No icon column. The spec makes one optional per group, and the vector
+/// symbol set this stack ships covers navigation and status rather than
+/// settings nouns — six rows of the fallback glyph is worse than no column at
+/// all. (Recorded as a divergence in docs/MacOSDesignParity.md.)
+struct DemoSettingsRow<Control: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let title: String
+    let description: String?
+    let isFirst: Bool
+    let control: Control
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    init(
+        title: String,
+        description: String? = nil,
+        isFirst: Bool = false,
+        @ViewBuilder control: () -> Control
+    ) {
+        self.title = title
+        self.description = description
+        self.isFirst = isFirst
+        self.control = control()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !isFirst {
+                DemoRule(palette.strokeSubtle)
+            }
+
+            HStack(alignment: .center, spacing: DemoMetrics.s3) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(DemoType.bodyStrong)
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(1)
+
+                    if let description {
+                        Text(description)
+                            .font(DemoType.caption)
+                            .foregroundStyle(.tertiary)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: DemoMetrics.s4)
+
+                control
+            }
+            .padding(.vertical, DemoMetrics.s2)
+            .frame(
+                minHeight: description == nil ? DemoMetrics.listRowHeight : 52,
+                alignment: .leading
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+struct DemoSettingsMeter: View {
+    let value: Double
+
+    var body: some View {
+        HStack(alignment: .center, spacing: DemoMetrics.s2) {
+            DemoMeter(value: value, width: 200)
+
+            Text("\(Int((value * 100).rounded()))%")
+                .font(DemoType.captionStrong)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+                .frame(width: 36, alignment: .trailing)
         }
     }
 }
 
 // MARK: - Data screen
 
-/// Selection-bound list of runtime components with a detail panel that
-/// exercises labels, progress chrome, dividers, and action buttons.
+/// A table, not a list of rows in a card: a header band, four labelled
+/// columns, a load meter, and a footer inspector on the bar material.
 struct DemoDataScreen: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var model: DemoDashboardModel
 
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
     var body: some View {
-        NavigationStack {
-            // The list is the greedy half of this screen and the detail block
-            // is pinned under it. No `proxy.size.height - 224`: that literal
-            // was a guess at the detail block's height, the guess was about
-            // 75 pt too generous, and the screen ended in a bare strip of
-            // window with nothing in it. A greedy child takes exactly what is
-            // left once its siblings have measured themselves, so the list
-            // grows and shrinks with the detail block instead of against it.
+        GeometryReader { proxy in
+            let metrics = DemoTableMetrics(width: proxy.size.width)
+
             VStack(alignment: .leading, spacing: 0) {
-                List(model.components, selection: $model.selectedComponentID) { component in
-                    DemoComponentRow(component: component)
+                DemoDataHeader(model: model)
+
+                DemoRule(palette.strokeStrong, length: proxy.size.width)
+
+                DemoTableHeaderRow(metrics: metrics)
+
+                DemoRule(palette.stroke, length: proxy.size.width)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(model.components, id: \.id) { component in
+                            DemoComponentRow(
+                                component: component,
+                                metrics: metrics,
+                                isSelected: model.selectedComponentID == component.id
+                            ) {
+                                model.selectComponent(component)
+                            }
+                        }
+                    }
+                    .frame(width: proxy.size.width, alignment: .topLeading)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(16)
+                .background(palette.surface0)
                 .onDrop(of: [.fileURL], isTargeted: nil) { providers in
                     model.noteDroppedItems(count: providers.count)
                     return true
                 }
 
-                // The inspector is a *bar*, not a paragraph that happens to
-                // follow the list. It used to be a hairline `Divider()` in a
-                // 12pt gap between two things standing on the same window
-                // background — the rule measured 1.2:1 against what was on
-                // either side of it, so the block read as floating text under
-                // a card. A bar is what macOS puts at the bottom of an
-                // inspector: its own scrim, closed at the top by a rule,
-                // running edge to edge with its own insets. `.quaternary` is
-                // a semantic rung: it lightens the dark window into a bar,
-                // and in light mode it resolves to the window tone — a macOS
-                // bottom bar is never darker than the window it closes, so
-                // the divider carries the edge there.
-                VStack(spacing: 0) {
-                    Divider()
+                DemoRule(palette.strokeStrong, length: proxy.size.width)
 
-                    DemoComponentDetail(model: model)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
-                }
-                .background(.quaternary)
+                DemoComponentInspector(model: model)
+                    .frame(width: proxy.size.width, height: DemoMetrics.footerHeight, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .navigationTitle("Components")
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+            .background(palette.base)
         }
+    }
+}
+
+/// Column geometry, shared by the header row and every data row so a table of
+/// eight rows has one right margin rather than eight.
+struct DemoTableMetrics {
+    let width: CGFloat
+
+    static let inset: CGFloat = DemoMetrics.s4
+    static let columnGap: CGFloat = DemoMetrics.s4
+    static let versionWidth: CGFloat = 80
+    static let loadWidth: CGFloat = 140
+    static let statusWidth: CGFloat = 100
+
+    var nameWidth: CGFloat {
+        let fixed =
+            Self.inset * 2 + Self.versionWidth + Self.loadWidth + Self.statusWidth
+            + Self.columnGap * 3
+        return max(140, width - fixed)
+    }
+}
+
+struct DemoDataHeader: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject var model: DemoDashboardModel
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: DemoMetrics.s3) {
+            Text("Components")
+                .font(DemoType.screenTitle)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+
+            Text("\(model.components.count) components")
+                .font(DemoType.caption)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+
+            Spacer(minLength: DemoMetrics.s4)
+
+            DemoFilterField()
+        }
+        .padding(.horizontal, DemoMetrics.s6)
+        .frame(height: DemoMetrics.dataHeaderHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct DemoFilterField: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: DemoMetrics.s2) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12))
+                .foregroundStyle(.tertiary)
+
+            Text("Filter components")
+                .font(DemoType.controlLabel)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, DemoMetrics.s2 + 2)
+        .frame(width: 240, height: DemoMetrics.controlHeight)
+        .background(palette.surface2)
+        .cornerRadius(DemoMetrics.radiusSM)
+        .padding(1)
+        .background(palette.stroke)
+        .cornerRadius(DemoMetrics.radiusSM + 1)
+        .allowsHitTesting(false)
+    }
+}
+
+struct DemoTableHeaderRow: View {
+    let metrics: DemoTableMetrics
+
+    var body: some View {
+        HStack(alignment: .center, spacing: DemoTableMetrics.columnGap) {
+            HStack(alignment: .center, spacing: 0) {
+                DemoEyebrow("Component")
+
+                Spacer(minLength: 0)
+            }
+            .frame(width: metrics.nameWidth, alignment: .leading)
+
+            // Trailing columns are closed with a `Spacer`, not a frame
+            // alignment: a `Text` carries its own alignment into the frame it
+            // is given, so a trailing-aligned column header drew at its
+            // leading edge and the header stopped lining up with the data
+            // under it.
+            HStack(alignment: .center, spacing: 0) {
+                Spacer(minLength: 0)
+
+                DemoEyebrow("Version")
+            }
+            .frame(width: DemoTableMetrics.versionWidth, alignment: .trailing)
+
+            HStack(alignment: .center, spacing: 0) {
+                DemoEyebrow("Load")
+
+                Spacer(minLength: 0)
+            }
+            .frame(width: DemoTableMetrics.loadWidth, alignment: .leading)
+
+            HStack(alignment: .center, spacing: 0) {
+                Spacer(minLength: 0)
+
+                DemoEyebrow("Status")
+            }
+            .frame(width: DemoTableMetrics.statusWidth, alignment: .trailing)
+        }
+        .padding(.horizontal, DemoTableMetrics.inset)
+        .frame(height: DemoMetrics.tableHeaderHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 struct DemoComponentRow: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovering = false
+
     let component: DemoComponent
+    let metrics: DemoTableMetrics
+    let isSelected: Bool
+    let perform: @MainActor @Sendable () -> Void
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    private var fill: Color {
+        if isSelected { return palette.accentWashStrong }
+        return isHovering ? palette.surface1 : Color.clear
+    }
 
     var body: some View {
-        // One line, not two. A stacked version-over-status trailing block gave
-        // every row two text baselines and a 42 pt box; macOS list rows are a
-        // single line of about 24 pt, and the two values read perfectly well
-        // side by side because they are short and always in the same order.
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Label(component.name, systemImage: component.systemImage)
-                .lineLimit(1)
+        Button(action: perform) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .center, spacing: 0) {
+                    // The selection indicator: a 2px bar at the leading edge,
+                    // not a full-bleed saturated band with white text on it.
+                    (isSelected ? palette.accentInk : Color.clear)
+                        .frame(width: 2, height: DemoMetrics.listRowHeight)
 
-            Spacer(minLength: 8)
+                    HStack(alignment: .center, spacing: DemoTableMetrics.columnGap) {
+                        HStack(alignment: .center, spacing: DemoMetrics.s2) {
+                            DemoRowGlyph(
+                                component.systemImage,
+                                accent: isSelected ? palette.accentInk : nil,
+                                isHighlighted: isHovering
+                            )
 
-            // `.secondary` rather than a fixed grey: a row inside a
-            // selection-bound List is drawn over the accent fill when
-            // selected, and the semantic colour is the one that brightens
-            // against a prominent background.
-            Text(component.version)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+                            Text(component.name)
+                                .font(isSelected ? DemoType.bodyStrong : DemoType.body)
+                                .foregroundStyle(isSelected ? .primary : .secondary)
+                                .lineLimit(1)
 
-            // macOS reserves colour for the state that needs attention — and
-            // it carries that colour on a *symbol*, not on the word: a
-            // Network-settings row is a coloured status dot beside plain
-            // text. Painting the word itself `.orange` was faithful SwiftUI
-            // (macOS composites the same 2.2:1 orange on white) and
-            // illegible for exactly that reason: an accent is a colour for
-            // shapes, not for 10pt text on white. The dot carries the orange
-            // at full saturation in any size; the word stays `.secondary`,
-            // legible on white and inverting to white with the rest of a
-            // selected row — while the dot, like any app-authored colour on
-            // macOS, passes through onto the selection fill unchanged.
-            //
-            // The status column is a column: every row's status ends on the
-            // same trailing edge, or a table of eight rows reads as eight
-            // ragged right margins. The fixed-width frame reserves the
-            // column; trailing alignment puts a short word ("Healthy") on
-            // the same edge as a long one ("Degraded").
-            HStack(alignment: .center, spacing: 5) {
-                if !component.isHealthy {
-                    Circle()
-                        .fill(Color.orange)
-                        .frame(width: 7, height: 7)
+                            Spacer(minLength: 0)
+                        }
+                        .frame(width: metrics.nameWidth, alignment: .leading)
+
+                        HStack(alignment: .center, spacing: 0) {
+                            Spacer(minLength: 0)
+
+                            Text(component.version)
+                                .font(DemoType.captionStrong)
+                                .foregroundStyle(.tertiary)
+                                .multilineTextAlignment(.trailing)
+                                .lineLimit(1)
+                        }
+                        .frame(width: DemoTableMetrics.versionWidth, alignment: .trailing)
+
+                        HStack(alignment: .center, spacing: DemoMetrics.s2) {
+                            DemoMeter(value: component.load, width: 64)
+
+                            Text(component.loadPercent)
+                                .font(DemoType.captionStrong)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        .frame(width: DemoTableMetrics.loadWidth, alignment: .leading)
+
+                        DemoStatusCell(component: component)
+                            .frame(width: DemoTableMetrics.statusWidth, alignment: .trailing)
+                    }
+                    .padding(.horizontal, DemoTableMetrics.inset)
                 }
+                .frame(height: DemoMetrics.listRowHeight)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(fill)
 
-                Text(component.statusLabel)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .multilineTextAlignment(.trailing)
+                DemoRule(palette.strokeSubtle)
             }
-            .frame(width: 72, alignment: .trailing)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovering = hovering
         }
     }
 }
 
-struct DemoComponentDetail: View {
-    @ObservedObject var model: DemoDashboardModel
+/// The exception gets the chip; the normal case stays quiet.
+struct DemoStatusCell: View {
+    @Environment(\.colorScheme) private var colorScheme
 
+    let component: DemoComponent
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    @ViewBuilder
     var body: some View {
-        if let component = model.selectedComponent {
-            HStack(alignment: .center, spacing: 18) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(component.name, systemImage: component.systemImage)
+        if component.isHealthy {
+            HStack(alignment: .center, spacing: DemoMetrics.s2 - 2) {
+                Spacer(minLength: 0)
 
-                    Text(component.detail)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                DemoStatusDot(palette.success)
 
-                    // `.secondary`, not `.tertiary`: this line is content,
-                    // and macOS reserves the tertiary rung for decoration.
-                    Text("Version \(component.version)   Status \(component.statusLabel)")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .layoutPriority(1)
-
-                Spacer(minLength: 8)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Current load")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-
-                    ProgressView(value: component.load)
-                }
-                .frame(width: 180, alignment: .leading)
-
-                HStack(alignment: .center, spacing: 10) {
-                    Button("Restart") {
-                        model.restartSelectedComponent()
-                    }
-
-                    Button("Diagnose") {
-                        model.runDiagnostics()
-                    }
-                }
+                Text(component.statusLabel)
+                    .font(DemoType.badge)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
         } else {
-            HStack(alignment: .center, spacing: 12) {
-                Label("No Component Selected", systemImage: "info.circle")
+            HStack(alignment: .center, spacing: 0) {
+                Spacer(minLength: 0)
 
-                Spacer(minLength: 8)
+                HStack(alignment: .center, spacing: DemoMetrics.s2 - 2) {
+                    DemoStatusDot(palette.warning)
 
-                Button("Select First") {
-                    model.selectFirstComponent()
+                    Text(component.statusLabel)
+                        .font(DemoType.badge)
+                        .foregroundColor(palette.warning)
+                        .lineLimit(1)
                 }
+                .padding(.horizontal, DemoMetrics.s2)
+                .frame(height: DemoMetrics.s5)
+                .background(palette.statusWash(palette.warning))
+                .cornerRadius(DemoMetrics.s5 * 0.5)
+            }
+        }
+    }
+}
+
+/// The footer inspector: a bar on the `.bar` material, closed at the top by a
+/// structural hairline. Never brighter than the table it closes in dark, and
+/// never darker in light.
+struct DemoComponentInspector: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject var model: DemoDashboardModel
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    @ViewBuilder
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let component = model.selectedComponent {
+                HStack(alignment: .center, spacing: DemoMetrics.s3) {
+                    DemoIconTile(systemImage: component.systemImage)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(component.name)
+                            .font(DemoType.cardTitle)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+
+                        Text(component.detail)
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: DemoMetrics.s4)
+
+                    VStack(alignment: .leading, spacing: DemoMetrics.s1 + 2) {
+                        HStack(alignment: .center, spacing: DemoMetrics.s2) {
+                            DemoEyebrow("Current load")
+
+                            Spacer(minLength: DemoMetrics.s2)
+
+                            Text(component.loadPercent)
+                                .font(DemoType.captionStrong)
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                        }
+                        .frame(width: 200, alignment: .leading)
+
+                        DemoMeter(value: component.load, width: 200)
+                    }
+
+                    Spacer(minLength: DemoMetrics.s4)
+
+                    HStack(alignment: .center, spacing: DemoMetrics.s2) {
+                        DemoButton("Diagnose") {
+                            model.runDiagnostics()
+                        }
+
+                        DemoButton("Restart", kind: .accent) {
+                            model.restartSelectedComponent()
+                        }
+                    }
+                }
+                .padding(.horizontal, DemoMetrics.s4)
+                .padding(.vertical, DemoMetrics.s3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.bar)
+            } else {
+                HStack(alignment: .center, spacing: DemoMetrics.s3) {
+                    Spacer(minLength: 0)
+
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.tertiary)
+
+                    Text("Select a component to inspect")
+                        .font(DemoType.body)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+
+                    DemoButton("Select first") {
+                        model.selectFirstComponent()
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, DemoMetrics.s4)
+                .padding(.vertical, DemoMetrics.s3)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .background(.bar)
             }
         }
     }

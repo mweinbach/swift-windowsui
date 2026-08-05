@@ -80,13 +80,30 @@ final class DemoResponsiveLayoutTests: XCTestCase {
     /// 640 pt; a desktop app keeps the title and the one control that acts.
     func testToolbarGivesUpChromeBeforeItTruncates() async {
         await MainActor.run {
+            // The band is lighter than it was — one wordmark line, two chips
+            // and one button, against a two-line title block and three
+            // fixed-width pills — so it keeps its chips at 640 and gives up
+            // only the search field. What it must never do is truncate.
             let narrow = DemoLayout(size: WinSwiftUI.CGSize(width: 640, height: 720))
             XCTAssertFalse(narrow.showsToolbarSearch)
-            XCTAssertFalse(narrow.showsToolbarStatusPills)
+            XCTAssertTrue(narrow.showsToolbarStatusPills)
 
-            let medium = DemoLayout(size: WinSwiftUI.CGSize(width: 760, height: 720))
+            let medium = DemoLayout(size: WinSwiftUI.CGSize(width: 700, height: 720))
             XCTAssertFalse(medium.showsToolbarSearch)
             XCTAssertTrue(medium.showsToolbarStatusPills)
+
+            // And the decisions are monotonic in width: a band never gives up
+            // chrome that a narrower band kept.
+            var sawSearch = false
+            for width in Self.sweptWidths.sorted() {
+                let layout = DemoLayout(size: WinSwiftUI.CGSize(width: width, height: 720))
+                if sawSearch {
+                    XCTAssertTrue(
+                        layout.showsToolbarSearch,
+                        "\(Int(width)) pt dropped the search field a narrower window kept.")
+                }
+                sawSearch = sawSearch || layout.showsToolbarSearch
+            }
 
             for width in Self.sweptWidths where width >= 900 {
                 let layout = DemoLayout(size: WinSwiftUI.CGSize(width: width, height: 720))
@@ -114,7 +131,9 @@ final class DemoResponsiveLayoutTests: XCTestCase {
     /// squeezing again — which is exactly how the pills reached 0.9 pt.
     func testTheContentColumnFloorLeavesRoomForTheHeroActionRow() async {
         await MainActor.run {
-            let cardInteriorAtFloor: WinSwiftUI.CGFloat = 420 - 16 * 2 - 2
+            // The card's interior at the column's floor: the page margin on
+            // both sides, then the hero's own 24pt padding.
+            let cardInteriorAtFloor: WinSwiftUI.CGFloat = 420 - 20 * 2 - 24 * 2
             XCTAssertGreaterThan(
                 cardInteriorAtFloor, 260,
                 "the hero's action row does not fit at the centre column's floor.")
@@ -123,7 +142,7 @@ final class DemoResponsiveLayoutTests: XCTestCase {
                 for height in Self.sweptHeights {
                     let layout = DemoLayout(size: WinSwiftUI.CGSize(width: width, height: height))
                     XCTAssertEqual(
-                        layout.heroHeight, layout.compact ? 210 : 232,
+                        layout.heroHeight, 172,
                         "\(Int(width))x\(Int(height)): the hero height is one constant.")
                 }
             }
@@ -140,7 +159,7 @@ final class DemoResponsiveLayoutTests: XCTestCase {
             let narrow = renderedTexts(at: IntSize(width: 640, height: 720))
 
             let headings = [
-                "WORKSPACE", "SESSION", "DETAIL TRACK", "QUICK ACTIONS", "RENDER PIPELINE", "ACTIVITY",
+                "WORKSPACE", "SESSION", "DETAIL TRACK", "QUICK ACTIONS", "Render pipeline", "Activity",
             ]
             for heading in headings {
                 XCTAssertTrue(
@@ -214,11 +233,11 @@ final class DemoResponsiveLayoutTests: XCTestCase {
                     let heights = heightsOfNodes(withText: "Cycle mode", at: size, module: module)
                     XCTAssertFalse(
                         heights.isEmpty,
-                        "\(size.width)x\(size.height) [\(module)]: no Cycle mode pill in the tree")
+                        "\(size.width)x\(size.height) [\(module)]: no Cycle mode button in the tree")
                     for height in heights {
                         XCTAssertGreaterThanOrEqual(
-                            height, 36,
-                            "\(size.width)x\(size.height) [\(module)]: the pill was crushed to \(height) pt.")
+                            height, 12,
+                            "\(size.width)x\(size.height) [\(module)]: the label was crushed to \(height) pt.")
                     }
                 }
             }
@@ -244,8 +263,7 @@ final class DemoResponsiveLayoutTests: XCTestCase {
 
             // The body band is what the three columns are given; below its
             // floor the columns overflow the window instead of scrolling.
-            let availableBodyHeight =
-                screen.height - layout.outerPadding * 2 - layout.toolbarHeight - layout.gap
+            let availableBodyHeight = screen.height - layout.toolbarHeight
             XCTAssertEqual(
                 layout.bodyHeight, availableBodyHeight,
                 accuracy: 0.5,

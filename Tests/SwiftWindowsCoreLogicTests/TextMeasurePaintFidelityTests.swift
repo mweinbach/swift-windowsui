@@ -388,7 +388,11 @@ final class TextMeasurePaintFidelityTests: XCTestCase {
         }
     }
 
-    // MARK: - Real demo pill button
+    // MARK: - Real demo button
+
+    /// The demo button's painted surface: the 28pt control height plus the
+    /// 1pt ring on each edge.
+    private static let demoButtonSurfaceHeight: Double = DemoMetrics.controlHeight + 2
 
     private struct PillContainment {
         var glyphCount: Int
@@ -401,8 +405,12 @@ final class TextMeasurePaintFidelityTests: XCTestCase {
         var pillRight: Double
     }
 
-    /// Locates the demo caption glyphs and the pill surface quad (identified
-    /// by its 38pt frame height) in a scene and measures containment.
+    /// Locates the demo caption glyphs and the button surface quad in a scene
+    /// and measures containment.
+    ///
+    /// The surface is identified by its frame height, which is the design
+    /// system's control height plus the 1pt ring the button draws around
+    /// itself — 30, not the 38pt stadium the demo used to build.
     private func pillContainment(scene: GPUIScene, scale: Double) -> PillContainment {
         var glyphMinX = Double.greatestFiniteMagnitude
         var glyphMaxX = -Double.greatestFiniteMagnitude
@@ -432,7 +440,8 @@ final class TextMeasurePaintFidelityTests: XCTestCase {
                 let bottom = Double(quad.y + quad.height)
                 let height = bottom - top
                 guard top <= glyphCenterY, bottom >= glyphCenterY,
-                    height >= 38 * scale - 4, height <= 38 * scale + 8
+                    height >= Self.demoButtonSurfaceHeight * scale - 4,
+                    height <= Self.demoButtonSurfaceHeight * scale + 8
                 else { continue }
                 let left = Double(quad.x)
                 let right = Double(quad.x + quad.width)
@@ -490,18 +499,14 @@ final class TextMeasurePaintFidelityTests: XCTestCase {
 
     private func demoPillView() -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            DemoPillButton(
-                "Cycle mode",
-                colors: [DemoTheme(colorScheme: .dark).fieldTop, DemoTheme(colorScheme: .dark).fieldBottom],
-                textColor: Color.primary
-            ) {}
+            DemoButton("Cycle mode") {}
         }
         .padding(8)
     }
 
-    /// The exact demo construction (`DemoPillButton` from SwiftWindowsDemo):
-    /// bold rounded 12pt caption inside a gradient surface hugging the
-    /// measured text.
+    /// The exact demo construction (`DemoButton` from SwiftWindowsDemo): a
+    /// 12/500 control label inside a bordered surface hugging the measured
+    /// text.
     func testDemoPillButtonContainsCaptionGlyphs() async {
         await MainActor.run {
             for scale in [1.0, 1.5, 2.0] {
@@ -548,26 +553,13 @@ final class TextMeasurePaintFidelityTests: XCTestCase {
             for scale in [1.0, 1.5] {
                 for width in [760.0, 700.0, 620.0, 540.0, 460.0, 400.0] {
                     let view =
-                        HStack(alignment: .center, spacing: 12) {
-                            DemoPillButton(
-                                "Open layout",
-                                colors: [
-                                    DemoTheme(colorScheme: .dark).fieldTop.opacity(0.94),
-                                    DemoTheme(colorScheme: .dark).fieldBottom.opacity(0.70),
-                                ]
-                            ) {}
-                            .layoutPriority(1)
-                            DemoPillButton(
-                                "Cycle mode",
-                                colors: [
-                                    DemoTheme(colorScheme: .dark).fieldTop,
-                                    DemoTheme(colorScheme: .dark).fieldBottom,
-                                ],
-                                textColor: Color.primary
-                            ) {}
-                            .layoutPriority(1)
+                        HStack(alignment: .center, spacing: 10) {
+                            DemoButton("Open layout", kind: .inverse, horizontalPadding: 16) {}
+                                .layoutPriority(1)
+                            DemoButton("Cycle mode", kind: .ghost, horizontalPadding: 14) {}
+                                .layoutPriority(1)
                         }
-                        .padding(18)
+                        .padding(16)
                         .frame(width: width, alignment: .leading)
 
                     let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
@@ -638,7 +630,8 @@ final class TextMeasurePaintFidelityTests: XCTestCase {
                     let bottom = Double(quad.y + quad.height)
                     let height = bottom - top
                     guard top <= cluster.centerY, bottom >= cluster.centerY,
-                        height >= 38 * scale - 4, height <= 38 * scale + 8
+                        height >= Self.demoButtonSurfaceHeight * scale - 4,
+                        height <= Self.demoButtonSurfaceHeight * scale + 8
                     else { continue }
                     let left = Double(quad.x)
                     let right = Double(quad.x + quad.width)

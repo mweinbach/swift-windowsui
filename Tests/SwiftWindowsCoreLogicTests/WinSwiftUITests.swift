@@ -4056,7 +4056,16 @@ final class WinSwiftUITests: XCTestCase {
             let strokedShapeNode = makeNode(Capsule().strokeBorder(.ultraThickMaterial, lineWidth: 3))
             let foregroundNode = makeNode(Text("FOREGROUND").foregroundStyle(.thickMaterial))
 
-            XCTAssertEqual(backgroundNode.backgroundColor, Material.regular.retainedFallbackColor)
+            // `.background(_:)` resolves a material's tint for the appearance
+            // it lands in, the way it already resolved the label ladder and
+            // the system colour table. `retainedFallbackColor` is the *light*
+            // value; on the near-black page a white 0.64 bar was the
+            // brightest object in the app, painted over the page it belongs
+            // to.
+            XCTAssertEqual(
+                backgroundNode.backgroundColor, Material.regular.retainedTint(for: .dark))
+            XCTAssertEqual(
+                Material.regular.retainedTint(for: .light), Material.regular.retainedFallbackColor)
             XCTAssertEqual(firstText(in: backgroundNode.children[0]), "MATERIAL")
             XCTAssertEqual(overlayNode.children[1].backgroundColor, Material.bar.retainedFallbackColor)
             XCTAssertEqual(overlayNode.children[1].frame, Rect(x: 0, y: 0, width: 72, height: 28))

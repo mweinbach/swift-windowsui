@@ -1935,6 +1935,42 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         runtime
     }
 
+    /// Wall clock spent rebuilding the view tree since the last presented
+    /// frame drained this, and how many rebuilds that was.
+    ///
+    /// A tree rebuild does not happen inside a frame. It happens in the
+    /// message handler that changed the state — a click on a sidebar row runs
+    /// `reloadContent` synchronously and returns to the wndproc, and only the
+    /// *next* `WM_PAINT` lays the result out and paints it. So the frame
+    /// sample's `sceneBuildSeconds` has never included body evaluation, node
+    /// construction or reconciliation, and a screen switch's most obvious
+    /// cost was the one the frame budget could not see. Charged to the frame
+    /// that ships the rebuild's result, which is where a user experiences it.
+    private var pendingRebuildSeconds: Double = 0
+    private var pendingRebuildCount: Int = 0
+    /// The same wall clock split into body evaluation, node construction and
+    /// reconciliation, accumulated the same way.
+    private var pendingComposeSeconds: Double = 0
+    private var pendingNodeConstructionSeconds: Double = 0
+    private var pendingReconcileSeconds: Double = 0
+
+    /// Runs a tree rebuild, charging its cost to the next presented frame.
+    /// Only clocked while a diagnostics session is listening — `frameClock()`
+    /// is a QPC round-trip and this runs on every state change.
+    private func chargingRebuildCost<T>(_ body: () -> T) -> T {
+        guard onFramePresented != nil else {
+            return body()
+        }
+        let startedAt = frameClock()
+        let result = body()
+        pendingRebuildSeconds += frameClock() - startedAt
+        pendingRebuildCount += 1
+        pendingComposeSeconds += componentHost.lastComposeSeconds
+        pendingNodeConstructionSeconds += componentHost.lastNodeConstructionSeconds
+        pendingReconcileSeconds += componentHost.lastReconcileSeconds
+        return result
+    }
+
     /// What the active batch backend reports about its device, or `nil` when
     /// the frame backend is presenting.
     var activeBatchBackendDiagnostics: BatchBackendDiagnostics? {
@@ -2352,7 +2388,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             surfaceDescriptor?.pixelSize = size
             surfaceDescriptor?.scaleFactor = scaleFactor
             runtime.setRootSize(logicalSize(for: size, scaleFactor: scaleFactor))
-            componentHost.reload()
+            chargingRebuildCost { componentHost.reload() }
             executedResizeRebuildCount += 1
 
             // A drag is one structural event, not a hundred. The bridge
@@ -2653,7 +2689,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         // so future notifications can be dependency-checked.
         componentHost.observedObjects.removeAll()
         resetObservedObjects()
-        componentHost.reload()
+        chargingRebuildCost { componentHost.reload() }
         uiaBridge?.raiseStructureChanged()
 
         // Present any file-importer / exporter / mover dialogs whose
@@ -3010,16 +3046,34 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         if let onFramePresented {
             let frameEndedAt = frameClock()
             let backendDiagnostics = activeBatchBackendDiagnostics
+            let rebuildSeconds = pendingRebuildSeconds
+            let rebuildCount = pendingRebuildCount
+            let composeSeconds = pendingComposeSeconds
+            let nodeConstructionSeconds = pendingNodeConstructionSeconds
+            let reconcileSeconds = pendingReconcileSeconds
+            pendingRebuildSeconds = 0
+            pendingRebuildCount = 0
+            pendingComposeSeconds = 0
+            pendingNodeConstructionSeconds = 0
+            pendingReconcileSeconds = 0
+            let didRebuildScene = runtime.sceneRebuildCount != rebuildsBefore
             onFramePresented(
                 LiveFrameSample(
                     presentedAt: frameEndedAt,
                     totalSeconds: frameEndedAt - frameStartedAt,
+                    rebuildSeconds: rebuildSeconds,
+                    rebuildCount: rebuildCount,
+                    composeSeconds: composeSeconds,
+                    nodeConstructionSeconds: nodeConstructionSeconds,
+                    reconcileSeconds: reconcileSeconds,
                     sceneBuildSeconds: sceneBuildEndedAt - frameStartedAt,
+                    layoutSeconds: didRebuildScene ? runtime.lastLayoutSeconds : 0,
+                    paintSeconds: didRebuildScene ? runtime.lastPaintSeconds : 0,
                     bindSeconds: bindEndedAt - sceneBuildEndedAt,
                     backendSubmitSeconds: backendDiagnostics?.lastSubmitSeconds ?? 0,
                     backendPresentSeconds: backendDiagnostics?.lastPresentSeconds ?? 0,
                     submitAndPresentSeconds: renderEndedAt - bindEndedAt,
-                    didRebuildScene: runtime.sceneRebuildCount != rebuildsBefore,
+                    didRebuildScene: didRebuildScene,
                     nodeReplayCount: runtime.lastSceneNodeReplayCount,
                     primitiveCount: primitiveCount,
                     hadActiveAnimations: runtime.hasActiveAnimations,

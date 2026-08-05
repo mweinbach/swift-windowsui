@@ -3752,6 +3752,20 @@ public final class ViewNode {
     /// place, so a keyed match that changed position had no way to be
     /// expressed.
     func setChildren(_ nextChildren: [ViewNode]) {
+        // A rebuild reconciles every node in the window, and for the
+        // overwhelming majority of them it hands back the same child objects
+        // in the same order — the reconcile already matched them and updated
+        // them in place. Doing the full replacement anyway costs an
+        // `ObjectIdentifier` set, a filtered array, a `setRuntime` walk of the
+        // whole subtree (which is quadratic in tree depth once every node
+        // does it), and a `.children` invalidation that says the child list
+        // changed when it did not — which is a lie the layout pass believes,
+        // and the reason a rebuild used to re-descend subtrees nothing had
+        // touched.
+        if isChildListUnchanged(nextChildren) {
+            return
+        }
+
         let surviving = Set(nextChildren.map(ObjectIdentifier.init))
         let departing = children.filter { !surviving.contains(ObjectIdentifier($0)) }
         children = []
@@ -3767,6 +3781,24 @@ public final class ViewNode {
         }
         children = nextChildren
         invalidateRuntime(.children)
+    }
+
+    /// Whether `nextChildren` is the list this node already has: same objects,
+    /// same order, each already parented here and already carrying this
+    /// node's runtime. All three have to hold, because the replacement path
+    /// establishes all three and skipping it must not leave any of them
+    /// half-done.
+    private func isChildListUnchanged(_ nextChildren: [ViewNode]) -> Bool {
+        guard children.count == nextChildren.count else {
+            return false
+        }
+        for index in nextChildren.indices {
+            let child = nextChildren[index]
+            guard children[index] === child, child.parent === self, child.runtime === runtime else {
+                return false
+            }
+        }
+        return true
     }
 
     fileprivate func setRuntime(_ runtime: RetainedViewRuntime?) {
@@ -7870,6 +7902,21 @@ public final class RetainedViewRuntime {
     /// unfalsifiable from the host that drives it.
     public private(set) var sceneRebuildCount: UInt64 = 0
     public private(set) var sceneCacheHitCount: UInt64 = 0
+    /// Whether `renderScene` splits its own wall clock into layout and paint.
+    ///
+    /// Off by default and paid for by nobody who has not asked: the split
+    /// costs two QPC round-trips on a path that runs at frame rate. A live
+    /// diagnostics session turns it on, because "the scene build cost 10 ms"
+    /// is not an actionable statement — laying the tree out and painting it
+    /// are different work with different fixes, and the combined figure
+    /// cannot say which one moved.
+    public var collectsPhaseTimings = false
+    /// Seconds the last scene repaint spent in `updateResolvedLayout` (every
+    /// layout pass, including `GeometryReader` convergence rounds) and in
+    /// `ScenePainter.paint` respectively. Both are zero on a frame that hit
+    /// the scene cache, and stale — from the last repaint — if read after one.
+    public private(set) var lastLayoutSeconds: Double = 0
+    public private(set) var lastPaintSeconds: Double = 0
     /// Nodes the most recent scene repaint replayed from the previous scene
     /// instead of repainting. Meaningful only for a frame that rebuilt.
     public var lastSceneNodeReplayCount: Int { lastSceneReplayCount }
@@ -8396,8 +8443,10 @@ public final class RetainedViewRuntime {
 
         let ownsRenderPass = beginRenderPass()
         defer { endRenderPass(ownsPass: ownsRenderPass) }
+        let phaseStartedAt = collectsPhaseTimings ? Win32Window.currentTimestampSeconds() : 0
         updateResolvedLayout()
         applyMatchedGeometryAnimations()
+        let layoutEndedAt = collectsPhaseTimings ? Win32Window.currentTimestampSeconds() : 0
 
         let previousScene = cachedScene
         var replayCount = 0
@@ -8416,6 +8465,11 @@ public final class RetainedViewRuntime {
             overlays: transitionOverlays
         )
         prepaintState.deferredDraws = deferredDraws
+        if collectsPhaseTimings {
+            let paintEndedAt = Win32Window.currentTimestampSeconds()
+            lastLayoutSeconds = layoutEndedAt - phaseStartedAt
+            lastPaintSeconds = paintEndedAt - layoutEndedAt
+        }
 
         // The retained copy drops the atlases on purpose: it outlives the
         // frame, and a snapshot holding the atlas `Data` across frames turns

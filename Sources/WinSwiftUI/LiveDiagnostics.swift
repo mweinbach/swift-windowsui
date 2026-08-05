@@ -17,7 +17,27 @@ import SwiftWindowsPlatform
 struct LiveFrameSample {
     var presentedAt: Double
     var totalSeconds: Double
+    /// Wall clock spent rebuilding the view tree between the previous
+    /// presented frame and this one, and how many rebuilds that was.
+    ///
+    /// Outside `totalSeconds` by construction — a rebuild runs in the message
+    /// handler that changed the state, not in `WM_PAINT` — and charged here
+    /// because the user pays for it before this frame appears. See
+    /// `WinSwiftUIWindowHost.pendingRebuildSeconds`.
+    var rebuildSeconds: Double = 0
+    var rebuildCount: Int = 0
+    /// `rebuildSeconds` split three ways: evaluating `View` bodies into a
+    /// `Component` tree, turning that tree into `ViewNode`s, and reconciling
+    /// them onto the retained tree.
+    var composeSeconds: Double = 0
+    var nodeConstructionSeconds: Double = 0
+    var reconcileSeconds: Double = 0
     var sceneBuildSeconds: Double
+    /// The split of `sceneBuildSeconds` on frames that repainted: laying the
+    /// tree out versus painting it. Zero on a frame that hit the scene cache,
+    /// where neither happened.
+    var layoutSeconds: Double = 0
+    var paintSeconds: Double = 0
     /// `bindResources` — atlas and image uploads.
     var bindSeconds: Double
     /// Backend-reported split of `render(scene:)`: work issued vs time spent
@@ -176,6 +196,9 @@ final class LiveDiagnosticsSession {
     /// from the host's own animation timer from here on.
     func start() {
         startedAt = clock()
+        // The layout/paint split is off in a shipping frame loop and on for
+        // the run that is asking where the time goes.
+        host?.hostedRuntime.collectsPhaseTimings = true
         if configuration.disablesVSync {
             didDisableVSync = host?.setActiveBatchBackendVSync(false) ?? false
         }
@@ -358,6 +381,7 @@ final class LiveDiagnosticsSession {
             return
         }
         host.onFramePresented = nil
+        host.hostedRuntime.collectsPhaseTimings = false
 
         do {
             let json = try buildReportJSON(host: host)
@@ -485,6 +509,12 @@ final class LiveDiagnosticsSession {
 
         let frameTimesMs = timedSamples.map { $0.totalSeconds * 1000 }.sorted()
         let sceneBuildMs = timedSamples.map { $0.sceneBuildSeconds * 1000 }.sorted()
+        // Rebuild cost is charged to the frame that ships it, so it is
+        // summarised over the frames that carried one — averaging it across
+        // every frame divides one screen switch by a thousand idle repaints
+        // and reports a cost nobody paid.
+        let rebuildingSamples = timedSamples.filter { $0.rebuildCount > 0 }
+        let rebuildMs = rebuildingSamples.map { $0.rebuildSeconds * 1000 }.sorted()
         let bindMs = timedSamples.map { $0.bindSeconds * 1000 }.sorted()
         let submitMs = timedSamples.map { $0.submitAndPresentSeconds * 1000 }.sorted()
         let backendSubmitMs = timedSamples.map { $0.backendSubmitSeconds * 1000 }.sorted()
@@ -499,6 +529,12 @@ final class LiveDiagnosticsSession {
             "framesPerSecondOverRun": elapsed > 0 ? Double(samples.count) / elapsed : 0,
             "frameTimeMs": percentileSummary(frameTimesMs),
             "sceneBuildMs": percentileSummary(sceneBuildMs),
+            // What a screen switch actually costs, in the three parts that
+            // have three different fixes: rebuilding the tree, laying it out,
+            // painting it.
+            "treeRebuildMs": percentileSummary(rebuildMs),
+            "framesCarryingATreeRebuild": rebuildingSamples.count,
+            "treeRebuildsTotal": timedSamples.reduce(0) { $0 + $1.rebuildCount },
             "bindResourcesMs": percentileSummary(bindMs),
             "submitAndPresentMs": percentileSummary(submitMs),
             "backendSubmitMs": percentileSummary(backendSubmitMs),
@@ -527,19 +563,17 @@ final class LiveDiagnosticsSession {
         report["worstFrames"] =
             slowestFirst
             .prefix(8)
-            .map { sample in
-                [
-                    "atSeconds": sampleElapsed(sample),
-                    "frameTimeMs": sample.totalSeconds * 1000,
-                    "sceneBuildMs": sample.sceneBuildSeconds * 1000,
-                    "bindResourcesMs": sample.bindSeconds * 1000,
-                    "backendSubmitMs": sample.backendSubmitSeconds * 1000,
-                    "backendPresentMs": sample.backendPresentSeconds * 1000,
-                    "didRebuildScene": sample.didRebuildScene,
-                    "nodeReplayCount": sample.nodeReplayCount,
-                    "hadActiveAnimations": sample.hadActiveAnimations,
-                ] as [String: Any]
-            }
+            .map(frameDetail)
+
+        // The frame budget is what a frame costs; an update is what a *user
+        // action* costs, and the two differ by exactly the rebuild that
+        // happened outside the frame. Ranked on the sum, so the screen switch
+        // that rebuilds for 6 ms and then paints for 4 sorts above the frame
+        // that merely painted for 5.
+        let costliestUpdates = rebuildingSamples.sorted {
+            ($0.rebuildSeconds + $0.totalSeconds) > ($1.rebuildSeconds + $1.totalSeconds)
+        }
+        report["costliestUpdates"] = costliestUpdates.prefix(8).map(frameDetail)
 
         let rebuilds = timedSamples.filter(\.didRebuildScene).count
         let animatingSamples = timedSamples.filter(\.hadActiveAnimations)
@@ -579,6 +613,12 @@ final class LiveDiagnosticsSession {
         // is what an animating frame costs against it.
         scene["nodesVisitedPerRebuildFrame"] = percentileSummary(
             rebuildSamples.map { Double($0.visitedNodeCount) }.sorted())
+        // Where a repaint's time goes. Over rebuild frames only, for the same
+        // reason as the counts above: a cache-hit frame did neither.
+        scene["layoutMsPerRebuildFrame"] = percentileSummary(
+            rebuildSamples.map { $0.layoutSeconds * 1000 }.sorted())
+        scene["paintMsPerRebuildFrame"] = percentileSummary(
+            rebuildSamples.map { $0.paintSeconds * 1000 }.sorted())
         scene["maxNodesVisited"] = timedSamples.map(\.visitedNodeCount).max() ?? 0
         scene["lastPrimitiveCount"] = samples.last?.primitiveCount ?? 0
         scene["maxPrimitiveCount"] = samples.map(\.primitiveCount).max() ?? 0
@@ -600,6 +640,31 @@ final class LiveDiagnosticsSession {
 
         return try JSONSerialization.data(
             withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+    }
+
+    /// One frame, in every part a reader needs to attribute its cost.
+    private func frameDetail(_ sample: LiveFrameSample) -> [String: Any] {
+        [
+            "atSeconds": sampleElapsed(sample),
+            "frameTimeMs": sample.totalSeconds * 1000,
+            // Outside `frameTimeMs`: the rebuild ran before this frame did.
+            "treeRebuildMs": sample.rebuildSeconds * 1000,
+            "treeRebuildCount": sample.rebuildCount,
+            "bodyEvaluationMs": sample.composeSeconds * 1000,
+            "nodeConstructionMs": sample.nodeConstructionSeconds * 1000,
+            "reconcileMs": sample.reconcileSeconds * 1000,
+            "userVisibleCostMs": (sample.rebuildSeconds + sample.totalSeconds) * 1000,
+            "sceneBuildMs": sample.sceneBuildSeconds * 1000,
+            "layoutMs": sample.layoutSeconds * 1000,
+            "paintMs": sample.paintSeconds * 1000,
+            "bindResourcesMs": sample.bindSeconds * 1000,
+            "backendSubmitMs": sample.backendSubmitSeconds * 1000,
+            "backendPresentMs": sample.backendPresentSeconds * 1000,
+            "didRebuildScene": sample.didRebuildScene,
+            "nodeReplayCount": sample.nodeReplayCount,
+            "visitedNodeCount": sample.visitedNodeCount,
+            "hadActiveAnimations": sample.hadActiveAnimations,
+        ]
     }
 
     /// The cost of one population of frames: how many there were, what they

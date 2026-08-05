@@ -1695,4 +1695,70 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(selectedID, "a")
         }
     }
+
+    // MARK: - Reconcile cost
+
+    /// A reconcile that changes nothing about a node must leave that node
+    /// clean.
+    ///
+    /// `updateNodeProperties` used to assign a handful of heap-backed
+    /// properties unconditionally — the canvas draw, the accessibility
+    /// actions, the layout and container value bags — and each of those
+    /// observes itself and walks the node's ancestors marking them dirty. The
+    /// consequence was that every state change anywhere in a window marked
+    /// *every* node in it paint- and layout-dirty, whatever had actually
+    /// changed, which is both the cost this test bounds and a lie told to
+    /// every consumer of the dirty flags.
+    func testReconcilingAnUnchangedNodeLeavesItClean() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            host.setContent {
+                UI.label("STEADY")
+            }
+            runtime.setRootSize(IntSize(width: 200, height: 100))
+            _ = runtime.renderScene()
+
+            guard let label = runtime.root.children.first else {
+                return XCTFail("the host must have built the label")
+            }
+            XCTAssertFalse(label.hasDirtySubtree, "a rendered node starts clean")
+
+            // Same content, rebuilt: nothing about this node differs.
+            host.reload()
+
+            XCTAssertFalse(
+                label.hasDirtySubtree,
+                "reconciling an unchanged node must not mark it dirty; "
+                    + "dirty flags: \(label.subtreeDirtyFlags.rawValue)")
+        }
+    }
+
+    /// The other half: a reconcile that *does* change something still marks
+    /// the node, so the guards above cannot be satisfied by never
+    /// invalidating anything.
+    func testReconcilingAChangedNodeStillMarksItDirty() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var title = "FIRST"
+            host.setContent {
+                UI.label(title)
+            }
+            runtime.setRootSize(IntSize(width: 200, height: 100))
+            _ = runtime.renderScene()
+
+            guard let label = runtime.root.children.first else {
+                return XCTFail("the host must have built the label")
+            }
+            XCTAssertFalse(label.hasDirtySubtree)
+
+            title = "SECOND"
+            host.reload()
+
+            XCTAssertTrue(
+                label.hasDirtySubtree,
+                "a node whose text changed must be marked dirty")
+        }
+    }
 }

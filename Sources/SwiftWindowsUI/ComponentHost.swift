@@ -23,6 +23,19 @@ public final class ComponentHost {
     /// observable are rebuilt.
     public var observedObjects: Set<ObjectIdentifier> = []
 
+    /// The wall-clock split of the last `reload()`, in the three parts that
+    /// have three different fixes: evaluating `View` bodies into a
+    /// `Component` tree, turning that tree into `ViewNode`s, and reconciling
+    /// the new nodes onto the retained ones.
+    ///
+    /// Collected only while `runtime.collectsPhaseTimings` is on, which a
+    /// live diagnostics run turns on and nothing else does — a rebuild runs
+    /// on every state change and three QPC round-trips per rebuild is not a
+    /// cost a shipping window should carry for a number nobody reads.
+    public private(set) var lastComposeSeconds: Double = 0
+    public private(set) var lastNodeConstructionSeconds: Double = 0
+    public private(set) var lastReconcileSeconds: Double = 0
+
     public init(runtime: RetainedViewRuntime) {
         self.runtime = runtime
     }
@@ -53,10 +66,21 @@ public final class ComponentHost {
 
         runtime.recordMatchedGeometryFrames()
 
+        let isProfiling = runtime.collectsPhaseTimings
+        let reloadStartedAt = isProfiling ? Win32Window.currentTimestampSeconds() : 0
+
         let oldChildren = runtime.root.children
-        let newNodes = buildComponents().map { $0.makeNode(runtime: runtime) }
+        let components = buildComponents()
+        let composeEndedAt = isProfiling ? Win32Window.currentTimestampSeconds() : 0
+        let newNodes = components.map { $0.makeNode(runtime: runtime) }
+        let nodesEndedAt = isProfiling ? Win32Window.currentTimestampSeconds() : 0
 
         Self.reconcileChildren(of: runtime.root, oldChildren: oldChildren, newNodes: newNodes)
+        if isProfiling {
+            lastComposeSeconds = composeEndedAt - reloadStartedAt
+            lastNodeConstructionSeconds = nodesEndedAt - composeEndedAt
+            lastReconcileSeconds = Win32Window.currentTimestampSeconds() - nodesEndedAt
+        }
         if hasPerformedInitialBuild {
             Self.applyNewNodeTransitionsRecursively(in: runtime.root)
         } else {
@@ -308,27 +332,45 @@ public final class ComponentHost {
         return layoutModeTag(a.layoutMode) == layoutModeTag(b.layoutMode)
     }
 
+    /// The structural category of a layout mode: what has to agree for two
+    /// nodes to be the same node, ignoring the parameters inside the mode.
+    ///
+    /// An enum rather than the `String` this used to return. The value is
+    /// computed twice per reconciled node — once to match, once to decide
+    /// whether the mode has to be re-assigned — and a reconcile touches every
+    /// node in the window, so the two string materializations and the string
+    /// comparison between them were paid several hundred times per rebuild
+    /// for a five-way distinction that fits in a byte.
+    private enum LayoutModeCategory: UInt8 {
+        case absolute
+        case verticalStack
+        case horizontalStack
+        case verticalLazyStack
+        case horizontalLazyStack
+        case flex
+    }
+
     /// Produce a cheap comparable key for a layout mode.
-    private static func layoutModeTag(_ mode: ViewLayoutMode) -> String {
+    private static func layoutModeTag(_ mode: ViewLayoutMode) -> LayoutModeCategory {
         switch mode {
         case .absolute:
-            return "absolute"
+            return .absolute
         case .stack(let layout):
             switch layout.axis {
             case .vertical:
-                return "stack.v"
+                return .verticalStack
             case .horizontal:
-                return "stack.h"
+                return .horizontalStack
             }
         case .lazyStack(let layout):
             switch layout.axis {
             case .vertical:
-                return "lazyStack.v"
+                return .verticalLazyStack
             case .horizontal:
-                return "lazyStack.h"
+                return .horizontalLazyStack
             }
         case .flex:
-            return "flex"
+            return .flex
         }
     }
 
@@ -339,7 +381,22 @@ public final class ComponentHost {
         let oldOpacity = target.opacity
         let oldBackgroundColor = target.backgroundColor
         let oldBackgroundGradient = target.backgroundGradient
-        target.animationStates = source.animationStates
+        // Assignments below are guarded on *emptiness* rather than equality
+        // wherever the property is heap-backed, carries a `didSet`, or both.
+        //
+        // This runs once per node in the window on every state change, and
+        // the overwhelming majority of nodes carry none of these: a plain
+        // `VStack` row has no animation states, no canvas draw, no swipe
+        // actions and no accessibility actions. Assigning an empty
+        // collection over an empty collection is not free — it retains and
+        // releases the source storage, and where the property observes
+        // itself it also runs `invalidateRuntime`, which walks the node's
+        // ancestors to the root. Measured 2026-08 on the demo's screen
+        // switch: the unconditional block cost about four times as much per
+        // property as the guarded compares around it.
+        if !(target.animationStates.isEmpty && source.animationStates.isEmpty) {
+            target.animationStates = source.animationStates
+        }
         // A node may animate its own changes with no ambient `withAnimation`
         // — `NSSwitch` does, and a rebuilt control's state change carries no
         // transaction at all. The explicit one still wins when both are set.
@@ -440,7 +497,7 @@ public final class ComponentHost {
             fromBackgroundGradient: oldBackgroundGradient
         )
         if target.bitmapSurface != source.bitmapSurface { target.bitmapSurface = source.bitmapSurface }
-        target.canvasDraw = source.canvasDraw
+        if target.canvasDraw != nil || source.canvasDraw != nil { target.canvasDraw = source.canvasDraw }
         if target.text != source.text { target.text = source.text }
         if target.textStyle != source.textStyle { target.textStyle = source.textStyle }
         if target.borderColor != source.borderColor { target.borderColor = source.borderColor }
@@ -538,17 +595,35 @@ public final class ComponentHost {
         if target.moveDisabledOverride != source.moveDisabledOverride {
             target.moveDisabledOverride = source.moveDisabledOverride
         }
-        target.onDeleteAction = source.onDeleteAction
-        target.onMoveAction = source.onMoveAction
+        if target.onDeleteAction != nil || source.onDeleteAction != nil {
+            target.onDeleteAction = source.onDeleteAction
+        }
+        if target.onMoveAction != nil || source.onMoveAction != nil { target.onMoveAction = source.onMoveAction }
         if target.editActions != source.editActions { target.editActions = source.editActions }
-        target.swipeActionsLeading = source.swipeActionsLeading
-        target.swipeActionsTrailing = source.swipeActionsTrailing
-        target.swipeActionsAllowsFullSwipe = source.swipeActionsAllowsFullSwipe
-        target.commandHandlers = source.commandHandlers
-        target.fileExporterConfiguration = source.fileExporterConfiguration
-        target.fileImporterConfiguration = source.fileImporterConfiguration
-        target.fileImporterMultiConfiguration = source.fileImporterMultiConfiguration
-        target.fileMoverConfiguration = source.fileMoverConfiguration
+        if target.swipeActionsLeading != nil || source.swipeActionsLeading != nil {
+            target.swipeActionsLeading = source.swipeActionsLeading
+        }
+        if target.swipeActionsTrailing != nil || source.swipeActionsTrailing != nil {
+            target.swipeActionsTrailing = source.swipeActionsTrailing
+        }
+        if target.swipeActionsAllowsFullSwipe != source.swipeActionsAllowsFullSwipe {
+            target.swipeActionsAllowsFullSwipe = source.swipeActionsAllowsFullSwipe
+        }
+        if !(target.commandHandlers.isEmpty && source.commandHandlers.isEmpty) {
+            target.commandHandlers = source.commandHandlers
+        }
+        if target.fileExporterConfiguration != nil || source.fileExporterConfiguration != nil {
+            target.fileExporterConfiguration = source.fileExporterConfiguration
+        }
+        if target.fileImporterConfiguration != nil || source.fileImporterConfiguration != nil {
+            target.fileImporterConfiguration = source.fileImporterConfiguration
+        }
+        if target.fileImporterMultiConfiguration != nil || source.fileImporterMultiConfiguration != nil {
+            target.fileImporterMultiConfiguration = source.fileImporterMultiConfiguration
+        }
+        if target.fileMoverConfiguration != nil || source.fileMoverConfiguration != nil {
+            target.fileMoverConfiguration = source.fileMoverConfiguration
+        }
         if target.inspectorColumnWidth != source.inspectorColumnWidth {
             target.inspectorColumnWidth = source.inspectorColumnWidth
         }
@@ -827,7 +902,9 @@ public final class ComponentHost {
         if target.accessibilitySortPriority != source.accessibilitySortPriority {
             target.accessibilitySortPriority = source.accessibilitySortPriority
         }
-        target.accessibilityActions = source.accessibilityActions
+        if !(target.accessibilityActions.isEmpty && source.accessibilityActions.isEmpty) {
+            target.accessibilityActions = source.accessibilityActions
+        }
         if target.accessibilityInputLabels != source.accessibilityInputLabels {
             target.accessibilityInputLabels = source.accessibilityInputLabels
         }
@@ -1080,7 +1157,9 @@ public final class ComponentHost {
         if target.accessibilityTextContentType != source.accessibilityTextContentType {
             target.accessibilityTextContentType = source.accessibilityTextContentType
         }
-        target.accessibilityMagicTapAction = source.accessibilityMagicTapAction
+        if target.accessibilityMagicTapAction != nil || source.accessibilityMagicTapAction != nil {
+            target.accessibilityMagicTapAction = source.accessibilityMagicTapAction
+        }
         if target.presentationChrome != source.presentationChrome {
             target.presentationChrome = source.presentationChrome
         }
@@ -1091,11 +1170,17 @@ public final class ComponentHost {
             target.toolbarPlacementTags = source.toolbarPlacementTags
         }
         if target.menuOrder != source.menuOrder { target.menuOrder = source.menuOrder }
-        target.toolbarTitleMenuChildren = source.toolbarTitleMenuChildren
-        target.toolbarTitleActionsChildren = source.toolbarTitleActionsChildren
-        target.accessibilityRepresentationChildren = source.accessibilityRepresentationChildren
+        if target.toolbarTitleMenuChildren != nil || source.toolbarTitleMenuChildren != nil {
+            target.toolbarTitleMenuChildren = source.toolbarTitleMenuChildren
+        }
+        if target.toolbarTitleActionsChildren != nil || source.toolbarTitleActionsChildren != nil {
+            target.toolbarTitleActionsChildren = source.toolbarTitleActionsChildren
+        }
+        if target.accessibilityRepresentationChildren != nil || source.accessibilityRepresentationChildren != nil {
+            target.accessibilityRepresentationChildren = source.accessibilityRepresentationChildren
+        }
         if target.gestureName != source.gestureName { target.gestureName = source.gestureName }
-        target.textRenderer = source.textRenderer
+        if target.textRenderer != nil || source.textRenderer != nil { target.textRenderer = source.textRenderer }
         if target.scenePaddingEdges != source.scenePaddingEdges { target.scenePaddingEdges = source.scenePaddingEdges }
         if target.coordinateSpaceName != source.coordinateSpaceName {
             target.coordinateSpaceName = source.coordinateSpaceName
@@ -1106,64 +1191,111 @@ public final class ComponentHost {
         if target.sectionFooterChildCount != source.sectionFooterChildCount {
             target.sectionFooterChildCount = source.sectionFooterChildCount
         }
-        target.retainedPreferenceValues = source.retainedPreferenceValues
-        target.retainedPreferenceTransformBoundaries = source.retainedPreferenceTransformBoundaries
-        target.retainedLayoutValues = source.retainedLayoutValues
-        target.retainedContainerValues = source.retainedContainerValues
+        if !(target.retainedPreferenceValues.isEmpty && source.retainedPreferenceValues.isEmpty) {
+            target.retainedPreferenceValues = source.retainedPreferenceValues
+        }
+        if !(target.retainedPreferenceTransformBoundaries.isEmpty
+            && source.retainedPreferenceTransformBoundaries.isEmpty)
+        {
+            target.retainedPreferenceTransformBoundaries = source.retainedPreferenceTransformBoundaries
+        }
+        if !(target.retainedLayoutValues.isEmpty && source.retainedLayoutValues.isEmpty) {
+            target.retainedLayoutValues = source.retainedLayoutValues
+        }
+        if !(target.retainedContainerValues.isEmpty && source.retainedContainerValues.isEmpty) {
+            target.retainedContainerValues = source.retainedContainerValues
+        }
         if target.nodeTag != source.nodeTag { target.nodeTag = source.nodeTag }
         let targetLayoutTag = layoutModeTag(target.layoutMode)
         let sourceLayoutTag = layoutModeTag(source.layoutMode)
         if targetLayoutTag != sourceLayoutTag {
             target.layoutMode = source.layoutMode
         }
-        target.previousPropertyValues = source.previousPropertyValues
+        if target.previousPropertyValues != nil || source.previousPropertyValues != nil {
+            target.previousPropertyValues = source.previousPropertyValues
+        }
 
-        target.onPointerEnter = source.onPointerEnter
-        target.onPointerExit = source.onPointerExit
-        target.onPointerMove = source.onPointerMove
-        target.onPointerDown = source.onPointerDown
-        target.onPointerUpInside = source.onPointerUpInside
-        target.onPointerUpInsideAt = source.onPointerUpInsideAt
-        target.onPointerUpOutside = source.onPointerUpOutside
-        target.onContextMenu = source.onContextMenu
-        target.onFocusEnter = source.onFocusEnter
-        target.onFocusExit = source.onFocusExit
-        target.onKeyDown = source.onKeyDown
-        target.onKeyUp = source.onKeyUp
-        target.onActivate = source.onActivate
-        target.onRepeatActivate = source.onRepeatActivate
-        target.onDeleteRows = source.onDeleteRows
-        target.onMoveRows = source.onMoveRows
-        target.onInsertRows = source.onInsertRows
-        target.onDropRows = source.onDropRows
-        target.onValidateDrop = source.onValidateDrop
-        target.onDropEntered = source.onDropEntered
-        target.onDropUpdated = source.onDropUpdated
-        target.onDropExited = source.onDropExited
-        target.onDropProviders = source.onDropProviders
-        target.onDropPayloads = source.onDropPayloads
-        target.onMakeDropConfiguration = source.onMakeDropConfiguration
-        target.onMakeDragPayload = source.onMakeDragPayload
-        target.onMakeDragItemProvider = source.onMakeDragItemProvider
-        target.onDragStart = source.onDragStart
-        target.onDragChange = source.onDragChange
-        target.onDragEnd = source.onDragEnd
-        target.onLayout = source.onLayout
-        target.onAppear = source.onAppear
-        target.onDisappear = source.onDisappear
-        target.onAppearWithNode = source.onAppearWithNode
-        target.onDisappearWithNode = source.onDisappearWithNode
-        target.onSizeChange = source.onSizeChange
+        if target.onPointerEnter != nil || source.onPointerEnter != nil {
+            target.onPointerEnter = source.onPointerEnter
+        }
+        if target.onPointerExit != nil || source.onPointerExit != nil { target.onPointerExit = source.onPointerExit }
+        if target.onPointerMove != nil || source.onPointerMove != nil { target.onPointerMove = source.onPointerMove }
+        if target.onPointerDown != nil || source.onPointerDown != nil { target.onPointerDown = source.onPointerDown }
+        if target.onPointerUpInside != nil || source.onPointerUpInside != nil {
+            target.onPointerUpInside = source.onPointerUpInside
+        }
+        if target.onPointerUpInsideAt != nil || source.onPointerUpInsideAt != nil {
+            target.onPointerUpInsideAt = source.onPointerUpInsideAt
+        }
+        if target.onPointerUpOutside != nil || source.onPointerUpOutside != nil {
+            target.onPointerUpOutside = source.onPointerUpOutside
+        }
+        if target.onContextMenu != nil || source.onContextMenu != nil { target.onContextMenu = source.onContextMenu }
+        if target.onFocusEnter != nil || source.onFocusEnter != nil { target.onFocusEnter = source.onFocusEnter }
+        if target.onFocusExit != nil || source.onFocusExit != nil { target.onFocusExit = source.onFocusExit }
+        if target.onKeyDown != nil || source.onKeyDown != nil { target.onKeyDown = source.onKeyDown }
+        if target.onKeyUp != nil || source.onKeyUp != nil { target.onKeyUp = source.onKeyUp }
+        if target.onActivate != nil || source.onActivate != nil { target.onActivate = source.onActivate }
+        if target.onRepeatActivate != nil || source.onRepeatActivate != nil {
+            target.onRepeatActivate = source.onRepeatActivate
+        }
+        if target.onDeleteRows != nil || source.onDeleteRows != nil { target.onDeleteRows = source.onDeleteRows }
+        if target.onMoveRows != nil || source.onMoveRows != nil { target.onMoveRows = source.onMoveRows }
+        if target.onInsertRows != nil || source.onInsertRows != nil { target.onInsertRows = source.onInsertRows }
+        if target.onDropRows != nil || source.onDropRows != nil { target.onDropRows = source.onDropRows }
+        if target.onValidateDrop != nil || source.onValidateDrop != nil {
+            target.onValidateDrop = source.onValidateDrop
+        }
+        if target.onDropEntered != nil || source.onDropEntered != nil { target.onDropEntered = source.onDropEntered }
+        if target.onDropUpdated != nil || source.onDropUpdated != nil { target.onDropUpdated = source.onDropUpdated }
+        if target.onDropExited != nil || source.onDropExited != nil { target.onDropExited = source.onDropExited }
+        if target.onDropProviders != nil || source.onDropProviders != nil {
+            target.onDropProviders = source.onDropProviders
+        }
+        if target.onDropPayloads != nil || source.onDropPayloads != nil {
+            target.onDropPayloads = source.onDropPayloads
+        }
+        if target.onMakeDropConfiguration != nil || source.onMakeDropConfiguration != nil {
+            target.onMakeDropConfiguration = source.onMakeDropConfiguration
+        }
+        if target.onMakeDragPayload != nil || source.onMakeDragPayload != nil {
+            target.onMakeDragPayload = source.onMakeDragPayload
+        }
+        if target.onMakeDragItemProvider != nil || source.onMakeDragItemProvider != nil {
+            target.onMakeDragItemProvider = source.onMakeDragItemProvider
+        }
+        if target.onDragStart != nil || source.onDragStart != nil { target.onDragStart = source.onDragStart }
+        if target.onDragChange != nil || source.onDragChange != nil { target.onDragChange = source.onDragChange }
+        if target.onDragEnd != nil || source.onDragEnd != nil { target.onDragEnd = source.onDragEnd }
+        if target.onLayout != nil || source.onLayout != nil { target.onLayout = source.onLayout }
+        if target.onAppear != nil || source.onAppear != nil { target.onAppear = source.onAppear }
+        if target.onDisappear != nil || source.onDisappear != nil { target.onDisappear = source.onDisappear }
+        if target.onAppearWithNode != nil || source.onAppearWithNode != nil {
+            target.onAppearWithNode = source.onAppearWithNode
+        }
+        if target.onDisappearWithNode != nil || source.onDisappearWithNode != nil {
+            target.onDisappearWithNode = source.onDisappearWithNode
+        }
+        if target.onSizeChange != nil || source.onSizeChange != nil { target.onSizeChange = source.onSizeChange }
         // The reader's body and the slot it was built from travel together:
         // `target` has just adopted `source`'s children, so it has also
         // adopted the size they were built against. Splitting them would
         // leave the convergence loop comparing a slot against a body it did
-        // not produce, and it would rebuild forever.
-        target.geometryReaderBuild = source.geometryReaderBuild
-        target.geometryReaderBuiltSize = source.geometryReaderBuiltSize
-        target.onUpdatePlatformView = source.onUpdatePlatformView
-        target.onDismantlePlatformView = source.onDismantlePlatformView
-        target.phaseAnimatorState = source.phaseAnimatorState
+        // not produce, and it would rebuild forever. Guarded as a pair for
+        // the same reason: either both move or neither does.
+        if target.geometryReaderBuild != nil || source.geometryReaderBuild != nil {
+            target.geometryReaderBuild = source.geometryReaderBuild
+            target.geometryReaderBuiltSize = source.geometryReaderBuiltSize
+        }
+        if target.onUpdatePlatformView != nil || source.onUpdatePlatformView != nil {
+            target.onUpdatePlatformView = source.onUpdatePlatformView
+        }
+        if target.onDismantlePlatformView != nil || source.onDismantlePlatformView != nil {
+            target.onDismantlePlatformView = source.onDismantlePlatformView
+        }
+        if target.phaseAnimatorState != nil || source.phaseAnimatorState != nil {
+            target.phaseAnimatorState = source.phaseAnimatorState
+        }
 
         if target.hasAppeared {
             for launch in source.pendingLifecycleTaskLaunches {

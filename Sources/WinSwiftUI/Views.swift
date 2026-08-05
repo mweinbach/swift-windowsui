@@ -15763,13 +15763,30 @@ public struct Toggle: View {
         binding: Binding<Bool>,
         labelComponent: Component
     ) -> ViewNode {
+        let palette = context.controlPalette
         let toggleNode = Controls.toggle(
             runtime: runtime,
             isOn: binding.wrappedValue,
             isEnabled: context.isEnabled,
             preferredSize: context.controlSize.togglePreferredSize,
             onColor: context.tint,
-            offColor: context.controlPalette.controlTrack,
+            offColor: palette.controlTrack,
+            // The plate behind the switch. `Controls.toggle`'s retained
+            // default paints an opaque pale blue (#B8D1EB) on pointer-down
+            // and a slate one on hover — hand-tuned literals from before
+            // there was an appearance to resolve against, and the same two
+            // colours in light mode as in dark. With the geometric press
+            // scale gone (E6-PRESS) this plate *is* the switch's press
+            // affordance, so it comes off the appearance's own fill ramp: a
+            // rung softer than a bezel takes, because this is a halo around
+            // the switch and not the switch's own surface.
+            palette: SurfacePalette(
+                idle: .clear,
+                hovered: palette.quaternaryFill,
+                focused: palette.quaternaryFill,
+                pressed: palette.secondaryFill,
+                activated: palette.secondaryFill
+            ),
             onToggle: { newValue in
                 binding.wrappedValue = newValue
                 context.invalidate()
@@ -16236,15 +16253,16 @@ public struct Picker<SelectionValue: Hashable>: View {
             // which left the text box exactly as wide as the string.
             //
             // That is the right cell either way, but it arrived as a
-            // workaround: a pressed segment is drawn at
-            // `ControlAnimationStyle.pressedScale` and the painter re-fitted
-            // its label to the scaled box, so "Three" in a 33pt box became
-            // "Thr…" for as long as the pointer was down, and the headroom
-            // this bought was the only thing holding it back. E6-TEXT moved
-            // the fix to where the defect was — a run is laid out in the
-            // node's own space and the finished cells are scaled — so the
-            // headroom is no longer load-bearing for any label in the stack.
-            // The centring stays because it is what the control does.
+            // workaround: a pressed segment used to be drawn at 0.97 and the
+            // painter re-fitted its label to the scaled box, so "Three" in a
+            // 33pt box became "Thr…" for as long as the pointer was down, and
+            // the headroom this bought was the only thing holding it back.
+            // Two later changes each removed that independently — E6-TEXT
+            // lays a run out in the node's own space and scales the finished
+            // cells, and E6-PRESS took the shrink off macOS-parity controls
+            // altogether, since an NSSegmentedControl answers a press by
+            // darkening the segment and not by moving it. The centring stays
+            // because it is what the control does.
             style.alignment = .center
             style.color =
                 isEnabled
@@ -16293,8 +16311,14 @@ public struct Picker<SelectionValue: Hashable>: View {
                     idle: .clear,
                     hovered: palette.quaternaryFill,
                     focused: palette.quaternaryFill,
-                    pressed: palette.tertiaryFill,
-                    activated: palette.tertiaryFill,
+                    // An unselected segment used to press to `tertiaryFill`,
+                    // one rung above its own hover: a 10/255 step on the
+                    // track, where a third of what the eye actually read was
+                    // the whole segment shrinking to 0.97. With the shrink
+                    // gone (E6-PRESS) the fill is the entire affordance, and
+                    // `systemFill` is the rung macOS presses a segment to.
+                    pressed: palette.systemFill,
+                    activated: palette.systemFill,
                     disabledForeground: palette.disabledLabel
                 )
 

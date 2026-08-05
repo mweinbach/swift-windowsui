@@ -59,9 +59,60 @@ where `dampingFraction = 1 − extraBounce`.
 | Constant                                  | Value | Notes                                                  |
 |-------------------------------------------|-------|--------------------------------------------------------|
 | `ControlAnimationStyle.default.focusDuration`   | 0.18s | Hover / focus cross-fade.                              |
-| `ControlAnimationStyle.default.pressDuration`   | 0.14s | Press-state color + scale animation.                   |
+| `ControlAnimationStyle.default.pressDuration`   | 0.14s | Press-state colour cross-fade.                         |
 | `ControlAnimationStyle.default.activationDuration` | 0.18s | Activation flash.                                   |
-| `ControlAnimationStyle.pressedScale`            | 0.97  | Tactile "press down" affordance, matches Big Sur+.     |
+| `ControlAnimationStyle.default.pressedScale`    | 1     | **A macOS control does not scale on press.** See below. |
+| `ControlAnimationStyle.tactilePressedScale`     | 0.97  | The shrink, kept as an opt-in for a style that asks.    |
+| `ControlPalette.pressedContentOpacity`          | 0.72  | Borderless styles only: AppKit darkens *contents* when there is no bezel. |
+
+## Press feedback is a fill change, not a transform
+
+A pressed AppKit control is drawn in exactly the frame it had at rest. The
+feedback is the cell's highlight — `NSButtonCell` moves its bezel fill (darker
+in the light appearance, brighter in the dark one), `NSSegmentedControl`
+washes the pressed segment, `NSPopUpButton`, `NSStepper` and `NSSwitch` do the
+same. Nothing in AppKit shrinks, lifts or nudges a control under the pointer,
+in any macOS from Big Sur through Sonoma.
+
+This stack shipped `pressedScale = 0.97` as the default for a while, pinned in
+three tests and both parity documents as "the Big Sur feel". It was not: a
+press shrink is an iOS / custom-`ButtonStyle` idiom
+(`scaleEffect(configuration.isPressed ? 0.97 : 1)`), and parity is the standard
+this project is held to. It survived because nothing rendered a pressed control
+until the gallery's interaction-state tier existed, and by then it read as
+intentional. `ControlAnimationStyle.default.pressedScale` is now `1`, and a
+default control installs **no** transform animation on pointer-down at all.
+
+Two consequences worth stating:
+
+- **The fill ramp is now the whole affordance**, so a rung that was only just
+  visible is no longer good enough. An unselected segment used to press to
+  `tertiaryFill`, one rung above its own hover — measured against the
+  segmented track that is a 10/255 step, with the shrink carrying the rest of
+  what the eye read. It presses to `systemFill` now (a ~20/255 step, in line
+  with the ~28/255 a push button moves). `Toggle`'s switch used to answer a
+  press by painting an opaque pale blue (`#B8D1EB`) plate behind itself, in
+  *both* appearances; it uses the appearance's own neutral wash now.
+- **A style with no bezel has nothing to move**, so `.plain` / `.borderless` /
+  `.link` would have had no press feedback whatsoever. AppKit's answer for a
+  borderless button is `contentsCellMask` — it darkens the button's contents —
+  which is `SurfacePalette.pressedContentOpacity`, set for those styles only.
+
+The machinery is intact: `ControlAnimationStyle(pressedScale:)` still takes a
+scale, `Controls.button` still animates one, and `tactilePressedScale` is the
+0.97 for a style that deliberately wants it. What changed is what a control
+gets when it does not ask.
+
+### The durations, reviewed
+
+`focusDuration` 0.18s, `pressDuration` 0.14s and `activationDuration` 0.18s
+were reviewed against macOS feel alongside the scale decision and left alone.
+They sit in the right band: AppKit's hover and focus-ring cross-fades are
+around a sixth of a second, and the press highlight is quicker than the hover
+it replaces, which is the ordering these three encode. The one known
+simplification is that AppKit's press highlight snaps in faster than it fades
+out, where this stack uses one duration in each direction — not worth churning
+a constant over without a measurement to move it to.
 
 ## Why these values
 

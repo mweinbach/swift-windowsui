@@ -393,18 +393,24 @@ placement used to leak into that width:
   card's label wrapped differently (and stayed horizontal) inside it;
 - a **scale** made the run break to the *transformed* width at an
   untransformed font size, so `scaleEffect(2)` re-broke the string into
-  half as many lines of twice the characters, and a control pressed to
-  `ControlAnimationStyle.pressedScale` (0.97) re-fitted its own title into
-  a box 3% narrower and ellipsized it. Segmented-control titles were given
-  centring headroom to survive that; every other control label was one
-  tight string away from the same.
+  half as many lines of twice the characters, and a control pressed to 0.97
+  re-fitted its own title into a box 3% narrower and ellipsized it.
+  Segmented-control titles were given centring headroom to survive that;
+  every other control label was one tight string away from the same.
 
 SwiftUI does neither: a transform scales a rendered run, it does not reflow
-one. `ScaledTextLayoutTests` pins the statement from both ends — a pressed
-label has the identical breaks of its unpressed self, a 2x label has the
+one. `ScaledTextLayoutTests` pins the statement from both ends — a scaled-down
+label has the identical breaks of its unscaled self, a 2x label has the
 identical breaks of its 1x self with twice the cell geometry, and a
 rotated-and-scaled label is the scaled one with every cell turned about the
 node's centre.
+
+The press half of that example is historical twice over: E6-PRESS took the
+0.97 shrink off macOS-parity controls (a macOS control answers a press with
+its fill, not with geometry — see docs/AnimationParity.md), so the smallest
+scale a control label routinely meets is now whatever the app asks for with
+`scaleEffect`. The layout rule is the same either way, and the tests still
+drive it at 0.97 because a 3% squeeze is the sharpest case of it.
 
 Laying out first makes the pre-placement cull a hazard: comparing an
 unplaced glyph cell against the placed screen clip drops glyphs the

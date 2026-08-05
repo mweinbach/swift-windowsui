@@ -167,7 +167,39 @@ final class MacOSDesignParityTests: XCTestCase {
         XCTAssertEqual(style.focusDuration, 0.18, accuracy: 0.001)
         XCTAssertEqual(style.pressDuration, 0.14, accuracy: 0.001)
         XCTAssertEqual(style.activationDuration, 0.18, accuracy: 0.001)
-        XCTAssertEqual(ControlAnimationStyle.pressedScale, 0.97, accuracy: 0.001)
+    }
+
+    /// A macOS control's press feedback is a *fill* change with identical
+    /// geometry: `NSButtonCell` highlights, `NSSegmentedControl` darkens the
+    /// pressed segment, `NSSwitch` darkens its track. None of them shrinks.
+    /// The 0.97 this table used to pin as a "Big Sur feel" was an iOS idiom
+    /// that reached the gallery's pressed entries and read as intentional.
+    ///
+    /// The borderless styles are the exception that proves it: they have no
+    /// bezel to move, so AppKit darkens their *contents* instead
+    /// (`contentsCellMask`), which is `SurfacePalette.pressedContentOpacity`.
+    func testPressedStateIsAFillChangeNotAShrink() async {
+        XCTAssertEqual(ControlAnimationStyle.default.pressedScale, 1.0, accuracy: 0.0001)
+        XCTAssertEqual(ControlAnimationStyle.tactilePressedScale, 0.97, accuracy: 0.001)
+
+        // Every ramp with a bezel answers a press with its fill and leaves the
+        // content alone.
+        for palette in [ControlPalette.darkStandard, .lightStandard] {
+            XCTAssertEqual(palette.borderedButtonPalette.pressedContentOpacity, 1.0, accuracy: 0.0001)
+            XCTAssertEqual(palette.prominentPalette(tint: .accentColor).pressedContentOpacity, 1.0, accuracy: 0.0001)
+            XCTAssertNotEqual(
+                palette.borderedButtonPalette.pressed, palette.borderedButtonPalette.idle,
+                "the pressed rung has to differ from idle — it is the whole affordance now")
+        }
+
+        // The borderless ramp is transparent in every state, so it is the one
+        // that dims.
+        XCTAssertEqual(ButtonSurfaceStyle.plain.palette.pressed, .clear)
+        XCTAssertEqual(
+            ButtonSurfaceStyle.plain.palette.pressedContentOpacity,
+            ControlPalette.pressedContentOpacity,
+            accuracy: 0.0001)
+        XCTAssertLessThan(ControlPalette.pressedContentOpacity, 1.0)
     }
 
     // MARK: - Grouped form and group box

@@ -959,7 +959,62 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
-    func testButtonPressAnimatesScaleDownAndBack() async {
+    /// A pressed control keeps its geometry. macOS answers a press with the
+    /// bezel fill and nothing else — `NSButtonCell` highlights in the frame it
+    /// already had — so a press installs no transform animation at all, and
+    /// the node the painter sees is the node it saw at rest.
+    ///
+    /// This used to be a 0.97 shrink, pinned in three places as "the Big Sur
+    /// feel". It is an iOS / custom-`ButtonStyle` idiom; see E6-PRESS in
+    /// docs/AnimationParity.md.
+    func testButtonPressChangesFillWithoutMovingGeometry() async {
+        await MainActor.run {
+            let palette = SurfacePalette(
+                idle: Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 1),
+                focused: Color(red: 0.3, green: 0.4, blue: 0.5, alpha: 1),
+                pressed: Color(red: 0.5, green: 0.6, blue: 0.7, alpha: 1)
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 50), isHitTestVisible: false)
+            let runtime = RetainedViewRuntime(root: root)
+            let frame = Rect(x: 10, y: 8, width: 40, height: 24)
+            let button = Controls.button(
+                runtime: runtime,
+                frame: frame,
+                cornerRadius: 4,
+                palette: palette,
+                chrome: SurfaceChrome(),
+                animation: ControlAnimationStyle(focusDuration: 0.12, pressDuration: 0.1, activationDuration: 0.12),
+                action: {}
+            )
+            root.addChild(button)
+            XCTAssertEqual(button.transform.scaleX, 1.0)
+
+            runtime.pointerDown(at: Point(x: 20, y: 16))
+            XCTAssertEqual(button.transform.scaleX, 1.0, accuracy: 0.0001, "a pressed control is not scaled")
+            XCTAssertEqual(button.transform.scaleY, 1.0, accuracy: 0.0001, "a pressed control is not scaled")
+            XCTAssertNil(
+                button.animationStates[.transformScaleX],
+                "no transform tween is installed for a press at all — the default control costs the runtime nothing "
+                    + "geometric under the pointer")
+            XCTAssertNil(button.animationStates[.transformScaleY])
+            XCTAssertNil(button.animationStates[.opacity], "a bordered ramp changes its fill, not its content")
+            XCTAssertEqual(button.frame, frame, "the frame under the pointer is the frame at rest")
+            // The press *is* visible: the fill ramp settles on its pressed rung.
+            runtime.tickAnimations(at: 1e12)
+            XCTAssertEqual(button.backgroundColor?.red ?? 0, palette.pressed.red, accuracy: 0.001)
+            XCTAssertEqual(button.backgroundColor?.green ?? 0, palette.pressed.green, accuracy: 0.001)
+            XCTAssertEqual(button.backgroundColor?.blue ?? 0, palette.pressed.blue, accuracy: 0.001)
+
+            runtime.pointerUp(at: Point(x: 20, y: 16))
+            XCTAssertEqual(button.transform.scaleX, 1.0, accuracy: 0.0001)
+            XCTAssertEqual(button.transform.scaleY, 1.0, accuracy: 0.0001)
+        }
+    }
+
+    /// The shrink machinery survives the parity decision: a style that asks
+    /// for a press scale still gets one, down on press and back on release.
+    func testButtonPressScaleIsOptInPerStyle() async {
         await MainActor.run {
             let palette = SurfacePalette(
                 idle: Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 1),
@@ -975,7 +1030,12 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 cornerRadius: 4,
                 palette: palette,
                 chrome: SurfaceChrome(),
-                animation: ControlAnimationStyle(focusDuration: 0.12, pressDuration: 0.1, activationDuration: 0.12),
+                animation: ControlAnimationStyle(
+                    focusDuration: 0.12,
+                    pressDuration: 0.1,
+                    activationDuration: 0.12,
+                    pressedScale: ControlAnimationStyle.tactilePressedScale
+                ),
                 action: {}
             )
             root.addChild(button)
@@ -984,14 +1044,51 @@ final class RetainedViewRuntimeTests: XCTestCase {
             runtime.pointerDown(at: Point(x: 20, y: 16))
             // Animation target is the pressed scale; runtime tween-interpolates
             // visible scale toward it.
-            XCTAssertEqual(button.transform.scaleX, ControlAnimationStyle.pressedScale, accuracy: 0.001)
-            XCTAssertEqual(button.transform.scaleY, ControlAnimationStyle.pressedScale, accuracy: 0.001)
+            XCTAssertEqual(button.transform.scaleX, ControlAnimationStyle.tactilePressedScale, accuracy: 0.001)
+            XCTAssertEqual(button.transform.scaleY, ControlAnimationStyle.tactilePressedScale, accuracy: 0.001)
             XCTAssertNotNil(button.animationStates[.transformScaleX])
 
             // After activate the button springs back to 1.0.
             runtime.pointerUp(at: Point(x: 20, y: 16))
             XCTAssertEqual(button.transform.scaleX, 1.0, accuracy: 0.001)
             XCTAssertEqual(button.transform.scaleY, 1.0, accuracy: 0.001)
+        }
+    }
+
+    /// A borderless ramp has no fill to move, so it dims its content instead —
+    /// AppKit's `contentsCellMask` highlight. Without this a `.plain` button
+    /// would not acknowledge the pointer at all once the shrink was removed.
+    func testBorderlessButtonPressDimsItsContent() async {
+        await MainActor.run {
+            let palette = SurfacePalette(
+                idle: .clear,
+                hovered: .clear,
+                focused: .clear,
+                pressed: .clear,
+                activated: .clear,
+                pressedContentOpacity: 0.72
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 50), isHitTestVisible: false)
+            let runtime = RetainedViewRuntime(root: root)
+            let button = Controls.button(
+                runtime: runtime,
+                frame: Rect(x: 10, y: 8, width: 40, height: 24),
+                cornerRadius: 0,
+                palette: palette,
+                chrome: SurfaceChrome(),
+                action: {}
+            )
+            root.addChild(button)
+            XCTAssertEqual(button.opacity, 1.0, accuracy: 0.0001)
+
+            runtime.pointerDown(at: Point(x: 20, y: 16))
+            XCTAssertEqual(button.opacity, 0.72, accuracy: 0.0001)
+            XCTAssertNotNil(button.animationStates[.opacity])
+            XCTAssertEqual(button.transform.scaleX, 1.0, accuracy: 0.0001, "still no geometry change")
+
+            runtime.pointerUp(at: Point(x: 20, y: 16))
+            XCTAssertEqual(button.opacity, 1.0, accuracy: 0.0001)
         }
     }
 

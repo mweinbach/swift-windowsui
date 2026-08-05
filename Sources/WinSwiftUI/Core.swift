@@ -13724,6 +13724,15 @@ public struct ButtonSurfaceStyle: Sendable {
     /// surface follows `colorScheme`; this stays as the appearance-free
     /// fallback for the handful of call sites that have no context.
     public static let `default` = ButtonSurfaceStyle.bordered(palette: .darkStandard)
+    /// `.plain` / `.borderless` / `.link`: an AppKit button with
+    /// `isBordered == false`. There is no bezel in any state, so there is no
+    /// fill to move on press — AppKit answers one by darkening the button's
+    /// *contents* (`NSCell.StyleMask.contentsCellMask`), which is what
+    /// `pressedContentOpacity` is.
+    ///
+    /// It has to be stated here because it is the one ramp the geometric
+    /// press scale was carrying on its own: a transparent surface plus a
+    /// removed shrink is a control that does not acknowledge the pointer.
     public static let plain = ButtonSurfaceStyle(
         cornerRadius: 0,
         palette: SurfacePalette(
@@ -13731,7 +13740,8 @@ public struct ButtonSurfaceStyle: Sendable {
             hovered: .clear,
             focused: .clear,
             pressed: .clear,
-            activated: .clear
+            activated: .clear,
+            pressedContentOpacity: ControlPalette.pressedContentOpacity
         ),
         chrome: SurfaceChrome(),
         clipsToBounds: false,

@@ -500,6 +500,15 @@ extension ControlPalette {
     /// swapping the surface fill, which is why a disabled button used to be
     /// pixel-identical to an enabled one everywhere except its background.
     public static let disabledContentOpacity: Double = 0.35
+
+    /// Opacity a *borderless* control's content is drawn at while held down.
+    ///
+    /// A bordered control answers a press with its bezel fill and leaves its
+    /// content alone; a borderless one has no bezel, and AppKit highlights it
+    /// by darkening the contents instead (`contentsCellMask`). Applies to the
+    /// `.plain` / `.borderless` / `.link` button styles only — see
+    /// `ButtonSurfaceStyle.plain`.
+    public static let pressedContentOpacity: Double = 0.72
 }
 
 /// The glyph a `SecureField` masks its content with.

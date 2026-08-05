@@ -176,12 +176,17 @@ final class ControlChromePolishTests: XCTestCase {
     ///
     /// The title used to be centred by the segment's own stack, which sized
     /// the text node to the string's advance — a box with no tolerance at
-    /// all. A pressed control is drawn at `ControlAnimationStyle.pressedScale`
-    /// and its label is re-fitted to that scaled box, so every segment title
-    /// ellipsized for as long as the pointer was down ("Three" → "Thr…"), and
-    /// the gallery's pressed-picker entry certified it. The cell now spans the
-    /// segment interior, which is both what NSSegmentedControl does and enough
-    /// headroom that a 3% squeeze cannot reach the string.
+    /// all. A pressed control was drawn at 0.97 and its label was re-fitted to
+    /// that scaled box, so every segment title ellipsized for as long as the
+    /// pointer was down ("Three" → "Thr…"), and the gallery's pressed-picker
+    /// entry certified it. The cell now spans the segment interior, which is
+    /// both what NSSegmentedControl does and enough headroom that a 3% squeeze
+    /// cannot reach the string.
+    ///
+    /// Two later changes each removed the defect independently: E6-TEXT lays a
+    /// run out in the node's own space and scales the finished cells, and
+    /// E6-PRESS took the 0.97 shrink off macOS-parity controls entirely. The
+    /// centring stays because it is what the control does.
     func testSegmentTitleCellSpansTheSegmentSoAPressCannotTruncateIt() async {
         await MainActor.run {
             let node = makeChromeRuntimeNode(

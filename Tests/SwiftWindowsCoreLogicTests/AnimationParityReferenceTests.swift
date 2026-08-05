@@ -118,6 +118,27 @@ final class AnimationParityReferenceTests: XCTestCase {
         XCTAssertEqual(style.focusDuration, 0.18, accuracy: 0.001)
         XCTAssertEqual(style.pressDuration, 0.14, accuracy: 0.001)
         XCTAssertEqual(style.activationDuration, 0.18, accuracy: 0.001)
-        XCTAssertEqual(ControlAnimationStyle.pressedScale, 0.97, accuracy: 0.001)
+    }
+
+    /// macOS does not scale a control on press — an AppKit cell highlights in
+    /// the frame it already had, in every appearance and every control family
+    /// from Big Sur through Sonoma. The 0.97 shrink this stack shipped as "the
+    /// Big Sur feel" is an iOS / custom-`ButtonStyle` idiom, and parity is the
+    /// standard, so the default is now `1`.
+    ///
+    /// The constant stays for a style that deliberately wants the shrink;
+    /// nothing built for parity references it. See docs/AnimationParity.md.
+    func testDefaultPressIsAFillChangeNotATransform() {
+        XCTAssertEqual(
+            ControlAnimationStyle.default.pressedScale, 1.0, accuracy: 0.0001,
+            "a control's press feedback is its pressed fill, not a geometric shrink")
+        XCTAssertEqual(
+            ControlAnimationStyle.tactilePressedScale, 0.97, accuracy: 0.001,
+            "the opt-in shrink is still available to a style that asks for it")
+        XCTAssertEqual(
+            ControlAnimationStyle(pressedScale: ControlAnimationStyle.tactilePressedScale).pressedScale,
+            0.97,
+            accuracy: 0.001,
+            "…and asking for it is a per-style initializer argument")
     }
 }

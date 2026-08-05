@@ -11,10 +11,21 @@ import XCTest
 /// The painter used to hand the already-transformed rect to the text layout as
 /// its `maxWidth` while leaving the font size alone, so a `scaleEffect`
 /// re-broke and re-truncated the string: a 2x label wrapped at twice the
-/// character count, and a button pressed to `ControlAnimationStyle.pressedScale`
-/// (0.97) re-fitted its own title into a box 3% narrower and ellipsized it.
-/// SwiftUI never re-flows under a transform; the run is a rendered thing that
-/// gets scaled.
+/// character count, and a control shrunk to 0.97 re-fitted its own title into
+/// a box 3% narrower and ellipsized it. SwiftUI never re-flows under a
+/// transform; the run is a rendered thing that gets scaled.
+///
+/// E6-PRESS took that 0.97 off the default control — macOS controls do not
+/// scale on press — so the press half of these cases is now reachable only
+/// through a style that opts in, or through any other small `scaleEffect`.
+/// The statement is the same either way, and the shrink stays the sharpest
+/// case of it: 3% is the smallest transform that still re-breaks a tight
+/// string.
+
+/// The shrink the press cases below drive:
+/// `ControlAnimationStyle.tactilePressedScale`, the opt-in press scale.
+private let pressShrink = ControlAnimationStyle.tactilePressedScale
+
 @MainActor
 final class ScaledTextLayoutTests: XCTestCase {
 
@@ -130,7 +141,7 @@ final class ScaledTextLayoutTests: XCTestCase {
         // the day the metrics move.
         let narrowed = Rect(
             x: frame.origin.x, y: frame.origin.y,
-            width: frame.size.width * ControlAnimationStyle.pressedScale, height: frame.size.height)
+            width: frame.size.width * pressShrink, height: frame.size.height)
         let refitted = glyphs(label(text, frame: narrowed, style: textStyle))
         XCTAssertNotEqual(
             refitted.count, idle.count,
@@ -139,8 +150,7 @@ final class ScaledTextLayoutTests: XCTestCase {
         let pressed = glyphs(
             label(
                 text, frame: frame, style: textStyle,
-                transform: Transform2D(
-                    scaleX: ControlAnimationStyle.pressedScale, scaleY: ControlAnimationStyle.pressedScale)
+                transform: Transform2D(scaleX: pressShrink, scaleY: pressShrink)
             ))
 
         XCTAssertEqual(
@@ -162,8 +172,7 @@ final class ScaledTextLayoutTests: XCTestCase {
         let pressed = glyphs(
             label(
                 text, frame: frame, style: textStyle,
-                transform: Transform2D(
-                    scaleX: ControlAnimationStyle.pressedScale, scaleY: ControlAnimationStyle.pressedScale)
+                transform: Transform2D(scaleX: pressShrink, scaleY: pressShrink)
             ))
 
         XCTAssertEqual(
@@ -318,7 +327,7 @@ final class ScaledTextLayoutTests: XCTestCase {
 
         // Everything a press spring visits stays on the 1x rung, so a pressed
         // control costs no atlas entries at all.
-        for step in stride(from: ControlAnimationStyle.pressedScale, through: 1.0, by: 0.002) {
+        for step in stride(from: pressShrink, through: 1.0, by: 0.002) {
             XCTAssertEqual(
                 NativeGlyphAtlas.glyphRasterScale(for: step), 1.0,
                 "a press at \(step) rasterizes on the rung it already occupies")
@@ -373,8 +382,7 @@ final class ScaledTextLayoutTests: XCTestCase {
         _ = glyphs(
             label(
                 text, frame: frame, style: textStyle,
-                transform: Transform2D(
-                    scaleX: ControlAnimationStyle.pressedScale, scaleY: ControlAnimationStyle.pressedScale)))
+                transform: Transform2D(scaleX: pressShrink, scaleY: pressShrink)))
         XCTAssertEqual(
             atlas.cachedGlyphCount, afterScaled,
             "a pressed label rasterized a whole new size for a 3% change")

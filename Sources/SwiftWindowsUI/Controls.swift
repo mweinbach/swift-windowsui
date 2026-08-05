@@ -11,14 +11,49 @@ public struct ControlAnimationStyle: Sendable {
     public var pressDuration: Double
     public var activationDuration: Double
 
-    // macOS Big Sur buttons scale to ~0.97 on press. Centralised so all
-    // controls that adopt the standard animation get the same affordance.
-    public static let pressedScale: Double = 0.97
+    /// Uniform scale a control is drawn at while the pointer is held down.
+    ///
+    /// **`1` — no geometric change at all — is the macOS value, and the
+    /// default.** An AppKit control's press feedback is a *fill* change and
+    /// nothing else: `NSButtonCell` highlights (the bezel darkens in the
+    /// light appearance, brightens in the dark one) and the cell is drawn in
+    /// exactly the frame it had at rest. `NSSegmentedControl`,
+    /// `NSPopUpButton`, `NSStepper` and `NSSwitch` all behave the same way.
+    /// No AppKit control shrinks under the pointer, in any macOS from Big Sur
+    /// through Sonoma.
+    ///
+    /// This stack shipped `0.97` as the default for a while, documented as
+    /// "the Big Sur feel". That was wrong about the platform: a press shrink
+    /// is an iOS / custom-`ButtonStyle` idiom
+    /// (`scaleEffect(configuration.isPressed ? 0.97 : 1)`), and macOS parity
+    /// is the standard this project is held to. It survived as long as it did
+    /// because nothing rendered a pressed control until the gallery's
+    /// interaction-state tier existed, and by then the shrink was reading as
+    /// intentional.
+    ///
+    /// The machinery is still here, because a *style* may legitimately want
+    /// it — see `ControlAnimationStyle.tactilePressedScale`. What changed is
+    /// which behaviour a control gets when it does not ask.
+    public var pressedScale: Double
 
-    public init(focusDuration: Double = 0.18, pressDuration: Double = 0.14, activationDuration: Double = 0.18) {
+    /// The shrink-on-press affordance, for a style that deliberately opts
+    /// into it:
+    /// `ControlAnimationStyle(pressedScale: ControlAnimationStyle.tactilePressedScale)`.
+    ///
+    /// Not a macOS control behaviour. Anything built for parity leaves
+    /// `pressedScale` at its default of `1`.
+    public static let tactilePressedScale: Double = 0.97
+
+    public init(
+        focusDuration: Double = 0.18,
+        pressDuration: Double = 0.14,
+        activationDuration: Double = 0.18,
+        pressedScale: Double = 1
+    ) {
         self.focusDuration = focusDuration
         self.pressDuration = pressDuration
         self.activationDuration = activationDuration
+        self.pressedScale = pressedScale
     }
 
     public static let `default` = ControlAnimationStyle()
@@ -34,6 +69,20 @@ public struct SurfacePalette: Sendable {
     public var disabledBorder: Color
     public var errorBorder: Color
 
+    /// Opacity the control's content is drawn at while the pointer is held
+    /// down. `1` — the default — leaves the content alone, which is right for
+    /// every ramp above that answers a press with a fill.
+    ///
+    /// It exists for the ramps that have no fill to change. An AppKit
+    /// borderless button (`isBordered == false`, i.e. `highlightsBy` of
+    /// `contentsCellMask`) draws no bezel at all and answers a press by
+    /// darkening its *contents*; SwiftUI's `.plain` / `.borderless` / `.link`
+    /// styles are the same button. Those ramps are transparent in every
+    /// state, so with the geometric press scale gone (see
+    /// `ControlAnimationStyle.pressedScale`) they would otherwise have no
+    /// press feedback whatsoever.
+    public var pressedContentOpacity: Double
+
     public init(
         idle: Color,
         hovered: Color? = nil,
@@ -43,7 +92,8 @@ public struct SurfacePalette: Sendable {
         disabledBackground: Color = Color(red: 0.22, green: 0.24, blue: 0.28, alpha: 0.60),
         disabledForeground: Color = Color(red: 0.55, green: 0.58, blue: 0.62, alpha: 0.70),
         disabledBorder: Color = Color(red: 0.40, green: 0.42, blue: 0.46, alpha: 0.30),
-        errorBorder: Color = Color(red: 0.90, green: 0.22, blue: 0.20, alpha: 0.90)
+        errorBorder: Color = Color(red: 0.90, green: 0.22, blue: 0.20, alpha: 0.90),
+        pressedContentOpacity: Double = 1
     ) {
         self.idle = idle
         self.hovered = hovered ?? focused
@@ -54,6 +104,7 @@ public struct SurfacePalette: Sendable {
         self.disabledForeground = disabledForeground
         self.disabledBorder = disabledBorder
         self.errorBorder = errorBorder
+        self.pressedContentOpacity = pressedContentOpacity
     }
 
     public static let `default` = SurfacePalette(
@@ -934,14 +985,29 @@ public enum Controls {
             }
         }
 
+        // Everything a press does *beyond* the fill ramp above. Both of these
+        // are opt-in and both are no-ops for a macOS-parity style, which
+        // answers a press with its `pressed` fill and nothing else — so the
+        // default control installs no transform animation and no opacity
+        // animation on pointer-down at all.
+        func applyPressAffordance(_ node: ViewNode?, pressed: Bool, duration: Double) {
+            if animation.pressedScale != 1 {
+                animateScale(node, to: pressed ? animation.pressedScale : 1.0, duration: duration)
+            }
+            if palette.pressedContentOpacity != 1 {
+                animateOpacity(node, to: pressed ? palette.pressedContentOpacity : 1.0, duration: duration)
+            }
+        }
+
         node.onPointerEnter = {
             interactionState.isHovered = true
             applySurfaceState(duration: animation.focusDuration)
         }
-        node.onPointerExit = {
+        node.onPointerExit = { [weak node] in
             interactionState.isHovered = false
             interactionState.isPressed = false
             applySurfaceState(duration: animation.focusDuration)
+            applyPressAffordance(node, pressed: false, duration: animation.focusDuration)
         }
         node.isFocusable = true
         node.onFocusEnter = { [weak node] in
@@ -953,23 +1019,23 @@ public enum Controls {
             interactionState.isFocused = false
             interactionState.isPressed = false
             applySurfaceState(duration: animation.focusDuration)
+            applyPressAffordance(node, pressed: false, duration: animation.focusDuration)
             animate(.outline, node, in: runtime, to: .clear, duration: animation.focusDuration)
         }
         node.onPointerDown = { [weak node] in
             interactionState.isPressed = true
             applySurfaceState(duration: animation.pressDuration)
-            // Subtle press-down scale matches the macOS Big Sur button feel.
-            animateScale(node, to: ControlAnimationStyle.pressedScale, duration: animation.pressDuration)
+            applyPressAffordance(node, pressed: true, duration: animation.pressDuration)
         }
         node.onPointerUpInside = { [weak node] in
             interactionState.isPressed = false
             applySurfaceState(duration: animation.focusDuration)
-            animateScale(node, to: 1.0, duration: animation.focusDuration)
+            applyPressAffordance(node, pressed: false, duration: animation.focusDuration)
         }
         node.onPointerUpOutside = { [weak node] in
             interactionState.isPressed = false
             applySurfaceState(duration: animation.focusDuration)
-            animateScale(node, to: 1.0, duration: animation.focusDuration)
+            applyPressAffordance(node, pressed: false, duration: animation.focusDuration)
         }
         node.onActivate = { [weak node] in
             interactionState.isPressed = false
@@ -980,7 +1046,7 @@ public enum Controls {
                 node?.backgroundGradient = backgroundSheen(for: palette.activated)
                 node?.borderGradient = borderSheen(for: chrome.borderActivatedColor)
             }
-            animateScale(node, to: 1.0, duration: animation.activationDuration)
+            applyPressAffordance(node, pressed: false, duration: animation.activationDuration)
             action?()
         }
         node.onRepeatActivate = {
@@ -2065,8 +2131,11 @@ public enum Controls {
     }
 
     /// Animates a node's uniform scale toward `targetScale` over `duration`
-    /// seconds with ease-out. Used to give buttons and other tappables a
-    /// subtle "press down" affordance matching macOS Big Sur+ controls.
+    /// seconds with ease-out.
+    ///
+    /// Only reached by a style that has opted into a press scale
+    /// (`ControlAnimationStyle.pressedScale != 1`); a macOS-parity control
+    /// never changes geometry under the pointer.
     fileprivate static func animateScale(
         _ node: ViewNode?,
         to targetScale: Double,
@@ -2087,6 +2156,30 @@ public enum Controls {
         )
         node.animationStates[.transformScaleY] = AnimationState(
             startValue: startY, endValue: targetScale,
+            startTime: now, duration: duration, easing: easing
+        )
+    }
+
+    /// Animates a node's opacity toward `targetOpacity` over `duration`
+    /// seconds with ease-out.
+    ///
+    /// Only reached by a palette that has opted into a press dim
+    /// (`SurfacePalette.pressedContentOpacity != 1`) — the borderless ramps,
+    /// which have no fill to change.
+    fileprivate static func animateOpacity(
+        _ node: ViewNode?,
+        to targetOpacity: Double,
+        duration: Double,
+        easing: AnimationEasing = .easeOut
+    ) {
+        guard let node else { return }
+        let now = Win32Window.currentTimestampSeconds()
+        let start = node.opacity
+        // Same contract as `animateScale`: the stored property is the
+        // steady-state target, the animation state is the tween to it.
+        node.opacity = targetOpacity
+        node.animationStates[.opacity] = AnimationState(
+            startValue: start, endValue: targetOpacity,
             startTime: now, duration: duration, easing: easing
         )
     }

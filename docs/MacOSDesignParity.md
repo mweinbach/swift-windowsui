@@ -246,10 +246,43 @@ Two other things had to be true before any of that reached a pixel:
   end colour, so a multi-stop gradient collapses at the paint layer. Chrome
   gradients are authored as two stops for that reason.
 | `ControlPalette.disabledContentOpacity` | 0.35 | AppKit dims the whole disabled cell, label included — not only the surface fill. |
-| `ControlAnimationStyle.pressedScale`  | 0.97  | Press-down affordance, Big Sur+ feel.   |
+| `ControlAnimationStyle.default.pressedScale` | 1 | A macOS control does not change geometry on press — see below. |
+| `ControlAnimationStyle.tactilePressedScale` | 0.97 | The shrink, opt-in per style. Nothing built for parity references it. |
+| `ControlPalette.pressedContentOpacity` | 0.72 | Borderless styles only: no bezel to move, so AppKit darkens the contents. |
 | `ControlAnimationStyle.default.focusDuration` | 0.18s | Hover/focus cross-fade.            |
-| `ControlAnimationStyle.default.pressDuration` | 0.14s | Press state color + scale.         |
+| `ControlAnimationStyle.default.pressDuration` | 0.14s | Press-state colour cross-fade.     |
 | `ControlAnimationStyle.default.activationDuration` | 0.18s | Activation flash.            |
+
+## A pressed control does not move
+
+macOS answers a press with the cell's highlight and nothing else: the bezel
+fill darkens in the light appearance and brightens in the dark one, in exactly
+the frame the control had at rest. `NSButton`, `NSSegmentedControl`,
+`NSPopUpButton`, `NSStepper`, `NSSwitch` — none of them scales, lifts or nudges
+under the pointer, from Big Sur through Sonoma.
+
+The 0.97 shrink this table used to pin as a "Big Sur feel" is an iOS /
+custom-`ButtonStyle` idiom. It was never a macOS behaviour, it reached the
+gallery's pressed entries, and by the time anything rendered a pressed control
+it read as intentional. It is gone from the default (E6-PRESS); the machinery
+stays, opt-in per style, as `ControlAnimationStyle(pressedScale:)`.
+
+Removing it makes the fill ramp the entire affordance, which two rungs were not
+strong enough to carry alone:
+
+- an **unselected segment** pressed to `tertiaryFill`, one rung above its own
+  hover — a 10/255 step against the segmented track. It presses to `systemFill`
+  now, about 20/255, in line with the ~28/255 a push button moves;
+- the **switch** painted an opaque pale blue plate (`#B8D1EB`) behind itself on
+  pointer-down and a slate one on hover — hand-tuned literals from before there
+  was an appearance to resolve against, identical in light mode and dark. It
+  presses to the appearance's own neutral wash now.
+
+And it leaves the borderless styles with nothing to change, since `.plain` /
+`.borderless` / `.link` are transparent in every state. AppKit's borderless
+button highlights by darkening its *contents* (`NSCell.StyleMask`'s
+`contentsCellMask`), which is `SurfacePalette.pressedContentOpacity` — set for
+those styles and left at `1` everywhere a bezel exists.
 
 ## Grouped form and group box
 

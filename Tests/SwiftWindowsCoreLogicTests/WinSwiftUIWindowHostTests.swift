@@ -61,6 +61,14 @@ final class FakeRenderBackend: RenderBackend {
     /// Settable so a test can stand in for a backend that just rebuilt its
     /// device (`needsImmediateRepaint`) or found the window occluded.
     var presentationState = PresentationState()
+    /// Settable so a test can stand in for a backend whose pacing watchdog has
+    /// engaged — the frame path carries the same watchdog as the batch path.
+    var presentPacing = PresentPacingStatus()
+    private(set) var displayFrameIntervals: [Double] = []
+
+    func setDisplayFrameInterval(_ seconds: Double) {
+        displayFrameIntervals.append(seconds)
+    }
 
     func attach(to surface: SurfaceDescriptor) throws {
         if attachShouldFail {
@@ -133,6 +141,14 @@ final class FakeBatchRenderBackend: BatchRenderBackend {
     /// Settable so a test can stand in for a backend that just rebuilt its
     /// device (`needsImmediateRepaint`) or found the window occluded.
     var presentationState = PresentationState()
+    /// Settable so a test can stand in for a backend whose pacing watchdog has
+    /// taken the pacing job away from a compositor that blocks `Present`.
+    var presentPacing = PresentPacingStatus()
+    private(set) var displayFrameIntervals: [Double] = []
+
+    func setDisplayFrameInterval(_ seconds: Double) {
+        displayFrameIntervals.append(seconds)
+    }
 
     func attach(to surface: SurfaceDescriptor) throws {
         if attachShouldFail {
@@ -249,10 +265,16 @@ struct HostEnvironmentProbeView: View {
         }
     }
 }
+/// The host's own cadence computation, not a second copy of it.
+///
+/// This used to re-implement `round(1000 / refreshRate)`, which is exactly the
+/// defect L8-PRESENT fixed: at 60 Hz it produced a 17 ms timer — 58.8 ticks a
+/// second against 60 vblanks — so roughly every seventeenth vblank had no frame
+/// in front of it. A test that re-derives the value it is checking cannot fail
+/// when the value is wrong.
+@MainActor
 func expectedTimerInterval(for refreshRate: UInt32) -> UInt32 {
-    let rate = max(refreshRate, 1)
-    let interval = (1000.0 / Double(rate)).rounded()
-    return max(1, UInt32(interval))
+    WinSwiftUIWindowHost.animationTimerIntervalMilliseconds(forRefreshRate: Int(max(refreshRate, 1)))
 }
 
 /// Reference-type fake wall clock for recovery-policy tests.
@@ -1689,24 +1711,59 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
         }
     }
 
-    func testTimerCadenceCalculationFromRefreshRate() async {
+    /// The cadence must land strictly *inside* the display period, never on the
+    /// far side of it.
+    ///
+    /// The old assertion accepted either side of the rounding ("16 or 17"), so
+    /// it passed on a 17 ms timer that skipped a vblank every ~17 frames at
+    /// 60 Hz. The frame timer's job is to have a tick waiting in front of every
+    /// vblank; a cadence at or above the period cannot do that, and one
+    /// millisecond below it can.
+    func testTimerCadenceSitsStrictlyInsideTheDisplayPeriod() async {
         await MainActor.run {
-            // Test that timer intervals are correctly calculated from refresh rates
-            let testCases: [(refreshRate: UInt32, expectedMinInterval: UInt32, expectedMaxInterval: UInt32)] = [
-                (60, 16, 17),  // 1000/60 = 16.67 -> rounds to 16 or 17
-                (120, 8, 9),  // 1000/120 = 8.33 -> rounds to 8 or 9
-                (144, 6, 7),  // 1000/144 = 6.94 -> rounds to 6 or 7
-                (240, 4, 5),  // 1000/240 = 4.17 -> rounds to 4 or 5
+            let expectedIntervals: [(refreshRate: UInt32, interval: UInt32)] = [
+                (60, 16),  // 16.667 ms period
+                (90, 11),  // 11.111 ms period
+                (120, 8),  // 8.333 ms period
+                (144, 6),  // 6.944 ms period
+                (240, 4),  // 4.167 ms period
             ]
 
-            for testCase in testCases {
-                let interval = expectedTimerInterval(for: testCase.refreshRate)
-                XCTAssertGreaterThanOrEqual(
-                    interval, testCase.expectedMinInterval,
-                    "Timer interval for \(testCase.refreshRate)Hz should be >= \(testCase.expectedMinInterval)ms")
-                XCTAssertLessThanOrEqual(
-                    interval, testCase.expectedMaxInterval,
-                    "Timer interval for \(testCase.refreshRate)Hz should be <= \(testCase.expectedMaxInterval)ms")
+            for expected in expectedIntervals {
+                let interval = expectedTimerInterval(for: expected.refreshRate)
+                XCTAssertEqual(
+                    interval,
+                    expected.interval,
+                    "\(expected.refreshRate) Hz must tick at \(expected.interval) ms."
+                )
+                XCTAssertLessThan(
+                    Double(interval),
+                    1000.0 / Double(expected.refreshRate),
+                    "A cadence at or above the display period skips a vblank on a fixed schedule."
+                )
+            }
+        }
+    }
+
+    /// Every tick the cadence produces must be one the runtime will accept.
+    ///
+    /// These two constants are computed in different places and were free to
+    /// drift into contradiction: at 144 Hz the pacing floor was 6.04 ms while
+    /// the timer, which can only be armed in whole milliseconds, ran at 6 ms —
+    /// so the floor would have refused the very ticks the timer was there to
+    /// deliver.
+    func testEveryTimerTickClearsTheRuntimePacingFloor() async {
+        await MainActor.run {
+            for refreshRate in [60, 90, 120, 144, 165, 240] {
+                let cadenceSeconds =
+                    Double(WinSwiftUIWindowHost.animationTimerIntervalMilliseconds(forRefreshRate: refreshRate))
+                    / 1000.0
+                let floor = WinSwiftUIWindowHost.pacingInterval(forRefreshRate: refreshRate)
+                XCTAssertLessThan(
+                    floor,
+                    cadenceSeconds,
+                    "A pacing floor above the timer cadence refuses every tick at \(refreshRate) Hz."
+                )
             }
         }
     }

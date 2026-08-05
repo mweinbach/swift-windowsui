@@ -1765,12 +1765,68 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private static let pacingIntervalTolerance = 1.15
 
     /// The runtime's minimum interval between rebuilds at a given refresh
-    /// rate. Strictly below the vsync period, by
-    /// ``pacingIntervalTolerance``.
+    /// rate. Strictly below both the vsync period (by
+    /// ``pacingIntervalTolerance``) and the animation timer's whole-millisecond
+    /// cadence.
+    ///
+    /// The second clamp is not redundant. At 144 Hz the vsync period is
+    /// 6.94 ms, the timer can only be armed for whole milliseconds so it runs
+    /// at 6 ms, and a floor of `1/(144 × 1.15)` = 6.04 ms sits *above* the
+    /// cadence that feeds it — every tick would arrive "too early" and the
+    /// session would run at half rate for the same reason the pre-`WS-11`
+    /// floor did at 60 Hz.
     static func pacingInterval(forRefreshRate refreshRate: Int) -> Double {
-        1.0 / (Double(max(refreshRate, 1)) * pacingIntervalTolerance)
+        let vsyncFloor = 1.0 / (Double(max(refreshRate, 1)) * pacingIntervalTolerance)
+        let timerPeriod = Double(animationTimerIntervalMilliseconds(forRefreshRate: refreshRate)) / 1000.0
+        return min(vsyncFloor, timerPeriod * timerCadenceJitterBudget)
     }
+
+    /// How far below the animation timer's cadence the pacing floor sits, so
+    /// a tick that lands a fraction of a millisecond early is still a frame.
+    private static let timerCadenceJitterBudget = 0.9
+
+    /// The animation timer's cadence at a given refresh rate, in whole
+    /// milliseconds — the only unit `SetTimer` and `timeSetEvent` accept.
+    ///
+    /// Rounding was a skipped vblank every seventeenth frame: 1000/60 is
+    /// 16.667 ms, `rounded()` makes that 17, and a 17 ms timer on a 60 Hz
+    /// display ticks 58.8 times a second — so roughly every seventeenth vblank
+    /// arrives with no frame in front of it and the animation visibly stalls
+    /// for a frame. Flooring keeps the cadence strictly inside the display
+    /// period, where the runtime's pacing floor refuses the extra rebuild that
+    /// occasionally buys.
+    static func animationTimerIntervalMilliseconds(forRefreshRate refreshRate: Int) -> UInt32 {
+        let periodMilliseconds = 1000.0 / Double(max(refreshRate, 1))
+        return UInt32(max(1, Int(periodMilliseconds.rounded(.down))))
+    }
+
+    /// How early a frame may arrive against its self-paced deadline and still
+    /// be presented.
+    ///
+    /// A whole-millisecond timer cannot land on a 16.667 ms boundary. Without
+    /// a tolerance the gate would defer every frame by the sub-millisecond
+    /// remainder, re-arm the timer for 1 ms, and pace the window at 58.8 Hz —
+    /// the same defect this group is fixing one layer up.
+    private static let selfPacedEarlyTolerance = 0.0015
     private var pendingPresentation = false
+    /// Frame-clock deadline the self-paced gate is holding the next frame to,
+    /// or `0` when the display is pacing us and the gate is inert.
+    private var selfPacedFrameDueAt: Double = 0
+    /// One display period, as last reported by the monitor this window is on.
+    /// What the backends' pacing watchdogs judge a present against.
+    private var displayFrameInterval: Double = 1.0 / 60.0
+    /// The interval the self-paced gate schedules frames on.
+    ///
+    /// Deliberately the runtime's pacing floor and not the display period.
+    /// Windows delivers this app's frames on a timer-queue timer, whose
+    /// accuracy is the system clock tick — ~15.6 ms, *below* a 60 Hz period —
+    /// so a schedule pinned to 16.667 ms rejects roughly every second tick for
+    /// arriving a millisecond early and then waits a whole further tick for the
+    /// next one. Measured: 49 fps against a 60 Hz display, from a gate that was
+    /// arithmetically correct. Scheduling on the floor the timer can actually
+    /// hit costs a few frames a second the compositor discards and buys back
+    /// the ~15 it was dropping.
+    private var selfPacedFrameInterval = WinSwiftUIWindowHost.pacingInterval(forRefreshRate: 60)
     private var startupProbeCompleted = false
     private var isWindowActive = true
     private var isWindowVisible = true
@@ -2146,6 +2202,10 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private func activatePresenter(with surface: SurfaceDescriptor) throws {
         surfaceDescriptor = surface
         try attachPreferredRenderer(to: surface)
+        // A freshly attached backend has never been told what it is presenting
+        // to, and its pacing watchdog cannot judge a present against a display
+        // period it does not have.
+        applyDisplayFrameInterval(displayFrameInterval, force: true)
         isRendererReady = true
         isPresenterUnavailable = false
         presenterAttachAttemptCount = 0
@@ -2703,6 +2763,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             lastScenePaintMetrics: runtime.lastScenePaintMetrics,
             lastPresentationFailureKind: lastPresentationFailureKind,
             isPresentationOccluded: activePresentationState.isOccluded,
+            presentPacing: activePresentPacing,
             isPresenterUnavailable: isPresenterUnavailable,
             nextPresenterAttachInSeconds: nextPresenterAttachInSeconds,
             backendResolution: backendResolution
@@ -2724,6 +2785,18 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             return batchRenderer?.presentationState ?? PresentationState()
         case .frame:
             return renderer.presentationState
+        }
+    }
+
+    /// What is pacing the presenter that is actually on screen. Read once per
+    /// frame by the self-pacing gate, so it must stay a property read and not
+    /// become a computation.
+    var activePresentPacing: PresentPacingStatus {
+        switch activeBackend {
+        case .scene:
+            return batchRenderer?.presentPacing ?? PresentPacingStatus()
+        case .frame:
+            return renderer.presentPacing
         }
     }
 
@@ -2843,6 +2916,18 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         // One monotonic clock for every entry point, `WM_PAINT` included.
         let frameTimestamp = timestamp ?? frameClock()
 
+        // Self-paced presentation: `Present` is no longer waiting for anything,
+        // so this gate is the only thing between the window and a frame loop
+        // that runs as fast as the CPU allows. Deferring here is a wait on the
+        // frame clock, not a spin — `WM_PAINT` validated the region before this
+        // call, nothing re-invalidates it, and the deferred frame is re-armed
+        // on the animation timer by `syncAnimationDriver`.
+        guard isFrameDueUnderSelfPacing(at: frameTimestamp) else {
+            pendingPresentation = true
+            syncAnimationDriver(for: window)
+            return false
+        }
+
         // Only paid for when a diagnostics run is listening: `frameClock()` is
         // a QPC round-trip, and this is the frame loop.
         let isSamplingFrames = onFramePresented != nil
@@ -2950,10 +3035,77 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         return true
     }
 
+    /// Tells both presenters what one display period costs, and keeps the
+    /// self-pacer's target in step with it.
+    ///
+    /// - Parameter force: pushes the value even when it has not changed, for
+    ///   the case a backend was just attached and has never been told.
+    private func applyDisplayFrameInterval(_ seconds: Double, force: Bool = false) {
+        guard seconds.isFinite, seconds > 0 else {
+            return
+        }
+        guard force || seconds != displayFrameInterval else {
+            return
+        }
+        displayFrameInterval = seconds
+        selfPacedFrameInterval = Self.pacingInterval(forRefreshRate: max(1, Int((1.0 / seconds).rounded())))
+        // A display change invalidates the deadline the old one set.
+        selfPacedFrameDueAt = 0
+        batchRenderer?.setDisplayFrameInterval(seconds)
+        renderer.setDisplayFrameInterval(seconds)
+    }
+
+    /// Whether the self-paced frame gate lets this frame through.
+    ///
+    /// Returns `true` immediately whenever the display is doing the pacing —
+    /// the gate exists only for the state where it is not, and adding a second
+    /// pacer on top of a working `Present(1)` would fight it.
+    ///
+    /// The schedule is phase-locked rather than "last frame plus a period":
+    /// deadlines advance by whole display periods, so a frame released a
+    /// fraction early does not pull every later deadline forward with it, and
+    /// the long-run rate is exactly the display's. A stall that puts the
+    /// schedule more than one period in the past re-synchronises instead of
+    /// trying to catch up with a burst nobody can see.
+    private func isFrameDueUnderSelfPacing(at timestamp: Double) -> Bool {
+        guard activePresentPacing.requiresSelfPacing else {
+            selfPacedFrameDueAt = 0
+            return true
+        }
+
+        guard selfPacedFrameDueAt > 0 else {
+            selfPacedFrameDueAt = timestamp + selfPacedFrameInterval
+            return true
+        }
+
+        guard timestamp + Self.selfPacedEarlyTolerance >= selfPacedFrameDueAt else {
+            return false
+        }
+
+        var nextDueAt = selfPacedFrameDueAt + selfPacedFrameInterval
+        if nextDueAt <= timestamp {
+            nextDueAt = timestamp + selfPacedFrameInterval
+        }
+        selfPacedFrameDueAt = nextDueAt
+        return true
+    }
+
+    /// Seconds the self-paced gate still owes the next frame, or `nil` when
+    /// nothing is being held back. What turns the deferral into a timed sleep
+    /// rather than a retry loop.
+    private func secondsUntilSelfPacedFrame(at timestamp: Double) -> Double? {
+        guard selfPacedFrameDueAt > 0, activePresentPacing.requiresSelfPacing else {
+            return nil
+        }
+        let remaining = selfPacedFrameDueAt - Self.selfPacedEarlyTolerance - timestamp
+        return remaining > 0 ? remaining : nil
+    }
+
     private func syncAnimationDriver(for window: Win32Window) {
         let refreshRate = max(Int(window.monitorRefreshRate), 1)
         runtime.minimumFrameInterval = Self.pacingInterval(forRefreshRate: refreshRate)
         window.useHighResolutionTimer = true
+        applyDisplayFrameInterval(1.0 / Double(refreshRate))
 
         // Without a presenter there is nothing to animate and nothing to
         // present, so the timer's only remaining job is the bounded attach
@@ -2974,7 +3126,14 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             return
         }
 
-        let intervalMilliseconds = UInt32(max(1, Int((1000.0 / Double(refreshRate)).rounded())))
+        var intervalMilliseconds = Self.animationTimerIntervalMilliseconds(forRefreshRate: refreshRate)
+        // A frame the self-paced gate deferred is owed a wake-up at its
+        // deadline, which is sooner than the display cadence. Shortening the
+        // timer is how the deferral sleeps: no spin, no dropped frame.
+        if let waitSeconds = secondsUntilSelfPacedFrame(at: frameClock()) {
+            let waitMilliseconds = UInt32(max(1, Int((waitSeconds * 1000).rounded(.up))))
+            intervalMilliseconds = min(intervalMilliseconds, waitMilliseconds)
+        }
         let shouldDriveFrames =
             runtime.hasActiveAnimations || runtime.isDirty || pendingPresentation || inputRateTracker.isHighRate
         window.setAnimationTimerEnabled(shouldDriveFrames, intervalMilliseconds: intervalMilliseconds)

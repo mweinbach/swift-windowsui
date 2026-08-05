@@ -113,6 +113,16 @@ public protocol BatchRenderBackend: AnyObject {
     /// cannot lose a device inherit the neutral value.
     var presentationState: PresentationState { get }
 
+    /// Which clock is pacing this backend's presents, and what the watchdog
+    /// that decided it has seen. See ``PresentPacingPolicy``.
+    var presentPacing: PresentPacingStatus { get }
+
+    /// Tells the backend what one display period costs, so its pacing
+    /// watchdog has something to judge present costs against. Called whenever
+    /// the host's idea of the refresh rate changes — including a monitor move,
+    /// which is the case the watchdog most needs to hear about.
+    func setDisplayFrameInterval(_ seconds: Double)
+
     /// Attach to a platform window surface.
     func attach(to surface: SurfaceDescriptor) throws
 
@@ -157,6 +167,12 @@ public protocol BatchRenderBackend: AnyObject {
 
 extension BatchRenderBackend {
     public var presentationState: PresentationState { PresentationState() }
+
+    /// A backend with no swap chain never waits on a display, so nothing is
+    /// pacing it and nothing needs to be.
+    public var presentPacing: PresentPacingStatus { PresentPacingStatus() }
+
+    public func setDisplayFrameInterval(_ seconds: Double) {}
 
     public func bindResources(for scene: GPUIScene) {}
 

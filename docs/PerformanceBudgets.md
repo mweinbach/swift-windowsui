@@ -106,6 +106,51 @@ Supporting counts from the same run:
   switches — new glyphs on newly visited screens. Once a screen has been
   visited, revisiting it uploads nothing.
 
+### 2026-08 — the presentation pacing watchdog
+
+The 4.05 fps column above is what a user of that machine actually saw, and no
+amount of app-side headroom fixes it: the wait is inside `Present`. The stack
+therefore stopped accepting it. `PresentPacingPolicy`
+(`Sources/SwiftWindowsGraphics/PresentPacing.swift`) watches what presents cost
+and, when six consecutive paced presents each exceed 2.5 display periods and
+add up to 0.75 s while the app's own frame cost stays inside one period,
+switches the swap chain to `Present(0)` and hands frame pacing to the host's
+own clock. It keeps probing — 2 s, then 4, 8, 16, capped at 30 — so a laptop
+that gets docked to a real monitor goes back to proper vsync. Both presenters
+carry it; the mode is a typed field on `RendererHealthSnapshot.presentPacing`
+and a `presentPacing` block in the diagnostics JSON.
+
+Measured on the same machine, same 10 s scripted workload, release:
+
+| Measure | Before | After |
+| --- | --- | --- |
+| Frames per second over the run | 4.05 | **37.1** |
+| Frames presented | 49 | 371 |
+| Frames with an animation running | 40 | 362 |
+| Backend present, p50 | 255.4 ms | **0.035 ms** |
+| Frame time, p50 | 256.3 ms | 0.225 ms |
+| Frame-debug (Direct2D) path, fps | ~4.1 | **33.5** |
+
+The residual gap to 60 is the watchdog paying for its own recovery: engaging
+costs six blocked presents (~1.5 s), and each probe costs about three more
+(~0.8 s) because DXGI queues three presents before `Present` has to wait for
+anything. Between probes the window runs at ~61 fps — a 20 s run
+(`artifacts/perf/l8-after4-vsync.json`) presents 949 frames, of which 18 are the
+blocked ones, leaving 931 frames across 15.3 s. As the probe backoff reaches
+its 30 s ceiling that overhead tends to ~2.6 %.
+
+Two things this measurement fixed that arithmetic alone would not have:
+
+- A **one-frame probe is worthless, and a four-frame probe is too**. The first
+  presents after a self-paced run drain into an empty DXGI queue and return in
+  0.04 ms whatever the compositor is doing. Probes that trusted them handed
+  pacing back twice in one run and measured 10.9 and then 20.3 fps.
+- The self-paced schedule is pinned to the **runtime pacing floor, not the
+  display period**. Frames arrive on a timer-queue timer whose accuracy is the
+  ~15.6 ms system tick; a schedule at 16.667 ms rejected every second tick for
+  being a millisecond early and then waited a whole further tick, measuring
+  49 fps from a gate that was arithmetically correct.
+
 ### Debug builds are not the measurement
 
 The same run in a debug build reports animating p95 2.7 ms / p99 4.3 ms and a

@@ -188,6 +188,13 @@ final class SoftwareWindowRenderBackend: BatchRenderBackend, RenderBackend {
     /// neither.
     var presentationState: PresentationState { PresentationState() }
 
+    /// A `BitBlt` to a device context does not wait for vblank, so there is no
+    /// pacing bargain here to lose — and nothing for the watchdog to rescue.
+    /// Stated rather than inherited, same as above.
+    var presentPacing: PresentPacingStatus { PresentPacingStatus() }
+
+    func setDisplayFrameInterval(_ seconds: Double) {}
+
     /// The last frame handed to the presenter, kept for the same reason
     /// `CPUBatchRenderer` keeps one: snapshot tooling and pixel assertions.
     var lastRenderedBitmap: BitmapSurface? { rasterizer.lastRenderedBitmap }

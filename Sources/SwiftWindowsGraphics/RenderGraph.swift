@@ -88,6 +88,18 @@ public protocol RenderBackend: AnyObject {
     /// cannot lose a device inherit the neutral value.
     var presentationState: PresentationState { get }
 
+    /// Which clock is pacing this backend's presents. The frame path measured
+    /// the *same* 252 ms present block as the batch path on the machine that
+    /// motivated ``PresentPacingPolicy``, which is the evidence that the
+    /// pathology is the compositor's and not one renderer's — so the fallback
+    /// carries the same watchdog rather than being the slow path a user falls
+    /// back to.
+    var presentPacing: PresentPacingStatus { get }
+
+    /// Tells the backend what one display period costs, so its pacing watchdog
+    /// has something to judge present costs against.
+    func setDisplayFrameInterval(_ seconds: Double)
+
     func attach(to surface: SurfaceDescriptor) throws
     func resize(to size: IntSize) throws
     func render(frame: RenderFrame) throws
@@ -116,6 +128,11 @@ extension RenderBackend {
     public var backendStatusDescription: String { "\(backendDisplayName) READY" }
 
     public var presentationState: PresentationState { PresentationState() }
+
+    /// A backend with no swap chain never waits on a display.
+    public var presentPacing: PresentPacingStatus { PresentPacingStatus() }
+
+    public func setDisplayFrameInterval(_ seconds: Double) {}
 }
 public struct RenderFrame: Equatable, Sendable {
     public var clearColor: Color

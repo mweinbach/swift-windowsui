@@ -81,9 +81,47 @@ public final class D3D11Renderer: RenderBackend {
     private nonisolated(unsafe) var isAttachedMirror = false
 
     public private(set) var isDirect2DEnabled = false
-    /// Controls vertical sync. When true, Present uses sync interval 1;
-    /// when false, sync interval 0 (and tearing flag when supported).
-    public var vsyncEnabled: Bool = true
+    /// Controls vertical sync. When true, `Present` uses sync interval 1 —
+    /// unless the pacing watchdog has taken the pacing job away from a
+    /// compositor that could not do it; when false, sync interval 0 (and the
+    /// tearing flag when supported).
+    ///
+    /// Stored in the pacing policy rather than beside it so there is exactly
+    /// one answer to "does the next present wait", and an explicit override
+    /// and a watchdog decision cannot contradict each other.
+    public var vsyncEnabled: Bool {
+        get { !presentPacingPolicy.isUnsynchronizedByRequest }
+        set { presentPacingPolicy.setUnsynchronizedByRequest(!newValue) }
+    }
+
+    /// Presentation pacing for the frame path. See ``PresentPacingPolicy``.
+    private var presentPacingPolicy = PresentPacingPolicy()
+
+    /// Seconds this renderer spent inside the last `Present`, and when the
+    /// last frame started drawing — the two halves the watchdog compares.
+    private var lastPresentSeconds: Double = 0
+    private var frameDrawStartedAt: Double = 0
+
+    public var presentPacing: PresentPacingStatus {
+        presentPacingPolicy.status
+    }
+
+    public func setDisplayFrameInterval(_ seconds: Double) {
+        presentPacingPolicy.setDisplayFrameInterval(seconds)
+    }
+
+    /// QPC seconds. Read twice per present, which is the only place the frame
+    /// path needs a clock.
+    private static func nowSeconds() -> Double {
+        var counter = LARGE_INTEGER()
+        var frequency = LARGE_INTEGER()
+        QueryPerformanceCounter(&counter)
+        QueryPerformanceFrequency(&frequency)
+        guard frequency.QuadPart != 0 else {
+            return 0
+        }
+        return Double(counter.QuadPart) / Double(frequency.QuadPart)
+    }
     public var backendDisplayName: String {
         isDirect2DEnabled ? "DIRECT2D" : "2D RENDERER"
     }
@@ -262,6 +300,9 @@ public final class D3D11Renderer: RenderBackend {
         didAttemptDirect2DSetup = false
         skipNextFrameAfterDeviceLoss = false
         presentationState = PresentationState()
+        // Samples taken against a swap chain that no longer exists cannot
+        // judge the one that replaces it; the mode itself survives.
+        presentPacingPolicy.reset()
         isAttached = false
         // `deviceLostRecoveryAttempts` deliberately survives: detach is a
         // *step* of device-loss recovery, and resetting the budget here
@@ -324,6 +365,10 @@ public final class D3D11Renderer: RenderBackend {
         if surface.pixelSize.width <= 0 || surface.pixelSize.height <= 0 {
             return
         }
+
+        // Stamped before any drawing so `presentFrame` can hand the pacing
+        // watchdog this frame's own cost alongside the present's.
+        frameDrawStartedAt = Self.nowSeconds()
 
         // One frame is skipped after a device rebuild: a present issued
         // immediately after recreating the device tends to come back blank.
@@ -528,13 +573,30 @@ public final class D3D11Renderer: RenderBackend {
     /// The one place this renderer presents. Both draw paths end here, so a
     /// frame can never be presented twice and a present HRESULT is always
     /// classified the same way.
+    ///
+    /// The frame path carries the same pacing watchdog as the batch path
+    /// because it measured the same pathology: on the machine this policy was
+    /// written for, `Present(1)` blocked ~252 ms per frame through *both*
+    /// renderers. A fallback that slideshows is not a fallback.
     private func presentFrame(swapChain: UnsafeMutablePointer<IDXGISwapChain1>) throws {
-        let syncInterval: UINT = vsyncEnabled ? 1 : 0
+        let waitsForVBlank = presentPacingPolicy.presentsOnVBlank
+        let syncInterval: UINT = waitsForVBlank ? 1 : 0
         var presentFlags: UINT = 0
-        if !vsyncEnabled && tearingSupported {
+        if !waitsForVBlank && tearingSupported {
             presentFlags |= DXGI_PRESENT_ALLOW_TEARING
         }
+        let presentStartedAt = Self.nowSeconds()
         let hr = swapChain.pointee.lpVtbl.pointee.Present(swapChain, syncInterval, presentFlags)
+        let presentEndedAt = Self.nowSeconds()
+        lastPresentSeconds = presentEndedAt - presentStartedAt
+        // A present made under an explicit `vsyncEnabled = false` says nothing
+        // about whether a paced one would block; the policy holds its
+        // judgement in that mode rather than being gated from outside.
+        presentPacingPolicy.recordPresent(
+            seconds: lastPresentSeconds,
+            frameCostSeconds: max(0, presentStartedAt - frameDrawStartedAt),
+            at: presentEndedAt
+        )
         try handlePresentResult(hr)
     }
 

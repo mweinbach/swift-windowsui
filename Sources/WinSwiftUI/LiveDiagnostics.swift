@@ -421,6 +421,22 @@ final class LiveDiagnosticsSession {
             "availability": health.backendResolution.map { String(describing: $0.availability) } ?? "<none>",
         ]
 
+        // The field that explains a 4 fps window whose own frame cost is
+        // 0.6 ms. Reported next to the backend block because that is the pair
+        // a reader needs: which renderer is presenting, and what is pacing it.
+        let pacing = health.presentPacing
+        report["presentPacing"] = [
+            "mode": pacing.mode.rawValue,
+            "requiresSelfPacing": pacing.requiresSelfPacing,
+            "displayFrameIntervalMs": pacing.displayFrameInterval * 1000,
+            "lastPresentMs": pacing.lastPresentSeconds * 1000,
+            "medianPresentMs": pacing.medianPresentSeconds * 1000,
+            "watchdogEngagements": pacing.engagementCount,
+            "recoveryProbes": pacing.probeCount,
+            "probeIntervalSeconds": pacing.probeIntervalSeconds,
+            "samplesInWindow": pacing.sampleCount,
+        ]
+
         if let diagnostics = host.activeBatchBackendDiagnostics {
             report["adapter"] = [
                 "description": diagnostics.adapterDescription ?? "<unavailable>",

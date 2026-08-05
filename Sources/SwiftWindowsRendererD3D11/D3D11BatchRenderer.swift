@@ -53,8 +53,16 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
     @discardableResult
     public func setPresentsWithVSync(_ enabled: Bool) -> Bool {
-        presentsWithVSync = enabled
+        presentPacingPolicy.setUnsynchronizedByRequest(!enabled)
         return true
+    }
+
+    public var presentPacing: PresentPacingStatus {
+        presentPacingPolicy.status
+    }
+
+    public func setDisplayFrameInterval(_ seconds: Double) {
+        presentPacingPolicy.setDisplayFrameInterval(seconds)
     }
 
     /// QPC seconds. Only called around the two phases of `render(scene:)`, so
@@ -313,8 +321,10 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     internal private(set) var lastDrawCallCount = 0
     internal private(set) var lastDrawnInstanceCount = 0
     /// Presents are vblank-paced by default; a diagnostics run turns this off
-    /// to measure the app's own frame cost without the compositor's wait.
-    private var presentsWithVSync = true
+    /// to measure the app's own frame cost without the compositor's wait, and
+    /// the pacing watchdog below turns it off when the compositor proves it is
+    /// not a usable clock.
+    private var presentPacingPolicy = PresentPacingPolicy()
     /// Feature level `createDeviceIfNeeded` settled on, and the adapter the
     /// device landed on. Queried once per device, not per frame: `GetDesc1`
     /// is a driver round-trip.
@@ -1111,6 +1121,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         blurDegraded = false
         skipNextFrameAfterDeviceLoss = false
         presentationState = PresentationState()
+        // The pacing window described a swap chain that no longer exists. The
+        // *mode* survives — an explicit vsync override and a compositor that
+        // was stalling us a moment ago both outlive one swap chain — but the
+        // samples behind it do not.
+        presentPacingPolicy.reset()
         isAttached = false
         // `deviceLostRecoveryAttempts` deliberately survives: detach is a
         // *step* of device-loss recovery, and resetting the budget here
@@ -1326,7 +1341,18 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         let presentStartedAt = Self.nowSeconds()
         lastSubmitSeconds = presentStartedAt - submitStartedAt
         try presentFrame()
-        lastPresentSeconds = Self.nowSeconds() - presentStartedAt
+        let presentEndedAt = Self.nowSeconds()
+        lastPresentSeconds = presentEndedAt - presentStartedAt
+        // The watchdog judges the *paced* present against the display period,
+        // and needs this frame's own cost to tell "the compositor is stalling
+        // us" from "we are too slow for the display".
+        if renderTargetKind == .swapChain {
+            presentPacingPolicy.recordPresent(
+                seconds: lastPresentSeconds,
+                frameCostSeconds: lastSubmitSeconds,
+                at: presentEndedAt
+            )
+        }
     }
 
     /// Binds every piece of pipeline state the batched draws assume: the
@@ -1395,7 +1421,12 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             guard let swapChain else {
                 return
             }
-            let hr = swapChain.pointee.lpVtbl.pointee.Present(swapChain, presentsWithVSync ? 1 : 0, 0)
+            // `sync = 0` here is a queued present, not a torn one: this chain
+            // is `FLIP_DISCARD` without `ALLOW_TEARING`, so DWM still shows
+            // whole frames — the call simply stops blocking on a compositor
+            // that was never going to release it on time.
+            let syncInterval: UINT = presentPacingPolicy.presentsOnVBlank ? 1 : 0
+            let hr = swapChain.pointee.lpVtbl.pointee.Present(swapChain, syncInterval, 0)
             try handlePresentResult(hr)
         case .offscreen:
             deviceContext?.pointee.lpVtbl.pointee.Flush(deviceContext)

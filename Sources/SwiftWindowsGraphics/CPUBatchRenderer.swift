@@ -36,6 +36,14 @@ public final class CPUBatchRenderer: BatchRenderBackend, RenderBackend {
     /// two identical defaults and satisfy neither.
     public var presentationState: PresentationState { PresentationState() }
 
+    /// A rasterizer that never calls `Present` is never paced by a display and
+    /// never needs to pace itself. Stated explicitly for the same reason as
+    /// ``presentationState``: two identical inherited defaults satisfy neither
+    /// protocol.
+    public var presentPacing: PresentPacingStatus { PresentPacingStatus() }
+
+    public func setDisplayFrameInterval(_ seconds: Double) {}
+
     /// The most recently rendered frame, available after a successful
     /// ``render(scene:)`` call.  Tests and visual tooling read this to
     /// compare against GPU output.

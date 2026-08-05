@@ -25,20 +25,26 @@ final class Win32WindowLifecycleTests: XCTestCase {
 
     // MARK: - Frame timer plan
 
+    // The requested interval throughout this section is 16 ms — the cadence the
+    // host actually asks for on a 60 Hz display. It was 17 (`round(1000/60)`),
+    // which is a cadence no caller produces any more: 17 ms is 58.8 ticks a
+    // second against 60 vblanks, so every ~17th vblank arrived with no frame in
+    // front of it. See `WinSwiftUIWindowHost.animationTimerIntervalMilliseconds`.
+
     func testTimerPlanUsesRequestedIntervalOutsideModalLoops() async {
         let plan = Win32Window.animationTimerConfiguration(
-            requestedInterval: 17,
+            requestedInterval: 16,
             isInModalLoop: false,
             prefersHighResolution: true,
             isHighResolutionAvailable: true
         )
-        XCTAssertEqual(plan.intervalMilliseconds, 17)
+        XCTAssertEqual(plan.intervalMilliseconds, 16)
         XCTAssertTrue(plan.useHighResolution)
     }
 
     func testTimerPlanDropsToTheCoalescingPathInsideModalLoops() async {
         let plan = Win32Window.animationTimerConfiguration(
-            requestedInterval: 17,
+            requestedInterval: 16,
             isInModalLoop: true,
             prefersHighResolution: true,
             isHighResolutionAvailable: true
@@ -52,12 +58,12 @@ final class Win32WindowLifecycleTests: XCTestCase {
 
     func testTimerPlanFallsBackToSetTimerWhenTheTimerQueueIsUnavailable() async {
         let plan = Win32Window.animationTimerConfiguration(
-            requestedInterval: 17,
+            requestedInterval: 16,
             isInModalLoop: false,
             prefersHighResolution: true,
             isHighResolutionAvailable: false
         )
-        XCTAssertEqual(plan.intervalMilliseconds, 17)
+        XCTAssertEqual(plan.intervalMilliseconds, 16)
         XCTAssertFalse(
             plan.useHighResolution,
             "A window whose timer-queue timer could not be created must fall back to SetTimer, not stall."
@@ -67,9 +73,9 @@ final class Win32WindowLifecycleTests: XCTestCase {
     func testRequestedTimerIntervalSurvivesEnterAndExitSizeMove() async {
         let window = Win32Window(title: "Test", clientSize: IntSize(width: 320, height: 200))
         window.useHighResolutionTimer = true
-        window.setAnimationTimerEnabled(true, intervalMilliseconds: 17)
+        window.setAnimationTimerEnabled(true, intervalMilliseconds: 16)
 
-        XCTAssertEqual(window.currentAnimationTimerConfiguration.intervalMilliseconds, 17)
+        XCTAssertEqual(window.currentAnimationTimerConfiguration.intervalMilliseconds, 16)
 
         window.setModalLoopStateForTesting(isInSizeMove: true)
         XCTAssertEqual(
@@ -80,26 +86,26 @@ final class Win32WindowLifecycleTests: XCTestCase {
         window.setModalLoopStateForTesting()
         XCTAssertEqual(
             window.currentAnimationTimerConfiguration.intervalMilliseconds,
-            17,
+            16,
             "Exiting a size/move must restore the requested cadence, not restart the frame timer at 1 ms."
         )
         XCTAssertTrue(window.currentAnimationTimerConfiguration.useHighResolution)
 
         window.setModalLoopStateForTesting(isInMenuLoop: true)
         window.setModalLoopStateForTesting()
-        XCTAssertEqual(window.currentAnimationTimerConfiguration.intervalMilliseconds, 17)
+        XCTAssertEqual(window.currentAnimationTimerConfiguration.intervalMilliseconds, 16)
     }
 
     func testMarkingTheHighResolutionTimerUnavailableSticksToTheCoalescingPath() async {
         let window = Win32Window(title: "Test", clientSize: IntSize(width: 320, height: 200))
         window.useHighResolutionTimer = true
-        window.setAnimationTimerEnabled(true, intervalMilliseconds: 17)
+        window.setAnimationTimerEnabled(true, intervalMilliseconds: 16)
         XCTAssertTrue(window.currentAnimationTimerConfiguration.useHighResolution)
 
         window.markHighResolutionTimerUnavailableForTesting()
 
         XCTAssertFalse(window.currentAnimationTimerConfiguration.useHighResolution)
-        XCTAssertEqual(window.currentAnimationTimerConfiguration.intervalMilliseconds, 17)
+        XCTAssertEqual(window.currentAnimationTimerConfiguration.intervalMilliseconds, 16)
     }
 
     // MARK: - Timer post gate

@@ -50,6 +50,15 @@ public struct RendererHealthSnapshot: Equatable, Sendable {
     /// The active backend's last present found the window fully occluded, so
     /// further frames are invisible work.
     public var isPresentationOccluded: Bool
+    /// Which clock is pacing presentation, and what the watchdog that decided
+    /// it has seen.
+    ///
+    /// Typed rather than folded into the selection reason's free text, because
+    /// "this window is pacing itself because the compositor blocks `Present`
+    /// for a quarter of a second" is a state a diagnostics run asserts on and a
+    /// support conversation reads off a file — and because it is the one field
+    /// that explains a 4 fps window whose own frame cost is 0.6 ms.
+    public var presentPacing: PresentPacingStatus
     /// No backend could be attached within the bounded retry budget: the
     /// window has stopped requesting frames and is showing nothing. This is
     /// the terminal state a machine with no usable graphics device reaches,
@@ -82,6 +91,7 @@ public struct RendererHealthSnapshot: Equatable, Sendable {
         lastScenePaintMetrics: ScenePaintMetrics = ScenePaintMetrics(),
         lastPresentationFailureKind: PresentationFailureKind? = nil,
         isPresentationOccluded: Bool = false,
+        presentPacing: PresentPacingStatus = PresentPacingStatus(),
         isPresenterUnavailable: Bool = false,
         nextPresenterAttachInSeconds: Double? = nil,
         backendResolution: RenderBackendResolution? = nil
@@ -97,6 +107,7 @@ public struct RendererHealthSnapshot: Equatable, Sendable {
         self.lastScenePaintMetrics = lastScenePaintMetrics
         self.lastPresentationFailureKind = lastPresentationFailureKind
         self.isPresentationOccluded = isPresentationOccluded
+        self.presentPacing = presentPacing
         self.isPresenterUnavailable = isPresenterUnavailable
         self.nextPresenterAttachInSeconds = nextPresenterAttachInSeconds
         self.backendResolution = backendResolution

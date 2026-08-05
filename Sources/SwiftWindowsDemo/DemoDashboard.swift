@@ -3217,7 +3217,11 @@ struct DemoComponentInspector: View {
                         }
                     }
                 }
-                .padding(.horizontal, DemoMetrics.s4)
+                // The page margin, not the band's own 16: the inspector's
+                // subject sits under the table's first column and the whole
+                // screen — title, column header, row, subject — shares one
+                // left edge.
+                .padding(.horizontal, DemoTableMetrics.inset)
                 .padding(.vertical, DemoMetrics.s3)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.bar)
@@ -3240,7 +3244,7 @@ struct DemoComponentInspector: View {
 
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, DemoMetrics.s4)
+                .padding(.horizontal, DemoTableMetrics.inset)
                 .padding(.vertical, DemoMetrics.s3)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .background(.bar)

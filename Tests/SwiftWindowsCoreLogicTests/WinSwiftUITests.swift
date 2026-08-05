@@ -10207,42 +10207,46 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(automaticReaderNode.text, "AUTOMATIC")
             XCTAssertTrue(allTexts(in: styledTabNode.children[0]).contains("FIRST TAB"))
             XCTAssertEqual(styledTabNode.children[1].text, "FIRST")
-            XCTAssertEqual(styledTabNode.children[0].children[0].cornerRadius, MacOSControlMetrics.Radius.xl)
+
+            // Every style draws a *selector bar*: a square band with no track
+            // of its own, and items with no pill. What varies is the item's
+            // own box — a page bar is denser than a window's primary
+            // navigation and a carousel's is looser — never the presence of a
+            // groove. The band used to be a rounded, bordered capsule at
+            // `Radius.xl` in four of the six styles, which is what made the
+            // top of every screen a stack of slabs.
+            let bar = MacOSControlMetrics.SelectorBar.self
+            for (name, node) in [
+                ("page", styledTabNode), ("grouped", groupedTabNode),
+                ("sidebar", sidebarTabNode), ("carousel", carouselTabNode),
+            ] {
+                let band = node.children[0]
+                let row = band.children[0]
+                XCTAssertEqual(row.cornerRadius, 0, "\(name) band is square")
+                XCTAssertNil(row.backgroundColor, "\(name) band carries no track fill")
+                XCTAssertEqual(row.borderWidth, 0, "\(name) band carries no ring")
+                for (index, tab) in row.children.enumerated() {
+                    XCTAssertEqual(tab.cornerRadius, bar.itemCornerRadius, "\(name) tab \(index)")
+                    XCTAssertEqual(tab.borderWidth, 0, "\(name) tab \(index) carries no border")
+                }
+                // The band itself is the page tone, closed by one hairline.
+                XCTAssertEqual(band.children.count, 2, "\(name) band is a row plus its hairline")
+                XCTAssertEqual(
+                    band.children[1].preferredSize?.height, bar.hairlineThickness, "\(name) hairline")
+            }
+
             guard case .stack(let pageLayout) = styledTabNode.children[0].children[0].layoutMode else {
                 XCTFail("Expected page tab bar stack layout")
                 return
             }
-            XCTAssertEqual(
-                pageLayout,
-                .horizontal(
-                    spacing: 6, padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3), alignment: .stretch))
+            XCTAssertEqual(pageLayout.spacing, bar.itemSpacing)
+            XCTAssertEqual(pageLayout.alignment, .center)
 
-            XCTAssertEqual(groupedTabNode.children[0].children[0].cornerRadius, MacOSControlMetrics.Radius.xl)
-            XCTAssertEqual(
-                groupedTabNode.children[0].children[0].children[0].cornerRadius, MacOSControlMetrics.Radius.md)
-            guard case .stack(let groupedLayout) = groupedTabNode.children[0].children[0].layoutMode else {
-                XCTFail("Expected grouped tab bar stack layout")
-                return
-            }
-            XCTAssertEqual(
-                groupedLayout,
-                .horizontal(
-                    spacing: 8, padding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8), alignment: .stretch))
-
-            XCTAssertEqual(sidebarTabNode.children[0].children[0].cornerRadius, MacOSControlMetrics.Radius.md)
-            XCTAssertEqual(sidebarTabNode.children[0].children[0].children[0].borderWidth, 2)
-            XCTAssertEqual(sidebarTabNode.children[0].children[0].children[1].borderWidth, 0)
-
-            XCTAssertEqual(carouselTabNode.children[0].children[0].cornerRadius, MacOSControlMetrics.Radius.xl)
             guard case .stack(let carouselLayout) = carouselTabNode.children[0].children[0].layoutMode else {
                 XCTFail("Expected carousel tab bar stack layout")
                 return
             }
-            XCTAssertEqual(
-                carouselLayout,
-                .horizontal(
-                    spacing: 10, padding: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10), alignment: .stretch)
-            )
+            XCTAssertEqual(carouselLayout.spacing, MacOSControlMetrics.Spacing.s2)
         }
     }
 

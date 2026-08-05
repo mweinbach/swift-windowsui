@@ -62,6 +62,18 @@ public enum DesignTokens {
     /// Sheet / dialog backdrop.
     public static let scrim = Pair(dark: hex(0x00_00_00, alpha: 0.55), light: hex(0x0C_0C_0E, alpha: 0.28))
 
+    /// Hover fill of an item that sits *directly on the page tone* with no
+    /// surface of its own: a tab in the selector bar, a nav row, a quick
+    /// action.
+    ///
+    /// It is not `surface1`, and the reason is the whole point of the ramp
+    /// having two directions. On the near-black page `surface1` is one step
+    /// *up* and reads as a lift. On the near-white page `surface1` is white,
+    /// which on a `#F2F3F5` band is a step of one or two units — invisible —
+    /// so the light hover has to move the other way, one step *down* toward
+    /// the ink. Same gesture, opposite direction, because the page is.
+    public static let pageItemHover = Pair(dark: hex(0x17_17_1A), light: hex(0xEA_EB_EE))
+
     /// The neutral a light-appearance wash is mixed from. Pure black on a
     /// cool near-white page reads warm; the page's own ink does not.
     public static let lightInk = hex(0x0C_0C_0E)
@@ -485,6 +497,11 @@ public struct ControlPalette: Sendable, Equatable {
     /// `surface2` a field or a chip takes, because they are the same idea:
     /// a recess inside a card.
     public var segmentedTrackFill: Color { surface2 }
+
+    /// Hover fill of an item drawn straight onto the page tone — a selector
+    /// bar tab, a sidebar row, a quick action. See `DesignTokens.pageItemHover`
+    /// for why it is not `surface1` in both appearances.
+    public var pageItemHoverFill: Color { DesignTokens.pageItemHover.resolve(colorScheme) }
 
     /// The raised pill under the selected segment.
     ///

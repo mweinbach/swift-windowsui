@@ -307,6 +307,36 @@ public enum MacOSControlMetrics {
         public static let unifiedCompactHeight: Double = 38
     }
 
+    /// The `TabView` band — a **selector bar**, not a segmented groove.
+    ///
+    /// A tab bar and a segmented picker are not the same control, and drawing
+    /// them with the same one is what put a rounded grey capsule holding three
+    /// chained buttons across the top of every screen. A selector bar has no
+    /// track: the band is the page tone, square and full bleed, closed by one
+    /// hairline; the items are transparent at rest; and the selection is a
+    /// short bar under the label plus one step of rung and weight. The
+    /// segmented control keeps its groove, because a segmented control *is* a
+    /// groove.
+    public enum SelectorBar {
+        /// Band height. One row of chrome, not two.
+        public static let bandHeight: Double = 40
+        /// The hairline that closes the band. Structural, so `strokeSubtle`
+        /// rather than a ring: it separates two regions of the same page.
+        public static let hairlineThickness: Double = 1
+        /// Item box: 32 tall inside a 40 band, `r-sm`, 12 horizontal.
+        public static let itemHeight: Double = 32
+        public static let itemCornerRadius: Double = Radius.sm
+        public static let itemHorizontalPadding: Double = Spacing.s3
+        /// Gap between items. Small enough that the bar reads as one control,
+        /// large enough that two hover fills never touch.
+        public static let itemSpacing: Double = Spacing.s1
+        /// The selection bar: 20 long, 3 thick, `r-xs`.
+        public static let indicatorSize = Size(width: 20, height: 3)
+        public static let indicatorCornerRadius: Double = Radius.xs
+        /// Clear between the label's box and the bar under it.
+        public static let indicatorGap: Double = 2
+    }
+
     /// Window chrome.
     public enum Window {
         public static let cornerRadius: Double = Radius.lg

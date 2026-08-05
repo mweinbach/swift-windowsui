@@ -369,6 +369,8 @@ extension TextWeight {
         switch self {
         case .regular:
             return .regular
+        case .medium:
+            return .medium
         case .semibold:
             return .semibold
         case .bold:

@@ -14,8 +14,20 @@ public enum TextVerticalAlignment: Sendable {
     case center
     case bottom
 }
+/// The rungs of the weight axis the design system actually uses: 400 / 500 /
+/// 600, plus 700 for anything that asks for bold.
+///
+/// `medium` is not decoration. The type ramp separates `body` (13/400) from
+/// `body-strong` (13/500) at one point of size, so *all* of the difference
+/// between them is the weight — and with only regular and semibold on the
+/// axis, 500 rounded down to 400 and the two roles rendered identically. A
+/// selected table row's name, a control label, a caption-strong figure and a
+/// selected tab all looked exactly like the resting state beside them.
+/// Segoe UI Variable carries a continuous weight axis, so 500 is a real
+/// instance rather than a synthesised one.
 public enum TextWeight: Sendable {
     case regular
+    case medium
     case semibold
     case bold
 }
@@ -615,8 +627,11 @@ public enum RetainedTextMetrics {
     /// Caret boundary x positions for every character offset in `line`,
     /// derived from native glyph advances when available and from the fixed
     /// pixel-font advance otherwise.
-    private static func caretBoundaries(in line: String, style: PixelTextStyle, displayScale: Double) -> [Double]
-    {
+    private static func caretBoundaries(
+        in line: String,
+        style: PixelTextStyle,
+        displayScale: Double
+    ) -> [Double] {
         let count = line.count
         if count > 0,
             let layout = NativeTextRenderer.layout(line, style: style, scaleFactor: displayScale, maxWidth: nil),

@@ -720,10 +720,12 @@ extension PixelTextStyle {
     }
 }
 extension TextWeight {
-    var gdiWeight: Int {
+    public var gdiWeight: Int {
         switch self {
         case .regular:
             return 400
+        case .medium:
+            return 500
         case .semibold:
             return 600
         case .bold:

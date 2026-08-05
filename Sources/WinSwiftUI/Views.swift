@@ -888,7 +888,18 @@ extension SwiftWindowsCore.Color: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { _ in
-            Controls.panel(backgroundColor: self, isHitTestVisible: false)
+            let node = Controls.panel(backgroundColor: self, isHitTestVisible: false)
+            // A `Color` accepts whatever it is proposed on both axes — that is
+            // the whole of its layout behaviour in SwiftUI, and it is why
+            // `Color.red.frame(height: 1)` is a full-width hairline rather
+            // than an invisible 0x1 node. Without the declaration a colour
+            // measured its (nonexistent) intrinsic width, so every rule the
+            // app drew this way — the settings row rules, the data table row
+            // rules, the hero's lit top edge — was in the tree at 0pt wide
+            // and painted nothing. An explicit `.frame(width:)` still wins:
+            // it pins the node's preferred size, which ends the greed.
+            node.layoutFillAxes = .both
+            return node
         }
     }
 }
@@ -4888,19 +4899,29 @@ public struct TabView: View {
         let selectedPage = content[selectedIndex]
         let tabBar = tabBarComponent(selectedIndex: selectedIndex, context: context)
 
+        let chrome = Self.retainedTabChrome(
+            for: context.tabViewStyle, palette: context.controlPalette)
+
         return Component { runtime in
-            // macOS tab-view grammar: the tab group is a content-sized
-            // control centered in its own inset band, not a full-bleed
-            // strip of equal slabs jammed into the window corner.
+            // A selector bar, not a groove. The band is the page tone with no
+            // fill of its own, square, and closed by one hairline; the items
+            // are transparent at rest and the selection is an underline. The
+            // recessed track with a raised pill in it — three chained buttons
+            // inside a fourth — is what made the top of every screen read as
+            // a stack of rounded slabs rather than one chrome region.
+            let hairline = Controls.panel(
+                preferredSize: Size(width: 0, height: 1),
+                backgroundColor: chrome.bandHairline,
+                isHitTestVisible: false
+            )
+            hairline.layoutFillAxes = .horizontalOnly
+            hairline.isSeparatorRule = true
+
             let tabBarNode = Controls.stackPanel(
-                stackLayout: .horizontal(
-                    spacing: 0,
-                    padding: Self.retainedTabBandInsets,
-                    alignment: .center,
-                    mainAlignment: .center
-                ),
+                backgroundColor: chrome.bandFill,
+                stackLayout: .vertical(spacing: 0, padding: .zero, alignment: .stretch),
                 isHitTestVisible: false,
-                children: [tabBar.makeNode(runtime: runtime)]
+                children: [tabBar.makeNode(runtime: runtime), hairline]
             )
             tabBarNode.layoutFillAxes = .horizontalOnly
             // The page is composed against the slot it will actually get,
@@ -4959,11 +4980,14 @@ public struct TabView: View {
         }
     }
 
-    /// Outer margin around the tab control. macOS insets a `.automatic`
-    /// tab view from the window edge instead of pinning it into the corner.
-    static let retainedTabBandInsets = EdgeInsets(top: 12, leading: 16, bottom: 0, trailing: 16)
     /// Gap between the tab band and the page it selects.
-    static let retainedTabPageSpacing: Double = 10
+    ///
+    /// Zero, and deliberately: the band and whatever chrome the page starts
+    /// with have to read as *one* continuous region. A 10pt gutter between
+    /// them put a stripe of window backdrop across the top of every screen,
+    /// which is the third of the "three stacked slabs" the shell used to be.
+    /// The band's own bottom hairline is the boundary.
+    static let retainedTabPageSpacing: Double = 0
 
     /// The cross-dissolve between two pages.
     ///
@@ -5003,12 +5027,17 @@ public struct TabView: View {
             let tabNodes = content.enumerated().map { index, view in
                 let isSelected = index == selectedIndex
                 let labelViews = view.tabItem ?? [AnyView(Text("TAB \(index + 1)"))]
-                // The raised pill carries its own label colour, exactly as a
-                // selected segment does: on the near-white light-mode pill an
-                // inherited white label would be invisible.
+                // The selection is carried by the label's own rung and weight
+                // plus the bar under it — there is no pill for a label colour
+                // to have to survive. Selected is the primary rung at the
+                // body-strong weight; everything else is the secondary rung,
+                // which is what an unselected tab is.
                 let labelContext =
                     isSelected
-                    ? context.withForegroundColor(palette.segmentedSelectedLabel) : context
+                    ? context
+                        .withForegroundColor(palette.label)
+                        .withFontWeight(chrome.selectedLabelWeight)
+                    : context.withForegroundColor(palette.secondaryLabel)
                 let labelNode = composeComponent(
                     from: labelViews,
                     context: labelContext,
@@ -5028,48 +5057,44 @@ public struct TabView: View {
                 } else {
                     tabContentNode = labelNode
                 }
-                // macOS draws a tab bar and a segmented picker with the same
-                // control: one recessed track, a raised pill under the
-                // selection, and nothing at all around the other segments.
-                // Ringing every tab in its own border — and the selected one
-                // in the accent — is what made the bar read as three chained
-                // web buttons inside a fourth.
-                let tabPalette =
-                    isSelected
-                    ? SurfacePalette(
-                        idle: palette.segmentedSelectedFill,
-                        hovered: ControlPalette.lightened(palette.segmentedSelectedFill, by: 0.08),
-                        focused: ControlPalette.lightened(palette.segmentedSelectedFill, by: 0.08),
-                        pressed: ControlPalette.darkened(palette.segmentedSelectedFill, by: 0.10),
-                        disabledForeground: palette.disabledLabel
-                    )
-                    : SurfacePalette(
-                        idle: .clear,
-                        hovered: palette.quaternaryFill,
-                        focused: palette.quaternaryFill,
-                        pressed: palette.tertiaryFill,
-                        disabledForeground: palette.disabledLabel
-                    )
+                // The indicator is in the tree for every tab, transparent on
+                // the ones that are not selected: a bar that appears and
+                // disappears would move the label by its own height on every
+                // switch, and a selector bar's label must not move.
+                let indicator = Controls.panel(
+                    preferredSize: chrome.indicatorSize,
+                    backgroundColor: isSelected ? palette.accentForeground : .clear,
+                    cornerRadius: chrome.indicatorCornerRadius,
+                    isHitTestVisible: false
+                )
+                indicator.nodeTag = isSelected ? "tab-indicator-selected" : "tab-indicator"
+
+                // Transparent at rest, no border, no shadow, ever. The whole
+                // affordance is the label's rung and the bar beneath it; the
+                // hover fill exists so the pointer has something to land on.
+                let tabPalette = SurfacePalette(
+                    idle: .clear,
+                    hovered: palette.pageItemHoverFill,
+                    focused: .clear,
+                    pressed: palette.surface2,
+                    disabledForeground: palette.disabledLabel
+                )
 
                 return Controls.button(
                     runtime: runtime,
                     cornerRadius: chrome.tabCornerRadius,
                     palette: tabPalette,
                     chrome: SurfaceChrome(
-                        // Same rule as the segmented pill it shares a control
-                        // with: on a near-black page the contact shadow is
-                        // invisible and the hairline is the lift.
-                        borderColor: isSelected ? palette.controlBorderStrong : .clear,
-                        borderWidth: isSelected ? chrome.selectedBorderWidth : 0,
+                        borderColor: .clear,
+                        borderWidth: 0,
                         focusRingColor: palette.accentRing,
                         focusRingWidth: MacOSControlMetrics.FocusRing.strokeWidth,
-                        shadowColor: isSelected ? Elevation.e1.color(for: palette.colorScheme) : .clear,
-                        shadowPressedColor: .clear,
-                        shadowOffset: Point(x: 0, y: Elevation.e1.light.offsetY),
-                        shadowSpread: Elevation.e1.light.radius
+                        shadowColor: .clear,
+                        shadowPressedColor: .clear
                     ),
                     layoutMode: .stack(
                         .vertical(
+                            spacing: chrome.indicatorGap,
                             padding: chrome.tabPadding,
                             alignment: .center,
                             mainAlignment: .center
@@ -5082,39 +5107,44 @@ public struct TabView: View {
                         state.selectedIndex = index
                         context.invalidate()
                     },
-                    children: [tabContentNode]
+                    children: [tabContentNode, indicator]
                 )
             }
 
-            return Controls.stackPanel(
-                backgroundColor: chrome.backgroundColor,
-                borderColor: chrome.borderColor,
-                borderWidth: chrome.borderWidth,
-                cornerRadius: chrome.cornerRadius,
-                clipsToBounds: true,
+            let row = Controls.stackPanel(
+                preferredSize: Size(width: 0, height: chrome.bandHeight),
                 stackLayout: .horizontal(
                     spacing: chrome.spacing,
                     padding: chrome.padding,
-                    alignment: .stretch
+                    alignment: .center,
+                    mainAlignment: .center
                 ),
                 isHitTestVisible: false,
                 children: tabNodes
             )
+            row.layoutFillAxes = .horizontalOnly
+            return row
         }
     }
 
     private struct RetainedTabChrome {
-        var backgroundColor: Color
-        var borderColor: Color
-        var borderWidth: Double
-        var cornerRadius: Double
+        /// The band: the page tone, square, full bleed.
+        var bandFill: Color
+        /// The one line that closes it.
+        var bandHairline: Color
+        var bandHeight: Double
         var spacing: Double
         var padding: EdgeInsets
         var tabCornerRadius: Double
         var tabPadding: EdgeInsets
-        /// Hairline around the raised pill. Unselected segments carry no
-        /// border at all, so there is no unselected counterpart.
-        var selectedBorderWidth: Double
+        /// The selection bar under the label.
+        var indicatorSize: Size
+        var indicatorCornerRadius: Double
+        var indicatorGap: Double
+        /// `body-strong`: the selected label moves one weight step, not one
+        /// size step. Size is what a tab bar cannot spend, because a label
+        /// that grows on selection re-lays the whole bar out.
+        var selectedLabelWeight: Font.Weight
     }
 
     private struct RetainedPageIndexChrome {
@@ -5215,74 +5245,51 @@ public struct TabView: View {
     }
 
     private static func retainedTabChrome(for style: TabViewStyle, palette: ControlPalette) -> RetainedTabChrome {
-        // The band and its hairline are appearance roles; only the geometry
-        // varies by style. These used to be dark literals, which is why a
-        // light-mode app kept a dark tab bar over light content. The band is
-        // the segmented control's recessed track, because that is the control
-        // macOS draws a tab bar with.
-        let band = palette.segmentedTrackFill
-        let hairline = palette.separator
+        // The band is the page tone with a structural hairline under it, in
+        // every style. Only the item's own box changes: a page-style bar is a
+        // denser row than a window's primary navigation, and a carousel's is
+        // looser. Neither of them grows a groove.
+        let metrics = MacOSControlMetrics.SelectorBar.self
+        let base = RetainedTabChrome(
+            bandFill: palette.base,
+            bandHairline: palette.separator,
+            bandHeight: metrics.bandHeight,
+            spacing: metrics.itemSpacing,
+            padding: EdgeInsets(
+                top: 0,
+                leading: MacOSControlMetrics.Spacing.s4,
+                bottom: 0,
+                trailing: MacOSControlMetrics.Spacing.s4
+            ),
+            tabCornerRadius: metrics.itemCornerRadius,
+            tabPadding: EdgeInsets(
+                top: 0,
+                leading: metrics.itemHorizontalPadding,
+                bottom: 0,
+                trailing: metrics.itemHorizontalPadding
+            ),
+            indicatorSize: metrics.indicatorSize,
+            indicatorCornerRadius: metrics.indicatorCornerRadius,
+            indicatorGap: metrics.indicatorGap,
+            selectedLabelWeight: .medium
+        )
         switch style.kind {
-        case .automatic, .tabBarOnly:
-            return RetainedTabChrome(
-                backgroundColor: band,
-                borderColor: hairline,
-                borderWidth: 1,
-                cornerRadius: MacOSControlMetrics.Radius.xl,
-                spacing: 4,
-                padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
-                tabCornerRadius: MacOSControlMetrics.Radius.sm,
-                tabPadding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12),
-                selectedBorderWidth: 1
-            )
-        case .grouped:
-            return RetainedTabChrome(
-                backgroundColor: band,
-                borderColor: hairline,
-                borderWidth: 1,
-                cornerRadius: MacOSControlMetrics.Radius.xl,
-                spacing: 8,
-                padding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8),
-                tabCornerRadius: MacOSControlMetrics.Radius.md,
-                tabPadding: EdgeInsets(top: 9, leading: 14, bottom: 9, trailing: 14),
-                selectedBorderWidth: 1
-            )
-        case .sidebarAdaptable:
-            return RetainedTabChrome(
-                backgroundColor: band,
-                borderColor: hairline,
-                borderWidth: 1,
-                cornerRadius: MacOSControlMetrics.Radius.md,
-                spacing: 3,
-                padding: EdgeInsets(top: 5, leading: 5, bottom: 5, trailing: 5),
-                tabCornerRadius: MacOSControlMetrics.Radius.sm,
-                tabPadding: EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10),
-                selectedBorderWidth: 2
-            )
+        case .automatic, .tabBarOnly, .grouped, .sidebarAdaptable:
+            return base
         case .page, .verticalPage:
-            return RetainedTabChrome(
-                backgroundColor: band,
-                borderColor: hairline,
-                borderWidth: 1,
-                cornerRadius: MacOSControlMetrics.Radius.xl,
-                spacing: 6,
-                padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3),
-                tabCornerRadius: MacOSControlMetrics.Radius.md,
-                tabPadding: EdgeInsets(top: 7, leading: 12, bottom: 7, trailing: 12),
-                selectedBorderWidth: 1
-            )
+            var chrome = base
+            chrome.bandHeight = 32
+            chrome.tabPadding = EdgeInsets(
+                top: 0, leading: MacOSControlMetrics.Spacing.s2,
+                bottom: 0, trailing: MacOSControlMetrics.Spacing.s2)
+            return chrome
         case .carousel:
-            return RetainedTabChrome(
-                backgroundColor: band,
-                borderColor: hairline,
-                borderWidth: 1,
-                cornerRadius: MacOSControlMetrics.Radius.xl,
-                spacing: 10,
-                padding: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10),
-                tabCornerRadius: MacOSControlMetrics.Radius.md,
-                tabPadding: EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16),
-                selectedBorderWidth: 1
-            )
+            var chrome = base
+            chrome.spacing = MacOSControlMetrics.Spacing.s2
+            chrome.tabPadding = EdgeInsets(
+                top: 0, leading: MacOSControlMetrics.Spacing.s4,
+                bottom: 0, trailing: MacOSControlMetrics.Spacing.s4)
+            return chrome
         }
     }
 }

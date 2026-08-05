@@ -240,6 +240,22 @@ final class MacOSDesignParityTests: XCTestCase {
         XCTAssertEqual(MacOSControlMetrics.Typography.symbolBoxRatio, 1.25, accuracy: 0.0001)
     }
 
+    /// The weight axis has three rungs — 400 / 500 / 600 — and 500 is one of
+    /// them. It used to fold into 400, which deleted the whole difference
+    /// between `body` (13/400) and `body-strong` (13/500): they are one point
+    /// apart in size, so the weight is all there is. Every 500-weight role in
+    /// the app rendered as its own resting state.
+    func testTheWeightAxisCarriesFiveHundred() async {
+        XCTAssertEqual(Font.Weight.regular.textWeight.gdiWeight, 400)
+        XCTAssertEqual(Font.Weight.medium.textWeight.gdiWeight, 500)
+        XCTAssertEqual(Font.Weight.semibold.textWeight.gdiWeight, 600)
+        XCTAssertEqual(Font.Weight.bold.textWeight.gdiWeight, 700)
+        // Nothing in the system is heavier than 600, so the roles that carry
+        // hierarchy sit strictly between regular and bold.
+        XCTAssertLessThan(
+            Font.Weight.medium.textWeight.gdiWeight, Font.Weight.semibold.textWeight.gdiWeight)
+    }
+
     // MARK: - Grouped form and group box
 
     func testGroupedFormMetricsMatchTheMacOSSettingsPane() async {

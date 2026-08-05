@@ -88,6 +88,28 @@ for weak hierarchy — not a size bump.
 | `Typography.sectionHeaderSize`    | 11    | A `List` group header — the `eyebrow` role. A list group title genuinely is a *label*: it names the rows under it and is not something you read on the way past. |
 | `Typography.formSectionHeaderSize` | **15** | A grouped-`Form` section header — the `section` role: 15/600 at the primary rung, attached to the group under it. |
 
+### The weight axis has three rungs, and 500 is one of them
+
+`TextWeight` carried `regular` / `semibold` / `bold` — 400 / 600 / 700 — and
+`Font.Weight.medium` folded into `regular`. That silently deleted a rung the
+type ramp depends on: `body` (13/400) and `body-strong` (13/500) are one
+point apart in size, so *all* of the difference between them is the weight.
+With 500 rounding to 400 they rendered identically, and with them every other
+500-weight role — `control-label`, `caption-strong`, `badge`, a selected
+table row's name, a selected tab's label — looked exactly like the resting
+state beside it.
+
+| `TextWeight` | GDI / DirectWrite weight | Roles |
+|---|---|---|
+| `regular`  | 400 | `body`, `caption`, `axis`, `title-sub` |
+| `medium`   | **500** | `body-strong`, `control-label`, `caption-strong`, `badge`, a selected tab |
+| `semibold` | 600 | `hero`, `title`, `section`, `card-title`, `metric`, `eyebrow` |
+| `bold`     | 700 | anything that asks for `.bold` or heavier |
+
+Segoe UI Variable carries a continuous weight axis, so 500 is a real instance
+rather than a synthesised one, and the glyph-atlas key already had a `medium`
+slot waiting for it. Nothing in the design system is heavier than 600.
+
 ### The face those sizes are set in
 
 This document pins the point *sizes*. The family they resolve to —
@@ -255,7 +277,17 @@ the design restylable.
 | `surface2` | `#1E1E22` | `#F1F2F5` | Inside a card: fields, chips, icon tiles, segmented track, row hover |
 | `surface3` | `#26262B` | `#E6E8EC` | Pressed / active / selected-neutral; menu and popover body |
 | `surface4` | `#2C2C32` | `#ECEDF1` | One step past `surface3` — a bordered control held down |
+| `pageItemHover` | `#17171A` | `#EAEBEE` | Hover fill of an item drawn straight onto the page tone |
 | `scrim`    | `#000000` @ 0.55 | `#0C0C0E` @ 0.28 | Sheet / dialog backdrop |
+
+`pageItemHover` is the one token whose two columns move in *opposite*
+directions, and that is the point. A selector-bar tab, a sidebar row and a
+quick action have no surface of their own — they sit on `base`. On the
+near-black page the hover is one step up (`surface1`) and reads as a lift; on
+the near-white page `surface1` is white, which against a `#F2F3F5` band is a
+step of one or two units and invisible, so the light hover moves one step
+*down* toward the ink instead. Same gesture, opposite direction, because the
+page is.
 
 Hairlines, and the ring stop above them:
 
@@ -794,11 +826,43 @@ grids.
 | Overlay scroller inset       | `Scroller.overlayInset`                   | 4 pt      |
 | Overlay scroller min knob    | `Scroller.minimumThumbLength`             | 24 pt     |
 | Toolbar (regular)            | `Toolbar.regularHeight`                   | 52 pt     |
+| Selector bar band            | `SelectorBar.bandHeight`                  | **40 pt**, square, full bleed |
+| Selector bar item            | `SelectorBar.itemHeight`                  | **32 pt**, `r-sm`, 12 pt horizontal |
+| Selector bar indicator       | `SelectorBar.indicatorSize`               | **20×3 pt** at `r-xs`, 2 pt under the label |
 | Window corner radius         | `Window.cornerRadius`                     | 10 pt (`Radius.lg`) |
 | Sheet corner radius          | `Window.sheetCornerRadius`                | 12 pt (`Radius.xl`) |
 | Focus ring stroke            | `FocusRing.strokeWidth`                   | **2 pt**  |
 | Default stack spacing        | `Layout.defaultStackSpacing`              | 8 pt      |
 | Default `.padding()`         | `Layout.defaultPadding`                   | 16 pt     |
+
+### A tab bar is a selector bar, not a segmented control
+
+A tab bar and a segmented picker look alike in a screenshot and are not the
+same control. Drawing both with the segmented control's chrome — a recessed
+track at `Radius.xl`, a raised pill under the selection, a ring around the
+band — put a rounded grey capsule holding three chained buttons across the
+top of every screen, and a horizontal cut through the top 100px of the window
+crossed four tone boundaries instead of one.
+
+The selector bar has no track:
+
+- The **band** is the page tone (`base`) with no fill of its own, square,
+  full bleed, 40 tall, closed by one `separator` hairline. It sits flush
+  against whatever chrome the page starts with — `retainedTabPageSpacing` is
+  0 — so the two read as one continuous region rather than two slabs.
+- An **item** is 32 tall at `r-sm` with 12pt horizontal padding, and is
+  **fully transparent at rest**: no fill, no border, no shadow, in any state
+  but hover. Hover takes `pageItemHoverFill`.
+- The **selection** is a 20×3 bar at `r-xs` in `accentForeground`, centred
+  2pt under the label, plus one rung (`secondaryLabel` → `label`) and one
+  weight step (400 → 500). Size never moves: a label that grows on selection
+  re-lays the whole bar out under the pointer that just clicked it. The
+  indicator node is present on *every* tab and painted `.clear` on the ones
+  that are not selected, for the same reason.
+
+The segmented control keeps its groove. A segmented control *is* a groove —
+one recess holding N cells, all of which are the control. A tab bar is N
+independent items on a page.
 
 ### Overlay scrollers
 

@@ -141,6 +141,30 @@ final class MacOSControlReferenceTests: XCTestCase {
         XCTAssertEqual(MacOSControlMetrics.Toolbar.unifiedCompactHeight, 38, accuracy: 0.001)
     }
 
+    // MARK: - Selector bar
+
+    /// A tab bar is not a segmented control. It has no track, its items have
+    /// no pill, and its band is square and full bleed — 40 tall, closed by
+    /// one hairline, with the selection carried by a 20x3 accent bar at
+    /// `r-xs`. Drawing it with the segmented control put a rounded grey
+    /// capsule holding three chained buttons across the top of every screen.
+    func testSelectorBarGeometry() {
+        let bar = MacOSControlMetrics.SelectorBar.self
+        XCTAssertEqual(bar.bandHeight, 40, accuracy: 0.001)
+        XCTAssertEqual(bar.hairlineThickness, 1, accuracy: 0.001)
+        XCTAssertEqual(bar.itemHeight, 32, accuracy: 0.001)
+        XCTAssertEqual(bar.itemCornerRadius, MacOSControlMetrics.Radius.sm, accuracy: 0.001)
+        XCTAssertEqual(bar.itemHorizontalPadding, MacOSControlMetrics.Spacing.s3, accuracy: 0.001)
+        XCTAssertEqual(bar.itemSpacing, MacOSControlMetrics.Spacing.s1, accuracy: 0.001)
+        XCTAssertEqual(bar.indicatorSize.width, 20, accuracy: 0.001)
+        XCTAssertEqual(bar.indicatorSize.height, 3, accuracy: 0.001)
+        XCTAssertEqual(bar.indicatorCornerRadius, MacOSControlMetrics.Radius.xs, accuracy: 0.001)
+        XCTAssertEqual(bar.indicatorGap, 2, accuracy: 0.001)
+        XCTAssertLessThan(
+            bar.itemHeight, bar.bandHeight,
+            "the item is a box inside the band, not the band itself")
+    }
+
     // MARK: - Window chrome
 
     func testWindowCornerRadiusMatchesMacOSSonoma() {

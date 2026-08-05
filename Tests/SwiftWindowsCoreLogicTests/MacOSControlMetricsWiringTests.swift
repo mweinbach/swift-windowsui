@@ -306,50 +306,97 @@ final class MacOSControlMetricsWiringTests: XCTestCase {
         }
     }
 
-    // MARK: - Tab bar (the same NSSegmentedControl)
+    // MARK: - Tab bar (a selector bar, not a segmented control)
 
-    /// macOS draws a `.automatic` tab bar with the segmented control: one
-    /// recessed track, a raised pill under the selection, and nothing around
-    /// the other segments. Every tab used to carry its own rounded border
-    /// inside the band's border, with the selected one ringed in the accent —
-    /// three chained web buttons inside a fourth.
-    func testTabBarSpeaksTheSegmentedControlLanguage() async {
+    /// A tab bar and a segmented picker are not the same control, and drawing
+    /// them with the same one put a rounded grey capsule holding three chained
+    /// buttons across the top of every screen. The band is the page tone,
+    /// square and full bleed, closed by one hairline; a tab is transparent at
+    /// rest with no border and no shadow; and the selection is a short accent
+    /// bar under the label. The segmented control keeps its groove — a
+    /// segmented control *is* a groove.
+    func testTabBarIsASelectorBarNotAGroove() async {
         await MainActor.run {
+            let bar = MacOSControlMetrics.SelectorBar.self
             for scheme in [ColorScheme.dark, ColorScheme.light] {
                 let palette = ControlPalette.resolve(colorScheme: scheme)
-                let bar = Self.tabBarNode(colorScheme: scheme)
+                let band = Self.tabBandNode(colorScheme: scheme)
+                let row = band.children[0]
 
-                XCTAssertEqual(bar.backgroundColor, palette.segmentedTrackFill, "\(scheme) track")
-                XCTAssertEqual(bar.children.count, 2)
+                XCTAssertEqual(band.backgroundColor, palette.base, "\(scheme) band is the page tone")
+                XCTAssertEqual(row.cornerRadius, 0, "\(scheme) band is square")
+                XCTAssertNil(row.backgroundColor, "\(scheme) no recessed track")
+                XCTAssertEqual(row.borderWidth, 0, "\(scheme) no ring around the band")
+                XCTAssertEqual(row.preferredSize?.height, bar.bandHeight, "\(scheme) band height")
 
-                let selected = bar.children[0]
-                let unselected = bar.children[1]
-                XCTAssertEqual(selected.backgroundColor, palette.segmentedSelectedFill, "\(scheme) pill")
-                XCTAssertEqual(unselected.borderWidth, 0, "\(scheme) unselected tabs carry no border")
-                XCTAssertNotEqual(
-                    selected.backgroundColor, unselected.backgroundColor,
-                    "\(scheme) selection is a fill, not a ring")
+                XCTAssertEqual(band.children.count, 2)
+                XCTAssertEqual(
+                    band.children[1].backgroundColor, palette.separator,
+                    "\(scheme) band is closed by the subtle hairline")
+
+                XCTAssertEqual(row.children.count, 2)
+                for (index, tab) in row.children.enumerated() {
+                    XCTAssertEqual(tab.backgroundColor ?? .clear, .clear, "\(scheme) tab \(index) fill")
+                    XCTAssertEqual(tab.borderWidth, 0, "\(scheme) tab \(index) border")
+                    XCTAssertEqual(tab.cornerRadius, bar.itemCornerRadius, "\(scheme) tab \(index) radius")
+                }
             }
         }
     }
 
-    /// The light-mode pill is near-white, so an inherited white label on it
-    /// is invisible: the pill carries `segmentedSelectedLabel` exactly as a
-    /// selected segment does.
-    func testSelectedTabLabelInvertsOnThePill() async {
+    /// The selection indicator is in the tree for *every* tab, transparent on
+    /// the ones that are not selected: a bar that appears and disappears
+    /// would move the label by its own height on every switch.
+    func testSelectedTabCarriesAnAccentBarAndTheOthersReserveItsSpace() async {
         await MainActor.run {
-            let palette = ControlPalette.resolve(colorScheme: .light)
-            let bar = Self.tabBarNode(colorScheme: .light)
-            guard let label = Self.firstText(in: bar.children[0]) else {
-                return XCTFail("Expected a label on the selected tab")
+            let bar = MacOSControlMetrics.SelectorBar.self
+            for scheme in [ColorScheme.dark, ColorScheme.light] {
+                let palette = ControlPalette.resolve(colorScheme: scheme)
+                let row = Self.tabBandNode(colorScheme: scheme).children[0]
+
+                let indicators = row.children.map { $0.children[1] }
+                XCTAssertEqual(indicators.count, 2)
+                for indicator in indicators {
+                    XCTAssertEqual(indicator.preferredSize, bar.indicatorSize, "\(scheme) indicator box")
+                    XCTAssertEqual(indicator.cornerRadius, bar.indicatorCornerRadius, "\(scheme) indicator radius")
+                }
+                XCTAssertEqual(
+                    indicators[0].backgroundColor, palette.accentForeground,
+                    "\(scheme) the selected tab's bar is the accent as ink")
+                XCTAssertEqual(
+                    indicators[1].backgroundColor, .clear,
+                    "\(scheme) an unselected tab reserves the bar's space and paints nothing")
             }
-            XCTAssertEqual(label.textStyle.color, palette.segmentedSelectedLabel)
-            XCTAssertLessThan(label.textStyle.color.red, 0.5, "A near-white pill takes a dark label")
+        }
+    }
+
+    /// The selected label moves one *rung* and one *weight* step. Size is
+    /// what a tab bar cannot spend: a label that grows on selection re-lays
+    /// the whole bar out under the pointer that just clicked it.
+    func testSelectedTabLabelIsPromotedRatherThanInverted() async {
+        await MainActor.run {
+            for scheme in [ColorScheme.dark, ColorScheme.light] {
+                let palette = ControlPalette.resolve(colorScheme: scheme)
+                let row = Self.tabBandNode(colorScheme: scheme).children[0]
+                guard let selected = Self.firstText(in: row.children[0]),
+                    let unselected = Self.firstText(in: row.children[1])
+                else {
+                    return XCTFail("Expected a label on each tab")
+                }
+                XCTAssertEqual(selected.textStyle.color, palette.label, "\(scheme) selected rung")
+                XCTAssertEqual(unselected.textStyle.color, palette.secondaryLabel, "\(scheme) resting rung")
+                XCTAssertGreaterThan(
+                    selected.textStyle.weight.gdiWeight, unselected.textStyle.weight.gdiWeight,
+                    "\(scheme) selected label carries the heavier weight")
+                XCTAssertEqual(
+                    selected.textStyle.nativeFontSize, unselected.textStyle.nativeFontSize,
+                    "\(scheme) selection never changes the type size")
+            }
         }
     }
 
     @MainActor
-    private static func tabBarNode(colorScheme: ColorScheme) -> ViewNode {
+    private static func tabBandNode(colorScheme: ColorScheme) -> ViewNode {
         let runtime = RetainedViewRuntime(root: ViewNode())
         let context = ViewBuildContext(
             canvasSizeProvider: { Size(width: 800, height: 600) },
@@ -365,8 +412,8 @@ final class MacOSControlMetricsWiringTests: XCTestCase {
             }
             .makeComponent(context: context)
             .makeNode(runtime: runtime)
-        // container > centring band > the tab control itself.
-        return node.children[0].children[0]
+        // container > the band (an item row plus the hairline that closes it).
+        return node.children[0]
     }
 
     @MainActor

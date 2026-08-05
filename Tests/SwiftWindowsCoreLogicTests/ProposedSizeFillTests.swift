@@ -266,4 +266,51 @@ final class ProposedSizeFillTests: XCTestCase {
             XCTAssertEqual(reported.width, 1000, accuracy: 0.001)
         }
     }
+
+    /// A `Color` accepts whatever it is proposed on both axes. That is the
+    /// whole of its layout behaviour in SwiftUI and it is what makes
+    /// `Color.red.frame(height: 1)` a hairline rather than an invisible node:
+    /// the frame pins the height and the colour takes the width.
+    ///
+    /// It measured its own (nonexistent) intrinsic width instead, so every
+    /// rule the app drew this way was in the tree at 0pt wide and painted
+    /// nothing — the settings row rules, the data table row rules and the
+    /// hero's lit top edge were all present, laid out, and invisible.
+    func testAColourTakesTheWidthItIsProposed() async {
+        await MainActor.run {
+            let (_, node) = layoutAsWindowContent(
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("A row of content")
+                    Color.red.frame(height: 1).frame(maxWidth: .infinity)
+                },
+                size: Size(width: 600, height: 200)
+            )
+
+            guard let rule = firstNode(in: node, where: { $0.backgroundColor?.red == 1 }) else {
+                return XCTFail("Expected the rule to be in the tree")
+            }
+            XCTAssertEqual(rule.resolvedFrame.size.height, 1, accuracy: 0.001)
+            XCTAssertEqual(rule.resolvedFrame.size.width, 600, accuracy: 0.001)
+        }
+    }
+
+    /// An explicit width is the author's answer and ends the greed: a colour
+    /// used as a fixed spacer stays the size it was asked for.
+    func testAColourWithAStatedWidthDoesNotGrow() async {
+        await MainActor.run {
+            let (_, node) = layoutAsWindowContent(
+                HStack(alignment: .center, spacing: 0) {
+                    Color(red: 0, green: 1, blue: 0, alpha: 1).frame(width: 8, height: 8)
+                    Text("Beside it")
+                },
+                size: Size(width: 600, height: 200)
+            )
+
+            guard let swatch = firstNode(in: node, where: { $0.backgroundColor?.green == 1 }) else {
+                return XCTFail("Expected the swatch to be in the tree")
+            }
+            XCTAssertEqual(swatch.resolvedFrame.size.width, 8, accuracy: 0.001)
+            XCTAssertEqual(swatch.resolvedFrame.size.height, 8, accuracy: 0.001)
+        }
+    }
 }

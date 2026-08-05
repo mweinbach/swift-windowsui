@@ -17333,8 +17333,15 @@ extension Axis.Set {
 extension Font.Weight {
     var textWeight: TextWeight {
         switch self {
-        case .ultraLight, .thin, .light, .regular, .medium:
+        case .ultraLight, .thin, .light, .regular:
             return .regular
+        case .medium:
+            // 500 is a rung of the type ramp, not a rounding error: `body`
+            // and `body-strong` are one point apart in size and the whole of
+            // their difference is this step. Folding it into `.regular` made
+            // every 500-weight role in the app render as its own resting
+            // state.
+            return .medium
         case .semibold:
             return .semibold
         case .bold, .heavy, .black:

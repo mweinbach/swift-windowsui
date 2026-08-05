@@ -209,6 +209,8 @@ final class DemoScreensTests: XCTestCase {
             XCTAssertEqual(demo.surface1, stack.surface1, "\(scheme) surface1")
             XCTAssertEqual(demo.surface2, stack.surface2, "\(scheme) surface2")
             XCTAssertEqual(demo.surface3, stack.surface3, "\(scheme) surface3")
+            XCTAssertEqual(
+                demo.pageItemHover, stack.pageItemHoverFill, "\(scheme) page item hover")
 
             XCTAssertEqual(demo.strokeSubtle, stack.separator, "\(scheme) strokeSubtle")
             XCTAssertEqual(demo.stroke, stack.controlBorder, "\(scheme) stroke")
@@ -414,6 +416,163 @@ final class DemoScreensTests: XCTestCase {
         }
         XCTAssertGreaterThanOrEqual(
             baselines.count, 1, "and a baseline drawn in the structural hairline, not the gridline one")
+    }
+
+    /// The value on the tallest bar sits in clear space *above* the axis
+    /// maximum. With no strip reserved for it the label had nowhere to go but
+    /// inside the plot, and the 100% gridline ran straight through the digits.
+    func testTheTallestBarsValueClearsTheTopGridline() async {
+        let model = DemoDashboardModel()
+        let root = laidOut(DemoRootView(model: model), size: IntSize(width: 1280, height: 720))
+
+        let bars = DemoChartCard.bars(interactions: model.interactionCount)
+        guard let peak = bars.max(by: { $0.value < $1.value }),
+            let value = textNode(in: root, "\(Int(peak.value.rounded()))"),
+            let topGridline = chartGridlines(in: root).min(by: { absoluteY(of: $0) < absoluteY(of: $1) })
+        else {
+            return XCTFail("Expected a value on the tallest bar and gridlines behind the marks")
+        }
+
+        // The label's line box may kiss the 100% gridline by the point or two
+        // of leading it carries above its own ink; what the strip guarantees
+        // is that the *label* is above the line rather than across it. Before
+        // the strip existed the label had nowhere to go but inside the plot
+        // and the gridline ran through the middle of the digits.
+        let valueCentre = absoluteY(of: value) + value.resolvedFrame.size.height / 2
+        XCTAssertLessThan(
+            valueCentre, absoluteY(of: topGridline) - 3,
+            "the value on the tallest bar sits above the 100% gridline, not across it")
+        XCTAssertGreaterThan(
+            absoluteY(of: value), absoluteY(of: topGridline) - 24,
+            "and inside the strip reserved for it rather than adrift above the card")
+    }
+
+    /// The chart's gridlines, told apart from every other subtle hairline on
+    /// the screen by the one thing that is only true of them: they are
+    /// exactly as wide as the baseline they stand on.
+    private func chartGridlines(in root: ViewNode) -> [ViewNode] {
+        let palette = DemoPalette(colorScheme: .dark)
+        let baselines = allNodes(in: root) { node in
+            node.backgroundColor == palette.strokeStrong
+                && node.resolvedFrame.size.height <= 1.5
+                && node.resolvedFrame.size.width > 200
+                && node.resolvedFrame.size.width < 1200
+        }
+        guard let plotWidth = baselines.first?.resolvedFrame.size.width else { return [] }
+        return allNodes(in: root) { node in
+            node.backgroundColor == palette.strokeSubtle
+                && node.resolvedFrame.size.height <= 1.5
+                && abs(node.resolvedFrame.size.width - plotWidth) < 1
+        }
+    }
+
+    /// The marks span the plot. A fixed 40pt ceiling with a fixed 8pt gap
+    /// centres the group and leaves the rest of the plot empty — 100pt on
+    /// each side at 1280 and 324 at 1720, which reads as a chart that failed
+    /// to load the rest of its data.
+    func testChartMarksSpanTheirPlotAtEveryWindowWidth() async {
+        for width in [900, 1280, 1720] {
+            let model = DemoDashboardModel()
+            let root = laidOut(
+                DemoRootView(model: model), size: IntSize(width: Int32(width), height: 720))
+
+            let marks = allNodes(in: root) { node in
+                node.cornerRadii != nil && node.resolvedFrame.size.height > 8
+                    && node.resolvedFrame.size.width >= 12
+            }
+            guard let plot = chartGridlines(in: root).first,
+                let leading = marks.min(by: { absoluteX(of: $0) < absoluteX(of: $1) }),
+                let trailing = marks.max(by: {
+                    absoluteX(of: $0) + $0.resolvedFrame.size.width
+                        < absoluteX(of: $1) + $1.resolvedFrame.size.width
+                })
+            else {
+                return XCTFail("Expected a plot and its marks at \(width)")
+            }
+
+            let plotLeading = absoluteX(of: plot)
+            let plotTrailing = plotLeading + plot.resolvedFrame.size.width
+            let markTrailing = absoluteX(of: trailing) + trailing.resolvedFrame.size.width
+            // A few points of slack at each end: the leftover the gap could
+            // not absorb is split between them, and it is never a margin.
+            XCTAssertLessThan(
+                absoluteX(of: leading) - plotLeading, 4,
+                "at \(width) the series starts at the plot's leading edge")
+            XCTAssertLessThan(
+                plotTrailing - markTrailing, 4,
+                "at \(width) the series ends at the plot's trailing edge")
+        }
+    }
+
+    /// A screen title and the first column of the table under it start on the
+    /// same vertical line. At 24 and 16 they were 8pt apart, which reads as a
+    /// broken left edge no matter which of the two is the right answer.
+    func testTheTableAlignsWithItsScreenTitle() async {
+        let root = laidOut(
+            DemoDataScreen(model: DemoDashboardModel()),
+            size: IntSize(width: 1280, height: 720))
+
+        guard let title = textNode(in: root, "Components"),
+            let column = textNode(in: root, "Component"),
+            let firstRow = textNode(in: root, "Render host")
+        else {
+            return XCTFail("Expected the header band, the column header and a row")
+        }
+
+        XCTAssertEqual(absoluteX(of: title), absoluteX(of: column), accuracy: 0.5)
+        // The row's own leading content is the glyph, one gutter before the
+        // name, so the name lands a glyph-plus-gap further in — but the
+        // column it is under starts where the title does.
+        XCTAssertGreaterThan(absoluteX(of: firstRow), absoluteX(of: column))
+    }
+
+    /// Every rule the app draws is *drawn*. A greedy hairline that measures
+    /// its own intrinsic width is 0pt wide, laid out, and invisible — which
+    /// is what the settings row rules and the table row rules were.
+    func testEveryRowRuleIsActuallyDrawn() async {
+        let palette = DemoPalette(colorScheme: .dark)
+
+        let settings = laidOut(
+            DemoSettingsScreen(model: DemoDashboardModel()),
+            size: IntSize(width: 1280, height: 1300))
+        let settingsRules = allNodes(in: settings) { node in
+            node.backgroundColor == palette.strokeSubtle
+                && node.resolvedFrame.size.height <= 1.5
+                && node.resolvedFrame.size.width > 400
+        }
+        XCTAssertGreaterThanOrEqual(
+            settingsRules.count, 8, "every settings row but the first is ruled off from the one above")
+
+        let data = laidOut(
+            DemoDataScreen(model: DemoDashboardModel()), size: IntSize(width: 1280, height: 720))
+        let tableRules = allNodes(in: data) { node in
+            node.backgroundColor == palette.strokeSubtle
+                && node.resolvedFrame.size.height <= 1.5
+                && node.resolvedFrame.size.width > 400
+        }
+        XCTAssertGreaterThanOrEqual(tableRules.count, 8, "and every table row carries its own rule")
+    }
+
+    /// The sidebar and the rail are the same kind of column, so their
+    /// eyebrows start on the same inset from their own column edge.
+    func testBothColumnsShareOneEyebrowRhythm() async {
+        let root = laidOut(
+            DemoDashboardScreen(model: DemoDashboardModel()),
+            size: IntSize(width: 1280, height: 720))
+
+        guard let workspace = textNode(in: root, "Workspace"),
+            let detail = textNode(in: root, "Detail track"),
+            let quick = textNode(in: root, "Quick actions")
+        else {
+            return XCTFail("Expected an eyebrow in each column")
+        }
+
+        let sidebarInset = absoluteX(of: workspace)
+        let railInset = absoluteX(of: detail) - (1280 - DemoMetrics.railWidth)
+        XCTAssertEqual(
+            sidebarInset, railInset, accuracy: 1.0,
+            "the rail's eyebrow is inset from its column exactly as the sidebar's is")
+        XCTAssertEqual(absoluteX(of: detail), absoluteX(of: quick), accuracy: 0.5)
     }
 
     /// The stat card's hierarchy is carried by weight and rung, not by size:

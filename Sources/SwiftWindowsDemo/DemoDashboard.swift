@@ -242,6 +242,14 @@ struct DemoPalette {
     /// Pressed / active / selected-neutral; menu and popover body.
     var surface3: Color { pick(dark: Self.hex(0x26_26_2B), light: Self.hex(0xE6_E8_EC)) }
 
+    /// Hover fill of an item drawn straight onto the page tone — a nav row, a
+    /// quick action, a tab. The one token whose two columns move in *opposite*
+    /// directions: on the near-black page the hover is one step up and reads
+    /// as a lift, and on the near-white page `surface1` is white, which
+    /// against a `#F2F3F5` column is a step of one or two units and invisible,
+    /// so the light hover moves one step *down* toward the ink instead.
+    var pageItemHover: Color { pick(dark: Self.hex(0x17_17_1A), light: Self.hex(0xEA_EB_EE)) }
+
     // MARK: Hairlines
 
     /// Separators, table and form row rules, chart gridlines.
@@ -1063,7 +1071,7 @@ struct DemoNavRow: View {
 
     private var fill: Color {
         if isSelected { return palette.accentWash }
-        return isHovering ? palette.surface1 : Color.clear
+        return isHovering ? palette.pageItemHover : Color.clear
     }
 
     var body: some View {
@@ -1128,8 +1136,14 @@ struct DemoSessionRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: DemoMetrics.s2) {
+            // The dot column is reserved whether or not there is a dot. Two
+            // key/value rows whose keys start at different x is the kind of
+            // thing nobody consciously notices and everybody reads as sloppy.
             if let dot {
                 DemoStatusDot(dot)
+            } else {
+                Color.clear
+                    .frame(width: DemoMetrics.dotSize, height: DemoMetrics.dotSize)
             }
 
             Text(title)
@@ -1662,8 +1676,16 @@ struct DemoChartPlot: View {
 
     private static let gutter: CGFloat = 40
     private static let labelGap: CGFloat = 8
-    private static let barGap: CGFloat = 8
+    private static let minimumBarGap: CGFloat = 8
     private static let bottomStrip: CGFloat = 20
+    /// A clear strip above the axis maximum, for the value on the tallest
+    /// mark. Without it the label had nowhere to go but *inside* the plot,
+    /// and the 100% gridline ran straight through the digits.
+    private static let valueStrip: CGFloat = DemoMetrics.s5
+    /// The `axis` role's line box. Half of it is what the y-label column is
+    /// lifted by, so a label sits *on* its gridline rather than hanging under
+    /// it — including the 0, which belongs on the baseline.
+    private static let axisLabelHeight: CGFloat = 12
 
     private var plotWidth: CGFloat { max(80, width - Self.gutter) }
 
@@ -1683,37 +1705,61 @@ struct DemoChartPlot: View {
         return niceQuarter * 4
     }
 
+    /// Marks span the plot.
+    ///
+    /// The spec's fixed `clamp(available / n, 12, 40)` with a fixed 8pt gap
+    /// centres the group when it is narrower than the plot, and at 1280 that
+    /// left ~100pt of empty plot on each side; at 1720, where the content
+    /// pane is 1238 wide, it left 324 — a chart that reads as one that failed
+    /// to load the rest of its data, which is the exact failure the centring
+    /// rule was written to avoid. So the ceiling scales with the plot instead
+    /// of being a constant, and whatever is left over after that goes into
+    /// the gap rather than into two end margins.
     private var barWidth: CGFloat {
         let count = CGFloat(max(1, bars.count))
-        let available = plotWidth - Self.barGap * (count - 1)
-        return min(40, max(12, available / count))
+        let available = plotWidth - Self.minimumBarGap * (count - 1)
+        let ceiling = max(40, plotWidth / 14)
+        return min(ceiling, max(12, available / count))
+    }
+
+    /// The leftover, spread between the marks — but never past three quarters
+    /// of a bar, past which a bar chart starts reading as a lollipop chart.
+    private var barGap: CGFloat {
+        let count = CGFloat(max(1, bars.count))
+        guard count > 1 else { return Self.minimumBarGap }
+        let leftover = plotWidth - barWidth * count
+        return min(barWidth * 0.75, max(Self.minimumBarGap, leftover / (count - 1)))
     }
 
     private var showsEveryLabel: Bool { bars.count <= 10 && barWidth >= 24 }
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
+            // The gutter starts where the plot does, under the value strip:
+            // a y label has to sit on its own gridline.
             DemoChartAxisLabels(axisMax: axisMax, height: height)
                 .frame(width: Self.gutter - Self.labelGap, alignment: .trailing)
+                .padding(.top, Self.valueStrip - Self.axisLabelHeight / 2)
 
             Color.clear.frame(width: Self.labelGap, height: 1)
 
             VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .bottomLeading) {
                     DemoChartGridlines(color: palette.strokeSubtle, width: plotWidth, height: height)
-                        .frame(width: plotWidth, height: height)
+                        .frame(width: plotWidth, height: height, alignment: .bottom)
 
                     DemoChartBars(
                         bars: bars,
                         axisMax: axisMax,
                         barWidth: barWidth,
-                        gap: Self.barGap,
+                        gap: barGap,
                         height: height,
+                        valueStrip: Self.valueStrip,
                         hoveredIndex: $hoveredIndex
                     )
-                    .frame(width: plotWidth, height: height, alignment: .bottomLeading)
+                    .frame(width: plotWidth, height: height + Self.valueStrip, alignment: .bottom)
                 }
-                .frame(width: plotWidth, height: height)
+                .frame(width: plotWidth, height: height + Self.valueStrip, alignment: .bottomLeading)
 
                 // The baseline is a *structural* hairline, and it reaches back
                 // under the y-label gutter: a chart stands on one line.
@@ -1722,14 +1768,14 @@ struct DemoChartPlot: View {
                 DemoChartXLabels(
                     bars: bars,
                     barWidth: barWidth,
-                    gap: Self.barGap,
+                    gap: barGap,
                     showsEveryLabel: showsEveryLabel,
                     hoveredIndex: hoveredIndex
                 )
-                .frame(width: plotWidth, height: Self.bottomStrip, alignment: .topLeading)
+                .frame(width: plotWidth, height: Self.bottomStrip, alignment: .top)
             }
         }
-        .frame(width: width, height: height + Self.bottomStrip + 1, alignment: .topLeading)
+        .frame(width: width, height: height + Self.valueStrip + Self.bottomStrip + 1, alignment: .topLeading)
     }
 }
 
@@ -1737,6 +1783,11 @@ struct DemoChartAxisLabels: View {
     let axisMax: Double
     let height: CGFloat
 
+    /// Each label's own box is pinned to the line box first and *then* placed
+    /// at the top of its row band. Stating only the row height stretched the
+    /// label to the full 37pt band, which centres its ink 18pt below the
+    /// gridline it names — so the column was lifted by half a line box and
+    /// the labels still hung under their lines.
     var body: some View {
         let rowHeight = height / 4
         return VStack(alignment: .trailing, spacing: 0) {
@@ -1746,6 +1797,7 @@ struct DemoChartAxisLabels: View {
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.trailing)
                     .lineLimit(1)
+                    .frame(height: labelHeight, alignment: .top)
                     .frame(height: rowHeight, alignment: .top)
             }
 
@@ -1754,10 +1806,13 @@ struct DemoChartAxisLabels: View {
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.trailing)
                 .lineLimit(1)
-                .frame(height: 12, alignment: .top)
+                .frame(height: labelHeight, alignment: .top)
         }
-        .frame(height: height + 12, alignment: .top)
+        .frame(height: height + labelHeight, alignment: .top)
     }
+
+    /// The `axis` role's line box, matched to `DemoChartPlot.axisLabelHeight`.
+    private var labelHeight: CGFloat { 12 }
 
     private var ticks: [String] {
         [1.0, 0.75, 0.5, 0.25].map { fraction in
@@ -1795,6 +1850,7 @@ struct DemoChartBars: View {
     let barWidth: CGFloat
     let gap: CGFloat
     let height: CGFloat
+    let valueStrip: CGFloat
     @Binding var hoveredIndex: Int?
 
     private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
@@ -1803,25 +1859,23 @@ struct DemoChartBars: View {
         bars.max { $0.value < $1.value }?.index ?? 0
     }
 
-    /// The group is centred when it is narrower than the plot: a bar series
-    /// pinned to the left of a wide plot reads as a chart that failed to load
-    /// the rest of its data.
+    /// No spacers. A `Spacer` at each end of a stack that carries a spacing
+    /// also takes a *gap* at each end, so the series came out inset by one
+    /// full gap on both sides however the gap was computed. Whatever the gap
+    /// cannot absorb is centred by the frame this sits in instead.
     var body: some View {
         HStack(alignment: .bottom, spacing: gap) {
-            Spacer(minLength: 0)
-
             ForEach(bars, id: \.index) { bar in
                 DemoChartBarMark(
                     bar: bar,
                     axisMax: axisMax,
                     width: barWidth,
                     height: height,
+                    valueStrip: valueStrip,
                     isPeak: bar.index == peakIndex,
                     hoveredIndex: $hoveredIndex
                 )
             }
-
-            Spacer(minLength: 0)
         }
     }
 }
@@ -1833,6 +1887,7 @@ struct DemoChartBarMark: View {
     let axisMax: Double
     let width: CGFloat
     let height: CGFloat
+    let valueStrip: CGFloat
     let isPeak: Bool
     @Binding var hoveredIndex: Int?
 
@@ -1850,27 +1905,37 @@ struct DemoChartBarMark: View {
 
     var body: some View {
         let barHeight = max(2, height * CGFloat(min(1, bar.value / max(axisMax, 0.001))))
-        return VStack(alignment: .center, spacing: 0) {
-            Spacer(minLength: 0)
+        // The hovered column washes to the top of the *plot*, not to the top
+        // of the value strip: the strip is clear space above the axis
+        // maximum, and a wash reaching into it would read as a bar that
+        // overshot its own scale.
+        return ZStack(alignment: .bottom) {
+            Color.clear
+                .frame(width: width, height: height)
+                .background(isHovered ? palette.accentWash : Color.clear)
 
-            if emphasised {
-                Text("\(Int(bar.value.rounded()))")
-                    .font(DemoType.captionStrong)
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(1)
-                    .padding(.bottom, DemoMetrics.s1 + 2)
+            VStack(alignment: .center, spacing: 0) {
+                Spacer(minLength: 0)
+
+                if emphasised {
+                    Text("\(Int(bar.value.rounded()))")
+                        .font(DemoType.captionStrong)
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(1)
+                        .padding(.bottom, DemoMetrics.s1 + 2)
+                }
+
+                UnevenRoundedRectangle(
+                    topLeadingRadius: DemoMetrics.radiusXS,
+                    topTrailingRadius: DemoMetrics.radiusXS
+                )
+                .fill(fill)
+                .frame(width: width, height: barHeight)
             }
-
-            UnevenRoundedRectangle(
-                topLeadingRadius: DemoMetrics.radiusXS,
-                topTrailingRadius: DemoMetrics.radiusXS
-            )
-            .fill(fill)
-            .frame(width: width, height: barHeight)
+            .frame(width: width, height: height + valueStrip, alignment: .bottom)
         }
-        .frame(width: width, height: height, alignment: .bottom)
-        .background(isHovered ? palette.accentWash : Color.clear)
+        .frame(width: width, height: height + valueStrip, alignment: .bottom)
         .onHover { hovering in
             if hovering {
                 hoveredIndex = bar.index
@@ -1888,10 +1953,10 @@ struct DemoChartXLabels: View {
     let showsEveryLabel: Bool
     let hoveredIndex: Int?
 
+    /// Exactly the bars' own stack, spacer for spacer: an x label that does
+    /// not share the marks' geometry is an x label under the wrong mark.
     var body: some View {
         HStack(alignment: .top, spacing: gap) {
-            Spacer(minLength: 0)
-
             ForEach(bars, id: \.index) { bar in
                 Text(showsEveryLabel || bar.index % 2 == 0 ? bar.label : " ")
                     .font(hoveredIndex == bar.index ? DemoType.captionStrong : DemoType.axis)
@@ -1900,8 +1965,6 @@ struct DemoChartXLabels: View {
                     .lineLimit(1)
                     .frame(width: barWidth, alignment: .center)
             }
-
-            Spacer(minLength: 0)
         }
         .padding(.top, DemoMetrics.s1)
     }
@@ -1972,7 +2035,12 @@ struct DemoDetailTrackSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DemoMetrics.s2) {
+            // The same 12pt leading inset the sidebar's eyebrows take. The
+            // two are the same kind of column, and an eyebrow that starts
+            // 12pt further in on one side of the window than the other reads
+            // as a mistake even when nobody can say which side is wrong.
             DemoEyebrow("Detail track")
+                .padding(.leading, DemoMetrics.s3)
 
             VStack(alignment: .leading, spacing: DemoMetrics.s2 + 2) {
                 ForEach(model.selectedModule.cards, id: \.title) { card in
@@ -2022,6 +2090,7 @@ struct DemoQuickActionsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DemoMetrics.s2) {
             DemoEyebrow("Quick actions")
+                .padding(.leading, DemoMetrics.s3)
 
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(model.selectedModule.actions, id: \.title) { action in
@@ -2065,7 +2134,7 @@ struct DemoQuickActionRow: View {
             .padding(.horizontal, DemoMetrics.s2)
             .frame(height: DemoMetrics.s8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isHovering ? palette.surface1 : Color.clear)
+            .background(isHovering ? palette.pageItemHover : Color.clear)
             .cornerRadius(DemoMetrics.radiusSM)
         }
         .buttonStyle(.plain)
@@ -2845,7 +2914,13 @@ struct DemoDataScreen: View {
 struct DemoTableMetrics {
     let width: CGFloat
 
-    static let inset: CGFloat = DemoMetrics.s4
+    /// The table is full bleed — a selected row is a band across the window,
+    /// which is what makes it read as a table rather than as a card that lost
+    /// its border — and its *content* is inset by the page margin, not by a
+    /// separate 16. The screen title above it and the first column under it
+    /// have to start on the same vertical line; at 24 and 16 they were 8pt
+    /// apart, which reads as a broken left edge no matter which one is right.
+    static let inset: CGFloat = DemoMetrics.s6
     static let columnGap: CGFloat = DemoMetrics.s4
     static let versionWidth: CGFloat = 80
     static let loadWidth: CGFloat = 140
@@ -2973,7 +3048,7 @@ struct DemoComponentRow: View {
 
     private var fill: Color {
         if isSelected { return palette.accentWashStrong }
-        return isHovering ? palette.surface1 : Color.clear
+        return isHovering ? palette.pageItemHover : Color.clear
     }
 
     var body: some View {

@@ -143,6 +143,17 @@ enum SymbolIconVectorRenderer {
         case .chevronUp:
             polyline([(3.4, 10), (8, 5.4), (12.6, 10)])
 
+        // A delta indicator is a solid direction, not a stroked one. At the
+        // 7pt this is drawn at, a chevron's 1.5-unit stroke is most of the
+        // glyph and it reads as chrome beside the number rather than as an
+        // arrow attached to it. Narrower than it is tall, so it cannot be
+        // mistaken for a play button.
+        case .caretDownFill:
+            polygon([(4.4, 5.6), (11.6, 5.6), (8, 11.2)])
+
+        case .caretUpFill:
+            polygon([(4.4, 10.4), (11.6, 10.4), (8, 4.8)])
+
         case .chevronLeft:
             polyline([(10, 3.4), (5.4, 8), (10, 12.6)])
 

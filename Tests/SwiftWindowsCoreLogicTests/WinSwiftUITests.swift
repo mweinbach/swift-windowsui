@@ -5015,12 +5015,21 @@ final class WinSwiftUITests: XCTestCase {
                 return XCTFail("Expected edge padding to wrap content in a stack layout")
             }
 
-            XCTAssertEqual(allPaddingLayout, .vertical(padding: .all(16), alignment: .stretch))
+            // A padding wrapper centres its single child on the main axis.
+            // `.start` and `.center` are identical whenever the wrapper is
+            // content-sized, and differ in the one case that matters:
+            // `.padding(.horizontal, 12).frame(height: 28)`, where a stated
+            // height stretches the wrapper and the label has to stay in the
+            // middle of the box rather than climbing to the top of it.
+            XCTAssertEqual(
+                allPaddingLayout,
+                .vertical(padding: .all(16), alignment: .stretch, mainAlignment: .center))
             XCTAssertEqual(
                 horizontalPaddingLayout,
                 .vertical(
                     padding: EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16),
-                    alignment: .stretch
+                    alignment: .stretch,
+                    mainAlignment: .center
                 )
             )
         }
@@ -5104,26 +5113,31 @@ final class WinSwiftUITests: XCTestCase {
                 return XCTFail("Expected inset safeAreaPadding to wrap content in a stack layout")
             }
 
-            XCTAssertEqual(defaultPaddingLayout, .vertical(padding: .all(16), alignment: .stretch))
+            XCTAssertEqual(
+                defaultPaddingLayout,
+                .vertical(padding: .all(16), alignment: .stretch, mainAlignment: .center))
             XCTAssertEqual(
                 edgePaddingLayout,
                 .vertical(
                     padding: EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12),
-                    alignment: .stretch
+                    alignment: .stretch,
+                    mainAlignment: .center
                 )
             )
             XCTAssertEqual(
                 optionalPaddingLayout,
                 .vertical(
                     padding: EdgeInsets(top: 16, leading: 0, bottom: 16, trailing: 0),
-                    alignment: .stretch
+                    alignment: .stretch,
+                    mainAlignment: .center
                 )
             )
             XCTAssertEqual(
                 insetPaddingLayout,
                 .vertical(
                     padding: EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4),
-                    alignment: .stretch
+                    alignment: .stretch,
+                    mainAlignment: .center
                 )
             )
         }

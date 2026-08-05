@@ -278,6 +278,18 @@ public enum SymbolIcon: String, Sendable, CaseIterable {
     case split = "\u{E7FD}"
     case checkmark = "\u{E73E}"
     case chevronDown = "\u{E70D}"
+    /// Filled carets — a delta indicator's mark. A delta is a *solid*
+    /// direction beside a number: at the 7pt it is drawn at, a stroked
+    /// chevron is mostly stroke and reads as chrome rather than as an arrow
+    /// attached to the figure.
+    ///
+    /// Their codepoints are in Supplementary Private Use Area-A, deliberately
+    /// outside the range any icon font claims, so `SymbolIconVectorRenderer`
+    /// owns them: the two Segoe carets that live in the icon fonts are wide
+    /// rounded cups at this size, and a symbol this stack draws itself is a
+    /// symbol whose shape it can state.
+    case caretUpFill = "\u{F0100}"
+    case caretDownFill = "\u{F0101}"
     case radioSelected = "\u{E915}"
     case radioUnselected = "\u{E916}"
     case chevronUp = "\u{E70E}"

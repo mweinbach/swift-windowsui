@@ -22169,7 +22169,17 @@ extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 return Controls.stackPanel(
-                    stackLayout: .vertical(padding: insets, alignment: .stretch),
+                    // Centred, not `.start`. A padding wrapper holds exactly
+                    // one child, so the two are identical whenever the
+                    // wrapper is content-sized — and they differ in the one
+                    // case that matters: `.padding(.horizontal, 12)
+                    // .frame(height: 28)`, the shape of every chip, chassis
+                    // and row in the app. A stated height stretches this
+                    // wrapper, and with `.start` the label inside it went to
+                    // the top of the box while the fill stayed 28 tall, so
+                    // every button label, nav row and table header cell sat
+                    // in the upper half of its own control. SwiftUI centres.
+                    stackLayout: .vertical(padding: insets, alignment: .stretch, mainAlignment: .center),
                     isHitTestVisible: false,
                     children: [childNode]
                 )

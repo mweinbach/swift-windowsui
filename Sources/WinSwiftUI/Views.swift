@@ -19872,11 +19872,13 @@ func resolvedSymbolIcon(for systemName: String, variants: SymbolVariants = .none
     case "checkmark", "checkmark.circle", "checkmark.circle.fill", "checkmark.square",
         "checkmark.square.fill":
         return .checkmark
-    case "chevron.down", "chevron.down.circle", "chevron.down.circle.fill", "arrowtriangle.down",
-        "arrowtriangle.down.fill":
+    case "arrowtriangle.down.fill", "triangle.down.fill":
+        return .caretDownFill
+    case "arrowtriangle.up.fill", "triangle.up.fill":
+        return .caretUpFill
+    case "chevron.down", "chevron.down.circle", "chevron.down.circle.fill", "arrowtriangle.down":
         return .chevronDown
-    case "chevron.up", "chevron.up.circle", "chevron.up.circle.fill", "arrowtriangle.up",
-        "arrowtriangle.up.fill":
+    case "chevron.up", "chevron.up.circle", "chevron.up.circle.fill", "arrowtriangle.up":
         return .chevronUp
     case "chevron.left", "chevron.left.circle", "chevron.left.circle.fill", "arrowtriangle.left",
         "arrowtriangle.left.fill":

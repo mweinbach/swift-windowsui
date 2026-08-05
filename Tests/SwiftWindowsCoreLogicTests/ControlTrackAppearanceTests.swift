@@ -62,15 +62,20 @@ final class ControlTrackAppearanceTests: XCTestCase {
             "A groove that is one colour in both appearances is the dark appearance leaking into light")
     }
 
-    /// The dark value is the historical literal, unchanged: this change is a
-    /// light-mode fix and must not move a single dark-mode pixel (the gallery
-    /// baselines are all rendered dark).
-    func testDarkControlTrackIsUnchangedFromTheHistoricalLiteral() {
+    /// The dark groove is `surface3`, and it is **achromatic**.
+    ///
+    /// It used to be `(0.30, 0.34, 0.40)` — a slate on a blue axis, and the
+    /// last chromatic neutral in an otherwise achromatic ramp, sitting in
+    /// every settings row in the app. A groove is a recess in a surface; it
+    /// is whatever tone that surface's ramp says a recess is, not a colour of
+    /// its own.
+    func testDarkControlTrackIsTheNeutralRampsRecess() {
         let track = ControlPalette.darkStandard.controlTrack
-        XCTAssertEqual(Double(track.red), 0.30, accuracy: 0.0005)
-        XCTAssertEqual(Double(track.green), 0.34, accuracy: 0.0005)
-        XCTAssertEqual(Double(track.blue), 0.40, accuracy: 0.0005)
+        XCTAssertEqual(track, ControlPalette.darkStandard.surface3)
         XCTAssertEqual(Double(track.alpha), 1.0, accuracy: 0.0005)
+        XCTAssertLessThanOrEqual(
+            abs(Double(track.red) - Double(track.blue)), 8.0 / 255,
+            "the groove carries no more hue than the rest of the neutral ramp")
     }
 
     /// A groove on a white form has to read as recessed *and* stay light:
@@ -84,7 +89,7 @@ final class ControlTrackAppearanceTests: XCTestCase {
         }
 
         XCTAssertGreaterThan(
-            luminance(light), 0.75,
+            luminance(light), 0.6,
             "A light-mode groove sits close to the white surface it is cut into")
         XCTAssertLessThan(
             luminance(light), Double(ControlPalette.lightStandard.controlBackground.red),
@@ -136,8 +141,8 @@ final class ControlTrackAppearanceTests: XCTestCase {
         }
     }
 
-    /// The mirror of the above: dark mode keeps painting the slate, so this
-    /// is a light-mode fix and not a re-colouring of both appearances.
+    /// The mirror of the above: each appearance paints its *own* groove, so
+    /// neither one is the other leaking through.
     func testDarkModeControlsStillPaintTheSlateGroove() async {
         await MainActor.run {
             let expected = grooveShades(of: ControlPalette.darkStandard.controlTrack)

@@ -261,8 +261,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(
                 Color.secondary, Color(red: 1, green: 1, blue: 1, alpha: LabelHierarchy.secondaryAlpha))
             XCTAssertEqual(
-                Color.accentColor, Color.blue,
-                "macOS controlAccentColor default is the system blue")
+                Color.accentColor, ControlPalette.darkStandard.accentFill,
+                "the accent is the design system's own #5B4DE0, not the OS blue")
             XCTAssertEqual(Color.accentColor, ViewBuildContext.defaultTint)
         }
     }
@@ -1993,8 +1993,11 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(node.children.count, 2)
             XCTAssertEqual(node.children[0].children[0].text, "needle")
             XCTAssertEqual(node.children[0].nodeTag, "search-field-toolbar")
-            XCTAssertEqual(node.children[0].cornerRadius, 12)
-            XCTAssertEqual(node.children[0].borderColor, ViewBuildContext.defaultTint.opacity(0.26))
+            // A field is a field: the control radius, and the field ring. The
+            // accent belonged to the *focus* ring, and drew a permanent
+            // tinted outline around a resting toolbar search box.
+            XCTAssertEqual(node.children[0].cornerRadius, MacOSControlMetrics.Radius.sm)
+            XCTAssertEqual(node.children[0].borderColor, ControlPalette.darkStandard.controlBorder)
             XCTAssertNil(node.children[0].textInputDictationBehavior)
             XCTAssertTrue(allTexts(in: node.children[1]).contains("SEARCHING"))
 
@@ -2091,7 +2094,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(visibleNode.children.count, 2)
             XCTAssertEqual(visibleNode.children[0].children[0].text, "needle")
             XCTAssertEqual(visibleNode.children[0].nodeTag, "search-field-navigation-drawer")
-            XCTAssertEqual(visibleNode.children[0].cornerRadius, 10)
+            XCTAssertEqual(visibleNode.children[0].cornerRadius, MacOSControlMetrics.Radius.sm)
             XCTAssertEqual(
                 visibleNode.children[0].preferredSize,
                 Size(width: 280, height: ControlSize.regular.singleLineTextInputSize.height))
@@ -2867,7 +2870,9 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(title2Node.textStyle.nativeFontSize, 17)
             XCTAssertEqual(headlineNode.textStyle.nativeFontSize, 13)
             XCTAssertEqual(headlineNode.textStyle.weight, .semibold)
-            XCTAssertEqual(captionNode.textStyle.nativeFontSize, 10)
+            // `caption` is 11: the smallest string a reader is expected to
+            // read. 10 survives as `caption2`, the axis-label role.
+            XCTAssertEqual(captionNode.textStyle.nativeFontSize, 11)
             XCTAssertEqual(caption2Node.textStyle.nativeFontSize, 10)
         }
     }
@@ -3909,8 +3914,12 @@ final class WinSwiftUITests: XCTestCase {
             let erasedStyle = AnyShapeStyle(HierarchicalShapeStyle.quinary)
 
             XCTAssertEqual(tertiaryTextNode.textStyle.color, HierarchicalShapeStyle.tertiary.retainedFallbackColor)
+            // A `.quaternary` *background* is a bar, not a shade: it resolves
+            // to the page tone in both appearances and lets the hairline above
+            // it carry the edge (docs/MacOSDesignParity.md). The label
+            // resolution of the rung is untouched.
             XCTAssertEqual(
-                quaternaryBackgroundNode.backgroundColor, HierarchicalShapeStyle.quaternary.retainedFallbackColor)
+                quaternaryBackgroundNode.backgroundColor, ControlPalette.darkStandard.windowBackground)
             XCTAssertEqual(firstText(in: quaternaryBackgroundNode.children[0]), "BACKGROUND")
             XCTAssertEqual(
                 quinaryOverlayNode.children[1].backgroundColor, HierarchicalShapeStyle.quinary.retainedFallbackColor)
@@ -8037,7 +8046,7 @@ final class WinSwiftUITests: XCTestCase {
             // List bodies are appearance roles, not literals.
             XCTAssertEqual(carouselNode.backgroundColor, ControlPalette.darkStandard.controlBackground)
             XCTAssertEqual(carouselNode.borderWidth, 1)
-            XCTAssertEqual(carouselNode.cornerRadius, 16)
+            XCTAssertEqual(carouselNode.cornerRadius, MacOSControlMetrics.Radius.lg)
             XCTAssertEqual(
                 carouselLayout,
                 .vertical(
@@ -8049,7 +8058,7 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(insetGroupedNode.backgroundColor, ControlPalette.darkStandard.controlBackground)
             XCTAssertEqual(insetGroupedNode.borderWidth, 1)
-            XCTAssertEqual(insetGroupedNode.cornerRadius, 14)
+            XCTAssertEqual(insetGroupedNode.cornerRadius, MacOSControlMetrics.Radius.lg)
             XCTAssertEqual(
                 insetGroupedLayout,
                 .vertical(
@@ -8478,7 +8487,12 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(listRows(of: node)[0].children[0].text, "INCREASED")
+            // `.increased` background prominence means "this content sits on
+            // a *filled* emphasised surface", and a selected row is an accent
+            // wash now, not a fill — so a selected row no longer claims it.
+            // Inverting content to white on a wash is white-on-#E4E2F8 in the
+            // light appearance, which is unreadable.
+            XCTAssertEqual(listRows(of: node)[0].children[0].text, "STANDARD")
             XCTAssertEqual(listRows(of: node)[1].children[0].text, "STANDARD")
         }
     }
@@ -8734,7 +8748,11 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(node.children[0].text, "HEADER")
             XCTAssertEqual(node.children[1].text, "ROW")
             XCTAssertEqual(node.children[2].text, "FOOTER")
-            // `nil` header colour resolves to the appearance's secondary label.
+            // A **list** group header keeps its eyebrow: `nil` resolves to
+            // the appearance's secondary label at 11pt. Only a *grouped-form*
+            // section header is promoted to a 15/600 heading — a settings
+            // section names a group you are about to read, a list group names
+            // rows you are already reading past.
             XCTAssertEqual(node.children[0].textStyle.color, ControlPalette.darkStandard.secondaryLabel)
             XCTAssertEqual(node.children[2].textStyle.color, .secondary)
         }
@@ -8763,7 +8781,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(node.children[0].text, "ROW")
             XCTAssertEqual(node.children[1].text, "FOOTER")
             XCTAssertEqual(node.children[1].textStyle.color, .secondary)
-            XCTAssertEqual(node.children[1].textStyle.scale, Font.caption.resolvedScale)
+            XCTAssertEqual(node.children[1].textStyle.scale, Font.footnote.resolvedScale)
         }
     }
 
@@ -10180,7 +10198,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(automaticReaderNode.text, "AUTOMATIC")
             XCTAssertTrue(allTexts(in: styledTabNode.children[0]).contains("FIRST TAB"))
             XCTAssertEqual(styledTabNode.children[1].text, "FIRST")
-            XCTAssertEqual(styledTabNode.children[0].children[0].cornerRadius, 20)
+            XCTAssertEqual(styledTabNode.children[0].children[0].cornerRadius, MacOSControlMetrics.Radius.xl)
             guard case .stack(let pageLayout) = styledTabNode.children[0].children[0].layoutMode else {
                 XCTFail("Expected page tab bar stack layout")
                 return
@@ -10190,8 +10208,9 @@ final class WinSwiftUITests: XCTestCase {
                 .horizontal(
                     spacing: 6, padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3), alignment: .stretch))
 
-            XCTAssertEqual(groupedTabNode.children[0].children[0].cornerRadius, 16)
-            XCTAssertEqual(groupedTabNode.children[0].children[0].children[0].cornerRadius, 10)
+            XCTAssertEqual(groupedTabNode.children[0].children[0].cornerRadius, MacOSControlMetrics.Radius.xl)
+            XCTAssertEqual(
+                groupedTabNode.children[0].children[0].children[0].cornerRadius, MacOSControlMetrics.Radius.md)
             guard case .stack(let groupedLayout) = groupedTabNode.children[0].children[0].layoutMode else {
                 XCTFail("Expected grouped tab bar stack layout")
                 return
@@ -10201,11 +10220,11 @@ final class WinSwiftUITests: XCTestCase {
                 .horizontal(
                     spacing: 8, padding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8), alignment: .stretch))
 
-            XCTAssertEqual(sidebarTabNode.children[0].children[0].cornerRadius, 8)
+            XCTAssertEqual(sidebarTabNode.children[0].children[0].cornerRadius, MacOSControlMetrics.Radius.md)
             XCTAssertEqual(sidebarTabNode.children[0].children[0].children[0].borderWidth, 2)
             XCTAssertEqual(sidebarTabNode.children[0].children[0].children[1].borderWidth, 0)
 
-            XCTAssertEqual(carouselTabNode.children[0].children[0].cornerRadius, 18)
+            XCTAssertEqual(carouselTabNode.children[0].children[0].cornerRadius, MacOSControlMetrics.Radius.xl)
             guard case .stack(let carouselLayout) = carouselTabNode.children[0].children[0].layoutMode else {
                 XCTFail("Expected carousel tab bar stack layout")
                 return
@@ -13188,8 +13207,8 @@ final class WinSwiftUITests: XCTestCase {
             let readerNode = makeNode(ToggleStyleReaderView().toggleStyle(.checkbox))
 
             XCTAssertTrue(checkboxNode.isFocusable)
-            XCTAssertEqual(checkboxNode.children[0].cornerRadius, 4)
-            XCTAssertEqual(checkboxNode.children[0].backgroundColor, tint)
+            XCTAssertEqual(checkboxNode.children[0].cornerRadius, MacOSControlMetrics.Radius.sm)
+            XCTAssertEqual(checkboxNode.children[0].backgroundColor, ControlPalette.opaque(tint))
             XCTAssertTrue(allTexts(in: checkboxNode).contains("ENABLED"))
 
             checkboxNode.onActivate?()
@@ -14991,7 +15010,9 @@ final class WinSwiftUITests: XCTestCase {
                 textFieldNode.preferredSize,
                 Size(width: 200, height: ControlSize.small.singleLineTextInputSize.height))
             XCTAssertEqual(textEditorNode.preferredSize, Size(width: 300, height: 144))
-            XCTAssertEqual(toggleNode.children[1].preferredSize, Size(width: 60, height: 38))
+            // The switch is the one control sized outside the pointer-padding
+            // rule: `Toggle.largeSize` plus the node's own 4pt gutter.
+            XCTAssertEqual(toggleNode.children[1].preferredSize, Size(width: 56, height: 34))
             XCTAssertEqual(
                 pickerNode.children[1].preferredSize,
                 Size(width: 232, height: ControlSize.large.pickerMenuPreferredSize.height))
@@ -18571,7 +18592,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(modifierNode.text, "RED LARGE")
             XCTAssertEqual(environmentNode.text, "RED SMALL")
             XCTAssertEqual(progressNode.children[1].backgroundColor, Color.red)
-            XCTAssertEqual(toggleNode.children[1].preferredSize, Size(width: 60, height: 38))
+            XCTAssertEqual(toggleNode.children[1].preferredSize, Size(width: 56, height: 34))
         }
     }
 

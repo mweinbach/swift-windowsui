@@ -45,6 +45,19 @@ final class InteractionTimelineFidelityTests: XCTestCase {
         return out
     }
 
+    /// What the interaction ramp actually moves, as one number.
+    ///
+    /// These cases used to sample the fill's **alpha**, which worked only
+    /// while a dark-appearance control face was a translucent wash
+    /// (`white(0.10)` hovering to `white(0.15)`). A bordered face is opaque
+    /// now — an alpha wash over a near-black page is invisible, which is the
+    /// whole reason it changed — so the ramp lives in the channels and a
+    /// test that watches alpha watches a constant 1.0.
+    private func fillLevel(of node: ViewNode) -> Double {
+        let fill = node.backgroundColor ?? .clear
+        return Double(0.2126 * fill.red + 0.7152 * fill.green + 0.0722 * fill.blue) * Double(fill.alpha)
+    }
+
     private func absoluteFrame(of node: ViewNode) -> Rect {
         var x = node.resolvedFrame.origin.x
         var y = node.resolvedFrame.origin.y
@@ -127,7 +140,7 @@ final class InteractionTimelineFidelityTests: XCTestCase {
         let duration = surface.duration(intoPhase: .hovered)
         XCTAssertGreaterThan(duration, 0)
 
-        let start = Double(button.backgroundColor?.alpha ?? 0)
+        let start = fillLevel(of: button)
         let frame = absoluteFrame(of: button)
         let t0 = clock.now
         runtime.pointerMoved(to: Point(x: frame.midX, y: frame.midY))
@@ -136,10 +149,10 @@ final class InteractionTimelineFidelityTests: XCTestCase {
         var sampled: [Double] = []
         for fraction in fractions {
             tick(runtime, clock, to: t0 + duration * fraction)
-            sampled.append(Double(button.backgroundColor?.alpha ?? 0))
+            sampled.append(fillLevel(of: button))
         }
         tick(runtime, clock, to: t0 + duration * 2)
-        let end = Double(button.backgroundColor?.alpha ?? 0)
+        let end = fillLevel(of: button)
         XCTAssertNotEqual(end, start, accuracy: 0.0001, "a hover has to change the fill or there is no tween to shape")
 
         var maximumLinearDeviation = 0.0
@@ -170,17 +183,17 @@ final class InteractionTimelineFidelityTests: XCTestCase {
 
         runtime.pointerMoved(to: centre)
         advance(runtime, clock, to: clock.now + 1.0)
-        let hoveredBackground = Double(button.backgroundColor?.alpha ?? 0)
+        let hoveredBackground = fillLevel(of: button)
         let hoveredBorder = Double(button.borderColor.alpha)
 
         let pressDuration = surface.duration(intoPhase: .pressed)
         let t0 = clock.now
         runtime.pointerDown(at: centre)
         tick(runtime, clock, to: t0 + pressDuration * 0.25)
-        let quarterBackground = Double(button.backgroundColor?.alpha ?? 0)
+        let quarterBackground = fillLevel(of: button)
         let quarterBorder = Double(button.borderColor.alpha)
         tick(runtime, clock, to: t0 + pressDuration * 2)
-        let pressedBackground = Double(button.backgroundColor?.alpha ?? 0)
+        let pressedBackground = fillLevel(of: button)
         let pressedBorder = Double(button.borderColor.alpha)
 
         if abs(pressedBackground - hoveredBackground) > 0.001 {
@@ -676,7 +689,7 @@ final class InteractionTimelineFidelityTests: XCTestCase {
         guard let button = button(in: runtime) else { return XCTFail("no button in tree") }
         guard let surface = button.interactionSurface else { return XCTFail("no interaction surface") }
         let duration = surface.duration(intoPhase: .hovered)
-        let start = Double(button.backgroundColor?.alpha ?? 0)
+        let start = fillLevel(of: button)
 
         // Seed at an arbitrary point on an arbitrary timeline.
         clock.now = 5_000.0
@@ -685,14 +698,14 @@ final class InteractionTimelineFidelityTests: XCTestCase {
 
         // A tick *before* the seed must not advance it.
         tick(runtime, clock, to: 4_999.0)
-        XCTAssertEqual(Double(button.backgroundColor?.alpha ?? 0), start, accuracy: 0.0001)
+        XCTAssertEqual(fillLevel(of: button), start, accuracy: 0.0001)
 
         tick(runtime, clock, to: 5_000.0 + duration * 0.5)
-        let halfway = Double(button.backgroundColor?.alpha ?? 0)
+        let halfway = fillLevel(of: button)
         XCTAssertNotEqual(halfway, start, accuracy: 0.0005, "half a tween in, the fill has moved")
 
         tick(runtime, clock, to: 5_000.0 + duration + 0.0001)
-        let settled = Double(button.backgroundColor?.alpha ?? 0)
+        let settled = fillLevel(of: button)
         XCTAssertNotEqual(settled, halfway, accuracy: 0.0005, "and it kept going to the end")
         XCTAssertFalse(runtime.hasActiveAnimations, "the tween retires exactly at its own duration")
     }

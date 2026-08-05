@@ -74,11 +74,12 @@ final class ListFormQualityTests: XCTestCase {
             let unselectedRow = rows(of: node)[1]
 
             // Padding stays constant so selection changes never shift row
-            // metrics; macOS fills a selected row solid and draws no
-            // border around it at all.
+            // metrics; a selected row is an accent wash with no border at all.
             XCTAssertEqual(selectedRow.borderWidth, 0)
             XCTAssertEqual(unselectedRow.borderWidth, 0)
-            XCTAssertEqual(selectedRow.backgroundColor?.alpha ?? 0, 1, accuracy: 0.01)
+            XCTAssertEqual(
+                selectedRow.backgroundColor,
+                ControlPalette.darkStandard.listSelectionBackground(tint: .accentColor))
             XCTAssertNil(unselectedRow.backgroundColor)
             guard
                 case .stack(let selectedLayout) = selectedRow.layoutMode,
@@ -106,8 +107,11 @@ final class ListFormQualityTests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(rows(of: node)[0].layoutConstraints?.minHeight, 28)
-            XCTAssertEqual(rows(of: node)[1].layoutConstraints?.minHeight, 28)
+            // One row height for the app: `List.sidebarRowHeight` is 30, and
+            // so is `plainRowHeight` — a nav row and a plain row are the same
+            // object at the same rhythm.
+            XCTAssertEqual(rows(of: node)[0].layoutConstraints?.minHeight, 30)
+            XCTAssertEqual(rows(of: node)[1].layoutConstraints?.minHeight, 30)
             XCTAssertEqual(rows(of: node)[0].layoutConstraints?.maxHeight, .infinity)
         }
     }

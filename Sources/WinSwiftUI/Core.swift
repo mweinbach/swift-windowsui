@@ -8875,7 +8875,10 @@ public struct ViewBuildContext {
         self.navigationPresentedDestinationsProvider = navigationPresentedDestinationsProvider
     }
 
-    public static let defaultTint = Color(red: 0.0, green: 0.478, blue: 1.0, alpha: 1.0)
+    /// The ambient tint every control resolves its accent from. Tracks
+    /// `Color.accentColor` — the design system's `accent-fill` (#5B4DE0) —
+    /// so the app has exactly one accent and it is not the OS blue.
+    public static let defaultTint = Color.accentColor
 
     func invalidate() {
         invalidateHandler()
@@ -15285,7 +15288,7 @@ public struct ListStyle: Sendable, Equatable {
                 backgroundColor: palette.controlBackground,
                 borderColor: palette.separator,
                 borderWidth: 1,
-                cornerRadius: 16
+                cornerRadius: MacOSControlMetrics.Radius.lg
             )
         case .grouped:
             return RetainedListChrome(
@@ -15294,7 +15297,7 @@ public struct ListStyle: Sendable, Equatable {
                 backgroundColor: palette.controlBackground,
                 borderColor: palette.separator,
                 borderWidth: 1,
-                cornerRadius: 12
+                cornerRadius: MacOSControlMetrics.Radius.lg
             )
         case .inset:
             // `.inset` had no body at all: no fill, no ring, no corners, no
@@ -15341,7 +15344,7 @@ public struct ListStyle: Sendable, Equatable {
                 backgroundColor: palette.controlBackground,
                 borderColor: palette.separator,
                 borderWidth: 1,
-                cornerRadius: 14
+                cornerRadius: MacOSControlMetrics.Radius.lg
             )
         case .sidebar:
             return RetainedListChrome(
@@ -17589,27 +17592,28 @@ extension SwiftWindowsCore.Color {
     /// Resolves a colour that is about to be painted as a *background*.
     ///
     /// One rung reads differently on the way to a fill: `.quaternary`. As a
-    /// label it is AppKit's `quaternaryLabelColor` — black at `#..19` in the
-    /// light appearance — and that stays untouched. But the idiomatic use of
-    /// `.background(.quaternary)` is a *bar*: the scrim that closes a list
-    /// with an inspector or status strip. In dark mode the white rung
-    /// lightens the window into a bar, which is exactly what a dark-mode
-    /// bottom bar does. In light mode the same maths puts a black wash over
-    /// the window and lands the bar at #D5D5D5 on the #ECECEC window —
-    /// *darker* than the page it closes, which no macOS bottom bar is:
-    /// Finder's status bar and Xcode's debug bar sit at
-    /// `windowBackgroundColor` and let the divider above them do the work.
-    /// A light quaternary background therefore resolves to the window tone,
-    /// where its secondary strings clear 4.5:1. Pinned in
+    /// label it is the fourth text rung and that stays untouched. But the
+    /// idiomatic use of `.background(.quaternary)` is a *bar*: the scrim that
+    /// closes a list with an inspector or status strip.
+    ///
+    /// **A bar is never brighter than the list it closes in the dark
+    /// appearance, or darker than it in the light one.** Drawn as a wash the
+    /// rung fails that in whichever appearance it is not tuned for: the light
+    /// black wash landed the bar *below* the page it closed, and once the
+    /// dark rung moved to 0.30 for legibility the same maths lifted a dark
+    /// footer well above the table above it — a bar brighter than its own
+    /// content, which reads as a second window pinned to the bottom.
+    ///
+    /// It resolves to the page tone in **both** appearances now, and the
+    /// hairline above it carries the edge. One rule, not two, and it is the
+    /// same rule Finder's status bar and Xcode's debug bar follow. Pinned in
     /// docs/MacOSDesignParity.md and `MacOSDesignParityTests`.
     public nonisolated func resolvedForBackgroundVisualEnvironment(
         colorScheme: ColorScheme,
         contrast: ColorSchemeContrast,
         backgroundProminence: BackgroundProminence
     ) -> SwiftWindowsCore.Color {
-        if colorScheme == .light, backgroundProminence != .increased,
-            labelHierarchyLevel == .quaternary
-        {
+        if backgroundProminence != .increased, labelHierarchyLevel == .quaternary {
             return ControlPalette.resolve(colorScheme: colorScheme, contrast: contrast).windowBackground
         }
         return resolvedForVisualEnvironment(
@@ -19437,10 +19441,10 @@ private func retainedAlertPresentation(
             backgroundColor: palette.elevatedSurface,
             borderColor: palette.elevatedSurfaceBorder,
             borderWidth: 1,
-            shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.32),
-            shadowOffset: Point(x: 0, y: 12),
-            shadowSpread: 18,
-            cornerRadius: 14,
+            shadowColor: Elevation.e3.color(for: palette.colorScheme),
+            shadowOffset: Point(x: 0, y: Elevation.e3.offsetY(for: palette.colorScheme)),
+            shadowSpread: Elevation.e3.radius(for: palette.colorScheme),
+            cornerRadius: MacOSControlMetrics.Radius.xl,
             clipsToBounds: true,
             stackLayout: .vertical(
                 spacing: 12,
@@ -19675,10 +19679,10 @@ private func retainedConfirmationDialogPresentation(
             backgroundColor: palette.elevatedSurface,
             borderColor: palette.elevatedSurfaceBorder,
             borderWidth: 1,
-            shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.30),
-            shadowOffset: Point(x: 0, y: 10),
-            shadowSpread: 16,
-            cornerRadius: 14,
+            shadowColor: Elevation.e3.color(for: palette.colorScheme),
+            shadowOffset: Point(x: 0, y: Elevation.e3.offsetY(for: palette.colorScheme)),
+            shadowSpread: Elevation.e3.radius(for: palette.colorScheme),
+            cornerRadius: MacOSControlMetrics.Radius.xl,
             clipsToBounds: true,
             stackLayout: .vertical(
                 spacing: 12,

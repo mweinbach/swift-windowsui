@@ -57,7 +57,12 @@ final class SwitchKnobMotionTests: XCTestCase {
         _ = runtime.renderFrame()
 
         func track() -> ViewNode? {
-            findNode(runtime.root, where: { $0.resolvedFrame.size.width == 44 && $0.resolvedFrame.size.height == 24 })
+            findNode(
+                runtime.root,
+                where: {
+                    $0.resolvedFrame.size.width == MacOSControlMetrics.Toggle.regularSize.width
+                        && $0.resolvedFrame.size.height == MacOSControlMetrics.Toggle.regularSize.height
+                })
         }
         return SwitchHarness(
             runtime: runtime,
@@ -108,11 +113,15 @@ final class SwitchKnobMotionTests: XCTestCase {
             sampled.append(harness.knob()?.frame.origin.x ?? -1)
         }
 
-        let travelled = sampled.filter { $0 > knobStart + 1 && $0 < 24 - 1 }
+        // Track width less the knob and its inset on the far side.
+        let knobEnd =
+            MacOSControlMetrics.Toggle.regularSize.width - MacOSControlMetrics.Toggle.knobDiameter
+            - MacOSControlMetrics.Toggle.knobInset
+        let travelled = sampled.filter { $0 > knobStart + 1 && $0 < knobEnd - 1 }
         XCTAssertGreaterThanOrEqual(
             travelled.count, 3,
             "the knob has to be drawn between its two ends, not teleported: \(sampled)")
-        XCTAssertEqual(sampled.last ?? -1, 24, accuracy: 0.5, "and it arrives")
+        XCTAssertEqual(sampled.last ?? -1, knobEnd, accuracy: 0.5, "and it arrives")
         XCTAssertTrue(
             zip(sampled, sampled.dropFirst()).allSatisfy { $1 >= $0 - 0.001 },
             "the travel is monotonic across its span: \(sampled)")

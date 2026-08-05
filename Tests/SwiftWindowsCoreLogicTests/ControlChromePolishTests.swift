@@ -241,8 +241,8 @@ final class ControlChromePolishTests: XCTestCase {
                     )
                     let box = tryUnwrap(
                         firstNode(in: snapshot.runtime.root) {
-                            $0.preferredSize?.width == 20 && $0.preferredSize?.height == 20
-                                && $0.cornerRadius == 4
+                            $0.preferredSize?.width == 18 && $0.preferredSize?.height == 18
+                                && $0.cornerRadius == MacOSControlMetrics.Radius.sm
                         },
                         message: "checkbox box not found"
                     )
@@ -250,8 +250,8 @@ final class ControlChromePolishTests: XCTestCase {
                         box.children.first, message: "checkbox glyph slot not found")
                     // Child frames are relative to the box; the box must not
                     // be crushed, and the glyph must sit dead center inside it.
-                    XCTAssertEqual(box.resolvedFrame.width, 20, accuracy: 0.51)
-                    XCTAssertEqual(box.resolvedFrame.height, 20, accuracy: 0.51)
+                    XCTAssertEqual(box.resolvedFrame.width, 18, accuracy: 0.51)
+                    XCTAssertEqual(box.resolvedFrame.height, 18, accuracy: 0.51)
                     XCTAssertEqual(
                         glyph.resolvedFrame.midX, box.resolvedFrame.width * 0.5, accuracy: 0.51,
                         "checkbox glyph should be horizontally centered at \(displayScale)x")
@@ -326,15 +326,18 @@ final class ControlChromePolishTests: XCTestCase {
                 firstNode(in: node) { $0.nodeTag == "selection:2" },
                 message: "selected row not found"
             )
-            // A selected row is a solid accent fill with no border, as
-            // macOS draws it — the 16% wash under a 52% outline it used to
-            // paint read as an outlined chip rather than a selected row.
+            // A selected row is an accent *wash* with no border — never the
+            // 16% wash under a 52% outline it used to paint, which read as an
+            // outlined chip, and never the full-bleed saturated band that
+            // replaced it.
             XCTAssertEqual(selectedRow.borderWidth, 0)
-            XCTAssertEqual(selectedRow.backgroundColor?.alpha ?? 0, 1, accuracy: 0.01)
             XCTAssertEqual(
-                selectedRow.cornerRadius, MacOSControlMetrics.Button.regularCornerRadius, accuracy: 0.01)
-            // 28pt minimum row height survives the compact width.
-            XCTAssertGreaterThanOrEqual(selectedRow.resolvedFrame.height, 28 - 0.51)
+                selectedRow.backgroundColor,
+                ControlPalette.darkStandard.listSelectionBackground(tint: .accentColor))
+            XCTAssertEqual(selectedRow.cornerRadius, MacOSControlMetrics.Radius.sm, accuracy: 0.01)
+            // The 30pt row height survives the compact width.
+            XCTAssertGreaterThanOrEqual(
+                selectedRow.resolvedFrame.height, MacOSControlMetrics.List.plainRowHeight - 0.51)
             // Hover highlight stays installed.
             XCTAssertEqual(selectedRow.hoverEffect, .highlight)
 

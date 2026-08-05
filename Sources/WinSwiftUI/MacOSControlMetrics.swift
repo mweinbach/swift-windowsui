@@ -18,28 +18,89 @@ import SwiftWindowsCore
 /// All dimensions are in logical points (1pt = 1 / displayScale px).
 public enum MacOSControlMetrics {
 
-    /// Push buttons (NSButton, .push bezel). The reference values for
-    /// `.regular` match macOS Sonoma's standard rounded-bezel button.
+    /// The spacing scale — a 4/8 grid, and **nothing else is legal**.
+    ///
+    /// Before this existed the app spaced things at 6, 10, 14, 18, 26 and 30
+    /// as often as at 8, 12 and 16, because every gap was chosen where it
+    /// was written. Half a dozen near-miss values do not read as a rhythm;
+    /// they read as an absence of one, and no amount of care at any single
+    /// site recovers it. Every gap in the app snaps to a step here.
+    public enum Spacing {
+        public static let s1: Double = 4
+        public static let s2: Double = 8
+        public static let s3: Double = 12
+        public static let s4: Double = 16
+        public static let s5: Double = 20
+        public static let s6: Double = 24
+        public static let s8: Double = 32
+        public static let s10: Double = 40
+        public static let s12: Double = 48
+        public static let s16: Double = 64
+
+        /// Every legal step, in order — for the guardrail that asserts a
+        /// shipped gap is a member of the scale.
+        public static let scale: [Double] = [s1, s2, s3, s4, s5, s6, s8, s10, s12, s16]
+    }
+
+    /// The radius scale. **Nothing in the app exceeds 12**, and full-bleed
+    /// regions are square.
+    ///
+    /// The 16 / 20 / 22 / 24 / 26 / 30 the app used to carry is what made it
+    /// read as bubbly: a 30pt radius on a panel and a 20pt radius on a
+    /// 28pt-tall row are both stadium shapes, and a window full of stadiums
+    /// is a consumer toy however correct its tones are. A band that touches
+    /// a window edge takes radius 0 and is bounded by a hairline instead —
+    /// that is what stops a shell reading as stacked rounded slabs.
+    public enum Radius {
+        /// Chart bar caps, selection indicator bars, mini meters.
+        public static let xs: Double = 3
+        /// **Controls**: button, text field, segment pill, checkbox, nav
+        /// row, table row hover/selection, tab item.
+        public static let sm: Double = 6
+        /// Chip, icon tile, segmented track, badge.
+        public static let md: Double = 8
+        /// **Cards**, form section boxes, group boxes.
+        public static let lg: Double = 10
+        /// Hero, popover, menu, sheet, dialog.
+        public static let xl: Double = 12
+        /// The largest radius the design system allows anywhere.
+        public static let maximum: Double = xl
+    }
+
+    /// Push buttons. The reference heights are macOS Sonoma's standard
+    /// rounded-bezel button; the shipped heights are those plus
+    /// `ControlSize.windowsPointerPadding`.
     public enum Button {
         public static let miniHeight: Double = 16
         public static let smallHeight: Double = 19
         public static let regularHeight: Double = 22
         public static let largeHeight: Double = 32
 
-        /// Corner radius of the push bezel. Big Sur+ push buttons are a
-        /// rounded rectangle at ~6pt; a capsule is the opt-in shape
-        /// (`.buttonBorderShape(.capsule)`), never the default.
-        public static let miniCornerRadius: Double = 4
-        public static let smallCornerRadius: Double = 4
-        public static let regularCornerRadius: Double = 6
-        public static let largeCornerRadius: Double = 8
+        /// Corner radius of the push bezel — `Radius.sm`. A capsule is the
+        /// opt-in shape (`.buttonBorderShape(.capsule)`), never the default;
+        /// 16 on a 22–30pt control clamps to h/2 and renders every button as
+        /// a stadium.
+        public static let miniCornerRadius: Double = Radius.xs
+        /// `.mini` / `.small`, and the segmented selected pill.
+        public static let smallCornerRadius: Double = Radius.sm
+        public static let regularCornerRadius: Double = Radius.sm
+        public static let largeCornerRadius: Double = Radius.md
     }
 
-    /// `Toggle` with `.switch` style — NSSwitch. macOS Sonoma's
-    /// rounded pill measures 38×22 (regular).
+    /// `Toggle` with `.switch` style.
+    ///
+    /// **The one control this system sizes outside the "macOS reference +
+    /// pointer padding" rule**, and it says so. 52×32 — reference 38×22 plus
+    /// a padded delta — is an *iOS* switch: at that size it is the largest
+    /// control in a settings pane and the first thing the eye lands on, for
+    /// a boolean. 40×22 with an 18pt knob at a 2pt inset is a desktop
+    /// switch: the same height as every other control in the row.
     public enum Toggle {
-        public static let regularSize = Size(width: 38, height: 22)
-        public static let largeSize = Size(width: 44, height: 26)
+        public static let regularSize = Size(width: 40, height: 22)
+        public static let largeSize = Size(width: 48, height: 26)
+        /// The knob, and the gutter between it and the track's edge.
+        public static let knobDiameter: Double = 18
+        public static let knobInset: Double = 2
     }
 
     /// `Slider` — NSSlider with linear track. Track is 4pt tall;
@@ -114,18 +175,27 @@ public enum MacOSControlMetrics {
         public static let largeDiameter: Double = 32
     }
 
-    /// `TextField` with `.roundedBorder` style. macOS Sonoma's
-    /// single-line text field is 21pt tall.
+    /// `TextField` with `.roundedBorder` style.
+    ///
+    /// 22, not macOS's 21, so that `reference + windowsPointerPadding` lands
+    /// a field on **28** — the same height as a button. A field and the
+    /// button beside it in a toolbar differing by one point is the kind of
+    /// misalignment nobody can name and everybody sees.
     public enum TextField {
-        public static let regularHeight: Double = 21
+        public static let regularHeight: Double = 22
         public static let largeHeight: Double = 28
     }
 
-    /// `List` row metrics. Plain rows are 24pt tall; sidebar rows
-    /// (NSOutlineView source-list style) are 28pt.
+    /// `List` row metrics.
+    ///
+    /// **One row height for the app**: 30. macOS's 24 plain / 28 sidebar
+    /// split is a distinction between two kinds of list this design does not
+    /// draw — a nav row and a plain row are the same object at the same
+    /// rhythm — and a 24pt row is cramped under a 13pt label with a 15pt
+    /// glyph beside it.
     public enum List {
-        public static let plainRowHeight: Double = 24
-        public static let sidebarRowHeight: Double = 28
+        public static let plainRowHeight: Double = 30
+        public static let sidebarRowHeight: Double = 30
         /// Inset for the disclosure chevron on hierarchical rows.
         public static let chevronColumnInset: Double = 16
         /// Leading/trailing inset from the list's own edge to row content
@@ -136,55 +206,77 @@ public enum MacOSControlMetrics {
         /// card. This is that card's radius — the same 6pt a `.bordered`
         /// list is closed with, because they are the same box with and
         /// without the row inset.
-        public static let insetCornerRadius: Double = 6
+        public static let insetCornerRadius: Double = Radius.sm
         /// Top and bottom gutter between the inset body's edge and its first
         /// and last row. Without it the first row's text sits flush against
         /// the body's own rounded corner.
         public static let insetVerticalInset: Double = 6
+        /// Gutter a selected/hovered row's fill is inset from the list's own
+        /// horizontal edges. A selection is a rounded plate *inside* the
+        /// list, not a full-bleed band across the window.
+        public static let selectionInset: Double = 6
     }
 
     /// A grouped container — `GroupBox`, a `Form` section box, a settings
-    /// card. macOS draws these as a near-flat rounded rectangle closed by a
-    /// hairline; the depth cue is the border and the surface tone, not a
-    /// drop shadow. The shadow that remains is an ambient contact shadow
-    /// only, which is why its offset and spread are single digits.
+    /// card: a near-flat rounded rectangle closed by a hairline. The depth
+    /// cue is the ring and the surface tone; the shadow is a light-appearance
+    /// contact shadow only (`Elevation.e1`), which is why its offset is 1.
     public enum GroupBox {
-        /// macOS Sonoma's grouped box radius. A 28pt radius on a 600pt-wide
-        /// card is a marketing panel, not an `NSBox`.
-        public static let cornerRadius: Double = 10
-        public static let shadowOffsetY: Double = 2
+        /// `Radius.lg`. A 28pt radius on a 600pt-wide card is a marketing
+        /// panel, not a settings box.
+        public static let cornerRadius: Double = Radius.lg
+        /// `Elevation.e1` — 3pt blur at y 1. The unspecified offset that
+        /// used to default large is what smeared every gutter in the window.
+        public static let shadowOffsetY: Double = 1
         public static let shadowSpread: Double = 3
     }
 
-    /// Grouped `Form` metrics — SwiftUI's `.formStyle(.grouped)`, macOS
-    /// System Settings.
+    /// Grouped `Form` metrics — SwiftUI's `.formStyle(.grouped)`.
     ///
-    /// A macOS grouped form is a *two-column grid* inside a centred content
-    /// column: trailing-aligned labels share one leading column, controls
-    /// lead the value column beside them, and the section header sits
-    /// outside and above the box it names.
+    /// A settings pane is a **leading-anchored column** of section boxes.
+    /// Rows carry their own height, so a box has no vertical padding of its
+    /// own; the rhythm between a section header and the group it names is
+    /// the 3:1 eyebrow ratio (24 above, 8 below) that keeps a header
+    /// attached to what is *under* it rather than floating between two
+    /// groups.
     public enum Form {
-        /// Width of the centred content column. macOS settings panes run a
-        /// ~600–715pt column with generous margins; edge-to-edge is a web
-        /// layout, not a settings pane.
-        public static let contentMaxWidth: Double = 640
-        /// Horizontal margin between the content column's edge and the
-        /// section boxes inside it, so a 640pt column carries 600pt boxes.
-        public static let contentHorizontalMargin: Double = 20
+        /// Width of the content column. 640 centred in a 1280 window leaves
+        /// ~340pt of dead space on each side and reads as a pane borrowed
+        /// from another app; 720 leading-anchored inside the page margin
+        /// reads as this app's settings.
+        public static let contentMaxWidth: Double = 720
+        /// Margin between the column's edge and the section boxes inside it.
+        ///
+        /// Still 20, and still a *centred* column: leading-anchoring the
+        /// column inside the page margin is a screen decision the settings
+        /// pane makes (§5), not a chrome default, and moving it here would
+        /// re-anchor every grouped `Form` in every app.
+        public static let contentHorizontalMargin: Double = Spacing.s5
         /// Gap between the label column and the value column.
-        public static let labelColumnGap: Double = 8
+        public static let labelColumnGap: Double = Spacing.s3
         /// Box-to-next-header rhythm between adjacent sections.
-        public static let sectionSpacing: Double = 20
-        /// Gap between a section header and the box it labels.
-        public static let headerSpacing: Double = 6
-        /// Leading inset of an outside-the-box section header, so the header
-        /// text sits just proud of the box's own corner.
-        public static let headerLeadingInset: Double = 6
+        public static let sectionSpacing: Double = Spacing.s6
+        /// Gap between a section header and the box it labels — 8 below
+        /// against 24 above, so the header belongs to its group.
+        public static let headerSpacing: Double = Spacing.s2
+        /// A section header sits flush with the box it names.
+        public static let headerLeadingInset: Double = 0
         /// Row-to-row spacing inside a group box.
-        public static let rowSpacing: Double = 10
+        public static let rowSpacing: Double = Spacing.s3
         /// Interior padding of a group box.
-        public static let boxVerticalPadding: Double = 12
-        public static let boxHorizontalPadding: Double = 16
+        ///
+        /// The design system's end state is 0 — a row states its own height
+        /// (`rowMinHeight`), so box padding only doubles the first and last
+        /// gaps. That is true *once rows carry that height*, which is the
+        /// settings pane's own rebuild; until then a zero-padded box sits its
+        /// first row flush against its own corner. Kept at one scale step
+        /// (8) and recorded as the interim it is.
+        public static let boxVerticalPadding: Double = Spacing.s2
+        public static let boxHorizontalPadding: Double = Spacing.s4
+        /// Minimum height of a form row, and of a row that also carries a
+        /// description line under its title.
+        public static let rowMinHeight: Double = 36
+        public static let descriptiveRowMinHeight: Double = 52
     }
 
     /// `NSScroller` in its modern *overlay* style — the only style a macOS
@@ -197,8 +289,9 @@ public enum MacOSControlMetrics {
     /// scrollbar anywhere, and why the always-on 5–6pt bar this stack used to
     /// draw read as a web page's scrollbar rather than a system one.
     public enum Scroller {
-        /// Thickness of the knob pill.
-        public static let overlayThumbThickness: Double = 7
+        /// Thickness of the knob pill. A modern overlay scroller is a hair
+        /// under the pointer, not a bar.
+        public static let overlayThumbThickness: Double = 6
         /// Gap between the pill and the scroll view's own edge. The pill
         /// floats *inside* the content, it does not steal a gutter.
         public static let overlayInset: Double = 4
@@ -214,18 +307,22 @@ public enum MacOSControlMetrics {
         public static let unifiedCompactHeight: Double = 38
     }
 
-    /// Window chrome. macOS Sonoma+ uses a 10pt corner radius on
-    /// standard windows. Sheet presentations use 12pt.
+    /// Window chrome.
     public enum Window {
-        public static let cornerRadius: Double = 10
-        public static let sheetCornerRadius: Double = 12
+        public static let cornerRadius: Double = Radius.lg
+        public static let sheetCornerRadius: Double = Radius.xl
     }
 
-    /// Focus ring stroke and inset. macOS draws a 4pt soft ring
-    /// outside the control's bounds for keyboard focus.
+    /// Focus ring stroke and inset.
+    ///
+    /// A **2pt halo outside a 1px accent border**, not the 4pt soft ring
+    /// macOS draws. Recorded as a deliberate divergence, justified by the
+    /// tighter radius scale: 4pt of ring around a 6pt corner swallows the
+    /// corner entirely, so the focused control loses the shape that
+    /// identifies it at exactly the moment you need to find it.
     public enum FocusRing {
-        public static let strokeWidth: Double = 4
-        public static let outsetFromBounds: Double = 3
+        public static let strokeWidth: Double = 2
+        public static let outsetFromBounds: Double = 1
     }
 
     /// The macOS system type ramp — `Font.body`, `Font.headline` and the
@@ -255,7 +352,12 @@ public enum MacOSControlMetrics {
         public static let calloutSize: Double = 12
         public static let subheadlineSize: Double = 11
         public static let footnoteSize: Double = 10
-        public static let captionSize: Double = 10
+        /// The `caption` role — 11, not 10. A caption is the smallest thing
+        /// in the app a reader is actually expected to read, and at 10pt in
+        /// the third text rung it was a texture rather than a string. 10
+        /// survives as `caption2`, which is the axis-label role: a number
+        /// you glance at, beside a mark that already told you the answer.
+        public static let captionSize: Double = 11
         public static let caption2Size: Double = 10
 
         /// Leading is a *fraction of the point size*, not an absolute pixel
@@ -285,22 +387,46 @@ public enum MacOSControlMetrics {
         /// ascender-to-descender box at `.medium` scale, so a symbol beside
         /// 13pt body text occupies roughly 16pt.
         public static let symbolBoxRatio: Double = 1.25
-        /// Grouped-form / list section headers — `NSTableView`'s group row
-        /// and SwiftUI's `Form` section header. Hierarchy here comes from
-        /// size and colour, not weight alone.
+        /// A `List` group header — the `eyebrow` role. A list group title
+        /// genuinely is a *label*: it names the rows under it and is not
+        /// something you read on the way past.
         public static let sectionHeaderSize: Double = 11
+
+        /// A grouped-`Form` section header — the `section` role.
+        ///
+        /// A settings section header is a **heading**, not a label: 15/600
+        /// at the primary rung, attached to the group under it. The 11pt
+        /// secondary-rung eyebrow it used to be is a System Settings idiom,
+        /// and an 11pt dim string floating between two boxes belongs to
+        /// neither of them. The distinction is the whole reason these are
+        /// two constants rather than one.
+        public static let formSectionHeaderSize: Double = 15
+
+        /// A control's own label — a button, a segment, a field's
+        /// placeholder. 12/500: one step under body, one step over it in
+        /// weight, which is what lets a control label sit beside body text
+        /// without competing with it.
+        public static let controlLabelSize: Double = 12
+        /// A card's title. 14/600 against 13/400 body is one point of size
+        /// and two of hierarchy — **weight and rung are the hierarchy tool,
+        /// not size**, which is the whole reason a 14pt title reads as a
+        /// different role from the 13pt line under it.
+        public static let cardTitleSize: Double = 14
+        /// An uppercase eyebrow — group titles, column headers. The only
+        /// uppercase role in the system.
+        public static let eyebrowSize: Double = 11
     }
 
-    /// `VStack`, `HStack` default spacing on macOS — SwiftUI uses
-    /// 8pt between adjacent views unless explicitly overridden.
+    /// `VStack`, `HStack` default spacing — 8pt between adjacent views
+    /// unless explicitly overridden, which is `Spacing.s2`.
     public enum Layout {
-        public static let defaultStackSpacing: Double = 8
-        /// Gap between a `Label`'s symbol and its title. AppKit's
-        /// image-and-title cell uses a 6pt gutter; the previous 10 was
-        /// tuned against a 17.6px semibold title.
-        public static let labelIconSpacing: Double = 6
-        /// `.padding()` no-argument default — macOS uses 16pt on all
-        /// edges.
-        public static let defaultPadding: Double = 16
+        public static let defaultStackSpacing: Double = Spacing.s2
+        /// Gap between a `Label`'s symbol and its title — `Spacing.s2`. An
+        /// icon and its label are one object, and 8 is the step the scale
+        /// has for that; 6 was AppKit's image-and-title cell and is not a
+        /// member of this grid.
+        public static let labelIconSpacing: Double = Spacing.s2
+        /// `.padding()` no-argument default.
+        public static let defaultPadding: Double = Spacing.s4
     }
 }

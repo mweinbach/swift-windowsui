@@ -20,13 +20,24 @@ final class MacOSControlReferenceTests: XCTestCase {
 
     // MARK: - Toggle switch
 
+    /// The switch is the **one** control sized outside the "macOS reference
+    /// + pointer padding" rule, and it says so in `MacOSControlMetrics`: a
+    /// padded 38x22 comes out at 52x32, which is an iOS switch — the largest
+    /// object in a settings pane, for a boolean.
     func testToggleSwitchRegularSizeMatchesNSSwitch() {
-        XCTAssertEqual(MacOSControlMetrics.Toggle.regularSize.width, 38, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Toggle.regularSize.width, 40, accuracy: 0.001)
         XCTAssertEqual(MacOSControlMetrics.Toggle.regularSize.height, 22, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Toggle.knobDiameter, 18, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Toggle.knobInset, 2, accuracy: 0.001)
+        // The knob fills the track's height less its own inset on both sides.
+        XCTAssertEqual(
+            MacOSControlMetrics.Toggle.knobDiameter + 2 * MacOSControlMetrics.Toggle.knobInset,
+            MacOSControlMetrics.Toggle.regularSize.height,
+            accuracy: 0.001)
     }
 
     func testToggleSwitchLargeSizeMatchesAppleHIG() {
-        XCTAssertEqual(MacOSControlMetrics.Toggle.largeSize.width, 44, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Toggle.largeSize.width, 48, accuracy: 0.001)
         XCTAssertEqual(MacOSControlMetrics.Toggle.largeSize.height, 26, accuracy: 0.001)
     }
 
@@ -97,16 +108,29 @@ final class MacOSControlReferenceTests: XCTestCase {
 
     // MARK: - Text field
 
+    /// 22, not macOS's 21, so `reference + windowsPointerPadding` lands a
+    /// field on **28** — the same height as a button. A field and the button
+    /// beside it in a toolbar differing by one point is the kind of
+    /// misalignment nobody can name and everybody sees.
     func testTextFieldHeightsMatchAppleHIG() {
-        XCTAssertEqual(MacOSControlMetrics.TextField.regularHeight, 21, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.TextField.regularHeight, 22, accuracy: 0.001)
+        XCTAssertEqual(
+            MacOSControlMetrics.TextField.regularHeight, MacOSControlMetrics.Button.regularHeight,
+            accuracy: 0.001)
         XCTAssertEqual(MacOSControlMetrics.TextField.largeHeight, 28, accuracy: 0.001)
     }
 
     // MARK: - List
 
+    /// **One row height for the app.** The 24 plain / 28 sidebar split is a
+    /// distinction between two kinds of list this design does not draw — a
+    /// nav row and a plain row are the same object at the same rhythm — and a
+    /// 24pt row is cramped under a 13pt label with a 15pt glyph beside it.
     func testListRowHeightsMatchAppleHIG() {
-        XCTAssertEqual(MacOSControlMetrics.List.plainRowHeight, 24, accuracy: 0.001)
-        XCTAssertEqual(MacOSControlMetrics.List.sidebarRowHeight, 28, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.List.plainRowHeight, 30, accuracy: 0.001)
+        XCTAssertEqual(
+            MacOSControlMetrics.List.sidebarRowHeight, MacOSControlMetrics.List.plainRowHeight,
+            accuracy: 0.001)
         XCTAssertEqual(MacOSControlMetrics.List.chevronColumnInset, 16, accuracy: 0.001)
     }
 
@@ -126,9 +150,16 @@ final class MacOSControlReferenceTests: XCTestCase {
 
     // MARK: - Focus ring
 
+    /// A 2pt halo outside a 1px accent border — a recorded divergence from
+    /// macOS's 4pt ring, justified by the tighter radius scale: 4pt of ring
+    /// around a 6pt corner swallows the corner, so a focused control loses
+    /// the shape that identifies it at the moment you need to find it.
     func testFocusRingMetricsMatchAppleHIG() {
-        XCTAssertEqual(MacOSControlMetrics.FocusRing.strokeWidth, 4, accuracy: 0.001)
-        XCTAssertEqual(MacOSControlMetrics.FocusRing.outsetFromBounds, 3, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.FocusRing.strokeWidth, 2, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.FocusRing.outsetFromBounds, 1, accuracy: 0.001)
+        XCTAssertLessThan(
+            MacOSControlMetrics.FocusRing.strokeWidth, MacOSControlMetrics.Radius.sm,
+            "a ring wider than the corner it rings erases the corner")
     }
 
     // MARK: - Layout

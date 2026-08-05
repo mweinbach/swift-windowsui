@@ -441,8 +441,11 @@ final class SystemAppearanceTests: XCTestCase {
             let dark = backgroundColorOfNode(
                 Text("bar").background(.quaternary).environment(\.colorScheme, .dark))
 
+            // One rule in both appearances: a `.quaternary` background is a
+            // bar, and a bar sits at the page tone with the hairline above it
+            // carrying the edge.
             XCTAssertEqual(light, ControlPalette.lightStandard.windowBackground)
-            XCTAssertEqual(dark, ControlPalette.darkStandard.quaternaryLabel)
+            XCTAssertEqual(dark, ControlPalette.darkStandard.windowBackground)
             XCTAssertNotEqual(light, dark, "a background sentinel has to change with the appearance")
         }
     }
@@ -525,7 +528,10 @@ final class SystemAppearanceTests: XCTestCase {
         for contrast in [ColorSchemeContrast.standard, .increased] {
             XCTAssertEqual(Color.red.resolved(.light, contrast), SystemColorPalette.red.light)
             XCTAssertEqual(Color.red.resolved(.dark, contrast), SystemColorPalette.red.dark)
-            XCTAssertEqual(Color.accentColor.resolved(.dark, contrast), SystemColorPalette.blue.dark)
+            // The accent is the design system's own hex, not a member of the
+            // system-colour pair table, so it resolves to itself: an app's
+            // signature does not have an OS-published dark twin.
+            XCTAssertEqual(Color.accentColor.resolved(.dark, contrast), Color.accentColor)
         }
     }
 

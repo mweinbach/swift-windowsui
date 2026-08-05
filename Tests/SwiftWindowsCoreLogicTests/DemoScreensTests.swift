@@ -587,22 +587,19 @@ final class DemoScreensTests: XCTestCase {
                 return XCTFail("the inspector has no bar behind it in \(scheme)")
             }
 
-            if scheme == .light {
-                let palette = ControlPalette.lightStandard
-                XCTAssertEqual(
-                    fill, palette.windowBackground,
-                    "a light bottom bar sits at the window tone, not below it")
-                XCTAssertGreaterThanOrEqual(
-                    contrastRatio(text: palette.secondaryLabel, over: fill), 4.5,
-                    "the bar's secondary strings clear WCAG AA on the bar tone")
-            } else {
-                // The white quaternary rung: a translucent scrim that
-                // *lightens* the dark window into a bar.
-                XCTAssertGreaterThan(Double(fill.red), 0.5, "a dark bar scrim is white-based")
-                XCTAssertEqual(
-                    fill.alpha, LabelHierarchy.quaternaryAlpha, accuracy: 0.001,
-                    "and it is the quaternary rung, unchanged")
-            }
+            // One rule in both appearances now: a bar sits at the page tone
+            // and the hairline above it carries the edge. Drawn as a wash the
+            // rung fails in whichever appearance it is not tuned for — the
+            // light black wash landed the bar *below* the page it closed, and
+            // the dark white wash lifted the footer well above the table over
+            // it, which reads as a second window pinned to the bottom.
+            let palette = ControlPalette.resolve(colorScheme: scheme)
+            XCTAssertEqual(
+                fill, palette.windowBackground,
+                "\(scheme): a bottom bar sits at the page tone, not above or below it")
+            XCTAssertGreaterThanOrEqual(
+                contrastRatio(text: palette.secondaryLabel, over: fill), 4.5,
+                "\(scheme): the bar's secondary strings clear WCAG AA on the bar tone")
         }
     }
 

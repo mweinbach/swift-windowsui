@@ -545,8 +545,12 @@ struct SwiftWindowsUIGalleryTool {
                             Slider(value: .constant(0.4))
                         }
                     }
-                    .frame(width: 170, height: 160)
-                )),
+                    // A grouped section header is a 15/600 heading now, and a
+                    // form row states its own height, so the fixture frame
+                    // grew with the design rather than clipping its last row.
+                    .frame(width: 170, height: 210)
+                ),
+                size: IntSize(width: 200, height: 230)),
             GallerySpec(
                 id: "form-settings", title: "Form Settings",
                 view: AnyView(
@@ -561,9 +565,9 @@ struct SwiftWindowsUIGalleryTool {
                         Button("Save") {}
                     }
                     .formStyle(GroupedFormStyle())
-                    .frame(width: 240, height: 220)
+                    .frame(width: 240, height: 250)
                 ),
-                size: IntSize(width: 260, height: 240)),
+                size: IntSize(width: 260, height: 270)),
             GallerySpec(
                 id: "navigation-stack", title: "NavigationStack",
                 view: AnyView(

@@ -1,10 +1,39 @@
-# macOS Design Value Parity
+# Design System Values
 
-Source-of-truth values for SwiftUI design constants that WinSwiftUI
-matches to feel like macOS. Each value here is pinned by a machine-
-checkable test in `MacOSDesignParityTests`; if a developer changes one
-of these without updating the doc the test fails. Animation curves and
-spring constants are documented separately in `AnimationParity.md`.
+Source-of-truth values for **this app's design system** — every colour,
+radius, spacing step, elevation rung and type role the stack ships. Each
+value here is pinned by a machine-checkable test in
+`MacOSDesignParityTests`; if a developer changes one of these without
+updating the doc the test fails. Animation curves and spring constants are
+documented separately in `AnimationParity.md`.
+
+## What this document pins, and what it used to
+
+This started as a macOS *parity* table: the goal was to look like AppKit, and
+the values were Apple's published ones. That got the mechanisms right — one
+alpha ladder per appearance, a top-lit hairline, opaque accent fills, a
+pressed control that does not move — and those mechanisms are unchanged and
+still the reason anything here composes.
+
+What it did not get right is the design. An app whose neutrals are AppKit's
+`#212121` window and whose accent is whatever blue the OS ships is not a
+macOS app; it is an app that looks like it is trying to be one, in a window
+manager that is not macOS. The values are now the design system's own:
+
+> **Quiet ink, one signature.** A near-black (or near-white) page, structure
+> carried by hairlines and one surface lift, and exactly one saturated moment
+> per screen. Nothing else in the window is chromatic.
+
+Where a value still equals its AppKit original that is now a coincidence
+worth stating rather than a rule; where it diverges the row says why. The
+divergence table at the end of this document is the list of places where the
+system deliberately parts company with macOS geometry.
+
+The whole signature reaches the app through **five hex values** — the accent
+ink/fill pair and the hero gradient's stops — so restyling the app's
+personality later is a table edit, not a redesign. No view may hardcode a
+colour; `ControlPalette` is the only source, and `DesignTokens` inside it is
+the only place a hex is written.
 
 ## Font.system text styles
 
@@ -32,11 +61,32 @@ beside it.
 | `body`        | 13        | regular      | 16               | SwiftUI `Font.body`        |
 | `callout`     | 12        | regular      | 15               | SwiftUI `Font.callout`     |
 | `footnote`    | 10        | regular      | 12               | SwiftUI `Font.footnote`    |
-| `caption`     | 10        | regular      | 12               | SwiftUI `Font.caption`     |
+| `caption`     | **11**    | regular      | 13               | the `caption` role         |
 | `caption2`    | 10        | regular      | 12               | SwiftUI `Font.caption2`    |
 
 Line height is `size + lineSpacing`, which is what the text renderer sets as
 DirectWrite's uniform line height.
+
+`caption` is **11**, not SwiftUI's 10. A caption is the smallest string in the
+app a reader is actually expected to read, and at 10pt in the third text rung
+it is a texture rather than a string. 10 survives as `caption2`, which is the
+*axis-label* role: a number you glance at beside a mark that already told you
+the answer.
+
+### Type roles
+
+The weight axis is the hierarchy tool, not size. `card-title` (14/600 at the
+first rung) and `body` (13/400 at the second) differ by one point and read as
+clearly different roles because weight *and* rung both move. That is the fix
+for weak hierarchy — not a size bump.
+
+| Constant                          | Value | Role |
+|-----------------------------------|-------|------|
+| `Typography.controlLabelSize`     | 12    | A control's own label: a button, a segment, a placeholder. 12/500. |
+| `Typography.cardTitleSize`        | 14    | A card's title. 14/600. |
+| `Typography.eyebrowSize`          | 11    | Uppercase eyebrow — group titles, column headers. The only uppercase role. |
+| `Typography.sectionHeaderSize`    | 11    | A `List` group header — the `eyebrow` role. A list group title genuinely is a *label*: it names the rows under it and is not something you read on the way past. |
+| `Typography.formSectionHeaderSize` | **15** | A grouped-`Form` section header — the `section` role: 15/600 at the primary rung, attached to the group under it. |
 
 ### The face those sizes are set in
 
@@ -78,10 +128,11 @@ block read as a different typeface at every size.
 |-------------------------------------------|-------|-----------------------------------------------------------------------|
 | `Typography.windowTitleSize`              | 13    | `NSWindow.title` / `NSToolbar` title, semibold — the OS title-bar scale. Note this is *not* what `.navigationTitle` is set at: see "Navigation title" below. |
 | `Typography.windowSubtitleSize`           | 11    | Toolbar subtitle, secondary label.                                    |
-| `Typography.sectionHeaderSize`            | 11    | Grouped-form / list section header, semibold, secondary label. Hierarchy comes from size *and* colour — at body size in near-white it differed from its own rows by weight alone. |
+| `Typography.sectionHeaderSize`            | 11    | A `List` group header: 11pt semibold at the secondary rung — the `eyebrow` role, unchanged. |
+| `Typography.formSectionHeaderSize`        | 15    | A grouped-`Form` section header: 15/600 at the **primary** rung. A settings section header is a heading, not a label; the 11pt secondary-rung eyebrow it used to be is a System Settings idiom, and an 11pt dim string floating between two boxes belongs to neither of them. One call site, two roles, which is why there are two constants. |
 | `Typography.symbolBoxRatio`               | 1.25  | An SF Symbol's image box relative to the inherited point size. `Image` inherits the ambient font rather than pinning a fixed 19.4px box. |
 | `Typography.uppercaseTrackingRatio`       | 0.06  | Default tracking applied when `textCase == .uppercase`. Capitals carry sidebearings tuned for mixed-case setting; set solid they read as a banner. An explicit `.tracking()` still wins. |
-| `Layout.labelIconSpacing`                 | 6     | `Label`'s symbol-to-title gutter (AppKit's image-and-title cell).      |
+| `Layout.labelIconSpacing`                 | 8     | `Label`'s symbol-to-title gutter. An icon and its label are one object, and 8 is the step the spacing scale has for that; AppKit's 6 is not a member of this grid. |
 
 ### Navigation title
 
@@ -120,62 +171,201 @@ base**; only the base changes with the appearance. `LabelHierarchy`
 `Color.resolvedForVisualEnvironment(colorScheme:contrast:backgroundProminence:)`
 resolves a rung out of the same `ControlPalette` the control chrome reads.
 
-| Rung         | Alpha  | Hex     | AppKit                      |
-|--------------|--------|---------|-----------------------------|
-| primary      | 0.851  | `..D9`  | `NSColor.labelColor`        |
-| secondary    | 0.549  | `..8C`  | `secondaryLabelColor`       |
-| tertiary     | 0.251  | `..40`  | `tertiaryLabelColor`        |
-| quaternary   | 0.098  | `..19`  | `quaternaryLabelColor`      |
-| quinary      | 0.051  | `..0D`  | SwiftUI's fifth rung        |
-| secondary, `.increased` contrast | 0.749 | `..BF` | AppKit's increase-contrast pass |
-| tertiary, `.increased` contrast  | 0.451 | `..73` | "                        |
+**Four rungs, and the two appearances no longer share their alphas.**
 
-The base is white in the dark appearance and black in the light one, so
-`Color.primary` and `ControlPalette.label` are the same colour by
-construction rather than by two people rounding to 0.85 independently.
+| Rung       | Dark | on `surface-1` | Light | on `#FFFFFF` | Use |
+|------------|------|----------------|-------|--------------|-----|
+| primary    | 0.95 | `#F2F2F3` 15.5:1 | 0.92 | `#1B1B1D` 15.9:1 | Headlines, card titles, metric values, selected labels |
+| secondary  | 0.66 | `#ADADAF` 8.2:1  | 0.66 | `#58585B` 7.3:1  | Body, summaries, control labels, unselected nav |
+| tertiary   | 0.47 | `#818184` 4.7:1  | 0.54 | `#757577` 4.9:1  | Captions, eyebrows, axis labels, resting icon glyphs |
+| quaternary | 0.30 | `#5B5B5E` 2.5:1  | 0.34 | `#A9A9AB` 2.5:1  | Disabled labels, chevrons, decoration — **never a string the user must read** |
+| quinary    | 0.18 | —                | 0.20  | —            | SwiftUI's fifth rung |
+| secondary, `.increased` | 0.80 | — | 0.80 | — | one step toward primary |
+| tertiary, `.increased`  | 0.62 | — | 0.68 | — | " |
+
+AppKit's published alphas (`#..D9`, `#..8C`, `#..40`, `#..19`) were authored
+against a `#212121` window. On the near-black `#0C0C0E` page this system
+specifies, the third rung composites to **2.4:1** — which is why every caption
+in a dark render read as noise rather than as text.
+
+The light column is *not* the dark one, because a black wash on white loses
+contrast faster than a white wash on near-black does: the two dimmer rungs
+need more alpha in light to land on the same reading. The quaternary rung is
+deliberately below AA; it is for chevrons and decoration.
+
+The base is white in the dark appearance and `#0C0C0E` in the light one — the
+page's own ink, not pure black, which reads a shade warm on a cool near-white
+page. The dark column doubles as the sentinel set
+`Color.labelHierarchyLevel` recognises, so `Color.primary` and
+`ControlPalette.label` are the same colour by construction.
 
 Recognition is by exact rung value: a colour the app wrote itself is not a
-semantic role and passes through untouched, and `Color.accentColor` (#007AFF)
+semantic role and passes through untouched, and `Color.accentColor` (#5B4DE0)
 is never desaturated. The known limitation is that `Color.primary.opacity(0.5)`
 is no longer a recognised rung — an app that wants a dimmer label should ask
 for `.secondary` rather than fade `.primary`.
 
-`.increased` background prominence promotes secondary to primary: content
-drawn over a filled selection stops being secondary, which is what AppKit
-does. It also changes the *base*: an emphasised selection is the same
-saturated accent fill in both appearances, so the ladder over it is built on
-`selectedContentLabel` (`alternateSelectedControlTextColor`, white) rather
-than on the appearance's base. Promoting the rung while keeping the light
-appearance's black base put an 85%-black version label on `#007AFF` in the
-demo's Data screen; `testSelectionContentIsLightInBothAppearances` pins it.
+`.increased` background prominence means **"this content sits on a *filled*
+emphasised surface"**. It promotes secondary to primary, and it changes the
+*base*: a filled accent surface is the same hex in both appearances, so the
+ladder over it is built on `selectedContentLabel` (white) rather than on the
+appearance's base. Promoting the rung while keeping the light appearance's
+black base put an 85%-black label on the accent fill;
+`testSelectionContentIsLightInBothAppearances` pins it.
+
+A **selected list row no longer sets it**, because a selected row is an accent
+wash rather than a fill (see "Semantic control palette" below). Inverting
+content to white over a wash is white-on-`#E4E2F8` in the light appearance.
+The flag stays exactly what it says it is, and is now only claimed by surfaces
+that genuinely are filled.
 
 ### A quaternary background is a bar, not a shade
 
 The rungs resolve differently on the way to a *fill*, in exactly one place.
-`.background(.quaternary)` is the idiomatic bottom bar — the scrim that
-closes a list with an inspector or status strip. In the dark appearance the
-white quaternary rung lightens the window into the bar (#373737 on #212121,
-secondary strings 4.8:1), which is precisely what a macOS dark bottom bar
-does, so dark resolves the label rung unchanged. In the light appearance the
-same maths is a black wash that lands the bar at #D5D5D5 on the #ECECEC
-window — *darker* than the page it closes, which no macOS bottom bar is:
-Finder's status bar and Xcode's debug bar sit at `windowBackgroundColor`
-and let the divider above them carry the edge. A light quaternary
-*background* therefore resolves to `ControlPalette.windowBackground`, where
-its secondary strings clear 4.5:1. The label resolution keeps AppKit's
-published `#..19` in both appearances.
+`.background(.quaternary)` is the idiomatic bottom bar — the scrim that closes
+a list with an inspector or status strip.
+
+**A bar is never brighter than the list it closes in the dark appearance, or
+darker than it in the light one.** Drawn as a wash the rung fails that in
+whichever appearance it is not tuned for. The light black wash landed the bar
+at #D5D5D5 on the #ECECEC window — below the page it closed, which no bottom
+bar is. And once the dark rung moved to 0.30 for legibility, the same maths
+lifted a dark footer well above the table over it: a bar brighter than its own
+content, which reads as a second window pinned to the bottom of the first.
+
+A quaternary *background* therefore resolves to
+`ControlPalette.windowBackground` in **both** appearances, and the hairline
+above it carries the edge — one rule, the same one Finder's status bar and
+Xcode's debug bar follow. The *label* resolution of the rung is untouched.
 `Color.resolvedForBackgroundVisualEnvironment` implements the split;
 `testQuaternaryBackgroundIsABarNotAShadeInLight` pins it.
 
-## Chrome neutrals
+## The neutral ramp
 
-Every hardcoded chrome literal in `Views.swift` and `Core.swift` sat on a
-navy axis where blue was roughly twice red — `(0.07, 0.10, 0.15)` surfaces
-under `(0.92, 0.95, 1.0)` "whites". macOS dark neutrals carry no hue at all;
-the accent is the only chromatic element. 171 literals were desaturated to
-their Rec.709 luminance, preserving the surface ladder's depth relationships
-and leaving every genuinely chromatic colour (the accent, the status greens
-and ambers, the module tints) untouched.
+`DesignTokens` (Sources/WinSwiftUI/ControlPalette.swift) is the table every
+neutral in the app comes from. Roles are named by *what a surface is for*;
+tokens by *where they sit in the ramp*, and keeping them apart is what makes
+the design restylable.
+
+| Token      | Dark      | Light     | Use |
+|------------|-----------|-----------|-----|
+| `base`     | `#0C0C0E` | `#F2F3F5` | Window backdrop, sidebar and rail columns, tab band, page gutters |
+| `surface0` | `#111113` | `#F7F8FA` | Content wells, scroll wells, table bodies |
+| `surface1` | `#17171A` | `#FFFFFF` | **Cards.** The one and only card fill |
+| `surface2` | `#1E1E22` | `#F1F2F5` | Inside a card: fields, chips, icon tiles, segmented track, row hover |
+| `surface3` | `#26262B` | `#E6E8EC` | Pressed / active / selected-neutral; menu and popover body |
+| `surface4` | `#2C2C32` | `#ECEDF1` | One step past `surface3` — a bordered control held down |
+| `scrim`    | `#000000` @ 0.55 | `#0C0C0E` @ 0.28 | Sheet / dialog backdrop |
+
+Hairlines, and the ring stop above them:
+
+| Token          | Dark          | Light           | Use |
+|----------------|---------------|-----------------|-----|
+| `strokeSubtle` | white @ 0.06  | `#0C0C0E` @ 0.07 | Separators, table/form row rules, chart gridlines |
+| `stroke`       | white @ 0.09  | `#0C0C0E` @ 0.10 | Card ring, chip ring, field ring |
+| `strokeStrong` | white @ 0.14  | `#0C0C0E` @ 0.15 | Toolbar/footer band edges, popover ring, control bezel, chart baseline |
+| `edgeHighlight`| white @ 0.10  | white @ 0.75    | Top stop of every ring |
+
+**Achromatic within a hair.** The neutrals carry at most an 8/255 cool cast
+between their red and blue channels — enough that a near-black page reads as
+ink rather than as brown, and far short of the blue-cast navy this stack
+started from (`(0.07, 0.10, 0.15)` surfaces under `(0.92, 0.95, 1.0)`
+"whites", 171 literals on a navy axis where blue was roughly twice red).
+`ControlAppearanceChromeTests.testNeutralRolesAreAchromatic` pins the bound.
+
+The containers a screen actually shows — the navigation band, the tab bar,
+`Form` and `Section` boxes, `List` bodies and their hairlines, the scroller
+thumb, the window backdrop — read roles from `ControlPalette` rather than
+holding literals, so they follow the appearance rather than staying dark
+under light text.
+
+## The accent: one accent, two roles
+
+The split is the system's core colour idea. An accent used as **ink** must
+vary with the appearance behind it; an accent used as an **opaque fill** has
+no appearance to vary with.
+
+| Token                | Dark      | Light     | Use |
+|----------------------|-----------|-----------|-----|
+| `accentForeground`   | `#8B7CFF` (5.6:1 on `surface1`) | `#5B4DE0` (5.9:1 on white) | Accent **as ink**: chart bars, selection indicators, active glyphs, link text, focus ring |
+| `accentFill`         | `#5B4DE0` | `#5B4DE0` | Accent **as an opaque fill** under white text: prominent buttons, filled badges, toggle-on, menu highlight. White on it = 5.9:1 |
+| `accentFillHovered`  | `#6A5DE8` | `#6A5DE8` | |
+| `accentFillPressed`  | `#4A3EC4` | `#4A3EC4` | |
+| `accentWash`         | ink @ 0.14 | ink @ 0.10 | Selected nav row, hovered chart column, tag chips |
+| `accentWashStrong`   | ink @ 0.20 | ink @ 0.15 | Selected row in a focused list |
+| `accentRing`         | ink @ 0.45 | ink @ 0.45 | Keyboard focus halo |
+| `accentSelection`    | ink @ 0.30 | ink @ 0.30 | Text selection |
+
+`Color.accentColor` and `ViewBuildContext.defaultTint` are `accentFill`.
+`ControlPalette.accentInk(for:)` is how chrome crosses from one role to the
+other: hand it the ambient tint and, if that tint is the system accent, it
+resolves to the appearance's own `accentForeground`; a tint the app chose
+itself passes through untouched — the same exact-value recognition rule the
+label ladder uses. Chrome that draws the accent as a line, a glyph or a ring
+goes through it; chrome that fills a surface does not.
+
+Status colours ride a 6–7pt dot, a meter fill or 11pt chip text — never a
+large fill, never body text, never a button fill.
+
+| Token     | Dark      | Light (contrast on white) |
+|-----------|-----------|---------------------------|
+| `success` | `#3FD08A` | `#0B7A52` (5.4:1) |
+| `warning` | `#F5B93C` | `#A45A00` (5.2:1) |
+| `danger`  | `#FF6F6F` | `#C62B22` (5.6:1) |
+| `*Wash`   | hue @ 0.14 | hue @ 0.10 |
+
+## The spacing and radius scales
+
+`MacOSControlMetrics.Spacing` is a 4/8 grid — `4 8 12 16 20 24 32 40 48 64` —
+and **nothing else is legal**. The app used to space things at 6, 10, 14, 18,
+26 and 30 as often as at 8, 12 and 16, because every gap was chosen where it
+was written. Half a dozen near-miss values do not read as a rhythm; they read
+as the absence of one, and no amount of care at any single site recovers it.
+
+`MacOSControlMetrics.Radius`:
+
+| Token | Value | Applies to |
+|-------|-------|------------|
+| `xs`  | 3     | Chart bar caps, selection indicator bars, mini meters |
+| `sm`  | 6     | **Controls**: button, text field, segment pill, checkbox, nav row, table row hover/selection, tab item |
+| `md`  | 8     | Chip, icon tile, segmented track, badge |
+| `lg`  | 10    | **Cards**, form section boxes, group boxes |
+| `xl`  | 12    | Hero, popover, menu, sheet, dialog |
+
+**Nothing in the app exceeds 12**, and full-bleed regions take radius 0 and
+are bounded by a hairline instead. The 16 / 20 / 22 / 24 / 26 / 30 the app
+used to carry is what made it read as bubbly: a 20pt radius on a 28pt row is
+a stadium, and a window full of stadiums is a consumer toy however correct
+its tones are.
+
+## The elevation ramp
+
+**Structure is carried by the hairline; a shadow only ever says "this
+floats."** That distinction is the whole ramp — a card in the page is flat
+and closed by a ring, and only something genuinely above the page casts
+anything.
+
+| Level | Dark | Light | Applies to |
+|-------|------|-------|------------|
+| `e0` | none | none | Everything flat in the page: nav rows, table rows, form rows, chips, and **all cards in dark** |
+| `e1` | black @ 0.30, r 3, y 1 | `#0C0C0E` @ 0.06, r 3, y 1 | Cards and form boxes **in light**; segmented selected pill; toggle knob |
+| `e2` | black @ 0.38, r 10, y 4 | `#0C0C0E` @ 0.08, r 8, y 3 | Toolbar band over scrolled content, inline popup, tooltip |
+| `e3` | black @ 0.50, r 24, y 12 | `#0C0C0E` @ 0.13, r 22, y 10 | Menu, popover, sheet, dialog |
+| `e4` | `#5B4DE0` @ 0.22, r 28, y 10 | `#5B4DE0` @ 0.16, r 24, y 10 | **The hero card only.** The one tinted shadow in the app |
+
+**The appearance-conditional card rule.** In dark a card is `surface1` closed
+by a hairline and casts nothing: a shadow under a near-black card on a
+near-black page is invisible work, and at any alpha strong enough to see it
+fills the 12pt gutter beside the card with a grey smear instead of page tone.
+In light a white card on `#F2F3F5` takes `e1` — a 3pt blur at y 1 that reads
+as a paper lift. `ControlPalette.groupedContainerShadow` and
+`ControlPalette.controlShadow` both state it once and resolve twice.
+
+**No shadow offset in the app exceeds 12.** The retired ramp had one shadow
+used at every level with an *unspecified* offset that defaulted large — 8pt
+of blur at **y 14**, under a 12pt gutter — so every gutter in the window was
+filled with a shadow smear rather than showing the page base. That was the
+single largest source of the muddy read in both appearances.
 
 The containers that a screen actually shows — the navigation band, the tab
 bar, `Form` and `Section` boxes, `List` bodies and their hairlines, the
@@ -190,19 +380,20 @@ These match Apple's macOS Big Sur+ design language for standard controls.
 | Constant                              | Value | Notes                                   |
 |---------------------------------------|-------|-----------------------------------------|
 | `SurfaceChrome.default.borderWidth`   | 1     | Hairline border on standard controls.   |
-| `SurfaceChrome.focusRingStrokeWidth`  | 4     | macOS focus-ring stroke width. Equals `MacOSControlMetrics.FocusRing.strokeWidth`; the two used to disagree (2 vs 4) with both pinned as "the" macOS value. |
-| `SurfaceChrome.default.focusRingWidth`| 4     | "                                       |
+| `SurfaceChrome.focusRingStrokeWidth`  | **2** | Focus-ring stroke. Equals `MacOSControlMetrics.FocusRing.strokeWidth`; the two used to disagree (2 vs 4) with both pinned as "the" macOS value. A 2pt halo outside a 1px accent border — see the divergence table. |
+| `SurfaceChrome.default.focusRingWidth`| 2     | "                                       |
 | `SurfaceChrome.elevatedButton.borderWidth` | 1 | Elevated/prominent buttons match.       |
-| `SurfaceChrome.elevatedButton.focusRingWidth` | 4 | "                                    |
-| `ControlPalette.focusRingAlpha`       | 0.55  | A keyboard focus ring is a clearly visible accent halo, not the ~0.28 whisper the hand-tuned chrome drew. |
-| `MacOSControlMetrics.Button.regularCornerRadius` | 6 | Push-bezel corner radius. A capsule is the opt-in shape (`.buttonBorderShape(.capsule)`), never the default — 16 on a 22–30pt control clamps to h/2 and renders every button as a stadium. |
-| `MacOSControlMetrics.Button.smallCornerRadius` | 4 | `.mini` / `.small`, and the segmented pill. |
-| `MacOSControlMetrics.Button.largeCornerRadius` | 8 | `.large`.                            |
-| `Controls.surfaceSheenFactor`         | 0.96  | Luminance the bottom stop of a control sheen keeps, on a full-value surface. Apple retired the glossy bevel with Yosemite; the previous 0.82 was an 18% drop on every surface and is what made controls read as styled divs. |
-| `Controls.surfaceSheenDrop`           | 0.04  | The same step stated as a distance rather than a ratio (`1 - surfaceSheenFactor`). macOS's bezels travel about the same *absolute* amount in both appearances: a light push button runs #FFFFFF → #F5F5F5 and a dark one #545456 → #48484A. |
+| `SurfaceChrome.elevatedButton.focusRingWidth` | 2 | "                                    |
+| `ControlPalette.focusRingAlpha`       | **0.45** | A focus ring is a thin accent outline, drawn in the accent as *ink* so it is visible against the page it sits on. `accentFill` as a ring is 2.7:1 on the near-black page — a focus ring you cannot see on the control you just tabbed to. |
+| `MacOSControlMetrics.Button.regularCornerRadius` | 6 = `Radius.sm` | Push-bezel corner radius. A capsule is the opt-in shape (`.buttonBorderShape(.capsule)`), never the default — 16 on a 22–30pt control clamps to h/2 and renders every button as a stadium. |
+| `MacOSControlMetrics.Button.smallCornerRadius` | **6** = `Radius.sm` | `.small`, and the segmented pill — the same shape as the standard bezel at a smaller size. The 4 it used to carry is not a member of the radius scale. |
+| `MacOSControlMetrics.Button.miniCornerRadius` | 3 = `Radius.xs` | `.mini`.                  |
+| `MacOSControlMetrics.Button.largeCornerRadius` | 8 = `Radius.md` | `.large`.                |
+| `Controls.surfaceSheenFactor`         | **0.98** | Luminance the bottom stop of a control sheen keeps, on a full-value surface. A surface travels at the *edge of perception* — a couple of levels of 255 — and that slight amount is the whole difference between a surface and a rectangle of paint. 0.82 was an 18% drop that made every control a styled div; 0.96 was still visible on a card the size of a settings box. |
+| `Controls.surfaceSheenDrop`           | **0.02** | The same step stated as a distance rather than a ratio (`1 - surfaceSheenFactor`), so a translucent surface falls by what the *window* shows rather than by its own channels. |
 | `Controls.surfaceSheenRelativeCeiling`| 0.16  | Most of itself a surface may lose to its own sheen. The absolute step is calibrated on a near-white bezel; on a dim one it is most of what the surface has, and a `white(0.10)` control over a black page (25/255) would dissolve its bottom edge into the window. macOS's dark push bezel travels ~14% of itself. |
 | `Controls.borderSheenFadeFactor`      | 0.55  | Strength a bezel's ring keeps at its far edge. |
-| `Controls.grooveSheenFactor`          | 0.90  | The deeper shade a genuinely recessed groove keeps (slider/progress track, segmented track, text-field well). |
+| `Controls.grooveSheenFactor`          | **0.95** | The deeper shade a genuinely recessed groove keeps (slider/progress track, segmented track, text-field well). A groove is shaded rather than lit, so it travels further than a surface — still near-flat. |
 
 ### The sheen is a step in what the window shows
 
@@ -302,22 +493,24 @@ every row exists (`alignedGroupedFormRows`).
 
 | Constant                                       | Value | Notes |
 |------------------------------------------------|-------|-------|
-| `MacOSControlMetrics.Form.contentMaxWidth`     | 640   | Width of the centred content column. macOS settings run a ~600–715pt column with generous margins; edge to edge across a 1256pt window is a web layout, and it is what made a three-segment picker 1215pt wide. |
-| `MacOSControlMetrics.Form.contentHorizontalMargin` | 20 | Margin inside the column, so 640pt of column carries 600pt boxes. |
-| `MacOSControlMetrics.Form.labelColumnGap`      | 8     | Label column to value column. |
-| `MacOSControlMetrics.Form.sectionSpacing`      | 20    | Box to the next section's header. |
-| `MacOSControlMetrics.Form.headerSpacing`       | 6     | Header to the box it names. |
-| `MacOSControlMetrics.Form.headerLeadingInset`  | 6     | Header text sits just proud of the box's corner. |
-| `MacOSControlMetrics.Form.rowSpacing`          | 10    | Row to row inside a box. |
-| `MacOSControlMetrics.Form.boxVerticalPadding`  | 12    | Group box interior. |
-| `MacOSControlMetrics.Form.boxHorizontalPadding`| 16    | " |
-| `MacOSControlMetrics.GroupBox.cornerRadius`    | 10    | macOS Sonoma's grouped box radius. The previous 28 on a 600pt-wide card is a marketing panel, not an `NSBox`. |
-| `MacOSControlMetrics.GroupBox.shadowOffsetY`   | 2     | Ambient *contact* shadow only. |
-| `MacOSControlMetrics.GroupBox.shadowSpread`    | 3     | " |
-| `ControlPalette.groupedContainerShadow` (light)| black @ 0.04 | A macOS light-mode group box is near-flat: a white surface closed by a separator-tone hairline. The shared `ambientShadow` at 0.12 put a visible smudge under every card. |
-| `ControlPalette.groupedContainerShadow` (dark) | black @ 0.22 | Dark mode carries the depth the low-contrast hairline cannot. |
-| `ControlPalette.raisedSurfaceHighlight` (light)| white @ 0.55 | Top edge of a grouped container's ring. |
-| `ControlPalette.raisedSurfaceHighlight` (dark) | white @ 0.16 | " |
+| `MacOSControlMetrics.Form.contentMaxWidth`     | **720** | Width of the content column. 640 centred in a 1280 window leaves ~340pt of dead space on each side and reads as a pane borrowed from another app. |
+| `MacOSControlMetrics.Form.contentHorizontalMargin` | 20 | Margin inside the column. Still a *centred* column: leading-anchoring it inside the page margin is a decision the settings pane makes, not a chrome default — moving it here would re-anchor every grouped `Form` in every app. |
+| `MacOSControlMetrics.Form.labelColumnGap`      | **12** | Label column to value column. |
+| `MacOSControlMetrics.Form.sectionSpacing`      | **24** | Box to the next section's header. |
+| `MacOSControlMetrics.Form.headerSpacing`       | **8**  | Header to the box it names — 8 below against 24 above, the 3:1 ratio that keeps a header attached to what is *under* it rather than floating between two groups. |
+| `MacOSControlMetrics.Form.headerLeadingInset`  | **0**  | A section header sits flush with the box it names. |
+| `MacOSControlMetrics.Form.rowSpacing`          | **12** | Row to row inside a box. |
+| `MacOSControlMetrics.Form.boxVerticalPadding`  | **8**  | Group box interior. The end state is 0 — a row states its own `rowMinHeight`, so box padding only doubles the first and last gaps — but that is only correct once rows carry that height, which is the settings pane's own rebuild. Kept at one scale step until then, and recorded as the interim it is. |
+| `MacOSControlMetrics.Form.boxHorizontalPadding`| 16     | " |
+| `MacOSControlMetrics.Form.rowMinHeight`        | 36     | Minimum height of a form row. |
+| `MacOSControlMetrics.Form.descriptiveRowMinHeight` | 52 | …and of a row that also carries a description line. |
+| `MacOSControlMetrics.GroupBox.cornerRadius`    | 10 = `Radius.lg` | The card radius. The previous 28 on a 600pt-wide card is a marketing panel, not a settings box. |
+| `MacOSControlMetrics.GroupBox.shadowOffsetY`   | **1**  | `Elevation.e1`. The unspecified offset that used to default large is what smeared every gutter in the window. |
+| `MacOSControlMetrics.GroupBox.shadowSpread`    | 3      | " |
+| `ControlPalette.groupedContainerShadow` (light)| `#0C0C0E` @ 0.06 | `e1` — a paper lift. |
+| `ControlPalette.groupedContainerShadow` (dark) | **none** | A shadow under a near-black card on a near-black page is invisible work, and at any alpha you can see it fills the gutter beside the card with a smear. The hairline carries the edge. |
+| `ControlPalette.raisedSurfaceHighlight` (light)| white @ 0.75 | Top edge of a container's ring (`edgeHighlight`). |
+| `ControlPalette.raisedSurfaceHighlight` (dark) | white @ 0.10 | " |
 
 ### The panel material
 
@@ -366,39 +559,49 @@ The neutrals are **achromatic**, asserted by `ControlAppearanceChromeTests`.
 The retired palette was blue-cast navy — a `(0.18, 0.23, 0.31)` bordered
 fill under `(0.96, 0.98, 1.0)` borders — where macOS uses grey.
 
-| Role                             | Dark            | Light           | AppKit source |
-|----------------------------------|-----------------|-----------------|---------------|
-| `windowBackground`               | #212121         | #ECECEC         | `windowBackgroundColor` |
-| `controlBackground`              | #1E1E1E         | #FFFFFF         | `controlBackgroundColor` / `textBackgroundColor` |
-| `controlSurface` (bordered face) | white @ 0.10    | #FFFFFF         | `controlColor` |
-| `raisedSurface`                  | #282829         | #FFFFFF         | grouped box |
-| `label`                          | white @ 0.85    | black @ 0.85    | `labelColor` |
-| `secondaryLabel`                 | white @ 0.55    | black @ 0.50    | `secondaryLabelColor` |
-| `tertiaryLabel`                  | white @ 0.25    | black @ 0.26    | `tertiaryLabelColor` |
-| `disabledLabel`                  | white @ 0.25    | black @ 0.25    | `disabledControlTextColor` |
-| `separator`                      | white @ 0.10    | black @ 0.10    | `separatorColor` |
-| `controlBorder`                  | white @ 0.14    | black @ 0.16    | control bezel ring |
-| `unemphasizedSelectedBackground` | #3F3F41         | #DCDCDD         | `unemphasizedSelectedContentBackgroundColor` |
-| `systemFill` … `quinaryFill`     | white @ .10/.08/.05/.03/.02 | black @ same | `systemFill` ramp |
-| `controlTrack`                   | #4D5766         | #D6D6DA         | slider / progress / switch groove |
-| `segmentedTrackFill`             | #2C2C2E         | #E9E9EB         | NSSegmentedControl groove |
-| `segmentedSelectedFill`          | #636366         | #FFFFFF         | selected segment pill |
-| `segmentedSelectedLabel`         | white           | black           | selected segment label |
-| `elevatedSurface`                | #2B2B2D @ 0.98  | #F9F9FA @ 0.98  | floating-panel material |
-| `elevatedSurfaceBorder`          | white @ 0.16    | black @ 0.14    | floating-panel hairline |
-| `scrollerKnob`                   | white @ 0.48    | black @ 0.42    | `NSScroller` overlay knob |
-| `scrollerKnobHovered`            | white @ 0.64    | black @ 0.58    | knob under the pointer |
-| `scrollerKnobActive`             | white @ 0.78    | black @ 0.72    | knob being dragged |
+`ink(_:)` below is `#0C0C0E` at an alpha — the page's own neutral, which is
+what a light-appearance wash is mixed from. Pure black on a cool near-white
+page reads a shade warm; the page's ink does not.
+
+| Role                             | Dark            | Light           | Token |
+|----------------------------------|-----------------|-----------------|-------|
+| `windowBackground`               | #0C0C0E         | #F2F3F5         | `base` |
+| `controlBackground`              | #111113         | #F7F8FA         | `surface0` |
+| `controlSurface` (bordered face) | #1E1E22         | #FFFFFF         | `surface2` / `surface1` — **opaque**. A `white(0.10)` wash over a #212121 window was a visible plate; over the near-black page it is 25/255 of nothing, and every button dissolved into its own backdrop |
+| `controlSurfaceHovered`          | #26262B         | #F7F8FA         | `surface3` / `surface0` |
+| `controlSurfacePressed`          | #2C2C32         | #ECEDF1         | `surface4` |
+| `fieldSurface`                   | #1E1E22         | #FFFFFF         | The appearances are genuine inverses and both are right: a field is one step *lighter* than the card on near-black (a darker recess there is a hole) and one step lighter than the chips beside it on near-white |
+| `raisedSurface`                  | #17171A         | #FFFFFF         | `surface1` |
+| `label`                          | white @ 0.95    | ink @ 0.92      | text-1 |
+| `secondaryLabel`                 | white @ 0.66    | ink @ 0.66      | text-2 |
+| `tertiaryLabel`                  | white @ 0.47    | ink @ 0.54      | text-3 |
+| `quaternaryLabel`                | white @ 0.30    | ink @ 0.34      | text-4 |
+| `disabledLabel`                  | white @ 0.30    | ink @ 0.34      | text-4 — a disabled label is the same tone as a chevron |
+| `separator`                      | white @ 0.06    | ink @ 0.07      | `strokeSubtle` |
+| `controlBorder`                  | white @ 0.09    | ink @ 0.10      | `stroke` |
+| `controlBorderStrong` / `separatorStrong` | white @ 0.14 | ink @ 0.15 | `strokeStrong` |
+| `unemphasizedSelectedBackground` | #26262B         | #E6E8EC         | `surface3` |
+| `systemFill` … `quinaryFill`     | white @ .10/.08/.05/.03/.02 | ink @ same | fill ramp |
+| `controlTrack`                   | #26262B         | #D2D4DA         | slider / progress / switch groove. The `#4D5766` slate it used to be was the last chromatic neutral in the app, on the one control that sits in every settings row |
+| `segmentedTrackFill`             | #1E1E22         | #F1F2F5         | `surface2` — a recess inside a card is a recess inside a card |
+| `segmentedSelectedFill`          | #26262B         | #FFFFFF         | `surface3` + `e1`. The pill's lift comes from *elevation*, not lightness: #636366 was a mid-grey plate six steps above its own track so it could be seen |
+| `segmentedSelectedLabel`         | `label`         | `label`         | a selected segment is the one you are meant to read |
+| `elevatedSurface`                | #26262B @ 0.98  | #E6E8EC @ 0.98  | floating-panel material |
+| `elevatedSurfaceBorder`          | `strokeStrong`  | `strokeStrong`  | a floating panel has no page around it to borrow an edge from |
+| `scrollerKnob`                   | white @ 0.22    | ink @ 0.18      | overlay knob — **nearly invisible at rest** |
+| `scrollerKnobHovered`            | white @ 0.34    | ink @ 0.30      | knob under the pointer |
+| `scrollerKnobActive`             | white @ 0.50    | ink @ 0.46      | knob being dragged |
+| `accentForeground` / `accentFill` | see the accent section above | | |
 
 `controlTrack` is the groove a *continuous* control's fill runs along: a
 `Slider`'s unfilled bar, a determinate `ProgressView`'s remainder, a `Gauge`'s
 empty span, and the body of an `off` `Toggle`. All four read the same
 hard-coded dark slate off `Controls` and no WinSwiftUI caller overrode it, so
 `--appearance light` drew a near-black bar across a white settings pane and an
-`off` switch came out charcoal — the last controls still wearing the dark
-appearance. The dark value is that literal unchanged, so no dark-mode pixel
-moved. `ControlTrackAppearanceTests` pins both values and the wiring on all
-four controls.
+`off` switch came out charcoal. It is `surface3` now: a groove is a recess in
+a surface, and it is whatever tone that surface's own ramp says a recess is,
+not a colour of its own. `ControlTrackAppearanceTests` pins both values and
+the wiring on all four controls.
 
 `elevatedSurface` is a *different* elevation from `raisedSurface`: a raised
 surface is a card on the window's own backdrop, an elevated one floats above
@@ -417,12 +620,34 @@ one — is what made the bar read as three chained web buttons inside a fourth.
 `.increased` contrast strengthens exactly the roles AppKit strengthens:
 hairlines, control borders and secondary/tertiary text.
 
-Selection and accent are derived, not stored: `selectedContentBackground` is
-the **opaque** accent (macOS fills a selected row solid; it does not wash it),
-and accent state is a lightness move — hover +8%, pressed −12% — never an
-alpha ramp that lets the backdrop bleed through a half-disabled looking fill.
-`ControlPalette.ambientShadow` is black @ 0.12 at offset (0, 1), spread 1:
-macOS never tints a control shadow with the accent or role colour.
+Selection and accent are derived, not stored. There are **two** selection
+fills and the difference matters:
+
+- `selectedContentBackground(tint:)` is the **opaque** accent, for a surface
+  that genuinely is filled — a highlighted menu item, a filled badge. White
+  content on it.
+- `listSelectionBackground(tint:)` is an **accent wash** (`accentWashStrong`),
+  for a row in a list or table. A selected row used to take the solid accent
+  with white text on it; on the demo's Data screen that is a full-bleed
+  saturated band across the window — the loudest object in the app for the
+  least important reason. The wash keeps the row on the page's own ladder and
+  lets a leading indicator bar say "this one". An unfocused list falls back to
+  the neutral `surface3` fill.
+
+Because the row is no longer a *filled* surface, a selected row does not set
+`.increased` background prominence any more: that flag means "this content
+sits on a filled emphasised surface", and inverting content to white on a
+wash is white-on-`#E4E2F8` in the light appearance. The row supplies the
+primary label rung as its inherited default instead.
+
+Accent state is a lightness move — the pinned `accentFillHovered` /
+`accentFillPressed` stops for the system accent, +8% / −12% for a tint the app
+chose — never an alpha ramp that lets the backdrop bleed through a
+half-disabled looking fill.
+
+`ControlPalette.controlShadow` follows the same appearance-conditional rule
+the cards do: `e1` in light, nothing in dark. A control shadow is never
+tinted with the accent or role colour.
 
 ## Material backdrop blur
 
@@ -486,11 +711,18 @@ that is macOS's own behaviour, not a defect in the pair table: the light
 value already is the darker-on-white member. Colour on a light surface
 carries emphasis, not legibility; the reading is the label colour's job.
 
-`Color.accentColor` and `ViewBuildContext.defaultTint` both resolve to
-`Color.blue`'s light value (`#007AFF`), matching macOS's default
-controlAccentColor when the user hasn't picked a custom accent. The tint
-is not run through the appearance resolver: control chrome takes its
-accent from `ControlPalette`, which owns its own per-appearance tones.
+`Color.accentColor` and `ViewBuildContext.defaultTint` are the design
+system's own `accentFill` (`#5B4DE0`) and are **not** members of this pair
+table. They used to be `Color.blue`'s light value (`#007AFF`), macOS's
+default controlAccentColor — the right answer for an app cloning macOS and
+the wrong one for an app with a signature: the OS blue arrived in every
+render as a fourth unrelated hue beside the module tints, and "the accent"
+was whatever the OS happened to ship.
+
+Because the accent is not in the pair table, the resolver returns it
+unchanged in either appearance, which is exactly right for a fill. The *ink*
+half of the accent is per-appearance and lives on `ControlPalette`
+(`accentForeground`), reached from a tint through `accentInk(for:)`.
 
 ## Control dimension reference
 
@@ -517,9 +749,9 @@ grids.
 | Control                      | Constant                                  | Value     |
 |------------------------------|-------------------------------------------|-----------|
 | Push button (.regular)       | `Button.regularHeight`                    | 22 pt     |
-| Push bezel corner radius     | `Button.regularCornerRadius`              | 6 pt      |
+| Push bezel corner radius     | `Button.regularCornerRadius`              | 6 pt (`Radius.sm`) |
 | Push button (.large)         | `Button.largeHeight`                      | 32 pt     |
-| Toggle switch (.regular)     | `Toggle.regularSize`                      | 38×22 pt  |
+| Toggle switch (.regular)     | `Toggle.regularSize`                      | **40×22 pt**, knob 18 at a 2pt inset |
 | Slider track thickness       | `Slider.trackThickness`                   | 4 pt      |
 | Slider thumb diameter        | `Slider.thumbDiameter`                    | 16 pt     |
 | Stepper half (one arrow)     | `Stepper.buttonSize`                      | 13×11 pt  |
@@ -531,19 +763,19 @@ grids.
 | Pop-up button (.regular)     | `PopUpButton.regularHeight`               | 22 pt     |
 | Progress bar (.regular)      | `ProgressBar.regularHeight`               | 6 pt      |
 | Progress spinner (.regular)  | `ProgressSpinner.regularDiameter`         | 16 pt     |
-| Text field (.regular)        | `TextField.regularHeight`                 | 21 pt     |
-| List row (plain)             | `List.plainRowHeight`                     | 24 pt     |
-| List row (sidebar)           | `List.sidebarRowHeight`                   | 28 pt     |
+| Text field (.regular)        | `TextField.regularHeight`                 | **22 pt** — so `+ windowsPointerPadding` lands a field on 28, the same height as a button |
+| List row (plain)             | `List.plainRowHeight`                     | **30 pt** |
+| List row (sidebar)           | `List.sidebarRowHeight`                   | **30 pt** — one row height for the app |
 | List content inset           | `List.contentInset`                       | 16 pt     |
-| Inset list body corner       | `List.insetCornerRadius`                  | 6 pt      |
+| Inset list body corner       | `List.insetCornerRadius`                  | 6 pt (`Radius.sm`) |
 | Inset list body top/bottom   | `List.insetVerticalInset`                 | 6 pt      |
-| Overlay scroller knob        | `Scroller.overlayThumbThickness`          | 7 pt      |
+| Overlay scroller knob        | `Scroller.overlayThumbThickness`          | **6 pt**  |
 | Overlay scroller inset       | `Scroller.overlayInset`                   | 4 pt      |
 | Overlay scroller min knob    | `Scroller.minimumThumbLength`             | 24 pt     |
 | Toolbar (regular)            | `Toolbar.regularHeight`                   | 52 pt     |
-| Window corner radius         | `Window.cornerRadius`                     | 10 pt     |
-| Sheet corner radius          | `Window.sheetCornerRadius`                | 12 pt     |
-| Focus ring stroke            | `FocusRing.strokeWidth`                   | 4 pt      |
+| Window corner radius         | `Window.cornerRadius`                     | 10 pt (`Radius.lg`) |
+| Sheet corner radius          | `Window.sheetCornerRadius`                | 12 pt (`Radius.xl`) |
+| Focus ring stroke            | `FocusRing.strokeWidth`                   | **2 pt**  |
 | Default stack spacing        | `Layout.defaultStackSpacing`              | 8 pt      |
 | Default `.padding()`         | `Layout.defaultPadding`                   | 16 pt     |
 
@@ -560,6 +792,11 @@ The runtime supplies the mechanism (`ViewNode.scrollIndicatorAutoHides`,
 `flashScrollIndicator(for:)`), WinSwiftUI sets the policy:
 `.scrollIndicators(.automatic)` — the default — is an overlay scroller;
 `.scrollIndicators(.visible)` is the legacy persistent bar.
+
+A modern overlay scroller is also **nearly invisible at rest**: the 0.48 /
+0.42 knob this used to draw made the scrollbar the brightest object in
+whatever column it floated over, which is the one thing a scrollbar must never
+be. The lifecycle below is unchanged — fast in, quiet out.
 
 | Timing                                          | Value  |
 |-------------------------------------------------|--------|
@@ -647,6 +884,13 @@ Remaining recorded divergences, with rationale:
 | Surface                | Windows value                    | Rationale |
 |------------------------|----------------------------------|-----------|
 | Control heights        | `macOS reference + 6 pt` (scaled) | Windows pointer-target ergonomics, applied as one constant. |
+| **Focus ring**         | 2 pt halo outside a 1 px accent border, alpha 0.45 | macOS draws a 4 pt soft ring. On this radius scale 4 pt of ring around a 6 pt corner swallows the corner, so the focused control loses the shape that identifies it at the moment you need to find it. |
+| **Toggle switch**      | 40×22 with an 18 pt knob         | The one control sized outside the "reference + pointer padding" rule. A padded 38×22 comes out at 52×32, which is an iOS switch: the largest object in a settings pane, for a boolean. |
+| **Text field height**  | reference 22 rather than 21      | So the shipped field is 28 — the same height as a button. A field and the button beside it differing by one point is the kind of misalignment nobody can name and everybody sees. |
+| **List row height**    | 30 plain *and* 30 sidebar        | macOS's 24/28 split is a distinction between two kinds of list this design does not draw, and a 24 pt row is cramped under a 13 pt label with a 15 pt glyph beside it. |
+| **Selected list row**  | accent *wash* + primary label    | macOS fills a selected row solid with white content on it. At full-bleed table width that is the loudest object in the app for the least important reason; the wash plus a leading indicator says the same thing quietly. |
+| **`caption` size**     | 11 rather than SwiftUI's 10      | The smallest string a reader is expected to read. 10 survives as `caption2`, the axis-label role. |
+| **Section header**     | 15/600 at the primary rung       | A settings section header is a heading, not a label. The 11 pt secondary-rung eyebrow is a System Settings idiom and floats between two boxes belonging to neither. |
 | Button content bezel   | 12/3 pt (regular), 16/6 pt (large) | Segoe UI renders wider than SF Pro at the same point size; the horizontal inset is the macOS push-bezel margin, the vertical one is what the control-size height leaves around the line box. |
 | Separator thickness    | `1 / displayScale`               | One physical pixel at any backing scale, like an AppKit separator — a 1pt rule would double to 2px at 2x. |
 | Tab band inset         | 12/16 pt around a centered group | macOS insets an `.automatic` tab view from the window edge and centres the segment group instead of distributing tabs across the full width. |

@@ -97,8 +97,8 @@ final class ChromeCompositionTests: XCTestCase {
         try await MainActor.run {
             let node = makeChromeNode(Button("Go") {}.buttonStyle(.borderedProminent))
             let background = try XCTUnwrap(node.backgroundColor)
-            // Default tint is Color.blue (#007AFF).
-            XCTAssertEqual(background.blue, 1.0, accuracy: 0.02)
+            // Default tint is the design accent as an opaque fill, #5B4DE0.
+            XCTAssertEqual(background, ControlPalette.darkStandard.accentFill)
             let sheen = try XCTUnwrap(node.backgroundGradient)
             XCTAssertLessThan(sheen.endColor.blue, background.blue)
         }
@@ -160,18 +160,27 @@ final class ChromeCompositionTests: XCTestCase {
         }
     }
 
-    /// The step is capped relative to the surface so a dark control does not
-    /// lose its bottom edge to its own sheen.
+    /// The step is capped relative to the surface so a dim control does not
+    /// lose its bottom edge to its own sheen. The bordered face is opaque
+    /// now, so it takes the full absolute step; the ceiling binds on the
+    /// washes that remain — the fill ramp a plain button hovers into.
     func testDarkControlSheenIsCappedRelativeToItsSurface() async {
         let palette = ControlPalette.darkStandard
-        let surface = palette.controlSurface
-        let bottom = Controls.sheenBottom(surface, drop: Controls.surfaceSheenDrop)
-        let value = Controls.compositeValue(surface)
+        let wash = palette.quaternaryFill
+        let bottom = Controls.sheenBottom(wash, drop: Controls.surfaceSheenDrop)
+        let value = Controls.compositeValue(wash)
         let travel = value - Controls.compositeValue(bottom)
         XCTAssertEqual(
             travel, value * Controls.surfaceSheenRelativeCeiling, accuracy: 0.0005,
-            "A 25/255 surface takes the relative ceiling, not the full absolute step"
+            "a 8/255 wash takes the relative ceiling, not the full absolute step"
         )
+        // …and the opaque bezel beside it takes the absolute step, which is
+        // the whole point of stating the sheen as a distance.
+        let surface = palette.controlSurface
+        let surfaceValue = Controls.compositeValue(surface)
+        let surfaceTravel =
+            surfaceValue - Controls.compositeValue(Controls.sheenBottom(surface, drop: Controls.surfaceSheenDrop))
+        XCTAssertEqual(surfaceTravel, Controls.surfaceSheenDrop, accuracy: 0.0005)
     }
 
     /// Every opaque full-value surface is where the two formulations meet:
@@ -246,7 +255,9 @@ final class ChromeCompositionTests: XCTestCase {
             XCTAssertGreaterThan(
                 selectedBackground.red, ControlPalette.darkStandard.segmentedTrackFill.red,
                 "the pill is raised out of the track")
-            XCTAssertGreaterThan(segmentButton.shadowColor.alpha, 0.1)
+            // The lift is `e1`: one quiet tonal step plus a contact shadow,
+            // rather than the six-step mid-grey plate the pill used to be.
+            XCTAssertGreaterThan(segmentButton.shadowColor.alpha, 0.05)
         }
     }
 
@@ -258,18 +269,22 @@ final class ChromeCompositionTests: XCTestCase {
 
             let onNode = Controls.toggle(runtime: runtime, isOn: true)
             let onTrack = try XCTUnwrap(
-                firstDescendant(onNode) { $0.preferredSize?.width == 44 && $0.preferredSize?.height == 24 })
+                firstDescendant(onNode) { $0.preferredSize?.width == 40 && $0.preferredSize?.height == 22 })
             XCTAssertNotNil(onTrack.backgroundGradient)
             XCTAssertEqual(onTrack.borderWidth, 1, accuracy: 0.001)
+            // The knob is a flat white disc lifted by `e1`. It used to carry
+            // a gradient *and* a hairline edge *and* a 0.32 shadow — three
+            // depth cues stacked on an 18pt circle.
             let onThumb = try XCTUnwrap(onTrack.children.first)
-            XCTAssertEqual(onThumb.borderWidth, 1, accuracy: 0.001)
+            XCTAssertEqual(onThumb.borderWidth, 0, accuracy: 0.001)
             XCTAssertGreaterThan(onThumb.shadowColor.alpha, 0.1)
-            XCTAssertNotNil(onThumb.backgroundGradient)
+            XCTAssertNil(onThumb.backgroundGradient)
+            XCTAssertEqual(onThumb.frame.width, 18, accuracy: 0.001)
 
             // Off state: recessed track — top stop darker than bottom stop.
             let offNode = Controls.toggle(runtime: runtime, isOn: false)
             let offTrack = try XCTUnwrap(
-                firstDescendant(offNode) { $0.preferredSize?.width == 44 && $0.preferredSize?.height == 24 })
+                firstDescendant(offNode) { $0.preferredSize?.width == 40 && $0.preferredSize?.height == 22 })
             let offBackground = try XCTUnwrap(offTrack.backgroundColor)
             let offGradient = try XCTUnwrap(offTrack.backgroundGradient)
             XCTAssertLessThan(offBackground.red, offGradient.endColor.red)
@@ -395,7 +410,7 @@ final class ChromeCompositionTests: XCTestCase {
             // rebuild that used to strip a focused field's ring.
             let surface = try XCTUnwrap(node.interactionSurface)
             XCTAssertEqual(surface.focusRingWidth, MacOSControlMetrics.FocusRing.strokeWidth, accuracy: 0.001)
-            XCTAssertGreaterThanOrEqual(try XCTUnwrap(surface.focusRingColor).alpha, 0.5)
+            XCTAssertGreaterThanOrEqual(try XCTUnwrap(surface.focusRingColor).alpha, 0.4)
             XCTAssertEqual(node.outlineWidth, 0, accuracy: 0.001, "no ring until focus arrives")
         }
     }

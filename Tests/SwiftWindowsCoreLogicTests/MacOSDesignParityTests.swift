@@ -57,8 +57,13 @@ final class MacOSDesignParityTests: XCTestCase {
         XCTAssertEqual(Font.footnote.size, 10, accuracy: 0.001)
     }
 
+    /// The `caption` role is 11, not 10: a caption is the smallest string in
+    /// the app a reader is actually expected to read, and at 10pt in the
+    /// third rung it was a texture. 10 survives as `caption2`, the axis-label
+    /// role — a number you glance at beside a mark that already answered you.
     func testCaptionSizeMatchesSwiftUIDefault() async {
-        XCTAssertEqual(Font.caption.size, 10, accuracy: 0.001)
+        XCTAssertEqual(Font.caption.size, 11, accuracy: 0.001)
+        XCTAssertGreaterThan(Font.caption.size, Font.caption2.size)
     }
 
     func testCaption2SizeMatchesSwiftUIDefault() async {
@@ -100,29 +105,34 @@ final class MacOSDesignParityTests: XCTestCase {
     func testDefaultControlChromeMatchesMacOS() async {
         let chrome = SurfaceChrome.default
         XCTAssertEqual(chrome.borderWidth, 1, "Standard controls use a hairline border")
-        // One focus-ring number across both pinned sources: this used to say
-        // 2 while `MacOSControlMetrics.FocusRing.strokeWidth` said 4, with
-        // both documented as "the" macOS value.
-        XCTAssertEqual(chrome.focusRingWidth, 4, "Focus ring matches macOS stroke width")
+        // One focus-ring number across both pinned sources. A 2pt halo
+        // outside a 1px accent border: 4pt of ring around a 6pt corner
+        // swallows the corner, so a focused control loses the shape that
+        // identifies it at the moment you need to find it.
+        XCTAssertEqual(chrome.focusRingWidth, 2, "Focus ring is a thin outline, not a bloom")
         XCTAssertEqual(chrome.focusRingWidth, SurfaceChrome.focusRingStrokeWidth)
     }
 
     func testElevatedButtonChromeMatchesMacOS() async {
         let chrome = SurfaceChrome.elevatedButton
         XCTAssertEqual(chrome.borderWidth, 1)
-        XCTAssertEqual(chrome.focusRingWidth, 4)
+        XCTAssertEqual(chrome.focusRingWidth, 2)
         XCTAssertEqual(chrome.focusRingWidth, SurfaceChrome.focusRingStrokeWidth)
     }
 
     func testControlSurfaceSheenIsBigSurFlat() async {
-        // Apple retired the glossy bevel with Yosemite; the 0.82 end stop
-        // this used to carry is an 18% luminance drop on every control.
-        XCTAssertEqual(Controls.surfaceSheenFactor, 0.96, accuracy: 0.0001)
-        XCTAssertEqual(Controls.grooveSheenFactor, 0.90, accuracy: 0.0001)
-        // The same step stated as a distance: macOS's bezels travel about
-        // the same absolute amount in both appearances (#FFFFFF → #F5F5F5
-        // light, #545456 → #48484A dark).
-        XCTAssertEqual(Controls.surfaceSheenDrop, 0.04, accuracy: 0.0001)
+        // A surface's travel is at the *edge of perception* — a couple of
+        // levels of 255 — and that slight amount is the whole difference
+        // between a surface and a rectangle of paint. 0.82 was an 18% drop
+        // that made every control a styled div; 0.96 was still visible on a
+        // card the size of a settings box. The system specifies -0.02.
+        XCTAssertEqual(Controls.surfaceSheenFactor, 0.98, accuracy: 0.0001)
+        // A groove is genuinely shaded rather than lit, so it travels
+        // further than a surface — still near-flat.
+        XCTAssertEqual(Controls.grooveSheenFactor, 0.95, accuracy: 0.0001)
+        // The same step stated as a distance rather than a ratio, so a
+        // translucent surface falls by what the *window* shows.
+        XCTAssertEqual(Controls.surfaceSheenDrop, 0.02, accuracy: 0.0001)
         XCTAssertEqual(Controls.surfaceSheenDrop, 1 - Controls.surfaceSheenFactor, accuracy: 0.0001)
         // …capped relative to the surface, so a dim control does not lose its
         // bottom edge to its own sheen. macOS's dark push bezel travels ~14%.
@@ -147,8 +157,12 @@ final class MacOSDesignParityTests: XCTestCase {
             XCTAssertEqual(ring.startColor, palette.raisedSurfaceHighlight)
             XCTAssertEqual(ring.endColor, palette.separator)
         }
-        XCTAssertEqual(ControlPalette.darkStandard.raisedSurfaceHighlight, ControlPalette.white(0.16))
-        XCTAssertEqual(ControlPalette.lightStandard.raisedSurfaceHighlight, ControlPalette.white(0.55))
+        // `edge-highlight`: the top stop of every ring. A dark ring is
+        // brightest at the top; a light ring withdraws at the top and closes
+        // at the bottom, which is the identical lighting read the other way
+        // round.
+        XCTAssertEqual(ControlPalette.darkStandard.raisedSurfaceHighlight, ControlPalette.white(0.10))
+        XCTAssertEqual(ControlPalette.lightStandard.raisedSurfaceHighlight, ControlPalette.white(0.75))
     }
 
     func testInsetListBodyMetricsMatchAnInsetNSTableView() async {
@@ -156,10 +170,15 @@ final class MacOSDesignParityTests: XCTestCase {
         XCTAssertEqual(MacOSControlMetrics.List.insetVerticalInset, 6, accuracy: 0.001)
     }
 
+    /// Every button radius is a step of the scale: `sm` for the standard
+    /// bezel *and* the segmented pill (they are the same shape at different
+    /// sizes), `xs` for `.mini`, `md` for `.large`. The 4 that `.small` used
+    /// to carry is not a member of the scale.
     func testPushButtonCornerRadiusIsARoundedRect() async {
-        XCTAssertEqual(MacOSControlMetrics.Button.regularCornerRadius, 6)
-        XCTAssertEqual(MacOSControlMetrics.Button.smallCornerRadius, 4)
-        XCTAssertEqual(MacOSControlMetrics.Button.largeCornerRadius, 8)
+        XCTAssertEqual(MacOSControlMetrics.Button.regularCornerRadius, MacOSControlMetrics.Radius.sm)
+        XCTAssertEqual(MacOSControlMetrics.Button.smallCornerRadius, MacOSControlMetrics.Radius.sm)
+        XCTAssertEqual(MacOSControlMetrics.Button.miniCornerRadius, MacOSControlMetrics.Radius.xs)
+        XCTAssertEqual(MacOSControlMetrics.Button.largeCornerRadius, MacOSControlMetrics.Radius.md)
     }
 
     func testControlAnimationStyleDefaultsMatchMacOSBigSur() async {
@@ -201,37 +220,157 @@ final class MacOSDesignParityTests: XCTestCase {
         XCTAssertLessThan(ControlPalette.pressedContentOpacity, 1.0)
     }
 
+    /// The type roles. **The weight axis is the hierarchy tool, not size** —
+    /// a 14/600 card title and the 13/400 body under it differ by one point
+    /// and read as clearly different roles because weight *and* rung move.
+    ///
+    /// The two section-header sizes are one call site serving two roles: a
+    /// settings section names a group you are about to read (a heading), a
+    /// list group names rows you are already reading past (a label).
+    func testTypeRolesArePinned() async {
+        XCTAssertEqual(MacOSControlMetrics.Typography.controlLabelSize, 12, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Typography.cardTitleSize, 14, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Typography.eyebrowSize, 11, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Typography.sectionHeaderSize, 11, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Typography.formSectionHeaderSize, 15, accuracy: 0.001)
+        XCTAssertGreaterThan(
+            MacOSControlMetrics.Typography.formSectionHeaderSize,
+            MacOSControlMetrics.Typography.sectionHeaderSize)
+        XCTAssertEqual(MacOSControlMetrics.Typography.uppercaseTrackingRatio, 0.06, accuracy: 0.0001)
+        XCTAssertEqual(MacOSControlMetrics.Typography.symbolBoxRatio, 1.25, accuracy: 0.0001)
+    }
+
     // MARK: - Grouped form and group box
 
     func testGroupedFormMetricsMatchTheMacOSSettingsPane() async {
-        XCTAssertEqual(MacOSControlMetrics.Form.contentMaxWidth, 640, accuracy: 0.001)
+        // A 640pt column centred in a 1280 window leaves ~340pt of dead
+        // space on each side and reads as a pane borrowed from another app.
+        XCTAssertEqual(MacOSControlMetrics.Form.contentMaxWidth, 720, accuracy: 0.001)
+        // Still a *centred* column with a margin: leading-anchoring it inside
+        // the page margin is a decision the settings pane makes, not a chrome
+        // default — moving it here would re-anchor every grouped Form.
+        //
+        // Interim: the design system's end state is 0 vertical box padding,
+        // which is only correct once a row carries its own `rowMinHeight`.
+        // Until then a zero-padded box sits its first row flush against its
+        // own corner, so the box keeps one scale step.
         XCTAssertEqual(MacOSControlMetrics.Form.contentHorizontalMargin, 20, accuracy: 0.001)
-        XCTAssertEqual(MacOSControlMetrics.Form.labelColumnGap, 8, accuracy: 0.001)
-        XCTAssertEqual(MacOSControlMetrics.Form.sectionSpacing, 20, accuracy: 0.001)
-        XCTAssertEqual(MacOSControlMetrics.Form.headerSpacing, 6, accuracy: 0.001)
-        XCTAssertEqual(MacOSControlMetrics.Form.headerLeadingInset, 6, accuracy: 0.001)
-        XCTAssertEqual(MacOSControlMetrics.Form.rowSpacing, 10, accuracy: 0.001)
-        XCTAssertEqual(MacOSControlMetrics.Form.boxVerticalPadding, 12, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Form.labelColumnGap, 12, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Form.sectionSpacing, 24, accuracy: 0.001)
+        // 8 below against 24 above — the 3:1 ratio that keeps a header
+        // attached to what is under it rather than floating between groups.
+        XCTAssertEqual(MacOSControlMetrics.Form.headerSpacing, 8, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Form.headerLeadingInset, 0, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Form.rowSpacing, 12, accuracy: 0.001)
+        // A row states its own height, so box padding would only double the
+        // first and last gaps.
+        XCTAssertEqual(MacOSControlMetrics.Form.boxVerticalPadding, 8, accuracy: 0.001)
         XCTAssertEqual(MacOSControlMetrics.Form.boxHorizontalPadding, 16, accuracy: 0.001)
-        // The content column carries ~600pt boxes, which is the low end of
-        // macOS's 600–715pt settings column.
-        XCTAssertEqual(
-            MacOSControlMetrics.Form.contentMaxWidth - 2 * MacOSControlMetrics.Form.contentHorizontalMargin,
-            600,
-            accuracy: 0.001
-        )
+        XCTAssertEqual(MacOSControlMetrics.Form.rowMinHeight, 36, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Form.descriptiveRowMinHeight, 52, accuracy: 0.001)
+        for gap in [
+            MacOSControlMetrics.Form.labelColumnGap,
+            MacOSControlMetrics.Form.sectionSpacing,
+            MacOSControlMetrics.Form.headerSpacing,
+            MacOSControlMetrics.Form.rowSpacing,
+            MacOSControlMetrics.Form.boxHorizontalPadding,
+            MacOSControlMetrics.Form.boxVerticalPadding,
+            MacOSControlMetrics.Form.contentHorizontalMargin,
+        ] {
+            XCTAssertTrue(
+                MacOSControlMetrics.Spacing.scale.contains(gap), "a form gap is not a step of the 4/8 grid")
+        }
     }
 
+    /// The spacing scale is a 4/8 grid and nothing else is legal. Half a
+    /// dozen near-miss values (6, 10, 14, 18, 26, 30) do not read as a
+    /// rhythm; they read as the absence of one.
+    func testSpacingScaleIsAFourEightGrid() async {
+        XCTAssertEqual(MacOSControlMetrics.Spacing.scale, [4, 8, 12, 16, 20, 24, 32, 40, 48, 64])
+        XCTAssertEqual(MacOSControlMetrics.Layout.defaultStackSpacing, MacOSControlMetrics.Spacing.s2)
+        XCTAssertEqual(MacOSControlMetrics.Layout.labelIconSpacing, MacOSControlMetrics.Spacing.s2)
+        XCTAssertEqual(MacOSControlMetrics.Layout.defaultPadding, MacOSControlMetrics.Spacing.s4)
+    }
+
+    /// **Nothing in the app exceeds 12.** The 16 / 20 / 22 / 24 / 26 / 30 the
+    /// app used to carry is what made it read as bubbly: a 20pt radius on a
+    /// 28pt row is a stadium, and a window full of stadiums is a consumer toy
+    /// however correct its tones are.
+    func testRadiusScaleTopsOutAtTwelve() async {
+        XCTAssertEqual(MacOSControlMetrics.Radius.xs, 3, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Radius.sm, 6, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Radius.md, 8, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Radius.lg, 10, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Radius.xl, 12, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Radius.maximum, MacOSControlMetrics.Radius.xl, accuracy: 0.001)
+        for radius in [
+            MacOSControlMetrics.Button.regularCornerRadius,
+            MacOSControlMetrics.Button.smallCornerRadius,
+            MacOSControlMetrics.Button.largeCornerRadius,
+            MacOSControlMetrics.GroupBox.cornerRadius,
+            MacOSControlMetrics.List.insetCornerRadius,
+            MacOSControlMetrics.Window.cornerRadius,
+            MacOSControlMetrics.Window.sheetCornerRadius,
+        ] {
+            XCTAssertLessThanOrEqual(radius, MacOSControlMetrics.Radius.maximum, "a radius rounds past the scale")
+        }
+    }
+
+    /// The elevation ramp. Structure is carried by the hairline; a shadow
+    /// only ever says "this floats". The retired ramp offset **14** under a
+    /// 12pt gutter, so every gutter in the window was filled with a shadow
+    /// smear rather than page tone.
+    func testElevationRampNeverOffsetsPastTwelve() async {
+        for level in [Elevation.e0, Elevation.e1, Elevation.e2, Elevation.e3, Elevation.e4] {
+            for scheme in [ColorScheme.dark, ColorScheme.light] {
+                XCTAssertLessThanOrEqual(level.offsetY(for: scheme), 12, "a rung offsets past the ramp")
+            }
+        }
+        XCTAssertEqual(Elevation.e0.dark.color, .clear)
+        XCTAssertEqual(Elevation.e0.light.color, .clear)
+        XCTAssertEqual(Elevation.e1.light.radius, 3, accuracy: 0.001)
+        XCTAssertEqual(Elevation.e1.light.offsetY, 1, accuracy: 0.001)
+        // `e4` is the one tinted shadow in the app, and it belongs to the
+        // hero card alone; every other rung is neutral.
+        XCTAssertNotEqual(Elevation.e4.dark.color.red, Elevation.e4.dark.color.green)
+        for level in [Elevation.e1, Elevation.e2, Elevation.e3] {
+            XCTAssertEqual(level.dark.color.red, level.dark.color.blue, accuracy: 0.001)
+        }
+    }
+
+    /// The accent split: ink varies with the appearance behind it, an opaque
+    /// fill does not.
+    func testAccentIsOneAccentInTwoRoles() async {
+        let dark = ControlPalette.darkStandard
+        let light = ControlPalette.lightStandard
+        XCTAssertEqual(dark.accentFill, light.accentFill, "an opaque fill has no appearance to vary with")
+        XCTAssertEqual(dark.accentFill, Color.accentColor)
+        XCTAssertNotEqual(dark.accentForeground, light.accentForeground, "ink always varies")
+        XCTAssertEqual(light.accentForeground, light.accentFill, "the light ink and the fill are the same hex")
+        // The tint an app hands chrome resolves to ink through the palette;
+        // a tint the app chose itself passes through untouched.
+        XCTAssertEqual(dark.accentInk(for: .accentColor), dark.accentForeground)
+        let authored = Color(red: 0.42, green: 0.17, blue: 0.63)
+        XCTAssertEqual(dark.accentInk(for: authored), authored)
+        XCTAssertEqual(ControlPalette.focusRingAlpha, 0.45, accuracy: 0.0001)
+    }
+
+    /// **The appearance-conditional card rule.** In dark a card is
+    /// `surface1` closed by a hairline and casts *nothing* — a shadow under a
+    /// near-black card on a near-black page is invisible work, and at any
+    /// alpha you can see it fills the gutter beside the card with a smear. In
+    /// light a white card takes `e1`, a 3pt blur at y 1 that reads as a paper
+    /// lift. One rule, resolved twice.
     func testGroupBoxIsARoundedRectWithAContactShadow() async {
-        XCTAssertEqual(MacOSControlMetrics.GroupBox.cornerRadius, 10, accuracy: 0.001)
-        XCTAssertEqual(MacOSControlMetrics.GroupBox.shadowOffsetY, 2, accuracy: 0.001)
-        XCTAssertEqual(MacOSControlMetrics.GroupBox.shadowSpread, 3, accuracy: 0.001)
-        XCTAssertEqual(ControlPalette.lightStandard.groupedContainerShadow, ControlPalette.black(0.04))
-        XCTAssertEqual(ControlPalette.darkStandard.groupedContainerShadow, ControlPalette.black(0.22))
+        XCTAssertEqual(MacOSControlMetrics.GroupBox.cornerRadius, MacOSControlMetrics.Radius.lg, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.GroupBox.shadowOffsetY, Elevation.e1.light.offsetY, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.GroupBox.shadowSpread, Elevation.e1.light.radius, accuracy: 0.001)
+        XCTAssertEqual(ControlPalette.lightStandard.groupedContainerShadow, Elevation.e1.light.color)
+        XCTAssertEqual(ControlPalette.darkStandard.groupedContainerShadow, .clear)
     }
 
     func testOverlayScrollerMetricsMatchNSScroller() async {
-        XCTAssertEqual(MacOSControlMetrics.Scroller.overlayThumbThickness, 7, accuracy: 0.001)
+        XCTAssertEqual(MacOSControlMetrics.Scroller.overlayThumbThickness, 6, accuracy: 0.001)
         XCTAssertEqual(MacOSControlMetrics.Scroller.overlayInset, 4, accuracy: 0.001)
         XCTAssertEqual(MacOSControlMetrics.Scroller.minimumThumbLength, 24, accuracy: 0.001)
         // The stock ScrollView chrome is the pinned metric, not a number of
@@ -244,10 +383,12 @@ final class MacOSDesignParityTests: XCTestCase {
     }
 
     func testOverlayScrollerKnobIsANeutralPillInBothAppearances() async {
-        // White on a dark app, black on a light one. The retained default was
-        // a blue-tinted near-white in both, which light mode could not show.
-        XCTAssertEqual(ControlPalette.darkStandard.scrollerKnob, ControlPalette.white(0.48))
-        XCTAssertEqual(ControlPalette.lightStandard.scrollerKnob, ControlPalette.black(0.42))
+        // White on a dark app, ink on a light one, and **nearly invisible at
+        // rest**: the 0.48 / 0.42 this used to draw made the scrollbar the
+        // brightest object in whatever column it floated over, which is the
+        // one thing a scrollbar must never be.
+        XCTAssertEqual(ControlPalette.darkStandard.scrollerKnob, ControlPalette.white(0.22))
+        XCTAssertEqual(ControlPalette.lightStandard.scrollerKnob, ControlPalette.ink(0.18))
         XCTAssertGreaterThan(
             ControlPalette.darkStandard.scrollerKnobHovered.alpha,
             ControlPalette.darkStandard.scrollerKnob.alpha
@@ -270,9 +411,12 @@ final class MacOSDesignParityTests: XCTestCase {
             ControlPalette.darkStandard.elevatedSurface.red,
             ControlPalette.darkStandard.windowBackground.red
         )
-        // The closing hairline follows the appearance too.
-        XCTAssertEqual(ControlPalette.darkStandard.elevatedSurfaceBorder, ControlPalette.white(0.16))
-        XCTAssertEqual(ControlPalette.lightStandard.elevatedSurfaceBorder, ControlPalette.black(0.14))
+        // A floating panel is closed with the *structural* hairline: it has
+        // no page around it to borrow an edge from.
+        XCTAssertEqual(
+            ControlPalette.darkStandard.elevatedSurfaceBorder, ControlPalette.darkStandard.controlBorderStrong)
+        XCTAssertEqual(
+            ControlPalette.lightStandard.elevatedSurfaceBorder, ControlPalette.lightStandard.controlBorderStrong)
     }
 
     // MARK: - Material backdrop blur
@@ -473,14 +617,19 @@ final class MacOSDesignParityTests: XCTestCase {
     }
 
     /// `.background(.quaternary)` is a *bar* — the scrim that closes a list
-    /// with an inspector or status strip. In dark mode the white label rung
-    /// lightens the window into the bar, exactly as a macOS dark bottom bar
-    /// does, and stays as it is. In light mode the same label rung is a black
-    /// wash that landed the bar at #D5D5D5 on the #ECECEC window — darker
-    /// than the page it closes, which no macOS bottom bar is (Finder's status
-    /// bar and Xcode's debug bar sit at `windowBackgroundColor`). The
-    /// background resolution of the light quaternary rung is therefore the
-    /// window tone; the *label* resolution keeps AppKit's published `#..19`.
+    /// with an inspector or status strip.
+    ///
+    /// **A bar is never brighter than the list it closes in dark, or darker
+    /// than it in light.** Drawn as a wash the rung fails that in whichever
+    /// appearance it is not tuned for: the light black wash landed the bar at
+    /// #D5D5D5 on a #ECECEC window — below the page it closed, which no
+    /// bottom bar is — and once the dark rung moved to 0.30 for legibility
+    /// the same maths lifted a dark footer well above the table over it,
+    /// which reads as a second window pinned to the bottom.
+    ///
+    /// It is the page tone in **both** appearances now, with the hairline
+    /// above it carrying the edge. The *label* resolution of the rung is
+    /// untouched.
     func testQuaternaryBackgroundIsABarNotAShadeInLight() async {
         let lightBar = Color.quaternary.resolvedForBackgroundVisualEnvironment(
             colorScheme: .light, contrast: .standard, backgroundProminence: .standard)
@@ -491,21 +640,17 @@ final class MacOSDesignParityTests: XCTestCase {
             contrastRatio(text: ControlPalette.lightStandard.secondaryLabel, over: lightBar), 4.5,
             "secondary strings on the light bar clear WCAG AA")
 
-        // Dark is untouched: the white quaternary rung over the dark window
-        // *is* the macOS bar treatment (#373737 on #212121, strings 4.8:1).
+        // Dark follows the same rule, which is what makes it one rule.
         let darkBar = Color.quaternary.resolvedForBackgroundVisualEnvironment(
             colorScheme: .dark, contrast: .standard, backgroundProminence: .standard)
-        XCTAssertEqual(darkBar, ControlPalette.darkStandard.quaternaryLabel)
-        let darkWindow = ControlPalette.darkStandard.windowBackground
-        let darkAlpha = Double(darkBar.alpha)
-        let composited = Color(
-            red: Float(darkAlpha * Double(darkBar.red) + (1 - darkAlpha) * Double(darkWindow.red)),
-            green: Float(darkAlpha * Double(darkBar.green) + (1 - darkAlpha) * Double(darkWindow.green)),
-            blue: Float(darkAlpha * Double(darkBar.blue) + (1 - darkAlpha) * Double(darkWindow.blue)),
-            alpha: 1)
+        XCTAssertEqual(darkBar, ControlPalette.darkStandard.windowBackground)
         XCTAssertGreaterThanOrEqual(
-            contrastRatio(text: ControlPalette.darkStandard.secondaryLabel, over: composited), 4.5,
+            contrastRatio(text: ControlPalette.darkStandard.secondaryLabel, over: darkBar), 4.5,
             "secondary strings on the dark bar clear WCAG AA")
+        // …and the bar is never brighter than the content it closes.
+        XCTAssertLessThanOrEqual(
+            darkBar.red, ControlPalette.darkStandard.controlBackground.red,
+            "a dark bar does not outshine the list above it")
 
         // The label rung itself is not what moved: quaternary *text* keeps
         // AppKit's published alpha in both appearances.
@@ -519,14 +664,17 @@ final class MacOSDesignParityTests: XCTestCase {
             ControlPalette.darkStandard.quaternaryLabel)
     }
 
-    func testAccentColorMatchesMacOSDefaultControlAccentBlue() async {
-        // macOS controlAccentColor's "Blue" (default) is #007AFF — the
-        // same as Color.blue. WinSwiftUI's defaultTint must agree.
-        XCTAssertEqual(
-            Color.accentColor, Color.blue,
-            "Color.accentColor should equal Color.blue (#007AFF) by default")
+    /// The accent is the design system's own `#5B4DE0`, not the OS blue.
+    /// `#007AFF` is the right answer for an app cloning macOS and the wrong
+    /// one for an app with a signature: it arrived in every render as a
+    /// fourth unrelated hue beside the module tints.
+    func testAccentColorIsTheDesignSystemAccentFill() async {
+        assertColor(.accentColor, red: 91 / 255, green: 77 / 255, blue: 224 / 255, name: "accentColor")
+        XCTAssertNotEqual(Color.accentColor, Color.blue, "the accent is not the OS blue any more")
         XCTAssertEqual(
             Color.accentColor, ViewBuildContext.defaultTint,
             "ViewBuildContext.defaultTint should track Color.accentColor")
+        XCTAssertEqual(Color.accentColor, ControlPalette.darkStandard.accentFill)
+        XCTAssertEqual(Color.accentColor, ControlPalette.lightStandard.accentFill)
     }
 }

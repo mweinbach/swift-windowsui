@@ -75,6 +75,18 @@ final class ControlInteractionContinuityTests: XCTestCase {
         findNode(runtime.root, where: { $0.accessibilityTraits.contains(.isButton) })
     }
 
+    /// What the interaction ramp actually moves, as one number.
+    ///
+    /// This file used to sample the fill's **alpha**, which worked only while
+    /// a dark-appearance control face was a translucent wash (`white(0.10)`
+    /// pressing to `white(0.22)`). A bordered face is opaque now — an alpha
+    /// wash over a near-black page is invisible, which is why it changed — so
+    /// the ramp lives in the channels.
+    private func fillLevel(of node: ViewNode) -> Double {
+        let fill = node.backgroundColor ?? .clear
+        return Double(0.2126 * fill.red + 0.7152 * fill.green + 0.0722 * fill.blue) * Double(fill.alpha)
+    }
+
     // MARK: - A clicked control returns to hover
 
     /// Release-with-no-state-change. Before the fix this measured alpha 0.220
@@ -91,21 +103,21 @@ final class ControlInteractionContinuityTests: XCTestCase {
         var clock = Win32Window.currentTimestampSeconds()
         runtime.pointerMoved(to: centre)
         advance(runtime, &clock, by: 0.5)
-        let hoveredAlpha = button.backgroundColor?.alpha ?? 0
+        let hoveredLevel = fillLevel(of: button)
 
         runtime.pointerDown(at: centre)
         advance(runtime, &clock, by: 0.3)
-        let pressedAlpha = button.backgroundColor?.alpha ?? 0
-        XCTAssertGreaterThan(
-            pressedAlpha, hoveredAlpha,
-            "a press has to darken the fill or there is nothing to return from")
+        let pressedLevel = fillLevel(of: button)
+        XCTAssertNotEqual(
+            pressedLevel, hoveredLevel, accuracy: 0.0005,
+            "a press has to move the fill or there is nothing to return from")
 
         runtime.pointerUp(at: centre)
         for offset in [0.05, 0.1, 0.18, 0.3, 1.0, 3.0] {
             advance(runtime, &clock, by: offset)
         }
         XCTAssertEqual(
-            Double(button.backgroundColor?.alpha ?? 0), Double(hoveredAlpha), accuracy: 0.001,
+            fillLevel(of: button), hoveredLevel, accuracy: 0.001,
             "a released button sits at its hover fill — the pointer never left it")
     }
 

@@ -566,15 +566,23 @@ final class GroupedFormLayoutTests: XCTestCase {
 
     // MARK: - Item 5: near-flat light-mode group box
 
+    /// **The appearance-conditional card rule**, from the container's side.
+    /// A light card lifts off its page with `e1` and a dark one casts nothing
+    /// at all: a shadow under a near-black card on a near-black page is
+    /// invisible work, and at any alpha you can see it fills the gutter
+    /// beside the card with a smear instead of page tone.
     func testLightModeGroupedContainerShadowIsNearlyInvisible() async {
-        XCTAssertLessThan(
+        XCTAssertLessThanOrEqual(
             ControlPalette.lightStandard.groupedContainerShadow.alpha, 0.06,
-            "A macOS light-mode group box is a hairline ring, not a shadowed card"
+            "A light-mode group box is a hairline ring plus a contact shadow, not a shadowed card"
         )
         XCTAssertGreaterThan(
-            ControlPalette.darkStandard.groupedContainerShadow.alpha,
-            ControlPalette.lightStandard.groupedContainerShadow.alpha,
-            "Dark mode carries the depth the low-contrast hairline cannot"
+            ControlPalette.lightStandard.groupedContainerShadow.alpha, 0,
+            "…but it does lift off the page"
+        )
+        XCTAssertEqual(
+            ControlPalette.darkStandard.groupedContainerShadow.alpha, 0,
+            "and a dark card carries its depth in the hairline, not in a shadow"
         )
     }
 

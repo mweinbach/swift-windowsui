@@ -220,24 +220,63 @@ public struct EdgeInsets: Equatable, Sendable {
 
     public static let zero = EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)
 }
-/// The alpha ladder macOS's `labelColor` family is built from.
+/// The alpha ladder the text hierarchy is built from — four rungs over one
+/// neutral base, one base per appearance.
 ///
-/// Both appearances share the ladder; only the base changes (white in
-/// dark, black in light), which is what lets one set of semantic text
-/// colours be correct in both. The values are AppKit's published alphas —
-/// `#..D9`, `#..8C`, `#..40`, `#..19`, `#..0D` — so `Color.primary` and
-/// `ControlPalette.label` are the same colour by construction rather than
-/// by two people rounding to 0.85 independently.
+/// The *mechanism* is unchanged from the macOS ladder this started as: one
+/// alpha ladder, white in dark and black in light, recognised by exact rung
+/// value so `Color.primary` and `ControlPalette.label` are the same colour
+/// by construction. What changed (D10-TOKENS) is the numbers and the fact
+/// that the two appearances no longer share them.
+///
+/// AppKit's published alphas — `#..D9`, `#..8C`, `#..40`, `#..19` — were
+/// authored against a `#212121` window. On the near-black `#0C0C0E` page the
+/// design system now specifies, the third rung (`0x40` = 0.251) composites to
+/// `#4A4A4B`: **2.4:1**, which is why every caption in a dark render read as
+/// noise rather than as text. The ladder below is stated as contrast against
+/// the surface each rung normally sits on:
+///
+/// | Rung       | Dark  | on `surface-1` | Light | on `#FFFFFF` |
+/// |------------|-------|----------------|-------|--------------|
+/// | primary    | 0.95  | 15.5:1         | 0.92  | 15.9:1       |
+/// | secondary  | 0.66  | 8.2:1          | 0.66  | 7.3:1        |
+/// | tertiary   | 0.47  | 4.7:1          | 0.54  | 4.9:1        |
+/// | quaternary | 0.30  | 2.5:1          | 0.34  | 2.5:1        |
+///
+/// The light column is *not* the dark one: a black wash on white loses
+/// contrast faster than a white wash on near-black does, so the two dimmer
+/// rungs need more alpha in light to land on the same reading.
+/// The quaternary rung is deliberately below AA — it is for chevrons,
+/// disabled labels and non-semantic decoration, never a string the user has
+/// to read.
+///
+/// The `alpha*` names are the **dark** column, because those values are also
+/// the sentinels `Color.labelHierarchyLevel` recognises (a rung is a white
+/// colour at a known alpha); the light column is reached through
+/// `ControlPalette`, which the resolver already consults.
 public enum LabelHierarchy {
-    public static let primaryAlpha: Float = 0xD9 / 255
-    public static let secondaryAlpha: Float = 0x8C / 255
-    public static let tertiaryAlpha: Float = 0x40 / 255
-    public static let quaternaryAlpha: Float = 0x19 / 255
-    public static let quinaryAlpha: Float = 0x0D / 255
-    /// `.increased` contrast lifts the dimmer rungs; AppKit's
-    /// increase-contrast pass takes secondary label to ~75%.
-    public static let increasedContrastSecondaryAlpha: Float = 0xBF / 255
-    public static let increasedContrastTertiaryAlpha: Float = 0x73 / 255
+    public static let primaryAlpha: Float = 0.95
+    public static let secondaryAlpha: Float = 0.66
+    public static let tertiaryAlpha: Float = 0.47
+    public static let quaternaryAlpha: Float = 0.30
+    public static let quinaryAlpha: Float = 0.18
+
+    /// The light appearance's rungs. Only the two dimmer ones differ; a
+    /// black wash falls off white faster than a white wash falls off a
+    /// near-black page.
+    public static let lightPrimaryAlpha: Float = 0.92
+    public static let lightSecondaryAlpha: Float = 0.66
+    public static let lightTertiaryAlpha: Float = 0.54
+    public static let lightQuaternaryAlpha: Float = 0.34
+    public static let lightQuinaryAlpha: Float = 0.20
+
+    /// `.increased` contrast promotes each rung one step toward primary —
+    /// the same strengthening AppKit's increase-contrast pass applies, at
+    /// this ladder's spacing.
+    public static let increasedContrastSecondaryAlpha: Float = 0.80
+    public static let increasedContrastTertiaryAlpha: Float = 0.62
+    public static let lightIncreasedContrastSecondaryAlpha: Float = 0.80
+    public static let lightIncreasedContrastTertiaryAlpha: Float = 0.68
 }
 
 /// The system colour table — `Color.red` and its twelve siblings — as the
@@ -415,10 +454,24 @@ public struct Color: Equatable, Sendable {
     public static let quinary = Color(red: 1, green: 1, blue: 1, alpha: LabelHierarchy.quinaryAlpha)
     public static let highContrastSecondary = Color(
         red: 1, green: 1, blue: 1, alpha: LabelHierarchy.increasedContrastSecondaryAlpha)
-    // macOS controlAccentColor default ("Multicolor → Blue") matches
-    // Color.blue at #007AFF.
+    /// The design system's accent, as an **opaque fill** — `#5B4DE0`.
+    ///
+    /// It used to be `#007AFF`, macOS's default controlAccentColor. That is
+    /// the right answer for an app cloning macOS and the wrong one for an app
+    /// with its own signature: the OS blue arrived in the render as a fourth
+    /// unrelated hue beside the module tints, and "the accent" was whatever
+    /// the OS happened to ship.
+    ///
+    /// This static is the *fill* half of the accent split
+    /// (`ControlPalette.accentFill`): the same value in both appearances,
+    /// because an opaque fill has no appearance behind it to vary with, and
+    /// white on it clears 5.9:1. The *ink* half — an accent drawn as a glyph,
+    /// a bar or a link, which does have an appearance behind it — is
+    /// `ControlPalette.accentForeground`, reached from a tint through
+    /// `ControlPalette.accentInk(for:)`.
     // swift-format-ignore: DontRepeatTypeInStaticProperties
-    public static let accentColor = Color(red: 0.0, green: 0.478, blue: 1.0, alpha: 1)
+    public static let accentColor = Color(
+        red: 91 / 255, green: 77 / 255, blue: 224 / 255, alpha: 1)
 
     public init(hue: Double, saturation: Double, brightness: Double, opacity: Double = 1) {
         var normalizedHue = hue.truncatingRemainder(dividingBy: 1)

@@ -5056,15 +5056,17 @@ public struct TabView: View {
                     cornerRadius: chrome.tabCornerRadius,
                     palette: tabPalette,
                     chrome: SurfaceChrome(
-                        borderColor: isSelected ? palette.controlBorder : .clear,
+                        // Same rule as the segmented pill it shares a control
+                        // with: on a near-black page the contact shadow is
+                        // invisible and the hairline is the lift.
+                        borderColor: isSelected ? palette.controlBorderStrong : .clear,
                         borderWidth: isSelected ? chrome.selectedBorderWidth : 0,
-                        focusRingColor: ControlPalette.opaque(context.tint)
-                            .opacity(Double(ControlPalette.focusRingAlpha)),
+                        focusRingColor: palette.accentRing,
                         focusRingWidth: MacOSControlMetrics.FocusRing.strokeWidth,
-                        shadowColor: isSelected ? ControlPalette.ambientShadow : .clear,
+                        shadowColor: isSelected ? Elevation.e1.color(for: palette.colorScheme) : .clear,
                         shadowPressedColor: .clear,
-                        shadowOffset: Point(x: 0, y: 1),
-                        shadowSpread: 1
+                        shadowOffset: Point(x: 0, y: Elevation.e1.light.offsetY),
+                        shadowSpread: Elevation.e1.light.radius
                     ),
                     layoutMode: .stack(
                         .vertical(
@@ -5226,10 +5228,10 @@ public struct TabView: View {
                 backgroundColor: band,
                 borderColor: hairline,
                 borderWidth: 1,
-                cornerRadius: 12,
+                cornerRadius: MacOSControlMetrics.Radius.xl,
                 spacing: 4,
                 padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
-                tabCornerRadius: 8,
+                tabCornerRadius: MacOSControlMetrics.Radius.sm,
                 tabPadding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12),
                 selectedBorderWidth: 1
             )
@@ -5238,10 +5240,10 @@ public struct TabView: View {
                 backgroundColor: band,
                 borderColor: hairline,
                 borderWidth: 1,
-                cornerRadius: 16,
+                cornerRadius: MacOSControlMetrics.Radius.xl,
                 spacing: 8,
                 padding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8),
-                tabCornerRadius: 10,
+                tabCornerRadius: MacOSControlMetrics.Radius.md,
                 tabPadding: EdgeInsets(top: 9, leading: 14, bottom: 9, trailing: 14),
                 selectedBorderWidth: 1
             )
@@ -5250,10 +5252,10 @@ public struct TabView: View {
                 backgroundColor: band,
                 borderColor: hairline,
                 borderWidth: 1,
-                cornerRadius: 8,
+                cornerRadius: MacOSControlMetrics.Radius.md,
                 spacing: 3,
                 padding: EdgeInsets(top: 5, leading: 5, bottom: 5, trailing: 5),
-                tabCornerRadius: 6,
+                tabCornerRadius: MacOSControlMetrics.Radius.sm,
                 tabPadding: EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10),
                 selectedBorderWidth: 2
             )
@@ -5262,10 +5264,10 @@ public struct TabView: View {
                 backgroundColor: band,
                 borderColor: hairline,
                 borderWidth: 1,
-                cornerRadius: 20,
+                cornerRadius: MacOSControlMetrics.Radius.xl,
                 spacing: 6,
                 padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3),
-                tabCornerRadius: 16,
+                tabCornerRadius: MacOSControlMetrics.Radius.md,
                 tabPadding: EdgeInsets(top: 7, leading: 12, bottom: 7, trailing: 12),
                 selectedBorderWidth: 1
             )
@@ -5274,10 +5276,10 @@ public struct TabView: View {
                 backgroundColor: band,
                 borderColor: hairline,
                 borderWidth: 1,
-                cornerRadius: 18,
+                cornerRadius: MacOSControlMetrics.Radius.xl,
                 spacing: 10,
                 padding: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10),
-                tabCornerRadius: 14,
+                tabCornerRadius: MacOSControlMetrics.Radius.md,
                 tabPadding: EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16),
                 selectedBorderWidth: 1
             )
@@ -9624,16 +9626,22 @@ public struct List: View {
                         let view = pair.element
                         let tag = view.selectionTag
                         let isSelected = tag.map { selectionMode?.contains($0) == true } == true
-                        // Content on an emphasised selection fill inverts to
-                        // `alternateSelectedControlTextColor` (white), as AppKit
-                        // does. A row whose content sets its own colour still
-                        // wins — this only supplies the inherited default.
+                        // A selected row is an accent *wash* now, not a solid
+                        // accent fill (§1.6), so its content is **not**
+                        // inverted to white: white on `#E4E2F8` in the light
+                        // appearance is unreadable, and the wash plus the
+                        // row's leading indicator already says "this one".
+                        // The inherited default is the primary rung — a
+                        // selected row is the one you are meant to read — and
+                        // a row whose content sets its own colour still wins.
+                        //
+                        // `.increased` background prominence stays what it
+                        // has always been, the "this content sits on a filled
+                        // emphasised surface" signal, and is therefore *not*
+                        // set here: this surface is no longer filled.
                         var rowContext = context
-                        if isSelected {
-                            rowContext = rowContext.withEnvironmentValue(\.backgroundProminence, .increased)
-                            if context.environmentValues.controlActiveState != .inactive {
-                                rowContext = rowContext.withForegroundColor(context.controlPalette.selectedContentLabel)
-                            }
+                        if isSelected, context.environmentValues.controlActiveState != .inactive {
+                            rowContext = rowContext.withForegroundColor(context.controlPalette.label)
                         }
                         var row = view.makeComponent(context: rowContext).makeNode(runtime: runtime)
                         if context.isSelectionDisabled, row.selectionDisabledOverride == nil {
@@ -9857,17 +9865,16 @@ public struct List: View {
         // toggling selection never changes the painted row extents; the
         // unselected border is simply fully transparent.
         //
-        // macOS fills a selected row *solid* with
-        // `selectedContentBackgroundColor` and draws no border at all — the
-        // 16% wash under a 52% outline this used to paint reads as an
-        // outlined chip, not a selected row. An unfocused list falls back to
-        // the neutral unemphasized fill, as AppKit does when the table
-        // loses key focus.
+        // A selected row is an accent **wash** at `Radius.sm`, inset from the
+        // list's own horizontal edges — not a full-bleed saturated band with
+        // white text on it, which is the loudest object a list can contain
+        // and says nothing the wash and the row's leading indicator do not.
+        // An unfocused list falls back to the neutral `surface3` fill.
         let palette = context.controlPalette
         let selectionFill =
             context.environmentValues.controlActiveState == .inactive
             ? palette.unemphasizedSelectedBackground
-            : palette.selectedContentBackground(tint: selectionTint)
+            : palette.listSelectionBackground(tint: selectionTint)
         let rowNode = Controls.stackPanel(
             backgroundColor: isSelected ? selectionFill : nil,
             borderColor: .clear,
@@ -10794,12 +10801,19 @@ public struct Section: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let expansionBinding = isExpanded
-        // A macOS grouped-form header is 11pt semibold in the secondary
-        // label colour: hierarchy comes from size *and* colour. At body
-        // size in near-white it differed from its own rows by weight alone,
-        // which is why the settings screen read as a flat list of equals.
+        // A **grouped-form** section header is a heading, not a label:
+        // 15/600 at the primary rung, attached to the group under it. The
+        // 11pt secondary-rung header it used to be is a System Settings
+        // idiom, and an 11pt dim string floating between two boxes belongs
+        // to neither of them.
+        //
+        // A **list** group header is the other thing, and keeps the eyebrow
+        // it has always had: it names the rows under it and is not something
+        // you read on the way past. One call site, two roles, which is why
+        // `Typography` pins two sizes.
         let palette = context.controlPalette
-        let headerColor = style.headerColor ?? palette.secondaryLabel
+        let isFormSectionHeader = context.isInsideGroupedForm && style.usesContainerChrome
+        let headerColor = style.headerColor ?? (isFormSectionHeader ? palette.label : palette.secondaryLabel)
         // A grouped section box is a raised surface closed by a hairline,
         // in whichever appearance it is drawn in. These used to be dark
         // literals, so a light-mode app showed light controls on dark cards.
@@ -10844,7 +10858,11 @@ public struct Section: View {
         return Component { runtime in
             let headerFont =
                 (style.headerFont
-                ?? .system(size: MacOSControlMetrics.Typography.sectionHeaderSize, weight: .semibold))
+                ?? .system(
+                    size: isFormSectionHeader
+                        ? MacOSControlMetrics.Typography.formSectionHeaderSize
+                        : MacOSControlMetrics.Typography.sectionHeaderSize,
+                    weight: .semibold))
                 .resolvedHeaderFont(for: context.headerProminence)
             let headerContext =
                 context
@@ -13374,10 +13392,13 @@ private func retainedSearchChrome(
         return RetainedSearchChrome(
             nodeTag: "search-field-toolbar",
             preferredSize: Size(width: 240, height: context.controlSize.singleLineTextInputSize.height),
-            backgroundColor: palette.controlBackground,
-            borderColor: context.tint.opacity(0.26),
+            backgroundColor: palette.fieldSurface,
+            // A resting search field is not focused, so it is closed by the
+            // field ring like every other field. The accent belonged to the
+            // focus ring and drew a permanent tinted outline in the toolbar.
+            borderColor: palette.controlBorder,
             borderWidth: 1,
-            cornerRadius: 12
+            cornerRadius: MacOSControlMetrics.Radius.sm
         )
     }
 
@@ -13385,10 +13406,10 @@ private func retainedSearchChrome(
         return RetainedSearchChrome(
             nodeTag: "search-field-sidebar",
             preferredSize: Size(width: 210, height: context.controlSize.singleLineTextInputSize.height),
-            backgroundColor: palette.tertiaryFill,
-            borderColor: palette.separator,
+            backgroundColor: palette.fieldSurface,
+            borderColor: palette.controlBorder,
             borderWidth: 1,
-            cornerRadius: 8
+            cornerRadius: MacOSControlMetrics.Radius.sm
         )
     }
 
@@ -13400,10 +13421,10 @@ private func retainedSearchChrome(
         return RetainedSearchChrome(
             nodeTag: "search-field-navigation-drawer",
             preferredSize: Size(width: 280, height: context.controlSize.singleLineTextInputSize.height),
-            backgroundColor: palette.controlBackground,
+            backgroundColor: palette.fieldSurface,
             borderColor: palette.controlBorder,
             borderWidth: 1,
-            cornerRadius: 10
+            cornerRadius: MacOSControlMetrics.Radius.sm
         )
     }
 
@@ -13498,18 +13519,26 @@ extension ControlSize {
         }
     }
 
+    /// The switch is the one control sized outside the "macOS reference +
+    /// pointer padding" rule, and `MacOSControlMetrics.Toggle` says so: a
+    /// padded 38×22 comes out at 52×32, which is an iOS switch and the
+    /// largest object in a settings pane. The reference size ships as-is.
     fileprivate var togglePreferredSize: Size {
+        let regular = MacOSControlMetrics.Toggle.regularSize
+        let large = MacOSControlMetrics.Toggle.largeSize
         switch self {
         case .mini:
-            return Size(width: 44, height: 28)
+            return Size(width: regular.width - 6, height: regular.height - 4)
         case .small:
-            return Size(width: 48, height: 30)
+            return Size(width: regular.width - 3, height: regular.height - 2)
         case .regular:
-            return Size(width: 52, height: 32)
+            return regular
         case .large:
-            return Size(width: 60, height: 38)
+            return large
         case .extraLarge:
-            return Size(width: 68, height: 44)
+            return Size(
+                width: large.width + (large.width - regular.width),
+                height: large.height + (large.height - regular.height))
         }
     }
 
@@ -15867,13 +15896,24 @@ public struct Toggle: View {
         labelComponent: Component
     ) -> ViewNode {
         let palette = context.controlPalette
+        let trackSize = context.controlSize.togglePreferredSize
         let toggleNode = Controls.toggle(
             runtime: runtime,
             isOn: binding.wrappedValue,
             isEnabled: context.isEnabled,
-            preferredSize: context.controlSize.togglePreferredSize,
-            onColor: context.tint,
+            // The node is the pointer target; the track floats inside it with
+            // a gutter, so the switch the user sees is `trackSize`, not this.
+            preferredSize: Size(width: trackSize.width + 8, height: trackSize.height + 8),
+            trackSize: trackSize,
+            knobDiameter: MacOSControlMetrics.Toggle.knobDiameter,
+            knobInset: MacOSControlMetrics.Toggle.knobInset,
+            // On is the accent as an opaque *fill* — the same hex in both
+            // appearances, because a filled track has no appearance behind
+            // it to vary with.
+            onColor: ControlPalette.opaque(context.tint),
             offColor: palette.controlTrack,
+            knobShadowColor: Elevation.e1.color(for: palette.colorScheme),
+            offTrackBorderColor: palette.controlBorder,
             // The plate behind the switch. `Controls.toggle`'s retained
             // default paints an opaque pale blue (#B8D1EB) on pointer-down
             // and a slate one on hover — hand-tuned literals from before
@@ -15921,31 +15961,36 @@ public struct Toggle: View {
         binding: Binding<Bool>,
         labelComponent: Component
     ) -> ViewNode {
-        let boxSize: Double = 20
+        // 18×18 at `Radius.sm`. Off is *transparent* closed by the strong
+        // hairline — an unchecked box is an outline, not a filled plate —
+        // and on is the accent as an opaque fill under a white check.
+        let palette = context.controlPalette
+        let boxSize: Double = 18
+        let glyphSize: Double = 12
         let surfaceStyle = ButtonSurfaceStyle.default
         let checkIcon =
             binding.wrappedValue
             ? Controls.icon(
                 .checkmark,
-                preferredSize: Size(width: boxSize - 4, height: boxSize - 4),
-                color: context.isEnabled ? .white : surfaceStyle.palette.disabledForeground,
+                preferredSize: Size(width: glyphSize, height: glyphSize),
+                color: context.isEnabled ? palette.selectedContentLabel : surfaceStyle.palette.disabledForeground,
                 scale: 1.2,
                 displayScale: context.iconRasterDisplayScale
             )
             : Controls.panel(
-                preferredSize: Size(width: boxSize - 4, height: boxSize - 4),
+                preferredSize: Size(width: glyphSize, height: glyphSize),
                 isHitTestVisible: false
             )
         let box = Controls.panel(
             preferredSize: Size(width: boxSize, height: boxSize),
             backgroundColor: context.isEnabled
-                ? (binding.wrappedValue ? context.tint : surfaceStyle.palette.idle)
+                ? (binding.wrappedValue ? ControlPalette.opaque(context.tint) : .clear)
                 : surfaceStyle.palette.disabledBackground,
             borderColor: context.isEnabled
-                ? (binding.wrappedValue ? context.tint.opacity(0.92) : surfaceStyle.chrome.borderColor)
+                ? (binding.wrappedValue ? ControlPalette.opaque(context.tint) : palette.controlBorderStrong)
                 : surfaceStyle.palette.disabledBorder,
             borderWidth: 1,
-            cornerRadius: 4,
+            cornerRadius: MacOSControlMetrics.Radius.sm,
             layoutMode: .stack(.vertical(alignment: .center, mainAlignment: .center)),
             isHitTestVisible: false,
             children: [checkIcon]
@@ -15962,21 +16007,25 @@ public struct Toggle: View {
         let node = Controls.button(
             runtime: runtime,
             preferredSize: context.labelsHidden ? hiddenPreferredSize : nil,
-            cornerRadius: 8,
+            cornerRadius: MacOSControlMetrics.Radius.sm,
+            // The plate behind the box carries the pointer ramp off the
+            // appearance's own fill ladder. The four literals it used to
+            // hold (`0.24, 0.32, 0.42` and friends) were blue-cast washes
+            // from before there was an appearance to resolve against.
             palette: SurfacePalette(
                 idle: .clear,
-                hovered: Color(red: 0.253, green: 0.253, blue: 0.253, alpha: 0.44),
-                focused: Color(red: 0.24, green: 0.32, blue: 0.42, alpha: 0.56),
-                pressed: Color(red: 0.30, green: 0.40, blue: 0.52, alpha: 0.64)
+                hovered: palette.quaternaryFill,
+                focused: palette.quaternaryFill,
+                pressed: palette.secondaryFill
             ),
             chrome: SurfaceChrome(
                 borderColor: .clear,
-                borderHoveredColor: Color(red: 0.92, green: 0.92, blue: 0.92, alpha: 0.16),
-                borderFocusedColor: context.tint.opacity(0.42),
-                borderPressedColor: context.tint.opacity(0.58),
-                borderWidth: 1,
-                focusRingColor: context.tint.opacity(0.26),
-                focusRingWidth: 2
+                borderHoveredColor: .clear,
+                borderFocusedColor: .clear,
+                borderPressedColor: .clear,
+                borderWidth: 0,
+                focusRingColor: palette.accentRing,
+                focusRingWidth: MacOSControlMetrics.FocusRing.strokeWidth
             ),
             clipsToBounds: true,
             layoutMode: .stack(
@@ -16426,15 +16475,23 @@ public struct Picker<SelectionValue: Hashable>: View {
                 cornerRadius: MacOSControlMetrics.Button.smallCornerRadius,
                 palette: segmentPalette,
                 chrome: SurfaceChrome(
-                    borderColor: isSelected ? palette.controlBorder : .clear,
+                    // The selected pill is one quiet tonal step above its own
+                    // track plus a contact shadow — but a contact shadow on a
+                    // near-black page is invisible, so on the dark side the
+                    // *hairline* is what carries the lift. Structure is
+                    // carried by the hairline; that is the rule the rest of
+                    // the system follows and there is no reason a segmented
+                    // pill should be the exception. The `controlBorder` it
+                    // used to take (white @ 0.09) was not enough edge to tell
+                    // a selected segment from an unselected one at a glance.
+                    borderColor: isSelected ? palette.controlBorderStrong : .clear,
                     borderWidth: isSelected ? 1 : 0,
-                    focusRingColor: ControlPalette.opaque(context.tint)
-                        .opacity(Double(ControlPalette.focusRingAlpha)),
+                    focusRingColor: palette.accentRing,
                     focusRingWidth: MacOSControlMetrics.FocusRing.strokeWidth,
-                    shadowColor: isSelected ? ControlPalette.ambientShadow : .clear,
+                    shadowColor: isSelected ? Elevation.e1.color(for: palette.colorScheme) : .clear,
                     shadowPressedColor: .clear,
-                    shadowOffset: Point(x: 0, y: 1),
-                    shadowSpread: 1
+                    shadowOffset: Point(x: 0, y: Elevation.e1.light.offsetY),
+                    shadowSpread: Elevation.e1.light.radius
                 ),
                 clipsToBounds: true,
                 layoutMode: .stack(
@@ -19878,9 +19935,15 @@ private struct ResolvedTextInputStyle {
     var padding: EdgeInsets
 }
 extension TextFieldStyle {
-    /// The recessed well every bordered text input shares, resolved for the
-    /// live appearance: `textBackgroundColor` inside a hairline, with the
-    /// shallow inset groove Big Sur+ draws (not the 18% bevel).
+    /// The well every bordered text input shares, resolved for the live
+    /// appearance: `fieldSurface` inside a hairline.
+    ///
+    /// The two appearances are genuine inverses here and both are right: on
+    /// the near-black page a field is `surface2`, one step *lighter* than the
+    /// card it sits in, because a darker recess on a near-black page is a
+    /// hole; on the near-white page it is white, one step lighter than the
+    /// `#F1F2F5` chips beside it. In both, the ring is what says "you can
+    /// type here" — the engine has no inner shadow and does not need one.
     fileprivate func resolvedTextInputWell(
         isEnabled: Bool,
         palette: ControlPalette,
@@ -19888,7 +19951,7 @@ extension TextFieldStyle {
     ) -> ResolvedTextInputStyle {
         let backgroundColor =
             isEnabled
-            ? palette.controlBackground
+            ? palette.fieldSurface
             : palette.quaternaryFill
         // The painter takes the top stop from the node's own background and
         // the bottom stop from this gradient's end colour, so a recessed

@@ -214,25 +214,35 @@ public struct SurfaceChrome: Sendable {
         return borderWidth
     }
 
-    /// macOS keyboard focus-ring stroke width. Mirrors
+    /// Keyboard focus-ring stroke width. Mirrors
     /// `MacOSControlMetrics.FocusRing.strokeWidth`, which lives one target
     /// up in `WinSwiftUI` and so cannot be referenced from here — the two
     /// are asserted equal by `MacOSDesignParityTests`. They used to
     /// disagree (2 here, 4 there) with both pinned as "the" macOS value.
-    public static let focusRingStrokeWidth: Double = 4
+    ///
+    /// A 2pt halo outside a 1px accent border. 4pt of ring around a 6pt
+    /// corner swallows the corner, so the focused control loses the shape
+    /// that identifies it at the moment you need to find it.
+    public static let focusRingStrokeWidth: Double = 2
 
-    /// Neutral ambient shadow every raised control casts: 1pt down, 1pt
-    /// spread, black at low alpha. macOS never tints a control shadow with
-    /// the accent or role colour.
-    public static let ambientShadowColor = Color(red: 0, green: 0, blue: 0, alpha: 0.12)
+    /// Neutral contact shadow a raised control casts: 1pt down, black at low
+    /// alpha. A control shadow is never tinted with the accent or role
+    /// colour, and it is never larger than the gutter it sits in.
+    public static let ambientShadowColor = Color(red: 0, green: 0, blue: 0, alpha: 0.06)
+
+    /// The design accent as **ink**, at the focus-ring alpha. Mirrors
+    /// `ControlPalette.accentRing`; the retained defaults cannot reach the
+    /// palette, so this is the appearance-blind stand-in for chrome built
+    /// without one.
+    public static let focusRingAccentColor = Color(red: 0.357, green: 0.302, blue: 0.878, alpha: 0.45)
 
     public static let elevatedButton = SurfaceChrome(
-        borderColor: Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.14),
-        borderHoveredColor: Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.28),
-        borderFocusedColor: Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.28),
-        borderPressedColor: Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.28),
+        borderColor: Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.09),
+        borderHoveredColor: Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.14),
+        borderFocusedColor: Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.14),
+        borderPressedColor: Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.14),
         borderWidth: 1,
-        focusRingColor: Color(red: 0.0, green: 0.478, blue: 1.0, alpha: 0.55),
+        focusRingColor: SurfaceChrome.focusRingAccentColor,
         focusRingWidth: SurfaceChrome.focusRingStrokeWidth,
         shadowColor: SurfaceChrome.ambientShadowColor,
         shadowHoveredColor: SurfaceChrome.ambientShadowColor,
@@ -243,10 +253,10 @@ public struct SurfaceChrome: Sendable {
     )
 
     public static let `default` = SurfaceChrome(
-        borderColor: Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.14),
+        borderColor: Color(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.09),
         borderWidth: 1,
         cornerRadii: CornerRadii(uniform: 6),
-        focusRingColor: Color(red: 0.0, green: 0.478, blue: 1.0, alpha: 0.55),
+        focusRingColor: SurfaceChrome.focusRingAccentColor,
         focusRingWidth: SurfaceChrome.focusRingStrokeWidth
     )
 }
@@ -324,18 +334,22 @@ public enum Controls {
     /// and the bottom stop from this gradient's end color, so state color
     /// animations stay fully visible while the surface reads as the subtle
     /// top-lighter gradient of macOS Big Sur+ controls.
-    /// Luminance the bottom stop of a control sheen keeps. Apple retired
-    /// the glossy bevel with Yosemite: Big Sur+ control surfaces are
-    /// nearly flat, and the top highlight is carried by the 1pt border
-    /// gradient (`borderSheen`) rather than the fill. The previous 0.82
-    /// (an 18% drop) is what made every control read as a styled div.
-    /// Pinned in docs/MacOSDesignParity.md.
-    public nonisolated static let surfaceSheenFactor: Float = 0.96
+    /// Luminance the bottom stop of a control sheen keeps.
+    ///
+    /// The glossy bevel is long retired; a surface here carries a travel at
+    /// the *edge of perception* — a couple of levels of 255 between its top
+    /// and its bottom — and that slight amount is the whole difference
+    /// between a surface and a rectangle of paint. 0.82 (an 18% drop) made
+    /// every control a styled div; 0.96 was still enough to see on a card
+    /// the size of a settings box. 0.98 is the −0.02 composite step the
+    /// design system specifies. Pinned in docs/MacOSDesignParity.md.
+    public nonisolated static let surfaceSheenFactor: Float = 0.98
 
-    /// Luminance the bottom stop of a *recessed* groove keeps — a slider
-    /// or progress track, which macOS genuinely does shade. Still far
-    /// shallower than the retired gloss.
-    public nonisolated static let grooveSheenFactor: Float = 0.90
+    /// Luminance the bottom stop of a *recessed* groove keeps — a slider or
+    /// progress track, a segmented groove, a field well. Deeper than a
+    /// surface, because a groove is genuinely shaded rather than lit, but
+    /// near-flat all the same.
+    public nonisolated static let grooveSheenFactor: Float = 0.95
 
     /// How far a control surface's bottom stop falls, in luminance the window
     /// actually shows rather than in the surface's own channels.
@@ -872,12 +886,14 @@ public enum Controls {
             runtime: runtime,
             preferredSize: preferredSize,
             layoutPriority: layoutPriority,
-            cornerRadius: 18,
+            // `Radius.lg` — a card-shaped button is still a card, and nothing
+            // in this design system rounds past 12.
+            cornerRadius: 10,
             palette: palette,
             chrome: chrome,
             layoutMode: .stack(
                 .horizontal(
-                    spacing: 14, padding: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14), alignment: .center
+                    spacing: 16, padding: EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16), alignment: .center
                 )),
             appliesSurfaceSheen: true,
             action: action,
@@ -1367,9 +1383,15 @@ public enum Controls {
         isEnabled: Bool = true,
         isError: Bool = false,
         preferredSize: Size? = nil,
+        trackSize: Size? = nil,
+        knobDiameter: Double? = nil,
+        knobInset: Double? = nil,
         layoutPriority: Double = 0,
         onColor: Color = Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0),
         offColor: Color = Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1.0),
+        knobColor: Color = .white,
+        knobShadowColor: Color = Color(red: 0, green: 0, blue: 0, alpha: 0.30),
+        offTrackBorderColor: Color? = nil,
         palette: SurfacePalette = SurfacePalette(
             idle: .clear,
             focused: Color(red: 0.26, green: 0.33, blue: 0.42, alpha: 1.0),
@@ -1382,10 +1404,16 @@ public enum Controls {
         animation: ControlAnimationStyle = .default,
         onToggle: ((Bool) -> Void)? = nil
     ) -> ViewNode {
-        let trackWidth: Double = 44
-        let trackHeight: Double = 24
-        let thumbSize: Double = 16
-        let thumbInset: Double = 4
+        // The switch's own geometry, which is *not* the node's preferred
+        // size: the node is the pointer target and the track floats inside
+        // it with a gutter all round. WinSwiftUI passes
+        // `MacOSControlMetrics.Toggle`; the defaults keep the retained
+        // builder usable on its own.
+        let resolvedTrack = trackSize ?? Size(width: 40, height: 22)
+        let trackWidth = resolvedTrack.width
+        let trackHeight = resolvedTrack.height
+        let thumbInset = knobInset ?? 2
+        let thumbSize = knobDiameter ?? max(0, trackHeight - thumbInset * 2)
 
         let resolvedTrackColor: Color
         if !isEnabled {
@@ -1395,26 +1423,18 @@ public enum Controls {
         }
 
         let thumbX = isOn ? trackWidth - thumbSize - thumbInset : thumbInset
-        let thumbColor = isEnabled ? Color.white : palette.disabledForeground
+        let thumbColor = isEnabled ? knobColor : palette.disabledForeground
 
-        // macOS switch thumb: near-white with a faint top-lighter gradient,
-        // a hairline edge, and a soft drop shadow lifting it off the track.
-        let thumbGradient: GradientType? =
-            isEnabled
-            ? .linear(
-                LinearGradient(
-                    startColor: thumbColor,
-                    endColor: Color(red: 0.88, green: 0.89, blue: 0.91, alpha: thumbColor.alpha)))
-            : nil
+        // The knob is a flat white disc lifted by `e1` — a 3pt blur at y 1.
+        // It used to carry a gradient *and* a hairline edge *and* a 0.32
+        // shadow at spread 2, three depth cues stacked on an 18pt circle, on
+        // a control whose whole job is to be legible at a glance.
         let thumb = panel(
             frame: Rect(x: thumbX, y: thumbInset, width: thumbSize, height: thumbSize),
             backgroundColor: thumbColor,
-            backgroundGradient: thumbGradient,
-            borderColor: isEnabled ? Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.20) : .clear,
-            borderWidth: isEnabled ? 1 : 0,
-            shadowColor: isEnabled ? Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.32) : .clear,
+            shadowColor: isEnabled ? knobShadowColor : .clear,
             shadowOffset: Point(x: 0, y: 1),
-            shadowSpread: 2,
+            shadowSpread: 3,
             cornerRadius: thumbSize * 0.5,
             isHitTestVisible: false
         )
@@ -1431,10 +1451,14 @@ public enum Controls {
                     startColor: trackBackgroundColor,
                     endColor: isOn ? shaded(resolvedTrackColor, by: surfaceSheenFactor) : resolvedTrackColor))
             : nil
+        // The off track's ring used to be a blue-cast near-white literal
+        // (`0.96, 0.98, 1.0`) — one of the last chromatic neutrals in the
+        // app, on the one control that sits in every settings row.
+        let resolvedOffBorder = offTrackBorderColor ?? Color(red: 1, green: 1, blue: 1, alpha: 0.10)
         let trackBorderColor =
             isError
             ? palette.errorBorder
-            : (isOn ? shaded(resolvedTrackColor, by: 0.70) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.10))
+            : (isOn ? shaded(resolvedTrackColor, by: 0.70) : resolvedOffBorder)
         let track = panel(
             preferredSize: Size(width: trackWidth, height: trackHeight),
             backgroundColor: trackBackgroundColor,

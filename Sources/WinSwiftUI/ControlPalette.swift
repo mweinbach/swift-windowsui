@@ -4,8 +4,201 @@ import SwiftWindowsGraphics
 
 import SwiftWindowsUI
 
-/// The semantic colour roles macOS control chrome is built from, resolved
-/// for one appearance.
+/// The raw colour ramp the whole app is built from — one table, two columns.
+///
+/// Roles (`ControlPalette`) are named by *what a surface is for*; tokens are
+/// named by *where they sit in the ramp*. Keeping them apart is what makes
+/// the design restylable: a card's fill is `surface1` here and
+/// `raisedSurface` there, and changing which token a role points at is a
+/// one-line edit rather than a hunt through chrome.
+///
+/// **Achromatic within a hair.** The neutrals carry at most a 6/255 cool
+/// cast between their red and blue channels — enough that a near-black page
+/// reads as ink rather than as brown, far short of the blue-cast navy
+/// (`(0.18, 0.23, 0.31)` fills under `(0.96, 0.98, 1.0)` borders) this stack
+/// started from. `ControlAppearanceChromeTests` pins the bound.
+public enum DesignTokens {
+
+    /// One token's two resolutions. Generic because a few tokens are an
+    /// alpha rather than a colour, and an alpha that differs per appearance
+    /// is exactly as much a token as a hex is.
+    public struct Pair<Value: Sendable & Equatable>: Sendable, Equatable {
+        public let dark: Value
+        public let light: Value
+
+        public init(dark: Value, light: Value) {
+            self.dark = dark
+            self.light = light
+        }
+
+        public func resolve(_ scheme: ColorScheme) -> Value {
+            scheme == .dark ? dark : light
+        }
+    }
+
+    static func hex(_ value: UInt32, alpha: Float = 1) -> Color {
+        Color(
+            red: Float((value >> 16) & 0xFF) / 255,
+            green: Float((value >> 8) & 0xFF) / 255,
+            blue: Float(value & 0xFF) / 255,
+            alpha: alpha
+        )
+    }
+
+    // MARK: Neutral ramp
+
+    /// Window backdrop, sidebar and rail columns, tab band, page gutters.
+    public static let base = Pair(dark: hex(0x0C_0C_0E), light: hex(0xF2_F3_F5))
+    /// Content wells, scroll wells, table bodies.
+    public static let surface0 = Pair(dark: hex(0x11_11_13), light: hex(0xF7_F8_FA))
+    /// **Cards.** The one and only card fill.
+    public static let surface1 = Pair(dark: hex(0x17_17_1A), light: hex(0xFF_FF_FF))
+    /// Inside a card: fields, chips, icon tiles, segmented track, row hover.
+    public static let surface2 = Pair(dark: hex(0x1E_1E_22), light: hex(0xF1_F2_F5))
+    /// Pressed / active / selected-neutral; menu and popover body.
+    public static let surface3 = Pair(dark: hex(0x26_26_2B), light: hex(0xE6_E8_EC))
+    /// One step past `surface3` — a bordered control held down.
+    public static let surface4 = Pair(dark: hex(0x2C_2C_32), light: hex(0xEC_ED_F1))
+    /// Sheet / dialog backdrop.
+    public static let scrim = Pair(dark: hex(0x00_00_00, alpha: 0.55), light: hex(0x0C_0C_0E, alpha: 0.28))
+
+    /// The neutral a light-appearance wash is mixed from. Pure black on a
+    /// cool near-white page reads warm; the page's own ink does not.
+    public static let lightInk = hex(0x0C_0C_0E)
+
+    // MARK: Hairlines
+
+    /// Separators, table and form row rules, chart gridlines.
+    public static let strokeSubtle = Pair(
+        dark: ControlPalette.white(0.06), light: hex(0x0C_0C_0E, alpha: 0.07))
+    /// Card ring, chip ring, field ring.
+    public static let stroke = Pair(
+        dark: ControlPalette.white(0.09), light: hex(0x0C_0C_0E, alpha: 0.10))
+    /// Toolbar and footer band edges, popover ring, control bezel, chart baseline.
+    public static let strokeStrong = Pair(
+        dark: ControlPalette.white(0.14), light: hex(0x0C_0C_0E, alpha: 0.15))
+    /// Top stop of every ring. A dark ring is brightest at the top; a light
+    /// ring *withdraws* at the top and closes at the bottom, which is the
+    /// same lighting read the other way round.
+    public static let edgeHighlight = Pair(
+        dark: ControlPalette.white(0.10), light: ControlPalette.white(0.75))
+
+    // MARK: Accent — one accent, two roles
+
+    /// The accent **as ink**: chart bars, selection indicators, active
+    /// glyphs, link text, focus ring. It varies with the appearance behind
+    /// it, because ink always does.
+    public static let accentForeground = Pair(dark: hex(0x8B_7C_FF), light: hex(0x5B_4D_E0))
+    /// The accent **as an opaque fill** under white text — prominent
+    /// buttons, filled badges, a toggle that is on, a highlighted menu item.
+    /// The *same* value in both appearances: an opaque fill has no
+    /// appearance behind it to vary with. White on it clears 5.9:1.
+    public static let accentFill = hex(0x5B_4D_E0)
+    public static let accentFillHovered = hex(0x6A_5D_E8)
+    public static let accentFillPressed = hex(0x4A_3E_C4)
+    /// Alpha of the accent wash under a selected nav row or a hovered chart
+    /// column, and of the stronger wash under a selected row in a focused
+    /// list.
+    public static let accentWashAlpha = Pair(dark: 0.14 as Float, light: 0.10 as Float)
+    public static let accentWashStrongAlpha = Pair(dark: 0.20 as Float, light: 0.15 as Float)
+    /// Keyboard focus halo and text selection, both appearances.
+    public static let accentRingAlpha: Float = 0.45
+    public static let accentSelectionAlpha: Float = 0.30
+
+    // MARK: Status
+
+    /// Status rides a 6–7pt dot, a meter fill or 11pt chip text — never a
+    /// large fill, never body text, never a button fill.
+    public static let success = Pair(dark: hex(0x3F_D0_8A), light: hex(0x0B_7A_52))
+    public static let warning = Pair(dark: hex(0xF5_B9_3C), light: hex(0xA4_5A_00))
+    public static let danger = Pair(dark: hex(0xFF_6F_6F), light: hex(0xC6_2B_22))
+    public static let statusWashAlpha = Pair(dark: 0.14 as Float, light: 0.10 as Float)
+}
+
+/// One rung of the elevation ramp, in the engine's own shadow model: one
+/// colour, one blur radius, one downward offset, per appearance.
+public struct ElevationLevel: Sendable, Equatable {
+
+    /// One appearance's resolution of a rung.
+    public struct Shadow: Sendable, Equatable {
+        public let color: Color
+        public let radius: Double
+        public let offsetY: Double
+
+        public init(color: Color, radius: Double, offsetY: Double) {
+            self.color = color
+            self.radius = radius
+            self.offsetY = offsetY
+        }
+
+        public static let none = Shadow(color: .clear, radius: 0, offsetY: 0)
+    }
+
+    public let dark: Shadow
+    public let light: Shadow
+
+    public init(dark: Shadow, light: Shadow) {
+        self.dark = dark
+        self.light = light
+    }
+
+    public func resolve(_ scheme: ColorScheme) -> Shadow {
+        scheme == .dark ? dark : light
+    }
+
+    public func color(for scheme: ColorScheme) -> Color { resolve(scheme).color }
+    public func radius(for scheme: ColorScheme) -> Double { resolve(scheme).radius }
+    public func offsetY(for scheme: ColorScheme) -> Double { resolve(scheme).offsetY }
+}
+
+/// The elevation ramp — five rungs, one shadow each.
+///
+/// **Structure is carried by the hairline; a shadow only ever says "this
+/// floats."** That distinction is the whole ramp: a card in the page is
+/// flat and closed by a ring, and only something genuinely above the page —
+/// a toolbar over scrolled content, a menu, a sheet — casts anything.
+///
+/// The retired ramp had one shadow used at every level with an *unspecified*
+/// offset that defaulted large: `DemoElevation.panel` blurred 8 and offset
+/// **14**, under a 12pt gutter. Every gutter in the window was filled with a
+/// shadow smear rather than showing the page base, which is the single
+/// largest source of the muddy read in both appearances. Nothing here
+/// offsets more than 12, and `e0`/`e1` — the rungs a page card takes — offset
+/// 0 and 1.
+public enum Elevation {
+
+    /// Everything flat in the page: nav rows, table rows, form rows, chips,
+    /// and **all cards in the dark appearance**. A shadow under a near-black
+    /// card on a near-black page is invisible work.
+    public static let e0 = ElevationLevel(dark: .none, light: .none)
+
+    /// Cards and form boxes **in the light appearance**; the segmented
+    /// selected pill; a toggle knob. A 3pt blur at y 1 — a paper lift.
+    public static let e1 = ElevationLevel(
+        dark: .init(color: ControlPalette.black(0.30), radius: 3, offsetY: 1),
+        light: .init(color: ControlPalette.ink(0.06), radius: 3, offsetY: 1)
+    )
+
+    /// A toolbar band over scrolled content, an inline popup, a tooltip.
+    public static let e2 = ElevationLevel(
+        dark: .init(color: ControlPalette.black(0.38), radius: 10, offsetY: 4),
+        light: .init(color: ControlPalette.ink(0.08), radius: 8, offsetY: 3)
+    )
+
+    /// Menu, popover, sheet, dialog.
+    public static let e3 = ElevationLevel(
+        dark: .init(color: ControlPalette.black(0.50), radius: 24, offsetY: 12),
+        light: .init(color: ControlPalette.ink(0.13), radius: 22, offsetY: 10)
+    )
+
+    /// **The hero card only.** The one tinted shadow in the app.
+    public static let e4 = ElevationLevel(
+        dark: .init(color: DesignTokens.accentFill.opacity(0.22), radius: 28, offsetY: 10),
+        light: .init(color: DesignTokens.accentFill.opacity(0.16), radius: 24, offsetY: 10)
+    )
+}
+
+/// The design system's colour roles, resolved for one appearance.
 ///
 /// Before this existed every chrome colour in `Views.swift` was a literal
 /// tuned for dark mode, so `.preferredColorScheme(.light)` changed exactly
@@ -14,11 +207,14 @@ import SwiftWindowsUI
 /// for the role it needs — `separator`, `label`, `controlSurface` — and
 /// never writes an RGB literal.
 ///
-/// The values are AppKit's published semantic colours (`NSColor.labelColor`,
-/// `separatorColor`, `controlBackgroundColor`, the `systemFill` ramp), which
-/// is also why they are achromatic: macOS neutrals are grey, not the blue-cast
-/// navy the hand-tuned literals had drifted to. Pinned in
-/// docs/MacOSDesignParity.md and asserted by `ControlPaletteTests`.
+/// The *mechanism* was built for macOS parity and is unchanged. The values
+/// are now this app's own system ("quiet ink, one signature"): a near-black
+/// or near-white page, structure carried by hairlines and one surface lift,
+/// and exactly one saturated moment per screen. `DesignTokens` below holds
+/// the ramp; every role here is one of those tokens, so restyling the app is
+/// a change to a table rather than a search through chrome. Pinned in
+/// docs/MacOSDesignParity.md and asserted by `MacOSDesignParityTests` /
+/// `ControlAppearanceChromeTests`.
 public struct ControlPalette: Sendable, Equatable {
 
     // MARK: Surfaces
@@ -145,23 +341,42 @@ public struct ControlPalette: Sendable, Equatable {
         }
     }
 
+    /// A light-appearance wash, mixed from the page's own ink rather than
+    /// from pure black. On a cool near-white page a pure-black hairline
+    /// reads a shade warm; `#0C0C0E` at the same alpha does not, and it is
+    /// the same neutral the dark appearance uses as its base.
+    public static func ink(_ alpha: Float) -> Color {
+        Color(
+            red: DesignTokens.lightInk.red,
+            green: DesignTokens.lightInk.green,
+            blue: DesignTokens.lightInk.blue,
+            alpha: alpha
+        )
+    }
+
     public static let darkStandard = ControlPalette(
-        windowBackground: Color(red: 0.129, green: 0.129, blue: 0.129, alpha: 1),
-        controlBackground: Color(red: 0.118, green: 0.118, blue: 0.118, alpha: 1),
-        controlSurface: white(0.10),
-        controlSurfaceHovered: white(0.15),
-        controlSurfacePressed: white(0.22),
-        raisedSurface: Color(red: 0.157, green: 0.157, blue: 0.161, alpha: 1),
+        windowBackground: DesignTokens.base.dark,
+        controlBackground: DesignTokens.surface0.dark,
+        // A bordered control's face is opaque, not a wash. `white(0.10)`
+        // over a `#212121` window was a visible plate; over the near-black
+        // `#0C0C0E` page it is 25/255 of nothing, and every button in the
+        // app dissolved into its own backdrop.
+        controlSurface: DesignTokens.surface2.dark,
+        controlSurfaceHovered: DesignTokens.surface3.dark,
+        controlSurfacePressed: DesignTokens.surface4.dark,
+        raisedSurface: DesignTokens.surface1.dark,
         label: white(LabelHierarchy.primaryAlpha),
         secondaryLabel: white(LabelHierarchy.secondaryAlpha),
         tertiaryLabel: white(LabelHierarchy.tertiaryAlpha),
         quaternaryLabel: white(LabelHierarchy.quaternaryAlpha),
-        disabledLabel: white(LabelHierarchy.tertiaryAlpha),
+        // A disabled label is the fourth rung — the same tone as a chevron
+        // or any other thing that is not a string you have to read.
+        disabledLabel: white(LabelHierarchy.quaternaryAlpha),
         selectedContentLabel: .white,
-        separator: white(0.10),
-        controlBorder: white(0.14),
-        controlBorderStrong: white(0.28),
-        unemphasizedSelectedBackground: Color(red: 0.247, green: 0.247, blue: 0.255, alpha: 1),
+        separator: DesignTokens.strokeSubtle.dark,
+        controlBorder: DesignTokens.stroke.dark,
+        controlBorderStrong: DesignTokens.strokeStrong.dark,
+        unemphasizedSelectedBackground: DesignTokens.surface3.dark,
         systemFill: white(0.10),
         secondaryFill: white(0.08),
         tertiaryFill: white(0.05),
@@ -171,27 +386,27 @@ public struct ControlPalette: Sendable, Equatable {
     )
 
     public static let lightStandard = ControlPalette(
-        windowBackground: Color(red: 0.925, green: 0.925, blue: 0.925, alpha: 1),
-        controlBackground: .white,
-        controlSurface: .white,
-        controlSurfaceHovered: Color(red: 0.957, green: 0.957, blue: 0.957, alpha: 1),
-        controlSurfacePressed: Color(red: 0.878, green: 0.878, blue: 0.882, alpha: 1),
-        raisedSurface: .white,
-        label: black(LabelHierarchy.primaryAlpha),
-        secondaryLabel: black(LabelHierarchy.secondaryAlpha),
-        tertiaryLabel: black(LabelHierarchy.tertiaryAlpha),
-        quaternaryLabel: black(LabelHierarchy.quaternaryAlpha),
-        disabledLabel: black(LabelHierarchy.tertiaryAlpha),
+        windowBackground: DesignTokens.base.light,
+        controlBackground: DesignTokens.surface0.light,
+        controlSurface: DesignTokens.surface1.light,
+        controlSurfaceHovered: DesignTokens.surface0.light,
+        controlSurfacePressed: DesignTokens.surface4.light,
+        raisedSurface: DesignTokens.surface1.light,
+        label: ink(LabelHierarchy.lightPrimaryAlpha),
+        secondaryLabel: ink(LabelHierarchy.lightSecondaryAlpha),
+        tertiaryLabel: ink(LabelHierarchy.lightTertiaryAlpha),
+        quaternaryLabel: ink(LabelHierarchy.lightQuaternaryAlpha),
+        disabledLabel: ink(LabelHierarchy.lightQuaternaryAlpha),
         selectedContentLabel: .white,
-        separator: black(0.10),
-        controlBorder: black(0.16),
-        controlBorderStrong: black(0.30),
-        unemphasizedSelectedBackground: Color(red: 0.863, green: 0.863, blue: 0.867, alpha: 1),
-        systemFill: black(0.10),
-        secondaryFill: black(0.08),
-        tertiaryFill: black(0.05),
-        quaternaryFill: black(0.03),
-        quinaryFill: black(0.02),
+        separator: DesignTokens.strokeSubtle.light,
+        controlBorder: DesignTokens.stroke.light,
+        controlBorderStrong: DesignTokens.strokeStrong.light,
+        unemphasizedSelectedBackground: DesignTokens.surface3.light,
+        systemFill: ink(0.10),
+        secondaryFill: ink(0.08),
+        tertiaryFill: ink(0.05),
+        quaternaryFill: ink(0.03),
+        quinaryFill: ink(0.02),
         colorScheme: .light
     )
 
@@ -200,22 +415,52 @@ public struct ControlPalette: Sendable, Equatable {
         palette.label = .white
         palette.secondaryLabel = white(LabelHierarchy.increasedContrastSecondaryAlpha)
         palette.tertiaryLabel = white(LabelHierarchy.increasedContrastTertiaryAlpha)
-        palette.separator = white(0.28)
-        palette.controlBorder = white(0.34)
-        palette.controlBorderStrong = white(0.55)
+        palette.separator = white(0.14)
+        palette.controlBorder = white(0.20)
+        palette.controlBorderStrong = white(0.34)
         return palette
     }()
 
     public static let lightIncreased: ControlPalette = {
         var palette = lightStandard
-        palette.label = .black
-        palette.secondaryLabel = black(LabelHierarchy.increasedContrastSecondaryAlpha)
-        palette.tertiaryLabel = black(LabelHierarchy.increasedContrastTertiaryAlpha)
-        palette.separator = black(0.28)
-        palette.controlBorder = black(0.36)
-        palette.controlBorderStrong = black(0.55)
+        palette.label = ink(1)
+        palette.secondaryLabel = ink(LabelHierarchy.lightIncreasedContrastSecondaryAlpha)
+        palette.tertiaryLabel = ink(LabelHierarchy.lightIncreasedContrastTertiaryAlpha)
+        palette.separator = ink(0.16)
+        palette.controlBorder = ink(0.22)
+        palette.controlBorderStrong = ink(0.36)
         return palette
     }()
+
+    // MARK: The ramp, by name
+
+    /// Window backdrop, sidebar and rail columns, tab band, page gutters.
+    public var base: Color { DesignTokens.base.resolve(colorScheme) }
+    /// Content wells, scroll wells, table bodies.
+    public var surface0: Color { DesignTokens.surface0.resolve(colorScheme) }
+    /// **Cards.** The one and only card fill.
+    public var surface1: Color { DesignTokens.surface1.resolve(colorScheme) }
+    /// Inside a card: fields, chips, icon tiles, segmented track, row hover.
+    public var surface2: Color { DesignTokens.surface2.resolve(colorScheme) }
+    /// Pressed / active / selected-neutral; menu and popover body.
+    public var surface3: Color { DesignTokens.surface3.resolve(colorScheme) }
+    /// Sheet / dialog backdrop.
+    public var scrim: Color { DesignTokens.scrim.resolve(colorScheme) }
+
+    /// The face of a text input, a search field, a stepper's number well.
+    ///
+    /// The appearances are genuine inverses and both are right: `surface2`
+    /// on the near-black page — one step *lighter* than the card it sits in,
+    /// because a darker recess on near-black is a hole — and white on the
+    /// near-white one, one step lighter than the chips beside it. The ring
+    /// carries "you can type here" in both.
+    public var fieldSurface: Color { isDark ? surface2 : DesignTokens.surface1.light }
+
+    /// The structural hairline — one step above `separator`. Toolbar and
+    /// footer band edges, a popover's ring, a chart baseline: the lines that
+    /// say "this region ends here", as opposed to the ones that say "these
+    /// two rows are different rows".
+    public var separatorStrong: Color { controlBorderStrong }
 
     // MARK: Derived control roles
 
@@ -226,37 +471,34 @@ public struct ControlPalette: Sendable, Equatable {
     /// All four used to bake the same dark slate literal
     /// (`Color(red: 0.30, green: 0.34, blue: 0.40)`) into their `Controls`
     /// default, so a light-mode Form drew a near-black groove across a white
-    /// settings pane and an `off` switch came out charcoal — the one part of
-    /// the light appearance that still looked like the dark one. The dark
-    /// value below is that literal unchanged; light is macOS's neutral
-    /// groove, dark enough to read as recessed on white.
+    /// settings pane and an `off` switch came out charcoal.
+    ///
+    /// That slate was also the last chromatic neutral in the app — a groove
+    /// on a blue axis beside an otherwise achromatic ramp — so it is gone:
+    /// the groove is `surface3` in dark, and a neutral light grey deep enough
+    /// to read as recessed on white.
     public var controlTrack: Color {
-        isDark
-            ? Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1)
-            : Color(red: 0.839, green: 0.839, blue: 0.855, alpha: 1)
+        isDark ? surface3 : DesignTokens.hex(0xD2_D4_DA)
     }
 
-    /// Recessed groove an `NSSegmentedControl`'s segments sit in.
-    public var segmentedTrackFill: Color {
-        isDark
-            ? Color(red: 0.173, green: 0.173, blue: 0.180, alpha: 1)
-            : Color(red: 0.914, green: 0.914, blue: 0.922, alpha: 1)
-    }
+    /// Recessed groove a segmented control's segments sit in — the same
+    /// `surface2` a field or a chip takes, because they are the same idea:
+    /// a recess inside a card.
+    public var segmentedTrackFill: Color { surface2 }
 
-    /// The raised pill under the selected segment. Dark mode raises a grey
-    /// pill (#636366) — a near-white pill with a near-black label is the
-    /// *light* appearance and reads as a foreign chip in a dark app.
+    /// The raised pill under the selected segment.
+    ///
+    /// Dark mode used to raise a mid-grey plate (#636366) so the pill could
+    /// be seen. The lift comes from *elevation* now — `surface3` plus the
+    /// `e1` contact shadow — which is why the pill can sit one quiet step
+    /// above its track instead of six.
     public var segmentedSelectedFill: Color {
-        isDark
-            ? Color(red: 0.388, green: 0.388, blue: 0.400, alpha: 1)
-            : .white
+        isDark ? surface3 : DesignTokens.surface1.light
     }
 
-    /// Label on the selected segment: white on the dark pill, black on the
-    /// light one.
-    public var segmentedSelectedLabel: Color {
-        isDark ? .white : .black
-    }
+    /// Label on the selected segment. The primary rung in both appearances:
+    /// a selected segment is the one you are meant to read.
+    public var segmentedSelectedLabel: Color { label }
 
     /// A surface that floats above the window rather than sitting inside it —
     /// a menu, a popover, a sheet, an alert, a context menu, an inspector.
@@ -269,50 +511,51 @@ public struct ControlPalette: Sendable, Equatable {
     /// dark literal, so a light-mode app opened a black menu with black text
     /// on it.
     public var elevatedSurface: Color {
-        isDark
-            ? Color(red: 0.169, green: 0.169, blue: 0.176, alpha: 0.98)
-            : Color(red: 0.976, green: 0.976, blue: 0.980, alpha: 0.98)
+        Color(red: surface3.red, green: surface3.green, blue: surface3.blue, alpha: 0.98)
     }
 
-    /// The hairline closing an elevated surface. A near-white ring is a dark
-    /// mode idea; in light mode the ring has to be the dark one.
-    public var elevatedSurfaceBorder: Color {
-        isDark ? ControlPalette.white(0.16) : ControlPalette.black(0.14)
-    }
+    /// The hairline closing an elevated surface. A floating panel is closed
+    /// with the *structural* hairline, not the card one: it has no page
+    /// around it to borrow an edge from.
+    public var elevatedSurfaceBorder: Color { controlBorderStrong }
 
     /// The knob of an overlay scroller, at the moment it is revealed.
     ///
-    /// macOS draws it as a neutral pill with no track behind it: white on a
-    /// dark app, black on a light one, at roughly half strength. The
-    /// blue-tinted near-white the retained defaults carried was invisible in
-    /// light mode and cool against a grey app in dark mode.
+    /// A neutral pill with no track behind it: white on a dark app, ink on a
+    /// light one. A modern overlay scroller is *nearly invisible* at rest —
+    /// the 0.48 / 0.42 this used to draw made the scrollbar the brightest
+    /// object in whatever column it floated over, which is the one thing a
+    /// scrollbar must never be.
     public var scrollerKnob: Color {
-        isDark ? ControlPalette.white(0.48) : ControlPalette.black(0.42)
+        isDark ? ControlPalette.white(0.22) : ControlPalette.ink(0.18)
     }
 
-    /// The knob under the pointer. macOS both darkens and widens the knob on
-    /// hover; this stack only changes the tone.
+    /// The knob under the pointer.
     public var scrollerKnobHovered: Color {
-        isDark ? ControlPalette.white(0.64) : ControlPalette.black(0.58)
+        isDark ? ControlPalette.white(0.34) : ControlPalette.ink(0.30)
     }
 
-    /// The knob being dragged.
+    /// The knob being dragged — the only state in which it is meant to be
+    /// the thing you are looking at.
     public var scrollerKnobActive: Color {
-        isDark ? ControlPalette.white(0.78) : ControlPalette.black(0.72)
+        isDark ? ControlPalette.white(0.50) : ControlPalette.ink(0.46)
     }
 
     /// Contact shadow under a grouped container — a `Form` section box, a
     /// `GroupBox`, a settings card.
     ///
-    /// A macOS light-mode group box is *near-flat*: a white surface closed
-    /// by a separator-tone hairline, with barely any shadow under it. The
-    /// depth in dark mode comes from the shadow instead, because a white @
-    /// 0.10 hairline on a near-black backdrop carries almost no edge on its
-    /// own. One shared `ambientShadow` at 0.12 could only ever be right for
-    /// one of the two, and in light mode it put a visible smudge under every
-    /// card.
+    /// **The appearance-conditional card rule.** In dark, a card is
+    /// `surface1` closed by a hairline and casts *nothing*: a shadow under a
+    /// near-black card on a near-black page is invisible work, and at any
+    /// alpha strong enough to see it fills the 12pt gutter beside the card
+    /// with a grey smear instead of page tone. In light, a white card on
+    /// `#F2F3F5` takes `e1` — a 3pt blur at y 1 that reads as a paper lift,
+    /// which is what every app at this bar does.
+    ///
+    /// Stated once here so both appearances resolve from one rule rather
+    /// than from two independently tuned alphas.
     public var groupedContainerShadow: Color {
-        isDark ? ControlPalette.black(0.22) : ControlPalette.black(0.04)
+        isDark ? .clear : Elevation.e1.color(for: colorScheme)
     }
 
     // MARK: Surface materials
@@ -352,7 +595,7 @@ public struct ControlPalette: Sendable, Equatable {
     /// same edge reads as the ring *withdrawing* at the top and closing at the
     /// bottom, which is exactly how a System Settings box sits on its window.
     public var raisedSurfaceHighlight: Color {
-        isDark ? ControlPalette.white(0.16) : ControlPalette.white(0.55)
+        DesignTokens.edgeHighlight.resolve(colorScheme)
     }
 
     /// The container's ring: the top highlight above, the separator tone
@@ -370,23 +613,111 @@ public struct ControlPalette: Sendable, Equatable {
 
     // MARK: Accent-derived roles
 
-    /// The emphasised selection fill — a *solid* accent, as
-    /// `selectedContentBackgroundColor` is on macOS. Nothing about a
-    /// selected row is a translucent wash.
+    /// The accent **as ink** — a chart bar, a selection indicator, an active
+    /// glyph, link text, a focus ring. It varies with the appearance behind
+    /// it: `#8B7CFF` on the near-black page (5.6:1) and `#5B4DE0` on the
+    /// near-white one (5.9:1).
+    public var accentForeground: Color { DesignTokens.accentForeground.resolve(colorScheme) }
+
+    /// The accent **as an opaque fill** under white text. The *same* value
+    /// in both appearances — an opaque fill has no appearance behind it to
+    /// vary with — and white on it clears 5.9:1 either way.
+    public var accentFill: Color { DesignTokens.accentFill }
+    public var accentFillHovered: Color { DesignTokens.accentFillHovered }
+    public var accentFillPressed: Color { DesignTokens.accentFillPressed }
+
+    /// Selected nav row, hovered chart column, tag chips.
+    public var accentWash: Color {
+        accentForeground.opacity(Double(DesignTokens.accentWashAlpha.resolve(colorScheme)))
+    }
+
+    /// Selected row in a *focused* list — one step up from `accentWash`.
+    public var accentWashStrong: Color {
+        accentForeground.opacity(Double(DesignTokens.accentWashStrongAlpha.resolve(colorScheme)))
+    }
+
+    /// Keyboard focus halo.
+    public var accentRing: Color {
+        accentForeground.opacity(Double(DesignTokens.accentRingAlpha))
+    }
+
+    /// Text selection.
+    public var accentSelection: Color {
+        accentForeground.opacity(Double(DesignTokens.accentSelectionAlpha))
+    }
+
+    /// Resolves a tint for use as **ink**.
+    ///
+    /// This is the accent split, applied. A view hands chrome an ambient
+    /// tint; if that tint is the system accent, ink resolves to the
+    /// appearance's own `accentForeground` (violet on the dark page, indigo
+    /// on the light one) rather than to the fill value, which is 2.7:1 as
+    /// text on a near-black page. A tint the app chose itself is the app's
+    /// business and passes through untouched — the same exact-value
+    /// recognition rule the label ladder uses.
+    public func accentInk(for tint: Color) -> Color {
+        let opaqueTint = ControlPalette.opaque(tint)
+        let fill = DesignTokens.accentFill
+        let isSystemAccent =
+            abs(opaqueTint.red - fill.red) < 0.004
+            && abs(opaqueTint.green - fill.green) < 0.004
+            && abs(opaqueTint.blue - fill.blue) < 0.004
+        guard isSystemAccent else {
+            return ControlPalette.opaque(tint)
+        }
+        return accentForeground
+    }
+
+    // MARK: Status
+
+    /// Status rides a 6–7pt dot, a meter fill or 11pt chip text — never a
+    /// large fill, never body text, never a button fill.
+    public var success: Color { DesignTokens.success.resolve(colorScheme) }
+    public var warning: Color { DesignTokens.warning.resolve(colorScheme) }
+    public var danger: Color { DesignTokens.danger.resolve(colorScheme) }
+
+    public func statusWash(_ status: Color) -> Color {
+        status.opacity(Double(DesignTokens.statusWashAlpha.resolve(colorScheme)))
+    }
+
+    /// The emphasised selection fill for a surface that genuinely *is*
+    /// filled: a highlighted menu item, a filled badge, an emphasised chip.
+    /// Solid accent under white content.
     public func selectedContentBackground(tint: Color) -> Color {
         ControlPalette.opaque(tint)
     }
 
-    /// State ramp for an accent-filled surface. macOS expresses button
-    /// state as a lightness change on a fully opaque accent, never as an
-    /// alpha ramp that lets the backdrop bleed through a "half-disabled"
-    /// looking fill.
+    /// The selection fill for a **row in a list or table** — a wash, not a
+    /// fill.
+    ///
+    /// A selected row used to be the solid accent with white text on it. On
+    /// the demo's Data screen that is a full-bleed saturated band across the
+    /// window: the loudest object in the app, for the least important reason,
+    /// and the one place a list stops looking like a list. The wash keeps the
+    /// row on the page's own ladder and lets the leading indicator bar say
+    /// "this one" instead. Emphasis is what separates it from the
+    /// unfocused-window fill, which stays neutral (`surface3`).
+    public func listSelectionBackground(tint: Color) -> Color {
+        accentInk(for: tint).opacity(Double(DesignTokens.accentWashStrongAlpha.resolve(colorScheme)))
+    }
+
+    /// State ramp for an accent-filled surface: a lightness change on a
+    /// fully opaque accent, never an alpha ramp that lets the backdrop bleed
+    /// through a "half-disabled" looking fill. The system accent takes its
+    /// pinned hover/pressed stops; a tint the app chose takes the same
+    /// lightness move applied to its own hue.
     public func accentHovered(_ tint: Color) -> Color {
-        ControlPalette.lightened(ControlPalette.opaque(tint), by: 0.08)
+        let accent = ControlPalette.opaque(tint)
+        return accent == DesignTokens.accentFill
+            ? DesignTokens.accentFillHovered
+            : ControlPalette.lightened(accent, by: 0.08)
     }
 
     public func accentPressed(_ tint: Color) -> Color {
-        ControlPalette.darkened(ControlPalette.opaque(tint), by: 0.12)
+        let accent = ControlPalette.opaque(tint)
+        return accent == DesignTokens.accentFill
+            ? DesignTokens.accentFillPressed
+            : ControlPalette.darkened(accent, by: 0.12)
     }
 
     // MARK: Colour maths
@@ -460,38 +791,53 @@ extension ControlPalette {
         )
     }
 
-    /// The 1pt ring plus the neutral ambient shadow a bordered control
-    /// casts. macOS never tints a control shadow with the accent colour.
+    /// The contact shadow a raised control casts, by the same
+    /// appearance-conditional rule the cards follow: `e1` in light, nothing
+    /// in dark. A near-black bezel on a near-black page has no shadow to
+    /// cast that is not either invisible or a smear.
+    public var controlShadow: Color { isDark ? .clear : Elevation.e1.color(for: colorScheme) }
+
+    /// The 1pt ring plus the contact shadow a bordered control casts. A
+    /// control shadow is never tinted with the accent colour.
+    ///
+    /// The focus ring is the accent as **ink** — the appearance's own
+    /// `accentForeground`, not the fill value, which is 2.7:1 against a
+    /// near-black page and would put a focus ring you cannot see around the
+    /// control you just tabbed to.
     ///
     /// `focusRingWidth` is `MacOSControlMetrics.FocusRing.strokeWidth`; the
     /// runtime insets the ring by a hairline so it does not sit flush
     /// against the bevel.
     public func buttonChrome(focusTint: Color, casts shadow: Bool = true) -> SurfaceChrome {
-        SurfaceChrome(
+        let contact = shadow ? controlShadow : .clear
+        return SurfaceChrome(
             borderColor: controlBorder,
             borderHoveredColor: controlBorderStrong,
             borderFocusedColor: controlBorderStrong,
             borderPressedColor: controlBorderStrong,
             borderWidth: 1,
-            focusRingColor: ControlPalette.opaque(focusTint).opacity(Double(ControlPalette.focusRingAlpha)),
+            focusRingColor: accentInk(for: focusTint).opacity(Double(ControlPalette.focusRingAlpha)),
             focusRingWidth: MacOSControlMetrics.FocusRing.strokeWidth,
-            shadowColor: shadow ? ControlPalette.ambientShadow : .clear,
-            shadowHoveredColor: shadow ? ControlPalette.ambientShadow : .clear,
-            shadowFocusedColor: shadow ? ControlPalette.ambientShadow : .clear,
+            shadowColor: contact,
+            shadowHoveredColor: contact,
+            shadowFocusedColor: contact,
             shadowPressedColor: .clear,
-            shadowOffset: Point(x: 0, y: 1),
+            shadowOffset: Point(x: 0, y: Elevation.e1.light.offsetY),
             shadowSpread: shadow ? 1 : 0
         )
     }
 
-    /// Ambient 1pt drop shadow shared by every raised control. Neutral
-    /// black at low alpha — the tinted glows the accent and destructive
-    /// styles used to cast are not a macOS affordance.
-    public static let ambientShadow = ControlPalette.black(0.12)
+    /// Ambient contact shadow, appearance-blind. Kept for the handful of
+    /// call sites that want *a* neutral contact tone without a palette in
+    /// hand; anything with a palette should ask for `controlShadow`.
+    public static let ambientShadow = ControlPalette.ink(0.06)
 
-    /// Keyboard focus rings on macOS are a clearly visible accent halo,
-    /// not the ~0.28 whisper the hand-tuned chrome used.
-    public static let focusRingAlpha: Float = 0.55
+    /// A keyboard focus ring is a 1px accent border plus a 2px halo outside
+    /// it — clearly visible, and small enough to sit *outside* a 6pt corner
+    /// radius rather than swallowing it. The retired 4pt ring at 0.55 was
+    /// authored against macOS's softer bezel; on this radius scale it read
+    /// as a bloom around the control rather than an outline of it.
+    public static let focusRingAlpha: Float = DesignTokens.accentRingAlpha
 
     /// Opacity a disabled control's *content* is drawn at. AppKit dims the
     /// entire disabled cell — label, glyph and all — rather than only

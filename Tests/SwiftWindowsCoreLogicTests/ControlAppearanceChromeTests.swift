@@ -66,21 +66,34 @@ final class ControlAppearanceChromeTests: XCTestCase {
         XCTAssertNotEqual(dark.separator, light.separator)
     }
 
-    /// macOS neutrals are grey. The retired palette was blue-cast navy
-    /// (`(0.18, 0.23, 0.31)` bordered fill, `(0.96, 0.98, 1.0)` borders),
-    /// which is the single clearest "this is a themed web app" signal.
+    /// The neutrals are achromatic **within a hair** — at most an 8/255 cool
+    /// cast between red and blue, which is enough that a near-black page
+    /// reads as ink rather than as brown and far short of the blue-cast navy
+    /// (`(0.18, 0.23, 0.31)` fills under `(0.96, 0.98, 1.0)` borders) this
+    /// stack started from. That was the single clearest "this is a themed web
+    /// app" signal, and the bound below is what keeps it from coming back one
+    /// tuned literal at a time.
     func testNeutralRolesAreAchromatic() async {
+        let bound: Float = 8.0 / 255
         for palette in [ControlPalette.darkStandard, ControlPalette.lightStandard] {
             for (name, color) in [
+                ("base", palette.base),
+                ("surface0", palette.surface0),
+                ("surface1", palette.surface1),
+                ("surface2", palette.surface2),
+                ("surface3", palette.surface3),
                 ("controlSurface", palette.controlSurface),
+                ("controlTrack", palette.controlTrack),
                 ("separator", palette.separator),
                 ("controlBorder", palette.controlBorder),
                 ("label", palette.label),
                 ("secondaryLabel", palette.secondaryLabel),
                 ("systemFill", palette.systemFill),
             ] {
-                XCTAssertEqual(color.red, color.green, accuracy: 0.001, "\(name) has a colour cast")
-                XCTAssertEqual(color.green, color.blue, accuracy: 0.001, "\(name) has a colour cast")
+                XCTAssertLessThanOrEqual(
+                    abs(color.red - color.green), bound, "\(name) has a colour cast")
+                XCTAssertLessThanOrEqual(
+                    abs(color.red - color.blue), bound, "\(name) has a colour cast")
             }
         }
     }
@@ -99,11 +112,18 @@ final class ControlAppearanceChromeTests: XCTestCase {
     func testSegmentedSelectedPillInvertsWithAppearance() async {
         let dark = ControlPalette.darkStandard
         let light = ControlPalette.lightStandard
-        XCTAssertEqual(dark.segmentedSelectedLabel, .white, "Dark mode raises a grey pill under a white label")
-        XCTAssertEqual(light.segmentedSelectedLabel, .black)
+        // A selected segment is the one you are meant to read, so its label
+        // is the primary rung in both appearances rather than a flat black or
+        // white that belongs to neither ladder.
+        XCTAssertEqual(dark.segmentedSelectedLabel, dark.label)
+        XCTAssertEqual(light.segmentedSelectedLabel, light.label)
         XCTAssertLessThan(
             dark.segmentedSelectedFill.red, light.segmentedSelectedFill.red,
-            "The dark-mode pill is grey (#636366), not near-white")
+            "The dark-mode pill is a dark surface, not a near-white one")
+        // The pill's lift comes from *elevation* (`surface3` plus the `e1`
+        // contact shadow), not from lightness: it used to be a mid-grey plate
+        // (#636366) six steps above its own track so it could be seen.
+        XCTAssertEqual(dark.segmentedSelectedFill, dark.surface3)
         XCTAssertLessThan(
             dark.segmentedTrackFill.red, light.segmentedTrackFill.red,
             "The dark-mode track is darker than the light-mode track")
@@ -162,21 +182,33 @@ final class ControlAppearanceChromeTests: XCTestCase {
             let node = buildNode(Button("Prominent") {}.buttonStyle(.borderedProminent))
             let fill = node.backgroundColor ?? .clear
             XCTAssertEqual(fill.alpha, 1, accuracy: 0.001, "A resting accent button is not 84% opaque")
+            // …and it is `accent-fill`: the same hex in both appearances,
+            // because an opaque fill has no appearance behind it to vary with.
+            XCTAssertEqual(fill, ControlPalette.darkStandard.accentFill)
             XCTAssertEqual(fill.red, Color.accentColor.red, accuracy: 0.002)
             XCTAssertEqual(fill.green, Color.accentColor.green, accuracy: 0.002)
             XCTAssertEqual(fill.blue, Color.accentColor.blue, accuracy: 0.002)
         }
     }
 
+    /// A control shadow is neutral, and it follows the same
+    /// appearance-conditional rule the cards do: nothing in dark, `e1` in
+    /// light. A near-black bezel on a near-black page has no shadow to cast
+    /// that is not either invisible or a smear.
     func testControlShadowsAreNeutralAndAmbient() async {
         await MainActor.run {
             for style in [ButtonStyle.automatic, .borderedProminent] {
-                let node = buildNode(Button("Go") {}.buttonStyle(style))
-                let shadow = node.shadowColor
-                XCTAssertEqual(shadow.red, shadow.green, accuracy: 0.001, "Control shadows are never tinted")
-                XCTAssertEqual(shadow.green, shadow.blue, accuracy: 0.001)
-                XCTAssertLessThanOrEqual(node.shadowOffset.y, 1, "Ambient shadow, not a card drop shadow")
-                XCTAssertLessThanOrEqual(node.shadowSpread, 2)
+                for scheme in [ColorScheme.dark, ColorScheme.light] {
+                    let node = buildNode(Button("Go") {}.buttonStyle(style), colorScheme: scheme)
+                    let shadow = node.shadowColor
+                    XCTAssertLessThanOrEqual(
+                        abs(shadow.red - shadow.blue), 6.0 / 255, "Control shadows are never tinted")
+                    XCTAssertLessThanOrEqual(node.shadowOffset.y, 1, "Contact shadow, not a card drop shadow")
+                    XCTAssertLessThanOrEqual(node.shadowSpread, 2)
+                    if scheme == .dark {
+                        XCTAssertEqual(shadow.alpha, 0, accuracy: 0.001, "a dark control casts nothing")
+                    }
+                }
             }
         }
     }
@@ -218,11 +250,11 @@ final class ControlAppearanceChromeTests: XCTestCase {
     // MARK: - Finding 14: the gloss is retired
 
     func testSurfaceSheenIsNearlyFlat() async {
-        XCTAssertEqual(Controls.surfaceSheenFactor, 0.96, accuracy: 0.0001)
+        XCTAssertEqual(Controls.surfaceSheenFactor, 0.98, accuracy: 0.0001)
         XCTAssertGreaterThan(
             Controls.surfaceSheenFactor, 0.9,
-            "Big Sur+ controls carry a 3–5% sheen, not the retired 18% bevel")
-        XCTAssertEqual(Controls.grooveSheenFactor, 0.90, accuracy: 0.0001)
+            "a surface travels at the edge of perception, not the retired 18% bevel")
+        XCTAssertEqual(Controls.grooveSheenFactor, 0.95, accuracy: 0.0001)
     }
 
     // MARK: - Finding 5: a disabled control dims its content
@@ -362,12 +394,20 @@ final class ControlAppearanceChromeTests: XCTestCase {
         XCTAssertEqual(SurfaceChrome.elevatedButton.focusRingWidth, MacOSControlMetrics.FocusRing.strokeWidth)
     }
 
+    /// A focus ring is a thin accent outline, not a bloom: 2pt at 0.45,
+    /// drawn in the accent as **ink** so it is visible against the page it
+    /// sits on. `accent-fill` as a ring is 2.7:1 on the near-black page — a
+    /// focus ring you cannot see on the control you just tabbed to.
     func testFocusRingIsAVisibleAccentHalo() async {
-        let chrome = ControlPalette.darkStandard.buttonChrome(focusTint: .accentColor)
-        XCTAssertGreaterThanOrEqual(
-            chrome.focusRingColor.alpha, 0.5,
-            "A keyboard focus ring is a clearly visible accent halo, not a 0.28 whisper")
-        XCTAssertEqual(chrome.focusRingWidth, MacOSControlMetrics.FocusRing.strokeWidth)
-        XCTAssertGreaterThanOrEqual(SurfaceChrome.elevatedButton.focusRingColor.alpha, 0.5)
+        for scheme in [ColorScheme.dark, ColorScheme.light] {
+            let palette = ControlPalette.resolve(colorScheme: scheme)
+            let chrome = palette.buttonChrome(focusTint: .accentColor)
+            XCTAssertGreaterThanOrEqual(
+                chrome.focusRingColor.alpha, 0.4,
+                "\(scheme): a keyboard focus ring is clearly visible, not a 0.28 whisper")
+            XCTAssertEqual(chrome.focusRingWidth, MacOSControlMetrics.FocusRing.strokeWidth)
+            XCTAssertEqual(chrome.focusRingColor, palette.accentRing)
+        }
+        XCTAssertGreaterThanOrEqual(SurfaceChrome.elevatedButton.focusRingColor.alpha, 0.4)
     }
 }

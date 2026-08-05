@@ -203,32 +203,47 @@ final class ListChromeAndMetricsTests: XCTestCase {
         }
     }
 
-    /// `NSColor.separatorColor` is 10% — the 0.22 white this used to draw
-    /// is roughly twice the macOS rule.
+    /// `separator` is the *subtle* hairline: the rule that says "these two
+    /// rows are different rows". The structural one — a band edge, a popover
+    /// ring, a chart baseline — is `separatorStrong`, and the two used to be
+    /// the same 10% line, which is why a table looked like a spreadsheet and
+    /// a toolbar edge looked like a table rule.
     func testSeparatorAlphaMatchesAppKit() async {
-        XCTAssertEqual(ControlPalette.darkStandard.separator.alpha, 0.10, accuracy: 0.001)
-        XCTAssertEqual(ControlPalette.lightStandard.separator.alpha, 0.10, accuracy: 0.001)
+        XCTAssertEqual(ControlPalette.darkStandard.separator.alpha, 0.06, accuracy: 0.001)
+        XCTAssertEqual(ControlPalette.lightStandard.separator.alpha, 0.07, accuracy: 0.001)
+        for palette in [ControlPalette.darkStandard, ControlPalette.lightStandard] {
+            XCTAssertGreaterThan(
+                palette.separatorStrong.alpha, palette.separator.alpha,
+                "a structural edge outranks a row rule")
+        }
     }
 
-    // MARK: - Finding 10: a selected row is a solid fill, not an outlined chip
+    // MARK: - Finding 10: a selected row is a wash, not an outlined chip
 
-    func testSelectedRowIsSolidAccentWithNoBorder() async {
+    /// A selected row is an **accent wash** at `Radius.sm` with no border.
+    ///
+    /// It used to be the solid accent under white text, which on the demo's
+    /// Data screen is a full-bleed saturated band across the window: the
+    /// loudest object a list can contain, saying nothing the wash and the
+    /// row's own leading indicator do not. What it must never go back to is
+    /// the 16% wash under a 52% *outline* before that, which read as an
+    /// outlined chip — hence the border assertion.
+    func testSelectedRowIsAnAccentWashWithNoBorder() async {
         await MainActor.run {
+            let palette = ControlPalette.darkStandard
             let node = buildNode(
                 List(selection: .constant(Set(["a"]))) {
                     Text("Alpha").tag("a")
                     Text("Beta").tag("b")
                 })
-            let filled = flatten(node).filter { ($0.backgroundColor?.alpha ?? 0) > 0.9 && $0.text == nil }
-            let selected = filled.first { node in
-                let fill = node.backgroundColor ?? .clear
-                return fill.blue > 0.9 && fill.red < 0.2
-            }
-            XCTAssertNotNil(selected, "The selected row fills solid with the accent colour")
-            XCTAssertEqual(selected?.borderWidth ?? -1, 0, "macOS draws no border around a selected row")
+            let expected = palette.listSelectionBackground(tint: .accentColor)
+            let selected = flatten(node).first { $0.backgroundColor == expected }
+            XCTAssertNotNil(selected, "The selected row fills with the accent wash")
+            XCTAssertLessThan(expected.alpha, 0.5, "a wash, not a fill")
+            XCTAssertEqual(selected?.borderWidth ?? -1, 0, "no border around a selected row")
             XCTAssertEqual(
-                selected?.cornerRadius ?? -1, MacOSControlMetrics.Button.regularCornerRadius,
-                "A 28pt row takes a small radius, not the 10pt floating-chip radius")
+                selected?.cornerRadius ?? -1, MacOSControlMetrics.Radius.sm,
+                "A row takes the control radius, not the 10pt floating-chip radius")
         }
     }
 

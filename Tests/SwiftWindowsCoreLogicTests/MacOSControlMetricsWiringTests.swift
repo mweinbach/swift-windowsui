@@ -310,11 +310,18 @@ final class MacOSControlMetricsWiringTests: XCTestCase {
 
     /// A tab bar and a segmented picker are not the same control, and drawing
     /// them with the same one put a rounded grey capsule holding three chained
-    /// buttons across the top of every screen. The band is the page tone,
+    /// buttons across the top of every screen. The band is the **chrome tone**,
     /// square and full bleed, closed by one hairline; a tab is transparent at
     /// rest with no border and no shadow; and the selection is a short accent
     /// bar under the label. The segmented control keeps its groove — a
     /// segmented control *is* a groove.
+    ///
+    /// `chromeBand`, not `base`. Painted in the window's own backdrop tone the
+    /// bar had nothing to be a bar against: on the dashboard it and the
+    /// toolbar band under it sampled byte-identical to the columns beside
+    /// them, so the top 88pt was one flat field. It sits a full ramp rung up
+    /// now, on the same tone the `.bar` material solves for, which is what
+    /// makes the two stacked bands read as one chrome unit.
     func testTabBarIsASelectorBarNotAGroove() async {
         await MainActor.run {
             let bar = MacOSControlMetrics.SelectorBar.self
@@ -323,7 +330,11 @@ final class MacOSControlMetricsWiringTests: XCTestCase {
                 let band = Self.tabBandNode(colorScheme: scheme)
                 let row = band.children[0]
 
-                XCTAssertEqual(band.backgroundColor, palette.base, "\(scheme) band is the page tone")
+                XCTAssertEqual(
+                    band.backgroundColor, palette.chromeBand, "\(scheme) band is the chrome tone")
+                XCTAssertNotEqual(
+                    band.backgroundColor, palette.base,
+                    "\(scheme) a band painted in the backdrop tone is not a band")
                 XCTAssertEqual(row.cornerRadius, 0, "\(scheme) band is square")
                 XCTAssertNil(row.backgroundColor, "\(scheme) no recessed track")
                 XCTAssertEqual(row.borderWidth, 0, "\(scheme) no ring around the band")

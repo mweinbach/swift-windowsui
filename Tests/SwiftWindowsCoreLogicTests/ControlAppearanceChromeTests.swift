@@ -98,6 +98,211 @@ final class ControlAppearanceChromeTests: XCTestCase {
         }
     }
 
+    /// Distance between two neutrals in **levels of 255** — the unit the ramp
+    /// is authored in. Green, because the ramp is achromatic within a hair and
+    /// green carries 72% of luminance, so it is the channel the eye is reading.
+    private func levels(_ a: Color, _ b: Color) -> Int {
+        Int((abs(Double(a.green) - Double(b.green)) * 255).rounded())
+    }
+
+    /// The neutral ramp steps far enough that each rung is a rung.
+    ///
+    /// **This is the finding the whole tone pass exists for.** The ramp this
+    /// replaced stepped 5 to 8 levels: a card at `#17171A` on a `#111113` page
+    /// is 6/255, a segmented pill sat 5 levels over its own track, and the
+    /// sidebar was 5 levels off the content well beside it. At the dark end of
+    /// the curve 6/255 is under a percent of luminance, so every elevation in
+    /// the app was in fact carried by its hairline and a screenshot read as one
+    /// flat near-black field with rules drawn on it. Linear, Raycast, GitHub
+    /// and Vercel all step their dark ramps 9 to 14 levels per rung.
+    ///
+    /// The floor is `DesignTokens.minimumRampStep`, and it binds in **both**
+    /// appearances: the near-white ramp had four surfaces inside 13 levels
+    /// (base `#F2F3F5`, well `#F7F8FA`, bar `#FAFBFB`, card `#FFFFFF`), which
+    /// is four names for one colour.
+    /// The ramp is three chains, not one line, and only in dark do all three
+    /// happen to run the same way. Each is walked separately because a near-
+    /// white page has 25 levels of headroom above its frame and a near-black
+    /// one has 240: light spends its range going *up* to the card and then
+    /// back *down* for the recesses inside it, which is the same gesture
+    /// mirrored, not a shorter version of the dark ramp.
+    func testNeutralRampStepsAreLegible() async {
+        for palette in [ControlPalette.darkStandard, ControlPalette.lightStandard] {
+            let scheme = palette.colorScheme
+            let card = DesignTokens.surface1.resolve(scheme)
+            let chains: [(String, [(String, Color)])] = [
+                // The shell: frame → paper → card. What a window is made of.
+                (
+                    "shell",
+                    [("base", palette.base), ("surface0", palette.surface0), ("surface1", card)]
+                ),
+                // The recess inside a card: a field, a chip, a segmented
+                // track, then the selected/pressed stop past it.
+                (
+                    "recess",
+                    [("surface1", card), ("surface2", palette.surface2), ("surface3", palette.surface3)]
+                ),
+                // A bordered control's own three states. In dark it climbs
+                // (surface2 → 3 → 4); in light it descends from white, which
+                // is why `surface4` sits *between* `surface0` and `surface3`
+                // rather than past them.
+                (
+                    "control",
+                    [
+                        ("idle", palette.controlSurface),
+                        ("hovered", palette.controlSurfaceHovered),
+                        ("pressed", palette.controlSurfacePressed),
+                    ]
+                ),
+            ]
+            for (chainName, chain) in chains {
+                for (lower, upper) in zip(chain, chain.dropFirst()) {
+                    XCTAssertGreaterThanOrEqual(
+                        levels(lower.1, upper.1), DesignTokens.minimumRampStep,
+                        "\(scheme) \(chainName): \(lower.0) → \(upper.0) is not a step you can see")
+                }
+            }
+
+            // A page item with no surface of its own hovers by a full rung too
+            // — the sidebar row that used to lift 5/255 and read as nothing.
+            XCTAssertGreaterThanOrEqual(
+                levels(palette.base, palette.pageItemHoverFill), DesignTokens.minimumRampStep,
+                "\(scheme): a page item's hover is a step you can see")
+        }
+
+        // Direction. On near-black every rung of every chain is lighter than
+        // the one under it; on near-white the shell rises to the card and both
+        // other chains fall away from it.
+        let dark = ControlPalette.darkStandard
+        XCTAssertLessThan(dark.base.green, dark.surface0.green)
+        XCTAssertLessThan(dark.surface0.green, DesignTokens.surface1.dark.green)
+        XCTAssertLessThan(DesignTokens.surface1.dark.green, dark.surface2.green)
+        XCTAssertLessThan(dark.surface2.green, dark.surface3.green)
+        XCTAssertLessThan(dark.base.green, dark.pageItemHoverFill.green)
+
+        let light = ControlPalette.lightStandard
+        XCTAssertLessThan(light.base.green, light.surface0.green)
+        XCTAssertLessThan(light.surface0.green, DesignTokens.surface1.light.green)
+        XCTAssertGreaterThan(DesignTokens.surface1.light.green, light.surface2.green)
+        XCTAssertGreaterThan(light.surface2.green, light.surface3.green)
+        XCTAssertGreaterThan(light.base.green, light.pageItemHoverFill.green)
+
+        // …and the near-black end keeps its character: the floor is unchanged,
+        // and widening the ramp is spending the range *above* it.
+        XCTAssertEqual(dark.base, DesignTokens.hex(0x0C_0C_0E))
+    }
+
+    /// The **light shell is three levels, not four.** `base` (columns and
+    /// gutters), `surface0` (the well *and* the chrome bands), `surface1`
+    /// (cards) — and nothing between them. The fourth near-white was the bar
+    /// material: `.bar` at white 0.64 over `#F2F3F5` landed at `#FAFBFB`,
+    /// three levels under the card and three over the well, which is a rung
+    /// that costs a token and says nothing.
+    func testLightShellIsThreeLevels() async {
+        let light = ControlPalette.lightStandard
+        let shell = [light.base, light.surface0, DesignTokens.surface1.light]
+        for (lower, upper) in zip(shell, shell.dropFirst()) {
+            XCTAssertGreaterThanOrEqual(levels(lower, upper), DesignTokens.minimumRampStep)
+        }
+        XCTAssertEqual(
+            light.chromeBand, light.surface0,
+            "the light chrome band is the well's rung, not a fourth near-white")
+    }
+
+    /// The **columns are a rung off the field they frame.** A sidebar, a rail
+    /// and the window gutters take `base`; the content well and the chrome
+    /// bands over it take `surface0`. Column structure used to rest entirely
+    /// on a 15/255 hairline with a 5/255 tone difference behind it, so
+    /// removing the rule removed the columns.
+    ///
+    /// Direction is the Linear pattern and it is *not* symmetric: in dark the
+    /// frame is darker than the field it holds, and in light it is darker
+    /// *and* a shade cooler — the frame recedes in both, because a frame that
+    /// advances is a frame you read instead of the content.
+    func testColumnsAreARungOffTheContentWell() async {
+        for palette in [ControlPalette.darkStandard, ControlPalette.lightStandard] {
+            XCTAssertGreaterThanOrEqual(
+                levels(palette.base, palette.surface0), DesignTokens.minimumRampStep,
+                "\(palette.colorScheme): the columns and the well are one tone")
+            XCTAssertLessThan(
+                palette.base.green, palette.surface0.green,
+                "\(palette.colorScheme): the frame is darker than the field")
+        }
+        let light = ControlPalette.lightStandard
+        XCTAssertGreaterThan(
+            light.base.blue - light.base.red,
+            light.surface0.blue - light.surface0.red,
+            "the light frame is the cooler of the two")
+    }
+
+    /// The text ladder still lands where it has to on the **widened**
+    /// surfaces. Lifting a card 11 levels lifts the floor every string on it
+    /// is measured against, so widening the ramp is a change to text contrast
+    /// whether or not a single alpha moved — this is the assertion that says
+    /// by how much.
+    ///
+    /// **The rungs that carry sentences clear WCAG AA.** Primary and secondary
+    /// are ≥ 4.5:1 on every surface in both appearances, with the worst case
+    /// at 5.74:1 (light secondary on `surface3`). Widening cost them margin —
+    /// dark primary on `surface3` fell 13.71 → 10.54 — and nothing else.
+    ///
+    /// **Tertiary is the de-emphasized rung and is held to 3.85:1.** It has
+    /// never cleared AA: at the pinned `lightTertiaryAlpha` of 0.54 it is
+    /// 4.18:1 on pure *white*, so no light surface has ever reached 4.5 and
+    /// the ladder was graded that way deliberately (AppKit's own
+    /// `tertiaryLabelColor` is white 0.25 in dark, far below either number).
+    /// What widening did was bring the dark rung down to meet the light one:
+    /// both appearances now bottom out at 3.89:1 on `surface3`, where before
+    /// dark ran 4.49–4.84 and light 3.97–4.18. Tertiary carries captions,
+    /// eyebrows and field placeholders — never a sentence, never a control
+    /// label — and it now reads the same in both appearances, which is what
+    /// the ladder wanted and did not have.
+    ///
+    /// Quaternary is exempt and always was: chevrons, disabled glyphs and
+    /// rule-adjacent marks, never a string you have to read.
+    func testTextRungsClearContrastOnEveryRampSurface() async {
+        func contrast(_ text: Color, over fill: Color) -> Double {
+            func channel(_ v: Double) -> Double {
+                v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+            }
+            func luminance(_ c: Color) -> Double {
+                0.2126 * channel(Double(c.red)) + 0.7152 * channel(Double(c.green))
+                    + 0.0722 * channel(Double(c.blue))
+            }
+            let a = Double(text.alpha)
+            let composited = Color(
+                red: Float(a * Double(text.red) + (1 - a) * Double(fill.red)),
+                green: Float(a * Double(text.green) + (1 - a) * Double(fill.green)),
+                blue: Float(a * Double(text.blue) + (1 - a) * Double(fill.blue)),
+                alpha: 1)
+            let x = luminance(composited)
+            let y = luminance(fill)
+            return (max(x, y) + 0.05) / (min(x, y) + 0.05)
+        }
+
+        for palette in [ControlPalette.darkStandard, ControlPalette.lightStandard] {
+            let surfaces: [(String, Color)] = [
+                ("base", palette.base),
+                ("surface0", palette.surface0),
+                ("chromeBand", palette.chromeBand),
+                ("surface1", DesignTokens.surface1.resolve(palette.colorScheme)),
+                ("surface2", palette.surface2),
+                ("surface3", palette.surface3),
+            ]
+            for (surfaceName, surface) in surfaces {
+                for (rungName, rung, floor) in [
+                    ("primary", palette.label, 4.5),
+                    ("secondary", palette.secondaryLabel, 4.5),
+                    ("tertiary", palette.tertiaryLabel, 3.85),
+                ] {
+                    XCTAssertGreaterThanOrEqual(
+                        contrast(rung, over: surface), floor,
+                        "\(palette.colorScheme) \(rungName) on \(surfaceName)")
+                }
+            }
+        }
+    }
+
     func testIncreasedContrastStrengthensHairlinesAndLabels() async {
         let standard = ControlPalette.resolve(colorScheme: .dark, contrast: .standard)
         let increased = ControlPalette.resolve(colorScheme: .dark, contrast: .increased)

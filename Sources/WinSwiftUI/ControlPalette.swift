@@ -47,32 +47,82 @@ public enum DesignTokens {
 
     // MARK: Neutral ramp
 
-    /// Window backdrop, sidebar and rail columns, tab band, page gutters.
-    public static let base = Pair(dark: hex(0x0C_0C_0E), light: hex(0xF2_F3_F5))
-    /// Content wells, scroll wells, table bodies.
-    public static let surface0 = Pair(dark: hex(0x11_11_13), light: hex(0xF7_F8_FA))
+    /// The distance between two adjacent rungs of the neutral ramp, in levels
+    /// of 255.
+    ///
+    /// **A rung you cannot see is not a rung.** The ramp this replaced stepped
+    /// 5 to 8 levels — a card at `#17171A` on a `#111113` page is a 6/255
+    /// difference, and 6/255 at the dark end of the curve is under a percent
+    /// of luminance. Every elevation in the app was therefore carried by its
+    /// hairline alone, and a screenshot of it read as one flat near-black
+    /// field with rules drawn on it. Linear, Raycast, GitHub and Vercel all
+    /// step their dark ramps 9 to 14 levels per rung; this is that, stated
+    /// once so the table below is arithmetic rather than seven independently
+    /// tuned literals.
+    ///
+    /// Pinned by `testNeutralRampStepsAreLegible`, which walks the table and
+    /// fails on any adjacent pair closer than `minimumRampStep`.
+    public static let rampStep = 11
+    /// The floor the ramp is held to. A rung may be a level over or under
+    /// `rampStep` where rounding and the cool cast want it; it may never be
+    /// close enough to its neighbour to need a hairline to be seen.
+    public static let minimumRampStep = 10
+
+    /// **The frame.** Window backdrop, sidebar and rail columns, page gutters
+    /// — everything that surrounds content rather than carrying it.
+    ///
+    /// The near-black end of the ramp is unchanged and deliberately so: the
+    /// app's character lives here, and the fix for a compressed ramp is to
+    /// spread the rungs *above* the floor, not to lift the floor.
+    ///
+    /// In light the frame is the *cooler* of the two as well as the darker
+    /// one — 6/255 of blue over red against the field's 5 — so a sidebar
+    /// reads as shade rather than as grey paint.
+    public static let base = Pair(dark: hex(0x0C_0C_0E), light: hex(0xE6_E8_EC))
+    /// **The paper.** Content wells, scroll wells, table bodies — and, through
+    /// `chromeBand`, the toolbar and selector bands that frame them.
+    public static let surface0 = Pair(dark: hex(0x17_17_1C), light: hex(0xF1_F3_F6))
     /// **Cards.** The one and only card fill.
-    public static let surface1 = Pair(dark: hex(0x17_17_1A), light: hex(0xFF_FF_FF))
+    public static let surface1 = Pair(dark: hex(0x22_22_27), light: hex(0xFF_FF_FF))
     /// Inside a card: fields, chips, icon tiles, segmented track, row hover.
-    public static let surface2 = Pair(dark: hex(0x1E_1E_22), light: hex(0xF1_F2_F5))
+    public static let surface2 = Pair(dark: hex(0x2D_2D_32), light: hex(0xEB_ED_F0))
     /// Pressed / active / selected-neutral; menu and popover body.
-    public static let surface3 = Pair(dark: hex(0x26_26_2B), light: hex(0xE6_E8_EC))
+    public static let surface3 = Pair(dark: hex(0x39_39_3E), light: hex(0xDF_E1_E4))
     /// One step past `surface3` — a bordered control held down.
-    public static let surface4 = Pair(dark: hex(0x2C_2C_32), light: hex(0xEC_ED_F1))
+    public static let surface4 = Pair(dark: hex(0x45_45_4A), light: hex(0xE5_E7_EA))
     /// Sheet / dialog backdrop.
     public static let scrim = Pair(dark: hex(0x00_00_00, alpha: 0.55), light: hex(0x0C_0C_0E, alpha: 0.28))
+
+    /// **The chrome.** The tone a window's bands present when they sit on the
+    /// window's own backdrop: the selector bar, the toolbar band, a footer
+    /// inspector.
+    ///
+    /// It is the `surface0` rung, and that is a decision rather than a
+    /// shortcut. A window at this bar has two tonal regions, not three: a
+    /// *frame* (the columns and gutters, at `base`) and a *field* (the chrome
+    /// bands and the content wells they close, one rung up). The bands and the
+    /// well reading as one continuous tone is what makes a toolbar look like
+    /// the top of the content rather than a third slab stacked above it —
+    /// GitHub's canvas/subtle pair and Linear's sidebar/content split are both
+    /// this shape.
+    ///
+    /// Naming it separately is what lets the *material* resolve against it.
+    /// `.bar` used to tint toward `base`, and a translucent band tinted with
+    /// the tone it is composited over is byte-identical to that tone: the top
+    /// 88pt of every dark screen was one flat field with no band in it at all.
+    public static let chromeBand = surface0
 
     /// Hover fill of an item that sits *directly on the page tone* with no
     /// surface of its own: a tab in the selector bar, a nav row, a quick
     /// action.
     ///
-    /// It is not `surface1`, and the reason is the whole point of the ramp
-    /// having two directions. On the near-black page `surface1` is one step
-    /// *up* and reads as a lift. On the near-white page `surface1` is white,
-    /// which on a `#F2F3F5` band is a step of one or two units — invisible —
-    /// so the light hover has to move the other way, one step *down* toward
-    /// the ink. Same gesture, opposite direction, because the page is.
-    public static let pageItemHover = Pair(dark: hex(0x17_17_1A), light: hex(0xEA_EB_EE))
+    /// One rung either way from the frame — the one token whose two columns
+    /// move in *opposite* directions. On the near-black page the hover is a
+    /// step up and reads as a lift; on the near-white page there is no room
+    /// above `base` for a step that size, so the light hover moves a rung
+    /// *down* toward the ink instead. Same gesture, opposite direction,
+    /// because the page is.
+    public static let pageItemHover = Pair(dark: hex(0x17_17_1C), light: hex(0xDB_DD_E0))
 
     /// The neutral a light-appearance wash is mixed from. Pure black on a
     /// cool near-white page reads warm; the page's own ink does not.
@@ -446,10 +496,15 @@ public struct ControlPalette: Sendable, Equatable {
 
     // MARK: The ramp, by name
 
-    /// Window backdrop, sidebar and rail columns, tab band, page gutters.
+    /// **The frame.** Window backdrop, sidebar and rail columns, page gutters.
     public var base: Color { DesignTokens.base.resolve(colorScheme) }
-    /// Content wells, scroll wells, table bodies.
+    /// **The paper.** Content wells, scroll wells, table bodies.
     public var surface0: Color { DesignTokens.surface0.resolve(colorScheme) }
+    /// **The chrome.** The tone a selector bar, a toolbar band or a footer
+    /// inspector presents over the window backdrop. See
+    /// `DesignTokens.chromeBand` for why the bands and the content well share
+    /// a rung and why the material needs the name.
+    public var chromeBand: Color { DesignTokens.chromeBand.resolve(colorScheme) }
     /// **Cards.** The one and only card fill.
     public var surface1: Color { DesignTokens.surface1.resolve(colorScheme) }
     /// Inside a card: fields, chips, icon tiles, segmented track, row hover.
@@ -527,8 +582,18 @@ public struct ControlPalette: Sendable, Equatable {
     /// approximation. It exists because every one of these surfaces was a
     /// dark literal, so a light-mode app opened a black menu with black text
     /// on it.
+    ///
+    /// **Elevated means lighter than the window, in both appearances**, so the
+    /// two columns are different rungs: `surface3` on the near-black page,
+    /// where a panel three rungs up is a clear lift, and the card rung on the
+    /// near-white one, where `surface3` is a *recess* — it resolved to a panel
+    /// darker than the backdrop it was supposed to be floating over, which is
+    /// a menu that reads as a hole. The same inversion `fieldSurface` and
+    /// `pageItemHover` make, for the same reason: the near-white page has no
+    /// room above itself except white.
     public var elevatedSurface: Color {
-        Color(red: surface3.red, green: surface3.green, blue: surface3.blue, alpha: 0.98)
+        let surface = isDark ? surface3 : DesignTokens.surface1.light
+        return Color(red: surface.red, green: surface.green, blue: surface.blue, alpha: 0.98)
     }
 
     /// The hairline closing an elevated surface. A floating panel is closed

@@ -215,6 +215,22 @@ contrast faster than a white wash on near-black does: the two dimmer rungs
 need more alpha in light to land on the same reading. The quaternary rung is
 deliberately below AA; it is for chevrons and decoration.
 
+**Where the ladder lands on the widened ramp.** Lifting a card 11 levels lifts
+the floor every string on it is measured against, so the ramp pass is a change
+to text contrast whether or not an alpha moved.
+`ControlAppearanceChromeTests.testTextRungsClearContrastOnEveryRampSurface`
+walks every rung against every ramp surface in both appearances and pins two
+floors. Primary and secondary — the rungs that carry sentences — clear WCAG AA
+at 4.5:1 everywhere, worst case 5.74:1 (light secondary on `surface3`);
+widening cost them margin (dark primary on `surface3` fell 13.71 → 10.54) and
+nothing else. Tertiary is held to 3.85:1: it has never cleared AA, since at
+`lightTertiaryAlpha` 0.54 it is 4.18:1 on pure *white*, so no light surface ever
+reached 4.5. What widening did was bring the dark rung down to meet the light
+one — both now bottom out at 3.89:1 on `surface3`, where before dark ran
+4.49–4.84 and light 3.97–4.18. Tertiary carries captions, eyebrows and field
+placeholders, never a sentence and never a control label, and it now reads the
+same in both appearances.
+
 The base is white in the dark appearance and `#0C0C0E` in the light one — the
 page's own ink, not pure black, which reads a shade warm on a cool near-white
 page. The dark column doubles as the sentinel set
@@ -271,23 +287,86 @@ the design restylable.
 
 | Token      | Dark      | Light     | Use |
 |------------|-----------|-----------|-----|
-| `base`     | `#0C0C0E` | `#F2F3F5` | Window backdrop, sidebar and rail columns, tab band, page gutters |
-| `surface0` | `#111113` | `#F7F8FA` | Content wells, scroll wells, table bodies |
-| `surface1` | `#17171A` | `#FFFFFF` | **Cards.** The one and only card fill |
-| `surface2` | `#1E1E22` | `#F1F2F5` | Inside a card: fields, chips, icon tiles, segmented track, row hover |
-| `surface3` | `#26262B` | `#E6E8EC` | Pressed / active / selected-neutral; menu and popover body |
-| `surface4` | `#2C2C32` | `#ECEDF1` | One step past `surface3` — a bordered control held down |
-| `pageItemHover` | `#17171A` | `#EAEBEE` | Hover fill of an item drawn straight onto the page tone |
+| `base`     | `#0C0C0E` | `#E6E8EC` | **The frame.** Window backdrop, sidebar and rail columns, page gutters |
+| `surface0` | `#17171C` | `#F1F3F6` | **The paper.** Content wells, scroll wells, table bodies |
+| `chromeBand` | `#17171C` | `#F1F3F6` | **The chrome.** Selector bar, toolbar band, footer inspector — the `surface0` rung, by name |
+| `surface1` | `#222227` | `#FFFFFF` | **Cards.** The one and only card fill |
+| `surface2` | `#2D2D32` | `#EBEDF0` | Inside a card: fields, chips, icon tiles, segmented track, row hover |
+| `surface3` | `#39393E` | `#DFE1E4` | Pressed / active / selected-neutral; menu and popover body |
+| `surface4` | `#45454A` | `#E5E7EA` | One step past `surface3` — a bordered control held down |
+| `pageItemHover` | `#17171C` | `#DBDDE0` | Hover fill of an item drawn straight onto the page tone |
 | `scrim`    | `#000000` @ 0.55 | `#0C0C0E` @ 0.28 | Sheet / dialog backdrop |
+
+**A rung you cannot see is not a rung.** Every adjacent pair above is at least
+`DesignTokens.minimumRampStep` — 10 levels of 255 — apart, and the ramp is
+authored at `rampStep`, 11. The ramp this replaced stepped 5 to 8: a card at
+`#17171A` on a `#111113` page was 6/255, a segmented pill sat 5 levels over its
+own track, and a sidebar was 5 levels off the content well beside it. At the
+dark end of the curve 6/255 is under a percent of luminance, so every elevation
+in the app was in fact carried by its hairline and a screenshot read as one
+flat near-black field with rules drawn on it. Linear, Raycast, GitHub and
+Vercel all step their dark ramps 9 to 14 levels per rung.
+`ControlAppearanceChromeTests.testNeutralRampStepsAreLegible` pins the floor.
+
+The near-black end of the ramp did not move. `base` is the app's character and
+the fix for a compressed ramp is to spend the range *above* the floor.
+
+**The ramp is three chains, not one line.** A near-white page has 25 levels of
+headroom above its frame where a near-black one has 240, so light spends its
+range going *up* to the card and then back *down* for the recesses inside it —
+the same gesture mirrored, not a shorter version of the dark ramp:
+
+| Chain | Dark | Light |
+|-------|------|-------|
+| Shell — frame → paper → card | `base` → `surface0` → `surface1`, all rising | same tokens, all rising |
+| Recess inside a card | `surface1` → `surface2` → `surface3`, rising | the same three, falling from white |
+| A bordered control's states | `surface2` → `surface3` → `surface4`, rising | `surface1` → `surface0` → `surface4`, falling |
+
+The **light shell is three levels, not four**. It used to be four near-whites
+inside 13 levels — base `#F2F3F5`, well `#F7F8FA`, bar `#FAFBFB`, card
+`#FFFFFF` — which is four names for one colour. The fourth was the bar
+material; see "The chrome bands" below.
+
+**The frame is darker than the field it holds, in both appearances**, and in
+light it is the cooler of the two as well (6/255 of blue over red against the
+field's 5) so a sidebar reads as shade rather than as grey paint. Column
+structure used to rest entirely on a 15/255 hairline with a 5/255 tone
+difference behind it, so removing the rule removed the columns.
 
 `pageItemHover` is the one token whose two columns move in *opposite*
 directions, and that is the point. A selector-bar tab, a sidebar row and a
 quick action have no surface of their own — they sit on `base`. On the
-near-black page the hover is one step up (`surface1`) and reads as a lift; on
-the near-white page `surface1` is white, which against a `#F2F3F5` band is a
-step of one or two units and invisible, so the light hover moves one step
-*down* toward the ink instead. Same gesture, opposite direction, because the
-page is.
+near-black page the hover is a rung up and reads as a lift; on the near-white
+page there is no room above `base` for a step that size, so the light hover
+moves a rung *down* toward the ink instead. Same gesture, opposite direction,
+because the page is.
+
+### The chrome bands
+
+A selector bar, a toolbar band and a footer inspector present `chromeBand` when
+they sit on the window backdrop — the `surface0` rung, named separately so the
+*material* can resolve against it.
+
+A window at this bar has two tonal regions, not three: a **frame** (columns and
+gutters, at `base`) and a **field** (the chrome bands and the content wells they
+close, one rung up). The bands and the well reading as one continuous tone is
+what makes a toolbar look like the top of the content rather than a third slab
+stacked above it — GitHub's canvas/subtle pair and Linear's sidebar/content
+split are both this shape. It is also forced in light: 25 levels of headroom do
+not hold four rungs.
+
+`.bar` used to tint toward `base` in dark, and a translucent film of the page
+tone over the page tone is the page tone at every alpha — the toolbar band and
+the selector bar above it sampled byte-identical to the window backdrop, so the
+top 88pt of every dark screen was one flat black field with a hairline in it.
+The fix is not an opaque band, which throws the material away; it is solving the
+tint so the *composite* is the design value: `a·tint + (1 − a)·base ==
+chromeBand`. Over the backdrop the band is exactly the chrome rung; over
+anything scrolled under it, 36% still comes through blurred.
+`MacOSDesignParityTests.testBarMaterialCompositesOntoTheChromeRung` pins both
+halves, and `testSelectorBarAndBarMaterialAgreeOnTheChromeTone` pins that the
+opaque bar the runtime paints and the material the app paints land on the same
+tone — which is what makes two stacked bands read as one chrome unit.
 
 Hairlines, and the ring stop above them:
 
@@ -389,7 +468,7 @@ anything.
 by a hairline and casts nothing: a shadow under a near-black card on a
 near-black page is invisible work, and at any alpha strong enough to see it
 fills the 12pt gutter beside the card with a grey smear instead of page tone.
-In light a white card on `#F2F3F5` takes `e1` — a 3pt blur at y 1 that reads
+In light a white card on `#F1F3F6` takes `e1` — a 3pt blur at y 1 that reads
 as a paper lift. `ControlPalette.groupedContainerShadow` and
 `ControlPalette.controlShadow` both state it once and resolve twice.
 
@@ -597,13 +676,14 @@ page reads a shade warm; the page's ink does not.
 
 | Role                             | Dark            | Light           | Token |
 |----------------------------------|-----------------|-----------------|-------|
-| `windowBackground`               | #0C0C0E         | #F2F3F5         | `base` |
-| `controlBackground`              | #111113         | #F7F8FA         | `surface0` |
-| `controlSurface` (bordered face) | #1E1E22         | #FFFFFF         | `surface2` / `surface1` — **opaque**. A `white(0.10)` wash over a #212121 window was a visible plate; over the near-black page it is 25/255 of nothing, and every button dissolved into its own backdrop |
-| `controlSurfaceHovered`          | #26262B         | #F7F8FA         | `surface3` / `surface0` |
-| `controlSurfacePressed`          | #2C2C32         | #ECEDF1         | `surface4` |
-| `fieldSurface`                   | #1E1E22         | #FFFFFF         | The appearances are genuine inverses and both are right: a field is one step *lighter* than the card on near-black (a darker recess there is a hole) and one step lighter than the chips beside it on near-white |
-| `raisedSurface`                  | #17171A         | #FFFFFF         | `surface1` |
+| `windowBackground`               | #0C0C0E         | #E6E8EC         | `base` |
+| `controlBackground`              | #17171C         | #F1F3F6         | `surface0` |
+| `chromeBand`                     | #17171C         | #F1F3F6         | `chromeBand` — a selector bar, a toolbar band, a footer inspector |
+| `controlSurface` (bordered face) | #2D2D32         | #FFFFFF         | `surface2` / `surface1` — **opaque**. A `white(0.10)` wash over a #212121 window was a visible plate; over the near-black page it is 25/255 of nothing, and every button dissolved into its own backdrop |
+| `controlSurfaceHovered`          | #39393E         | #F1F3F6         | `surface3` / `surface0` |
+| `controlSurfacePressed`          | #45454A         | #E5E7EA         | `surface4` |
+| `fieldSurface`                   | #2D2D32         | #FFFFFF         | The appearances are genuine inverses and both are right: a field is one step *lighter* than the card on near-black (a darker recess there is a hole) and one step lighter than the chips beside it on near-white |
+| `raisedSurface`                  | #222227         | #FFFFFF         | `surface1` |
 | `label`                          | white @ 0.95    | ink @ 0.92      | text-1 |
 | `secondaryLabel`                 | white @ 0.66    | ink @ 0.66      | text-2 |
 | `tertiaryLabel`                  | white @ 0.47    | ink @ 0.54      | text-3 |
@@ -612,13 +692,13 @@ page reads a shade warm; the page's ink does not.
 | `separator`                      | white @ 0.06    | ink @ 0.07      | `strokeSubtle` |
 | `controlBorder`                  | white @ 0.09    | ink @ 0.10      | `stroke` |
 | `controlBorderStrong` / `separatorStrong` | white @ 0.14 | ink @ 0.15 | `strokeStrong` |
-| `unemphasizedSelectedBackground` | #26262B         | #E6E8EC         | `surface3` |
+| `unemphasizedSelectedBackground` | #39393E         | #DFE1E4         | `surface3` |
 | `systemFill` … `quinaryFill`     | white @ .10/.08/.05/.03/.02 | ink @ same | fill ramp |
-| `controlTrack`                   | #26262B         | #D2D4DA         | slider / progress / switch groove. The `#4D5766` slate it used to be was the last chromatic neutral in the app, on the one control that sits in every settings row |
-| `segmentedTrackFill`             | #1E1E22         | #F1F2F5         | `surface2` — a recess inside a card is a recess inside a card |
-| `segmentedSelectedFill`          | #26262B         | #FFFFFF         | `surface3` + `e1`. The pill's lift comes from *elevation*, not lightness: #636366 was a mid-grey plate six steps above its own track so it could be seen |
+| `controlTrack`                   | #39393E         | #D2D4DA         | slider / progress / switch groove. The `#4D5766` slate it used to be was the last chromatic neutral in the app, on the one control that sits in every settings row |
+| `segmentedTrackFill`             | #2D2D32         | #EBEDF0         | `surface2` — a recess inside a card is a recess inside a card |
+| `segmentedSelectedFill`          | #39393E         | #FFFFFF         | `surface3` + `e1`. The pill's lift comes from *elevation*, not lightness: #636366 was a mid-grey plate six steps above its own track so it could be seen |
 | `segmentedSelectedLabel`         | `label`         | `label`         | a selected segment is the one you are meant to read |
-| `elevatedSurface`                | #26262B @ 0.98  | #E6E8EC @ 0.98  | floating-panel material |
+| `elevatedSurface`                | #39393E @ 0.98  | #FFFFFF @ 0.98  | floating-panel material — **lighter than the window in both appearances**. `surface3` is a lift on near-black and a recess on near-white, so resolving both from it opened a light menu darker than the window under it |
 | `elevatedSurfaceBorder`          | `strokeStrong`  | `strokeStrong`  | a floating panel has no page around it to borrow an edge from |
 | `scrollerKnob`                   | white @ 0.22    | ink @ 0.18      | overlay knob — **nearly invisible at rest** |
 | `scrollerKnobHovered`            | white @ 0.34    | ink @ 0.30      | knob under the pointer |

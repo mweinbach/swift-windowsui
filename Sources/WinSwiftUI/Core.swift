@@ -14957,22 +14957,64 @@ public struct Material: ShapeStyle, Sendable, Equatable {
     /// across the top of a dark window, which is the brightest object in the
     /// app sitting on top of the page it is supposed to belong to.
     ///
-    /// Which surface depends on the kind. A **bar** is window chrome, so it
-    /// tints toward the page tone and lets its hairline carry the edge;
-    /// everything thicker **floats** (menu, popover, sheet), so it tints
-    /// toward the elevated surface. The published alpha is unchanged in both
-    /// appearances — it is the pinned part.
+    /// Everything thicker than a bar **floats** — a menu, a popover, a sheet —
+    /// so it tints toward the elevated surface in dark and stays the published
+    /// white in light. A **bar** is not a floating panel; see
+    /// `barTint(for:)` for the one rule it follows instead. The published
+    /// alpha is unchanged in every kind and both appearances — it is the
+    /// pinned part.
     public func retainedTint(for colorScheme: ColorScheme) -> Color {
+        if kind == .bar {
+            return Material.barTint(for: colorScheme, alpha: retainedFallbackColor.alpha)
+        }
         guard colorScheme == .dark else {
             return retainedFallbackColor
         }
-        let palette = ControlPalette.resolve(colorScheme: .dark)
-        let surface = kind == .bar ? palette.base : palette.surface3
+        let surface = ControlPalette.resolve(colorScheme: .dark).surface3
         return Color(
             red: surface.red,
             green: surface.green,
             blue: surface.blue,
             alpha: retainedFallbackColor.alpha
+        )
+    }
+
+    /// The tint a `.bar` paints so that the band it fills **lands on
+    /// `chromeBand` when it sits on the window backdrop**.
+    ///
+    /// The tint is solved for rather than authored, because the thing the
+    /// design system has an opinion about is the band's *appearance*, not the
+    /// paint behind it. `.bar` used to tint toward `base` in dark: at any
+    /// alpha, a translucent film of the page tone over the page tone is the
+    /// page tone, so the toolbar band and the selector bar above it sampled
+    /// byte-identical to the window backdrop and the top 88pt of every screen
+    /// was one flat field. Authoring an opaque band tone instead would fix the
+    /// pixels and throw the material away.
+    ///
+    /// So: keep the published alpha, keep the blur, and choose the tint `t`
+    /// with `a·t + (1 − a)·base == chromeBand`. Over the backdrop the band is
+    /// exactly the chrome rung; over anything else — a card scrolled under it,
+    /// a chart — 36% of the blurred content still comes through, which is the
+    /// entire reason a bar is a material.
+    ///
+    /// Solving can overshoot the channel range when the target sits far from
+    /// the backdrop at a low alpha. It does not at `chromeBand` and `0.64`,
+    /// and the clamp is here so that a future alpha cannot silently produce a
+    /// tint the rasterizer has to fold back.
+    static func barTint(for colorScheme: ColorScheme, alpha: Float) -> Color {
+        let target = DesignTokens.chromeBand.resolve(colorScheme)
+        let backdrop = DesignTokens.base.resolve(colorScheme)
+        guard alpha > 0 else {
+            return Color(red: target.red, green: target.green, blue: target.blue, alpha: alpha)
+        }
+        func solve(_ target: Float, _ backdrop: Float) -> Float {
+            min(max((target - (1 - alpha) * backdrop) / alpha, 0), 1)
+        }
+        return Color(
+            red: solve(target.red, backdrop.red),
+            green: solve(target.green, backdrop.green),
+            blue: solve(target.blue, backdrop.blue),
+            alpha: alpha
         )
     }
 

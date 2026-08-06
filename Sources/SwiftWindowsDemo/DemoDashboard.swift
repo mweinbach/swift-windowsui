@@ -227,28 +227,40 @@ struct DemoPalette {
 
     // MARK: Neutral ramp
 
-    /// Window backdrop, sidebar and rail columns, page gutters.
-    var base: Color { pick(dark: Self.hex(0x0C_0C_0E), light: Self.hex(0xF2_F3_F5)) }
-    /// Content wells, scroll wells, table bodies.
-    var surface0: Color { pick(dark: Self.hex(0x11_11_13), light: Self.hex(0xF7_F8_FA)) }
+    /// Every rung below is `rampStep` levels of 255 from the one beside it.
+    /// The ramp this replaced stepped 5 to 8, and 6/255 at the dark end of the
+    /// curve is under a percent of luminance: every elevation in the app was
+    /// carried by its hairline alone, and a screenshot read as one flat
+    /// near-black field with rules drawn on it.
+    static let rampStep = 11
+
+    /// **The frame.** Window backdrop, sidebar and rail columns, page gutters.
+    /// In light the frame is the *cooler* of the two as well as the darker
+    /// one, so a sidebar reads as shade rather than as grey paint.
+    var base: Color { pick(dark: Self.hex(0x0C_0C_0E), light: Self.hex(0xE6_E8_EC)) }
+    /// **The paper.** Content wells, scroll wells, table bodies — and the tone
+    /// the chrome bands land on, so a toolbar reads as the top of the content
+    /// rather than as a third slab stacked above it.
+    var surface0: Color { pick(dark: Self.hex(0x17_17_1C), light: Self.hex(0xF1_F3_F6)) }
     /// **Cards.** The one and only card fill.
-    var surface1: Color { pick(dark: Self.hex(0x17_17_1A), light: Self.hex(0xFF_FF_FF)) }
-    /// The card material's bottom stop — `surface1` one −0.03 composite step
-    /// down. The travel is at the edge of perception, and that is exactly what
-    /// separates a surface from a rectangle of paint.
-    var surface1Bottom: Color { pick(dark: Self.hex(0x15_15_18), light: Self.hex(0xFB_FB_FC)) }
+    var surface1: Color { pick(dark: Self.hex(0x22_22_27), light: Self.hex(0xFF_FF_FF)) }
+    /// The card material's bottom stop — `surface1` three levels down. The
+    /// travel is at the edge of perception, and that is exactly what separates
+    /// a surface from a rectangle of paint: it is a *sheen*, not a rung, so it
+    /// stays well inside `rampStep`.
+    var surface1Bottom: Color { pick(dark: Self.hex(0x1F_1F_24), light: Self.hex(0xFB_FB_FC)) }
     /// Inside a card: fields, chips, icon tiles, segmented track, row hover.
-    var surface2: Color { pick(dark: Self.hex(0x1E_1E_22), light: Self.hex(0xF1_F2_F5)) }
+    var surface2: Color { pick(dark: Self.hex(0x2D_2D_32), light: Self.hex(0xEB_ED_F0)) }
     /// Pressed / active / selected-neutral; menu and popover body.
-    var surface3: Color { pick(dark: Self.hex(0x26_26_2B), light: Self.hex(0xE6_E8_EC)) }
+    var surface3: Color { pick(dark: Self.hex(0x39_39_3E), light: Self.hex(0xDF_E1_E4)) }
 
     /// Hover fill of an item drawn straight onto the page tone — a nav row, a
-    /// quick action, a tab. The one token whose two columns move in *opposite*
-    /// directions: on the near-black page the hover is one step up and reads
-    /// as a lift, and on the near-white page `surface1` is white, which
-    /// against a `#F2F3F5` column is a step of one or two units and invisible,
-    /// so the light hover moves one step *down* toward the ink instead.
-    var pageItemHover: Color { pick(dark: Self.hex(0x17_17_1A), light: Self.hex(0xEA_EB_EE)) }
+    /// quick action, a tab. One rung either way from the frame, and the one
+    /// token whose two columns move in *opposite* directions: on the
+    /// near-black page the hover is a step up and reads as a lift, and on the
+    /// near-white page there is no room above `base` for a step that size, so
+    /// the light hover moves a rung *down* toward the ink instead.
+    var pageItemHover: Color { pick(dark: Self.hex(0x17_17_1C), light: Self.hex(0xDB_DD_E0)) }
 
     // MARK: Hairlines
 
@@ -2721,7 +2733,12 @@ struct DemoSettingsScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(palette.surface0)
+        // The frame tone, not the paper. A settings pane has no columns to
+        // frame and no well to sit in — it is a page of boxes, and the boxes
+        // are what carry the content. Painting it `surface0` put it on the
+        // same rung as the selector bar above it, so the one band on the
+        // screen had nothing to be a band against.
+        .background(palette.base)
         .fileImporter(
             isPresented: $isImporterPresented,
             allowedContentTypes: [.image, .plainText]
@@ -2959,6 +2976,11 @@ struct DemoDataHeader: View {
         .padding(.horizontal, DemoMetrics.s6)
         .frame(height: DemoMetrics.dataHeaderHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Chrome, on the same material as the toolbar band and the footer
+        // inspector. Left unfilled it showed the window backdrop, which put
+        // the one unpainted band in the app directly under the selector bar
+        // and broke the chrome unit the two are supposed to make.
+        .background(.bar)
     }
 }
 
@@ -2992,7 +3014,11 @@ struct DemoFilterField: View {
 }
 
 struct DemoTableHeaderRow: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let metrics: DemoTableMetrics
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
 
     var body: some View {
         HStack(alignment: .center, spacing: DemoTableMetrics.columnGap) {
@@ -3032,6 +3058,11 @@ struct DemoTableHeaderRow: View {
         .padding(.horizontal, DemoTableMetrics.inset)
         .frame(height: DemoMetrics.tableHeaderHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // The frame tone, stated rather than inherited. A column header is not
+        // chrome and it is not a row; it is the strip that says where the table
+        // starts, and one ramp rung under both neighbours is what lets it say
+        // that without a heavier rule.
+        .background(palette.base)
     }
 }
 

@@ -5245,13 +5245,19 @@ public struct TabView: View {
     }
 
     private static func retainedTabChrome(for style: TabViewStyle, palette: ControlPalette) -> RetainedTabChrome {
-        // The band is the page tone with a structural hairline under it, in
-        // every style. Only the item's own box changes: a page-style bar is a
+        // The band is the *chrome* tone with a hairline under it, in every
+        // style. Only the item's own box changes: a page-style bar is a
         // denser row than a window's primary navigation, and a carousel's is
         // looser. Neither of them grows a groove.
+        //
+        // `chromeBand`, not `base`: the selector bar and the toolbar band
+        // below it are one chrome unit, and a unit painted in the window's own
+        // backdrop tone is a unit you cannot see. Both now sit a full ramp rung
+        // above the columns beside them — the bar opaquely, the toolbar through
+        // `.bar`, which solves for the same landing tone.
         let metrics = MacOSControlMetrics.SelectorBar.self
         let base = RetainedTabChrome(
-            bandFill: palette.base,
+            bandFill: palette.chromeBand,
             bandHairline: palette.separator,
             bandHeight: metrics.bandHeight,
             spacing: metrics.itemSpacing,

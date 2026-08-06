@@ -422,11 +422,15 @@ final class MacOSDesignParityTests: XCTestCase {
         XCTAssertGreaterThan(ControlPalette.lightStandard.elevatedSurface.red, 0.9)
         XCTAssertLessThan(ControlPalette.darkStandard.elevatedSurface.red, 0.3)
         // Elevated is *above* the window, so it is lighter than the window
-        // backdrop in dark mode rather than a second copy of it.
-        XCTAssertGreaterThan(
-            ControlPalette.darkStandard.elevatedSurface.red,
-            ControlPalette.darkStandard.windowBackground.red
-        )
+        // backdrop in **both** appearances rather than a second copy of it.
+        // The rungs differ because the pages do: `surface3` is a lift on
+        // near-black and a recess on near-white, and resolving both from it
+        // opened a light-mode menu darker than the window under it.
+        for palette in [ControlPalette.darkStandard, ControlPalette.lightStandard] {
+            XCTAssertGreaterThan(
+                palette.elevatedSurface.red, palette.windowBackground.red,
+                "\(palette.colorScheme): a floating panel is lighter than the window")
+        }
         // A floating panel is closed with the *structural* hairline: it has
         // no page around it to borrow an edge from.
         XCTAssertEqual(
@@ -453,6 +457,70 @@ final class MacOSDesignParityTests: XCTestCase {
         XCTAssertEqual(Material.thick.retainedBlurRadius, 30, accuracy: 0.001)
         XCTAssertEqual(Material.ultraThick.retainedBlurRadius, 40, accuracy: 0.001)
         XCTAssertEqual(Material.bar.retainedBlurRadius, 18, accuracy: 0.001)
+    }
+
+    /// **A `.bar` lands on the chrome rung, and it is still a material.**
+    ///
+    /// The tint used to be `base` in dark, and a translucent film of the page
+    /// tone over the page tone is the page tone at every alpha: the toolbar
+    /// band and the selector bar above it sampled byte-identical to the window
+    /// backdrop, so the top 88pt of every dark screen was one flat black field
+    /// with a hairline in it. The fix is not an opaque band — that throws the
+    /// material away — it is solving the tint so the *composite* is the design
+    /// value: `a·tint + (1 − a)·base == chromeBand`.
+    ///
+    /// Both halves matter, so both are asserted: the band lands on the rung,
+    /// and 36% of whatever is scrolled under it still comes through.
+    func testBarMaterialCompositesOntoTheChromeRung() async {
+        for scheme in [ColorScheme.dark, ColorScheme.light] {
+            let tint = Material.bar.retainedTint(for: scheme)
+            let backdrop = DesignTokens.base.resolve(scheme)
+            let alpha = tint.alpha
+
+            XCTAssertEqual(
+                alpha, Material.bar.retainedFallbackColor.alpha, accuracy: 0.001,
+                "\(scheme): the published alpha is the pinned part and does not move")
+            XCTAssertLessThan(alpha, 1, "\(scheme): a bar is translucent, not an opaque plate")
+
+            func composite(_ tintChannel: Float, _ backdropChannel: Float) -> Float {
+                alpha * tintChannel + (1 - alpha) * backdropChannel
+            }
+            let band = Color(
+                red: composite(tint.red, backdrop.red),
+                green: composite(tint.green, backdrop.green),
+                blue: composite(tint.blue, backdrop.blue),
+                alpha: 1)
+            let chrome = DesignTokens.chromeBand.resolve(scheme)
+            XCTAssertEqual(band.red, chrome.red, accuracy: 0.002, "\(scheme) band red")
+            XCTAssertEqual(band.green, chrome.green, accuracy: 0.002, "\(scheme) band green")
+            XCTAssertEqual(band.blue, chrome.blue, accuracy: 0.002, "\(scheme) band blue")
+
+            // …and the band is a band: a full ramp rung off the columns and
+            // gutters it runs across, rather than the 0/255 it used to be.
+            XCTAssertGreaterThanOrEqual(
+                Int((abs(Double(band.green) - Double(backdrop.green)) * 255).rounded()),
+                DesignTokens.minimumRampStep,
+                "\(scheme): the chrome band is invisible against the window backdrop")
+        }
+    }
+
+    /// The selector bar and the toolbar band are **one chrome unit**: the
+    /// opaque bar the runtime paints and the material the app paints resolve
+    /// to the same tone, so the two stacked bands read as one region closed by
+    /// one hairline rather than as two slabs.
+    func testSelectorBarAndBarMaterialAgreeOnTheChromeTone() async {
+        for scheme in [ColorScheme.dark, ColorScheme.light] {
+            let palette = ControlPalette.resolve(colorScheme: scheme)
+            XCTAssertEqual(
+                palette.chromeBand, DesignTokens.chromeBand.resolve(scheme),
+                "\(scheme): the role resolves its own token")
+            let tint = Material.bar.retainedTint(for: scheme)
+            let backdrop = DesignTokens.base.resolve(scheme)
+            let bandGreen = tint.alpha * tint.green + (1 - tint.alpha) * backdrop.green
+            XCTAssertEqual(
+                bandGreen, palette.chromeBand.green, accuracy: 0.002,
+                "\(scheme): the material lands where the opaque bar is painted")
+        }
     }
 
     // MARK: - System colors

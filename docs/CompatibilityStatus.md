@@ -73,6 +73,7 @@ dashboard composition on a single custom-rendered window.
 | `Grid`, `GridRow` | **Partial** | Stack-based; simple `gridCellColumns` growth; full column sizing / cell anchors are incomplete |
 | `Spacer`, `Divider`, `Group`, `EmptyView` | **Implemented** | |
 | `ScrollView` | **Partial** | One primary axis; `.all` resolves to vertical. Indicators are macOS **overlay scrollers**: hidden at rest, revealed by a scroll or a flash, faded out after a beat — so a static screenshot shows no scrollbar, as a real macOS app does. `.scrollIndicators(.visible)` opts into the legacy always-on bar; `.scrollIndicatorsFlash(onAppear:)` / `(trigger:)` ride the same lifecycle pass `onAppear` does |
+| `ScrollViewReader` / `ScrollViewProxy.scrollTo(_:anchor:)` | **Implemented** | Scrolls explicit `.id(...)` and implicit `ForEach` targets on either retained axis, including off-screen virtualized lazy-stack rows; preserves minimal-reveal behavior, explicit anchors, content-bound clamping, nested-reader isolation, and requests queued before the first or a later scene/frame layout. Internal chrome tags do not become scroll targets. Each scroll container supports one primary axis; reusing the same reader value in multiple runtimes safely disables its ambiguous proxy |
 | `List` | **Partial** | Vertical scroll panel, stable row metrics, hover/selection chrome, arrow-key selection with scroll-into-view; limited edit chrome. **Not virtualized**: arrow-key scroll-into-view mirrors row frames through `onLayout`, which deferral silences for exactly the off-screen rows it needs — see `docs/GPURenderingPipeline.md`, “Why `List` is not virtualized yet” |
 | `Form`, `Section` | **Partial** | Grouped-form layout is macOS-shaped: a 640pt content column centred in the window, rows as a two-column grid (one trailing-aligned label column shared across every section of the form, leading value column), section headers outside and above near-flat group boxes. Styles map to retained spacing/shells; the grid is `Form`-scoped and does not span arbitrary containers |
 | `LabeledContent` | **Partial** | Label/value row; inside a `Form` it is the grouped-form row with the form-wide shared label column |
@@ -96,7 +97,7 @@ dashboard composition on a single custom-rendered window.
 | `LinearGradient` | **Partial** | Axis-aligned fills preserve authored intermediate colors, nonuniform stop positions, duplicate-position hard stops, transparent stops, and reversed endpoints on CPU, the D3D11 scene path, and both live frame-fallback presenters; diagonal directions still resolve to their dominant axis |
 | `StrokeStyle` on any outline | **Implemented** | `lineWidth`, `lineCap`, `lineJoin`, `miterLimit`, `dashPattern`, `dashOffset` reach both stroke routes. Rect and rounded-rect borders resolve dashes through `BorderSegments`; every other outline (custom `Shape`, trimmed shape, `Canvas` `strokePath`) through `PathDashing`. A miter sharper than 4 half-widths degrades to a bevel so the drawn spike cannot exceed the raster sized for it |
 | `UnevenRoundedRectangle` | **Implemented** | Per-corner radii end-to-end (RTL-aware); uniform-only consumers (shadow/outline/clip) fall back to max radius |
-| `Canvas` + `GraphicsContext` | **Partial** | Scene-path drawing; `Path(_:)` / `Path(roundedRect:cornerRadius:)` / `Path(ellipseIn:)` build a fillable path without a `Shape`, and a convex fill is emitted as one unbroken span per row (a fan triangulation used to leave a hairline of background along every shared edge). **A gradient shading on a `fill(_ path:)` degrades to its first stop** — gradients are a rect feature; `symbols:` / `resolveSymbol`, blendMode, `withCGContext` not wired |
+| `Canvas` + `GraphicsContext` | **Partial** | Scene-path drawing; `Path(_:)` / `Path(roundedRect:cornerRadius:)` / `Path(ellipseIn:)` build a fillable path without a `Shape`, and a convex fill is emitted as one unbroken span per row. Multistop linear-gradient path fills **and strokes** preserve authored stops, inset or diagonal endpoint vectors, and context transforms on the CPU and D3D11 scene paths; untransformed rectangular fills retain their dominant-axis gradient-quad fast path, and the legacy `RenderFrame` fallback uses the first stop for gradient-shaded paths. `symbols:` / `resolveSymbol`, blendMode, and `withCGContext` are not wired; radial/conic path gradients are not supported |
 | `ContentUnavailableView` | **Implemented** | Retained empty-state chrome |
 
 ### Controls — Implemented / Partial
@@ -123,6 +124,7 @@ dashboard composition on a single custom-rendered window.
 | `alert`, `confirmationDialog`, `actionSheet` | **Partial** | Retained modal chrome: deferred layering, Escape/scrim dismissal per SwiftUI semantics, focus restoration |
 | `contextMenu` | **Partial** | Retained menu overlay: clamped anchor, scrim/Escape dismissal, focus restoration |
 | `ShareLink` | **Partial** | Copies transferable items to clipboard — real file references (CF_HDROP) for file URLs, absolute strings otherwise (not system share sheet) |
+| `PasteButton` | **Partial** | Delivers supported clipboard text and URLs; `.fileURL` and `.url` consume complete Unicode `CF_HDROP` file lists, while overlapping accepted URL/text types are deduplicated. Plain-text web URLs remain `.url`-only |
 | `PhotosPicker` | **Partial** | Opens file dialog; not Photos framework |
 | `fileImporter` / `fileExporter` | **Partial** | Real Win32 open/save dialogs deliver valid filesystem URLs, including Unicode multi-file selections; native dialog buffers remain alive throughout the call; `allowedContentTypes` map to extension filters (category types approximate) |
 | `SettingsLink` / `RenameButton` / `EditButton` | **Partial** | Buttons wired to environment actions / edit mode where present |
@@ -148,7 +150,7 @@ Use these when you accept retained approximations.
 | --- | --- | --- |
 | **Text system** | Readable labels, scaling, line limits, minimum scale factor; nested dynamic-type bounds agree across retained text, `@Environment`, and `@ScaledMetric` | Full font shaping, rich attributed runs, true localization catalogs, live `Text` timers |
 | **SF Symbols** | Named glyph path + limited variants / rendering modes | Multi-layer multicolor symbols, variable values, animated symbol effects |
-| **Scrolling** | Vertical/horizontal native-wheel and drag offset, indicators, bounce metadata | True two-axis scroll, paging / view-aligned deceleration, scroll observation callbacks, `ScrollViewReader` offset connection |
+| **Scrolling** | Vertical/horizontal native-wheel and drag offset, indicators, bounce metadata, and scoped `ScrollViewReader.scrollTo` for explicit/`ForEach` IDs and virtualized lazy-stack rows | True two-axis scroll, paging / view-aligned deceleration, scroll observation callbacks, binding-driven `scrollPosition` updates |
 | **Gestures** | Tap, long-press (release-inside), primary-touch and mouse drag mapped to the same pointer lifecycle; interrupted capture cancels cleanly | Duration thresholds, multitouch gesture arbitration, full gesture composition, simultaneous value streaming |
 | **Focus** | Focus rings, `@FocusState`, activation | Dynamic `@FocusedValue` retargeting as focus moves; environment `isFocused` live transitions |
 | **Drag and drop** | API + metadata on nodes; OS file drops (WM_DROPFILES) delivered to `onDrop` destinations as file URLs | Full delete/reorder/drop affordances, drag-over highlighting, OLE drag sessions |
@@ -227,7 +229,7 @@ existing environment value untouched.
 | `matchedGeometryEffect` | **Shim** | Records metadata; no geometry interpolation |
 | `visualEffect` / `visualEffect3D` | **Shim** | Stores identity-effect metadata |
 | `scrollTransition` | **Shim** | No phase-driven scroll effects |
-| `scrollIndicatorsFlash` | **Shim** | Metadata only; no timed flash |
+| `scrollIndicatorsFlash` | **Partial** | Reveals the retained overlay scroller and lets the runtime fade it back out; on-appear behavior follows the retained view lifecycle |
 | `onScrollGeometryChange` / phase / visibility observers | **Shim** | Closures stored; not dispatched |
 | `scrollTargetBehavior` (paging / viewAligned) | **Shim** | Metadata; no deceleration behavior |
 | `PhaseAnimator` continuous cycling | **Partial** | Initial phase renders; continuous/trigger advancement limited |

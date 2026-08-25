@@ -5386,7 +5386,7 @@ public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View {
                 views.append(
                     AnyView(
                         DynamicListEditMetadataView(
-                            content: AnyView(view.id("\(elementID)#\(index)")),
+                            content: AnyView(view.implicitForEachScrollTarget(elementID, index: index)),
                             dynamicContentIndex: elementIndex
                         )
                     )
@@ -9215,8 +9215,7 @@ public struct ScrollViewReader: View {
         let proxy = proxy
         return Component { runtime in
             let node = component.makeNode(runtime: runtime)
-            node.scrollReaderID = proxy.retainedIdentifier
-            node.scrollProxyRequests = proxy.retainedRequests
+            proxy.attach(to: node, runtime: runtime)
             return node
         }
     }
@@ -9763,7 +9762,10 @@ public struct List: View {
                 views.append(
                     AnyView(
                         DynamicListEditMetadataView(
-                            content: AnyView(view.id("\(elementIDDescription)#\(index)").tag(elementID)),
+                            content: AnyView(
+                                view.implicitForEachScrollTarget(elementIDDescription, index: index)
+                                    .tag(elementID)
+                            ),
                             dynamicContentIndex: elementIndex
                         )
                     )

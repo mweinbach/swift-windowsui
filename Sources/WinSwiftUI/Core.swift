@@ -1492,7 +1492,14 @@ public struct GraphicsContext {
     public mutating func fill(_ path: Path, with shading: Shading, style: FillStyle = FillStyle()) {
         _ = style
         let transformed = transformedPath(path)
-        underlying.fill(transformed, with: shading.asRuntimeShading(opacity: currentOpacityMultiplier))
+        underlying.fill(
+            transformed,
+            with: shading.asRuntimeShading(
+                opacity: currentOpacityMultiplier,
+                transform: transform,
+                preservesGradientGeometry: true
+            )
+        )
     }
 
     public mutating func fill(_ rect: CGRect, with shading: Shading) {
@@ -1501,7 +1508,11 @@ public struct GraphicsContext {
         } else {
             underlying.fill(
                 rectAsTransformedPath(rect),
-                with: shading.asRuntimeShading(opacity: currentOpacityMultiplier)
+                with: shading.asRuntimeShading(
+                    opacity: currentOpacityMultiplier,
+                    transform: transform,
+                    preservesGradientGeometry: true
+                )
             )
         }
     }
@@ -1511,7 +1522,11 @@ public struct GraphicsContext {
     public mutating func stroke(_ path: Path, with shading: Shading, lineWidth: Double = 1) {
         underlying.stroke(
             transformedPath(path),
-            with: shading.asRuntimeShading(opacity: currentOpacityMultiplier),
+            with: shading.asRuntimeShading(
+                opacity: currentOpacityMultiplier,
+                transform: transform,
+                preservesGradientGeometry: true
+            ),
             style: StrokeStyle(lineWidth: lineWidth)
         )
     }
@@ -1519,7 +1534,11 @@ public struct GraphicsContext {
     public mutating func stroke(_ path: Path, with shading: Shading, style: StrokeStyle) {
         underlying.stroke(
             transformedPath(path),
-            with: shading.asRuntimeShading(opacity: currentOpacityMultiplier),
+            with: shading.asRuntimeShading(
+                opacity: currentOpacityMultiplier,
+                transform: transform,
+                preservesGradientGeometry: true
+            ),
             style: style
         )
     }
@@ -1528,13 +1547,21 @@ public struct GraphicsContext {
         if isTransformIdentity {
             underlying.stroke(
                 rect,
-                with: shading.asRuntimeShading(opacity: currentOpacityMultiplier),
+                with: shading.asRuntimeShading(
+                    opacity: currentOpacityMultiplier,
+                    transform: transform,
+                    preservesGradientGeometry: true
+                ),
                 lineWidth: lineWidth
             )
         } else {
             underlying.stroke(
                 rectAsTransformedPath(rect),
-                with: shading.asRuntimeShading(opacity: currentOpacityMultiplier),
+                with: shading.asRuntimeShading(
+                    opacity: currentOpacityMultiplier,
+                    transform: transform,
+                    preservesGradientGeometry: true
+                ),
                 style: StrokeStyle(lineWidth: lineWidth)
             )
         }
@@ -1652,23 +1679,31 @@ extension GraphicsContext.Shading {
     /// ``CanvasGraphicsContext.Shading`` enum that the scene/frame paths can
     /// consume.  `opacity` is folded into the shading's alpha so the runtime
     /// does not need to know about the wrapping GraphicsContext.opacity.
-    internal func asRuntimeShading(opacity: Double = 1.0) -> SwiftWindowsUI.CanvasGraphicsContext.Shading {
+    internal func asRuntimeShading(
+        opacity: Double = 1.0,
+        transform: CGAffineTransform = .identity,
+        preservesGradientGeometry: Bool = false
+    ) -> SwiftWindowsUI.CanvasGraphicsContext.Shading {
         let alpha = Float(max(0, min(1, opacity)))
         switch self {
         case .color(let color):
             return .color(color.multipliedAlpha(by: alpha))
         case .linearGradient(let gradient, let startPoint, let endPoint):
-            // Map a SwiftUI-style endpoint pair to the runtime gradient's
-            // axis. The runtime backend only renders axis-aligned linear
-            // gradients today; degenerate orientations bucket to whichever
-            // axis has the larger delta.
+            // The path is transformed before it reaches the runtime, so its
+            // gradient endpoints must move through that same matrix. Path
+            // gradients retain the complete vector, including diagonals;
+            // unpositioned gradient quads keep their dominant-axis fast path.
+            let transformedStartPoint = transform.apply(startPoint)
+            let transformedEndPoint = transform.apply(endPoint)
             let axis: SwiftWindowsGraphics.GradientAxis = {
-                let dx = abs(endPoint.x - startPoint.x)
-                let dy = abs(endPoint.y - startPoint.y)
+                let dx = abs(transformedEndPoint.x - transformedStartPoint.x)
+                let dy = abs(transformedEndPoint.y - transformedStartPoint.y)
                 return dx >= dy ? .horizontal : .vertical
             }()
             let isReversed =
-                axis == .horizontal ? endPoint.x < startPoint.x : endPoint.y < startPoint.y
+                axis == .horizontal
+                ? transformedEndPoint.x < transformedStartPoint.x
+                : transformedEndPoint.y < transformedStartPoint.y
             let authoredStops = isReversed ? Array(gradient.stops.reversed()) : gradient.stops
             let stops = authoredStops.map { stop in
                 SwiftWindowsGraphics.GradientStop(
@@ -1684,7 +1719,26 @@ extension GraphicsContext.Shading {
                 runtimeGradient = SwiftWindowsGraphics.LinearGradient(
                     stops: stops, axis: axis, reversesAuthoredStops: isReversed)
             }
-            return .gradient(runtimeGradient)
+
+            guard preservesGradientGeometry,
+                transformedStartPoint.x.isFinite,
+                transformedStartPoint.y.isFinite,
+                transformedEndPoint.x.isFinite,
+                transformedEndPoint.y.isFinite
+            else {
+                // Rect fills deliberately keep the existing gradient-quad
+                // fast path, and invalid geometry never reaches path hashes.
+                return .gradient(runtimeGradient)
+            }
+
+            // Reversed authored stops already run from the lower coordinate
+            // toward the higher one; swapping the endpoints here avoids
+            // reversing the ramp a second time in the path rasterizer.
+            return .positionedGradient(
+                runtimeGradient,
+                startPoint: isReversed ? transformedEndPoint : transformedStartPoint,
+                endPoint: isReversed ? transformedStartPoint : transformedEndPoint
+            )
         }
     }
 }
@@ -16692,10 +16746,242 @@ public struct ScrollPhaseChangeContext: Sendable, Equatable {
         self.velocity = velocity
     }
 }
+
+struct RetainedScrollTargetIdentity: Sendable {
+    var identifier: String
+    var isImplicitForEach: Bool
+}
+
 @MainActor
 final class ScrollViewProxyStorage {
+    private struct ScrollRequest {
+        var targetIdentifier: String
+        var anchor: UnitPoint?
+    }
+
     let identifier = UUID().uuidString
     var requests: [String] = []
+
+    private weak var runtime: RetainedViewRuntime?
+    private weak var readerRoot: ViewNode?
+    private var pendingRequests: [ScrollRequest] = []
+    private var isWaitingForAttachment = false
+    private var wasMountedInMultipleRuntimes = false
+    private var isResolvingRequests = false
+    private var hasScheduledLayoutReplay = false
+
+    func attach(to node: ViewNode, runtime: RetainedViewRuntime) {
+        node.scrollReaderID = identifier
+        node.scrollProxyRequests = requests
+
+        if let existingRuntime = self.runtime, existingRuntime !== runtime {
+            // A reader captures its content and proxy once at initialization,
+            // so reusing that value in another window cannot produce a new
+            // proxy for closures that already captured the original. Disable
+            // the ambiguous proxy instead of scrolling the wrong window.
+            wasMountedInMultipleRuntimes = true
+            self.runtime = nil
+            readerRoot = nil
+            isWaitingForAttachment = false
+            pendingRequests.removeAll(keepingCapacity: true)
+            return
+        }
+        guard !wasMountedInMultipleRuntimes else {
+            return
+        }
+
+        self.runtime = runtime
+        readerRoot = node
+        isWaitingForAttachment = !pendingRequests.isEmpty
+
+        // The source node can be discarded when ComponentHost reconciles it
+        // onto an existing retained node. The lifecycle callback receives the
+        // surviving node, while readerRoot(in:) also rediscovers it by its
+        // reader identity for scene-only hosts and already-visible rebuilds.
+        let existingOnAppear = node.onAppearWithNode
+        node.onAppearWithNode = { [storage = self] appearedNode in
+            existingOnAppear?(appearedNode)
+            storage.readerRoot = appearedNode
+            storage.isWaitingForAttachment = false
+            storage.resolvePendingRequests()
+        }
+
+        let existingOnDisappear = node.onDisappearWithNode
+        node.onDisappearWithNode = { [storage = self] disappearedNode in
+            existingOnDisappear?(disappearedNode)
+            if storage.readerRoot === disappearedNode {
+                storage.readerRoot = nil
+                storage.isWaitingForAttachment = false
+                storage.pendingRequests.removeAll(keepingCapacity: true)
+            }
+        }
+
+        scheduleLayoutReplayIfNeeded()
+    }
+
+    func requestScroll(to targetIdentifier: String, anchor: UnitPoint?, metadata: String) {
+        requests.append(metadata)
+        guard !wasMountedInMultipleRuntimes,
+            anchor?.x.isFinite ?? true,
+            anchor?.y.isFinite ?? true
+        else {
+            return
+        }
+        pendingRequests.append(ScrollRequest(targetIdentifier: targetIdentifier, anchor: anchor))
+        resolvePendingRequests()
+    }
+
+    private func resolvePendingRequests() {
+        guard !isResolvingRequests, !pendingRequests.isEmpty, let runtime else {
+            return
+        }
+
+        guard let root = readerRoot(in: runtime) else {
+            if canReplayPendingRequests(in: runtime) {
+                scheduleLayoutReplayIfNeeded()
+            } else {
+                pendingRequests.removeAll(keepingCapacity: true)
+            }
+            return
+        }
+
+        isResolvingRequests = true
+        defer {
+            isResolvingRequests = false
+            scheduleLayoutReplayIfNeeded()
+        }
+
+        let queuedRequests = pendingRequests
+        pendingRequests.removeAll(keepingCapacity: true)
+
+        for request in queuedRequests {
+            guard let target = targetNode(for: request.targetIdentifier, in: root) else {
+                if !runtime.hasCompletedLayout || runtime.isLayoutInProgress {
+                    pendingRequests.append(request)
+                }
+                continue
+            }
+
+            guard hasScrollContainer(for: target, within: root) else {
+                continue
+            }
+
+            if !runtime.scrollToDescendant(
+                target,
+                anchorX: request.anchor?.x,
+                anchorY: request.anchor?.y
+            ), !runtime.hasCompletedLayout || runtime.isLayoutInProgress {
+                pendingRequests.append(request)
+            }
+        }
+    }
+
+    private func scheduleLayoutReplayIfNeeded() {
+        guard !pendingRequests.isEmpty, !hasScheduledLayoutReplay, let runtime else {
+            return
+        }
+        guard canReplayPendingRequests(in: runtime) else {
+            pendingRequests.removeAll(keepingCapacity: true)
+            return
+        }
+
+        hasScheduledLayoutReplay = true
+        runtime.scheduleAfterLayout(key: "winswiftui.scroll-reader.\(identifier)") { [weak self] in
+            guard let self else {
+                return
+            }
+            hasScheduledLayoutReplay = false
+            isWaitingForAttachment = false
+            resolvePendingRequests()
+        }
+    }
+
+    private func canReplayPendingRequests(in runtime: RetainedViewRuntime) -> Bool {
+        if let readerRoot, readerRoot.scrollReaderID != identifier,
+            belongsToRuntimeTree(readerRoot, root: runtime.root)
+        {
+            return false
+        }
+        return !runtime.hasCompletedLayout || runtime.isLayoutInProgress || isWaitingForAttachment
+    }
+
+    private func readerRoot(in runtime: RetainedViewRuntime) -> ViewNode? {
+        if let readerRoot, readerRoot.scrollReaderID == identifier,
+            belongsToRuntimeTree(readerRoot, root: runtime.root)
+        {
+            isWaitingForAttachment = false
+            return readerRoot
+        }
+
+        var pendingNodes = [runtime.root]
+        while let node = pendingNodes.popLast() {
+            if node.scrollReaderID == identifier {
+                readerRoot = node
+                isWaitingForAttachment = false
+                return node
+            }
+            pendingNodes.append(contentsOf: node.children.reversed())
+        }
+
+        return nil
+    }
+
+    private func belongsToRuntimeTree(_ node: ViewNode, root: ViewNode) -> Bool {
+        var current: ViewNode? = node
+        while let candidate = current {
+            if candidate === root {
+                return true
+            }
+            current = candidate.parent
+        }
+        return false
+    }
+
+    private func targetNode(for targetIdentifier: String, in root: ViewNode) -> ViewNode? {
+        var pendingNodes = [root]
+        var implicitForEachTarget: ViewNode?
+        let identityKey = ObjectIdentifier(RetainedScrollTargetIdentity.self)
+
+        while let node = pendingNodes.popLast() {
+            if node.isHidden {
+                continue
+            }
+            if node !== root, let nestedReaderID = node.scrollReaderID,
+                nestedReaderID != identifier
+            {
+                continue
+            }
+
+            if let identity = node.retainedPreferenceValues[identityKey] as? RetainedScrollTargetIdentity,
+                identity.identifier == targetIdentifier
+            {
+                if !identity.isImplicitForEach {
+                    return node
+                }
+                if implicitForEachTarget == nil {
+                    implicitForEachTarget = node
+                }
+            }
+
+            pendingNodes.append(contentsOf: node.children.reversed())
+        }
+
+        return implicitForEachTarget
+    }
+
+    private func hasScrollContainer(for target: ViewNode, within root: ViewNode) -> Bool {
+        var current: ViewNode? = target
+        while let node = current {
+            if node.scrollAxis != nil {
+                return true
+            }
+            if node === root {
+                return false
+            }
+            current = node.parent
+        }
+        return false
+    }
 }
 @MainActor
 public struct ScrollViewProxy {
@@ -16713,12 +16999,20 @@ public struct ScrollViewProxy {
         storage.requests
     }
 
+    func attach(to node: ViewNode, runtime: RetainedViewRuntime) {
+        storage.attach(to: node, runtime: runtime)
+    }
+
     public func scrollTo<ID: Hashable>(_ id: ID, anchor: UnitPoint? = nil) {
         var parts = ["idType:\(String(describing: ID.self))", "id:\(String(describing: id))"]
         if let anchor {
             parts.append("anchor:\(scrollPositionAnchorDescription(anchor))")
         }
-        storage.requests.append(parts.joined(separator: ","))
+        storage.requestScroll(
+            to: String(describing: id),
+            anchor: anchor,
+            metadata: parts.joined(separator: ",")
+        )
     }
 }
 public struct ScrollTransitionConfiguration: Sendable, Equatable, Hashable, CustomStringConvertible {
@@ -17066,6 +17360,7 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
     /// resulting ViewNode so the diffing algorithm can match nodes across
     /// rebuilds by identity rather than position alone.
     var id: String?
+    var scrollTargetIdentity: RetainedScrollTargetIdentity?
     var selectionTag: AnyHashable?
     var tabItem: [AnyView]?
     var badge: [AnyView]?
@@ -17135,11 +17430,20 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
 
         // Wrap the inner component so the resulting node carries the id.
         let capturedID = id
+        let capturedScrollTargetIdentity =
+            scrollTargetIdentity
+            ?? RetainedScrollTargetIdentity(identifier: capturedID, isImplicitForEach: false)
         return Component { runtime in
             let node = inner.makeNode(runtime: runtime)
             node.nodeTag = capturedID
+            node.retainedPreferenceValues[ObjectIdentifier(RetainedScrollTargetIdentity.self)] =
+                capturedScrollTargetIdentity
             return node
         }
+    }
+
+    mutating func setImplicitForEachIdentity(_ identifier: String) {
+        scrollTargetIdentity = RetainedScrollTargetIdentity(identifier: identifier, isImplicitForEach: true)
     }
 }
 @MainActor
@@ -29310,6 +29614,15 @@ extension View {
 
     public func id<ID: Hashable>(_ identifier: ID) -> some View {
         id(String(describing: identifier))
+    }
+
+    func implicitForEachScrollTarget(_ identifier: String, index: Int) -> some View {
+        var modified = ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+        modified.id = "\(identifier)#\(index)"
+        modified.setImplicitForEachIdentity(identifier)
+        return modified
     }
 
     public func tag<Tag: Hashable>(_ tag: Tag) -> some View {

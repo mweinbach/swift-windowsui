@@ -2,9 +2,9 @@ import Foundation
 
 // MARK: - D3D11 Render Backend Factory
 
-/// Factory that produces D3D11 GPU renderers.  This is the default Windows
-/// factory used by the demo app and by ``WinSwiftUI.App`` when no other
-/// factory is injected.
+/// Factory that produces D3D11 graphics-device renderers. The Windows product
+/// selects it in its executable composition root; the app-facing facade stays
+/// renderer-neutral and defaults to its presenting software factory.
 import SwiftWindowsGraphics
 import WinSDK
 
@@ -15,6 +15,10 @@ public struct D3D11RenderBackendFactory: RenderBackendFactory {
     public init() {}
 
     public var factoryName: String { "D3D11 GPU" }
+
+    /// A graphics-device API is not proof of hardware acceleration: when the
+    /// hardware adapter is unavailable this same factory can run through WARP.
+    public var capabilities: RenderBackendCapabilities { .graphicsDeviceWindow }
 
     public func makeRenderBackend() -> any RenderBackend {
         D3D11Renderer()

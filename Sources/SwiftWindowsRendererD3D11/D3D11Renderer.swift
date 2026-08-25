@@ -233,8 +233,15 @@ public final class D3D11Renderer: RenderBackend {
     }
 
     public func attach(to surface: SurfaceDescriptor) throws {
-        guard let hwnd = unsafeBitCast(surface.windowHandle.rawPointer, to: HWND?.self) else {
-            throw D3D11RendererError(operation: "Resolve HWND", hresult: hresultHandle)
+        guard let windowHandle = surface.windowHandle,
+            let hwnd = unsafeBitCast(windowHandle.rawPointer, to: HWND?.self)
+        else {
+            throw D3D11RendererError(
+                operation: "Resolve HWND",
+                hresult: hresultHandle,
+                details: "Windowed D3D11 frame presentation requires a native window surface.",
+                failureKind: .permanent
+            )
         }
 
         // Attach always starts from nothing. The host re-attaches this

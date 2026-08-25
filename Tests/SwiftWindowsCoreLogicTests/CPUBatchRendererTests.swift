@@ -11,8 +11,7 @@ struct CPUBatchRendererTests {
         let renderer = CPUBatchRenderer()
         try renderer.attach(
             to: SurfaceDescriptor(
-                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 1)!)!,
-                pixelSize: IntSize(width: 100, height: 200),
+                offscreenPixelSize: IntSize(width: 100, height: 200),
                 scaleFactor: 1.0
             ))
         try renderer.resize(to: IntSize(width: 300, height: 400))
@@ -25,8 +24,7 @@ struct CPUBatchRendererTests {
         let renderer = CPUBatchRenderer()
         try renderer.attach(
             to: SurfaceDescriptor(
-                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 1)!)!,
-                pixelSize: IntSize(width: 4, height: 4),
+                offscreenPixelSize: IntSize(width: 4, height: 4),
                 scaleFactor: 1.0
             ))
 
@@ -45,8 +43,7 @@ struct CPUBatchRendererTests {
         let renderer = CPUBatchRenderer()
         try renderer.attach(
             to: SurfaceDescriptor(
-                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 1)!)!,
-                pixelSize: size,
+                offscreenPixelSize: size,
                 scaleFactor: 1.0
             ))
 
@@ -70,8 +67,7 @@ struct CPUBatchRendererTests {
         let renderer = CPUBatchRenderer()
         try? renderer.attach(
             to: SurfaceDescriptor(
-                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 1)!)!,
-                pixelSize: IntSize(width: 0, height: 0),
+                offscreenPixelSize: IntSize(width: 0, height: 0),
                 scaleFactor: 1.0
             ))
 

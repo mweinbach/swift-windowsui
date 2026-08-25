@@ -83,6 +83,32 @@ final class RenderBackendAvailabilityTests: XCTestCase {
         XCTAssertTrue(resolved.resolution.isDegradedPresentation)
         XCTAssertEqual(resolved.resolution.requestedFactoryName, "Stub GPU")
         XCTAssertEqual(resolved.resolution.availability, .unavailable(reason: "no adapter"))
+        XCTAssertEqual(resolved.resolution.requestedCapabilities, .conservative)
+        XCTAssertEqual(resolved.resolution.resolvedCapabilities, .softwareWindow)
+    }
+
+    /// Device availability is not presentation capability: the CPU reference
+    /// factory is always available, but it only renders into an offscreen
+    /// bitmap. Selecting it for an app window must choose a real presenter.
+    func testAvailableOffscreenFactoryFallsBackToARealWindowPresenter() async {
+        var reports: [String] = []
+        let requested = CPURenderBackendFactory()
+
+        let resolved = RenderBackendFactoryResolution.resolve(
+            requested,
+            report: { reports.append($0) }
+        )
+
+        XCTAssertEqual(requested.probeAvailability(), .available)
+        XCTAssertEqual(resolved.factory.factoryName, SoftwareWindowRenderBackendFactory().factoryName)
+        XCTAssertEqual(resolved.resolution.availability, .available)
+        XCTAssertEqual(resolved.resolution.requestedCapabilities, .cpuOffscreen)
+        XCTAssertEqual(resolved.resolution.resolvedCapabilities, .softwareWindow)
+        XCTAssertTrue(resolved.resolution.isSubstituted)
+        XCTAssertTrue(resolved.resolution.isDegradedPresentation)
+        XCTAssertEqual(reports.count, 1)
+        XCTAssertTrue(reports[0].contains("offscreen"))
+        XCTAssertTrue(reports[0].contains("native window"))
     }
 
     /// The substitution is only ever an improvement: a fallback that cannot
@@ -111,6 +137,32 @@ final class RenderBackendAvailabilityTests: XCTestCase {
         XCTAssertTrue(reports[0].contains("isPresenterUnavailable"))
     }
 
+    /// A successful availability probe is not enough for substitution: the
+    /// CPU reference renderer can create a bitmap but cannot update a window.
+    func testAvailableOffscreenOnlyFallbackIsNeverSubstituted() async {
+        var reports: [String] = []
+        let requested = StubRenderBackendFactory(
+            factoryName: "Stub GPU",
+            availability: .unavailable(reason: "no adapter")
+        )
+        let fallback = CPURenderBackendFactory()
+
+        let resolved = RenderBackendFactoryResolution.resolve(
+            requested,
+            fallback: fallback,
+            report: { reports.append($0) }
+        )
+
+        XCTAssertEqual(fallback.probeAvailability(), .available)
+        XCTAssertEqual(resolved.factory.factoryName, "Stub GPU")
+        XCTAssertFalse(resolved.resolution.isSubstituted)
+        XCTAssertEqual(resolved.resolution.requestedCapabilities, .conservative)
+        XCTAssertEqual(resolved.resolution.resolvedCapabilities, .conservative)
+        XCTAssertEqual(reports.count, 1)
+        XCTAssertTrue(reports[0].contains("offscreen"))
+        XCTAssertTrue(reports[0].contains("cannot present"))
+    }
+
     func testAvailableFactoriesAreUsedUnchangedAndSilently() async {
         var reports: [String] = []
         let factory = StubRenderBackendFactory(factoryName: "Stub GPU", availability: .available)
@@ -120,6 +172,9 @@ final class RenderBackendAvailabilityTests: XCTestCase {
         )
 
         XCTAssertEqual(resolved.factory.factoryName, "Stub GPU")
+        XCTAssertEqual(factory.capabilities, .conservative)
+        XCTAssertEqual(resolved.resolution.requestedCapabilities, .conservative)
+        XCTAssertEqual(resolved.resolution.resolvedCapabilities, .conservative)
         XCTAssertTrue(reports.isEmpty)
         XCTAssertFalse(resolved.resolution.isSubstituted)
         XCTAssertFalse(
@@ -132,10 +187,15 @@ final class RenderBackendAvailabilityTests: XCTestCase {
     /// Windows install it must find at least WARP: `unavailable` would mean
     /// the product boots onto the CPU backend on a normal machine.
     func testD3D11FactoryProbeFindsAPresentableDriver() async {
-        let availability = D3D11RenderBackendFactory().probeAvailability()
+        let factory = D3D11RenderBackendFactory()
+        let availability = factory.probeAvailability()
         XCTAssertTrue(
             availability.canPresent,
             "D3D11 must be presentable through hardware or WARP on a Windows machine; got \(availability)."
         )
+        XCTAssertEqual(factory.capabilities, .graphicsDeviceWindow)
+        XCTAssertTrue(factory.capabilities.supportsWindowPresentation)
+        XCTAssertFalse(factory.capabilities.supportsOffscreenRendering)
+        XCTAssertEqual(factory.capabilities.executionModel, .graphicsDevice)
     }
 }

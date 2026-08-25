@@ -204,11 +204,13 @@ final class SoftwareWindowRenderBackend: BatchRenderBackend, RenderBackend {
     var lastRenderedBitmap: BitmapSurface? { rasterizer.lastRenderedBitmap }
 
     func attach(to surface: SurfaceDescriptor) throws {
-        guard surface.windowHandle.rawPointer != nil else {
+        guard let nativeWindowHandle = surface.windowHandle,
+            nativeWindowHandle.rawPointer != nil
+        else {
             throw SoftwarePresentationError.missingWindowHandle
         }
         try rasterizer.attach(to: surface)
-        windowHandle = surface.windowHandle
+        windowHandle = nativeWindowHandle
         currentSize = surface.pixelSize
     }
 
@@ -260,6 +262,8 @@ public struct SoftwareWindowRenderBackendFactory: RenderBackendFactory {
     public init() {}
 
     public var factoryName: String { "CPU Software" }
+
+    public var capabilities: RenderBackendCapabilities { .softwareWindow }
 
     public func makeRenderBackend() -> any RenderBackend {
         SoftwareWindowRenderBackend()

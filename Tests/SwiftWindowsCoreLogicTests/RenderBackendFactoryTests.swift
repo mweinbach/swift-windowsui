@@ -28,8 +28,7 @@ struct RenderBackendFactoryTests {
 
         try backend.attach(
             to: SurfaceDescriptor(
-                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 1)!)!,
-                pixelSize: IntSize(width: 4, height: 4),
+                offscreenPixelSize: IntSize(width: 4, height: 4),
                 scaleFactor: 1.0
             ))
 
@@ -44,8 +43,7 @@ struct RenderBackendFactoryTests {
 
         try backend.attach(
             to: SurfaceDescriptor(
-                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 1)!)!,
-                pixelSize: IntSize(width: 4, height: 4),
+                offscreenPixelSize: IntSize(width: 4, height: 4),
                 scaleFactor: 1.0
             ))
 

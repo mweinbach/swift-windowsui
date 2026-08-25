@@ -17,15 +17,23 @@ public struct RenderBackendResolution: Equatable, Sendable {
     public var resolvedFactoryName: String
     /// What the requested factory reported about this machine.
     public var availability: RenderBackendAvailability
+    /// The feature and presentation-target contract the app's factory declared.
+    public var requestedCapabilities: RenderBackendCapabilities
+    /// The contract of the factory whose renderers were actually selected.
+    public var resolvedCapabilities: RenderBackendCapabilities
 
     public init(
         requestedFactoryName: String,
         resolvedFactoryName: String,
-        availability: RenderBackendAvailability
+        availability: RenderBackendAvailability,
+        requestedCapabilities: RenderBackendCapabilities = .conservative,
+        resolvedCapabilities: RenderBackendCapabilities = .conservative
     ) {
         self.requestedFactoryName = requestedFactoryName
         self.resolvedFactoryName = resolvedFactoryName
         self.availability = availability
+        self.requestedCapabilities = requestedCapabilities
+        self.resolvedCapabilities = resolvedCapabilities
     }
 
     /// The composition root swapped the app's factory for a different one.
@@ -73,6 +81,7 @@ enum RenderBackendFactoryResolution {
         report: (String) -> Void = { print("[WinSwiftUI] \($0)") }
     ) -> (factory: RenderBackendFactory, resolution: RenderBackendResolution) {
         let availability = factory.probeAvailability()
+        let capabilities = factory.capabilities
 
         func resolved(_ chosen: RenderBackendFactory) -> (RenderBackendFactory, RenderBackendResolution) {
             (
@@ -80,8 +89,51 @@ enum RenderBackendFactoryResolution {
                 RenderBackendResolution(
                     requestedFactoryName: factory.factoryName,
                     resolvedFactoryName: chosen.factoryName,
-                    availability: availability
+                    availability: availability,
+                    requestedCapabilities: capabilities,
+                    resolvedCapabilities: chosen.capabilities
                 )
+            )
+        }
+
+        // Existing third-party factories predate capability declarations. An
+        // empty target set means unknown, not unsupported, so their historical
+        // startup behavior remains unchanged. An explicitly offscreen-only
+        // factory, however, must never be mistaken for a window presenter.
+        func explicitlyCannotPresentWindow(_ candidate: RenderBackendFactory) -> Bool {
+            let targets = candidate.capabilities.supportedPresentationTargets
+            return !targets.isEmpty && !targets.contains(.window)
+        }
+
+        func fallBackIfPresentable(
+            because explanation: String
+        ) -> (RenderBackendFactory, RenderBackendResolution) {
+            let fallbackAvailability = fallback.probeAvailability()
+
+            guard fallbackAvailability.canPresent else {
+                report(
+                    "\(explanation) \(fallback.factoryName) cannot present here either; the window will report "
+                        + "RendererHealthSnapshot.isPresenterUnavailable rather than show nothing silently."
+                )
+                return resolved(factory)
+            }
+
+            guard !explicitlyCannotPresentWindow(fallback) else {
+                report(
+                    "\(explanation) \(fallback.factoryName) only supports offscreen rendering and cannot "
+                        + "present to a native window; refusing to substitute a blank presenter."
+                )
+                return resolved(factory)
+            }
+
+            report("\(explanation) Falling back to \(fallback.factoryName).")
+            return resolved(fallback)
+        }
+
+        if explicitlyCannotPresentWindow(factory), availability.canPresent {
+            return fallBackIfPresentable(
+                because:
+                    "\(factory.factoryName) is available only for offscreen rendering and cannot present to a native window."
             )
         }
 
@@ -95,20 +147,9 @@ enum RenderBackendFactoryResolution {
             report("\(factory.factoryName) is degraded: \(reason)")
             return resolved(factory)
         case .unavailable(let reason):
-            guard fallback.probeAvailability().canPresent else {
-                report(
-                    "\(factory.factoryName) is unavailable on this machine: \(reason) "
-                        + "\(fallback.factoryName) cannot present here either; the window will report "
-                        + "RendererHealthSnapshot.isPresenterUnavailable rather than show nothing silently."
-                )
-                return resolved(factory)
-            }
-
-            report(
-                "\(factory.factoryName) is unavailable on this machine: \(reason) "
-                    + "Falling back to \(fallback.factoryName)."
+            return fallBackIfPresentable(
+                because: "\(factory.factoryName) is unavailable on this machine: \(reason)"
             )
-            return resolved(fallback)
         }
     }
 }

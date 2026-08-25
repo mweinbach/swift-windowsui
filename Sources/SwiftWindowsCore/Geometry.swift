@@ -637,15 +637,56 @@ public struct NativeWindowHandle: Equatable, Sendable {
         UnsafeMutableRawPointer(bitPattern: rawValue)
     }
 }
+
+/// The native presentation destination a renderer is asked to attach to.
+///
+/// Window handles stay opaque: their platform-specific interpretation belongs
+/// to the host and the concrete backend, not to the portable scene contract.
+/// Offscreen rendering has no native window, so its callers must not invent an
+/// invalid pointer merely to satisfy a window-only surface shape.
+public enum RenderSurfaceTarget: Equatable, Sendable {
+    case window(NativeWindowHandle)
+    case offscreen
+}
+
 public struct SurfaceDescriptor: Equatable, Sendable {
-    public var windowHandle: NativeWindowHandle
+    public var target: RenderSurfaceTarget
     public var pixelSize: IntSize
     public var scaleFactor: Double
 
-    public init(windowHandle: NativeWindowHandle, pixelSize: IntSize, scaleFactor: Double) {
-        self.windowHandle = windowHandle
+    /// The native handle for a window surface, or `nil` for an offscreen
+    /// surface. Assigning a handle changes the target to a window; clearing it
+    /// changes the target to offscreen.
+    public var windowHandle: NativeWindowHandle? {
+        get {
+            guard case .window(let handle) = target else {
+                return nil
+            }
+            return handle
+        }
+        set {
+            if let newValue {
+                target = .window(newValue)
+            } else {
+                target = .offscreen
+            }
+        }
+    }
+
+    public init(target: RenderSurfaceTarget, pixelSize: IntSize, scaleFactor: Double) {
+        self.target = target
         self.pixelSize = pixelSize
         self.scaleFactor = scaleFactor
+    }
+
+    /// Preserves the existing source-compatible window-surface initializer.
+    public init(windowHandle: NativeWindowHandle, pixelSize: IntSize, scaleFactor: Double) {
+        self.init(target: .window(windowHandle), pixelSize: pixelSize, scaleFactor: scaleFactor)
+    }
+
+    /// Creates a genuine headless surface without a fabricated native handle.
+    public init(offscreenPixelSize pixelSize: IntSize, scaleFactor: Double = 1) {
+        self.init(target: .offscreen, pixelSize: pixelSize, scaleFactor: scaleFactor)
     }
 }
 public struct AffineMatrix: Equatable, Sendable {

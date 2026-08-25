@@ -66,8 +66,7 @@ struct SwiftWindowsUISnapshotTool {
             let renderer = CPUBatchRenderer()
             try renderer.attach(
                 to: SurfaceDescriptor(
-                    windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 1)!)!,
-                    pixelSize: pixelSize,
+                    offscreenPixelSize: pixelSize,
                     scaleFactor: options.displayScale
                 ))
             try renderer.render(scene: snapshot.scene)

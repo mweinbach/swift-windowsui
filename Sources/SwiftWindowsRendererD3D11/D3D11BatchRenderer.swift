@@ -1035,8 +1035,15 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     // MARK: - BatchRenderBackend
 
     public func attach(to surface: SurfaceDescriptor) throws {
-        guard let hwnd = unsafeBitCast(surface.windowHandle.rawPointer, to: HWND?.self) else {
-            throw BatchRendererError(operation: "Resolve HWND", hresult: batchHresultHandle)
+        guard let windowHandle = surface.windowHandle,
+            let hwnd = unsafeBitCast(windowHandle.rawPointer, to: HWND?.self)
+        else {
+            throw BatchRendererError(
+                operation: "Resolve HWND",
+                hresult: batchHresultHandle,
+                details: "Windowed D3D11 batch presentation requires a native window surface.",
+                failureKind: .permanent
+            )
         }
 
         // Attach always starts from nothing. Re-attach is how the host

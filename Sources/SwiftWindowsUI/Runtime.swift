@@ -2884,9 +2884,30 @@ public final class ViewNode {
     /// The latter keeps custom overlays valid on Apple's SwiftUI, where
     /// `AccessibilityTraits.isModal` is not part of the public API.
     public var isModalPresentationScope: Bool {
-        accessibilityTraits.contains(.isModal)
-            || (presentationChrome.hasBackgroundInteractionOverride
-                && !presentationChrome.allowsBackgroundInteraction)
+        if accessibilityTraits.contains(.isModal) {
+            return true
+        }
+
+        guard presentationChrome.hasBackgroundInteractionOverride,
+            !presentationChrome.allowsBackgroundInteraction
+        else {
+            return false
+        }
+
+        // A sheet applies its presentation modifiers to the content node
+        // that describes it, while the overlay itself owns the modal scope.
+        // Treating that configuration as another nested presentation steals
+        // Escape from the actual sheet. A standalone custom overlay still
+        // becomes modal when no explicitly marked presentation contains it.
+        var ancestor = parent
+        while let candidate = ancestor {
+            if candidate.accessibilityTraits.contains(.isModal) {
+                return false
+            }
+            ancestor = candidate.parent
+        }
+
+        return true
     }
 
     public var isToolbarContainer: Bool {

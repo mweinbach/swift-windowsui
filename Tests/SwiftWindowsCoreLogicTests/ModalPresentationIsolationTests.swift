@@ -456,6 +456,56 @@ final class ModalPresentationIsolationTests: XCTestCase {
         XCTAssertTrue(names.contains("Sheet action"))
     }
 
+    func testDisabledBackgroundSheetContentDoesNotStealModalOwnershipOrEscapeDismissal() async {
+        var isPresented = true
+        let binding = Binding<Bool>(get: { isPresented }, set: { isPresented = $0 })
+        let result = makeRuntime(
+            Button("Background") {}
+                .sheet(isPresented: binding) {
+                    VStack {
+                        Button("First sheet action") {}
+                        Button("Second sheet action") {}
+                    }
+                    .presentationBackgroundInteraction(.disabled)
+                }
+        )
+
+        guard
+            let overlay = firstNode(in: result.node, matching: { $0.nodeTag == "sheet-overlay" }),
+            let configuredContent = firstNode(
+                in: overlay,
+                matching: {
+                    $0.presentationChrome.hasBackgroundInteractionOverride
+                        && !$0.presentationChrome.allowsBackgroundInteraction
+                }
+            ),
+            let firstAction = firstNode(
+                in: overlay,
+                matching: { $0.accessibilityLabel == "First sheet action" && $0.isFocusable }
+            ),
+            let secondAction = firstNode(
+                in: overlay,
+                matching: { $0.accessibilityLabel == "Second sheet action" && $0.isFocusable }
+            )
+        else {
+            return XCTFail("expected a modal overlay, configured content, and focusable sheet actions")
+        }
+
+        XCTAssertTrue(overlay.isModalPresentationScope)
+        XCTAssertFalse(configuredContent.isModalPresentationScope)
+
+        result.runtime.requestFocus(firstAction)
+        result.runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.tab.rawValue))
+        XCTAssertTrue(result.runtime.focusedNode === secondAction)
+
+        let names = AccessibilityProjection.project(runtime: result.runtime)?.flattened().map(\.name) ?? []
+        XCTAssertFalse(names.contains("Background"))
+        XCTAssertTrue(names.contains("First sheet action"))
+
+        result.runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.escape.rawValue))
+        XCTAssertFalse(isPresented, "Escape must dismiss the presentation that owns its content configuration")
+    }
+
     func testExplicitNonModalPresentationOverrideRemainsNonModal() async {
         let result = makeRuntime(
             Button("Background") {}

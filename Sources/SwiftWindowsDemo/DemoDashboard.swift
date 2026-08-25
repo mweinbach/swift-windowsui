@@ -1315,8 +1315,10 @@ public struct DemoRootView: View {
         // toolbar branch. A transparent one-point command target contributes
         // neither chrome nor a stray accessibility/focus stop.
         .background(alignment: .topLeading) {
-            Button("Open command palette") {
+            Button(action: {
                 model.presentCommandPalette()
+            }) {
+                Color.clear
             }
             .buttonStyle(.plain)
             .keyboardShortcut("k", modifiers: .command)

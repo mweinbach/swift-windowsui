@@ -62,6 +62,11 @@ public final class DemoDashboardModel: ObservableObject {
         }
     }
 
+    // Gallery state belongs to the shared model so search and category
+    // selection survive navigation while remaining deterministic in snapshots.
+    @Published var selectedGalleryCategory: DemoGalleryCategory = .all
+    @Published var galleryQuery = ""
+
     // Settings screen state
     @Published var displayName = "Operator"
     @Published var theme: DemoThemeOption = .system
@@ -240,7 +245,7 @@ public final class DemoDashboardModel: ObservableObject {
                 title: screen.label,
                 subtitle: "Open the \(screen.label.lowercased()) screen",
                 systemImage: screen.systemImage,
-                keywords: [screen.label, "screen", "navigate"],
+                keywords: screen.commandKeywords,
                 destination: .screen(screen)
             )
         }
@@ -1323,7 +1328,7 @@ public struct DemoRootView: View {
     }
 
     /// Product-style shell: a tab bar navigates between the dashboard,
-    /// settings, and data-list screens using only same-source SwiftUI APIs.
+    /// settings, data list, and interactive gallery using same-source APIs.
     public var body: some View {
         TabView(selection: $model.selectedScreen) {
             DemoDashboardScreen(model: model)
@@ -1343,6 +1348,12 @@ public struct DemoRootView: View {
                     Label(DemoScreen.data.label, systemImage: DemoScreen.data.systemImage)
                 }
                 .tag(DemoScreen.data)
+
+            DemoGalleryScreen(model: model)
+                .tabItem {
+                    Label(DemoScreen.gallery.label, systemImage: DemoScreen.gallery.systemImage)
+                }
+                .tag(DemoScreen.gallery)
         }
         .preferredColorScheme(model.theme.colorScheme)
         .tint(model.accentColor)
@@ -1358,6 +1369,22 @@ public struct DemoRootView: View {
             }
             .buttonStyle(.plain)
             .keyboardShortcut("k", modifiers: .command)
+            .focusable(false)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .frame(width: 1, height: 1)
+            .opacity(0)
+        }
+        // Gallery discovery stays available from the keyboard without adding
+        // chrome to the dashboard or disturbing its responsive breakpoints.
+        .background(alignment: .topLeading) {
+            Button(action: {
+                model.selectScreen(.gallery)
+            }) {
+                Color.clear
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("g", modifiers: .command)
             .focusable(false)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
@@ -3393,12 +3420,14 @@ public enum DemoScreen: String, CaseIterable, Hashable {
     case dashboard
     case settings
     case data
+    case gallery
 
     var label: String {
         switch self {
         case .dashboard: return "Dashboard"
         case .settings: return "Settings"
         case .data: return "Data"
+        case .gallery: return "Gallery"
         }
     }
 
@@ -3407,7 +3436,18 @@ public enum DemoScreen: String, CaseIterable, Hashable {
         case .dashboard: return "rectangle.3.group"
         case .settings: return "gearshape"
         case .data: return "doc.text"
+        case .gallery: return "square.grid.2x2"
         }
+    }
+
+    /// Gallery synonyms make the new destination discoverable without
+    /// stealing the established Controls-module or component-data commands.
+    var commandKeywords: [String] {
+        var keywords = [label, "screen", "navigate"]
+        if self == .gallery {
+            keywords.append(contentsOf: ["showcase", "catalog", "patterns", "examples"])
+        }
+        return keywords
     }
 }
 

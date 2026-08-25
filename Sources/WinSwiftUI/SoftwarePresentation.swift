@@ -209,7 +209,14 @@ final class SoftwareWindowRenderBackend: BatchRenderBackend, RenderBackend {
         else {
             throw SoftwarePresentationError.missingWindowHandle
         }
-        try rasterizer.attach(to: surface)
+        // The presenter owns the native window. Its embedded CPU rasterizer
+        // owns only the offscreen bitmap that is subsequently blitted into it.
+        try rasterizer.attach(
+            to: SurfaceDescriptor(
+                offscreenPixelSize: surface.pixelSize,
+                scaleFactor: surface.scaleFactor
+            )
+        )
         windowHandle = nativeWindowHandle
         currentSize = surface.pixelSize
     }

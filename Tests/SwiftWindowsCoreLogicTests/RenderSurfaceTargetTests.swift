@@ -56,6 +56,25 @@ final class RenderSurfaceTargetTests: XCTestCase {
         XCTAssertEqual(Array(bitmap.pixels.prefix(4)), [204, 102, 51, 255])
     }
 
+    func testCPUReferenceRejectsNativeWindowSurfacesInsteadOfFakingPresentation() async throws {
+        let handle = try XCTUnwrap(NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 13)))
+        let surface = SurfaceDescriptor(windowHandle: handle, pixelSize: size, scaleFactor: 1)
+        let renderer = CPUBatchRenderer()
+
+        XCTAssertThrowsError(try renderer.attach(to: surface)) { error in
+            guard let backendError = error as? CPUBatchRendererError,
+                case .unsupportedSurface(let rejectedTarget) = backendError
+            else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+            XCTAssertEqual(rejectedTarget, .window(handle))
+            XCTAssertTrue(backendError.description.contains("offscreen"))
+            XCTAssertTrue(backendError.description.contains("presenting backend"))
+        }
+        XCTAssertNil(renderer.lastRenderedBitmap)
+        XCTAssertThrowsError(try renderer.render(scene: GPUIScene(clearColor: .white)))
+    }
+
     func testCPUFrameRendererAttachesToGenuineOffscreenSurface() async throws {
         let renderer = CPUBatchRenderer()
 

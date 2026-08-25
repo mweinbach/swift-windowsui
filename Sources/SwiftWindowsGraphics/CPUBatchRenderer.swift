@@ -59,6 +59,9 @@ public final class CPUBatchRenderer: BatchRenderBackend, RenderBackend {
     public init() {}
 
     public func attach(to surface: SurfaceDescriptor) throws {
+        guard case .offscreen = surface.target else {
+            throw CPUBatchRendererError.unsupportedSurface(surface.target)
+        }
         currentSize = surface.pixelSize
     }
 
@@ -103,11 +106,14 @@ public final class CPUBatchRenderer: BatchRenderBackend, RenderBackend {
 
 public enum CPUBatchRendererError: Error, CustomStringConvertible {
     case invalidSize(IntSize)
+    case unsupportedSurface(RenderSurfaceTarget)
 
     public var description: String {
         switch self {
         case .invalidSize(let size):
             return "CPUBatchRenderer cannot render to size \(size.width)×\(size.height)"
+        case .unsupportedSurface:
+            return "CPUBatchRenderer only supports offscreen surfaces; native windows require a presenting backend."
         }
     }
 }

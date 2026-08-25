@@ -163,6 +163,59 @@ final class RenderBackendAvailabilityTests: XCTestCase {
         XCTAssertTrue(reports[0].contains("cannot present"))
     }
 
+    /// If the requested factory is itself offscreen-only and no presenting
+    /// fallback exists, returning it must still lead to an observable attach
+    /// failure rather than a healthy-looking window that never receives pixels.
+    func testOffscreenRequestedFactoryWithoutAWindowFallbackRejectsNativeAttachment() async throws {
+        let requested = CPURenderBackendFactory()
+        let unavailable = StubRenderBackendFactory(
+            factoryName: "Unavailable Presenter",
+            availability: .unavailable(reason: "no native presenter")
+        )
+        let offscreenFallback = CPURenderBackendFactory()
+        let fallbacks: [any RenderBackendFactory] = [unavailable, offscreenFallback]
+        let handle = try XCTUnwrap(NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 17)))
+        let windowSurface = SurfaceDescriptor(
+            windowHandle: handle,
+            pixelSize: IntSize(width: 8, height: 6),
+            scaleFactor: 1
+        )
+
+        for fallback in fallbacks {
+            var reports: [String] = []
+            let resolved = RenderBackendFactoryResolution.resolve(
+                requested,
+                fallback: fallback,
+                report: { reports.append($0) }
+            )
+
+            XCTAssertEqual(resolved.factory.factoryName, requested.factoryName)
+            XCTAssertEqual(resolved.resolution.resolvedCapabilities, .cpuOffscreen)
+            XCTAssertFalse(resolved.resolution.resolvedCapabilities.supportsWindowPresentation)
+            XCTAssertEqual(reports.count, 1)
+            XCTAssertTrue(reports[0].contains("cannot present"))
+
+            let frameRenderer = resolved.factory.makeRenderBackend()
+            let sceneRenderer = try XCTUnwrap(resolved.factory.makeBatchRenderBackend())
+            XCTAssertThrowsError(try frameRenderer.attach(to: windowSurface)) { error in
+                guard let backendError = error as? CPUBatchRendererError,
+                    case .unsupportedSurface(let rejectedTarget) = backendError
+                else {
+                    return XCTFail("Unexpected frame renderer error: \(error)")
+                }
+                XCTAssertEqual(rejectedTarget, .window(handle))
+            }
+            XCTAssertThrowsError(try sceneRenderer.attach(to: windowSurface)) { error in
+                guard let backendError = error as? CPUBatchRendererError,
+                    case .unsupportedSurface(let rejectedTarget) = backendError
+                else {
+                    return XCTFail("Unexpected scene renderer error: \(error)")
+                }
+                XCTAssertEqual(rejectedTarget, .window(handle))
+            }
+        }
+    }
+
     func testAvailableFactoriesAreUsedUnchangedAndSilently() async {
         var reports: [String] = []
         let factory = StubRenderBackendFactory(factoryName: "Stub GPU", availability: .available)

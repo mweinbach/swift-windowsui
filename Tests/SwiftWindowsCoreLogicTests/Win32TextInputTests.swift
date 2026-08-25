@@ -377,8 +377,7 @@ final class Win32TextInputTests: XCTestCase {
         let value = NativeTextInputValue("")
         let binding = Binding(get: { value.text }, set: { value.text = $0 })
         let surface = SurfaceDescriptor(
-            windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
-            pixelSize: IntSize(width: 320, height: 200),
+            offscreenPixelSize: IntSize(width: 320, height: 200),
             scaleFactor: 1
         )
         let configuration = WindowGroupConfiguration(

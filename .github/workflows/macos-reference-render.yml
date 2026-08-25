@@ -58,43 +58,52 @@ jobs:
       - name: Select Xcode toolchain
         run: |
           set -euo pipefail
-          # Prefer a stable Xcode 16.x on macos-15 without assuming a
-          # single hard-coded app name (images ship 16.4/16.3/… and
-          # often symlink Xcode.app -> default; bare Xcode_16.app may
-          # be absent). Fall back to the image default when needed.
-          #
-          # Scripts must stay bash 3.2-compatible (/bin/bash on macOS).
+          # Package.swift requires Swift 6.2, which Xcode 16.x cannot
+          # provide. Choose the newest installed Xcode whose actual Swift
+          # version satisfies the manifest instead of trusting its app name.
+          # Keep the implementation compatible with macOS's Bash 3.2.
+          required_version=$(sed -nE '1s@// swift-tools-version:[[:space:]]*([0-9]+)\.([0-9]+).*@\1 \2@p' Package.swift)
+          if [ -z "$required_version" ]; then
+            echo "::error::Could not read the Swift tools version from Package.swift"
+            exit 1
+          fi
+          read -r required_major required_minor <<< "$required_version"
+
+          supports_required_swift() {
+            local app="$1"
+            local swift_binary="$app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift"
+            local version=""
+            local major=""
+            local minor=""
+
+            if [ ! -x "$swift_binary" ]; then
+              return 1
+            fi
+            version=$("$swift_binary" --version 2>/dev/null | sed -nE 's/.*Swift version ([0-9]+)\.([0-9]+).*/\1 \2/p' | head -n 1)
+            if [ -z "$version" ]; then
+              return 1
+            fi
+            read -r major minor <<< "$version"
+            echo "Candidate $app provides Swift $major.$minor"
+            [ "$major" -gt "$required_major" ] || {
+              [ "$major" -eq "$required_major" ] && [ "$minor" -ge "$required_minor" ]
+            }
+          }
+
+          # BSD sort does not implement GNU's -V option. Reverse lexical
+          # ordering still puts recent Xcode releases first, while checking
+          # each candidate's actual Swift version prevents old SDKs slipping in.
+          xcode_apps=$(find /Applications -maxdepth 1 \( -type d -o -type l \) -name 'Xcode*.app' -print 2>/dev/null | sort -r)
           selected=""
-          for app in \
-            /Applications/Xcode_16.4.app \
-            /Applications/Xcode_16.3.app \
-            /Applications/Xcode_16.2.app \
-            /Applications/Xcode_16.1.app \
-            /Applications/Xcode_16.0.app \
-            /Applications/Xcode_16.app \
-            /Applications/Xcode.app
-          do
-            if [ -d "$app/Contents/Developer" ]; then
+          while IFS= read -r app; do
+            if [ -n "$app" ] && [ -d "$app/Contents/Developer" ] && supports_required_swift "$app"; then
               selected="$app"
               break
             fi
-          done
+          done <<< "$xcode_apps"
 
           if [ -z "$selected" ]; then
-            # Dynamic fallback: newest installed Xcode_16*.app by version sort.
-            # sort -V is available on macOS runners; keep parsing bash 3.2-safe.
-            # `|| true` so an empty glob does not abort under set -e / pipefail.
-            xcode16_apps=$(ls -1d /Applications/Xcode_16*.app 2>/dev/null | sort -V -r || true)
-            for app in $xcode16_apps; do
-              if [ -d "$app/Contents/Developer" ]; then
-                selected="$app"
-                break
-              fi
-            done
-          fi
-
-          if [ -z "$selected" ]; then
-            echo "::error::No usable Xcode installation found under /Applications"
+            echo "::error::No installed Xcode provides Swift $required_major.$required_minor or newer"
             ls -la /Applications/Xcode*.app 2>/dev/null || true
             exit 1
           fi
@@ -112,6 +121,20 @@ jobs:
           set -euo pipefail
           swift --version
           which swift
+          required_version=$(sed -nE '1s@// swift-tools-version:[[:space:]]*([0-9]+)\.([0-9]+).*@\1 \2@p' Package.swift)
+          installed_version=$(swift --version | sed -nE 's/.*Swift version ([0-9]+)\.([0-9]+).*/\1 \2/p' | head -n 1)
+          if [ -z "$required_version" ] || [ -z "$installed_version" ]; then
+            echo "::error::Could not verify Swift toolchain compatibility"
+            exit 1
+          fi
+          read -r required_major required_minor <<< "$required_version"
+          read -r installed_major installed_minor <<< "$installed_version"
+          if [ "$installed_major" -lt "$required_major" ] || {
+            [ "$installed_major" -eq "$required_major" ] && [ "$installed_minor" -lt "$required_minor" ]
+          }; then
+            echo "::error::Package.swift requires Swift $required_major.$required_minor; selected Swift $installed_major.$installed_minor"
+            exit 1
+          fi
 
       - name: Build macos-reference-renderer
         run: |

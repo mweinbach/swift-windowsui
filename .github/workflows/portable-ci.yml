@@ -1,0 +1,152 @@
+name: Portable core CI
+
+on:
+  push:
+    paths:
+      - "Package.swift"
+      - "Sources/SwiftWindowsCore/**"
+      - "Sources/SwiftWindowsGraphics/**"
+      - "Sources/SwiftWindowsLayout/**"
+      - "Sources/SwiftWindowsScene/**"
+      - "Sources/SwiftWindowsDemo/**"
+      - "Sources/swift-windowsui/AppEntry.swift"
+      - "Sources/macos-reference-renderer/**"
+      - "Tests/SwiftWindowsPortableTests/**"
+      - ".github/workflows/portable-ci.yml"
+  pull_request:
+    paths:
+      - "Package.swift"
+      - "Sources/SwiftWindowsCore/**"
+      - "Sources/SwiftWindowsGraphics/**"
+      - "Sources/SwiftWindowsLayout/**"
+      - "Sources/SwiftWindowsScene/**"
+      - "Sources/SwiftWindowsDemo/**"
+      - "Sources/swift-windowsui/AppEntry.swift"
+      - "Sources/macos-reference-renderer/**"
+      - "Tests/SwiftWindowsPortableTests/**"
+      - ".github/workflows/portable-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portable-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portable:
+    name: Portable package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Select a Swift 6.2-compatible Apple SDK
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcode_apps=$(find /Applications -maxdepth 1 \( -type d -o -type l \) -name 'Xcode*.app' -print 2>/dev/null | sort -r)
+          selected=""
+          while IFS= read -r app; do
+            swift_binary="$app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift"
+            if [ -z "$app" ] || [ ! -x "$swift_binary" ]; then
+              continue
+            fi
+            version=$("$swift_binary" --version 2>/dev/null | sed -nE 's/.*Swift version ([0-9]+)\.([0-9]+).*/\1 \2/p' | head -n 1)
+            if [ -z "$version" ]; then
+              continue
+            fi
+            read -r major minor <<< "$version"
+            if [ "$major" -gt 6 ] || { [ "$major" -eq 6 ] && [ "$minor" -ge 2 ]; }; then
+              selected="$app"
+              break
+            fi
+          done <<< "$xcode_apps"
+          if [ -z "$selected" ]; then
+            echo "::error::Native SwiftUI validation requires Xcode with Swift 6.2 or newer"
+            ls -la /Applications/Xcode*.app 2>/dev/null || true
+            exit 1
+          fi
+          echo "Selecting compatible Apple SDK: $selected"
+          sudo xcode-select -s "$selected/Contents/Developer"
+          xcodebuild -version
+
+      - name: Install Swift 6.2
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2"
+
+      - name: Verify package toolchain compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift --version
+          version=$(swift --version | sed -nE 's/.*Swift version ([0-9]+)\.([0-9]+).*/\1 \2/p' | head -n 1)
+          if [ -z "$version" ]; then
+            echo "::error::Could not determine the installed Swift version"
+            exit 1
+          fi
+          read -r major minor <<< "$version"
+          if [ "$major" -lt 6 ] || { [ "$major" -eq 6 ] && [ "$minor" -lt 2 ]; }; then
+            echo "::error::Package.swift requires Swift 6.2 or newer; found $major.$minor"
+            exit 1
+          fi
+
+      - name: Validate renderer-neutral public products and build isolated targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift package dump-package | swift -e '
+            import Foundation
+            let data = FileHandle.standardInput.readDataToEndOfFile()
+            let manifest = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+            let products = manifest["products"] as! [[String: Any]]
+            let published = Set(products.compactMap { $0["name"] as? String })
+            let required: Set<String> = [
+              "SwiftWindowsCore", "SwiftWindowsGraphics",
+              "SwiftWindowsLayout", "SwiftWindowsScene"
+            ]
+            let missing = required.subtracting(published).sorted()
+            guard missing.isEmpty else {
+              FileHandle.standardError.write(
+                Data("Missing portable public products: \(missing.joined(separator: ", "))\n".utf8)
+              )
+              exit(1)
+            }
+            print("Published portable products: \(required.sorted().joined(separator: ", "))")
+          '
+          for target in \
+            SwiftWindowsCore \
+            SwiftWindowsGraphics \
+            SwiftWindowsLayout \
+            SwiftWindowsScene
+          do
+            # Automatic SwiftPM libraries ignore --product and instead build
+            # the default graph; --target proves each dependency closure.
+            echo "Building isolated portable target $target"
+            swift build --target "$target"
+          done
+
+      - name: Test portable geometry, layout, scenes, and CPU rendering
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift test --filter SwiftWindowsPortableTests
+
+      - name: Build same-source native SwiftUI demo
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift build --product swift-windowsui
+          swift build --product macos-reference-renderer

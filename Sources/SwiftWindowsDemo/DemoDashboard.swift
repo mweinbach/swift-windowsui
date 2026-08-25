@@ -2108,6 +2108,7 @@ struct DemoHeroCard: View {
 
                 Text(model.selectedModule.headline)
                     .font(DemoType.hero)
+                    .tracking(0.35)
                     .foregroundColor(palette.onAccentPrimary)
                     .multilineTextAlignment(.leading)
                     .lineLimit(1)
@@ -2923,6 +2924,7 @@ struct DemoInfoCard: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text(card.title)
                     .font(DemoType.cardTitle)
+                    .tracking(0.15)
                     .foregroundStyle(.primary)
                     .multilineTextAlignment(.leading)
                     .lineLimit(1)

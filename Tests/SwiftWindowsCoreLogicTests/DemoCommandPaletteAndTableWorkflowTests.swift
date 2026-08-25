@@ -206,6 +206,40 @@ final class DemoCommandPaletteAndTableWorkflowTests: XCTestCase {
     func testSidebarAndInspectorCommandsReflowWithoutLosingDashboardContent() async {
         let model = DemoDashboardModel()
 
+        for size in [IntSize(width: 1280, height: 720), IntSize(width: 640, height: 480)] {
+            let visible = snapshot(model: model, size: size).runtime.root
+            let card = model.selectedModule.cards[1]
+            guard
+                let headline = textNode(in: visible, model.selectedModule.headline),
+                let title = textNode(in: visible, card.title),
+                let summary = textNode(in: visible, card.summary),
+                let meta = textNode(in: visible, card.meta)
+            else {
+                return XCTFail("the hero and inspector typography should remain present at \(size)")
+            }
+
+            XCTAssertEqual(headline.textStyle.nativeFontSize ?? 0, 28, accuracy: 0.01)
+            XCTAssertEqual(
+                headline.textStyle.nativeLetterSpacing ?? 0,
+                0.35,
+                accuracy: 0.001,
+                "display glyphs need breathing room without changing their pinned role"
+            )
+            XCTAssertEqual(
+                title.textStyle.nativeLetterSpacing ?? 0,
+                0.15,
+                accuracy: 0.001,
+                "semibold inspector titles should not collapse adjacent glyphs"
+            )
+            XCTAssertEqual(summary.textStyle.maximumNumberOfLines, 2)
+            XCTAssertGreaterThan(summary.resolvedFrame.size.height, 0)
+            XCTAssertGreaterThanOrEqual(
+                absoluteY(of: meta),
+                absoluteY(of: summary) + summary.resolvedFrame.size.height,
+                "wrapped inspector copy and its metadata must never overlap at \(size)"
+            )
+        }
+
         model.commandQuery = "hide sidebar"
         model.runCommandSearch()
         XCTAssertTrue(model.isSidebarCollapsed)

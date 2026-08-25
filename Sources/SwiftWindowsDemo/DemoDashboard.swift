@@ -3463,6 +3463,17 @@ struct DemoSettingsScreen: View {
     private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
 
     var body: some View {
+        GeometryReader { proxy in
+            settingsContent(availableWidth: proxy.size.width)
+        }
+        // Resolve the page tone with the screen's own inherited appearance,
+        // before GeometryReader defers its content construction. Reading the
+        // environment from that deferred closure can otherwise paint a dark
+        // page underneath correctly light-resolved settings controls.
+        .background(palette.base)
+    }
+
+    private func settingsContent(availableWidth: CGFloat) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center, spacing: DemoMetrics.s4) {
@@ -3634,17 +3645,17 @@ struct DemoSettingsScreen: View {
                     .padding(.top, DemoMetrics.s4)
                     .padding(.bottom, DemoMetrics.s6)
             }
-            .frame(maxWidth: DemoMetrics.settingsColumnWidth, alignment: .leading)
+            .frame(
+                width: min(
+                    DemoMetrics.settingsColumnWidth,
+                    max(0, availableWidth - DemoMetrics.s6 * 2)
+                ),
+                alignment: .leading
+            )
             .padding(.horizontal, DemoMetrics.s6)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        // The frame tone, not the paper. A settings pane has no columns to
-        // frame and no well to sit in — it is a page of boxes, and the boxes
-        // are what carry the content. Painting it `surface0` put it on the
-        // same rung as the selector bar above it, so the one band on the
-        // screen had nothing to be a band against.
-        .background(palette.base)
         .fileImporter(
             isPresented: $isImporterPresented,
             allowedContentTypes: [.image, .plainText]

@@ -59,6 +59,8 @@ public final class DemoDashboardModel: ObservableObject {
     }
     @Published public var selectedComponentID: Int? = DemoComponent.defaults.first?.id
     @Published private(set) var componentPage = 0
+    @Published private(set) var componentSortColumn: DemoComponentSortColumn?
+    @Published private(set) var componentSortDirection: DemoComponentSortDirection = .ascending
     @Published var componentFilter = "" {
         didSet {
             guard componentFilter != oldValue else { return }
@@ -67,11 +69,24 @@ public final class DemoDashboardModel: ObservableObject {
         }
     }
 
-    // The toolbar accepts real commands rather than painting a decorative field.
-    @Published var commandQuery = ""
+    // Commands belong to the app shell, not to a toolbar that disappears at
+    // narrow widths or when another top-level screen is selected.
+    @Published var commandQuery = "" {
+        didSet {
+            guard commandQuery != oldValue else { return }
+            selectedCommandIndex = 0
+        }
+    }
+    @Published private(set) var isCommandPalettePresented = false
+    @Published private(set) var selectedCommandIndex = 0
+    @Published private(set) var isSidebarCollapsed = false
+    @Published private(set) var isInspectorCollapsed = false
+    @Published private(set) var hasSavedSettings = false
 
     // Integration surface state (color picker, file importer, drop target)
     @Published var accentColor: Color = DemoSignature.accentFill
+
+    private var savedSettings = DemoSettingsSnapshot.defaults
 
     public init() {}
 
@@ -84,19 +99,31 @@ public final class DemoDashboardModel: ObservableObject {
     /// terms in any order so "d3d11 render" is as useful as an exact name.
     var filteredComponents: [DemoComponent] {
         let terms = Self.searchTerms(in: componentFilter)
-        guard !terms.isEmpty else { return components }
+        let matches: [DemoComponent]
+        if terms.isEmpty {
+            matches = components
+        } else {
+            matches = components.filter { component in
+                let searchableText = [
+                    component.name,
+                    component.detail,
+                    component.version,
+                    component.statusLabel,
+                ]
+                .joined(separator: " ")
+                .lowercased()
 
-        return components.filter { component in
-            let searchableText = [
-                component.name,
-                component.detail,
-                component.version,
-                component.statusLabel,
-            ]
-            .joined(separator: " ")
-            .lowercased()
+                return terms.allSatisfy { searchableText.contains($0) }
+            }
+        }
 
-            return terms.allSatisfy { searchableText.contains($0) }
+        guard let componentSortColumn else { return matches }
+        return matches.sorted { lhs, rhs in
+            let comparison = componentSortColumn.comparison(lhs, rhs)
+            if comparison == 0 {
+                return lhs.id < rhs.id
+            }
+            return componentSortDirection == .ascending ? comparison < 0 : comparison > 0
         }
     }
 
@@ -153,11 +180,142 @@ public final class DemoDashboardModel: ObservableObject {
         }
     }
 
+    var hasUnsavedSettings: Bool {
+        settingsSnapshot != savedSettings
+    }
+
+    var isDisplayNameValid: Bool {
+        displayName.contains { !$0.isWhitespace }
+    }
+
+    var settingsStatusMessage: String {
+        if !isDisplayNameValid {
+            return "Enter a display name before saving"
+        }
+        if hasUnsavedSettings {
+            return "Unsaved changes"
+        }
+        return hasSavedSettings ? "All changes saved" : "Configure the demo shell"
+    }
+
+    var availableCommands: [DemoCommand] {
+        var commands = DemoScreen.allCases.map { screen in
+            DemoCommand(
+                title: screen.label,
+                subtitle: "Open the \(screen.label.lowercased()) screen",
+                systemImage: screen.systemImage,
+                keywords: [screen.label, "screen", "navigate"],
+                destination: .screen(screen)
+            )
+        }
+
+        commands.append(
+            contentsOf: DemoModule.allCases.map { module in
+                DemoCommand(
+                    title: module.label,
+                    subtitle: module.headline,
+                    systemImage: module.systemImage,
+                    keywords: [module.label, module.headline, module.summary, "module"],
+                    destination: .module(module)
+                )
+            })
+
+        commands.append(
+            contentsOf: DemoModule.allCases.flatMap { module in
+                module.actions.map { action in
+                    DemoCommand(
+                        title: action.title,
+                        subtitle: action.caption,
+                        systemImage: action.systemImage,
+                        keywords: [action.title, action.caption, module.label, "action"],
+                        destination: .moduleAction(module, action.eventLabel)
+                    )
+                }
+            })
+
+        commands.append(contentsOf: [
+            DemoCommand(
+                title: isSidebarCollapsed ? "Show sidebar" : "Hide sidebar",
+                subtitle: "Toggle the workspace navigation column",
+                systemImage: "rectangle.3.group",
+                keywords: ["sidebar", "navigation", "workspace", "toggle"],
+                destination: .toggleSidebar
+            ),
+            DemoCommand(
+                title: isInspectorCollapsed ? "Show inspector" : "Hide inspector",
+                subtitle: "Toggle the detail and quick-action column",
+                systemImage: "info.circle",
+                keywords: ["inspector", "details", "rail", "toggle"],
+                destination: .toggleInspector
+            ),
+            DemoCommand(
+                title: "Save settings",
+                subtitle: "Save the current profile and preferences",
+                systemImage: "gearshape",
+                keywords: ["save", "settings", "preferences", "profile"],
+                destination: .saveSettings
+            ),
+            DemoCommand(
+                title: "Sync now",
+                subtitle: "Advance synchronization progress",
+                systemImage: "arrow.right",
+                keywords: ["sync", "synchronize", "resources"],
+                destination: .runSync
+            ),
+            DemoCommand(
+                title: "Run component diagnostics",
+                subtitle: "Inspect the selected component",
+                systemImage: "waveform.path.ecg",
+                keywords: ["run", "diagnose", "diagnostics", "component", "inspect"],
+                destination: .runDiagnostics
+            ),
+            DemoCommand(
+                title: "Restart selected component",
+                subtitle: "Reduce load on the selected component",
+                systemImage: "bolt.fill",
+                keywords: ["restart", "component", "load", "health"],
+                destination: .restartComponent
+            ),
+            DemoCommand(
+                title: "Clear component filter",
+                subtitle: "Show every component in the data table",
+                systemImage: "xmark",
+                keywords: ["clear", "filter", "search", "components", "data"],
+                destination: .clearComponentFilter
+            ),
+        ])
+
+        return commands
+    }
+
+    var matchingCommands: [DemoCommand] {
+        let terms = Self.searchTerms(in: commandQuery)
+        guard !terms.isEmpty else { return availableCommands }
+        return availableCommands.filter { command in
+            let searchableText = ([command.title, command.subtitle] + command.keywords)
+                .joined(separator: " ")
+                .lowercased()
+            return terms.allSatisfy { searchableText.contains($0) }
+        }
+    }
+
+    var selectedCommand: DemoCommand? {
+        let matches = matchingCommands
+        guard matches.indices.contains(selectedCommandIndex) else { return nil }
+        return matches[selectedCommandIndex]
+    }
+
     func selectScreen(_ screen: DemoScreen) {
         selectedScreen = screen
     }
 
     func saveSettings() {
+        guard isDisplayNameValid else {
+            performAction("Enter a display name before saving")
+            return
+        }
+        savedSettings = settingsSnapshot
+        hasSavedSettings = true
         performAction("Saved settings for \(displayName)")
     }
 
@@ -221,6 +379,39 @@ public final class DemoDashboardModel: ObservableObject {
         performAction("Selected \(component.name)")
     }
 
+    func sortComponents(by column: DemoComponentSortColumn) {
+        if componentSortColumn == column {
+            componentSortDirection = componentSortDirection.reversed
+        } else {
+            componentSortColumn = column
+            componentSortDirection = column.initialDirection
+        }
+        componentPage = 0
+        reconcileFilteredComponentSelection()
+        performAction("Sorted components by \(column.label.lowercased())")
+    }
+
+    func selectAdjacentComponent(offset: Int) {
+        guard offset != 0 else { return }
+        let matching = filteredComponents
+        guard !matching.isEmpty else {
+            selectedComponentID = nil
+            return
+        }
+
+        guard let current = matching.firstIndex(where: { $0.id == selectedComponentID }) else {
+            let index = offset > 0 ? 0 : matching.count - 1
+            componentPage = index / max(1, itemsPerPage)
+            selectComponent(matching[index])
+            return
+        }
+
+        let target = min(max(current + offset, 0), matching.count - 1)
+        guard target != current else { return }
+        componentPage = target / max(1, itemsPerPage)
+        selectComponent(matching[target])
+    }
+
     func noteImportedFile(_ url: URL) {
         performAction("Imported \(url.lastPathComponent)")
     }
@@ -234,31 +425,73 @@ public final class DemoDashboardModel: ObservableObject {
         performAction("Selected \(module.label)")
     }
 
+    func presentCommandPalette() {
+        selectedCommandIndex = 0
+        isCommandPalettePresented = true
+    }
+
+    func dismissCommandPalette() {
+        isCommandPalettePresented = false
+        commandQuery = ""
+        selectedCommandIndex = 0
+    }
+
+    func moveCommandSelection(offset: Int) {
+        guard !matchingCommands.isEmpty else {
+            selectedCommandIndex = 0
+            return
+        }
+        selectedCommandIndex = min(max(selectedCommandIndex + offset, 0), matchingCommands.count - 1)
+    }
+
+    func highlightCommand(at index: Int) {
+        guard matchingCommands.indices.contains(index) else { return }
+        selectedCommandIndex = index
+    }
+
+    func performCommand(_ command: DemoCommand) {
+        switch command.destination {
+        case .screen(let screen):
+            selectScreen(screen)
+        case .module(let module):
+            selectScreen(.dashboard)
+            selectModule(module)
+        case .moduleAction(let module, let event):
+            selectScreen(.dashboard)
+            if selectedModule != module {
+                selectModule(module)
+            }
+            performAction(event)
+        case .toggleSidebar:
+            isSidebarCollapsed.toggle()
+            performAction(isSidebarCollapsed ? "Hid sidebar" : "Showed sidebar")
+        case .toggleInspector:
+            isInspectorCollapsed.toggle()
+            performAction(isInspectorCollapsed ? "Hid inspector" : "Showed inspector")
+        case .saveSettings:
+            saveSettings()
+        case .runSync:
+            runSync()
+        case .runDiagnostics:
+            runDiagnostics()
+        case .restartComponent:
+            restartSelectedComponent()
+        case .clearComponentFilter:
+            clearComponentFilter()
+            performAction("Cleared component filter")
+        }
+
+        dismissCommandPalette()
+    }
+
     func runCommandSearch() {
         let terms = Self.searchTerms(in: commandQuery)
         guard !terms.isEmpty else { return }
-
-        if let screen = DemoScreen.allCases.first(where: { screen in
-            let searchableText = screen.label.lowercased()
-            return terms.allSatisfy { searchableText.contains($0) }
-        }) {
-            selectScreen(screen)
-            commandQuery = ""
+        guard let command = selectedCommand else {
+            performAction("No command found for \(commandQuery)")
             return
         }
-
-        if let module = DemoModule.allCases.first(where: { module in
-            let searchableText = [module.label, module.headline, module.summary]
-                .joined(separator: " ")
-                .lowercased()
-            return terms.allSatisfy { searchableText.contains($0) }
-        }) {
-            selectModule(module)
-            commandQuery = ""
-            return
-        }
-
-        performAction("No command found for \(commandQuery)")
+        performCommand(command)
     }
 
     func clearComponentFilter() {
@@ -303,8 +536,141 @@ public final class DemoDashboardModel: ObservableObject {
         return lowerBound..<upperBound
     }
 
+    private var settingsSnapshot: DemoSettingsSnapshot {
+        DemoSettingsSnapshot(
+            displayName: displayName,
+            theme: theme,
+            itemsPerPage: itemsPerPage,
+            animationsEnabled: animationsEnabled,
+            soundEffectsEnabled: soundEffectsEnabled,
+            shareUsageData: shareUsageData,
+            fontScale: fontScale,
+            accentColor: accentColor
+        )
+    }
+
     private static func searchTerms(in query: String) -> [String] {
         query.split(whereSeparator: { $0.isWhitespace }).map { String($0).lowercased() }
+    }
+}
+
+private struct DemoSettingsSnapshot: Equatable, Sendable {
+    let displayName: String
+    let theme: DemoThemeOption
+    let itemsPerPage: Int
+    let animationsEnabled: Bool
+    let soundEffectsEnabled: Bool
+    let shareUsageData: Bool
+    let fontScale: Double
+    let accentColor: Color
+
+    static let defaults = DemoSettingsSnapshot(
+        displayName: "Operator",
+        theme: .system,
+        itemsPerPage: 10,
+        animationsEnabled: true,
+        soundEffectsEnabled: false,
+        shareUsageData: true,
+        fontScale: 1,
+        accentColor: DemoSignature.accentFill
+    )
+}
+
+enum DemoComponentSortDirection: Hashable {
+    case ascending
+    case descending
+
+    var reversed: DemoComponentSortDirection {
+        self == .ascending ? .descending : .ascending
+    }
+
+    var systemImage: String {
+        self == .ascending ? "chevron.up" : "chevron.down"
+    }
+
+    var accessibilityLabel: String {
+        self == .ascending ? "ascending" : "descending"
+    }
+}
+
+enum DemoComponentSortColumn: CaseIterable, Hashable {
+    case name
+    case version
+    case load
+    case status
+
+    var label: String {
+        switch self {
+        case .name: return "Component"
+        case .version: return "Version"
+        case .load: return "Load"
+        case .status: return "Status"
+        }
+    }
+
+    var initialDirection: DemoComponentSortDirection {
+        switch self {
+        case .name, .version:
+            return .ascending
+        case .load, .status:
+            return .descending
+        }
+    }
+
+    func comparison(_ lhs: DemoComponent, _ rhs: DemoComponent) -> Int {
+        switch self {
+        case .name:
+            return Self.compare(lhs.name.lowercased(), rhs.name.lowercased())
+        case .version:
+            let left = Self.versionParts(lhs.version)
+            let right = Self.versionParts(rhs.version)
+            return (0..<max(left.count, right.count)).lazy.map { index in
+                let lhsPart = index < left.count ? left[index] : 0
+                let rhsPart = index < right.count ? right[index] : 0
+                return Self.compare(lhsPart, rhsPart)
+            }.first(where: { $0 != 0 }) ?? 0
+        case .load:
+            return Self.compare(lhs.load, rhs.load)
+        case .status:
+            return Self.compare(lhs.isHealthy ? 0 : 1, rhs.isHealthy ? 0 : 1)
+        }
+    }
+
+    private static func compare<Value: Comparable>(_ lhs: Value, _ rhs: Value) -> Int {
+        if lhs < rhs { return -1 }
+        if lhs > rhs { return 1 }
+        return 0
+    }
+
+    private static func versionParts(_ value: String) -> [Int] {
+        value.drop(while: { !$0.isNumber }).split(separator: ".").map {
+            Int($0) ?? 0
+        }
+    }
+}
+
+enum DemoCommandDestination: Hashable {
+    case screen(DemoScreen)
+    case module(DemoModule)
+    case moduleAction(DemoModule, String)
+    case toggleSidebar
+    case toggleInspector
+    case saveSettings
+    case runSync
+    case runDiagnostics
+    case restartComponent
+    case clearComponentFilter
+}
+
+struct DemoCommand: Identifiable, Hashable {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let keywords: [String]
+    let destination: DemoCommandDestination
+
+    var id: String {
+        "\(title)|\(subtitle)"
     }
 }
 
@@ -945,6 +1311,249 @@ public struct DemoRootView: View {
         .preferredColorScheme(model.theme.colorScheme)
         .tint(model.accentColor)
         .dynamicTypeSize(model.dynamicTypeSize)
+        // Keep the shortcut mounted outside every tab and every responsive
+        // toolbar branch. A transparent one-point command target contributes
+        // neither chrome nor a stray accessibility/focus stop.
+        .background(alignment: .topLeading) {
+            Button("Open command palette") {
+                model.presentCommandPalette()
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("k", modifiers: .command)
+            .focusable(false)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .frame(width: 1, height: 1)
+            .opacity(0)
+        }
+        .overlay(alignment: .topLeading) {
+            if model.isCommandPalettePresented {
+                DemoCommandPaletteOverlay(model: model)
+            }
+        }
+    }
+}
+
+/// A true app-wide command surface. It is intentionally composed from the
+/// same portable SwiftUI shapes as every screen: Windows-specific keyboard
+/// routing stays in the retained runtime rather than leaking into demo code.
+struct DemoCommandPaletteOverlay: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject var model: DemoDashboardModel
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let paletteWidth = min(560, max(360, proxy.size.width - DemoMetrics.s6 * 2))
+            let topInset = min(96, max(DemoMetrics.s5, proxy.size.height * 0.13))
+            let maximumResultsHeight = max(100, min(312, proxy.size.height - topInset - 112))
+
+            ZStack(alignment: .top) {
+                Color.black.opacity(0.46)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .onTapGesture {
+                        model.dismissCommandPalette()
+                    }
+
+                DemoCommandPalette(
+                    model: model,
+                    width: paletteWidth,
+                    maximumResultsHeight: maximumResultsHeight
+                )
+                .frame(width: paletteWidth, alignment: .leading)
+                .padding(.top, topInset)
+                .shadow(
+                    color: palette.heroShadow,
+                    radius: palette.heroShadowRadius,
+                    x: 0,
+                    y: palette.heroShadowOffsetY
+                )
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+        }
+        .zIndex(20)
+    }
+}
+
+struct DemoCommandPalette: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @FocusState private var isQueryFocused: Bool
+    @ObservedObject var model: DemoDashboardModel
+    let width: CGFloat
+    let maximumResultsHeight: CGFloat
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    var body: some View {
+        DemoCard(padding: 0, cornerRadius: DemoMetrics.radiusXL) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .center, spacing: DemoMetrics.s3) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.secondary)
+
+                    TextField("Search commands and actions", text: $model.commandQuery)
+                        .font(DemoType.bodyStrong)
+                        .textFieldStyle(.plain)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .focused($isQueryFocused)
+                        .onSubmit {
+                            if let selected = model.selectedCommand {
+                                model.performCommand(selected)
+                            }
+                        }
+                        .onMoveCommand { direction in
+                            switch direction {
+                            case .up:
+                                model.moveCommandSelection(offset: -1)
+                            case .down:
+                                model.moveCommandSelection(offset: 1)
+                            default:
+                                break
+                            }
+                        }
+                        .onExitCommand {
+                            model.dismissCommandPalette()
+                        }
+
+                    Button(action: { model.dismissCommandPalette() }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: DemoMetrics.controlHeight, height: DemoMetrics.controlHeight)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close command palette")
+                }
+                .padding(.horizontal, DemoMetrics.s4)
+                .frame(height: 54)
+
+                DemoRule(palette.strokeSubtle, length: width - 2)
+
+                if model.matchingCommands.isEmpty {
+                    VStack(alignment: .center, spacing: DemoMetrics.s2) {
+                        Text("No matching commands")
+                            .font(DemoType.cardTitle)
+                            .foregroundStyle(.primary)
+
+                        Text("Try a screen, module, or action")
+                            .font(DemoType.body)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(width: width - 2, height: 112, alignment: .center)
+                } else {
+                    ScrollViewReader { scrollProxy in
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: DemoMetrics.s1) {
+                                ForEach(Array(model.matchingCommands.enumerated()), id: \.element.id) {
+                                    entry in
+                                    DemoCommandPaletteRow(
+                                        command: entry.element,
+                                        isSelected: entry.offset == model.selectedCommandIndex
+                                    ) {
+                                        model.performCommand(entry.element)
+                                    }
+                                    .id(entry.element.id)
+                                    .onHover { hovering in
+                                        if hovering {
+                                            model.highlightCommand(at: entry.offset)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(DemoMetrics.s2)
+                            .frame(width: width - 2, alignment: .leading)
+                        }
+                        .frame(width: width - 2, height: resultListHeight, alignment: .topLeading)
+                        .onChange(of: model.selectedCommandIndex) { selectedIndex in
+                            let matches = model.matchingCommands
+                            guard matches.indices.contains(selectedIndex) else { return }
+                            scrollProxy.scrollTo(matches[selectedIndex].id, anchor: .center)
+                        }
+                    }
+                }
+
+                DemoRule(palette.strokeSubtle, length: width - 2)
+
+                HStack(alignment: .center, spacing: DemoMetrics.s3) {
+                    Text("Up / Down to navigate")
+                        .font(DemoType.caption)
+                        .foregroundStyle(.tertiary)
+
+                    Spacer(minLength: DemoMetrics.s2)
+
+                    Text("Enter to run")
+                        .font(DemoType.captionStrong)
+                        .foregroundStyle(.secondary)
+
+                    Text("Esc to close")
+                        .font(DemoType.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, DemoMetrics.s4)
+                .frame(height: 38)
+                .background(palette.surface2.opacity(0.45))
+            }
+            .frame(width: width - 2, alignment: .leading)
+        }
+        .onAppear {
+            isQueryFocused = true
+        }
+    }
+
+    private var resultListHeight: CGFloat {
+        min(
+            maximumResultsHeight,
+            CGFloat(model.matchingCommands.count) * 46
+                + CGFloat(max(0, model.matchingCommands.count - 1)) * DemoMetrics.s1
+                + DemoMetrics.s2 * 2
+        )
+    }
+}
+
+struct DemoCommandPaletteRow: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let command: DemoCommand
+    let isSelected: Bool
+    let perform: @MainActor @Sendable () -> Void
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    var body: some View {
+        Button(action: perform) {
+            HStack(alignment: .center, spacing: DemoMetrics.s3) {
+                DemoRowGlyph(command.systemImage, accent: isSelected ? palette.accentInk : nil)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(command.title)
+                        .font(isSelected ? DemoType.bodyStrong : DemoType.body)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    Text(command.subtitle)
+                        .font(DemoType.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                if isSelected {
+                    Text("Enter")
+                        .font(DemoType.captionStrong)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, DemoMetrics.s3)
+            .frame(height: 46)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isSelected ? palette.accentWash : Color.clear)
+            .cornerRadius(DemoMetrics.radiusSM)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(command.title), \(command.subtitle)")
     }
 }
 
@@ -965,7 +1574,11 @@ struct DemoDashboardScreen: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let layout = DemoLayout(size: proxy.size)
+            let layout = DemoLayout(
+                size: proxy.size,
+                isSidebarCollapsed: model.isSidebarCollapsed,
+                isInspectorCollapsed: model.isInspectorCollapsed
+            )
 
             VStack(alignment: .leading, spacing: 0) {
                 DemoToolbar(model: model, layout: layout)
@@ -1157,9 +1770,13 @@ struct DemoSearchField: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: DemoMetrics.s2) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 13))
-                .foregroundStyle(.tertiary)
+            Button(action: { model.presentCommandPalette() }) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open command palette")
 
             TextField("Search commands", text: $model.commandQuery)
                 .font(DemoType.controlLabel)
@@ -1494,6 +2111,7 @@ struct DemoHeroCard: View {
                     .foregroundColor(palette.onAccentPrimary)
                     .multilineTextAlignment(.leading)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.82)
                     .padding(.top, layout.verticallyCompact ? DemoMetrics.s2 : DemoMetrics.s3)
 
                 Text(model.selectedModule.summary)
@@ -1501,6 +2119,7 @@ struct DemoHeroCard: View {
                     .foregroundColor(palette.onAccentSecondary)
                     .multilineTextAlignment(.leading)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.86)
                     .padding(.top, layout.verticallyCompact ? DemoMetrics.s1 : DemoMetrics.s1 + 2)
 
                 HStack(alignment: .center, spacing: DemoMetrics.s2 + 2) {
@@ -2307,11 +2926,14 @@ struct DemoInfoCard: View {
                     .foregroundStyle(.primary)
                     .multilineTextAlignment(.leading)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.88)
 
                 Text(card.summary)
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, DemoMetrics.s1)
 
                 Text(card.meta)
@@ -2429,6 +3051,8 @@ public enum DemoWindowMetrics {
 
 struct DemoLayout {
     let size: CGSize
+    var isSidebarCollapsed: Bool = false
+    var isInspectorCollapsed: Bool = false
 
     var compact: Bool { size.width < 1180 || size.height < 760 }
 
@@ -2468,11 +3092,12 @@ struct DemoLayout {
     /// fit is dropped — and its content moves into the column that is still
     /// there, which is what makes this responsive rather than merely narrower.
     var showsSidebar: Bool {
-        size.width >= sidebarWidth + hairline + minimumContentWidth
+        !isSidebarCollapsed && size.width >= sidebarWidth + hairline + minimumContentWidth
     }
 
     var showsRail: Bool {
-        size.width >= sidebarWidth + railWidth + hairline * 2 + minimumContentWidth
+        !isInspectorCollapsed && showsSidebar
+            && size.width >= sidebarWidth + railWidth + hairline * 2 + minimumContentWidth
     }
 
     var contentWidth: CGFloat {
@@ -2746,7 +3371,7 @@ public enum DemoScreen: String, CaseIterable, Hashable {
 }
 
 /// Theme choices shown by the settings screen picker.
-public enum DemoThemeOption: String, CaseIterable, Hashable {
+public enum DemoThemeOption: String, CaseIterable, Hashable, Sendable {
     case system
     case light
     case dark
@@ -2831,6 +3456,7 @@ struct DemoSettingsScreen: View {
     @ObservedObject var model: DemoDashboardModel
     @Environment(\.openWindow) private var openWindow
     @State private var isImporterPresented = false
+    @State private var isResetConfirmationPresented = false
 
     private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
 
@@ -2844,7 +3470,7 @@ struct DemoSettingsScreen: View {
                             .foregroundStyle(.primary)
                             .lineLimit(1)
 
-                        Text("Configure the demo shell")
+                        Text(model.settingsStatusMessage)
                             .font(DemoType.titleSub)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -2857,6 +3483,9 @@ struct DemoSettingsScreen: View {
                     DemoButton("Save Settings", kind: .accent, horizontalPadding: DemoMetrics.s4) {
                         model.saveSettings()
                     }
+                    .keyboardShortcut("s", modifiers: .command)
+                    .disabled(!model.isDisplayNameValid)
+                    .opacity(model.isDisplayNameValid ? 1 : 0.55)
                 }
                 .padding(.top, DemoMetrics.s6)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2990,7 +3619,7 @@ struct DemoSettingsScreen: View {
                     // A neutral chassis with a danger label. A filled red
                     // button in a settings list is a threat, not an option.
                     DemoButton("Reset To Defaults", labelColor: palette.danger) {
-                        model.resetSettings()
+                        isResetConfirmationPresented = true
                     }
 
                     Spacer(minLength: 0)
@@ -3021,6 +3650,19 @@ struct DemoSettingsScreen: View {
             if case .success(let url) = result {
                 model.noteImportedFile(url)
             }
+        }
+        .confirmationDialog(
+            "Reset all settings?",
+            isPresented: $isResetConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Reset To Defaults", role: .destructive) {
+                model.resetSettings()
+            }
+
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your profile, appearance, and preferences will return to their defaults.")
         }
     }
 
@@ -3161,11 +3803,11 @@ struct DemoDataScreen: View {
             let metrics = DemoTableMetrics(width: proxy.size.width)
 
             VStack(alignment: .leading, spacing: 0) {
-                DemoDataHeader(model: model)
+                DemoDataHeader(model: model, metrics: metrics)
 
                 DemoRule(palette.strokeStrong, length: proxy.size.width)
 
-                DemoTableHeaderRow(metrics: metrics)
+                DemoTableHeaderRow(model: model, metrics: metrics)
 
                 DemoRule(palette.stroke, length: proxy.size.width)
 
@@ -3182,6 +3824,16 @@ struct DemoDataScreen: View {
                                     isSelected: model.selectedComponentID == component.id
                                 ) {
                                     model.selectComponent(component)
+                                }
+                                .onMoveCommand { direction in
+                                    switch direction {
+                                    case .up:
+                                        model.selectAdjacentComponent(offset: -1)
+                                    case .down:
+                                        model.selectAdjacentComponent(offset: 1)
+                                    default:
+                                        break
+                                    }
                                 }
                             }
                         }
@@ -3204,7 +3856,7 @@ struct DemoDataScreen: View {
 
                 DemoRule(palette.strokeStrong, length: proxy.size.width)
 
-                DemoComponentInspector(model: model)
+                DemoComponentInspector(model: model, metrics: metrics)
                     .frame(width: proxy.size.width, height: DemoMetrics.footerHeight, alignment: .leading)
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
@@ -3230,6 +3882,10 @@ struct DemoTableMetrics {
     static let loadWidth: CGFloat = 140
     static let statusWidth: CGFloat = 100
 
+    var showsComponentCount: Bool { width >= 740 }
+    var filterFieldWidth: CGFloat { width < 740 ? 180 : 240 }
+    var showsInspectorLoadMeter: Bool { width >= 820 }
+
     var nameWidth: CGFloat {
         let fixed =
             Self.inset * 2 + Self.versionWidth + Self.loadWidth + Self.statusWidth
@@ -3241,6 +3897,7 @@ struct DemoTableMetrics {
 struct DemoDataHeader: View {
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var model: DemoDashboardModel
+    let metrics: DemoTableMetrics
 
     private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
 
@@ -3251,14 +3908,16 @@ struct DemoDataHeader: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
 
-            Text(componentCountLabel)
-                .font(DemoType.caption)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
+            if metrics.showsComponentCount {
+                Text(componentCountLabel)
+                    .font(DemoType.caption)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
 
             Spacer(minLength: DemoMetrics.s4)
 
-            DemoFilterField(model: model)
+            DemoFilterField(model: model, width: metrics.filterFieldWidth)
         }
         .padding(.horizontal, DemoMetrics.s6)
         .frame(height: DemoMetrics.dataHeaderHeight)
@@ -3282,6 +3941,7 @@ struct DemoFilterField: View {
     @Environment(\.colorScheme) private var colorScheme
 
     @ObservedObject var model: DemoDashboardModel
+    let width: CGFloat
 
     private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
 
@@ -3308,7 +3968,7 @@ struct DemoFilterField: View {
             }
         }
         .padding(.horizontal, DemoMetrics.s2 + 2)
-        .frame(width: 240, height: DemoMetrics.controlHeight)
+        .frame(width: width, height: DemoMetrics.controlHeight)
         .background(palette.surface2)
         .cornerRadius(DemoMetrics.radiusSM)
         .padding(1)
@@ -3389,44 +4049,29 @@ struct DemoComponentEmptyState: View {
 struct DemoTableHeaderRow: View {
     @Environment(\.colorScheme) private var colorScheme
 
+    @ObservedObject var model: DemoDashboardModel
     let metrics: DemoTableMetrics
 
     private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
 
     var body: some View {
         HStack(alignment: .center, spacing: DemoTableMetrics.columnGap) {
-            HStack(alignment: .center, spacing: 0) {
-                DemoEyebrow("Component")
-
-                Spacer(minLength: 0)
-            }
-            .frame(width: metrics.nameWidth, alignment: .leading)
+            DemoSortableColumnHeader(model: model, column: .name, isTrailing: false)
+                .frame(width: metrics.nameWidth, alignment: .leading)
 
             // Trailing columns are closed with a `Spacer`, not a frame
             // alignment: a `Text` carries its own alignment into the frame it
             // is given, so a trailing-aligned column header drew at its
             // leading edge and the header stopped lining up with the data
             // under it.
-            HStack(alignment: .center, spacing: 0) {
-                Spacer(minLength: 0)
+            DemoSortableColumnHeader(model: model, column: .version, isTrailing: true)
+                .frame(width: DemoTableMetrics.versionWidth, alignment: .trailing)
 
-                DemoEyebrow("Version")
-            }
-            .frame(width: DemoTableMetrics.versionWidth, alignment: .trailing)
+            DemoSortableColumnHeader(model: model, column: .load, isTrailing: false)
+                .frame(width: DemoTableMetrics.loadWidth, alignment: .leading)
 
-            HStack(alignment: .center, spacing: 0) {
-                DemoEyebrow("Load")
-
-                Spacer(minLength: 0)
-            }
-            .frame(width: DemoTableMetrics.loadWidth, alignment: .leading)
-
-            HStack(alignment: .center, spacing: 0) {
-                Spacer(minLength: 0)
-
-                DemoEyebrow("Status")
-            }
-            .frame(width: DemoTableMetrics.statusWidth, alignment: .trailing)
+            DemoSortableColumnHeader(model: model, column: .status, isTrailing: true)
+                .frame(width: DemoTableMetrics.statusWidth, alignment: .trailing)
         }
         .padding(.horizontal, DemoTableMetrics.inset)
         .frame(height: DemoMetrics.tableHeaderHeight)
@@ -3436,6 +4081,49 @@ struct DemoTableHeaderRow: View {
         // starts, and one ramp rung under both neighbours is what lets it say
         // that without a heavier rule.
         .background(palette.base)
+    }
+}
+
+/// Plain, full-width header buttons keep the resting table visually identical
+/// while making every named column a real, keyboard-focusable sort control.
+struct DemoSortableColumnHeader: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject var model: DemoDashboardModel
+
+    let column: DemoComponentSortColumn
+    let isTrailing: Bool
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    var body: some View {
+        Button(action: { model.sortComponents(by: column) }) {
+            HStack(alignment: .center, spacing: DemoMetrics.s1) {
+                if isTrailing {
+                    Spacer(minLength: 0)
+                }
+
+                DemoEyebrow(column.label)
+
+                if model.componentSortColumn == column {
+                    Image(systemName: model.componentSortDirection.systemImage)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(palette.accentInk)
+                }
+
+                if !isTrailing {
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var accessibilityLabel: String {
+        guard model.componentSortColumn == column else {
+            return "Sort by \(column.label)"
+        }
+        return "Sort by \(column.label), currently \(model.componentSortDirection.accessibilityLabel)"
     }
 }
 
@@ -3515,6 +4203,9 @@ struct DemoComponentRow: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(
+            "\(component.name), version \(component.version), \(component.loadPercent) load, \(component.statusLabel)"
+        )
         .onHover { hovering in
             isHovering = hovering
         }
@@ -3569,6 +4260,7 @@ struct DemoStatusCell: View {
 struct DemoComponentInspector: View {
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var model: DemoDashboardModel
+    let metrics: DemoTableMetrics
 
     private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
 
@@ -3593,23 +4285,25 @@ struct DemoComponentInspector: View {
 
                     Spacer(minLength: DemoMetrics.s4)
 
-                    VStack(alignment: .leading, spacing: DemoMetrics.s1 + 2) {
-                        HStack(alignment: .center, spacing: DemoMetrics.s2) {
-                            DemoEyebrow("Current load")
+                    if metrics.showsInspectorLoadMeter {
+                        VStack(alignment: .leading, spacing: DemoMetrics.s1 + 2) {
+                            HStack(alignment: .center, spacing: DemoMetrics.s2) {
+                                DemoEyebrow("Current load")
 
-                            Spacer(minLength: DemoMetrics.s2)
+                                Spacer(minLength: DemoMetrics.s2)
 
-                            Text(component.loadPercent)
-                                .font(DemoType.captionStrong)
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
+                                Text(component.loadPercent)
+                                    .font(DemoType.captionStrong)
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                            }
+                            .frame(width: 200, alignment: .leading)
+
+                            DemoMeter(value: component.load, width: 200)
                         }
-                        .frame(width: 200, alignment: .leading)
 
-                        DemoMeter(value: component.load, width: 200)
+                        Spacer(minLength: DemoMetrics.s4)
                     }
-
-                    Spacer(minLength: DemoMetrics.s4)
 
                     HStack(alignment: .center, spacing: DemoMetrics.s2) {
                         DemoButton("Diagnose") {

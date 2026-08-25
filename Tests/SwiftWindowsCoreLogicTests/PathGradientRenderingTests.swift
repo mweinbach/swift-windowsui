@@ -95,6 +95,34 @@ final class PathGradientRenderingTests: XCTestCase {
         XCTAssertEqual(pixel(bitmap, x: 101, y: 35).blue, 255)
     }
 
+    func testExplicitGradientEndpointsClampOutsideTheirAuthoredSpan() async {
+        var path = rectangle(
+            bounds: Rect(x: 8, y: 12, width: 104, height: 64),
+            fillGradient: redBlueGradient())
+        path.setGradientEndpoints(start: Point(x: 32, y: 36), end: Point(x: 80, y: 36))
+        let bitmap = raster(path)
+
+        XCTAssertEqual(pixel(bitmap, x: 20, y: 36).red, 255)
+        XCTAssertEqual(pixel(bitmap, x: 20, y: 36).blue, 0)
+        XCTAssertEqual(pixel(bitmap, x: 56, y: 36).red, 128, accuracy: 3)
+        XCTAssertEqual(pixel(bitmap, x: 56, y: 36).blue, 128, accuracy: 3)
+        XCTAssertEqual(pixel(bitmap, x: 96, y: 36).red, 0)
+        XCTAssertEqual(pixel(bitmap, x: 96, y: 36).blue, 255)
+    }
+
+    func testExplicitDiagonalGradientEndpointsFollowTheirAuthoredDirection() async {
+        var path = rectangle(
+            bounds: Rect(x: 8, y: 8, width: 96, height: 96),
+            fillGradient: redBlueGradient())
+        path.setGradientEndpoints(start: Point(x: 24, y: 24), end: Point(x: 88, y: 88))
+        let bitmap = raster(path)
+
+        XCTAssertEqual(pixel(bitmap, x: 16, y: 16).red, 255)
+        XCTAssertEqual(pixel(bitmap, x: 96, y: 96).blue, 255)
+        XCTAssertEqual(pixel(bitmap, x: 88, y: 24).red, 128, accuracy: 3)
+        XCTAssertEqual(pixel(bitmap, x: 88, y: 24).blue, 128, accuracy: 3)
+    }
+
     func testDuplicateStopPositionsProduceHardTransitionWithoutSeam() async {
         let gradient = LinearGradient(
             stops: [
@@ -241,6 +269,24 @@ final class PathGradientRenderingTests: XCTestCase {
         XCTAssertFalse(original.matchesShapeAndPaint(of: recolored, translatedBy: .zero))
         XCTAssertNotEqual(original.shapeHash, redirected.shapeHash)
         XCTAssertFalse(original.matchesShapeAndPaint(of: redirected, translatedBy: .zero))
+    }
+
+    func testExplicitGradientEndpointsParticipateInCacheIdentityAndMoveWithTheirPath() async {
+        let original = rectangle(
+            bounds: Rect(x: 8, y: 12, width: 72, height: 40),
+            fillGradient: redBlueGradient())
+        var repositioned = original
+        repositioned.setGradientEndpoints(start: Point(x: 24, y: 32), end: Point(x: 64, y: 32))
+
+        XCTAssertNotEqual(original.shapeHash, repositioned.shapeHash)
+        XCTAssertFalse(original.matchesShapeAndPaint(of: repositioned, translatedBy: .zero))
+
+        let offset = Point(x: 24, y: 44)
+        let translated = repositioned.translated(by: offset)
+        XCTAssertEqual(repositioned.shapeHash, translated.shapeHash)
+        XCTAssertTrue(translated.matchesShapeAndPaint(of: repositioned, translatedBy: offset))
+        XCTAssertEqual(pixel(raster(repositioned), x: 44, y: 32).red, pixel(raster(translated), x: 68, y: 76).red)
+        XCTAssertEqual(pixel(raster(repositioned), x: 44, y: 32).blue, pixel(raster(translated), x: 68, y: 76).blue)
     }
 
     func testMalformedAndExcessiveGradientStopsAreBoundedAtSceneBoundary() async throws {

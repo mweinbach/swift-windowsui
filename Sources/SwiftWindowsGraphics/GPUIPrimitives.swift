@@ -552,8 +552,9 @@ public struct PathPrimitive: Equatable, Sendable {
     /// `scaled(by:)`.
     public var clipCornerRadius: Double
 
-    /// Internal because callers only author an axis-aligned `LinearGradient`;
-    /// path placement owns the subsequent translation, scaling and rotation.
+    /// Internal because path placement owns subsequent translation, scaling
+    /// and rotation; callers author explicit endpoints through
+    /// `setGradientEndpoints(start:end:)`.
     var gradientSpace: PathGradientSpace?
 
     public init(
@@ -584,6 +585,13 @@ public struct PathPrimitive: Equatable, Sendable {
         self.clipCornerRadius = clipCornerRadius
         self.gradientSpace =
             fillGradient != nil || strokeGradient != nil ? PathGradientSpace(bounds: bounds) : nil
+    }
+
+    /// Positions the path's fill or stroke gradient along an explicitly
+    /// authored segment instead of stretching it across the path bounds.
+    /// Placement transforms and raster-cache identity preserve this segment.
+    public mutating func setGradientEndpoints(start: Point, end: Point) {
+        gradientSpace = PathGradientSpace(origin: start, horizontalEnd: end, verticalEnd: end)
     }
 
     /// Handles callers which assign a gradient after creating a solid path.

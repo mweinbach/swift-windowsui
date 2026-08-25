@@ -71,6 +71,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   scrolling, minimum-width settings, inherited appearance, unclipped labels,
   responsive breakpoints, and legacy dashboard workflows cannot regress behind
   newer virtualization or product features.
+- `DemoShowcaseNavigationTests`, `DemoGalleryResponsiveTests`, and
+  `DemoGalleryStatePersistenceTests` gate the shared-source interactive
+  Gallery destination, global gallery shortcuts, searchable categories,
+  responsive 640-point layouts, accessible controls, adaptive light/dark
+  presentation, and model-owned state that survives real retained-host
+  rebuilds. `ScenePrimitiveScaleInvarianceTests` and
+  `FramePathDegradationTests` also cover every demo destination so the gallery
+  remains usable at multiple display scales and on the frame fallback.
 - Do not leave root-level logs or screenshots behind. Generated screenshots belong under `artifacts/`, and temporary logs should be deleted before handoff.
 
 Focused test runs:
@@ -504,9 +512,18 @@ Visual checks:
 
 - `scripts/demo-probe.ps1` launches the demo long enough to record presenter selection, then exits.
 - `scripts/demo-screenshot.ps1` builds the shared demo view through `WinSwiftUIRendererSnapshotter`, pulls the raw retained runtime scene, rasterizes it offscreen, and writes `artifacts/demo-screenshot.png`.
-- Add `-Screen dashboard`, `-Screen settings`, or `-Screen data` to capture one specific demo tab without rendering the other screens. `-Screen` and `-AllScreens` are mutually exclusive.
-- Add `-AllScreens` to `demo-screenshot.ps1` to capture all three demo tabs in one run: `artifacts/demo-screenshot-dashboard.png`, `artifacts/demo-screenshot-settings.png`, and `artifacts/demo-screenshot-data.png`. Default behavior (a single dashboard shot) is unchanged.
-- The underlying `swift-windowsui-snapshot` executable also accepts `--screen <dashboard|settings|data>` to render a single non-default tab directly; the default is `dashboard`.
+- Add `-Screen dashboard`, `-Screen settings`, `-Screen data`, or
+  `-Screen gallery` to capture one specific demo destination without rendering
+  the other screens. `-Screen` and `-AllScreens` are mutually exclusive.
+- Add `-AllScreens` to `demo-screenshot.ps1` to capture all four demo tabs in
+  one run: `artifacts/demo-screenshot-dashboard.png`,
+  `artifacts/demo-screenshot-settings.png`,
+  `artifacts/demo-screenshot-data.png`, and
+  `artifacts/demo-screenshot-gallery.png`. Default behavior (a single dashboard
+  shot) is unchanged.
+- The underlying `swift-windowsui-snapshot` executable also accepts
+  `--screen <dashboard|settings|data|gallery>` to render any destination
+  directly; the default is `dashboard`.
 - `--appearance <light|dark>` (and `-Appearance` on `demo-screenshot.ps1`) wraps the demo in `.preferredColorScheme(...)`. Light-mode runs write `artifacts/demo-screenshot-<screen>-light.png` so both appearances can be captured side by side; the default is `dark`. Before this flag existed there was no way to render light mode at all, which is why control chrome could silently ignore `colorScheme`.
 - Add `-FrameDebug` to either command to force the `RenderFrame` fallback path.
 - `demo-screenshot.ps1` does not depend on desktop window visibility, monitor placement, or foreground focus. It also leaves the raw BMP source next to the PNG as `*.raw.bmp` for inspection.
@@ -584,13 +601,16 @@ Render the ladder by hand with
 
 `scripts/gallery-compare.ps1` turns the `swift-windowsui-gallery` tool into a visual regression gate for Supported-tier controls.
 
-- The gate covers a fixed subset of gallery entries in three tiers, **61** in all. The roster lives at the top of `scripts/gallery-compare.ps1`. Time-dependent entries (e.g. indeterminate progress) are deliberately excluded because their renders are not frame-stable.
+- The gate covers a fixed subset of gallery entries in three tiers, **85** in
+  all. The roster lives at the top of `scripts/gallery-compare.ps1`.
+  Time-dependent entries (e.g. indeterminate progress) are deliberately
+  excluded because their renders are not frame-stable.
 
 | Tier | Entries | What it pins |
 | --- | --- | --- |
-| Control and drawing | 26 | Buttons, toggles, sliders, stepper, picker, progress views, text fields, list/form chrome, and a curved multi-stop Canvas gradient fill/stroke |
+| Control and drawing | 42 | Buttons, toggles, sliders, steppers, pickers, progress, typography, semantic labels, grouped/disclosure content, empty states, dashboard/grid compositions, and Canvas gradient/sparkline/donut examples |
 | Interaction state | 16 | `state-<control>-<state>` for button, toggle, text field, segmented picker: the idle → hover → pressed → focused → disabled ramps, driven through the runtime's own input |
-| Light appearance | 19 | `light-<id>`: each entry's dark twin rendered in the light appearance |
+| Light appearance | 27 | `light-<id>`: control, typography, grouped/disclosure, empty-state, dashboard, and Canvas entries rendered from their same dark twin |
 
 ### Interaction-state tier
 
@@ -623,18 +643,31 @@ verification: nothing rendered it.
 - Checked-in baselines live in `tests/fixtures/gallery-baselines/` as compact PNGs. The rest of `artifacts/gallery/` stays generated-only.
 - A compare run re-renders the subset into `artifacts/gallery-compare/current/` and computes bounded per-entry diffs. A pixel counts as changed when any B/G/R/A channel differs by more than `-ChannelTolerance` (default 8). An entry fails when changed pixels exceed `-MaxChangedPercent` (default 0.5%) or any single channel delta exceeds `-MaxChannelDelta` (default 64). Missing baselines and canvas-size changes always fail. The raw-scene CPU rasterizer is deterministic, so unchanged code should produce 0% diffs.
 - Native icon glyphs still depend on the installed Segoe Fluent Icons face. A Windows font update can therefore change only a few DirectWrite antialiasing pixels; verify the changed-pixel bounds and refresh the corresponding dark/light control baselines together after confirming no layout, bezel, or text pixels moved.
-- Failures write red-overlay diff images to `artifacts/gallery-compare/diffs/` and a summary to `artifacts/gallery-compare/report.txt`; the script exits non-zero.
+- Runs write a readable summary to `artifacts/gallery-compare/report.txt`, a
+  machine-readable `report.json`, and a self-contained visual `report.html`.
+  Failures additionally write red-overlay diff images to
+  `artifacts/gallery-compare/diffs/`; the script exits non-zero.
 - The gate runs as part of `agent-check.ps1 -Full` (and therefore in the Full stage of Windows CI, with the compare output uploaded as the `windows-gallery-compare` artifact). It is opt-in for Quick runs via `agent-check.ps1 -Quick -GalleryCompare`.
 
 ```powershell
 # Compare against baselines (fails on meaningful regression)
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gallery-compare.ps1
 
+# Discover the reviewed catalog without building, then inspect one appearance
+# or a bounded family of examples.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gallery-compare.ps1 -List
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gallery-compare.ps1 -Appearance light
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gallery-compare.ps1 -Pattern "canvas-*"
+
 # Regenerate baselines after an intentional visual change; review the PNGs before committing
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gallery-compare.ps1 -UpdateBaselines
 ```
 
-The gallery executable also accepts `--entries <csv>` and `--output-dir <path>` for ad-hoc filtered renders; with no arguments it keeps rendering the full gallery to `artifacts/gallery/`, whose `index.html` tiles each entry on its own appearance's backdrop.
+The gallery executable also accepts `--entries <csv>` and `--output-dir <path>`
+for ad-hoc filtered renders. With no arguments it renders the full gallery to
+`artifacts/gallery/`, where the self-contained `index.html` provides searchable,
+appearance-aware fixture cards, responsive filters, category counts, and
+copyable fixture identifiers without external assets or network access.
 
 `-UpdateBaselines` is not a way to make the gate green — it records what the
 renderer now produces. **Open every regenerated PNG before committing it**, and

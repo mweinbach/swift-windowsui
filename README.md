@@ -31,7 +31,8 @@ full retained runtime and Windows host are not yet interchangeable as a unit.
 - On Linux and macOS, clients can import the independently packaged
   `SwiftWindowsCore`, `SwiftWindowsGraphics`, `SwiftWindowsLayout`, and
   `SwiftWindowsScene` products and use the genuine offscreen CPU renderer
-- The demo in `Sources/SwiftWindowsDemo/DemoDashboard.swift` stays inside that shared subset
+- Every demo source under `Sources/SwiftWindowsDemo/` stays inside that shared
+  SwiftUI-compatible subset
 
 Important limit:
 
@@ -55,17 +56,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-demo.ps1 -Backen
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-demo.ps1 -Backend software
 ```
 
-The app includes three same-source SwiftUI screens: an interactive rendering
-dashboard, appearance and application settings, and a searchable, sortable,
-paginated component inspector. Press `Ctrl+K` from any screen to open the
-keyboard-navigable command palette, including at the minimum window size; panel
-commands collapse or restore the sidebar and inspector without losing their
-content. Data-column headers toggle semantic sort order, pagination follows the
-filtered result set, and restarting a degraded component updates its real health
-and load. Settings expose dirty-state tracking, validation, `Ctrl+S` saving,
-and reset confirmation. Shorter windows adapt the dashboard, command palette,
-and inspector while preserving the settings save action. Pass `-FrameDebug` to
-the same script to exercise fallback presentation instead of the default D3D11
+The app includes four same-source SwiftUI screens: an interactive rendering
+dashboard, appearance and application settings, a searchable component
+inspector, and an interactive component gallery. The gallery provides searchable
+control, rendering, typography, material, and presentation examples with real
+editable bindings, pickers, sliders, progress, sheets, popovers, and dialogs.
+Press `Ctrl+K` from any screen to open the keyboard-navigable command palette,
+or `Ctrl+G` to jump directly to the gallery, including at the minimum window
+size. Panel commands collapse or restore the sidebar and inspector without
+losing their content. Data-column headers toggle semantic sort order,
+pagination follows the filtered result set, and restarting a degraded component
+updates its real health and load. Settings expose dirty-state tracking,
+validation, `Ctrl+S` saving, and reset confirmation. Shorter windows adapt the
+dashboard, gallery, command palette, and inspector. Pass `-FrameDebug` to the
+same script to exercise fallback presentation instead of the default D3D11
 scene renderer.
 
 ## Package Layout
@@ -93,7 +97,8 @@ Targets:
 - `SwiftWindowsRendererD3D11`: Direct3D 11 renderer
 - `SwiftWindowsUI`: retained `ViewNode` tree, runtime, controls, bitmap/native text plumbing, and `FoundationApp`
 - `WinSwiftUI`: `App`, `Scene`, `WindowGroup`, common views/modifiers, observation wrappers, and the retained-runtime host bridge
-- `SwiftWindowsDemo`: the shared-source demo screen
+- `SwiftWindowsDemo`: the four-screen shared-source app and interactive
+  component gallery
 - `swift-windowsui`: the demo app entry point
 
 ## Active Demo Path
@@ -192,9 +197,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Ret
 
 The screenshot helper builds the same shared demo view through the WinSwiftUI
 retained runtime, pulls the raw scene/frame data, rasterizes it offscreen, and
-writes `artifacts/demo-screenshot.png`. Use `-Screen dashboard|settings|data`
-to render one particular tab, `-AllScreens` for all three, or `-FrameDebug` to
-force the `RenderFrame` fallback path for visual comparison.
+writes `artifacts/demo-screenshot.png`. Use
+`-Screen dashboard|settings|data|gallery` to render one particular tab,
+`-AllScreens` for all four, or `-FrameDebug` to force the `RenderFrame` fallback
+path for visual comparison.
+
+The separate retained-runtime visual gallery includes 85 reviewed dark,
+interaction-state, and light-appearance fixtures. Its generated review portal
+supports searching and filtering examples, while the regression gate can list
+or compare selected fixture groups:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gallery-compare.ps1 -List
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gallery-compare.ps1 -Appearance light
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gallery-compare.ps1 -Pattern "canvas-*"
+```
 
 To view the rendered screenshot after running the helper, open `artifacts/demo-screenshot.png`. The script also writes the raw source bitmap next to it as `artifacts/demo-screenshot.raw.bmp`, which is useful when checking the exact offscreen rasterizer output. This path does not capture the desktop or a foreground native window; it uses `WinSwiftUIRendererSnapshotter` and the retained runtime's `GPUIScene`/`RenderFrame` data.
 
@@ -221,6 +238,8 @@ The GUI demo was also launched with a short `swift run swift-windowsui` startup 
 - [`Sources/WinSwiftUI/App.swift`](Sources/WinSwiftUI/App.swift)
 - [`Sources/swift-windowsui/AppEntry.swift`](Sources/swift-windowsui/AppEntry.swift)
 - [`Sources/SwiftWindowsDemo/DemoDashboard.swift`](Sources/SwiftWindowsDemo/DemoDashboard.swift)
+- [`Sources/SwiftWindowsDemo/DemoGalleryScreen.swift`](Sources/SwiftWindowsDemo/DemoGalleryScreen.swift)
+- [`Sources/swift-windowsui-gallery/GalleryMain.swift`](Sources/swift-windowsui-gallery/GalleryMain.swift)
 - [`Sources/WinSwiftUI/RenderSnapshot.swift`](Sources/WinSwiftUI/RenderSnapshot.swift)
 - [`Sources/SwiftWindowsGraphics/SceneRasterizer.swift`](Sources/SwiftWindowsGraphics/SceneRasterizer.swift)
 - [`Sources/SwiftWindowsUI/Runtime.swift`](Sources/SwiftWindowsUI/Runtime.swift)

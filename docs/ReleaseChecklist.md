@@ -30,8 +30,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-screenshot.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-screenshot.ps1 -FrameDebug -OutputPath artifacts/demo-screenshot-frame.png
 ```
 
-- [ ] `-Full` green: full test suite, demo build, scene + frame screenshots,
-      gallery regression gate (61 baselines)
+- [ ] `-Full` green: full test suite, demo build, dashboard and gallery scene /
+      frame screenshots, gallery regression gate (85 baselines)
 - [ ] `lint.ps1 -AllSwift` clean
 - [ ] Windows CI (`.github/workflows/windows-ci.yml`) Full stage green on the
       release commit, with screenshot artifacts uploaded
@@ -47,7 +47,7 @@ the result. Launch the demo with `scripts/run-demo.ps1` (or
 `swift run swift-windowsui`) unless noted.
 
 - [ ] **Core interaction:** launch `swift-windowsui`; resize the window,
-      scroll all three demo tabs, tab through keyboard focus, activate
+      scroll all four demo tabs, tab through keyboard focus, activate
       buttons with keyboard and mouse
 - [ ] **Multi-window open/close:** settings tab → "Open Second Window"
       (`openWindow(id:)`); confirm the second window renders independently,

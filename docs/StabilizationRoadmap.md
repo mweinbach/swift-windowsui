@@ -75,12 +75,13 @@ surface.
 5. **Presentation quality:** menu, picker, alert, sheet, and popover placement,
    clipping, shadows, dismissal, and keyboard/focus restoration.
 6. **Real sample screens:** evolve the shared demo into dashboard, settings,
-   and data-list screens that exercise Supported APIs at multiple window sizes.
+   data-list, and interactive component-gallery screens that exercise Supported
+   APIs at multiple window sizes.
 
 ### Exit criteria
 
 - [x] Reviewed gallery baselines fail CI on meaningful visual regressions
-      (`scripts/gallery-compare.ps1`, 61 Supported-tier, interaction-state,
+      (`scripts/gallery-compare.ps1`, 85 Supported-tier, interaction-state,
       light-appearance, and Canvas-path-gradient baselines under
       `Tests/fixtures/gallery-baselines/`, runs in `-Full` and Windows CI)
 - [x] Supported controls render without clipping at documented minimum widths
@@ -95,8 +96,9 @@ surface.
 - [x] Lists/forms support mouse and keyboard navigation with stable row chrome
       (arrow-key selection with focus + scroll-into-view, constant row
       metrics, hover highlight, form section clipping)
-- [x] Demo includes at least three product-style screens and resize snapshots
-      (dashboard/settings/data tabs; snapshot smoke at 1280x720 and 800x600)
+- [x] Demo includes four product-style screens and resize snapshots
+      (dashboard/settings/data/gallery tabs; snapshot smoke at 1280x720,
+      800x600, and the 640x480 minimum)
 - [ ] Full validation remains green after each vertical slice
 
 ---

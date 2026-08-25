@@ -13,7 +13,11 @@ param(
 
     # XCTest classes with at least this many methods are method-batched even under
     # a class-level filter (WinSwiftUITests-scale suites).
-    [int]$MethodShardThreshold = 100
+    [int]$MethodShardThreshold = 100,
+
+    # Small XCTest classes can share one bounded alternation filter. This keeps
+    # full validation serial while avoiding hundreds of SwiftPM startups.
+    [int]$MaxTargetsPerShard = 8
 )
 
 $ErrorActionPreference = "Stop"
@@ -268,6 +272,101 @@ function Invoke-FilterShards {
     return 0
 }
 
+function New-CombinedTargetShard {
+    param(
+        [object[]]$Targets,
+        [int]$EstimatedExpandedChars
+    )
+
+    $names = @($Targets | ForEach-Object { $_.Name })
+    if ($names.Count -eq 1) {
+        $filter = $names[0]
+    } else {
+        $escaped = @($names | ForEach-Object { [regex]::Escape($_) })
+        # XCTest names use Module.Class/method; Swift Testing may use
+        # slash-separated components. Bound both sides so FooTests cannot
+        # accidentally include FooTestsExtra and exceed the expansion budget.
+        $filter = "(^|[./])(" + ($escaped -join "|") + ")([./]|$)"
+    }
+
+    return [pscustomobject]@{
+        Targets                    = @($Targets)
+        Filter                     = $filter
+        EstimatedExpandedFilterChars = $EstimatedExpandedChars
+    }
+}
+
+function Get-TargetExecutionShards {
+    param(
+        [object[]]$Targets,
+        [int]$MaxExpandedFilterChars,
+        [int]$MethodShardThreshold,
+        [int]$MaxTargetsPerShard
+    )
+
+    $shards = New-Object System.Collections.Generic.List[object]
+    $pending = New-Object System.Collections.Generic.List[object]
+    $pendingExpandedChars = 0
+    $targetLimit = [Math]::Max(1, $MaxTargetsPerShard)
+
+    foreach ($target in $Targets) {
+        $needsMethodShards = Test-RequiresMethodSharding `
+            -Target $target `
+            -MaxExpandedFilterChars $MaxExpandedFilterChars `
+            -MethodShardThreshold $MethodShardThreshold
+        $methodCount = @($target.Methods).Count
+        $canCombine = $target.Kind -eq "XCTest" -and $methodCount -gt 0 -and -not $needsMethodShards
+
+        if (-not $canCombine) {
+            if ($pending.Count -gt 0) {
+                [void]$shards.Add((New-CombinedTargetShard `
+                            -Targets $pending.ToArray() `
+                            -EstimatedExpandedChars $pendingExpandedChars))
+                $pending.Clear()
+                $pendingExpandedChars = 0
+            }
+
+            $filters = Get-FiltersForTarget `
+                -Target $target `
+                -MaxExpandedFilterChars $MaxExpandedFilterChars `
+                -MethodShardThreshold $MethodShardThreshold
+            foreach ($filter in $filters) {
+                [void]$shards.Add([pscustomobject]@{
+                        Targets                      = @($target)
+                        Filter                       = $filter
+                        EstimatedExpandedFilterChars = Get-ExpandedIdentifierLength `
+                            -ClassName $target.Name -Methods @($target.Methods)
+                    })
+            }
+            continue
+        }
+
+        $expandedChars = [Math]::Max(
+            1,
+            (Get-ExpandedIdentifierLength -ClassName $target.Name -Methods @($target.Methods)))
+        if ($pending.Count -gt 0 -and
+            ($pending.Count -ge $targetLimit -or
+                ($pendingExpandedChars + $expandedChars) -gt $MaxExpandedFilterChars)) {
+            [void]$shards.Add((New-CombinedTargetShard `
+                        -Targets $pending.ToArray() `
+                        -EstimatedExpandedChars $pendingExpandedChars))
+            $pending.Clear()
+            $pendingExpandedChars = 0
+        }
+
+        [void]$pending.Add($target)
+        $pendingExpandedChars += $expandedChars
+    }
+
+    if ($pending.Count -gt 0) {
+        [void]$shards.Add((New-CombinedTargetShard `
+                    -Targets $pending.ToArray() `
+                    -EstimatedExpandedChars $pendingExpandedChars))
+    }
+
+    return $shards.ToArray()
+}
+
 # --- main -------------------------------------------------------------------
 
 if (-not (Test-Path -LiteralPath $withSwift)) {
@@ -289,28 +388,33 @@ if ($Sharded) {
         }
     }
 
-    Write-Host "Sharded swift test: $($selected.Count) target(s), serial SwiftPM invocations."
+    $executionShards = @(Get-TargetExecutionShards `
+            -Targets $selected `
+            -MaxExpandedFilterChars $MaxExpandedFilterChars `
+            -MethodShardThreshold $MethodShardThreshold `
+            -MaxTargetsPerShard $MaxTargetsPerShard)
+    Write-Host "Sharded swift test: $($selected.Count) target(s), $($executionShards.Count) serial SwiftPM invocations."
     Write-Host "Oversized XCTest classes are method-batched (threshold=$MethodShardThreshold methods or expanded>$MaxExpandedFilterChars chars)."
+    Write-Host "Small XCTest classes share bounded shards (at most $MaxTargetsPerShard targets and $MaxExpandedFilterChars expanded chars)."
 
     $shardIndex = 0
-    $shardTotal = $selected.Count
-    foreach ($target in $selected) {
+    $shardTotal = $executionShards.Count
+    foreach ($shard in $executionShards) {
         $shardIndex++
-        $context = "{0}/{1} {2}" -f $shardIndex, $shardTotal, $target.Name
+        $targetNames = @($shard.Targets | ForEach-Object { $_.Name })
+        $context = "{0}/{1} {2}" -f $shardIndex, $shardTotal, ($targetNames -join ", ")
         Write-Host ""
-        Write-Host "==> Target $context ($($target.Kind))"
-
-        $filters = Get-FiltersForTarget -Target $target -MaxExpandedFilterChars $MaxExpandedFilterChars -MethodShardThreshold $MethodShardThreshold
-        $code = Invoke-FilterShards -FilterList $filters -Context $target.Name
+        Write-Host "==> Shard $context"
+        $code = Invoke-SwiftTest -Filters @($shard.Filter) -Label $context
         if ($code -ne 0) {
             Write-Host ""
-            Write-Host "Sharded test run FAILED at target $context (exit code $code)." -ForegroundColor Red
+            Write-Host "Sharded test run FAILED at shard $context (exit code $code)." -ForegroundColor Red
             exit $code
         }
     }
 
     Write-Host ""
-    Write-Host "Sharded test run PASSED ($shardTotal target(s))." -ForegroundColor Green
+    Write-Host "Sharded test run PASSED ($($selected.Count) target(s), $shardTotal serial invocation(s))." -ForegroundColor Green
     exit 0
 }
 

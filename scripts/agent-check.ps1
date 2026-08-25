@@ -106,9 +106,12 @@ if ($Full) {
     Invoke-Step "SceneRasterizerTests" {
         & $testScript -Filter "SceneRasterizerTests"
     }
-    # Path fills/strokes intentionally bypass solid-quad promotion; both the
-    # raw scene rasterizer and shipping D3D11 path cache must preserve authored
-    # gradient stops, transformed coordinates, and cache identity.
+    # Rectangular gradient fills now promote to directional GPU quads while
+    # complex fills/strokes stay in the bounded path cache. Both routes must
+    # preserve authored stops, transformed coordinates and CPU/WARP parity.
+    Invoke-Step "GradientRenderingFidelityTests" {
+        & $testScript -Filter "GradientRenderingFidelityTests"
+    }
     Invoke-Step "PathGradientRenderingTests" {
         & $testScript -Filter "PathGradientRenderingTests"
     }
@@ -184,6 +187,21 @@ if ($Full) {
     Invoke-Step "RetainedViewRuntimeTests" {
         & $testScript -Filter "RetainedViewRuntimeTests"
     }
+    # Optional retained capabilities must stay genuinely sparse; rebuilding
+    # controls must preserve their IME composition and caret callbacks.
+    Invoke-Step "ViewNodeSparseStorageTests" {
+        & $testScript -Filter "ViewNodeSparseStorageTests"
+    }
+    # Large Lists lay out only their visible rows while preserving pixels,
+    # keyboard navigation, programmatic scrolling and accessibility.
+    Invoke-Step "ListVirtualizationTests" {
+        & $testScript -Filter "ListVirtualizationTests"
+    }
+    # Headless tests drive real COM vtables for secure Value, Toggle,
+    # Selection/SelectionItem and VirtualizedItem accessibility patterns.
+    Invoke-Step "UIAAdvancedPatternTests" {
+        & $testScript -Filter "UIAAdvancedPatternTests"
+    }
     # Programmatic scrolling must work on first scene/frame render, resolve
     # deferred lazy-stack rows, and preserve nested-reader ownership.
     Invoke-Step "RuntimeProgrammaticScrollTests" {
@@ -191,6 +209,9 @@ if ($Full) {
     }
     Invoke-Step "WinSwiftUIScrollViewReaderTests" {
         & $testScript -Filter "WinSwiftUIScrollViewReaderTests"
+    }
+    Invoke-Step "DemoCommandPaletteAndTableWorkflowTests" {
+        & $testScript -Filter "DemoCommandPaletteAndTableWorkflowTests"
     }
     # The render-pass vocabulary both backends speak: the blur schedule, the
     # halving tap model and the texel-centre clamp, plus the cross-backend

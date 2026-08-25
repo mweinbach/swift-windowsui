@@ -44,10 +44,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   stay below Windows command-line limits. The shared Swift/Visual Studio
   bootstrap initializes once per PowerShell process, preventing repeated test
   or lint shards from growing `PATH` until tool startup fails.
-- Existing `ListFormQualityTests`, `DemoProductPolishTests`, and
-  `DemoInteractivePolishTests` also gate Quick so small-list keyboard scrolling,
-  minimum-width settings, inherited appearance, and legacy dashboard workflows
-  cannot regress behind newer virtualization or product features.
+- Existing `ListFormQualityTests`, `DemoProductPolishTests`,
+  `DemoInteractivePolishTests`, `DemoResponsiveLayoutTests`, and
+  `DemoResponsiveProductPolishTests` also gate Quick so small-list keyboard
+  scrolling, minimum-width settings, inherited appearance, unclipped labels,
+  responsive breakpoints, and legacy dashboard workflows cannot regress behind
+  newer virtualization or product features.
 - Do not leave root-level logs or screenshots behind. Generated screenshots belong under `artifacts/`, and temporary logs should be deleted before handoff.
 
 Focused test runs:

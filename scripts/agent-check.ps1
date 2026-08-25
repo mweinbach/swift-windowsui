@@ -234,6 +234,14 @@ if ($Full) {
     Invoke-Step "DemoInteractivePolishTests" {
         & $testScript -Filter "DemoInteractivePolishTests"
     }
+    # Hidden shortcut anchors must not introduce crushed labels, and every
+    # supported dashboard/settings breakpoint must retain its usable content.
+    Invoke-Step "DemoResponsiveLayoutTests" {
+        & $testScript -Filter "DemoResponsiveLayoutTests"
+    }
+    Invoke-Step "DemoResponsiveProductPolishTests" {
+        & $testScript -Filter "DemoResponsiveProductPolishTests"
+    }
     # The render-pass vocabulary both backends speak: the blur schedule, the
     # halving tap model and the texel-centre clamp, plus the cross-backend
     # parity scenes over it (~0.71 s). The contract check can only see that

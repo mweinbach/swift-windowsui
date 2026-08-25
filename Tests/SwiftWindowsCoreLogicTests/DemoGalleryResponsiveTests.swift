@@ -347,7 +347,7 @@ final class DemoGalleryResponsiveTests: XCTestCase {
         XCTAssertEqual(search?.controlType, .edit)
         XCTAssertEqual(search?.isEnabled, true)
 
-        let intensity = elements.first { $0.name == "Render intensity" }
+        let intensity = elements.first { $0.name == "Render intensity" && $0.controlType == .slider }
         XCTAssertEqual(intensity?.controlType, .slider)
         XCTAssertEqual(intensity?.isEnabled, true)
 

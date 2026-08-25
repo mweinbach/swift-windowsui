@@ -343,7 +343,10 @@ final class WindowCoordinatorTests: XCTestCase {
                 platformHostFactory: incompatibleFactory
             )
 
-            XCTAssertThrowsError(try incompatibleCoordinator.bootPrimaryWindow()) { error in
+            do {
+                _ = try incompatibleCoordinator.bootPrimaryWindow()
+                XCTFail("A non-Win32 platform window must fail before the application host starts.")
+            } catch {
                 XCTAssertEqual(
                     error as? PlatformHostError,
                     .incompatibleWindow(expectedPlatform: "Windows / Win32")

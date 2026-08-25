@@ -223,6 +223,8 @@ public enum AccessibilityProjection {
     //                                      button trait from the retained
     //                                      button builder but are checkboxes
     //                                      to assistive technology)
+    //   .isSelectable       → listItem    (List/Table rows expose selection
+    //                                      even while they are not selected)
     //   .isButton           → button
     //   .isLink             → hyperlink
     //   .isSearchField      → edit        (UIA has no Search control type)
@@ -239,6 +241,7 @@ public enum AccessibilityProjection {
     public static func resolveControlType(for node: ViewNode) -> AccessibilityControlType {
         let traits = node.accessibilityTraits
         if traits.contains(.isToggle) { return .checkBox }
+        if traits.contains(.isSelectable) { return .listItem }
         if traits.contains(.isButton) { return .button }
         if traits.contains(.isLink) { return .hyperlink }
         if traits.contains(.isSearchField) { return .edit }

@@ -44,7 +44,19 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
             return []
         }
         var snapshots: [UIAElementSnapshot] = []
-        appendSnapshots(for: root, parentID: nil, into: &snapshots)
+        let rootBounds = screenBoundsMapper(root.bounds)
+        appendSnapshots(for: root, parentID: nil, rootBounds: rootBounds, into: &snapshots)
+        // Transparent retained containers are flattened by the accessibility
+        // projection, so the nearest projected parent is the honest UIA
+        // Selection container even when it is the window's root pane.
+        let selectionParentIDs = Set(
+            snapshots.compactMap { snapshot in
+                snapshot.isSelected != nil ? snapshot.parentID : nil
+            }
+        )
+        for index in snapshots.indices where selectionParentIDs.contains(snapshots[index].id) {
+            snapshots[index].supportsSelection = true
+        }
         return snapshots
     }
 
@@ -71,6 +83,83 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
             return
         }
         runtime.requestFocus(node)
+    }
+
+    @discardableResult
+    func uiaSetValue(elementID: UInt64, value: String) -> Bool {
+        guard let element = projectedElement(for: elementID), element.isEnabled,
+            element.controlType == .edit,
+            !element.traits.contains(.isSecureTextInput),
+            let node = element.sourceNode,
+            let keyDown = node.onKeyDown,
+            let commit = node.onIMEComposition
+        else {
+            return false
+        }
+
+        // The text input owns its Binding and its grapheme-aware replacement
+        // rules. Select-all plus its existing Unicode commit path preserves
+        // those rules rather than mutating presentation-only accessibility
+        // metadata or inventing a second model value.
+        runtime.requestFocus(node)
+        keyDown(KeyboardEvent(keyCode: 0x41, modifiers: .control))
+        if value.isEmpty {
+            keyDown(KeyboardEvent(keyCode: KeyboardKey.backspace.rawValue))
+            node.accessibilityValue = nil
+        } else {
+            commit(IMECompositionEvent(phase: .committed(value)))
+            node.accessibilityValue = value
+        }
+        return true
+    }
+
+    @discardableResult
+    func uiaToggle(elementID: UInt64) -> Bool {
+        guard let element = projectedElement(for: elementID), element.controlType == .checkBox else {
+            return false
+        }
+        return uiaInvokeDefaultAction(elementID: elementID)
+    }
+
+    @discardableResult
+    func uiaSelect(elementID: UInt64) -> Bool {
+        guard let element = projectedElement(for: elementID), element.traits.contains(.isSelectable),
+            element.isEnabled
+        else {
+            return false
+        }
+        if element.isSelected {
+            return true
+        }
+        return uiaInvokeDefaultAction(elementID: elementID)
+    }
+
+    @discardableResult
+    func uiaAddToSelection(elementID: UInt64) -> Bool {
+        uiaSelect(elementID: elementID)
+    }
+
+    @discardableResult
+    func uiaRemoveFromSelection(elementID: UInt64) -> Bool {
+        guard let element = projectedElement(for: elementID), element.traits.contains(.isSelectable),
+            element.isEnabled
+        else {
+            return false
+        }
+        if !element.isSelected {
+            return true
+        }
+        return uiaInvokeDefaultAction(elementID: elementID)
+    }
+
+    @discardableResult
+    func uiaRealizeVirtualizedItem(elementID: UInt64) -> Bool {
+        guard let element = projectedElement(for: elementID), element.isVirtualizedPlaceholder,
+            let node = element.sourceNode
+        else {
+            return false
+        }
+        return runtime.scrollToDescendant(node)
     }
 
     // MARK: - Focus event support
@@ -102,6 +191,7 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
     private func appendSnapshots(
         for element: AccessibilityElementProjection,
         parentID: UInt64?,
+        rootBounds: Rect,
         into list: inout [UIAElementSnapshot]
     ) {
         let id: UInt64
@@ -115,6 +205,11 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
             id = nextEphemeralID()
         }
 
+        let screenBounds = screenBoundsMapper(element.bounds)
+        let isPassword = element.traits.contains(.isSecureTextInput)
+        let supportsValue = element.controlType == .edit && !isPassword
+        let isSelected: Bool? = element.traits.contains(.isSelectable) ? element.isSelected : nil
+
         list.append(
             UIAElementSnapshot(
                 id: id,
@@ -124,16 +219,23 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
                 helpText: element.hint,
                 automationID: element.identifier,
                 controlType: Self.controlTypeID(for: element.controlType),
-                bounds: screenBoundsMapper(element.bounds),
+                bounds: screenBounds,
                 isEnabled: element.isEnabled,
                 hasKeyboardFocus: element.isFocused,
                 isKeyboardFocusable: element.sourceNode?.isFocusable ?? false,
-                hasDefaultAction: !element.actions.isEmpty || element.sourceNode?.onActivate != nil
+                isOffscreen: element.isVirtualizedPlaceholder || screenBounds.intersected(with: rootBounds) == nil,
+                hasDefaultAction: !element.actions.isEmpty || element.sourceNode?.onActivate != nil,
+                isPassword: isPassword,
+                supportsValue: supportsValue,
+                isReadOnly: !element.isEnabled || element.sourceNode?.onIMEComposition == nil,
+                toggleState: element.controlType == .checkBox ? (element.isSelected ? .on : .off) : nil,
+                isSelected: isSelected,
+                isVirtualizedPlaceholder: element.isVirtualizedPlaceholder
             )
         )
 
         for child in element.children {
-            appendSnapshots(for: child, parentID: id, into: &list)
+            appendSnapshots(for: child, parentID: id, rootBounds: rootBounds, into: &list)
         }
     }
 

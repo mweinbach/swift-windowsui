@@ -24,6 +24,12 @@ import WinSDK
 /// by a `UIAElementTreeSource` on every UIA query. `id` values must be stable
 /// across snapshots for the same underlying view; `parentID` is nil only for
 /// the root element.
+public enum UIAToggleState: Int32, Sendable {
+    case off = 0
+    case on = 1
+    case indeterminate = 2
+}
+
 public struct UIAElementSnapshot {
     public var id: UInt64
     public var parentID: UInt64?
@@ -44,6 +50,19 @@ public struct UIAElementSnapshot {
     public var isOffscreen: Bool?
     /// True when the element has an invokable default action (Invoke pattern).
     public var hasDefaultAction: Bool
+    /// Secure inputs expose IsPassword but never expose the Value pattern.
+    public var isPassword: Bool
+    /// Editable text controls expose IValueProvider, including empty fields.
+    public var supportsValue: Bool
+    public var isReadOnly: Bool
+    /// Non-nil only for checkboxes and switches that expose IToggleProvider.
+    public var toggleState: UIAToggleState?
+    /// Non-nil only for retained selection rows (ISelectionItemProvider).
+    public var isSelected: Bool?
+    /// Selection containers own one or more selection-item children.
+    public var supportsSelection: Bool
+    /// Offscreen lazy-stack placeholders expose IVirtualizedItemProvider.
+    public var isVirtualizedPlaceholder: Bool
 
     public init(
         id: UInt64,
@@ -59,7 +78,14 @@ public struct UIAElementSnapshot {
         hasKeyboardFocus: Bool,
         isKeyboardFocusable: Bool,
         isOffscreen: Bool? = nil,
-        hasDefaultAction: Bool
+        hasDefaultAction: Bool,
+        isPassword: Bool = false,
+        supportsValue: Bool = false,
+        isReadOnly: Bool = true,
+        toggleState: UIAToggleState? = nil,
+        isSelected: Bool? = nil,
+        supportsSelection: Bool = false,
+        isVirtualizedPlaceholder: Bool = false
     ) {
         self.id = id
         self.parentID = parentID
@@ -75,6 +101,13 @@ public struct UIAElementSnapshot {
         self.isKeyboardFocusable = isKeyboardFocusable
         self.isOffscreen = isOffscreen
         self.hasDefaultAction = hasDefaultAction
+        self.isPassword = isPassword
+        self.supportsValue = supportsValue
+        self.isReadOnly = isReadOnly
+        self.toggleState = toggleState
+        self.isSelected = isSelected
+        self.supportsSelection = supportsSelection
+        self.isVirtualizedPlaceholder = isVirtualizedPlaceholder
     }
 }
 
@@ -91,6 +124,37 @@ public protocol UIAElementTreeSource: AnyObject {
     func uiaInvokeDefaultAction(elementID: UInt64) -> Bool
     /// Requests keyboard focus for the element (no-op when not focusable).
     func uiaSetFocus(elementID: UInt64)
+    /// Replaces the full value of an editable, non-secure text control.
+    @discardableResult
+    func uiaSetValue(elementID: UInt64, value: String) -> Bool
+    /// Toggles a checkbox/switch through its existing retained action.
+    @discardableResult
+    func uiaToggle(elementID: UInt64) -> Bool
+    /// Selects or deselects a retained List/Table item.
+    @discardableResult
+    func uiaSelect(elementID: UInt64) -> Bool
+    @discardableResult
+    func uiaAddToSelection(elementID: UInt64) -> Bool
+    @discardableResult
+    func uiaRemoveFromSelection(elementID: UInt64) -> Bool
+    /// Scrolls an offscreen lazy-stack placeholder into its realized window.
+    @discardableResult
+    func uiaRealizeVirtualizedItem(elementID: UInt64) -> Bool
+}
+
+extension UIAElementTreeSource {
+    public func uiaSetValue(elementID: UInt64, value: String) -> Bool { false }
+    public func uiaToggle(elementID: UInt64) -> Bool {
+        uiaInvokeDefaultAction(elementID: elementID)
+    }
+    public func uiaSelect(elementID: UInt64) -> Bool {
+        uiaInvokeDefaultAction(elementID: elementID)
+    }
+    public func uiaAddToSelection(elementID: UInt64) -> Bool {
+        uiaSelect(elementID: elementID)
+    }
+    public func uiaRemoveFromSelection(elementID: UInt64) -> Bool { false }
+    public func uiaRealizeVirtualizedItem(elementID: UInt64) -> Bool { false }
 }
 
 /// Implemented by objects that can answer `WM_GETOBJECT` for a `Win32Window`.
@@ -195,6 +259,19 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
         SWU_UIARaiseStructureChanged(rootProvider)
     }
 
+    /// Announces a changed live region to Narrator and other UIA clients.
+    /// The provider is projected at call time; no second accessibility tree
+    /// or observer work is retained when no assistive client is attached.
+    public func raiseLiveRegionChanged(elementID: UInt64) {
+        guard isClientListening,
+            let provider = SWU_UIACreateElementProvider(&callbacks, hwnd, elementID)
+        else {
+            return
+        }
+        SWU_UIARaiseLiveRegionChanged(provider)
+        SWU_UIAReleaseProvider(provider)
+    }
+
     /// Disconnects the root provider; call when the window is going away so
     /// UIA stops calling into the tree.
     public func disconnect() {
@@ -246,6 +323,36 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
         }
         callbacks.invokeDefaultAction = { context, element in
             UIAProviderBridge.unmanaged(from: context).invokeDefaultActionForUIA(element)
+        }
+        callbacks.supportsPattern = { context, element, pattern in
+            UIAProviderBridge.unmanaged(from: context).supportsPatternForUIA(element, pattern: pattern)
+        }
+        callbacks.setValue = { context, element, value, length in
+            UIAProviderBridge.unmanaged(from: context).setValueForUIA(element, value: value, length: length)
+        }
+        callbacks.getToggleState = { context, element in
+            UIAProviderBridge.unmanaged(from: context).toggleStateForUIA(element)
+        }
+        callbacks.toggle = { context, element in
+            UIAProviderBridge.unmanaged(from: context).toggleForUIA(element)
+        }
+        callbacks.select = { context, element in
+            UIAProviderBridge.unmanaged(from: context).selectForUIA(element)
+        }
+        callbacks.addToSelection = { context, element in
+            UIAProviderBridge.unmanaged(from: context).addToSelectionForUIA(element)
+        }
+        callbacks.removeFromSelection = { context, element in
+            UIAProviderBridge.unmanaged(from: context).removeFromSelectionForUIA(element)
+        }
+        callbacks.getSelectionContainer = { context, element in
+            UIAProviderBridge.unmanaged(from: context).selectionContainerForUIA(element)
+        }
+        callbacks.getSelection = { context, element, buffer, capacity in
+            UIAProviderBridge.unmanaged(from: context).selectionForUIA(element, buffer: buffer, capacity: capacity)
+        }
+        callbacks.realizeVirtualizedItem = { context, element in
+            UIAProviderBridge.unmanaged(from: context).realizeVirtualizedItemForUIA(element)
         }
         callbacks.setFocus = { context, element in
             UIAProviderBridge.unmanaged(from: context).setFocusForUIA(element)
@@ -404,6 +511,18 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
                     return -1
                 }
                 return isOffscreen ? 1 : 0
+            case Int32(SWU_UIA_BOOL_IS_PASSWORD):
+                return snapshot.isPassword ? 1 : 0
+            case Int32(SWU_UIA_BOOL_IS_READ_ONLY):
+                guard snapshot.supportsValue else {
+                    return -1
+                }
+                return snapshot.isReadOnly ? 1 : 0
+            case Int32(SWU_UIA_BOOL_IS_SELECTED):
+                guard let isSelected = snapshot.isSelected else {
+                    return -1
+                }
+                return isSelected ? 1 : 0
             default:
                 return -1
             }
@@ -419,6 +538,133 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     private func invokeDefaultActionForUIA(_ element: UInt64) {
         _ = Self.onMain {
             source.uiaInvokeDefaultAction(elementID: element)
+        }
+    }
+
+    private func supportsPatternForUIA(_ element: UInt64, pattern: Int32) -> Int32 {
+        Self.onMain {
+            guard let snapshot = source.uiaElementSnapshots().first(where: { $0.id == element }) else {
+                return 0
+            }
+            switch pattern {
+            case Int32(SWU_UIA_PATTERN_VALUE):
+                return snapshot.supportsValue && !snapshot.isPassword ? 1 : 0
+            case Int32(SWU_UIA_PATTERN_TOGGLE):
+                return snapshot.toggleState != nil ? 1 : 0
+            case Int32(SWU_UIA_PATTERN_SELECTION):
+                return snapshot.supportsSelection ? 1 : 0
+            case Int32(SWU_UIA_PATTERN_SELECTION_ITEM):
+                return snapshot.isSelected != nil ? 1 : 0
+            case Int32(SWU_UIA_PATTERN_VIRTUALIZED_ITEM):
+                return snapshot.isVirtualizedPlaceholder ? 1 : 0
+            default:
+                return 0
+            }
+        }
+    }
+
+    private func setValueForUIA(_ element: UInt64, value: UnsafePointer<UInt16>?, length: Int32) -> Int32 {
+        guard length >= 0, length <= 1_048_576, let value else {
+            return 0
+        }
+        let decoded = String(decoding: UnsafeBufferPointer(start: value, count: Int(length)), as: UTF16.self)
+        return Self.onMain {
+            guard let snapshot = source.uiaElementSnapshots().first(where: { $0.id == element }),
+                snapshot.isEnabled, snapshot.supportsValue, !snapshot.isPassword, !snapshot.isReadOnly
+            else {
+                return 0
+            }
+            return source.uiaSetValue(elementID: element, value: decoded) ? 1 : 0
+        }
+    }
+
+    private func toggleStateForUIA(_ element: UInt64) -> Int32 {
+        Self.onMain {
+            source.uiaElementSnapshots().first(where: { $0.id == element })?.toggleState?.rawValue ?? -1
+        }
+    }
+
+    private func toggleForUIA(_ element: UInt64) -> Int32 {
+        Self.onMain {
+            source.uiaToggle(elementID: element) ? 1 : 0
+        }
+    }
+
+    private func selectForUIA(_ element: UInt64) -> Int32 {
+        Self.onMain {
+            source.uiaSelect(elementID: element) ? 1 : 0
+        }
+    }
+
+    private func addToSelectionForUIA(_ element: UInt64) -> Int32 {
+        Self.onMain {
+            source.uiaAddToSelection(elementID: element) ? 1 : 0
+        }
+    }
+
+    private func removeFromSelectionForUIA(_ element: UInt64) -> Int32 {
+        Self.onMain {
+            source.uiaRemoveFromSelection(elementID: element) ? 1 : 0
+        }
+    }
+
+    private func selectionContainerForUIA(_ element: UInt64) -> UInt64 {
+        Self.onMain {
+            let snapshots = source.uiaElementSnapshots()
+            guard let snapshot = snapshots.first(where: { $0.id == element }), snapshot.isSelected != nil else {
+                return Self.noElement
+            }
+            var parentID = snapshot.parentID
+            while let candidate = parentID,
+                let parent = snapshots.first(where: { $0.id == candidate })
+            {
+                if parent.supportsSelection {
+                    return parent.id
+                }
+                parentID = parent.parentID
+            }
+            return Self.noElement
+        }
+    }
+
+    private func selectionForUIA(
+        _ element: UInt64, buffer: UnsafeMutablePointer<UInt64>?, capacity: Int32
+    ) -> Int32 {
+        Self.onMain {
+            guard capacity >= 0 else {
+                return -1
+            }
+            let snapshots = source.uiaElementSnapshots()
+            guard snapshots.first(where: { $0.id == element })?.supportsSelection == true else {
+                return -1
+            }
+            let selected = snapshots.filter { snapshot in
+                guard snapshot.isSelected == true else {
+                    return false
+                }
+                var parentID = snapshot.parentID
+                while let candidate = parentID,
+                    let parent = snapshots.first(where: { $0.id == candidate })
+                {
+                    if parent.supportsSelection {
+                        return parent.id == element
+                    }
+                    parentID = parent.parentID
+                }
+                return false
+            }
+            if let buffer {
+                for (index, snapshot) in selected.prefix(Int(capacity)).enumerated() {
+                    buffer[index] = snapshot.id
+                }
+            }
+            return Int32(clamping: selected.count)
+        }
+    }
+
+    private func realizeVirtualizedItemForUIA(_ element: UInt64) -> Int32 {
+        Self.onMain {
+            source.uiaRealizeVirtualizedItem(elementID: element) ? 1 : 0
         }
     }
 

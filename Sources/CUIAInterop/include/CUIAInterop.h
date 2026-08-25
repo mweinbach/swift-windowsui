@@ -11,7 +11,8 @@ extern "C" {
 //
 // The C layer builds the COM vtables for the UI Automation provider
 // interfaces (IRawElementProviderSimple / IRawElementProviderFragment /
-// IRawElementProviderFragmentRoot / IInvokeProvider) and forwards every call
+// IRawElementProviderFragmentRoot plus the supported UIA pattern providers)
+// and forwards every call
 // to a table of Swift-provided callbacks. All tree logic lives in Swift; the
 // only UIA constants and VARIANT/BSTR marshaling live here.
 //
@@ -37,6 +38,9 @@ enum {
     SWU_UIA_BOOL_HAS_KEYBOARD_FOCUS = 1,
     SWU_UIA_BOOL_IS_KEYBOARD_FOCUSABLE = 2,
     SWU_UIA_BOOL_IS_OFFSCREEN = 3,
+    SWU_UIA_BOOL_IS_PASSWORD = 4,
+    SWU_UIA_BOOL_IS_READ_ONLY = 5,
+    SWU_UIA_BOOL_IS_SELECTED = 6,
 };
 
 // NavigateDirection values mirrored for callers that only import this header
@@ -52,6 +56,17 @@ enum {
 // UIA pattern id mirrored for Swift callers (static-asserted in the .cpp).
 enum {
     SWU_UIA_PATTERN_INVOKE = 10000,
+    SWU_UIA_PATTERN_SELECTION = 10001,
+    SWU_UIA_PATTERN_VALUE = 10002,
+    SWU_UIA_PATTERN_SELECTION_ITEM = 10010,
+    SWU_UIA_PATTERN_TOGGLE = 10015,
+    SWU_UIA_PATTERN_VIRTUALIZED_ITEM = 10020,
+};
+
+enum {
+    SWU_UIA_TOGGLE_OFF = 0,
+    SWU_UIA_TOGGLE_ON = 1,
+    SWU_UIA_TOGGLE_INDETERMINATE = 2,
 };
 
 // UIA control type ids mirrored for Swift callers (static-asserted in the .cpp).
@@ -93,6 +108,20 @@ typedef struct SWUUIACallbacks {
     int32_t (*getBoolProperty)(void *context, uint64_t element, int32_t property);
     int32_t (*hasInvokeAction)(void *context, uint64_t element);
     void (*invokeDefaultAction)(void *context, uint64_t element);
+    // Returns whether the element currently supports the specified UIA pattern.
+    int32_t (*supportsPattern)(void *context, uint64_t element, int32_t pattern);
+    // Returns 1 when a value write succeeds; UTF-16 is length-delimited.
+    int32_t (*setValue)(void *context, uint64_t element, const uint16_t *value, int32_t length);
+    // Returns SWU_UIA_TOGGLE_*, or -1 when no toggle state is available.
+    int32_t (*getToggleState)(void *context, uint64_t element);
+    int32_t (*toggle)(void *context, uint64_t element);
+    int32_t (*select)(void *context, uint64_t element);
+    int32_t (*addToSelection)(void *context, uint64_t element);
+    int32_t (*removeFromSelection)(void *context, uint64_t element);
+    uint64_t (*getSelectionContainer)(void *context, uint64_t element);
+    // Returns the total selected count; writes up to `capacity` element ids.
+    int32_t (*getSelection)(void *context, uint64_t element, uint64_t *buffer, int32_t capacity);
+    int32_t (*realizeVirtualizedItem)(void *context, uint64_t element);
     void (*setFocus)(void *context, uint64_t element);
     // Hit test in screen coordinates; returns a token or SWU_UIA_NO_ELEMENT.
     uint64_t (*elementFromPoint)(void *context, double x, double y);
@@ -112,6 +141,7 @@ intptr_t SWU_UIAReturnRawElementProvider(void *hwnd, uintptr_t wParam, intptr_t 
 int SWU_UIAClientsAreListening(void);
 void SWU_UIARaiseAutomationFocusChanged(void *provider);
 void SWU_UIARaiseStructureChanged(void *provider);
+void SWU_UIARaiseLiveRegionChanged(void *provider);
 void SWU_UIADisconnectProvider(void *provider);
 
 // BSTR helpers (SysAllocStringLen / SysFreeString wrappers).
@@ -131,6 +161,24 @@ int32_t SWU_UIAProviderGetControlType(void *provider);
 int32_t SWU_UIAProviderGetBoolProperty(void *provider, int32_t neutralKey, int32_t *hasValue);
 void *SWU_UIAProviderGetInvokePattern(void *provider);
 void SWU_UIAProviderInvoke(void *invokeProvider);
+void *SWU_UIAProviderGetValuePattern(void *provider);
+uint16_t *SWU_UIAValueProviderGetValue(void *valueProvider);
+int32_t SWU_UIAValueProviderSetValue(void *valueProvider, const uint16_t *value, int32_t length);
+int32_t SWU_UIAValueProviderIsReadOnly(void *valueProvider);
+void *SWU_UIAProviderGetTogglePattern(void *provider);
+int32_t SWU_UIAToggleProviderGetState(void *toggleProvider);
+int32_t SWU_UIAToggleProviderToggle(void *toggleProvider);
+void *SWU_UIAProviderGetSelectionItemPattern(void *provider);
+int32_t SWU_UIASelectionItemProviderIsSelected(void *selectionItemProvider);
+int32_t SWU_UIASelectionItemProviderSelect(void *selectionItemProvider);
+int32_t SWU_UIASelectionItemProviderAddToSelection(void *selectionItemProvider);
+int32_t SWU_UIASelectionItemProviderRemoveFromSelection(void *selectionItemProvider);
+void *SWU_UIASelectionItemProviderGetSelectionContainer(void *selectionItemProvider);
+void *SWU_UIAProviderGetSelectionPattern(void *provider);
+int32_t SWU_UIASelectionProviderGetSelectedCount(void *selectionProvider);
+void *SWU_UIASelectionProviderGetSelectedAt(void *selectionProvider, int32_t index);
+void *SWU_UIAProviderGetVirtualizedItemPattern(void *provider);
+int32_t SWU_UIAVirtualizedItemProviderRealize(void *virtualizedItemProvider);
 void SWU_UIAProviderSetFocus(void *provider);
 void *SWU_UIAProviderGetFocus(void *rootProvider);
 void *SWU_UIAProviderElementFromPoint(void *rootProvider, double x, double y);

@@ -13,21 +13,16 @@
 /// inside the card.
 struct DemoGalleryPresentationShowcase: View {
     @ObservedObject var model: DemoDashboardModel
+    @ObservedObject var galleryState: DemoGalleryState
     var compact: Bool = false
 
     @Environment(\.colorScheme) private var colorScheme
-    @State private var isSheetPresented = false
-    @State private var isPopoverPresented = false
-    @State private var isAlertPresented = false
-    @State private var isConfirmationPresented = false
-    @State private var areInteractionDetailsExpanded = false
-    @State private var isLivePreviewEnabled = true
-    @State private var areAlignmentGuidesEnabled = false
 
     private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
 
     init(model: DemoDashboardModel, compact: Bool = false) {
         self.model = model
+        self.galleryState = model.galleryState
         self.compact = compact
     }
 
@@ -48,12 +43,12 @@ struct DemoGalleryPresentationShowcase: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .sheet(isPresented: $isSheetPresented) {
+        .sheet(isPresented: $galleryState.isSheetPresented) {
             presentationSheet
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
-        .alert("Presentation ready", isPresented: $isAlertPresented) {
+        .alert("Presentation ready", isPresented: $galleryState.isAlertPresented) {
             Button("Continue") {
                 model.performAction("Accepted gallery alert")
             }
@@ -66,12 +61,12 @@ struct DemoGalleryPresentationShowcase: View {
         }
         .confirmationDialog(
             "Reset presentation example?",
-            isPresented: $isConfirmationPresented,
+            isPresented: $galleryState.isConfirmationPresented,
             titleVisibility: .visible
         ) {
             Button("Reset Example", role: .destructive) {
-                isLivePreviewEnabled = true
-                areAlignmentGuidesEnabled = false
+                galleryState.isLivePreviewEnabled = true
+                galleryState.areAlignmentGuidesEnabled = false
                 model.performAction("Confirmed gallery action")
             }
 
@@ -122,16 +117,16 @@ struct DemoGalleryPresentationShowcase: View {
 
             HStack(alignment: .center, spacing: DemoMetrics.s2) {
                 DemoButton("Open Sheet", kind: .accent) {
-                    isSheetPresented = true
+                    galleryState.isSheetPresented = true
                     model.performAction("Opened presentation sheet")
                 }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
 
                 DemoButton("Show Popover") {
-                    isPopoverPresented = true
+                    galleryState.isPopoverPresented = true
                     model.performAction("Opened renderer popover")
                 }
-                .popover(isPresented: $isPopoverPresented, arrowEdge: .bottom) {
+                .popover(isPresented: $galleryState.isPopoverPresented, arrowEdge: .bottom) {
                     rendererPopover
                 }
 
@@ -140,12 +135,12 @@ struct DemoGalleryPresentationShowcase: View {
 
             HStack(alignment: .center, spacing: DemoMetrics.s2) {
                 DemoButton("Show Alert") {
-                    isAlertPresented = true
+                    galleryState.isAlertPresented = true
                     model.performAction("Opened gallery alert")
                 }
 
                 DemoButton("Confirm Action") {
-                    isConfirmationPresented = true
+                    galleryState.isConfirmationPresented = true
                     model.performAction("Requested gallery action confirmation")
                 }
 
@@ -169,7 +164,7 @@ struct DemoGalleryPresentationShowcase: View {
                     }
 
                     Button("Reset Example", role: .destructive) {
-                        isConfirmationPresented = true
+                        galleryState.isConfirmationPresented = true
                         model.performAction("Requested gallery action confirmation")
                     }
                 } label: {
@@ -227,7 +222,7 @@ struct DemoGalleryPresentationShowcase: View {
         .cornerRadius(DemoMetrics.radiusMD)
         .contextMenu {
             Button("Show Renderer Details") {
-                isPopoverPresented = true
+                galleryState.isPopoverPresented = true
                 model.performAction("Opened renderer popover")
             }
 
@@ -236,14 +231,14 @@ struct DemoGalleryPresentationShowcase: View {
             }
 
             Button("Reset Example", role: .destructive) {
-                isConfirmationPresented = true
+                galleryState.isConfirmationPresented = true
                 model.performAction("Requested gallery action confirmation")
             }
         }
     }
 
     private var interactionDetails: some View {
-        DisclosureGroup("Interaction details", isExpanded: $areInteractionDetailsExpanded) {
+        DisclosureGroup("Interaction details", isExpanded: $galleryState.areInteractionDetailsExpanded) {
             VStack(alignment: .leading, spacing: DemoMetrics.s2) {
                 detailRow("Renderer", value: model.rendererIdentity.displayName)
                 detailRow("Presentation", value: "Retained overlays")
@@ -274,10 +269,10 @@ struct DemoGalleryPresentationShowcase: View {
 
             DemoRule(palette.strokeSubtle)
 
-            Toggle("Live preview", isOn: $isLivePreviewEnabled)
+            Toggle("Live preview", isOn: $galleryState.isLivePreviewEnabled)
                 .font(DemoType.body)
 
-            Toggle("Alignment guides", isOn: $areAlignmentGuidesEnabled)
+            Toggle("Alignment guides", isOn: $galleryState.areAlignmentGuidesEnabled)
                 .font(DemoType.body)
 
             DemoRule(palette.strokeSubtle)
@@ -286,12 +281,12 @@ struct DemoGalleryPresentationShowcase: View {
                 Spacer(minLength: 0)
 
                 DemoButton("Cancel") {
-                    isSheetPresented = false
+                    galleryState.isSheetPresented = false
                     model.performAction("Dismissed presentation sheet")
                 }
 
                 DemoButton("Apply", kind: .accent) {
-                    isSheetPresented = false
+                    galleryState.isSheetPresented = false
                     model.performAction("Applied presentation configuration")
                 }
                 .keyboardShortcut(.defaultAction)
@@ -326,7 +321,7 @@ struct DemoGalleryPresentationShowcase: View {
                 Spacer(minLength: 0)
 
                 DemoButton("Done") {
-                    isPopoverPresented = false
+                    galleryState.isPopoverPresented = false
                     model.performAction("Dismissed renderer popover")
                 }
             }

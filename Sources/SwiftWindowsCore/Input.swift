@@ -61,26 +61,53 @@ public enum ScrollInputSource: Sendable, Equatable {
     case precise
 }
 
+/// How printable text associated with a key-down event reaches the focused
+/// control.
+///
+/// Synthetic events retain their historical virtual-key inference so existing
+/// embedders and tests do not change behavior. A real Win32 keyboard event is
+/// followed by the layout-aware `WM_CHAR` stream instead; inferring a second
+/// character from that event would insert every keystroke twice.
+public enum KeyboardTextInputDelivery: Sendable, Equatable {
+    case inferredFromVirtualKey
+    case systemCharacter
+}
+
 public struct KeyboardEvent: Sendable {
     public var keyCode: UInt32
     public var modifiers: KeyboardModifiers
     public var isRepeat: Bool
+    public var textInputDelivery: KeyboardTextInputDelivery
 
-    public init(keyCode: UInt32, modifiers: KeyboardModifiers = [], isRepeat: Bool = false) {
+    public init(
+        keyCode: UInt32,
+        modifiers: KeyboardModifiers = [],
+        isRepeat: Bool = false,
+        textInputDelivery: KeyboardTextInputDelivery = .inferredFromVirtualKey
+    ) {
         self.keyCode = keyCode
         self.modifiers = modifiers
         self.isRepeat = isRepeat
+        self.textInputDelivery = textInputDelivery
     }
 
     public var key: KeyboardKey? {
         KeyboardKey(rawValue: keyCode)
     }
 }
-/// An input-method-editor (IME) composition event, translated from the
-/// `WM_IME_*` message stream by the Win32 host and routed to the focused
-/// text input. The host only emits these while an IME is actively composing;
-/// all other keyboard input keeps flowing through `KeyboardEvent`.
+/// A focused text input's composition or Unicode commit event. Win32 IME
+/// messages preserve their input-method source; translated keyboard
+/// characters reuse the same selection-aware commit path with a keyboard
+/// source so controls can distinguish ordinary typing from composed results.
 public struct IMECompositionEvent: Sendable, Equatable {
+    /// Regular keyboard characters share the focused text control's existing
+    /// Unicode-aware commit path, but they still honor autocapitalization.
+    /// Genuine IME results preserve their composed text exactly.
+    public enum Source: Sendable, Equatable {
+        case inputMethod
+        case keyboard
+    }
+
     public enum Phase: Sendable, Equatable {
         /// The IME started a composition session.
         case started
@@ -96,8 +123,10 @@ public struct IMECompositionEvent: Sendable, Equatable {
     }
 
     public var phase: Phase
+    public var source: Source
 
-    public init(phase: Phase) {
+    public init(phase: Phase, source: Source = .inputMethod) {
         self.phase = phase
+        self.source = source
     }
 }

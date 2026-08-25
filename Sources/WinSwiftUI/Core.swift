@@ -1,11 +1,7 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
-
 import SwiftWindowsLayout
-
 import SwiftWindowsUI
 
 public typealias CGFloat = Double
@@ -1671,10 +1667,13 @@ extension GraphicsContext.Shading {
                 let dy = abs(endPoint.y - startPoint.y)
                 return dx >= dy ? .horizontal : .vertical
             }()
-            let stops = gradient.stops.map { stop in
+            let isReversed =
+                axis == .horizontal ? endPoint.x < startPoint.x : endPoint.y < startPoint.y
+            let authoredStops = isReversed ? Array(gradient.stops.reversed()) : gradient.stops
+            let stops = authoredStops.map { stop in
                 SwiftWindowsGraphics.GradientStop(
                     color: stop.color.multipliedAlpha(by: alpha),
-                    position: stop.position
+                    position: isReversed ? 1 - stop.position : stop.position
                 )
             }
             let runtimeGradient: SwiftWindowsGraphics.LinearGradient
@@ -1682,7 +1681,8 @@ extension GraphicsContext.Shading {
                 runtimeGradient = SwiftWindowsGraphics.LinearGradient(
                     startColor: .clear, endColor: .clear, axis: axis)
             } else {
-                runtimeGradient = SwiftWindowsGraphics.LinearGradient(stops: stops, axis: axis)
+                runtimeGradient = SwiftWindowsGraphics.LinearGradient(
+                    stops: stops, axis: axis, reversesAuthoredStops: isReversed)
             }
             return .gradient(runtimeGradient)
         }
@@ -6853,6 +6853,47 @@ public struct EnvironmentValues: @unchecked Sendable {
         min(max(factor, 0), 1)
     }
 
+    var effectiveDynamicTypeSize: DynamicTypeSize {
+        var size = dynamicTypeSize
+        if let minimum = minDynamicTypeSize {
+            size = max(size, minimum)
+        }
+        if let maximum = maxDynamicTypeSize {
+            size = min(size, maximum)
+        }
+        return size
+    }
+
+    mutating func constrainDynamicTypeSize(minimum: DynamicTypeSize?, maximum: DynamicTypeSize?) {
+        var constrainedMinimum = minimum
+        if let inheritedMinimum = minDynamicTypeSize {
+            constrainedMinimum = constrainedMinimum.map { max($0, inheritedMinimum) } ?? inheritedMinimum
+        }
+
+        var constrainedMaximum = maximum
+        if let inheritedMaximum = maxDynamicTypeSize {
+            constrainedMaximum = constrainedMaximum.map { min($0, inheritedMaximum) } ?? inheritedMaximum
+        }
+
+        if let lowerBound = constrainedMinimum,
+            let upperBound = constrainedMaximum,
+            lowerBound > upperBound
+        {
+            if let inheritedMaximum = maxDynamicTypeSize, lowerBound > inheritedMaximum {
+                constrainedMinimum = inheritedMaximum
+                constrainedMaximum = inheritedMaximum
+            } else if let inheritedMinimum = minDynamicTypeSize, upperBound < inheritedMinimum {
+                constrainedMinimum = inheritedMinimum
+                constrainedMaximum = inheritedMinimum
+            } else {
+                constrainedMinimum = upperBound
+            }
+        }
+
+        minDynamicTypeSize = constrainedMinimum
+        maxDynamicTypeSize = constrainedMaximum
+    }
+
     public subscript<Key: EnvironmentKey>(_ key: Key.Type) -> Key.Value {
         get {
             customValues[ObjectIdentifier(key)] as? Key.Value ?? Key.defaultValue
@@ -8184,7 +8225,7 @@ public struct ViewBuildContext {
     }
 
     public var isEnabled: Bool {
-        isEnabledProvider()
+        isEnabledProvider() && environmentValuesProvider().isEnabled
     }
 
     public var foregroundColor: Color {
@@ -8220,16 +8261,18 @@ public struct ViewBuildContext {
                 backgroundProminence: backgroundProminence
             )
         case nil:
-            return foregroundColorProvider().resolvedForVisualEnvironment(
-                colorScheme: colorScheme,
-                contrast: colorSchemeContrast,
-                backgroundProminence: backgroundProminence
-            )
+            return (environmentValuesProvider().foregroundColor ?? foregroundColorProvider())
+                .resolvedForVisualEnvironment(
+                    colorScheme: colorScheme,
+                    contrast: colorSchemeContrast,
+                    backgroundProminence: backgroundProminence
+                )
         }
     }
 
     var foregroundStyle: ForegroundStyle {
-        (environmentValuesProvider().foregroundStyle ?? .color(foregroundColorProvider()))
+        (environmentValuesProvider().foregroundStyle
+            ?? .color(environmentValuesProvider().foregroundColor ?? foregroundColorProvider()))
             .resolvedForVisualEnvironment(
                 colorScheme: colorScheme,
                 contrast: colorSchemeContrast,
@@ -8247,7 +8290,7 @@ public struct ViewBuildContext {
     }
 
     public var tint: Color {
-        environmentValuesProvider().tint ?? tintProvider()
+        environmentValuesProvider().tint ?? environmentValuesProvider().accentColor ?? tintProvider()
     }
 
     public var imageScale: Image.Scale {
@@ -8366,11 +8409,11 @@ public struct ViewBuildContext {
     }
 
     public var buttonStyle: ButtonStyle {
-        buttonStyleProvider()
+        environmentValuesProvider().buttonStyle
     }
 
     public var pickerStyle: PickerStyle {
-        pickerStyleProvider()
+        environmentValuesProvider().pickerStyle
     }
 
     public var labelStyle: LabelStyle {
@@ -8746,6 +8789,7 @@ public struct ViewBuildContext {
     public var environmentValues: EnvironmentValues {
         var values = environmentValuesProvider()
         values.isEnabled = values.isEnabled && isEnabled
+        values.dynamicTypeSize = values.effectiveDynamicTypeSize
         if values.tint == nil {
             values.tint = tintProvider()
         }
@@ -8786,14 +8830,7 @@ public struct ViewBuildContext {
     }
 
     public var dynamicTypeSize: DynamicTypeSize {
-        var size = environmentValues.dynamicTypeSize
-        if let minSize = environmentValues.minDynamicTypeSize {
-            size = max(size, minSize)
-        }
-        if let maxSize = environmentValues.maxDynamicTypeSize {
-            size = min(size, maxSize)
-        }
-        return size
+        environmentValues.dynamicTypeSize
     }
 
     public var displayScale: Double {
@@ -9011,6 +9048,7 @@ public struct ViewBuildContext {
             pickerStyleProvider: pickerStyleProvider,
             environmentValuesProvider: {
                 var values = environmentValuesProvider()
+                values.foregroundColor = color
                 values.foregroundStyle = .color(color)
                 return values
             },
@@ -9045,6 +9083,7 @@ public struct ViewBuildContext {
             environmentValuesProvider: {
                 var values = environmentValuesProvider()
                 values.tint = tint
+                values.accentColor = tint
                 return values
             },
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
@@ -9461,7 +9500,11 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: { buttonStyle },
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider,
+            environmentValuesProvider: {
+                var values = environmentValuesProvider()
+                values.buttonStyle = buttonStyle
+                return values
+            },
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
             navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
@@ -9490,7 +9533,11 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: { pickerStyle },
-            environmentValuesProvider: environmentValuesProvider,
+            environmentValuesProvider: {
+                var values = environmentValuesProvider()
+                values.pickerStyle = pickerStyle
+                return values
+            },
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
             navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
@@ -9524,6 +9571,7 @@ public struct ViewBuildContext {
             environmentValuesProvider: {
                 var values = environmentValuesProvider()
                 values[keyPath: keyPath] = value
+                Self.synchronizeVisualEnvironmentValue(keyPath, in: &values)
                 return values
             },
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
@@ -9589,6 +9637,7 @@ public struct ViewBuildContext {
             environmentValuesProvider: {
                 var values = environmentValuesProvider()
                 transform(&values[keyPath: keyPath])
+                Self.synchronizeVisualEnvironmentValue(keyPath, in: &values)
                 return values
             },
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
@@ -9596,6 +9645,25 @@ public struct ViewBuildContext {
             navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
             navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
         )
+    }
+
+    private static func synchronizeVisualEnvironmentValue<Value>(
+        _ keyPath: WritableKeyPath<EnvironmentValues, Value>,
+        in values: inout EnvironmentValues
+    ) {
+        if keyPath == \EnvironmentValues.foregroundColor {
+            values.foregroundStyle = values.foregroundColor.map { .color($0) }
+        } else if keyPath == \EnvironmentValues.foregroundStyle {
+            if case .color(let color)? = values.foregroundStyle {
+                values.foregroundColor = color
+            } else {
+                values.foregroundColor = nil
+            }
+        } else if keyPath == \EnvironmentValues.accentColor {
+            values.tint = values.accentColor
+        } else if keyPath == \EnvironmentValues.tint {
+            values.accentColor = values.tint
+        }
     }
 
     func withNavigationDestinationHandler(_ handler: @escaping NavigationDestinationPushHandler) -> ViewBuildContext {
@@ -18216,7 +18284,18 @@ private func resolvedBorderFill(from style: ForegroundStyle) -> (color: Color, g
 }
 extension SwiftWindowsGraphics.LinearGradient {
     public init(_ gradient: WinSwiftUI.LinearGradient) {
-        self.init(stops: gradient.stops, axis: gradient.axis)
+        let axis = gradient.axis
+        let isReversed =
+            axis == .horizontal
+            ? gradient.endPoint.x < gradient.startPoint.x
+            : gradient.endPoint.y < gradient.startPoint.y
+        let stops =
+            isReversed
+            ? gradient.stops.reversed().map {
+                GradientStop(color: $0.color, position: 1 - $0.position)
+            }
+            : gradient.stops
+        self.init(stops: stops, axis: axis, reversesAuthoredStops: isReversed)
     }
 }
 extension SwiftWindowsGraphics.RadialGradient {
@@ -24295,8 +24374,7 @@ extension View {
     public func dynamicTypeSize(_ range: ClosedRange<DynamicTypeSize>) -> some View {
         ModifiedView(content: self) { content, context in
             var values = context.environmentValues
-            values.minDynamicTypeSize = range.lowerBound
-            values.maxDynamicTypeSize = range.upperBound
+            values.constrainDynamicTypeSize(minimum: range.lowerBound, maximum: range.upperBound)
             return content.makeComponent(context: context.withEnvironmentValues(values))
         }
     }
@@ -24304,8 +24382,7 @@ extension View {
     public func dynamicTypeSize(_ range: PartialRangeFrom<DynamicTypeSize>) -> some View {
         ModifiedView(content: self) { content, context in
             var values = context.environmentValues
-            values.minDynamicTypeSize = range.lowerBound
-            values.maxDynamicTypeSize = nil
+            values.constrainDynamicTypeSize(minimum: range.lowerBound, maximum: nil)
             return content.makeComponent(context: context.withEnvironmentValues(values))
         }
     }
@@ -24313,8 +24390,7 @@ extension View {
     public func dynamicTypeSize(_ range: PartialRangeThrough<DynamicTypeSize>) -> some View {
         ModifiedView(content: self) { content, context in
             var values = context.environmentValues
-            values.minDynamicTypeSize = nil
-            values.maxDynamicTypeSize = range.upperBound
+            values.constrainDynamicTypeSize(minimum: nil, maximum: range.upperBound)
             return content.makeComponent(context: context.withEnvironmentValues(values))
         }
     }

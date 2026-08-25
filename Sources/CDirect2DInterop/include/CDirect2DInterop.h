@@ -11,7 +11,16 @@ extern "C" {
 enum {
     SWU_D2D_GRADIENT_AXIS_VERTICAL = 0,
     SWU_D2D_GRADIENT_AXIS_HORIZONTAL = 1,
+    SWU_D2D_MAX_GRADIENT_STOPS = 128,
 };
+
+typedef struct SWU_D2DGradientStop {
+    float position;
+    float red;
+    float green;
+    float blue;
+    float alpha;
+} SWU_D2DGradientStop;
 
 HRESULT SWU_D2DCreateFactory1(void **factory_out);
 HRESULT SWU_D2DCreateDeviceResources(void *d3d11_device, void **factory_out, void **device_out, void **context_out);
@@ -55,6 +64,19 @@ HRESULT SWU_D2DFillRectGradient(
     float end_green,
     float end_blue,
     float end_alpha,
+    int axis
+);
+
+HRESULT SWU_D2DFillRectGradientStops(
+    void *context,
+    float left,
+    float top,
+    float right,
+    float bottom,
+    float radius_x,
+    float radius_y,
+    const SWU_D2DGradientStop *stops,
+    uint32_t stop_count,
     int axis
 );
 

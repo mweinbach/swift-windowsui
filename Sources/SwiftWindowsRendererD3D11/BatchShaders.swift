@@ -43,8 +43,9 @@ struct QuadInstance
     float cornerRadiusTopRight;
     float cornerRadiusBottomRight;
     float cornerRadiusBottomLeft;
-    // 12 bytes of padding so structured-buffer stride stays 144 (multi
-    // of 16). HLSL requires 16-byte element alignment.
+    // Existing ABI slots: normalized segment start/end plus mode
+    // (0 = legacy whole gradient, 1 = half-open, 2 = final inclusive).
+    // The structured-buffer stride remains 144 bytes.
     float _reserved0;
     float _reserved1;
     float _reserved2;
@@ -72,6 +73,7 @@ struct VSOutput
     float effectParam3 : TEXCOORD12;
     float effectParam4 : TEXCOORD13;
     float clipRadius : TEXCOORD14;
+    float3 gradientSegment : TEXCOORD15;
 };
 
 VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
@@ -150,6 +152,7 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     output.effectParam3 = inst.effectParam3;
     output.effectParam4 = inst.effectParam4;
     output.clipRadius = inst.clipCornerRadius;
+    output.gradientSegment = float3(inst._reserved0, inst._reserved1, inst._reserved2);
     return output;
 }
 
@@ -272,6 +275,20 @@ float4 psMain(VSOutput input) : SV_Target
         ? saturate(input.localPosition.x / max(input.size.x, 1.0))
         : saturate(input.localPosition.y / max(input.size.y, 1.0));
 
+    if (input.gradientSegment.z > 0.5)
+    {
+        bool isFinalSegment = input.gradientSegment.z > 1.5;
+        if (gradientT < input.gradientSegment.x ||
+            gradientT > input.gradientSegment.y ||
+            (!isFinalSegment && gradientT >= input.gradientSegment.y))
+        {
+            discard;
+        }
+        gradientT = saturate(
+            (gradientT - input.gradientSegment.x) /
+            max(input.gradientSegment.y - input.gradientSegment.x, 0.000001));
+    }
+
     float4 color = lerp(input.startColor, input.endColor, gradientT);
 
     // 8 = luminanceToAlpha
@@ -370,6 +387,20 @@ float4 psMain(VSOutput input) : SV_Target
     float gradientT = input.gradientAxis > 0.5
         ? saturate(input.localPosition.x / max(input.size.x, 1.0))
         : saturate(input.localPosition.y / max(input.size.y, 1.0));
+
+    if (input.gradientSegment.z > 0.5)
+    {
+        bool isFinalSegment = input.gradientSegment.z > 1.5;
+        if (gradientT < input.gradientSegment.x ||
+            gradientT > input.gradientSegment.y ||
+            (!isFinalSegment && gradientT >= input.gradientSegment.y))
+        {
+            discard;
+        }
+        gradientT = saturate(
+            (gradientT - input.gradientSegment.x) /
+            max(input.gradientSegment.y - input.gradientSegment.x, 0.000001));
+    }
 
     float4 color = lerp(input.startColor, input.endColor, gradientT);
 

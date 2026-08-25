@@ -34,6 +34,23 @@ public Apple SwiftUI view types are mapped to ViewNode primitives —
 `Slider`, `Stepper`, `Picker`, `ProgressView`, `Menu`,
 `DisclosureGroup`, `GroupBox`, `Divider`, and `Spacer`.
 
+Pointer dispatch keeps the runtime's deepest retained hit for focus, drag,
+scroll, and explicit child gestures, but promotes passive label/container hits
+to their nearest enabled, hit-test-visible activatable ancestor. Hover,
+pressed chrome, release-inside activation, and post-scroll hover therefore
+belong to the actual `Button` or selectable `List` row rather than to a
+decorative nested stack. Explicit child handlers, nested interactive controls,
+and disabled or geometrically out-of-bounds ancestors remain independent.
+`PointerAncestorRoutingTests` pins both direct retained-node cases and actual
+SwiftUI-shaped button/list composition.
+
+Mouse presses, rapid double-clicks, and the first active touch all enter this
+same retained pointer lifecycle. Losing native capture cancels pressed chrome,
+button repeat, scroll/slider drags, and touch tracking without activating a
+control. Accessibility projects the centered transforms of each node and its
+ancestors into UI Automation bounds, and disabled nodes cannot activate through
+either their projected action or the native provider fallback.
+
 **Invariants**
 - A SwiftUI-shape view tree always emits the expected primitive
   families (`CrossViewRenderingParityTests`).
@@ -178,6 +195,51 @@ re-coalesces paint operations, and `paintRecords` is a reference log of
   glyph atlas snapshot (`testParitySceneEmitsNativeGlyphAtlas`).
 - Every primitive in a scene carries finite, in-range field values
   (§2a).
+- Scene clear colors follow the same finite, in-range sanitation; public layer
+  creation respects `GPUISceneLimits.maxLayers`, and atlas/paint-range sizes use
+  checked arithmetic so malformed input becomes a typed validation defect
+  instead of terminating the process (`SceneBoundaryResilienceTests`).
+
+### Linear-gradient stop lowering
+
+Axis-aligned `LinearGradient` fills keep their complete authored stop sequence
+instead of reducing the gradient to its first and last colors.
+`LinearGradient.renderedSegments` sorts finite stop positions, clamps them to
+`[0, 1]`, extends the first and last colors across any uncovered ends, and
+preserves duplicate-position hard transitions. The lowering emits at most 64
+segments, including endpoint extensions, so an untrusted gradient cannot
+request an unbounded number of passes.
+The SwiftUI bridge reverses both the color sequence and stop locations when its
+start/end points run right-to-left or bottom-to-top; diagonal gradients still
+use their dominant axis.
+
+`QuadPrimitive.segmented(for:opacity:)` expands nontrivial gradients into
+full-footprint quads, one per disjoint color interval. The footprint retains
+the original rounded coverage, transformed coordinates, clips, and effects.
+The interval start, end, and ownership mode occupy the three existing reserved
+float fields, keeping the structured-buffer stride at 144 bytes. Both the CPU
+rasterizer and D3D11 pixel shaders reject samples outside the current interval
+and interpolate within it; half-open intervals prevent seams or double
+blending. Ordinary two-stop `[0, 1]` gradients keep their original single quad
+and byte-identical ABI values.
+
+The retained scene painter, Canvas rectangle fills, deferred scene draws, and
+`RenderFrame`-to-scene bridge all share this lowering. Presentation still flows
+through `GPUIScene.presentationOrder()`, and segment metadata is sanitized at
+the same scene boundary as the remaining quad fields.
+`GradientRenderingFidelityTests` covers authored positions, reverse directions,
+hard stops, transparency, strict segment budgeting, the frame bridge, and
+CPU/D3D11 parity.
+
+The separate live `RenderFrame` → `D3D11Renderer` fallback presenter preserves
+the same authored stop sequence without routing through the scene bridge. Its
+Direct2D presenter creates a bounded native gradient-stop collection and fills
+the original rounded geometry once. Its pure D3D11 presenter uses the shared
+bounded segment lowering, drawing full-footprint intervals with the same
+half-open shader rejection used by scene quads; ordinary two-stop gradients
+remain one draw. This removes the former screenshot-versus-live-window stop
+mismatch while retaining the fallback's documented limitations for radial or
+conic gradients, per-corner rounding, transforms, and shadows.
 
 ## 2a. Scene-contract value sanitation
 
@@ -1179,7 +1241,10 @@ The rules that follow from that:
    the only convention under which the bilinear sampler is correct — a
    straight-alpha texture bleeds the RGB of transparent texels into every
    antialiased edge. The image and text pixel shaders therefore return
-   `sample * opacity` and premultiply nothing themselves.
+   `sample * opacity` and premultiply nothing themselves. The D3D11 render
+   target's clear color is premultiplied too: `ClearRenderTargetView` bypasses
+   blending, so writing straight RGB into a translucent target otherwise
+   contaminates every later source-over draw.
 2. **Straight is the CPU convention.** `RasterTarget.blend` composites in
    straight alpha, so `drawImage` divides premultiplied sources out per
    texel — the exact mirror of rule 1, which is what keeps the two backends
@@ -1205,19 +1270,25 @@ The rules that follow from that:
    every frame. Binding is now pure bookkeeping and the GPU texture is
    resolved from `BitmapSurface.contentKey` at draw time (§3.2), which is
    sound because `detach()` — which every device rebuild goes through —
-   empties the texture cache outright.
+   empties the texture cache outright. Each new scene also drops bindings
+   belonging to images its predecessor removed, without disturbing manual
+   bindings or content-key reuse when image identifiers are renumbered;
+   stale images therefore cannot render or retain GPU resources indefinitely.
 
 The glyph atlas texture is the one deliberate exception: it stays
 `R8G8B8A8_UNORM` because the glyph shader samples only `.a`, which is byte 3
 in either channel order.
 
-**Invariants** (`PixelFormatContractTests`, `CrossBackendPixelParityTests`)
+**Invariants** (`PixelFormatContractTests`, `CrossBackendPixelParityTests`,
+`D3D11TransparentCompositingTests`, `D3D11ImageBindingLifetimeTests`)
 - A 1×1 surface holding `[0, 0, 255, 255]` — pure red in BGRA — reads back
   red, not blue (`testPureRedImageReadsBackRed`).
 - Half-transparent white over black composites to ~128 per channel on both
   backends (`testHalfTransparentWhiteCompositesToMidGray`).
 - A surface already tagged premultiplied is not multiplied twice
   (`testPremultipliedSurfaceIsNotMultipliedTwice`).
+- Transparent/translucent clears store premultiplied bytes, do not leak hidden
+  RGB, and match the CPU after translucent source-over compositing.
 - A truncated surface is rejected by the upload rather than read
   (`testMalformedSurfaceIsRejectedByTheUploadRatherThanRead`).
 - The `image`, `translucent image`, `scaled image` and `path texture` parity

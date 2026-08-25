@@ -11,12 +11,15 @@ import SwiftWindowsCore
 //
 // Coordinate contract: projected bounds are in root-view space and mirror the
 // painter/hit-test math in `Runtime.swift` exactly — a node's absolute origin
-// is its parent's origin plus `resolvedFrame.origin`, and a scroll container
-// shifts its children's origins by `-resolvedScrollOffset` on its scroll
-// axis. The projection consumes the runtime's internal resolved layout state
-// (`resolvedFrame`, `resolvedScrollOffset`) via same-module internal access,
-// so no `Runtime.swift` visibility change was needed. Callers should
-// re-project after a layout pass so bounds track the latest resize/scroll.
+// is its parent's origin plus `resolvedFrame.origin`, a scroll container
+// shifts its children's origins by `-resolvedScrollOffset`, and every node's
+// transform is centered on its already-transformed frame before composing
+// after its ancestors. Bounds are axis-aligned enclosures of that painted
+// geometry, including for off-screen virtualized placeholders. The projection
+// consumes the runtime's internal resolved layout state (`resolvedFrame`,
+// `resolvedScrollOffset`) via same-module internal access, so no
+// `Runtime.swift` visibility change was needed. Callers should re-project
+// after a layout pass so bounds track the latest resize/scroll.
 
 /// UIA-style control types projected from retained accessibility metadata.
 ///
@@ -157,11 +160,14 @@ public final class AccessibilityElementProjection {
     /// Returns true when an action was invoked.
     @discardableResult
     public func invokeDefaultAction() -> Bool {
-        if let defaultAction = actions.first(where: { $0.isDefault }) ?? actions.first {
-            defaultAction.invoke()
-            return true
+        guard isEnabled,
+            let defaultAction = actions.first(where: { $0.isDefault }) ?? actions.first
+        else {
+            return false
         }
-        return false
+
+        defaultAction.invoke()
+        return true
     }
 
     /// Pre-order flattening of this element and its descendants.
@@ -196,6 +202,7 @@ public enum AccessibilityProjection {
         return projectElement(
             root,
             parentOrigin: .zero,
+            inheritedTransform: .identity,
             forceElement: true
         )
     }
@@ -284,14 +291,15 @@ public enum AccessibilityProjection {
     private static func projectElement(
         _ node: ViewNode,
         parentOrigin: Point,
+        inheritedTransform: Transform2D,
         forceElement: Bool
     ) -> AccessibilityElementProjection {
-        let absoluteOrigin = Point(
-            x: parentOrigin.x + node.resolvedFrame.origin.x,
-            y: parentOrigin.y + node.resolvedFrame.origin.y
+        let geometry = projectedGeometry(
+            of: node,
+            parentOrigin: parentOrigin,
+            inheritedTransform: inheritedTransform
         )
-        let bounds = Rect(origin: absoluteOrigin, size: node.resolvedFrame.size)
-        let childOrigin = scrolledChildOrigin(of: node, absoluteOrigin: absoluteOrigin)
+        let childOrigin = scrolledChildOrigin(of: node, absoluteOrigin: geometry.absoluteOrigin)
 
         let behavior = node.accessibilityChildBehavior
         var name = node.accessibilityLabel ?? node.text ?? ""
@@ -309,11 +317,15 @@ public enum AccessibilityProjection {
                 name = combinedDescendantName(of: node)
             }
         case .contain, nil:
-            projectedChildren = projectChildren(of: node, parentOrigin: childOrigin)
+            projectedChildren = projectChildren(
+                of: node,
+                parentOrigin: childOrigin,
+                inheritedTransform: geometry.effectiveTransform
+            )
         }
 
         return AccessibilityElementProjection(
-            bounds: bounds,
+            bounds: geometry.paintedBounds,
             name: name,
             value: node.accessibilityValue,
             hint: node.accessibilityHint,
@@ -340,7 +352,8 @@ public enum AccessibilityProjection {
     /// (higher priority first; declaration order breaks ties).
     private static func projectChildren(
         of node: ViewNode,
-        parentOrigin: Point
+        parentOrigin: Point,
+        inheritedTransform: Transform2D
     ) -> [AccessibilityElementProjection] {
         let childNodes = node.accessibilityRepresentationChildren ?? node.children
         var projected: [AccessibilityElementProjection] = []
@@ -352,22 +365,40 @@ public enum AccessibilityProjection {
             // screen geometry, so the row is projected as one placeholder
             // instead.
             if child.isLayoutDeferredByVirtualization {
-                projected.append(projectVirtualizedPlaceholder(child, parentOrigin: parentOrigin))
+                projected.append(
+                    projectVirtualizedPlaceholder(
+                        child,
+                        parentOrigin: parentOrigin,
+                        inheritedTransform: inheritedTransform
+                    )
+                )
                 continue
             }
-            let absoluteOrigin = Point(
-                x: parentOrigin.x + child.resolvedFrame.origin.x,
-                y: parentOrigin.y + child.resolvedFrame.origin.y
-            )
             if isAccessibilityElement(child) {
                 projected.append(
-                    projectElement(child, parentOrigin: parentOrigin, forceElement: false)
+                    projectElement(
+                        child,
+                        parentOrigin: parentOrigin,
+                        inheritedTransform: inheritedTransform,
+                        forceElement: false
+                    )
                 )
             } else {
                 // Transparent node: not an element itself, but its accessible
                 // descendants are spliced into this sibling list.
-                let childOrigin = scrolledChildOrigin(of: child, absoluteOrigin: absoluteOrigin)
-                projected.append(contentsOf: projectChildren(of: child, parentOrigin: childOrigin))
+                let geometry = projectedGeometry(
+                    of: child,
+                    parentOrigin: parentOrigin,
+                    inheritedTransform: inheritedTransform
+                )
+                let childOrigin = scrolledChildOrigin(of: child, absoluteOrigin: geometry.absoluteOrigin)
+                projected.append(
+                    contentsOf: projectChildren(
+                        of: child,
+                        parentOrigin: childOrigin,
+                        inheritedTransform: geometry.effectiveTransform
+                    )
+                )
             }
         }
         return projected.stableSortedByDescendingSortPriority()
@@ -383,11 +414,13 @@ public enum AccessibilityProjection {
     /// anything inside it.
     private static func projectVirtualizedPlaceholder(
         _ node: ViewNode,
-        parentOrigin: Point
+        parentOrigin: Point,
+        inheritedTransform: Transform2D
     ) -> AccessibilityElementProjection {
-        let absoluteOrigin = Point(
-            x: parentOrigin.x + node.resolvedFrame.origin.x,
-            y: parentOrigin.y + node.resolvedFrame.origin.y
+        let geometry = projectedGeometry(
+            of: node,
+            parentOrigin: parentOrigin,
+            inheritedTransform: inheritedTransform
         )
         let ownName = node.accessibilityLabel ?? node.text
         let name =
@@ -395,7 +428,7 @@ public enum AccessibilityProjection {
             ? (ownName ?? "")
             : (ownName ?? combinedDescendantName(of: node))
         return AccessibilityElementProjection(
-            bounds: Rect(origin: absoluteOrigin, size: node.resolvedFrame.size),
+            bounds: geometry.paintedBounds,
             name: name,
             value: node.accessibilityValue,
             hint: node.accessibilityHint,
@@ -411,6 +444,53 @@ public enum AccessibilityProjection {
             children: [],
             sourceNode: node,
             isVirtualizedPlaceholder: true
+        )
+    }
+
+    private struct ProjectedGeometry {
+        let absoluteOrigin: Point
+        let paintedBounds: Rect
+        let effectiveTransform: Transform2D
+    }
+
+    /// The same centered, ancestor-first transform composition used by
+    /// retained prepaint and both paint paths. Keep the layout-space origin
+    /// separate: scrolling shifts child layout before the accumulated
+    /// transform maps its four corners into root-view space.
+    private static func projectedGeometry(
+        of node: ViewNode,
+        parentOrigin: Point,
+        inheritedTransform: Transform2D
+    ) -> ProjectedGeometry {
+        let absoluteOrigin = Point(
+            x: parentOrigin.x + node.resolvedFrame.origin.x,
+            y: parentOrigin.y + node.resolvedFrame.origin.y
+        )
+        let absoluteFrame = Rect(origin: absoluteOrigin, size: node.resolvedFrame.size)
+        let inheritedFrame =
+            inheritedTransform.isIdentity
+            ? absoluteFrame : absoluteFrame.applying(transform: inheritedTransform)
+
+        guard !node.transform.isIdentity else {
+            return ProjectedGeometry(
+                absoluteOrigin: absoluteOrigin,
+                paintedBounds: inheritedFrame,
+                effectiveTransform: inheritedTransform
+            )
+        }
+
+        let center = Point(x: inheritedFrame.midX, y: inheritedFrame.midY)
+        let centeredTransform = Transform2D.translation(x: -center.x, y: -center.y)
+            .concatenating(node.transform)
+            .concatenating(.translation(x: center.x, y: center.y))
+        let effectiveTransform =
+            inheritedTransform.isIdentity
+            ? centeredTransform : inheritedTransform.concatenating(centeredTransform)
+
+        return ProjectedGeometry(
+            absoluteOrigin: absoluteOrigin,
+            paintedBounds: absoluteFrame.applying(transform: effectiveTransform),
+            effectiveTransform: effectiveTransform
         )
     }
 

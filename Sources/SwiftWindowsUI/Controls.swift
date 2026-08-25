@@ -958,6 +958,7 @@ public enum Controls {
         // accessibility modifiers apply after the builder and always win.
         node.accessibilityTraits.formUnion(.isButton)
         node.accessibilityChildBehavior = .combine
+        node.accessibilityRespondsToUserInteraction = isEnabled
 
         guard isEnabled else {
             return node
@@ -1641,7 +1642,7 @@ public enum Controls {
             preferredSize: Size(width: sliderWidth, height: totalHeight),
             layoutPriority: layoutPriority,
             layoutMode: .absolute,
-            isHitTestVisible: true,
+            isHitTestVisible: isEnabled,
             children: [trackNode, filledNode, thumbNode]
         )
         let state = SliderDragState()
@@ -1698,6 +1699,7 @@ public enum Controls {
         // type; the value mirrors the bound value. Explicit accessibility
         // modifiers apply after the builder and always win.
         sliderRoot.accessibilityPrefersSliderBehavior = true
+        sliderRoot.accessibilityRespondsToUserInteraction = isEnabled
         sliderRoot.accessibilityValue = String(clampedValue)
 
         return sliderRoot

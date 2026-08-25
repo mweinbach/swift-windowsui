@@ -18,8 +18,7 @@ enum BorderSegments {
     /// than frame time.
     private static let maxDashSteps = 4_096
 
-    /// Re-samples a ring's two-stop gradient onto one of the ring's own
-    /// segments.
+    /// Re-samples a ring's gradient onto one of the ring's own segments.
     ///
     /// A quad evaluates its gradient across *its own* rect, and a border ring
     /// is emitted as thin edge quads. A control's border sheen — the
@@ -60,12 +59,86 @@ enum BorderSegments {
         }
         let t0 = min(max((lower - origin) / extent, 0), 1)
         let t1 = min(max((lower + length - origin) / extent, 0), 1)
-        let sliceStart = start.interpolated(to: end, progress: t0)
-        let sliceEnd = start.interpolated(to: end, progress: t1)
+
+        // Preserve every existing control-sheen sample byte-for-byte. Its
+        // `start` may intentionally differ from the stored first stop, and
+        // Color.interpolated applies the established premultiplied rule.
+        if linear.stops.count == 2,
+            linear.stops[0].position == 0,
+            linear.stops[1].position == 1
+        {
+            let sliceStart = start.interpolated(to: end, progress: t0)
+            let sliceEnd = start.interpolated(to: end, progress: t1)
+            return (
+                sliceStart,
+                .linear(
+                    LinearGradient(
+                        stops: [
+                            GradientStop(color: sliceStart, position: 0),
+                            GradientStop(color: sliceEnd, position: 1),
+                        ],
+                        axis: axis,
+                        reversesAuthoredStops: linear.reversesAuthoredStops))
+            )
+        }
+
+        guard t1 > t0 else {
+            return (start, .linear(LinearGradient(startColor: start, endColor: start, axis: axis)))
+        }
+
+        // Each border quad evaluates its own normalized coordinates. Clip
+        // every authored interval into this quad's share of the full ring,
+        // then map its endpoints into the local 0...1 domain. Appending both
+        // colors at a shared position preserves duplicate-position hard stops.
+        var localStops: [GradientStop] = []
+        let span = t1 - t0
+        for interval in linear.renderedSegments {
+            let intervalStart = Double(interval.start)
+            let intervalEnd = Double(interval.end)
+            let clippedStart = max(t0, intervalStart)
+            let clippedEnd = min(t1, intervalEnd)
+            guard clippedEnd > clippedStart else { continue }
+
+            let width = intervalEnd - intervalStart
+            guard width > 0 else { continue }
+            let startColor = sampledGradientColor(
+                from: interval.startColor, to: interval.endColor,
+                progress: (clippedStart - intervalStart) / width)
+            let endColor = sampledGradientColor(
+                from: interval.startColor, to: interval.endColor,
+                progress: (clippedEnd - intervalStart) / width)
+            let localStart = Float((clippedStart - t0) / span)
+            let localEnd = Float((clippedEnd - t0) / span)
+
+            if localStops.last?.position != localStart || localStops.last?.color != startColor {
+                localStops.append(GradientStop(color: startColor, position: localStart))
+            }
+            localStops.append(GradientStop(color: endColor, position: localEnd))
+        }
+
+        guard let first = localStops.first else {
+            return (start, .linear(LinearGradient(startColor: start, endColor: start, axis: axis)))
+        }
+
         return (
-            sliceStart,
-            .linear(LinearGradient(startColor: sliceStart, endColor: sliceEnd, axis: axis))
+            first.color,
+            .linear(
+                LinearGradient(
+                    stops: localStops,
+                    axis: axis,
+                    reversesAuthoredStops: linear.reversesAuthoredStops))
         )
+    }
+
+    /// The quad shaders interpolate straight RGBA, so clipping an interval
+    /// must sample the same channels before handing it to a smaller quad.
+    private static func sampledGradientColor(from start: Color, to end: Color, progress: Double) -> Color {
+        let fraction = Float(min(max(progress, 0), 1))
+        return Color(
+            red: start.red + (end.red - start.red) * fraction,
+            green: start.green + (end.green - start.green) * fraction,
+            blue: start.blue + (end.blue - start.blue) * fraction,
+            alpha: start.alpha + (end.alpha - start.alpha) * fraction)
     }
 
     /// Generates solid border-ring segments (top/bottom/left/right edges and

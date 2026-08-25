@@ -93,6 +93,7 @@ dashboard composition on a single custom-rendered window.
 | `Image(_:)` named / file / resource | **Partial** | WIC PNG/JPEG/BMP; no full asset-catalog pipeline |
 | `AsyncImage` | **Partial** | URL load into retained image phases; not a full network image stack |
 | Basic shapes (`Rectangle`, `RoundedRectangle`, `Capsule`, `Circle`, `Ellipse`, …) | **Implemented** | Fill/stroke/border through retained primitives |
+| `LinearGradient` | **Partial** | Axis-aligned fills preserve authored intermediate colors, nonuniform stop positions, duplicate-position hard stops, transparent stops, and reversed endpoints on CPU, the D3D11 scene path, and both live frame-fallback presenters; diagonal directions still resolve to their dominant axis |
 | `StrokeStyle` on any outline | **Implemented** | `lineWidth`, `lineCap`, `lineJoin`, `miterLimit`, `dashPattern`, `dashOffset` reach both stroke routes. Rect and rounded-rect borders resolve dashes through `BorderSegments`; every other outline (custom `Shape`, trimmed shape, `Canvas` `strokePath`) through `PathDashing`. A miter sharper than 4 half-widths degrades to a bevel so the drawn spike cannot exceed the raster sized for it |
 | `UnevenRoundedRectangle` | **Implemented** | Per-corner radii end-to-end (RTL-aware); uniform-only consumers (shadow/outline/clip) fall back to max radius |
 | `Canvas` + `GraphicsContext` | **Partial** | Scene-path drawing; `Path(_:)` / `Path(roundedRect:cornerRadius:)` / `Path(ellipseIn:)` build a fillable path without a `Shape`, and a convex fill is emitted as one unbroken span per row (a fan triangulation used to leave a hairline of background along every shared edge). **A gradient shading on a `fill(_ path:)` degrades to its first stop** — gradients are a rect feature; `symbols:` / `resolveSymbol`, blendMode, `withCGContext` not wired |
@@ -102,13 +103,13 @@ dashboard composition on a single custom-rendered window.
 
 | API | Status | Notes |
 | --- | --- | --- |
-| `Button` (+ roles, systemImage) | **Implemented** | Focus / press / activate lifecycle on retained chrome |
-| `Toggle` | **Implemented** | Binding-backed switch; styles map to retained variants |
-| `Picker` | **Partial** | Segmented, menu, inline, radio, wheel-style shells; not native OS pickers |
-| `Stepper`, `Slider` | **Implemented** | Binding writes with ranges / steps |
+| `Button` (+ roles, systemImage) | **Implemented** | Focus / press / activate lifecycle on retained chrome; disabled state blocks pointer and accessibility activation |
+| `Toggle` | **Implemented** | Binding-backed switch; styles map to retained variants and expose their disabled accessibility state |
+| `Picker` | **Partial** | Segmented, menu, inline, radio, wheel-style shells with appearance-aware control chrome; not native OS pickers |
+| `Stepper`, `Slider` | **Implemented** | Binding writes with ranges / steps; sliders acquire retained keyboard focus, support keyboard adjustment, and expose disabled accessibility state |
 | `ProgressView`, `Gauge` | **Partial** | Determinate / indeterminate retained chrome |
-| `TextField`, `SecureField`, `TextEditor` | **Partial** | Focusable retained input; caret, shift-selection, select-all, clipboard shortcuts, mouse-drag selection, IME composition (marked text, candidate window at caret; secure fields block copy/cut). Inside a grouped `Form`, `TextField` **and** `SecureField` move their title into the form-wide label column and leave the well showing only an explicit `prompt`, as macOS does |
-| `DatePicker` | **Partial** | Label/value + arrow increments; style shells; not a native calendar UI |
+| `TextField`, `SecureField`, `TextEditor` | **Partial** | Focusable retained input; keyboard-layout-aware Unicode `WM_CHAR` entry with UTF-16 surrogate pairing, caret, shift-selection, select-all, clipboard shortcuts, mouse-drag selection, IME composition (marked text, candidate window at caret; secure fields block copy/cut). Inside a grouped `Form`, `TextField` **and** `SecureField` move their title into the form-wide label column and leave the well showing only an explicit `prompt`, as macOS does |
+| `DatePicker` | **Partial** | Accessible label/value, pointer activation, and arrow increments; appearance-aware style shells; not a native calendar UI |
 | `MultiDatePicker` | **Partial** | Month grid multi-select for current month |
 | `ColorPicker` | **Partial** | NSColorWell-shaped bezel (`MacOSControlMetrics.ColorWell`) with an inset swatch and the bordered-control hover/pressed ramp; palette keyboard cycle (default); native `ChooseColorW` dialog opt-in via `\.colorPickerUsesNativeDialog` |
 | `Menu` | **Partial** | Retained popup: canvas-clamped placement, scrim/Escape dismissal, focus restore, deferred layering; not a native Win32 menu bar |
@@ -123,7 +124,7 @@ dashboard composition on a single custom-rendered window.
 | `contextMenu` | **Partial** | Retained menu overlay: clamped anchor, scrim/Escape dismissal, focus restoration |
 | `ShareLink` | **Partial** | Copies transferable items to clipboard — real file references (CF_HDROP) for file URLs, absolute strings otherwise (not system share sheet) |
 | `PhotosPicker` | **Partial** | Opens file dialog; not Photos framework |
-| `fileImporter` / `fileExporter` | **Partial** | Real Win32 open/save dialogs delivering URLs to the app closure; `allowedContentTypes` map to extension filters (category types approximate) |
+| `fileImporter` / `fileExporter` | **Partial** | Real Win32 open/save dialogs deliver valid filesystem URLs, including Unicode multi-file selections; native dialog buffers remain alive throughout the call; `allowedContentTypes` map to extension filters (category types approximate) |
 | `SettingsLink` / `RenameButton` / `EditButton` | **Partial** | Buttons wired to environment actions / edit mode where present |
 
 ### Modifiers commonly safe
@@ -132,7 +133,7 @@ dashboard composition on a single custom-rendered window.
 | --- | --- | --- |
 | Sizing / padding / background / overlay / border / corner / clip | **Implemented** / **Partial** | `frame`, `padding`, `background`, `overlay`, `border`, `cornerRadius`, `clipped`, basic `clipShape` |
 | Color / font / line limit / opacity / hidden / zIndex / offset / 2D scale & rotation | **Implemented** / **Partial** | Propagates via `ViewBuildContext` / node transforms |
-| Interaction | **Implemented** / **Partial** | `onTapGesture`, `onHover`, `disabled`, `focusable`, `@FocusState`, keyboard shortcuts on activation |
+| Interaction | **Implemented** / **Partial** | `onTapGesture`, `onHover`, `disabled`, inherited `\.isEnabled`, `focusable`, `@FocusState`, primary-touch and mouse routing, double-click presses, drag-to-focus, capture-loss cancellation, keyboard shortcuts on activation |
 | List row chrome | **Partial** | Separators, insets, backgrounds, selection styling. `.automatic` / `.plain` / `.inset` paint a `textBackgroundColor` body; `.inset` rounds and rings it and insets its rows into it, and stripes replace row rules rather than joining them |
 | Animation (opacity / background) | **Partial** | `animation`, `withAnimation` for interpolatable retained properties; springs have numeric parity tables |
 | State wrappers | **Implemented** / **Partial** | `@State`, `Binding`, `@ObservedObject`, `@StateObject`, `@Published` (lightweight), `@AppStorage` |
@@ -145,13 +146,13 @@ Use these when you accept retained approximations.
 
 | Area | What works | What does not |
 | --- | --- | --- |
-| **Text system** | Readable labels, scaling, line limits, minimum scale factor | Full font shaping, rich attributed runs, true localization catalogs, live `Text` timers |
+| **Text system** | Readable labels, scaling, line limits, minimum scale factor; nested dynamic-type bounds agree across retained text, `@Environment`, and `@ScaledMetric` | Full font shaping, rich attributed runs, true localization catalogs, live `Text` timers |
 | **SF Symbols** | Named glyph path + limited variants / rendering modes | Multi-layer multicolor symbols, variable values, animated symbol effects |
-| **Scrolling** | Wheel/drag offset, indicators, bounce metadata | True two-axis scroll, paging / view-aligned deceleration, scroll observation callbacks, `ScrollViewReader` offset connection |
-| **Gestures** | Tap, long-press (release-inside), drag mapped to pointer | Duration thresholds, full gesture composition/arbitration, simultaneous value streaming |
+| **Scrolling** | Vertical/horizontal native-wheel and drag offset, indicators, bounce metadata | True two-axis scroll, paging / view-aligned deceleration, scroll observation callbacks, `ScrollViewReader` offset connection |
+| **Gestures** | Tap, long-press (release-inside), primary-touch and mouse drag mapped to the same pointer lifecycle; interrupted capture cancels cleanly | Duration thresholds, multitouch gesture arbitration, full gesture composition, simultaneous value streaming |
 | **Focus** | Focus rings, `@FocusState`, activation | Dynamic `@FocusedValue` retargeting as focus moves; environment `isFocused` live transitions |
 | **Drag and drop** | API + metadata on nodes; OS file drops (WM_DROPFILES) delivered to `onDrop` destinations as file URLs | Full delete/reorder/drop affordances, drag-over highlighting, OLE drag sessions |
-| **Accessibility** | Metadata on `ViewNode` + derived `AccessibilityElementProjection` + Win32 UI Automation provider (`WM_GETOBJECT`, fragment tree, InvokePattern, focus/structure events); default traits on Supported controls; rows a lazy stack has deferred project as one childless `isVirtualizedPlaceholder` element carrying their real bounds instead of a subtree of zero-size rectangles | Value/Text/Selection/Toggle patterns, live regions, fine-grained structure-changed events, the `VirtualizedItem` pattern (placeholders are flagged but the provider cannot yet realize one) |
+| **Accessibility** | Metadata on `ViewNode` + derived `AccessibilityElementProjection` + Win32 UI Automation provider (`WM_GETOBJECT`, fragment tree, transform-aware bounds, disabled-safe InvokePattern, focus/structure events); default traits and enabled state on Supported controls; rows a lazy stack has deferred project as one childless `isVirtualizedPlaceholder` element carrying their real bounds instead of a subtree of zero-size rectangles | Value/Text/Selection/Toggle patterns, live regions, fine-grained structure-changed events, the `VirtualizedItem` pattern (placeholders are flagged but the provider cannot yet realize one) |
 | **Materials / blur** | True separable-Gaussian backdrop blur on both paths (D3D11: backbuffer region copy + two-pass GPU blur, same kernel as CPU); wide radii reduce through a shared downsample chain whose halving rule both backends derive from one place; `.blur(radius:)` is an **isolated** pass — the subtree is rendered into its own buffer, blurred there and composited, so it cannot touch a sibling's pixels — including the deferred subtrees (pinned headers) under it | Rotated material quads approximate; a Material inside **any** offscreen pass (`.drawingGroup()`, `.compositingGroup()` or the `.blur(radius:)` isolation pass) has no backdrop to blur — the sub-scene clears to transparent, and seeding it fights the pixels/cache-key/source-over trio recorded in `docs/GPURenderingPipeline.md`; a blurred scroll view's *own* indicator stays sharp (a scroll view nested inside the blurred subtree has its indicator blurred with it); a blurred subtree too large for the offscreen budget degrades to a hard-edged backdrop blur, and still draws its deferred headers |
 | **Blend / drawing groups** | Metadata only — both backends composite source-over, gated by `CPUGPUBlendModeContractTests` | Separable blend modes on the GPU (batch split + blend-state swap); scene-path offscreen group compositing as full SwiftUI drawing groups |
 | **2D transforms** | Translation, uniform scale and rotation lower onto the scene contract; a `rotationEffect` card draws rotated on both backends, and so does everything in it — shadows, text, images, `Shape` backgrounds and `Canvas` content all turn, and a rotated `.clipped()` clips to the turned shape (an offscreen pass composited back rotated) for both the eye and the pointer; ancestors compose before descendants, and the pointer inverse follows; a mirror (`scaleEffect(x: -1)`, `flipsForRightToLeftLayoutDirection`) survives composition as a reflection, so a mirrored subtree's descendants and its pointer inverse mirror with it | Shears, mirrors and non-uniform scales degrade to the axis-aligned bounding box, so a mirrored subtree's *content* is placed mirrored but not itself mirrored (text stays readable, an image is not flipped); the fallback frame renderer has no rotation encoding at all, so under it a rotated subtree draws — and clips — as its bounding box; a rotated clip whose buffer is past the offscreen budget falls back to the same box |
@@ -308,7 +309,7 @@ is an intentional small native bridge, not a general native-control strategy.
 | Path | Status | Notes |
 | --- | --- | --- |
 | `GPUIScene` → `D3D11BatchRenderer` | **Implemented** (default) | Presentation order from `paintOperations`; shadows, quads, paths, atlas glyphs |
-| `RenderFrame` → `D3D11Renderer` | **Partial** (fallback / debug) | Primarily `fillRect` + `drawBitmap` |
+| `RenderFrame` → `D3D11Renderer` | **Partial** (fallback / debug) | Primarily `fillRect` + `drawBitmap`; both its Direct2D presenter and pure D3D11 fallback preserve axis-aligned intermediate linear-gradient stops, while radial/conic gradients, nonuniform corners, rotated geometry, and soft shadows remain limited |
 | CPU screenshot rasterizer | **Implemented** | Raw scene/frame for CI/visual checks |
 | Offscreen `drawingGroup` compositing | **Partial** | Temporary scenes must not poison outer `cachedScenePaintRange`; sub-scene carries the frame's glyph atlases, buffer clamped to the clip and area-capped (falls back to inline painting); the composited bitmap is cached on the node's paint key + clean subtree, so an unchanged group is not re-rasterized per frame |
 | Text | **Partial** | Scene path: logical layout cache + DirectWrite glyph runs (not full shaped runs); frame path still bitmap-heavy |

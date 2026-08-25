@@ -374,6 +374,10 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// This frame's ID → bitmap bindings. Holds no GPU resources: the
     /// textures live in `imageTextures` and outlive any one binding.
     private var imageBindings: [Int32: BitmapSurface] = [:]
+    /// IDs installed by the previous explicit scene-resource synchronization.
+    /// Bindings installed directly through `bindImageResource` remain valid
+    /// until replaced or detached; scene-owned IDs follow their scene instead.
+    private var sceneImageTextureIDs: Set<Int32> = []
 
     /// Image textures are large (a 4K background is 33 MB), so the cache is
     /// bounded twice: by bytes, and by how long an entry may go unused.
@@ -774,9 +778,24 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     }
 
     public func bindResources(for scene: GPUIScene) {
+        var currentSceneTextureIDs = Set<Int32>(minimumCapacity: scene.imageResources.count)
         for binding in scene.imageResources {
+            guard binding.textureID >= 0 else {
+                continue
+            }
+            currentSceneTextureIDs.insert(binding.textureID)
             bindImageResource(binding.bitmap, for: binding.textureID)
         }
+
+        // The scene owns these bindings, so an image removed from a later
+        // frame must not keep its bitmap alive or silently satisfy an image
+        // primitive that forgot to supply its own resource. Prune only IDs
+        // synchronized from an earlier scene: standalone manual bindings
+        // remain valid, and content-keyed textures survive ID renumbering.
+        for textureID in sceneImageTextureIDs where !currentSceneTextureIDs.contains(textureID) {
+            imageBindings.removeValue(forKey: textureID)
+        }
+        sceneImageTextureIDs = currentSceneTextureIDs
     }
 
     /// Releases the GPU side of every cached image and forgets the
@@ -789,6 +808,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             releaseImageTexture(forKey: key)
         }
         imageBindings.removeAll()
+        sceneImageTextureIDs.removeAll()
     }
 
     private func releaseImageTexture(forKey key: BitmapContentKey) {
@@ -814,9 +834,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// Runs at the top of the frame, after `bindResources(for:)` has applied
     /// every binding this frame asks for, so "unreferenced" means what it
     /// says: a scene that renumbers texture IDs has finished renumbering by
-    /// the time this looks. Bindings themselves persist across frames, so an
-    /// image that simply stops being drawn is still the stale sweep's
-    /// business, not this one's.
+    /// the time this looks. Scene-owned bindings disappear when their images
+    /// leave the next scene, so their GPU resources are reclaimed on that
+    /// same frame; explicitly installed manual bindings continue to persist.
     private func collectUnreferencedImageTextures() {
         guard !imageTextures.isEmpty else {
             return
@@ -1270,7 +1290,17 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         bindFramePipelineState(deviceContext: deviceContext, surfaceSize: surfacePixelSize)
 
         let cc = finishedScene.clearColor
-        let clearValues: [FLOAT] = [cc.red, cc.green, cc.blue, cc.alpha]
+        // Every draw and readback treats this render target as premultiplied.
+        // ClearRenderTargetView writes its values directly, bypassing blending,
+        // so a translucent straight-alpha clear must be converted first too.
+        // Otherwise its RGB can exceed its alpha and later source-over draws
+        // retain color from pixels that were meant to be partly transparent.
+        let clearValues: [FLOAT] = [
+            cc.red * cc.alpha,
+            cc.green * cc.alpha,
+            cc.blue * cc.alpha,
+            cc.alpha,
+        ]
         clearValues.withUnsafeBufferPointer { buffer in
             deviceContext.pointee.lpVtbl.pointee.ClearRenderTargetView(
                 deviceContext, renderTargetView, buffer.baseAddress)

@@ -105,7 +105,7 @@ public final class Win32FileDropPayloadSource: FileDropPayloadSource {
                 DragQueryFileW(hDrop, index, buf.baseAddress, UINT(buf.count))
             }
             if copied > 0 {
-                paths.append(String(decodingCString: buffer, as: UTF16.self))
+                paths.append(String(decoding: buffer.prefix(Int(copied)), as: UTF16.self))
             }
         }
         return paths

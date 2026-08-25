@@ -193,10 +193,19 @@ public struct LinearGradient: Equatable, Sendable {
     public var stops: [GradientStop]
     public var axis: GradientAxis
 
+    /// The SwiftUI bridge reversed authored stops to preserve an endpoint
+    /// direction that the renderer's axis-only vocabulary cannot encode.
+    public var reversesAuthoredStops: Bool
+
+    /// Bounds the number of full-footprint quad passes a malformed or
+    /// programmatically generated gradient can request in one frame.
+    public static let maximumRenderedStops = 64
+
     /// Full-control initializer with arbitrary stops.
-    public init(stops: [GradientStop], axis: GradientAxis = .vertical) {
+    public init(stops: [GradientStop], axis: GradientAxis = .vertical, reversesAuthoredStops: Bool = false) {
         self.stops = stops
         self.axis = axis
+        self.reversesAuthoredStops = reversesAuthoredStops
     }
 
     /// Convenience: 2-stop gradient matching the original API.
@@ -206,6 +215,7 @@ public struct LinearGradient: Equatable, Sendable {
             GradientStop(color: endColor, position: 1),
         ]
         self.axis = axis
+        self.reversesAuthoredStops = false
     }
 
     // MARK: Legacy accessors (keep existing call-sites compiling)
@@ -232,6 +242,93 @@ public struct LinearGradient: Equatable, Sendable {
                 stops[stops.count - 1].color = newValue
             }
         }
+    }
+
+    /// Normalized, non-overlapping intervals in physical gradient order.
+    ///
+    /// SwiftUI extends the first and last colors to the ends of the filled
+    /// shape, preserves hard transitions at duplicate positions, and ignores
+    /// stops whose location is not finite. Keeping that policy here gives the
+    /// retained painter and RenderFrame bridge exactly the same lowering.
+    public var renderedSegments: [LinearGradientSegment] {
+        var ordered = stops.enumerated().compactMap { index, stop -> (Int, GradientStop)? in
+            guard stop.position.isFinite else { return nil }
+            return (index, GradientStop(color: stop.color, position: min(max(stop.position, 0), 1)))
+        }
+        ordered.sort { lhs, rhs in
+            lhs.1.position == rhs.1.position ? lhs.0 < rhs.0 : lhs.1.position < rhs.1.position
+        }
+
+        guard !ordered.isEmpty else {
+            let fallback = stops.first?.color ?? .clear
+            return [LinearGradientSegment(startColor: fallback, endColor: fallback, start: 0, end: 1)]
+        }
+
+        // Endpoint extensions are full-footprint passes too. With every
+        // authored stop strictly inside the shape, retaining 64 stops would
+        // emit 63 intervals plus both extensions: 65 passes. Reserve the
+        // extra interval before sampling so the documented cap bounds the
+        // actual renderer work rather than only the authored-stop count.
+        let endpointExtensionCount =
+            ((ordered.first?.1.position ?? 0) > 0 ? 1 : 0)
+            + ((ordered.last?.1.position ?? 1) < 1 ? 1 : 0)
+        let maximumRetainedStops = min(
+            Self.maximumRenderedStops,
+            Self.maximumRenderedStops + 1 - endpointExtensionCount)
+
+        if ordered.count > maximumRetainedStops {
+            let lastIndex = ordered.count - 1
+            ordered = (0..<maximumRetainedStops).map { index in
+                ordered[index * lastIndex / (maximumRetainedStops - 1)]
+            }
+        }
+
+        var result: [LinearGradientSegment] = []
+        result.reserveCapacity(ordered.count + 1)
+        var previous = ordered[0].1
+        if previous.position > 0 {
+            result.append(
+                LinearGradientSegment(
+                    startColor: previous.color, endColor: previous.color, start: 0, end: previous.position))
+        }
+
+        for (_, stop) in ordered.dropFirst() {
+            if stop.position > previous.position {
+                result.append(
+                    LinearGradientSegment(
+                        startColor: previous.color, endColor: stop.color,
+                        start: previous.position, end: stop.position))
+            }
+            // A duplicate has zero width but its color starts the next
+            // interval, giving a genuine hard stop without double blending.
+            previous = stop
+        }
+
+        if previous.position < 1 {
+            result.append(
+                LinearGradientSegment(
+                    startColor: previous.color, endColor: previous.color, start: previous.position, end: 1))
+        }
+
+        if result.isEmpty {
+            result.append(LinearGradientSegment(startColor: previous.color, endColor: previous.color, start: 0, end: 1))
+        }
+        return result
+    }
+}
+
+/// One piecewise-linear interval of a normalized gradient.
+public struct LinearGradientSegment: Equatable, Sendable {
+    public var startColor: Color
+    public var endColor: Color
+    public var start: Float
+    public var end: Float
+
+    public init(startColor: Color, endColor: Color, start: Float, end: Float) {
+        self.startColor = startColor
+        self.endColor = endColor
+        self.start = start
+        self.end = end
     }
 }
 public struct RadialGradient: Equatable, Sendable {

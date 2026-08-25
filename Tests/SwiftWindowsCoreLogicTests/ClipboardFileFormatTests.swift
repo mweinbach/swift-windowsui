@@ -82,7 +82,11 @@ final class ClipboardFileFormatTests: XCTestCase {
             // ExportButton clipboard test); verifies the DROPFILES layout and
             // DragQueryFileW read path against the live Win32 clipboard.
             let store = Win32ClipboardFileStore()
-            let paths = ["C:\\swift-windowsui-hdrop-test\\a.txt", "C:\\swift-windowsui-hdrop-test\\b c.txt"]
+            let paths = [
+                "C:\\swift-windowsui-hdrop-test\\a.txt",
+                "C:\\swift-windowsui-hdrop-test\\b c.txt",
+                "C:\\swift-windowsui-hdrop-test\\résumé-東京-🚀.txt",
+            ]
             store.copyFiles(paths)
 
             XCTAssertTrue(store.containsFiles())

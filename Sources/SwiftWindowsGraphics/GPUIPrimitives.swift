@@ -74,9 +74,11 @@ public struct QuadPrimitive: Equatable, Sendable {
     public var cornerRadiusTopRight: Float
     public var cornerRadiusBottomRight: Float
     public var cornerRadiusBottomLeft: Float
-    // Reserved padding so the struct's byte stride stays a multiple of
-    // 16, which HLSL structured buffers require for their element
-    // alignment. Three floats of padding bring us from 132 to 144.
+    // These three existing ABI slots carry piecewise-linear gradient
+    // intervals without changing the 144-byte structured-buffer stride.
+    // Their stored names remain stable because existing layout probes pin
+    // offsets 132, 136 and 140. Zero in the final slot means the original
+    // single-quad gradient path, preserving every existing scene byte-for-byte.
     public var _reserved0: Float
     public var _reserved1: Float
     public var _reserved2: Float
@@ -143,6 +145,67 @@ public struct QuadPrimitive: Equatable, Sendable {
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }
+
+    /// Normalized beginning of the gradient interval owned by this quad.
+    public var gradientSegmentStart: Float {
+        get { _reserved0 }
+        set { _reserved0 = newValue }
+    }
+
+    /// Normalized end of the gradient interval owned by this quad.
+    public var gradientSegmentEnd: Float {
+        get { _reserved1 }
+        set { _reserved1 = newValue }
+    }
+
+    /// 0 = legacy whole gradient, 1 = half-open segment, 2 = final segment.
+    public var gradientSegmentMode: Float {
+        get { _reserved2 }
+        set { _reserved2 = newValue }
+    }
+
+    /// Expands an authored gradient into full-geometry, disjoint color
+    /// segments. Keeping the original footprint preserves rounded coverage,
+    /// transformed coordinates and inherited clipping on both renderers.
+    public func segmented(for gradient: LinearGradient, opacity: Float = 1) -> [QuadPrimitive] {
+        let segments = gradient.renderedSegments
+
+        // The ubiquitous two-stop gradient remains the exact primitive the
+        // caller built: no extra paint operations, no ABI changes and no
+        // shifted gallery baselines.
+        if gradient.stops.count == 2,
+            gradient.stops[0].position == 0,
+            gradient.stops[1].position == 1
+        {
+            guard gradient.reversesAuthoredStops else { return [self] }
+            var corrected = self
+            corrected.startR = gradient.startColor.red
+            corrected.startG = gradient.startColor.green
+            corrected.startB = gradient.startColor.blue
+            corrected.startA = gradient.startColor.alpha * opacity
+            corrected.endR = gradient.endColor.red
+            corrected.endG = gradient.endColor.green
+            corrected.endB = gradient.endColor.blue
+            corrected.endA = gradient.endColor.alpha * opacity
+            return [corrected]
+        }
+
+        return segments.enumerated().map { index, segment in
+            var quad = self
+            quad.startR = segment.startColor.red
+            quad.startG = segment.startColor.green
+            quad.startB = segment.startColor.blue
+            quad.startA = segment.startColor.alpha * opacity
+            quad.endR = segment.endColor.red
+            quad.endG = segment.endColor.green
+            quad.endB = segment.endColor.blue
+            quad.endA = segment.endColor.alpha * opacity
+            quad.gradientSegmentStart = segment.start
+            quad.gradientSegmentEnd = segment.end
+            quad.gradientSegmentMode = index == segments.count - 1 ? 2 : 1
+            return quad
+        }
+    }
 
     /// True when per-corner radii override the uniform `cornerRadius`.
     /// Both render backends check this exact predicate.

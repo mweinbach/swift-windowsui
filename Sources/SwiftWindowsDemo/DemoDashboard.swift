@@ -38,7 +38,12 @@ public final class DemoDashboardModel: ObservableObject {
     // Settings screen state
     @Published var displayName = "Operator"
     @Published var theme: DemoThemeOption = .system
-    @Published var itemsPerPage = 10
+    @Published var itemsPerPage = 10 {
+        didSet {
+            guard itemsPerPage != oldValue else { return }
+            reconcileComponentPageAndSelection()
+        }
+    }
     @Published var animationsEnabled = true
     @Published var soundEffectsEnabled = false
     @Published var shareUsageData = true
@@ -47,8 +52,23 @@ public final class DemoDashboardModel: ObservableObject {
     @Published var syncProgress = 0.35
 
     // Data screen state
-    @Published public var components: [DemoComponent] = DemoComponent.defaults
+    @Published public var components: [DemoComponent] = DemoComponent.defaults {
+        didSet {
+            reconcileComponentPageAndSelection()
+        }
+    }
     @Published public var selectedComponentID: Int? = DemoComponent.defaults.first?.id
+    @Published private(set) var componentPage = 0
+    @Published var componentFilter = "" {
+        didSet {
+            guard componentFilter != oldValue else { return }
+            componentPage = 0
+            reconcileFilteredComponentSelection()
+        }
+    }
+
+    // The toolbar accepts real commands rather than painting a decorative field.
+    @Published var commandQuery = ""
 
     // Integration surface state (color picker, file importer, drop target)
     @Published var accentColor: Color = DemoSignature.accentFill
@@ -58,6 +78,79 @@ public final class DemoDashboardModel: ObservableObject {
     /// Currently selected component on the data screen, if any.
     public var selectedComponent: DemoComponent? {
         components.first { $0.id == selectedComponentID }
+    }
+
+    /// Search every visible component attribute, accepting whitespace-separated
+    /// terms in any order so "d3d11 render" is as useful as an exact name.
+    var filteredComponents: [DemoComponent] {
+        let terms = Self.searchTerms(in: componentFilter)
+        guard !terms.isEmpty else { return components }
+
+        return components.filter { component in
+            let searchableText = [
+                component.name,
+                component.detail,
+                component.version,
+                component.statusLabel,
+            ]
+            .joined(separator: " ")
+            .lowercased()
+
+            return terms.allSatisfy { searchableText.contains($0) }
+        }
+    }
+
+    /// Filtering happens before pagination, so a match on a later component
+    /// remains discoverable even when the current page is intentionally short.
+    /// Keep at least one row available if the editable numeric field contains
+    /// a transient zero or negative value between valid stepper selections.
+    var displayedComponents: [DemoComponent] {
+        let matchingComponents = filteredComponents
+        let range = componentPageRange(in: matchingComponents.count)
+        return Array(matchingComponents[range])
+    }
+
+    var componentPageCount: Int {
+        let matchingCount = filteredComponents.count
+        guard matchingCount > 0 else { return 1 }
+        return 1 + (matchingCount - 1) / max(1, itemsPerPage)
+    }
+
+    var hasPreviousComponentPage: Bool {
+        componentPage > 0
+    }
+
+    var hasNextComponentPage: Bool {
+        componentPage + 1 < componentPageCount
+    }
+
+    var componentPageSummary: String {
+        let matchingCount = filteredComponents.count
+        guard matchingCount > 0 else { return "No components" }
+        let range = componentPageRange(in: matchingCount)
+        return "Showing \(range.lowerBound + 1)–\(range.upperBound) of \(matchingCount)"
+    }
+
+    /// The regular Dynamic Type size is exactly the existing demo baseline;
+    /// the neighboring standard sizes make its Font Scale setting meaningful
+    /// without introducing a Windows-only scaling API into shared app code.
+    var dynamicTypeSize: DynamicTypeSize {
+        switch fontScale {
+        case ..<0.85:
+            return .xSmall
+        case ..<0.92:
+            return .small
+        case ..<0.98:
+            return .medium
+        case ..<1.06:
+            return .large
+        case ..<1.18:
+            return .xLarge
+        case ..<1.30:
+            return .xxLarge
+        default:
+            return .xxxLarge
+        }
     }
 
     func selectScreen(_ screen: DemoScreen) {
@@ -76,6 +169,7 @@ public final class DemoDashboardModel: ObservableObject {
         soundEffectsEnabled = false
         shareUsageData = true
         fontScale = 1.0
+        accentColor = DemoSignature.accentFill
         performAction("Reset settings to defaults")
     }
 
@@ -85,10 +179,14 @@ public final class DemoDashboardModel: ObservableObject {
     }
 
     func restartSelectedComponent() {
-        guard let component = selectedComponent else {
+        guard let component = selectedComponent,
+            let index = components.firstIndex(where: { $0.id == component.id })
+        else {
             performAction("No component selected")
             return
         }
+
+        components[index] = component.restarted()
         performAction("Restarted \(component.name)")
     }
 
@@ -101,7 +199,21 @@ public final class DemoDashboardModel: ObservableObject {
     }
 
     func selectFirstComponent() {
-        selectedComponentID = components.first?.id
+        selectedComponentID = displayedComponents.first?.id
+    }
+
+    func selectNextComponentPage() {
+        guard hasNextComponentPage else { return }
+        componentPage += 1
+        reconcileFilteredComponentSelection()
+        performAction("Opened component page \(componentPage + 1)")
+    }
+
+    func selectPreviousComponentPage() {
+        guard hasPreviousComponentPage else { return }
+        componentPage -= 1
+        reconcileFilteredComponentSelection()
+        performAction("Opened component page \(componentPage + 1)")
     }
 
     func selectComponent(_ component: DemoComponent) {
@@ -122,6 +234,37 @@ public final class DemoDashboardModel: ObservableObject {
         performAction("Selected \(module.label)")
     }
 
+    func runCommandSearch() {
+        let terms = Self.searchTerms(in: commandQuery)
+        guard !terms.isEmpty else { return }
+
+        if let screen = DemoScreen.allCases.first(where: { screen in
+            let searchableText = screen.label.lowercased()
+            return terms.allSatisfy { searchableText.contains($0) }
+        }) {
+            selectScreen(screen)
+            commandQuery = ""
+            return
+        }
+
+        if let module = DemoModule.allCases.first(where: { module in
+            let searchableText = [module.label, module.headline, module.summary]
+                .joined(separator: " ")
+                .lowercased()
+            return terms.allSatisfy { searchableText.contains($0) }
+        }) {
+            selectModule(module)
+            commandQuery = ""
+            return
+        }
+
+        performAction("No command found for \(commandQuery)")
+    }
+
+    func clearComponentFilter() {
+        componentFilter = ""
+    }
+
     func cycleModule() {
         let modules = DemoModule.allCases
         guard let index = modules.firstIndex(of: selectedModule) else {
@@ -140,6 +283,28 @@ public final class DemoDashboardModel: ObservableObject {
         if recentEvents.count > 10 {
             recentEvents.removeLast(recentEvents.count - 10)
         }
+    }
+
+    private func reconcileFilteredComponentSelection() {
+        let visibleComponents = displayedComponents
+        guard !visibleComponents.contains(where: { $0.id == selectedComponentID }) else { return }
+        selectedComponentID = visibleComponents.first?.id
+    }
+
+    private func reconcileComponentPageAndSelection() {
+        componentPage = min(componentPage, componentPageCount - 1)
+        reconcileFilteredComponentSelection()
+    }
+
+    private func componentPageRange(in matchingCount: Int) -> Range<Int> {
+        let pageSize = max(1, itemsPerPage)
+        let lowerBound = min(componentPage * pageSize, matchingCount)
+        let upperBound = lowerBound + min(pageSize, matchingCount - lowerBound)
+        return lowerBound..<upperBound
+    }
+
+    private static func searchTerms(in query: String) -> [String] {
+        query.split(whereSeparator: { $0.isWhitespace }).map { String($0).lowercased() }
     }
 }
 
@@ -777,6 +942,9 @@ public struct DemoRootView: View {
                 }
                 .tag(DemoScreen.data)
         }
+        .preferredColorScheme(model.theme.colorScheme)
+        .tint(model.accentColor)
+        .dynamicTypeSize(model.dynamicTypeSize)
     }
 }
 
@@ -856,7 +1024,7 @@ struct DemoToolbar: View {
                     .lineLimit(1)
 
                 if layout.showsToolbarSearch {
-                    DemoSearchField(width: layout.searchWidth)
+                    DemoSearchField(model: model, width: layout.searchWidth)
                 }
 
                 Spacer(minLength: 0)
@@ -982,6 +1150,7 @@ struct DemoModeButton: View {
 struct DemoSearchField: View {
     @Environment(\.colorScheme) private var colorScheme
 
+    @ObservedObject var model: DemoDashboardModel
     let width: CGFloat
 
     private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
@@ -992,21 +1161,33 @@ struct DemoSearchField: View {
                 .font(.system(size: 13))
                 .foregroundStyle(.tertiary)
 
-            Text("Search commands")
+            TextField("Search commands", text: $model.commandQuery)
                 .font(DemoType.controlLabel)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
+                .textFieldStyle(.plain)
+                .frame(width: max(96, width - 96), alignment: .leading)
+                .onSubmit {
+                    model.runCommandSearch()
+                }
 
-            Spacer(minLength: 0)
-
-            Text("Ctrl K")
-                .font(DemoType.hint)
-                .foregroundStyle(.quaternary)
-                .lineLimit(1)
-                .padding(.horizontal, DemoMetrics.s1)
-                .frame(height: DemoMetrics.s4)
-                .background(palette.surface3)
-                .cornerRadius(DemoMetrics.radiusXS)
+            if model.commandQuery.isEmpty {
+                Text("Ctrl K")
+                    .font(DemoType.hint)
+                    .foregroundStyle(.quaternary)
+                    .lineLimit(1)
+                    .padding(.horizontal, DemoMetrics.s1)
+                    .frame(height: DemoMetrics.s4)
+                    .background(palette.surface3)
+                    .cornerRadius(DemoMetrics.radiusXS)
+            } else {
+                Button(action: { model.commandQuery = "" }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: DemoMetrics.s5, height: DemoMetrics.s5)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear command search")
+            }
         }
         .padding(.horizontal, DemoMetrics.s2 + 2)
         .frame(width: width, height: DemoMetrics.controlHeight)
@@ -1015,7 +1196,6 @@ struct DemoSearchField: View {
         .padding(1)
         .background(palette.stroke)
         .cornerRadius(DemoMetrics.radiusSM + 1)
-        .allowsHitTesting(false)
     }
 }
 
@@ -1251,13 +1431,17 @@ struct DemoCenterPane: View {
                             .frame(width: layout.contentInnerWidth, alignment: .leading)
                     }
 
+                    // The live feed belongs to the dashboard, not to the
+                    // folded-away rail. Keeping it before relocated detail
+                    // content makes recent actions discoverable at widths
+                    // where the rail no longer has a column of its own.
+                    DemoActivityCard(model: model, compact: layout.verticallyCompact)
+                        .frame(width: layout.contentInnerWidth, alignment: .leading)
+
                     if !layout.showsRail {
                         DemoDetailTrackSection(model: model, width: layout.contentInnerWidth)
                         DemoQuickActionsSection(model: model, width: layout.contentInnerWidth)
                     }
-
-                    DemoActivityCard(model: model)
-                        .frame(width: layout.contentInnerWidth, alignment: .leading)
 
                     if !layout.showsSidebar {
                         VStack(alignment: .leading, spacing: DemoMetrics.s2) {
@@ -1310,14 +1494,14 @@ struct DemoHeroCard: View {
                     .foregroundColor(palette.onAccentPrimary)
                     .multilineTextAlignment(.leading)
                     .lineLimit(1)
-                    .padding(.top, DemoMetrics.s3)
+                    .padding(.top, layout.verticallyCompact ? DemoMetrics.s2 : DemoMetrics.s3)
 
                 Text(model.selectedModule.summary)
                     .font(.system(size: 14, weight: .regular))
                     .foregroundColor(palette.onAccentSecondary)
                     .multilineTextAlignment(.leading)
                     .lineLimit(1)
-                    .padding(.top, DemoMetrics.s1 + 2)
+                    .padding(.top, layout.verticallyCompact ? DemoMetrics.s1 : DemoMetrics.s1 + 2)
 
                 HStack(alignment: .center, spacing: DemoMetrics.s2 + 2) {
                     DemoButton(
@@ -1336,16 +1520,14 @@ struct DemoHeroCard: View {
 
                     Spacer(minLength: 0)
                 }
-                .padding(.top, DemoMetrics.s5)
+                .padding(.top, layout.verticallyCompact ? DemoMetrics.s3 : DemoMetrics.s5)
             }
-            .padding(DemoMetrics.s6)
+            .padding(layout.heroContentPadding)
         }
-        // `minHeight`, not `height`: 172 is the card's rhythm, but a
-        // fixed-height card answers an overflow by *squeezing its children* —
-        // which is how the action row came out 19pt tall for a 28pt control.
-        // The card grows instead, and at every reachable window size it grows
-        // by the handful of points the line boxes actually need.
-        .frame(minHeight: layout.heroHeight, alignment: .topLeading)
+        // `minHeight`, not `height`: a compact window earns a tighter
+        // presentation, never a fixed box that squeezes its controls. The
+        // existing 172pt rhythm remains the spacious-window contract.
+        .frame(minHeight: layout.presentationHeroHeight, alignment: .topLeading)
         .background(
             LinearGradient(
                 colors: [DemoSignature.accentFill, model.selectedModule.signatureStop],
@@ -1374,14 +1556,14 @@ struct DemoStatBand: View {
         if layout.stacksMetrics {
             VStack(alignment: .leading, spacing: layout.cardGap) {
                 ForEach(cards, id: \.title) { card in
-                    DemoStatCard(card: card)
+                    DemoStatCard(card: card, compact: layout.verticallyCompact)
                         .frame(width: layout.contentInnerWidth, alignment: .leading)
                 }
             }
         } else {
             HStack(alignment: .top, spacing: layout.cardGap) {
                 ForEach(cards, id: \.title) { card in
-                    DemoStatCard(card: card)
+                    DemoStatCard(card: card, compact: layout.verticallyCompact)
                         .frame(width: layout.statCardWidth, alignment: .leading)
                 }
             }
@@ -1439,11 +1621,17 @@ struct DemoStatCard: View {
     @Environment(\.colorScheme) private var colorScheme
 
     let card: DemoStat
+    let compact: Bool
+
+    init(card: DemoStat, compact: Bool = false) {
+        self.card = card
+        self.compact = compact
+    }
 
     private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
 
     var body: some View {
-        DemoCard(padding: DemoMetrics.s4) {
+        DemoCard(padding: compact ? DemoMetrics.s3 : DemoMetrics.s4) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center, spacing: DemoMetrics.s2) {
                     Image(systemName: card.systemImage)
@@ -1454,10 +1642,10 @@ struct DemoStatCard: View {
                 }
 
                 Text(card.value)
-                    .font(DemoType.metric)
+                    .font(compact ? DemoType.metricSmall : DemoType.metric)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                    .padding(.top, DemoMetrics.s2 + 2)
+                    .padding(.top, compact ? DemoMetrics.s1 + 2 : DemoMetrics.s2 + 2)
 
                 HStack(alignment: .center, spacing: DemoMetrics.s2 - 2) {
                     DemoDeltaLabel(delta: card.delta)
@@ -1469,13 +1657,13 @@ struct DemoStatCard: View {
 
                     Spacer(minLength: 0)
                 }
-                .padding(.top, DemoMetrics.s1 + 2)
+                .padding(.top, compact ? DemoMetrics.s1 : DemoMetrics.s1 + 2)
 
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(height: 104, alignment: .topLeading)
+        .frame(height: compact ? 88 : 104, alignment: .topLeading)
     }
 }
 
@@ -1544,6 +1732,14 @@ enum DemoChartRange: String, CaseIterable, Hashable {
         case .all: return "All"
         }
     }
+
+    var subtitle: String {
+        switch self {
+        case .day: return "Draw calls per frame — last 10 frames"
+        case .week: return "Draw calls per frame — last 7 days"
+        case .all: return "Draw calls per frame — last 12 months"
+        }
+    }
 }
 
 struct DemoChartBar: Hashable {
@@ -1569,11 +1765,11 @@ struct DemoChartCard: View {
     private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
 
     private var bars: [DemoChartBar] {
-        Self.bars(interactions: model.interactionCount)
+        Self.bars(interactions: model.interactionCount, range: range)
     }
 
     var body: some View {
-        DemoCard(padding: DemoMetrics.s5) {
+        DemoCard(padding: layout.chartCardPadding) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center, spacing: DemoMetrics.s3) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -1582,7 +1778,7 @@ struct DemoChartCard: View {
                             .foregroundStyle(.primary)
                             .lineLimit(1)
 
-                        Text("Draw calls per frame — last 10 frames")
+                        Text(range.subtitle)
                             .font(DemoType.caption)
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
@@ -1611,7 +1807,7 @@ struct DemoChartCard: View {
                     height: layout.chartPlotHeight,
                     hoveredIndex: $hoveredIndex
                 )
-                .padding(.top, DemoMetrics.s4)
+                .padding(.top, layout.verticallyCompact ? DemoMetrics.s3 : DemoMetrics.s4)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -1620,11 +1816,32 @@ struct DemoChartCard: View {
     /// A deterministic, seed-style series so a screenshot stays stable across
     /// runs but still moves with the interaction count.
     static func bars(interactions: Int) -> [DemoChartBar] {
-        let pattern: [Double] = [0.35, 0.52, 0.40, 0.68, 0.56, 0.82, 0.64, 0.94, 0.72, 0.58]
+        bars(interactions: interactions, range: .day)
+    }
+
+    /// Each period has its own stable sample cadence and x-axis labels. The
+    /// daily series deliberately remains byte-for-byte identical to the
+    /// original chart, preserving every existing screenshot and parity test.
+    static func bars(interactions: Int, range: DemoChartRange) -> [DemoChartBar] {
+        let pattern: [Double]
+        let labels: [String]
+
+        switch range {
+        case .day:
+            pattern = [0.35, 0.52, 0.40, 0.68, 0.56, 0.82, 0.64, 0.94, 0.72, 0.58]
+            labels = pattern.indices.map { "\($0 + 1)" }
+        case .week:
+            pattern = [0.41, 0.56, 0.49, 0.73, 0.64, 0.88, 0.70]
+            labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        case .all:
+            pattern = [0.28, 0.34, 0.39, 0.44, 0.50, 0.47, 0.58, 0.63, 0.69, 0.74, 0.81, 0.92]
+            labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        }
+
         return pattern.enumerated().map { index, base in
             let phase = (Double(index) + Double(interactions) * 0.13).truncatingRemainder(dividingBy: 1)
             let value = min(1, max(0.10, base + phase * 0.10)) * 40
-            return DemoChartBar(index: index, value: value, label: "\(index + 1)")
+            return DemoChartBar(index: index, value: value, label: labels[index])
         }
     }
 }
@@ -1986,14 +2203,29 @@ struct DemoChartXLabels: View {
 
 struct DemoActivityCard: View {
     @ObservedObject var model: DemoDashboardModel
+    let compact: Bool
+
+    init(model: DemoDashboardModel, compact: Bool = false) {
+        self.model = model
+        self.compact = compact
+    }
 
     var body: some View {
-        DemoCard(padding: DemoMetrics.s4) {
+        DemoCard(padding: compact ? DemoMetrics.s3 : DemoMetrics.s4) {
             VStack(alignment: .leading, spacing: DemoMetrics.s2) {
-                Text("Activity")
-                    .font(DemoType.cardTitle)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
+                HStack(alignment: .center, spacing: DemoMetrics.s2) {
+                    Text("Activity")
+                        .font(DemoType.cardTitle)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    Spacer(minLength: DemoMetrics.s2)
+
+                    Text("\(model.recentEvents.count) recent")
+                        .font(DemoType.captionStrong)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
 
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(model.recentEvents.prefix(5).enumerated()), id: \.offset) { entry in
@@ -2200,14 +2432,22 @@ struct DemoLayout {
 
     var compact: Bool { size.width < 1180 || size.height < 760 }
 
+    /// Width decides which columns survive; only height decides whether the
+    /// surviving content should trade decorative whitespace for live data.
+    var verticallyCompact: Bool { size.height < 760 }
+
     // MARK: Page rhythm
 
     /// The page margin inside the content column. The columns themselves are
     /// full-bleed: a shell separated by gutters between floating panels is
     /// what read as stacked slabs.
-    var pageMargin: CGFloat { compact ? DemoMetrics.s5 : DemoMetrics.s6 }
+    var pageMargin: CGFloat {
+        verticallyCompact ? DemoMetrics.s4 : (compact ? DemoMetrics.s5 : DemoMetrics.s6)
+    }
     /// Group to next group.
-    var sectionGap: CGFloat { compact ? DemoMetrics.s5 : DemoMetrics.s6 }
+    var sectionGap: CGFloat {
+        verticallyCompact ? DemoMetrics.s4 : (compact ? DemoMetrics.s5 : DemoMetrics.s6)
+    }
     /// Card to sibling card.
     var cardGap: CGFloat { DemoMetrics.s3 }
 
@@ -2269,11 +2509,14 @@ struct DemoLayout {
     // MARK: Content metrics
 
     var heroHeight: CGFloat { 172 }
+    var presentationHeroHeight: CGFloat { verticallyCompact ? 148 : heroHeight }
+    var heroContentPadding: CGFloat { verticallyCompact ? DemoMetrics.s4 : DemoMetrics.s6 }
     var ambienceHeight: CGFloat { 320 }
-    var chartPlotHeight: CGFloat { compact ? 120 : 148 }
+    var chartCardPadding: CGFloat { verticallyCompact ? DemoMetrics.s4 : DemoMetrics.s5 }
+    var chartPlotHeight: CGFloat { verticallyCompact ? 96 : (compact ? 120 : 148) }
     /// The plot's own width: the card's interior less its 20pt padding and
     /// the 1pt ring it draws around itself.
-    var chartInnerWidth: CGFloat { max(240, contentInnerWidth - DemoMetrics.s5 * 2 - 2) }
+    var chartInnerWidth: CGFloat { max(240, contentInnerWidth - chartCardPadding * 2 - 2) }
     var showsChartLegend: Bool { chartInnerWidth >= 460 }
 
     var statCardWidth: CGFloat {
@@ -2507,6 +2750,17 @@ public enum DemoThemeOption: String, CaseIterable, Hashable {
     case system
     case light
     case dark
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system:
+            return nil
+        case .light:
+            return .light
+        case .dark:
+            return .dark
+        }
+    }
 }
 
 /// A runtime component row shown on the data screen.
@@ -2521,6 +2775,20 @@ public struct DemoComponent: Identifiable, Hashable, Sendable {
     var isHealthy: Bool { load < 0.85 }
     var statusLabel: String { isHealthy ? "Healthy" : "Degraded" }
     var loadPercent: String { "\(Int((load * 100).rounded()))%" }
+
+    /// Restarting is a real state transition: pressure falls to a healthy,
+    /// deterministic baseline and the table, inspector, and status-filter
+    /// results all update from the same replacement value.
+    func restarted() -> DemoComponent {
+        DemoComponent(
+            id: id,
+            name: name,
+            detail: detail,
+            version: version,
+            systemImage: systemImage,
+            load: max(0.08, min(0.35, load * 0.4))
+        )
+    }
 
     static let defaults: [DemoComponent] = [
         DemoComponent(
@@ -2569,17 +2837,29 @@ struct DemoSettingsScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Settings")
-                    .font(DemoType.screenTitle)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .padding(.top, DemoMetrics.s8)
+                HStack(alignment: .center, spacing: DemoMetrics.s4) {
+                    VStack(alignment: .leading, spacing: DemoMetrics.s1) {
+                        Text("Settings")
+                            .font(DemoType.screenTitle)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
 
-                Text("Configure the demo shell")
-                    .font(DemoType.titleSub)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .padding(.top, DemoMetrics.s1)
+                        Text("Configure the demo shell")
+                            .font(DemoType.titleSub)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: DemoMetrics.s4)
+
+                    // The page's one primary action is useful at the top of
+                    // every window instead of below three scrolling groups.
+                    DemoButton("Save Settings", kind: .accent, horizontalPadding: DemoMetrics.s4) {
+                        model.saveSettings()
+                    }
+                }
+                .padding(.top, DemoMetrics.s6)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 DemoSettingsSection("Profile") {
                     VStack(alignment: .leading, spacing: 0) {
@@ -2689,33 +2969,28 @@ struct DemoSettingsScreen: View {
                     }
                 }
 
-                // A left-aligned row of buttons, not full-width rows. Exactly
-                // one of them is filled: a settings pane that shouts twice has
-                // told you nothing about which button matters.
+                // Secondary actions stay in their own quiet, neutral group;
+                // the only filled primary action already lives in the header.
                 Text("Actions")
                     .font(DemoType.section)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                    .padding(.top, DemoMetrics.s6)
+                    .padding(.top, DemoMetrics.s4)
                     .padding(.bottom, DemoMetrics.s2)
 
                 HStack(alignment: .center, spacing: DemoMetrics.s2) {
-                    DemoButton("Save Settings", kind: .accent, horizontalPadding: DemoMetrics.s4) {
-                        model.saveSettings()
-                    }
-
-                    // A neutral chassis with a danger label. A filled red
-                    // button in a settings list is a threat, not an option.
-                    DemoButton("Reset To Defaults", labelColor: palette.danger) {
-                        model.resetSettings()
-                    }
-
                     DemoButton("Open Second Window") {
                         openWindow(id: "main-dashboard")
                     }
 
                     DemoButton("Import File…") {
                         isImporterPresented = true
+                    }
+
+                    // A neutral chassis with a danger label. A filled red
+                    // button in a settings list is a threat, not an option.
+                    DemoButton("Reset To Defaults", labelColor: palette.danger) {
+                        model.resetSettings()
                     }
 
                     Spacer(minLength: 0)
@@ -2725,10 +3000,10 @@ struct DemoSettingsScreen: View {
                     .font(DemoType.caption)
                     .foregroundStyle(.quaternary)
                     .lineLimit(1)
-                    .padding(.top, DemoMetrics.s6)
-                    .padding(.bottom, DemoMetrics.s8)
+                    .padding(.top, DemoMetrics.s4)
+                    .padding(.bottom, DemoMetrics.s6)
             }
-            .frame(width: DemoMetrics.settingsColumnWidth, alignment: .leading)
+            .frame(maxWidth: DemoMetrics.settingsColumnWidth, alignment: .leading)
             .padding(.horizontal, DemoMetrics.s6)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -2771,7 +3046,7 @@ struct DemoSettingsSection<Content: View>: View {
                 .font(DemoType.section)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-                .padding(.top, DemoMetrics.s6)
+                .padding(.top, DemoMetrics.s4)
                 .padding(.bottom, DemoMetrics.s2)
 
             // The caller supplies the row stack. Re-wrapping a
@@ -2844,7 +3119,7 @@ struct DemoSettingsRow<Control: View>: View {
 
                 control
             }
-            .padding(.vertical, DemoMetrics.s2)
+            .padding(.vertical, DemoMetrics.s1)
             .frame(
                 minHeight: description == nil ? DemoMetrics.listRowHeight : 52,
                 alignment: .leading
@@ -2896,13 +3171,18 @@ struct DemoDataScreen: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        ForEach(model.components, id: \.id) { component in
-                            DemoComponentRow(
-                                component: component,
-                                metrics: metrics,
-                                isSelected: model.selectedComponentID == component.id
-                            ) {
-                                model.selectComponent(component)
+                        if model.displayedComponents.isEmpty {
+                            DemoComponentEmptyState(model: model)
+                                .frame(width: proxy.size.width, alignment: .center)
+                        } else {
+                            ForEach(model.displayedComponents, id: \.id) { component in
+                                DemoComponentRow(
+                                    component: component,
+                                    metrics: metrics,
+                                    isSelected: model.selectedComponentID == component.id
+                                ) {
+                                    model.selectComponent(component)
+                                }
                             }
                         }
                     }
@@ -2913,6 +3193,13 @@ struct DemoDataScreen: View {
                 .onDrop(of: [.fileURL], isTargeted: nil) { providers in
                     model.noteDroppedItems(count: providers.count)
                     return true
+                }
+
+                if model.componentPageCount > 1 {
+                    DemoRule(palette.strokeSubtle, length: proxy.size.width)
+
+                    DemoComponentPagination(model: model)
+                        .frame(width: proxy.size.width, height: 48, alignment: .leading)
                 }
 
                 DemoRule(palette.strokeStrong, length: proxy.size.width)
@@ -2964,14 +3251,14 @@ struct DemoDataHeader: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
 
-            Text("\(model.components.count) components")
+            Text(componentCountLabel)
                 .font(DemoType.caption)
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
 
             Spacer(minLength: DemoMetrics.s4)
 
-            DemoFilterField()
+            DemoFilterField(model: model)
         }
         .padding(.horizontal, DemoMetrics.s6)
         .frame(height: DemoMetrics.dataHeaderHeight)
@@ -2982,10 +3269,19 @@ struct DemoDataHeader: View {
         // and broke the chrome unit the two are supposed to make.
         .background(.bar)
     }
+
+    private var componentCountLabel: String {
+        let total = model.components.count
+        let visible = model.displayedComponents.count
+        return model.componentFilter.isEmpty && visible == total
+            ? "\(total) components" : "\(visible) of \(total) components"
+    }
 }
 
 struct DemoFilterField: View {
     @Environment(\.colorScheme) private var colorScheme
+
+    @ObservedObject var model: DemoDashboardModel
 
     private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
 
@@ -2995,12 +3291,21 @@ struct DemoFilterField: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.tertiary)
 
-            Text("Filter components")
+            TextField("Filter components", text: $model.componentFilter)
                 .font(DemoType.controlLabel)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
+                .textFieldStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            Spacer(minLength: 0)
+            if !model.componentFilter.isEmpty {
+                Button(action: { model.clearComponentFilter() }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: DemoMetrics.s5, height: DemoMetrics.s5)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear component filter")
+            }
         }
         .padding(.horizontal, DemoMetrics.s2 + 2)
         .frame(width: 240, height: DemoMetrics.controlHeight)
@@ -3009,7 +3314,75 @@ struct DemoFilterField: View {
         .padding(1)
         .background(palette.stroke)
         .cornerRadius(DemoMetrics.radiusSM + 1)
-        .allowsHitTesting(false)
+    }
+}
+
+/// Pagination is structural, not decorative: it only takes vertical space
+/// when the current filter actually spans multiple pages, preserving the
+/// default eight-component screenshot and every minimum-window layout.
+struct DemoComponentPagination: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject var model: DemoDashboardModel
+
+    private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: DemoMetrics.s3) {
+            Text(model.componentPageSummary)
+                .font(DemoType.captionStrong)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            Spacer(minLength: DemoMetrics.s3)
+
+            Text("Page \(model.componentPage + 1) of \(model.componentPageCount)")
+                .font(DemoType.caption)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+
+            DemoButton("Previous") {
+                model.selectPreviousComponentPage()
+            }
+            .disabled(!model.hasPreviousComponentPage)
+            .opacity(model.hasPreviousComponentPage ? 1 : 0.45)
+
+            DemoButton("Next") {
+                model.selectNextComponentPage()
+            }
+            .disabled(!model.hasNextComponentPage)
+            .opacity(model.hasNextComponentPage ? 1 : 0.45)
+        }
+        .padding(.horizontal, DemoTableMetrics.inset)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(palette.surface0)
+    }
+}
+
+/// The table's empty state keeps the same monochrome icon, type ramp, and
+/// neutral button chassis as the rest of the demo while offering a real exit.
+struct DemoComponentEmptyState: View {
+    @ObservedObject var model: DemoDashboardModel
+
+    var body: some View {
+        VStack(alignment: .center, spacing: DemoMetrics.s2) {
+            DemoIconTile(systemImage: "magnifyingglass")
+
+            Text("No matching components")
+                .font(DemoType.cardTitle)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+
+            Text("Try another search or clear the current filter")
+                .font(DemoType.body)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            DemoButton("Clear filter") {
+                model.clearComponentFilter()
+            }
+            .padding(.top, DemoMetrics.s2)
+        }
+        .padding(.vertical, DemoMetrics.s16)
     }
 }
 

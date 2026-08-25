@@ -270,7 +270,10 @@ private struct RasterTarget {
                     pixelX: x, pixelY: y, extraEdgeSoftness: extraEdgeSoftness, distanceAt: distanceAt)
                 guard coverage > 0 else { continue }
 
-                let color = shadedQuadColor(quad, start: start, end: end, localX: localX, localY: localY, rect: rect)
+                guard
+                    let color = shadedQuadColor(
+                        quad, start: start, end: end, localX: localX, localY: localY, rect: rect)
+                else { continue }
                 blend(color.withAlphaMultiplier(Float(coverage * clipAlpha)), x: x, y: y)
             }
         }
@@ -334,7 +337,10 @@ private struct RasterTarget {
                 let coverage = GPUIQuadCoverage.coverage(pixelX: x, pixelY: y, distanceAt: distanceAt)
                 guard coverage > 0 else { continue }
 
-                let color = shadedQuadColor(quad, start: start, end: end, localX: localX, localY: localY, rect: rect)
+                guard
+                    let color = shadedQuadColor(
+                        quad, start: start, end: end, localX: localX, localY: localY, rect: rect)
+                else { continue }
                 let offset = ((y - bounds.y0) * regionWidth + (x - bounds.x0)) * 4
                 // The blurred backdrop is premultiplied, matching the
                 // render target the GPU's blur pass copies from.
@@ -373,13 +379,24 @@ private struct RasterTarget {
         localX: Double,
         localY: Double,
         rect: Rect
-    ) -> RasterColor {
-        let progress: Float
+    ) -> RasterColor? {
+        var progress: Float
         if quad.gradientAxis > 0.5 {
             progress = Float(clamp((localX - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1))
         } else {
             progress = Float(clamp((localY - rect.minY) / max(rect.size.height, 1), lower: 0, upper: 1))
         }
+
+        if quad.gradientSegmentMode > 0.5 {
+            let start = quad.gradientSegmentStart
+            let end = quad.gradientSegmentEnd
+            let isFinalSegment = quad.gradientSegmentMode > 1.5
+            guard progress >= start, progress <= end, isFinalSegment || progress < end else {
+                return nil
+            }
+            progress = clamp((progress - start) / max(end - start, 0.000_001), lower: 0, upper: 1)
+        }
+
         let color = start.interpolated(to: end, progress: progress)
         // 8 = luminanceToAlpha, branched in psMain rather than inside
         // applyColorEffect because it writes alpha as well as rgb.

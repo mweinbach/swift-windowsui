@@ -76,7 +76,13 @@ extension GPUIScene {
                     from: cmd,
                     effectiveClip: effectiveClip
                 )
-                self.addQuad(quad)
+                if case .linear(let gradient) = cmd.gradient {
+                    for segment in quad.segmented(for: gradient) {
+                        self.addQuad(segment)
+                    }
+                } else {
+                    self.addQuad(quad)
+                }
 
             case .drawBitmap(let cmd):
                 // Skip commands that result in an empty effective clip
@@ -261,7 +267,8 @@ extension GPUIScene {
     /// Converts a `FillRectCommand` to a `QuadPrimitive`.
     ///
     /// Gradient handling (VAL-SCENE-011):
-    /// - Linear gradients: Mapped to quad gradient fields
+    /// - Linear gradients: All stops are mapped to non-overlapping quad
+    ///   intervals; ordinary two-stop fills retain their single primitive.
     /// - Radial/conic gradients: Fallback to base color (`cmd.color`)
     private static func makeQuad(
         from cmd: FillRectCommand,

@@ -90,6 +90,60 @@ private func win32HighResolutionTimerCallback(_ param: UnsafeMutableRawPointer?,
         gate.consumePost()
     }
 }
+
+/// Decodes the UTF-16 code units delivered by a Unicode window's `WM_CHAR`
+/// messages. Supplementary-plane characters arrive as two separate messages;
+/// treating either surrogate as an independent Unicode scalar drops emoji and
+/// other characters outside the basic multilingual plane.
+struct Win32UTF16TextInputDecoder {
+    private var pendingHighSurrogate: UInt16?
+
+    mutating func append(_ codeUnit: UInt16) -> String? {
+        if (0xD800...0xDBFF).contains(codeUnit) {
+            pendingHighSurrogate = codeUnit
+            return nil
+        }
+
+        if (0xDC00...0xDFFF).contains(codeUnit) {
+            guard let highSurrogate = pendingHighSurrogate else {
+                return nil
+            }
+
+            pendingHighSurrogate = nil
+            let scalarValue =
+                0x1_0000 + (UInt32(highSurrogate - 0xD800) << 10) + UInt32(codeUnit - 0xDC00)
+            guard let scalar = Unicode.Scalar(scalarValue) else {
+                return nil
+            }
+            return String(scalar)
+        }
+
+        // An interrupted or malformed surrogate pair must not poison the next
+        // ordinary keystroke.
+        pendingHighSurrogate = nil
+
+        if codeUnit == 0x000D {
+            // Win32 sends carriage return for Enter; SwiftUI text editors use
+            // a single line-feed character internally.
+            return "\n"
+        }
+
+        guard codeUnit >= 0x0020, codeUnit != 0x007F,
+            let scalar = Unicode.Scalar(UInt32(codeUnit))
+        else {
+            // Backspace, Tab, Escape and Ctrl-generated ASCII controls have
+            // already been handled as key-down commands.
+            return nil
+        }
+
+        return String(scalar)
+    }
+
+    mutating func reset() {
+        pendingHighSurrogate = nil
+    }
+}
+
 @MainActor
 public protocol WindowDelegate: AnyObject {
     func windowDidCreate(_ window: Win32Window)
@@ -106,7 +160,13 @@ public protocol WindowDelegate: AnyObject {
     func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double, source: ScrollInputSource)
     func window(_ window: Win32Window, leftMouseDownAt point: Point)
     func window(_ window: Win32Window, leftMouseUpAt point: Point)
+    /// Ends an interrupted pointer press or drag without activating its control.
+    func windowDidCancelPointerInteraction(_ window: Win32Window)
     func window(_ window: Win32Window, keyDown event: KeyboardEvent)
+    /// Text translated by the active Windows keyboard layout. Unlike a
+    /// virtual-key code, this includes shifted punctuation, Caps Lock, AltGr,
+    /// dead-key composition, international layouts, and supplementary Unicode.
+    func window(_ window: Win32Window, didInputText text: String)
     func windowDidLoseKeyboardFocus(_ window: Win32Window)
     func windowWillClose(_ window: Win32Window)
     func windowDidChangeDisplay(_ window: Win32Window)
@@ -148,7 +208,9 @@ extension WindowDelegate {
     }
     public func window(_ window: Win32Window, leftMouseDownAt point: Point) {}
     public func window(_ window: Win32Window, leftMouseUpAt point: Point) {}
+    public func windowDidCancelPointerInteraction(_ window: Win32Window) {}
     public func window(_ window: Win32Window, keyDown event: KeyboardEvent) {}
+    public func window(_ window: Win32Window, didInputText text: String) {}
     public func windowDidLoseKeyboardFocus(_ window: Win32Window) {}
     public func windowWillClose(_ window: Win32Window) {}
     public func windowDidChangeDisplay(_ window: Win32Window) {}
@@ -259,6 +321,12 @@ public final class Win32Window {
 
     private var hwnd: HWND?
     private var isTrackingMouseLeave = false
+    /// Multiple buttons can share one Win32 capture; releasing one must not
+    /// abandon a drag that another button still owns.
+    private var capturedMouseButtonMask: UInt8 = 0
+    /// `ReleaseCapture()` delivers `WM_CAPTURECHANGED` synchronously. Normal
+    /// button-up must not cancel its own press before the delegate can handle it.
+    private var isReleasingPointerCapture = false
     private var isAnimationTimerRunning = false
 
     // Size-move tracking
@@ -305,6 +373,12 @@ public final class Win32Window {
     /// Injectable IMM32 seam; defaults to the live IMM32 API. Tests
     /// substitute a fake so composition translation stays headless.
     public var imeCompositionContextProvider: any IMECompositionContextProvider = Win32IMECompositionContextProvider()
+    /// `WM_CHAR` is UTF-16, not Unicode-scalar-per-message.
+    private var textInputDecoder = Win32UTF16TextInputDecoder()
+    /// An active IME owns its marked/result text. Some IMEs also forward a
+    /// `WM_CHAR` while composing; processing it as ordinary keyboard input
+    /// would clear the marked text or commit the result twice.
+    private var isIMECompositionActive = false
 
     // High-resolution timer support
     public var useHighResolutionTimer: Bool = false
@@ -1602,54 +1676,91 @@ public final class Win32Window {
             delegate?.window(
                 self,
                 horizontalScrollAt: Self.clientPoint(fromScreenLParam: lParam, hwnd: hwnd),
-                delta: Self.mouseWheelDelta(from: wParam, unit: .characters),
+                // Horizontal Win32 deltas use the opposite direction contract:
+                // positive means right, whereas the retained scroll offset
+                // advances when its wheel delta is negative.
+                delta: -Self.mouseWheelDelta(from: wParam, unit: .characters),
                 source: Self.scrollInputSource(from: wParam)
             )
             return 0
 
         case UINT(WM_LBUTTONDOWN):
             SetFocus(hwnd)
-            SetCapture(hwnd)
+            beginMouseCapture(for: .left, hwnd: hwnd)
             delegate?.window(self, leftMouseDownAt: Self.point(from: lParam))
             return 0
 
         case UINT(WM_LBUTTONUP):
-            ReleaseCapture()
+            endMouseCapture(for: .left)
             delegate?.window(self, leftMouseUpAt: Self.point(from: lParam))
             return 0
 
         case UINT(WM_LBUTTONDBLCLK):
             let point = Self.point(from: lParam)
             let event = MouseEvent(button: .left, position: point, clickCount: 2)
+            // Windows replaces the second WM_LBUTTONDOWN with this message.
+            // It is still a real press: SwiftUI buttons, sliders, text fields,
+            // and draggable views all need the ordinary pointer-down path.
+            SetFocus(hwnd)
+            beginMouseCapture(for: .left, hwnd: hwnd)
+            delegate?.window(self, leftMouseDownAt: point)
             delegate?.windowDidReceiveDoubleClick(self, event: event)
             return 0
 
         case UINT(WM_RBUTTONDOWN):
-            SetCapture(hwnd)
+            beginMouseCapture(for: .right, hwnd: hwnd)
             let point = Self.point(from: lParam)
             let event = MouseEvent(button: .right, position: point)
             delegate?.windowDidReceiveRightClick(self, event: event)
             return 0
 
         case UINT(WM_RBUTTONUP):
-            ReleaseCapture()
+            endMouseCapture(for: .right)
             return 0
 
         case UINT(WM_MBUTTONDOWN):
-            SetCapture(hwnd)
+            beginMouseCapture(for: .middle, hwnd: hwnd)
             delegate?.window(self, middleMouseDownAt: Self.point(from: lParam))
             return 0
 
         case UINT(WM_MBUTTONUP):
-            ReleaseCapture()
+            endMouseCapture(for: .middle)
             delegate?.window(self, middleMouseUpAt: Self.point(from: lParam))
             return 0
+
+        case UINT(WM_CAPTURECHANGED):
+            guard !isReleasingPointerCapture else {
+                return 0
+            }
+
+            capturedMouseButtonMask = 0
+            delegate?.windowDidCancelPointerInteraction(self)
+            return 0
+
+        case UINT(WM_CANCELMODE):
+            capturedMouseButtonMask = 0
+            releaseMouseCaptureIfOwned()
+            delegate?.windowDidCancelPointerInteraction(self)
+            return DefWindowProcW(hwnd, message, wParam, lParam)
 
         case UINT(WM_KEYDOWN):
             delegate?.window(self, keyDown: Self.keyboardEvent(from: wParam, lParam: lParam))
             return 0
 
+        case UINT(WM_CHAR):
+            guard !isIMECompositionActive else {
+                textInputDecoder.reset()
+                return 0
+            }
+
+            if let text = textInputDecoder.append(UInt16(truncatingIfNeeded: wParam)) {
+                delegate?.window(self, didInputText: text)
+            }
+            return 0
+
         case UINT(WM_KILLFOCUS):
+            textInputDecoder.reset()
+            isIMECompositionActive = false
             delegate?.windowDidLoseKeyboardFocus(self)
             return 0
 
@@ -1732,6 +1843,8 @@ public final class Win32Window {
             return DefWindowProcW(hwnd, message, wParam, adjustedLParam)
 
         case UINT(WM_IME_STARTCOMPOSITION):
+            isIMECompositionActive = true
+            textInputDecoder.reset()
             updateIMECompositionWindowPosition()
             delegate?.window(self, imeComposition: IMECompositionEvent(phase: .started))
             return DefWindowProcW(hwnd, message, wParam, lParam)
@@ -1748,6 +1861,8 @@ public final class Win32Window {
             return DefWindowProcW(hwnd, message, wParam, lParam)
 
         case UINT(WM_IME_ENDCOMPOSITION):
+            isIMECompositionActive = false
+            textInputDecoder.reset()
             delegate?.window(self, imeComposition: IMECompositionEvent(phase: .ended))
             return DefWindowProcW(hwnd, message, wParam, lParam)
 
@@ -1974,6 +2089,35 @@ public final class Win32Window {
         }
     }
 
+    private func beginMouseCapture(for button: MouseButton, hwnd: HWND?) {
+        capturedMouseButtonMask |= UInt8(1) << button.rawValue
+        // Re-capturing a window that already owns capture can synchronously
+        // report capture changes and clear the other pressed-button bits.
+        // One native capture covers every button in this interaction.
+        if GetCapture() != hwnd {
+            SetCapture(hwnd)
+        }
+    }
+
+    private func endMouseCapture(for button: MouseButton) {
+        capturedMouseButtonMask &= ~(UInt8(1) << button.rawValue)
+        guard capturedMouseButtonMask == 0 else {
+            return
+        }
+
+        releaseMouseCaptureIfOwned()
+    }
+
+    private func releaseMouseCaptureIfOwned() {
+        guard let hwnd, GetCapture() == hwnd else {
+            return
+        }
+
+        isReleasingPointerCapture = true
+        defer { isReleasingPointerCapture = false }
+        ReleaseCapture()
+    }
+
     private static func point(from lParam: LPARAM) -> Point {
         let packed = UInt32(truncatingIfNeeded: lParam)
         let x = Int32(Int16(bitPattern: UInt16(packed & 0xFFFF)))
@@ -2064,7 +2208,8 @@ public final class Win32Window {
         KeyboardEvent(
             keyCode: UInt32(truncatingIfNeeded: wParam),
             modifiers: currentKeyboardModifiers(),
-            isRepeat: (UInt(truncatingIfNeeded: lParam) & 0x4000_0000) != 0
+            isRepeat: (UInt(truncatingIfNeeded: lParam) & 0x4000_0000) != 0,
+            textInputDelivery: .systemCharacter
         )
     }
 

@@ -1160,27 +1160,33 @@ public final class D3D11Renderer: RenderBackend {
 
         let hr = try withDirect2DClip(command.clipRect, deviceContext: deviceContext) {
             if case .linear(let gradient) = command.gradient {
+                let plan = FrameLinearGradientPlan(gradient)
+                let stops = plan.stops.map { stop -> SWU_D2DGradientStop in
+                    var native = SWU_D2DGradientStop()
+                    native.position = stop.position
+                    native.red = stop.color.red
+                    native.green = stop.color.green
+                    native.blue = stop.color.blue
+                    native.alpha = stop.color.alpha
+                    return native
+                }
                 let axis: Int32 = gradient.axis == .horizontal
                     ? Int32(SWU_D2D_GRADIENT_AXIS_HORIZONTAL)
                     : Int32(SWU_D2D_GRADIENT_AXIS_VERTICAL)
-                return SWU_D2DFillRectGradient(
-                    deviceContext,
-                    Float(command.rect.minX),
-                    Float(command.rect.minY),
-                    Float(command.rect.maxX),
-                    Float(command.rect.maxY),
-                    Float(max(command.cornerRadius, 0)),
-                    Float(max(command.cornerRadius, 0)),
-                    gradient.startColor.red,
-                    gradient.startColor.green,
-                    gradient.startColor.blue,
-                    gradient.startColor.alpha,
-                    gradient.endColor.red,
-                    gradient.endColor.green,
-                    gradient.endColor.blue,
-                    gradient.endColor.alpha,
-                    axis
-                )
+                return stops.withUnsafeBufferPointer { buffer in
+                    SWU_D2DFillRectGradientStops(
+                        deviceContext,
+                        Float(command.rect.minX),
+                        Float(command.rect.minY),
+                        Float(command.rect.maxX),
+                        Float(command.rect.maxY),
+                        Float(max(command.cornerRadius, 0)),
+                        Float(max(command.cornerRadius, 0)),
+                        buffer.baseAddress,
+                        UInt32(buffer.count),
+                        axis
+                    )
+                }
             }
 
             return SWU_D2DFillRectSolid(
@@ -1295,8 +1301,9 @@ public final class D3D11Renderer: RenderBackend {
             if case .linear(let lg) = scaledCommand.gradient { return lg }
             return nil
         }()
-        let startColor = linearGradient?.startColor ?? scaledCommand.color
-        let endColor = linearGradient?.endColor ?? scaledCommand.color
+        let gradientPlan = linearGradient.map(FrameLinearGradientPlan.init)
+        let startColor = gradientPlan?.segments.first?.startColor ?? scaledCommand.color
+        let endColor = gradientPlan?.segments.first?.endColor ?? scaledCommand.color
         let gradientAxis: Float = {
             switch linearGradient?.axis {
             case .horizontal:
@@ -1322,16 +1329,41 @@ public final class D3D11Renderer: RenderBackend {
             endRed: endColor.red,
             endGreen: endColor.green,
             endBlue: endColor.blue,
-            endAlpha: endColor.alpha
+            endAlpha: endColor.alpha,
+            gradientSegmentStart: 0,
+            gradientSegmentEnd: 0,
+            gradientSegmentMode: 0,
+            gradientSegmentPadding: 0
         )
 
         let constantBufferResource = UnsafeMutableRawPointer(constantBuffer).assumingMemoryBound(to: ID3D11Resource.self)
 
-        withUnsafePointer(to: &uniforms) { pointer in
-            deviceContext.pointee.lpVtbl.pointee.UpdateSubresource(deviceContext, constantBufferResource, 0, nil, UnsafeRawPointer(pointer), 0, 0)
+        func submitRectangle() {
+            withUnsafePointer(to: &uniforms) { pointer in
+                deviceContext.pointee.lpVtbl.pointee.UpdateSubresource(
+                    deviceContext, constantBufferResource, 0, nil, UnsafeRawPointer(pointer), 0, 0)
+            }
+            deviceContext.pointee.lpVtbl.pointee.Draw(deviceContext, 6, 0)
         }
 
-        deviceContext.pointee.lpVtbl.pointee.Draw(deviceContext, 6, 0)
+        if let gradientPlan {
+            for (index, segment) in gradientPlan.segments.enumerated() {
+                uniforms.startRed = segment.startColor.red
+                uniforms.startGreen = segment.startColor.green
+                uniforms.startBlue = segment.startColor.blue
+                uniforms.startAlpha = segment.startColor.alpha
+                uniforms.endRed = segment.endColor.red
+                uniforms.endGreen = segment.endColor.green
+                uniforms.endBlue = segment.endColor.blue
+                uniforms.endAlpha = segment.endColor.alpha
+                uniforms.gradientSegmentStart = segment.start
+                uniforms.gradientSegmentEnd = segment.end
+                uniforms.gradientSegmentMode = gradientPlan.segmentMode(at: index)
+                submitRectangle()
+            }
+        } else {
+            submitRectangle()
+        }
     }
 
     private func draw(
@@ -1666,6 +1698,41 @@ public final class D3D11Renderer: RenderBackend {
     }
 }
 
+/// One normalized gradient plan feeds both live frame presenters. Direct2D
+/// consumes the authored stop sequence in a single native brush; D3D11 draws
+/// the same disjoint full-footprint intervals used by the scene shaders.
+/// Rebuilding stops from the shared segment policy preserves endpoint
+/// extension and duplicate-position hard transitions without trusting raw
+/// non-finite or unbounded app-authored input.
+internal struct FrameLinearGradientPlan: Equatable, Sendable {
+    let segments: [LinearGradientSegment]
+    let stops: [GradientStop]
+
+    init(_ gradient: LinearGradient) {
+        let segments = gradient.renderedSegments
+        self.segments = segments
+
+        var stops: [GradientStop] = []
+        stops.reserveCapacity(segments.count + 1)
+        for segment in segments {
+            let start = GradientStop(color: segment.startColor, position: segment.start)
+            if stops.last != start {
+                stops.append(start)
+            }
+            stops.append(GradientStop(color: segment.endColor, position: segment.end))
+        }
+        self.stops = stops
+    }
+
+    /// A lone interval keeps the historical one-draw, unmasked shader path.
+    /// Interior boundaries are half-open so translucent stops never blend
+    /// twice; only the final interval owns its upper endpoint.
+    func segmentMode(at index: Int) -> Float {
+        guard segments.count > 1 else { return 0 }
+        return index == segments.count - 1 ? 2 : 1
+    }
+}
+
 private struct RectangleUniforms {
     // float4 boundary 1
     var surfaceWidth: Float
@@ -1687,6 +1754,11 @@ private struct RectangleUniforms {
     var endGreen: Float
     var endBlue: Float
     var endAlpha: Float
+    // float4 boundary 5
+    var gradientSegmentStart: Float
+    var gradientSegmentEnd: Float
+    var gradientSegmentMode: Float
+    var gradientSegmentPadding: Float
 }
 
 #if DEBUG
@@ -1958,6 +2030,7 @@ cbuffer RectangleUniforms : register(b0)
     float gradientAxis;
     float4 startColor;
     float4 endColor;
+    float4 gradientSegment;
 };
 
 struct VSOutput
@@ -1969,6 +2042,7 @@ struct VSOutput
     float gradientAxis : TEXCOORD3;
     float4 startColor : COLOR0;
     float4 endColor : COLOR1;
+    float3 gradientSegment : TEXCOORD4;
 };
 
 VSOutput vsMain(uint vertexID : SV_VertexID)
@@ -1997,6 +2071,7 @@ VSOutput vsMain(uint vertexID : SV_VertexID)
     output.gradientAxis = gradientAxis;
     output.startColor = startColor;
     output.endColor = endColor;
+    output.gradientSegment = gradientSegment.xyz;
     return output;
 }
 
@@ -2019,6 +2094,20 @@ float4 psMain(VSOutput input) : SV_Target
     float gradientT = input.gradientAxis > 0.5
         ? saturate(input.localPosition.x / max(input.size.x, 1.0))
         : saturate(input.localPosition.y / max(input.size.y, 1.0));
+
+    if (input.gradientSegment.z > 0.5)
+    {
+        bool isFinalSegment = input.gradientSegment.z > 1.5;
+        if (gradientT < input.gradientSegment.x ||
+            gradientT > input.gradientSegment.y ||
+            (!isFinalSegment && gradientT >= input.gradientSegment.y))
+        {
+            discard;
+        }
+        gradientT = saturate(
+            (gradientT - input.gradientSegment.x) /
+            max(input.gradientSegment.y - input.gradientSegment.x, 0.000001));
+    }
 
     float4 color = lerp(input.startColor, input.endColor, gradientT);
     return float4(color.rgb * color.a * alpha, color.a * alpha);

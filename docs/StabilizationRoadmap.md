@@ -365,9 +365,11 @@ localized dashboard apps, without claiming full font shaping parity.
   text-system-owned line layout.
 - Frame path: native bitmap draws; `PixelText` remains uppercase bitmap with
   `?` fallback for legacy paths.
-- Inputs: `TextField` / `SecureField` / `TextEditor` support basic insertion,
-  delete, caret left/right/home/end; `TextSelection` types and selection
-  bindings exist; selection UX is incomplete relative to desktop editors.
+- Inputs: `TextField` / `SecureField` / `TextEditor` accept native `WM_CHAR`
+  Unicode characters, active-keyboard-layout punctuation, and UTF-16 surrogate
+  pairs; support IME composition, selection-aware insertion, delete, clipboard
+  shortcuts, and caret left/right/home/end. Selection UX is still incomplete
+  relative to full desktop editors.
 - Localization: `LocalizedStringKey`, tables, `LocalizedStringResource`,
   locale/calendar/timeZone environment values partially used (e.g.
   `DatePicker`); not a complete resource catalog / pluralization story.
@@ -392,9 +394,11 @@ localized dashboard apps, without claiming full font shaping parity.
    - document string catalog expectations for Windows packaging
    - keep environment `locale` flowing into formatters (`DatePicker`,
      `Text(Date,...)`, etc.)
-4. **IME / composition (stretch within phase if host allows):**
-   - at least document current WM_CHAR / virtual-key limits
-   - plan WM_IME composition path without blocking earlier selection work
+4. **IME / composition:**
+   - preserve the separate native `WM_CHAR` text and virtual-key shortcut paths
+   - retain the existing WM_IME marked-text / committed-result bridge and
+     candidate-window positioning
+   - expand host coverage for non-US layouts and complex editor behavior
 5. Tests for selection ranges, clipboard round-trip, locale formatting, and
    RTL smoke layouts.
 
@@ -535,9 +539,12 @@ pre-rasterized bitmaps, `fillRect` keeps solid/linear-gradient fills with
 uniform corner radii, and vector path commands are CPU-rasterized into
 `drawBitmap`s by `FramePathDegradation` inside `D3D11Renderer`. Known
 cosmetic gaps vs the scene path (documented, not claimed as parity):
-rounded clip shapes degrade to rectangular clips, per-corner radii fall
-back to uniform, radial/conic gradients fall back to a solid base color,
-and soft shadows render as plain offset fills.
+rounded clip shapes degrade to rectangular clips, per-corner radii fall back
+to uniform, radial/conic gradients fall back to a solid base color, and soft
+shadows render as plain offset fills. Axis-aligned multi-stop linear gradients
+preserve their intermediate stops on both live fallback presenters: Direct2D
+uses a bounded native gradient-stop collection, while pure D3D11 draws bounded
+full-footprint gradient segments.
 
 ### Exit criteria
 

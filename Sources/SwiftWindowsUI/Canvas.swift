@@ -214,14 +214,14 @@ extension CanvasGraphicsContext {
             case .fillRectGradient(let rect, let gradient):
                 let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
                 let startColor = gradient.startColor.multipliedAlpha(by: opacity)
-                let endColor = gradient.endColor.multipliedAlpha(by: opacity)
-                guard startColor.alpha > 0 || endColor.alpha > 0 else { continue }
+                guard opacity > 0, gradient.stops.contains(where: { $0.color.alpha > 0 }) else { continue }
                 if baseClipAllowsDrawing(baseClip: currentClip, rect: effectiveRect) {
                     let scaledGradient = LinearGradient(
                         stops: gradient.stops.map {
                             GradientStop(color: $0.color.multipliedAlpha(by: opacity), position: $0.position)
                         },
-                        axis: gradient.axis
+                        axis: gradient.axis,
+                        reversesAuthoredStops: gradient.reversesAuthoredStops
                     )
                     commands.append(
                         .fillRect(

@@ -332,12 +332,18 @@ public struct GPUILayer: Equatable, Sendable {
         coalesced.reserveCapacity(paintOperations.count)
         for operation in paintOperations {
             if var last = coalesced.last, last.kind == operation.kind,
-                last.count >= 0, operation.count >= 0,
-                last.startIndex + last.count == operation.startIndex
+                last.count >= 0, operation.count >= 0
             {
-                last.count += operation.count
-                coalesced[coalesced.count - 1] = last
-                continue
+                // Hand-built layers are validated after sealing, so their
+                // public index/count fields cannot be trusted here. Leave an
+                // overflowing run untouched for `validate()` to diagnose.
+                let (nextIndex, nextIndexOverflowed) = last.startIndex.addingReportingOverflow(last.count)
+                let (mergedCount, mergedCountOverflowed) = last.count.addingReportingOverflow(operation.count)
+                if !nextIndexOverflowed, !mergedCountOverflowed, nextIndex == operation.startIndex {
+                    last.count = mergedCount
+                    coalesced[coalesced.count - 1] = last
+                    continue
+                }
             }
             coalesced.append(operation)
         }
@@ -508,7 +514,16 @@ public struct ScenePaintMetrics: Equatable, Sendable {
 }
 
 public struct GPUIScene: Equatable, Sendable {
-    public var clearColor: Color
+    /// The render target's straight-alpha clear colour. Like primitive
+    /// colours, every channel is finite and stays in `[0, 1]`: this value
+    /// bypasses `add*`, so it must enforce the same scene contract itself.
+    /// Without that boundary a NaN channel reaches the CPU rasterizer's
+    /// `Float -> UInt8` conversion and kills the process before fallback.
+    public var clearColor: Color {
+        didSet {
+            clearColor = Self.sanitizedClearColor(clearColor)
+        }
+    }
     // Readable everywhere, writable only here, for the reason `GPUILayer`
     // spells out above: `add*` is the one door sanitation, the family
     // arrays and `paintRecords` all agree behind. `layers` being a `public
@@ -531,12 +546,21 @@ public struct GPUIScene: Equatable, Sendable {
         pixelGlyphAtlas: GlyphAtlasSnapshot? = nil,
         imageResources: [ImageResourceBinding] = []
     ) {
-        self.clearColor = clearColor
+        self.clearColor = Self.sanitizedClearColor(clearColor)
         self.layers = [GPUILayer()]
         self.paintRecords = []
         self.glyphAtlas = glyphAtlas
         self.pixelGlyphAtlas = pixelGlyphAtlas
         self.imageResources = imageResources
+    }
+
+    private static func sanitizedClearColor(_ color: Color) -> Color {
+        Color(
+            red: GPUISceneValue.clamped(color.red, lower: 0, upper: 1),
+            green: GPUISceneValue.clamped(color.green, lower: 0, upper: 1),
+            blue: GPUISceneValue.clamped(color.blue, lower: 0, upper: 1),
+            alpha: GPUISceneValue.clamped(color.alpha, lower: 0, upper: 1)
+        )
     }
 
     // MARK: - Layer management
@@ -577,9 +601,15 @@ public struct GPUIScene: Equatable, Sendable {
         isFinished = false
     }
 
-    /// Push a new empty layer onto the stack.
+    /// Push a new empty layer onto the stack, or reuse the top layer once
+    /// the shared scene limit is reached. `ensureLayer` already refuses to
+    /// grow past this bound; pushing must obey the same rule so a deeply
+    /// layered scene cannot invalidate itself or allocate without limit.
     @discardableResult
     public mutating func pushLayer() -> Int {
+        guard layers.count < GPUISceneLimits.maxLayers else {
+            return GPUISceneLimits.maxLayers - 1
+        }
         layers.append(GPUILayer())
         isFinished = false
         return layers.count - 1

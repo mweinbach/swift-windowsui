@@ -13,6 +13,8 @@ The repo now also includes `WinSwiftUI`, a SwiftUI-shaped compatibility layer fo
 - An active demo path that now defaults to `GPUIScene` -> `D3D11BatchRenderer`, with the `RenderFrame` -> `D3D11Renderer` path kept as an automatic same-session fallback and explicit debug override
 - A `WinSwiftUI` host loop that coalesces rebuilds, avoids duplicate invalidates, and only sustains high-rate frame pumping when input actually dirties presentation state
 - A GPUI-inspired batch scene path in native Swift that scales primitives into device pixels, keeps replayable scene paint records plus a per-layer `paintOperations` presentation stream, carries semantic content masks on typed primitives, assigns bounds-based draw orders from masked bounds inside `GPUIScene`, keeps family batches as an optimization surface, uses a runtime-owned logical text layout cache plus a native glyph atlas, and routes deferred-subtree prepaint plus deferred paint records through runtime-owned prepaint dispatch state while it is still being brought up toward Zed-style sprite batching
+- Axis-aligned linear gradients that retain authored intermediate color stops, custom stop positions, hard stops, and reversed endpoints across CPU snapshots, the D3D11 scene backend, and the live Direct2D/D3D11 frame fallback
+- Native Windows character input with Unicode, keyboard-layout-aware punctuation, supplementary-plane characters, existing IME composition, and selection-safe editing; mouse, primary-touch, double-click, horizontal-wheel, and lost-capture interactions share the retained input path
 - A Windows-only implementation for the runtime/host/renderer layers today
 
 ## Same-Source Goal
@@ -26,6 +28,22 @@ The current portability target is shared app source, not full package portabilit
 Important limit:
 
 - The repository itself is still Windows-only because `SwiftWindowsPlatform` and `SwiftWindowsRendererD3D11` depend on Win32 and D3D11
+
+## Run The Demo
+
+Start the custom-rendered Windows app from the repository root:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-demo.ps1
+```
+
+The app includes three same-source SwiftUI screens: an interactive rendering
+dashboard, appearance and application settings, and a searchable, paginated
+component inspector. Chart periods expose distinct live data, page-size changes
+can navigate every component, restarting a degraded component updates its actual
+health and load, and shorter windows use denser dashboard cards while keeping
+the settings save action visible. Pass `-FrameDebug` to the same script to exercise the
+fallback presentation path instead of the default D3D11 scene renderer.
 
 ## Package Layout
 
@@ -53,7 +71,7 @@ Targets:
 
 The default running demo now goes through:
 
-1. [`Sources/swift-windowsui/AppEntry.swift`](/D:/Projects/swift-windowsui/Sources/swift-windowsui/AppEntry.swift)
+1. [`Sources/swift-windowsui/AppEntry.swift`](Sources/swift-windowsui/AppEntry.swift)
 2. `WinSwiftUI.App` / `WindowGroup`
 3. `WinSwiftUIWindowHost`
 4. `Win32Window` delegate callbacks
@@ -80,8 +98,9 @@ Included today:
 
 - App hosting: `App`, `Scene`, `WindowGroup`
 - Multi-window: default `openWindow` / `dismissWindow` routing through `WinSwiftUIWindowCoordinator` — each window gets its own host, retained runtime, and renderer; `supportsMultipleWindows` is true for coordinator-managed hosts. `openSettings` / `Settings` scenes remain unsupported
-- Accessibility: retained accessibility metadata is projected to Windows UI Automation (fragment tree, trait-derived control types, InvokePattern activation, focus/structure events); advanced Value/Text/Selection/Toggle patterns and live regions are not implemented
-- Text input: caret, highlighted selection, mouse-drag selection, clipboard shortcuts (Ctrl+C/X/V/A), and IME composition (marked text, candidate window positioned at the caret)
+- Accessibility: retained accessibility metadata is projected to Windows UI Automation (fragment tree, trait-derived control types, transform-aware bounds, disabled-state-safe InvokePattern activation, focus/structure events); advanced Value/Text/Selection/Toggle patterns and live regions are not implemented
+- Text input: keyboard-layout-aware `WM_CHAR` Unicode entry, supplementary-plane characters, caret and highlighted selection, mouse-drag selection, clipboard shortcuts (Ctrl+C/X/V/A), and IME composition (marked text, candidate window positioned at the caret)
+- Environment consistency: `.environment(\.isEnabled, ...)`, `.disabled(...)`, button/picker styles, foreground colors, accent colors, and nested dynamic-type limits propagate coherently into controls, `@Environment` readers, and `@ScaledMetric`; sliders support pointer focus and keyboard adjustment
 - Platform integrations: real Win32 open/save dialogs behind `fileImporter` / `fileExporter`, Unicode text and file-list (`CF_HDROP`) clipboard, OS file drops (`WM_DROPFILES`) delivered to `onDrop`, an opt-in native `ChooseColorW` dialog for `ColorPicker`, and `Link` / `openURL` via `ShellExecuteW`
 - System appearance: light/dark and high contrast sampled at startup and re-sampled on `WM_SETTINGCHANGE` / `WM_SYSCOLORCHANGE`; app overrides (`preferredColorScheme`, explicit environment sets) take precedence
 - Core views: `Text`, including `Text(verbatim:)`, `StringProtocol`, and `LocalizedStringKey` inputs, `Image(systemName:)`, `Label`, `Link`, `Rectangle`, `RoundedRectangle`, `UnevenRoundedRectangle`, `Capsule`, `Circle`, `Ellipse`, `ContainerRelativeShape`, `AnyShape`, `Shape`, `Spacer`, `Divider`, `Group`, `GeometryReader`, `NavigationLink`
@@ -138,10 +157,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-screenshot.ps1
 Useful focused command:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUITests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter RetainedViewRuntimeTests
 ```
 
-The screenshot helper builds the same shared demo view through the WinSwiftUI retained runtime, pulls the raw scene/frame data, rasterizes it offscreen, and writes `artifacts/demo-screenshot.png`. Pass `-FrameDebug` to force the `RenderFrame` fallback path for visual comparison.
+The screenshot helper builds the same shared demo view through the WinSwiftUI
+retained runtime, pulls the raw scene/frame data, rasterizes it offscreen, and
+writes `artifacts/demo-screenshot.png`. Use `-Screen dashboard|settings|data`
+to render one particular tab, `-AllScreens` for all three, or `-FrameDebug` to
+force the `RenderFrame` fallback path for visual comparison.
 
 To view the rendered screenshot after running the helper, open `artifacts/demo-screenshot.png`. The script also writes the raw source bitmap next to it as `artifacts/demo-screenshot.raw.bmp`, which is useful when checking the exact offscreen rasterizer output. This path does not capture the desktop or a foreground native window; it uses `WinSwiftUIRendererSnapshotter` and the retained runtime's `GPUIScene`/`RenderFrame` data.
 
@@ -163,17 +186,17 @@ The GUI demo was also launched with a short `swift run swift-windowsui` startup 
 
 ## Important Files
 
-- [`Sources/WinSwiftUI/Core.swift`](/D:/Projects/swift-windowsui/Sources/WinSwiftUI/Core.swift)
-- [`Sources/WinSwiftUI/Views.swift`](/D:/Projects/swift-windowsui/Sources/WinSwiftUI/Views.swift)
-- [`Sources/WinSwiftUI/App.swift`](/D:/Projects/swift-windowsui/Sources/WinSwiftUI/App.swift)
-- [`Sources/swift-windowsui/AppEntry.swift`](/D:/Projects/swift-windowsui/Sources/swift-windowsui/AppEntry.swift)
-- [`Sources/SwiftWindowsDemo/DemoDashboard.swift`](/D:/Projects/swift-windowsui/Sources/SwiftWindowsDemo/DemoDashboard.swift)
-- [`Sources/WinSwiftUI/RenderSnapshot.swift`](/D:/Projects/swift-windowsui/Sources/WinSwiftUI/RenderSnapshot.swift)
-- [`Sources/SwiftWindowsGraphics/SceneRasterizer.swift`](/D:/Projects/swift-windowsui/Sources/SwiftWindowsGraphics/SceneRasterizer.swift)
-- [`Sources/SwiftWindowsUI/Runtime.swift`](/D:/Projects/swift-windowsui/Sources/SwiftWindowsUI/Runtime.swift)
-- [`Sources/SwiftWindowsUI/Controls.swift`](/D:/Projects/swift-windowsui/Sources/SwiftWindowsUI/Controls.swift)
-- [`Sources/SwiftWindowsPlatform/Win32Host.swift`](/D:/Projects/swift-windowsui/Sources/SwiftWindowsPlatform/Win32Host.swift)
-- [`Sources/SwiftWindowsRendererD3D11/D3D11Renderer.swift`](/D:/Projects/swift-windowsui/Sources/SwiftWindowsRendererD3D11/D3D11Renderer.swift)
+- [`Sources/WinSwiftUI/Core.swift`](Sources/WinSwiftUI/Core.swift)
+- [`Sources/WinSwiftUI/Views.swift`](Sources/WinSwiftUI/Views.swift)
+- [`Sources/WinSwiftUI/App.swift`](Sources/WinSwiftUI/App.swift)
+- [`Sources/swift-windowsui/AppEntry.swift`](Sources/swift-windowsui/AppEntry.swift)
+- [`Sources/SwiftWindowsDemo/DemoDashboard.swift`](Sources/SwiftWindowsDemo/DemoDashboard.swift)
+- [`Sources/WinSwiftUI/RenderSnapshot.swift`](Sources/WinSwiftUI/RenderSnapshot.swift)
+- [`Sources/SwiftWindowsGraphics/SceneRasterizer.swift`](Sources/SwiftWindowsGraphics/SceneRasterizer.swift)
+- [`Sources/SwiftWindowsUI/Runtime.swift`](Sources/SwiftWindowsUI/Runtime.swift)
+- [`Sources/SwiftWindowsUI/Controls.swift`](Sources/SwiftWindowsUI/Controls.swift)
+- [`Sources/SwiftWindowsPlatform/Win32Host.swift`](Sources/SwiftWindowsPlatform/Win32Host.swift)
+- [`Sources/SwiftWindowsRendererD3D11/D3D11Renderer.swift`](Sources/SwiftWindowsRendererD3D11/D3D11Renderer.swift)
 
 ## Documentation
 

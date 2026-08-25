@@ -50,7 +50,7 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
 
     @discardableResult
     func uiaInvokeDefaultAction(elementID: UInt64) -> Bool {
-        guard let element = projectedElement(for: elementID) else {
+        guard let element = projectedElement(for: elementID), element.isEnabled else {
             return false
         }
         if element.invokeDefaultAction() {

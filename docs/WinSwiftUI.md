@@ -587,7 +587,10 @@ Compatibility helpers:
 - `GraphicsContext` (SwiftUI-shape Canvas drawing context: `Shading.color(_:)` and `Shading.linearGradient(_:startPoint:endPoint:)` with `CGPoint` endpoints; `fill`/`stroke` for `Path` and `CGRect`; `draw` for `BitmapSurface`, `Text`, `String`; mutable `opacity`; mutable `transform` with `translateBy`/`scaleBy`/`rotate`/`concatenate` (CG-style pre-multiply); `clip(to:)`/`popClip()`; `drawLayer { sub in ... }` for parent-transform-inheriting sub-contexts)
 - `Canvas { ctx, size in ... }` paints through the default GPUIScene path
 - `Path.contains(_:eoFill:)` (ray-cast hit testing, non-zero and even-odd fill rules)
-- `Gradient.init(stops: [Gradient.Stop])` preserves custom `Double` `location` values
+- `Gradient.init(stops: [Gradient.Stop])` preserves custom `Double` `location`
+  values; axis-aligned fills render intermediate stops, hard transitions,
+  transparent stops, and reversed endpoints on CPU, the D3D11 scene path, and
+  both live frame-fallback presenters
 - `ProposedViewSize`
 - `ViewSpacing`
 - `LayoutProperties`
@@ -1006,7 +1009,7 @@ Observed object changes are coalesced by the host before rebuilding the retained
 `@State` stores values in a retained box captured by the view value and exposes `$state` as a `Binding`, which is enough for common controls such as `Toggle`.
 `@AppStorage` supports common non-optional and optional `Bool`, `Int`, `Double`, `String`, `Data`, and `URL` values backed by `UserDefaults`, plus optional and non-optional `RawRepresentable` values with `String` or `Int` raw values for enum-backed preferences. Wrappers with an explicit `store:` keep using that store, while wrappers without one inherit `EnvironmentValues.defaultAppStorage` through `.defaultAppStorage(_:)` and remember that store for retained control actions. Optional nil writes remove the stored `UserDefaults` value. It exposes `$storage` as a `Binding` and invalidates the retained runtime after writes from the wrapper. It is a source-compatibility shim and does not yet observe external `UserDefaults` changes.
 `@SceneStorage` stores non-optional and optional `Bool`, `Int`, `Double`, `String`, `Data`, and `URL` values in a retained in-memory scene-state table, supports optional and non-optional `RawRepresentable` values with `String` or `Int` raw values for enum-backed scene state, exposes `$storage` as a `Binding`, and invalidates after writes. Optional nil writes remove the retained scene value. The current implementation matches the single-window host scope and does not yet serialize scene restoration data or isolate values per future `WindowGroup` instance.
-`@ScaledMetric` scales floating-point values with the same deterministic `DynamicTypeSize` table used by retained text, accepts `relativeTo:` for source compatibility, and exposes the requested text style as metadata. It does not yet model SwiftUI's per-text-style scaling curves.
+`@ScaledMetric` scales floating-point values with the same deterministic `DynamicTypeSize` table used by retained text, accepts `relativeTo:` for source compatibility, and exposes the requested text style as metadata. Closed and partial `.dynamicTypeSize(...)` ranges intersect inherited limits, and retained text, `@Environment(\.dynamicTypeSize)`, and `@ScaledMetric` all receive the same effective clamped size. It does not yet model SwiftUI's per-text-style scaling curves.
 `@GestureState` stores transient gesture values in a retained wrapper box. `DragGesture.updating(_:body:)` and `LongPressGesture.updating(_:body:)` write through that state while retained pointer/drag callbacks are active and reset it to the initial value when the gesture ends or cancels. The generic SwiftUI gesture-state arbitration model is not implemented yet.
 `ObservableObjectPublisher` supports source-compatible manual `objectWillChange.send()` invalidation for retained hosts and also behaves as a lightweight `Void` publisher for `sink` and `onReceive`. `Just`, `PassthroughSubject`, `CurrentValueSubject`, `AnyPublisher`, `ObservableObjectPublisher`, and `@Published` expose lightweight publishers with `sink(receiveValue:)`, `assign(to:on:)`, `eraseToAnyPublisher()`, `map`, `compactMap`, `filter`, `dropFirst`, `removeDuplicates`, and `AnyCancellable.store(in:)`; `@Published` and `CurrentValueSubject` subscribers receive the current value and later writes, while `PassthroughSubject` only sends future `send(_:)` values. `PassthroughSubject<Void, Failure>` also accepts `send()` for source-compatible event streams. Cancellables can be stored in `Set<AnyCancellable>` or array-like collections. `AnyCancellable` cancels on explicit `cancel()` or deinit, but this is not a full Combine publisher implementation and does not model failures, completion events, demand, or schedulers. `onReceive(_:perform:)` subscribes to WinSwiftUI lightweight publishers while the retained node is rendered and cancels the subscription when the node disappears. `@ObservedObject`, `@StateObject`, and `@EnvironmentObject` expose SwiftUI-shaped projected member bindings for writable object properties, so retained controls can consume shared-source bindings such as `$model.title` or `$model.isEnabled`. `@StateObject` currently shares the same observation and invalidation path as `@ObservedObject`; it is a source-compatibility shim, not a full SwiftUI lifetime model yet.
 
@@ -1014,7 +1017,14 @@ This is intentionally small. It exists to support shared app source and runtime 
 
 ## Demo Contract
 
-The demo in [`Sources/swift-windowsui/DemoDashboard.swift`](/D:/Projects/swift-windowsui/Sources/swift-windowsui/DemoDashboard.swift) is the reference for the supported same-source subset.
+The demo in [`Sources/SwiftWindowsDemo/DemoDashboard.swift`](../Sources/SwiftWindowsDemo/DemoDashboard.swift)
+is the reference for the supported same-source subset. Its dashboard, settings,
+and searchable component-inspector screens all use ordinary SwiftUI-shaped
+composition and run through the same retained runtime as application code.
+Theme, accent color, and font-scale settings feed inherited appearance/tint/
+Dynamic Type environments; the dashboard command field navigates modules and
+screens, and the component table filters names, details, versions, and health
+status while keeping inspector selection synchronized.
 
 When adding features, prefer:
 

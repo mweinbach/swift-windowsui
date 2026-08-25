@@ -472,7 +472,7 @@ final class D3D11BackdropBlurEngine {
         // 3. Composite the tinted quad over the blurred backdrop.
         try uploadQuadInstance(deviceContext: deviceContext, buffer: quadInstanceBuffer, quad: quad)
 
-        var uniforms: [Float] = [Float(surfaceW), Float(surfaceH), 0, 0]
+        let uniforms: [Float] = [Float(surfaceW), Float(surfaceH), 0, 0]
         try uniforms.withUnsafeBytes { bytes in
             try updateSubresource(deviceContext: deviceContext, buffer: frameUniformBuffer, bytes: bytes)
         }
@@ -482,7 +482,7 @@ final class D3D11BackdropBlurEngine {
         // bilinear upsample together. The second float4 is the clamp range
         // that keeps the upsample's bilinear footprint inside the reduced
         // region.
-        var region: [Float] = [
+        let region: [Float] = [
             Float(x0), Float(y0),
             Float(textureCapacity.width * plan.downsampleFactor),
             Float(textureCapacity.height * plan.downsampleFactor),
@@ -706,7 +706,7 @@ final class D3D11BackdropBlurEngine {
 
         // Blur passes write the full texel value; disable blending so the
         // destination's previous contents don't leak in.
-        var nullBlend: UnsafeMutablePointer<ID3D11BlendState>?
+        let nullBlend: UnsafeMutablePointer<ID3D11BlendState>? = nil
         let blendFactor: [FLOAT] = [0, 0, 0, 0]
         blendFactor.withUnsafeBufferPointer { factor in
             deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(

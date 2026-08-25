@@ -2116,7 +2116,12 @@ public final class ViewNode {
     }
 
     public var isFocusable: Bool {
-        didSet { invalidateRuntime(.paint) }
+        didSet {
+            if !isFocusable, runtime?.focusedNode === self {
+                runtime?.requestFocus(nil)
+            }
+            invalidateRuntime(.paint)
+        }
     }
 
     public var isHitTestVisible: Bool {
@@ -2128,7 +2133,12 @@ public final class ViewNode {
     }
 
     public var isHidden: Bool {
-        didSet { invalidateRuntime(.layout) }
+        didSet {
+            if isHidden {
+                runtime?.releaseInteractionTargets(in: self)
+            }
+            invalidateRuntime(.layout)
+        }
     }
 
     public var accessibilityLabel: String? {
@@ -3819,6 +3829,10 @@ public final class ViewNode {
     }
 
     fileprivate func setRuntime(_ runtime: RetainedViewRuntime?) {
+        if self.runtime !== runtime {
+            self.runtime?.releaseInteractionTargets(in: self)
+        }
+
         // Animation registration follows the node across runtimes: a node
         // detached mid-animation (a removal overlay) must not keep the old
         // runtime's driver awake, and a node attached mid-animation must be
@@ -5858,7 +5872,9 @@ public final class ViewNode {
         // untransformed frame dropped the border of a translated view whose
         // painted frame is inside the clip — on this path only, while
         // `ScenePainter` drew it.
-        if hasPaintableExtent, effectiveBorderColor.alpha > 0, borderWidth > 0, backgroundPath == nil,
+        if hasPaintableExtent,
+            effectiveBorderColor.alpha > 0 || Self.hasVisibleGradient(effectiveBorderGradient),
+            borderWidth > 0, backgroundPath == nil,
             baseClipAllowsDrawing(baseClip: effectiveClip, rect: paintFrame)
         {
             if let borderSegments = BorderSegments.dashedSegments(
@@ -5912,7 +5928,9 @@ public final class ViewNode {
         let resolvedBackgroundColor =
             backgroundColor?.multipliedAlpha(by: effectiveOpacity)
             ?? backgroundGradient?.startColor
-        if let resolvedBackgroundColor, resolvedBackgroundColor.alpha > 0, fillRect.size.width > 0,
+        if let resolvedBackgroundColor,
+            resolvedBackgroundColor.alpha > 0 || Self.hasVisibleGradient(resolvedBackgroundGradient),
+            fillRect.size.width > 0,
             fillRect.size.height > 0, backgroundPath == nil
         {
             if baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
@@ -6074,6 +6092,29 @@ public final class ViewNode {
             for index in directCommandStartIndex..<commands.count {
                 commands[index].applyBlendMode(effectiveBlendMode)
             }
+        }
+    }
+
+    /// A transparent first stop does not make the rest of a gradient
+    /// invisible. Frame-path culling must inspect the same authored ramp the
+    /// scene painter lowers, including visible middle stops.
+    private static func hasVisibleGradient(_ gradient: GradientType?) -> Bool {
+        guard let gradient else {
+            return false
+        }
+
+        let stops: [GradientStop]
+        switch gradient {
+        case .linear(let linear):
+            stops = linear.stops
+        case .radial(let radial):
+            stops = radial.stops
+        case .conic(let conic):
+            stops = conic.stops
+        }
+
+        return stops.contains { stop in
+            stop.color.alpha.isFinite && stop.color.alpha > 0
         }
     }
 
@@ -8552,20 +8593,23 @@ public final class RetainedViewRuntime {
             return
         }
 
-        if let dragState = nodeDragState {
+        if var dragState = nodeDragState {
             guard let node = dragState.node else {
                 nodeDragState = nil
                 return
             }
 
+            dragState.lastPoint = point
+            nodeDragState = dragState
             let delta = Point(x: point.x - dragState.startPoint.x, y: point.y - dragState.startPoint.y)
             node.onDragChange?(point, delta)
             return
         }
 
         let hitNode = hitTest(at: point)
-        updateHoverTarget(to: hitNode)
-        hitNode?.onPointerMove?(point)
+        let interactionNode = pointerInteractionTarget(from: hitNode, at: point)
+        updateHoverTarget(to: interactionNode)
+        interactionNode?.onPointerMove?(point)
         updateScrollIndicatorHover(to: scrollIndicatorHit(at: point))
     }
 
@@ -8574,6 +8618,47 @@ public final class RetainedViewRuntime {
         if scrollDragState == nil {
             updateScrollIndicatorHover(to: nil)
         }
+    }
+
+    /// Cancels an interaction whose native pointer capture was stolen or
+    /// explicitly cancelled. Losing capture is never a successful release:
+    /// controls leave their pressed state, repeat stops, and a dragged slider
+    /// receives its editing-ended callback without activating any control.
+    public func pointerCancelled() {
+        let cancelledPressedNode = pressedNode
+        let cancelledNodeDrag = nodeDragState
+        let cancelledDragNode = cancelledNodeDrag?.node
+        let cancelledScrollIndicatorNode = activeScrollIndicatorNode
+
+        pressedNode = nil
+        buttonRepeatState = nil
+        nodeDragState = nil
+        scrollDragState = nil
+        activeScrollIndicatorNode = nil
+
+        if let cancelledNodeDrag, let cancelledDragNode {
+            let delta = Point(
+                x: cancelledNodeDrag.lastPoint.x - cancelledNodeDrag.startPoint.x,
+                y: cancelledNodeDrag.lastPoint.y - cancelledNodeDrag.startPoint.y
+            )
+            cancelledDragNode.onDragEnd?(cancelledNodeDrag.lastPoint, delta)
+        }
+
+        updateHoverTarget(to: nil)
+        updateScrollIndicatorHover(to: nil)
+
+        if let cancelledScrollIndicatorNode {
+            animateColor(
+                .scrollIndicator,
+                of: cancelledScrollIndicatorNode,
+                to: cancelledScrollIndicatorNode.restingScrollIndicatorColor,
+                duration: 0.12,
+                at: clock()
+            )
+        }
+
+        cancelledPressedNode?.onPointerUpOutside?()
+        applyInteractionChrome(to: cancelledPressedNode)
     }
 
     /// `delta` is in *lines* (the host has already multiplied the notch by
@@ -8601,7 +8686,7 @@ public final class RetainedViewRuntime {
         let refusedDelta = scrollableNode.refusedMouseWheelDelta(delta)
         let appliedDelta = scrollableNode.applyMouseWheelDelta(delta)
         if appliedDelta != 0 {
-            updateHoverTarget(to: hitTest(at: point))
+            updateHoverTarget(to: pointerInteractionTarget(from: hitTest(at: point), at: point))
             if source == .precise {
                 seedScrollMomentum(for: scrollableNode, wheelDelta: delta, appliedOffsetDelta: appliedDelta)
             }
@@ -8621,7 +8706,7 @@ public final class RetainedViewRuntime {
             return
         }
 
-        updateHoverTarget(to: hitTest(at: point))
+        updateHoverTarget(to: pointerInteractionTarget(from: hitTest(at: point), at: point))
         beginEdgeRubberBand(for: scrollableNode, refusedOffsetDelta: refusedDelta)
         revealScrollIndicator(for: scrollableNode)
     }
@@ -8642,18 +8727,25 @@ public final class RetainedViewRuntime {
 
         let hitNode = hitTest(at: point)
         if let draggableNode = nearestDraggableNode(from: hitNode) {
-            nodeDragState = NodeDragState(node: draggableNode, startPoint: point)
+            nodeDragState = NodeDragState(node: draggableNode, startPoint: point, lastPoint: point)
+            // Dragging is still a pointer press: focus belongs to the same
+            // nearest focusable control as an ordinary click. Otherwise
+            // sliders keep the previous field's caret/focus ring active while
+            // their own focused chrome and accessibility focus never appear.
+            updateFocusTarget(to: nearestFocusableNode(from: hitNode))
             draggableNode.onDragStart?(point)
-            updateHoverTarget(to: hitNode)
+            updateHoverTarget(to: pointerInteractionTarget(from: hitNode, at: point))
             return
         }
 
+        let hoverNode = pointerInteractionTarget(from: hitNode, at: point)
+        let interactionNode = pointerInteractionTarget(from: hitNode, at: point, routing: .activation)
         updateFocusTarget(to: nearestFocusableNode(from: hitNode))
-        updateHoverTarget(to: hitNode)
-        pressedNode = hitNode
-        hitNode?.onPointerDown?()
-        applyInteractionChrome(to: hitNode)
-        beginButtonRepeatIfNeeded(for: hitNode)
+        updateHoverTarget(to: hoverNode)
+        pressedNode = interactionNode
+        interactionNode?.onPointerDown?()
+        applyInteractionChrome(to: interactionNode)
+        beginButtonRepeatIfNeeded(for: interactionNode)
     }
 
     public func pointerUp(at point: Point) {
@@ -8680,12 +8772,15 @@ public final class RetainedViewRuntime {
                 let delta = Point(x: point.x - dragState.startPoint.x, y: point.y - dragState.startPoint.y)
                 node.onDragEnd?(point, delta)
             }
-            updateHoverTarget(to: hitTest(at: point))
+            let hitNode = hitTest(at: point)
+            updateHoverTarget(to: pointerInteractionTarget(from: hitNode, at: point))
             updateScrollIndicatorHover(to: scrollIndicatorHit(at: point))
             return
         }
 
         let hitNode = hitTest(at: point)
+        let hoverNode = pointerInteractionTarget(from: hitNode, at: point)
+        let interactionNode = pointerInteractionTarget(from: hitNode, at: point, routing: .activation)
 
         if let pressedNode {
             let didRepeat = endButtonRepeat(for: pressedNode)
@@ -8697,7 +8792,7 @@ public final class RetainedViewRuntime {
             // already lifted or it restores the control to its held-down fill.
             self.pressedNode = nil
             applyInteractionChrome(to: pressedNode)
-            if pressedNode === hitNode {
+            if pressedNode === interactionNode {
                 pressedNode.onPointerUpInside?()
                 pressedNode.onPointerUpInsideAt?(point)
                 if !didRepeat {
@@ -8709,12 +8804,12 @@ public final class RetainedViewRuntime {
         }
 
         self.pressedNode = nil
-        updateHoverTarget(to: hitNode)
+        updateHoverTarget(to: hoverNode)
     }
 
     public func contextClick(at point: Point) {
         let hitNode = hitTest(at: point)
-        updateHoverTarget(to: hitNode)
+        updateHoverTarget(to: pointerInteractionTarget(from: hitNode, at: point))
         guard let contextNode = nearestContextMenuNode(from: hitNode) else {
             return
         }
@@ -8862,11 +8957,60 @@ public final class RetainedViewRuntime {
             return
         }
 
-        guard node.isFocusable else {
+        guard node.isFocusable, !Self.hasHiddenAncestor(node) else {
             return
         }
 
         updateFocusTarget(to: node)
+    }
+
+    /// A retained subtree that disappears cannot keep receiving keyboard,
+    /// hover, repeat, or drag events merely because application code still
+    /// holds one of its nodes alive. This also emits the matching focus/UIA
+    /// exit while the removed node is still available to its callbacks.
+    fileprivate func releaseInteractionTargets(in subtree: ViewNode) {
+        let ownsPointerInteraction =
+            Self.isInteractionTarget(pressedNode, within: subtree)
+            || Self.isInteractionTarget(nodeDragState?.node, within: subtree)
+            || Self.isInteractionTarget(scrollDragState?.node, within: subtree)
+            || Self.isInteractionTarget(activeScrollIndicatorNode, within: subtree)
+
+        if ownsPointerInteraction {
+            pointerCancelled()
+        } else {
+            if Self.isInteractionTarget(hoveredNode, within: subtree) {
+                updateHoverTarget(to: nil)
+            }
+            if Self.isInteractionTarget(hoveredScrollIndicatorNode, within: subtree) {
+                updateScrollIndicatorHover(to: nil)
+            }
+        }
+
+        if Self.isInteractionTarget(focusedNode, within: subtree) {
+            updateFocusTarget(to: nil)
+        }
+    }
+
+    private static func isInteractionTarget(_ candidate: ViewNode?, within subtree: ViewNode) -> Bool {
+        var current = candidate
+        while let node = current {
+            if node === subtree {
+                return true
+            }
+            current = node.parent
+        }
+        return false
+    }
+
+    private static func hasHiddenAncestor(_ node: ViewNode) -> Bool {
+        var current: ViewNode? = node
+        while let candidate = current {
+            if candidate.isHidden {
+                return true
+            }
+            current = candidate.parent
+        }
+        return false
     }
 
     private func beginButtonRepeatIfNeeded(for node: ViewNode?) {
@@ -8911,7 +9055,7 @@ public final class RetainedViewRuntime {
             return false
         }
 
-        guard hoveredNode === node else {
+        guard hoveredNodeActivates(node) else {
             buttonRepeatState = state
             return false
         }
@@ -8937,6 +9081,23 @@ public final class RetainedViewRuntime {
             node.onActivate?()
         }
         return true
+    }
+
+    /// Hover-only descendants keep their own callbacks while their enclosing
+    /// button owns the press, so repeat must accept the same passive
+    /// activation-owner chain rather than requiring identical hovered nodes.
+    private func hoveredNodeActivates(_ owner: ViewNode) -> Bool {
+        var candidate = hoveredNode
+        while let current = candidate {
+            if current === owner {
+                return true
+            }
+            guard Self.isPassivePointerContent(current, routing: .activation) else {
+                return false
+            }
+            candidate = current.parent
+        }
+        return false
     }
 
     /// The curve every colour cross-fade runs on unless a caller names another.
@@ -9671,6 +9832,86 @@ public final class RetainedViewRuntime {
         node(for: hitDispatchIndex(at: point))
     }
 
+    private enum PointerInteractionRouting {
+        case hover
+        case activation
+    }
+
+    /// The control that owns a pointer hit on otherwise passive content.
+    ///
+    /// Stack/panel wrappers are hit-test-visible by default. When one sits
+    /// inside a Button or selectable List row, the deepest hit is therefore
+    /// often its decorative content rather than the control carrying the
+    /// action and interaction chrome. Promote only genuinely passive hits to
+    /// an enabled, hit-test-visible activatable ancestor. Explicit gestures,
+    /// pointer callbacks, focusable controls, scroll views, and draggable
+    /// content remain independent interaction boundaries. Hover-only
+    /// callbacks/effects own hover without swallowing the enclosing control's
+    /// activation, so hover routing and press routing are intentionally split.
+    private func pointerInteractionTarget(
+        from hitNode: ViewNode?,
+        at point: Point,
+        routing: PointerInteractionRouting = .hover
+    ) -> ViewNode? {
+        guard let hitNode, Self.isPassivePointerContent(hitNode, routing: routing),
+            let hitDispatchIndex = dispatchIndex(for: hitNode)
+        else {
+            return hitNode
+        }
+
+        var ancestorDispatchIndex = prepaintState.dispatchNodes[hitDispatchIndex].parentIndex
+        while let currentIndex = ancestorDispatchIndex,
+            prepaintState.dispatchNodes.indices.contains(currentIndex)
+        {
+            let dispatchState = prepaintState.dispatchNodes[currentIndex]
+            let ancestor = dispatchState.node
+
+            if ancestor.onActivate != nil {
+                guard ancestor.isHitTestVisible,
+                    let interaction = prepaintState.interactions.last(where: {
+                        $0.dispatchIndex == currentIndex
+                    }),
+                    interaction.containsForHitTesting(point)
+                else {
+                    return hitNode
+                }
+                return ancestor
+            }
+
+            guard Self.isPassivePointerContent(ancestor, routing: routing) else {
+                return hitNode
+            }
+            ancestorDispatchIndex = dispatchState.parentIndex
+        }
+
+        return hitNode
+    }
+
+    private static func isPassivePointerContent(_ node: ViewNode, routing: PointerInteractionRouting) -> Bool {
+        guard node.onActivate == nil,
+            node.onPointerDown == nil,
+            node.onPointerUpInside == nil,
+            node.onPointerUpInsideAt == nil,
+            node.onPointerUpOutside == nil,
+            !node.isFocusable,
+            !node.isScrollable,
+            !node.isDraggable,
+            node.interactionSurface == nil
+        else {
+            return false
+        }
+
+        switch routing {
+        case .activation:
+            return true
+        case .hover:
+            return node.onPointerEnter == nil
+                && node.onPointerExit == nil
+                && node.onPointerMove == nil
+                && node.hoverEffect == nil
+        }
+    }
+
     /// Window-space centres of the controls that respond to a press, in the
     /// order the paint traversal registered them.
     ///
@@ -10283,6 +10524,7 @@ private struct ScrollDragState {
 private struct NodeDragState {
     weak var node: ViewNode?
     let startPoint: Point
+    var lastPoint: Point
 }
 public enum AnimatedColorProperty: Hashable, Sendable {
     case background

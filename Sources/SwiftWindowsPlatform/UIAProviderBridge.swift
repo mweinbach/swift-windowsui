@@ -417,7 +417,7 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     }
 
     private func invokeDefaultActionForUIA(_ element: UInt64) {
-        Self.onMain {
+        _ = Self.onMain {
             source.uiaInvokeDefaultAction(elementID: element)
         }
     }

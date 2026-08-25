@@ -282,26 +282,78 @@ extern "C" HRESULT SWU_D2DFillRectGradient(
     float end_alpha,
     int axis
 ) {
+    SWU_D2DGradientStop stops[2]{};
+    stops[0].position = 0.0f;
+    stops[0].red = start_red;
+    stops[0].green = start_green;
+    stops[0].blue = start_blue;
+    stops[0].alpha = start_alpha;
+    stops[1].position = 1.0f;
+    stops[1].red = end_red;
+    stops[1].green = end_green;
+    stops[1].blue = end_blue;
+    stops[1].alpha = end_alpha;
+
+    return SWU_D2DFillRectGradientStops(
+        context_raw,
+        left,
+        top,
+        right,
+        bottom,
+        radius_x,
+        radius_y,
+        stops,
+        2,
+        axis
+    );
+}
+
+extern "C" HRESULT SWU_D2DFillRectGradientStops(
+    void *context_raw,
+    float left,
+    float top,
+    float right,
+    float bottom,
+    float radius_x,
+    float radius_y,
+    const SWU_D2DGradientStop *stops,
+    uint32_t stop_count,
+    int axis
+) {
     auto context = static_cast<ID2D1DeviceContext *>(context_raw);
     ID2D1GradientStopCollection *stop_collection = nullptr;
     ID2D1LinearGradientBrush *brush = nullptr;
-    D2D1_GRADIENT_STOP stops[2]{};
+    D2D1_GRADIENT_STOP native_stops[SWU_D2D_MAX_GRADIENT_STOPS]{};
     D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES gradient_properties{};
     D2D1_BRUSH_PROPERTIES brush_properties{};
     D2D1_RECT_F rect{};
     HRESULT hr = S_OK;
 
-    if (context == nullptr) {
+    if (
+        context == nullptr || stops == nullptr || stop_count < 2
+        || stop_count > SWU_D2D_MAX_GRADIENT_STOPS
+    ) {
         return E_INVALIDARG;
     }
 
-    stops[0].position = 0.0f;
-    stops[0].color = swu_color(start_red, start_green, start_blue, start_alpha);
-    stops[1].position = 1.0f;
-    stops[1].color = swu_color(end_red, end_green, end_blue, end_alpha);
+    for (uint32_t index = 0; index < stop_count; ++index) {
+        const auto &stop = stops[index];
+        // The conjunctive range check rejects NaN as well as infinities.
+        // Equal positions remain valid: they encode authored hard stops.
+        if (!(stop.position >= 0.0f && stop.position <= 1.0f)) {
+            return E_INVALIDARG;
+        }
+        if (index > 0 && stop.position < native_stops[index - 1].position) {
+            return E_INVALIDARG;
+        }
+
+        native_stops[index].position = stop.position;
+        native_stops[index].color = swu_color(stop.red, stop.green, stop.blue, stop.alpha);
+    }
+
     hr = context->CreateGradientStopCollection(
-        stops,
-        2,
+        native_stops,
+        stop_count,
         D2D1_GAMMA_2_2,
         D2D1_EXTEND_MODE_CLAMP,
         &stop_collection

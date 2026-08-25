@@ -13,6 +13,10 @@
     -LogicalWidth 1280 -LogicalHeight 720 -Scale 2 is a true 2x render of the
     same layout a 1x 1280x720 render produces — not a magnified quadrant.
     Mutually exclusive with -Width/-Height.
+
+.PARAMETER Screen
+    Render one specific demo tab: dashboard, settings, or data. Mutually
+    exclusive with -AllScreens. The default remains the dashboard.
 #>
 param(
     [string]$OutputPath = "",
@@ -27,6 +31,8 @@ param(
     [int]$WarmupMilliseconds = 0,
     [switch]$KeepOpen,
     [switch]$AllScreens,
+    [ValidateSet("dashboard", "settings", "data")]
+    [string]$Screen = "",
     [ValidateSet("light", "dark")]
     [string]$Appearance = "dark"
 )
@@ -50,6 +56,9 @@ if (($LogicalWidth -gt 0) -ne ($LogicalHeight -gt 0)) {
 $useLogicalSize = $LogicalWidth -gt 0
 if ($useLogicalSize -and ($PSBoundParameters.ContainsKey("Width") -or $PSBoundParameters.ContainsKey("Height"))) {
     throw "-LogicalWidth/-LogicalHeight and -Width/-Height set the same thing from opposite ends; pass one pair."
+}
+if ($AllScreens -and -not [string]::IsNullOrWhiteSpace($Screen)) {
+    throw "-Screen and -AllScreens cannot be combined; select one demo tab or capture every tab."
 }
 
 function Invoke-DemoScreenshot {
@@ -129,5 +138,5 @@ if ($AllScreens) {
         Invoke-DemoScreenshot -Path $screenPath -Screen $screen
     }
 } else {
-    Invoke-DemoScreenshot -Path $OutputPath -Screen ""
+    Invoke-DemoScreenshot -Path $OutputPath -Screen $Screen
 }

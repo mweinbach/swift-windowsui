@@ -222,6 +222,9 @@ public enum GPUISceneSanitizer {
         result.endB = GPUISceneValue.clamped(quad.endB, lower: 0, upper: 1)
         result.endA = GPUISceneValue.clamped(quad.endA, lower: 0, upper: 1)
         result.gradientAxis = GPUISceneValue.clamped(quad.gradientAxis, lower: 0, upper: 1)
+        result.gradientSegmentStart = GPUISceneValue.clamped(quad.gradientSegmentStart, lower: 0, upper: 1)
+        result.gradientSegmentEnd = GPUISceneValue.clamped(quad.gradientSegmentEnd, lower: 0, upper: 1)
+        result.gradientSegmentMode = GPUISceneValue.clamped(quad.gradientSegmentMode, lower: 0, upper: 2)
         // Both backends switch on the truncated value; an out-of-range
         // selector falls back to "none"/"normal" rather than indexing
         // past the end of the effect or blend table.
@@ -487,9 +490,11 @@ public struct SceneDefect: Equatable, Sendable, CustomStringConvertible {
             return "Scene holds \(count) layers, above the contract limit of \(limit)."
         case .paintOperationOutOfRange(
             let layerIndex, let operationIndex, let kind, let startIndex, let count, let familyCount):
+            let (endIndex, endIndexOverflowed) = startIndex.addingReportingOverflow(count)
+            let upperBound = endIndexOverflowed ? "overflow" : String(endIndex)
             return
                 "Layer \(layerIndex) paint operation \(operationIndex) (\(kind)) covers "
-                + "\(startIndex)..<\(startIndex + count) of a \(familyCount)-element family."
+                + "\(startIndex)..<\(upperBound) of a \(familyCount)-element family."
         case .glyphAtlasBufferMismatch(let width, let height, let byteCount, let requiredByteCount):
             return "Glyph atlas is \(width)×\(height) but holds \(byteCount) bytes (needs \(requiredByteCount))."
         }
@@ -498,10 +503,17 @@ public struct SceneDefect: Equatable, Sendable, CustomStringConvertible {
 
 extension GlyphAtlasSnapshot {
     /// Byte count `width × height × 4` requires, or `nil` when the
-    /// declared dimensions are themselves invalid.
+    /// declared dimensions are themselves invalid or their product cannot
+    /// fit in an `Int`. Atlas snapshots are public scene inputs, so checked
+    /// arithmetic is part of validation: an overflow must become a scene
+    /// defect rather than killing the process while diagnosing one.
     var requiredByteCount: Int? {
         guard width > 0, height > 0 else { return nil }
-        return Int(width) * Int(height) * 4
+        let (pixelCount, pixelCountOverflowed) = Int(width).multipliedReportingOverflow(by: Int(height))
+        guard !pixelCountOverflowed else { return nil }
+        let (byteCount, byteCountOverflowed) = pixelCount.multipliedReportingOverflow(by: 4)
+        guard !byteCountOverflowed else { return nil }
+        return byteCount
     }
 
     // Dirty-region clamping lives in `AtlasUploadProtocol.swift`

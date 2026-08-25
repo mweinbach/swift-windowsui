@@ -854,7 +854,8 @@ public enum ScenePainter {
             // emit the border once, after children.
             let borderColor = node.borderGradient?.startColor ?? node.borderColor
             if hasPaintableExtent, !hasChildren,
-                borderColor.alpha > 0, node.borderWidth > 0,
+                borderColor.alpha > 0 || hasVisibleLinearGradient(node.borderGradient),
+                node.borderWidth > 0,
                 node.backgroundPath == nil,
                 clipAllowsDrawing(clip: effectiveClip, rect: paintFrame)
             {
@@ -891,7 +892,7 @@ public enum ScenePainter {
                             segment: segment.rect,
                             in: quadFrame
                         )
-                        scene.addQuad(
+                        appendFillQuad(
                             placement.rotating(
                                 fillQuad(
                                     rect: segment.rect,
@@ -905,10 +906,11 @@ public enum ScenePainter {
                                     colorEffects: colorEffects,
                                     clipCornerRadius: ownClipCornerRadius(placement.footprint(of: segment.rect)),
                                     blendMode: effectiveBlendMode
-                                ), displayScale: displayScale), toLayer: layerIndex)
+                                ), displayScale: displayScale),
+                            gradient: stops.gradient, opacity: opacity, into: &scene, layerIndex: layerIndex)
                     }
                 } else {
-                    scene.addQuad(
+                    appendFillQuad(
                         placement.rotating(
                             fillQuad(
                                 rect: quadFrame,
@@ -923,7 +925,8 @@ public enum ScenePainter {
                                 colorEffects: colorEffects,
                                 clipCornerRadius: ownClipCornerRadius(paintFrame),
                                 blendMode: effectiveBlendMode
-                            ), displayScale: displayScale), toLayer: layerIndex)
+                            ), displayScale: displayScale),
+                        gradient: node.borderGradient, opacity: opacity, into: &scene, layerIndex: layerIndex)
                 }
             }
 
@@ -940,12 +943,13 @@ public enum ScenePainter {
                 node.borderWidth > 0 ? node.cornerRadii?.inset(by: node.borderWidth) : node.cornerRadii
 
             let resolvedBGColor = node.backgroundColor ?? node.backgroundGradient?.startColor
-            if let bg = resolvedBGColor, bg.alpha > 0,
+            if let bg = resolvedBGColor,
+                bg.alpha > 0 || hasVisibleLinearGradient(node.backgroundGradient),
                 fillRect.size.width > 0, fillRect.size.height > 0,
                 clipAllowsDrawing(clip: effectiveClip, rect: fillRect),
                 node.backgroundPath == nil
             {
-                scene.addQuad(
+                appendFillQuad(
                     placement.rotating(
                         fillQuad(
                             rect: quadFillRect,
@@ -963,7 +967,8 @@ public enum ScenePainter {
                             clipCornerRadius: ownClipCornerRadius(fillRect),
                             blendMode: effectiveBlendMode
                         ), displayScale: displayScale),
-                    toLayer: layerIndex
+                    gradient: node.backgroundGradient, opacity: opacity,
+                    into: &scene, layerIndex: layerIndex
                 )
             }
 
@@ -1493,7 +1498,8 @@ public enum ScenePainter {
         // the border ring remains visible when child content fills the frame.
         // Uses thin edge segments instead of a full-rect fill.
         if state.hasChildren,
-            state.borderColor.alpha > 0, node.borderWidth > 0,
+            state.borderColor.alpha > 0 || hasVisibleLinearGradient(node.borderGradient),
+            node.borderWidth > 0,
             node.backgroundPath == nil,
             clipAllowsDrawing(clip: state.effectiveClip, rect: state.paintFrame)
         {
@@ -1545,7 +1551,7 @@ public enum ScenePainter {
                     segment: segment.rect,
                     in: ringFrame
                 )
-                scene.addQuad(
+                appendFillQuad(
                     state.placement.rotating(
                         fillQuad(
                             rect: segment.rect,
@@ -1560,7 +1566,9 @@ public enum ScenePainter {
                             clipCornerRadius: state.inheritedClip.ancestorCornerRadius(
                                 forQuadRect: segmentFootprint, rejectingOutside: state.effectiveClip?.rect),
                             blendMode: state.effectiveBlendMode
-                        ), displayScale: displayScale), toLayer: state.layerIndex)
+                        ), displayScale: displayScale),
+                    gradient: stops.gradient, opacity: state.opacity,
+                    into: &scene, layerIndex: state.layerIndex)
             }
         }
 
@@ -2028,11 +2036,12 @@ public enum ScenePainter {
                 if isolation.primitiveOpacity > 0 {
                     command.color = command.color.multipliedAlpha(by: 1 / isolation.primitiveOpacity)
                 }
-                subScene.addQuad(
+                appendFillQuad(
                     quad(
                         for: command, surfaceSize: surfaceSize, displayScale: displayScale,
                         clipCornerRadius: clipCornerRadius),
-                    toLayer: 0)
+                    gradient: command.gradient, opacity: 1,
+                    into: &subScene, layerIndex: 0)
             }
         }
     }
@@ -2321,6 +2330,51 @@ public enum ScenePainter {
         quad.cornerRadiusBottomLeft = Float(max(0, cornerRadii.bottomLeft) * displayScale)
     }
 
+    private static func hasVisibleLinearGradient(_ gradient: GradientType?) -> Bool {
+        guard case .linear(let linear) = gradient else { return false }
+        return linear.stops.contains { $0.color.alpha > 0 }
+    }
+
+    /// One logical fill remains one contiguous run in presentation order;
+    /// only authored intermediate or displaced stops need extra instances.
+    private static func appendFillQuad(
+        _ quad: QuadPrimitive,
+        gradient: GradientType?,
+        opacity: Float,
+        into scene: inout GPUIScene,
+        layerIndex: Int
+    ) {
+        guard case .linear(let linear) = gradient else {
+            scene.addQuad(quad, toLayer: layerIndex)
+            return
+        }
+        let segments = quad.segmented(for: linear, opacity: opacity)
+
+        // A material draw snapshots and blurs everything already beneath it.
+        // Replaying that full-footprint pass once per gradient interval would
+        // blur the preceding interval into the next and multiply the work by
+        // the stop count. Until one backdrop can be shared by the segments,
+        // preserve the existing documented first/last-color material fallback.
+        if segments.count > 1, GPUISceneValue.int(quad.blurRadius) > 0,
+            let first = segments.first, let last = segments.last
+        {
+            var fallback = first
+            fallback.endR = last.endR
+            fallback.endG = last.endG
+            fallback.endB = last.endB
+            fallback.endA = last.endA
+            fallback.gradientSegmentStart = 0
+            fallback.gradientSegmentEnd = 0
+            fallback.gradientSegmentMode = 0
+            scene.addQuad(fallback, toLayer: layerIndex)
+            return
+        }
+
+        for segment in segments {
+            scene.addQuad(segment, toLayer: layerIndex)
+        }
+    }
+
     private static func fillQuad(
         rect: Rect,
         cornerRadius: Double,
@@ -2507,7 +2561,7 @@ public enum ScenePainter {
             case .fillRectGradient(let rect, let gradient):
                 let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
                 guard clipAllowsDrawing(clip: currentCullClip, rect: effectiveRect) else { continue }
-                scene.addQuad(
+                appendFillQuad(
                     placement.rotating(
                         fillQuad(
                             rect: effectiveRect,
@@ -2519,7 +2573,9 @@ public enum ScenePainter {
                             surfaceSize: surfaceSize,
                             displayScale: displayScale,
                             clipCornerRadius: clipRadius(effectiveRect)
-                        ), displayScale: displayScale), toLayer: layerIndex)
+                        ), displayScale: displayScale),
+                    gradient: .linear(gradient), opacity: opacity,
+                    into: &scene, layerIndex: layerIndex)
 
             case .strokeRect(let rect, let color, let lineWidth):
                 let effectiveColor = color.multipliedAlpha(by: opacity)
@@ -2773,11 +2829,12 @@ public enum ScenePainter {
                 let fillRect = deferredDraws[deferredDrawIndex].payload.fillRectCommand(
                     contentMask: contentMask?.rect
                 )
-                scene.addQuad(
+                appendFillQuad(
                     quad(
                         for: fillRect, surfaceSize: surfaceSize, displayScale: displayScale,
                         clipCornerRadius: contentMask.resolvedCornerRadius(forQuadRect: fillRect.rect)),
-                    toLayer: 0
+                    gradient: fillRect.gradient, opacity: 1,
+                    into: &scene, layerIndex: 0
                 )
             case .subtree(let payload):
                 guard let node = payload.node else {

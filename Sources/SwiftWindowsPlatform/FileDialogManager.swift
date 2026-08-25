@@ -34,51 +34,25 @@ public final class Win32FileDialogProvider: FileDialogProvider {
         title: String?
     ) -> [URL] {
         var buffer = [WCHAR](repeating: 0, count: 4096)
-        var ofn = OPENFILENAMEW()
-        ofn.lStructSize = DWORD(MemoryLayout<OPENFILENAMEW>.size)
-        ofn.hwndOwner = GetActiveWindow()
-        ofn.lpstrFile = buffer.withUnsafeMutableBufferPointer { $0.baseAddress }
-        ofn.nMaxFile = DWORD(buffer.count)
+        let flags: DWORD =
+            allowsMultipleSelection
+            ? DWORD(OFN_ALLOWMULTISELECT | OFN_FILEMUSTEXIST | OFN_EXPLORER)
+            : DWORD(OFN_FILEMUSTEXIST | OFN_EXPLORER)
 
-        if let title = title {
-            title.withWideChars { wideTitle in
-                ofn.lpstrTitle = wideTitle
-            }
+        let result = Self.withConfiguredDialog(
+            fileBuffer: &buffer,
+            allowedExtensions: allowedExtensions,
+            defaultDirectory: defaultDirectory,
+            title: title,
+            flags: flags
+        ) { configuration in
+            GetOpenFileNameW(&configuration)
         }
-
-        if let defaultDirectory = defaultDirectory {
-            defaultDirectory.path.withWideChars { widePath in
-                ofn.lpstrInitialDir = widePath
-            }
-        }
-
-        let filterBuffer = Self.makeFilterBuffer(allowedExtensions: allowedExtensions)
-        if !filterBuffer.isEmpty {
-            filterBuffer.withUnsafeBufferPointer { buf in
-                ofn.lpstrFilter = buf.baseAddress
-            }
-        }
-
-        if allowsMultipleSelection {
-            ofn.Flags = DWORD(OFN_ALLOWMULTISELECT | OFN_FILEMUSTEXIST | OFN_EXPLORER)
-        } else {
-            ofn.Flags = DWORD(OFN_FILEMUSTEXIST | OFN_EXPLORER)
-        }
-
-        let result = GetOpenFileNameW(&ofn)
         guard result else {
             return []
         }
 
-        if allowsMultipleSelection {
-            return Self.parseMultiSelect(buffer: buffer)
-        } else {
-            let path = Self.wideStringToString(buffer)
-            if let url = URL(string: path) {
-                return [url]
-            }
-            return []
-        }
+        return Self.selectedFileURLs(from: buffer, allowsMultipleSelection: allowsMultipleSelection)
     }
 
     public func showSaveFileDialog(
@@ -90,47 +64,95 @@ public final class Win32FileDialogProvider: FileDialogProvider {
         var buffer = [WCHAR](repeating: 0, count: 4096)
 
         if let defaultFilename = defaultFilename {
-            defaultFilename.withWideChars { wideName in
-                for i in 0..<min(buffer.count - 1, defaultFilename.utf16.count) {
-                    buffer[i] = wideName[i]
-                }
+            for (index, codeUnit) in defaultFilename.utf16.prefix(buffer.count - 1).enumerated() {
+                buffer[index] = codeUnit
             }
         }
 
-        var ofn = OPENFILENAMEW()
-        ofn.lStructSize = DWORD(MemoryLayout<OPENFILENAMEW>.size)
-        ofn.hwndOwner = GetActiveWindow()
-        ofn.lpstrFile = buffer.withUnsafeMutableBufferPointer { $0.baseAddress }
-        ofn.nMaxFile = DWORD(buffer.count)
-
-        if let title = title {
-            title.withWideChars { wideTitle in
-                ofn.lpstrTitle = wideTitle
-            }
+        let result = Self.withConfiguredDialog(
+            fileBuffer: &buffer,
+            allowedExtensions: allowedExtensions,
+            defaultDirectory: defaultDirectory,
+            title: title,
+            flags: DWORD(OFN_OVERWRITEPROMPT | OFN_EXPLORER)
+        ) { configuration in
+            GetSaveFileNameW(&configuration)
         }
-
-        if let defaultDirectory = defaultDirectory {
-            defaultDirectory.path.withWideChars { widePath in
-                ofn.lpstrInitialDir = widePath
-            }
-        }
-
-        let filterBuffer = Self.makeFilterBuffer(allowedExtensions: allowedExtensions)
-        if !filterBuffer.isEmpty {
-            filterBuffer.withUnsafeBufferPointer { buf in
-                ofn.lpstrFilter = buf.baseAddress
-            }
-        }
-
-        ofn.Flags = DWORD(OFN_OVERWRITEPROMPT | OFN_EXPLORER)
-
-        let result = GetSaveFileNameW(&ofn)
         guard result else {
             return nil
         }
 
-        let path = Self.wideStringToString(buffer)
-        return URL(string: path)
+        return Self.selectedFileURLs(from: buffer, allowsMultipleSelection: false).first
+    }
+
+    /// Keeps every pointer in `OPENFILENAMEW` valid throughout the synchronous
+    /// common-dialog call. A pointer returned from `withUnsafeBufferPointer`
+    /// cannot be stored and used after that closure has returned.
+    static func withConfiguredDialog<Result>(
+        fileBuffer: inout [WCHAR],
+        allowedExtensions: [String]?,
+        defaultDirectory: URL?,
+        title: String?,
+        flags: DWORD,
+        perform: (inout OPENFILENAMEW) -> Result
+    ) -> Result {
+        let titleBuffer: [WCHAR] = title.map { Array($0.utf16) + [0] } ?? []
+        let directoryBuffer: [WCHAR] = defaultDirectory.map { Array($0.path.utf16) + [0] } ?? []
+        let filterBuffer = Self.makeFilterBuffer(allowedExtensions: allowedExtensions)
+
+        return fileBuffer.withUnsafeMutableBufferPointer { filePointer in
+            titleBuffer.withUnsafeBufferPointer { titlePointer in
+                directoryBuffer.withUnsafeBufferPointer { directoryPointer in
+                    filterBuffer.withUnsafeBufferPointer { filterPointer in
+                        var configuration = OPENFILENAMEW()
+                        configuration.lStructSize = DWORD(MemoryLayout<OPENFILENAMEW>.size)
+                        configuration.hwndOwner = GetActiveWindow()
+                        configuration.lpstrFile = filePointer.baseAddress
+                        configuration.nMaxFile = DWORD(filePointer.count)
+                        configuration.lpstrTitle = titlePointer.isEmpty ? nil : titlePointer.baseAddress
+                        configuration.lpstrInitialDir = directoryPointer.isEmpty ? nil : directoryPointer.baseAddress
+                        configuration.lpstrFilter = filterPointer.isEmpty ? nil : filterPointer.baseAddress
+                        configuration.Flags = flags
+                        return perform(&configuration)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Decodes the bounded UTF-16 list `OFN_EXPLORER` writes: one selected
+    /// file is a complete path; multiple selections are directory, filename,
+    /// filename, and an empty terminator. All paths are filesystem URLs.
+    static func selectedFileURLs(from buffer: [WCHAR], allowsMultipleSelection: Bool) -> [URL] {
+        var components: [String] = []
+        var index = buffer.startIndex
+
+        while index < buffer.endIndex {
+            guard let terminator = buffer[index...].firstIndex(of: 0) else {
+                return []
+            }
+
+            guard terminator != index else {
+                break
+            }
+
+            components.append(String(decoding: buffer[index..<terminator], as: UTF16.self))
+            if !allowsMultipleSelection {
+                break
+            }
+            index = buffer.index(after: terminator)
+        }
+
+        guard let firstPath = components.first else {
+            return []
+        }
+
+        guard allowsMultipleSelection, components.count > 1 else {
+            return [URL(fileURLWithPath: firstPath)]
+        }
+
+        let directory = URL(fileURLWithPath: firstPath, isDirectory: true)
+        return components.dropFirst().map { directory.appendingPathComponent($0) }
     }
 
     /// Double-null-terminated `lpstrFilter` payload ("Supported Files",
@@ -165,33 +187,6 @@ public final class Win32FileDialogProvider: FileDialogProvider {
         return filterBuffer
     }
 
-    private static func parseMultiSelect(buffer: [WCHAR]) -> [URL] {
-        let fullString = wideStringToString(buffer)
-        let parts = fullString.split(separator: "\0", omittingEmptySubsequences: true)
-        guard parts.count > 1 else {
-            if let url = URL(string: fullString) {
-                return [url]
-            }
-            return []
-        }
-
-        let directory = String(parts[0])
-        var urls: [URL] = []
-        for i in 1..<parts.count {
-            let filename = String(parts[i])
-            let path = directory + "\\" + filename
-            if let url = URL(string: path) {
-                urls.append(url)
-            }
-        }
-        return urls
-    }
-
-    private static func wideStringToString(_ buffer: [WCHAR]) -> String {
-        let length = buffer.firstIndex(of: 0) ?? buffer.count
-        let data = Data(bytes: buffer, count: length * MemoryLayout<WCHAR>.size)
-        return String(data: data, encoding: .utf16LittleEndian) ?? ""
-    }
 }
 
 @MainActor

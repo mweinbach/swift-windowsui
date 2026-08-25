@@ -14119,16 +14119,24 @@ private func textInputComponent(
                 refreshChrome()
             case .committed(let result):
                 node.textInputMarkedText = nil
-                let inserted =
+                let committed =
                     allowsNewlines
                     ? result
                     : String(result.prefix(while: { $0 != "\r" && $0 != "\n" }))
-                guard !inserted.isEmpty else {
+                guard !committed.isEmpty else {
                     refreshChrome()
                     return
                 }
                 let state = currentSelectionState()
                 let replacementRange = state.range ?? (state.caret..<state.caret)
+                let inserted =
+                    event.source == .keyboard
+                    ? autocapitalizedInsertedCharacter(
+                        committed,
+                        currentText: binding.wrappedValue.textPrefix(upTo: replacementRange.lowerBound),
+                        textInputAutocapitalization: context.textInputAutocapitalization
+                    )
+                    : committed
                 binding.wrappedValue = binding.wrappedValue.replacingText(in: replacementRange, with: inserted)
                 setCaretOffset(replacementRange.lowerBound + inserted.count)
                 context.invalidate()
@@ -14911,32 +14919,44 @@ public struct DatePicker: View {
         )
 
         return Component { runtime in
-            let valueNode = Text(
-                Self.formattedValue(
-                    selection.wrappedValue,
-                    components: displayedComponents,
-                    calendar: environmentValues.calendar,
-                    timeZone: environmentValues.timeZone,
-                    locale: environmentValues.locale
+            let formattedValue = Self.formattedValue(
+                selection.wrappedValue,
+                components: displayedComponents,
+                calendar: environmentValues.calendar,
+                timeZone: environmentValues.timeZone,
+                locale: environmentValues.locale
+            )
+            let valueNode = Text(formattedValue)
+                .monospaced()
+                .lineLimit(1)
+                .makeComponent(
+                    context:
+                        context
+                        .withTextAlignment(.trailing)
+                        .withLineLimit(1)
                 )
-            )
-            .monospaced()
-            .lineLimit(1)
-            .makeComponent(
-                context:
-                    context
-                    .withTextAlignment(.trailing)
-                    .withLineLimit(1)
-            )
-            .makeNode(runtime: runtime)
+                .makeNode(runtime: runtime)
             valueNode.layoutPriority = max(valueNode.layoutPriority, 1)
             let controlNode = Self.retainedValueControl(
                 for: valueNode,
                 style: datePickerStyle,
                 context: context
             )
+            if case .stepperField = datePickerStyle.kind {
+                Self.configureStepperButtons(
+                    on: controlNode,
+                    selection: selection,
+                    range: range,
+                    components: displayedComponents,
+                    calendar: interactionCalendar,
+                    isEnabled: context.isEnabled,
+                    invalidate: context.invalidate
+                )
+            }
 
             guard !context.labelsHidden, !labelViews.isEmpty else {
+                let accessibilityLabel =
+                    labelViews.isEmpty ? nil : firstRetainedText(in: labelComponent.makeNode(runtime: runtime))
                 Self.configureInteraction(
                     on: controlNode,
                     selection: selection,
@@ -14944,6 +14964,8 @@ public struct DatePicker: View {
                     components: displayedComponents,
                     calendar: interactionCalendar,
                     isEnabled: context.isEnabled,
+                    accessibilityLabel: accessibilityLabel,
+                    accessibilityValue: formattedValue,
                     invalidate: context.invalidate
                 )
                 return controlNode
@@ -14961,6 +14983,8 @@ public struct DatePicker: View {
                     components: displayedComponents,
                     calendar: interactionCalendar,
                     isEnabled: context.isEnabled,
+                    accessibilityLabel: firstRetainedText(in: labelNode),
+                    accessibilityValue: formattedValue,
                     invalidate: context.invalidate
                 )
                 return groupedFormRowNode(
@@ -14981,6 +15005,8 @@ public struct DatePicker: View {
                 components: displayedComponents,
                 calendar: interactionCalendar,
                 isEnabled: context.isEnabled,
+                accessibilityLabel: firstRetainedText(in: labelNode),
+                accessibilityValue: formattedValue,
                 invalidate: context.invalidate
             )
             return node
@@ -14992,6 +15018,11 @@ public struct DatePicker: View {
         style: DatePickerStyle,
         context: ViewBuildContext
     ) -> ViewNode {
+        let palette = context.controlPalette
+        let fieldSurface = context.isEnabled ? palette.fieldSurface : palette.controlBackground
+        let fieldBorder = context.isEnabled ? palette.controlBorder : palette.separator
+        let secondaryLabel = context.isEnabled ? palette.secondaryLabel : palette.disabledLabel
+
         switch style.kind {
         case .automatic:
             return valueNode
@@ -14999,14 +15030,14 @@ public struct DatePicker: View {
             let disclosureNode = Controls.icon(
                 .chevronDown,
                 preferredSize: Size(width: 14, height: 14),
-                color: context.foregroundColor.opacity(context.isEnabled ? 0.78 : 0.45),
+                color: secondaryLabel,
                 scale: 1.1,
                 displayScale: context.iconRasterDisplayScale
             )
             return Controls.stackPanel(
                 preferredSize: context.controlSize.singleLineTextInputSize,
-                backgroundColor: Color(red: 0.08, green: 0.12, blue: 0.17, alpha: context.isEnabled ? 0.64 : 0.34),
-                borderColor: context.tint.opacity(context.isEnabled ? 0.32 : 0.16),
+                backgroundColor: fieldSurface,
+                borderColor: fieldBorder,
                 borderWidth: 1,
                 cornerRadius: 8,
                 stackLayout: .horizontal(
@@ -15020,8 +15051,8 @@ public struct DatePicker: View {
         case .field:
             return Controls.stackPanel(
                 preferredSize: context.controlSize.singleLineTextInputSize,
-                backgroundColor: Color(red: 0.05, green: 0.07, blue: 0.10, alpha: context.isEnabled ? 0.52 : 0.28),
-                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: context.isEnabled ? 0.22 : 0.10),
+                backgroundColor: fieldSurface,
+                borderColor: fieldBorder,
                 borderWidth: 1,
                 cornerRadius: 3,
                 stackLayout: .vertical(
@@ -15034,8 +15065,8 @@ public struct DatePicker: View {
         case .stepperField:
             let stepperNode = Controls.stackPanel(
                 preferredSize: Size(width: 22, height: context.controlSize.singleLineTextInputSize.height),
-                backgroundColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: context.isEnabled ? 0.08 : 0.04),
-                borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.12),
+                backgroundColor: context.isEnabled ? palette.controlSurface : palette.controlBackground,
+                borderColor: fieldBorder,
                 borderWidth: 1,
                 cornerRadius: 4,
                 stackLayout: .vertical(
@@ -15045,10 +15076,8 @@ public struct DatePicker: View {
                 ),
                 isHitTestVisible: false,
                 children: [
-                    Controls.label(
-                        "+", color: context.foregroundColor.opacity(context.isEnabled ? 0.70 : 0.38), scale: 1.0),
-                    Controls.label(
-                        "-", color: context.foregroundColor.opacity(context.isEnabled ? 0.70 : 0.38), scale: 1.0),
+                    Controls.label("+", color: secondaryLabel, scale: 1.0),
+                    Controls.label("-", color: secondaryLabel, scale: 1.0),
                 ]
             )
             return Controls.stackPanel(
@@ -15056,8 +15085,8 @@ public struct DatePicker: View {
                     width: context.controlSize.singleLineTextInputSize.width + 30,
                     height: context.controlSize.singleLineTextInputSize.height
                 ),
-                backgroundColor: Color(red: 0.06, green: 0.08, blue: 0.12, alpha: context.isEnabled ? 0.58 : 0.30),
-                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: context.isEnabled ? 0.24 : 0.11),
+                backgroundColor: fieldSurface,
+                borderColor: fieldBorder,
                 borderWidth: 1,
                 cornerRadius: 7,
                 stackLayout: .horizontal(
@@ -15069,7 +15098,7 @@ public struct DatePicker: View {
                 children: [valueNode, stepperNode]
             )
         case .wheel:
-            let guideColor = Color(red: 0.95, green: 0.98, blue: 1.0, alpha: context.isEnabled ? 0.14 : 0.07)
+            let guideColor = context.isEnabled ? palette.separator : palette.quaternaryFill
             let topGuide = Controls.panel(
                 preferredSize: Size(width: 1, height: 7),
                 backgroundColor: guideColor,
@@ -15082,8 +15111,8 @@ public struct DatePicker: View {
             )
             return Controls.stackPanel(
                 preferredSize: Size(width: context.controlSize.singleLineTextInputSize.width, height: 64),
-                backgroundColor: Color(red: 0.07, green: 0.09, blue: 0.13, alpha: context.isEnabled ? 0.60 : 0.30),
-                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: context.isEnabled ? 0.18 : 0.08),
+                backgroundColor: fieldSurface,
+                borderColor: fieldBorder,
                 borderWidth: 1,
                 cornerRadius: 10,
                 clipsToBounds: true,
@@ -15103,7 +15132,7 @@ public struct DatePicker: View {
                 isHitTestVisible: false
             )
             let gridHint = Controls.stackPanel(
-                backgroundColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: context.isEnabled ? 0.05 : 0.02),
+                backgroundColor: context.isEnabled ? palette.tertiaryFill : palette.quinaryFill,
                 cornerRadius: 5,
                 stackLayout: .horizontal(
                     spacing: 3,
@@ -15116,7 +15145,7 @@ public struct DatePicker: View {
                         preferredSize: Size(width: 10, height: 10),
                         backgroundColor: index == 2
                             ? context.tint.opacity(context.isEnabled ? 0.62 : 0.26)
-                            : Color(red: 0.95, green: 0.98, blue: 1.0, alpha: context.isEnabled ? 0.10 : 0.04),
+                            : context.isEnabled ? palette.systemFill : palette.quaternaryFill,
                         cornerRadius: 3,
                         isHitTestVisible: false
                     )
@@ -15124,8 +15153,8 @@ public struct DatePicker: View {
             )
             return Controls.stackPanel(
                 preferredSize: Size(width: context.controlSize.singleLineTextInputSize.width, height: 78),
-                backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: context.isEnabled ? 0.68 : 0.34),
-                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: context.isEnabled ? 0.18 : 0.08),
+                backgroundColor: context.isEnabled ? palette.raisedSurface : palette.controlBackground,
+                borderColor: fieldBorder,
                 borderWidth: 1,
                 cornerRadius: 12,
                 stackLayout: .vertical(
@@ -15146,14 +15175,45 @@ public struct DatePicker: View {
         components: DatePickerComponents,
         calendar: Calendar,
         isEnabled: Bool,
+        accessibilityLabel: String?,
+        accessibilityValue: String,
         invalidate: @escaping () -> Void
     ) {
+        node.accessibilityLabel = accessibilityLabel
+        node.accessibilityValue = accessibilityValue
+        node.accessibilityRespondsToUserInteraction = isEnabled
+
         guard isEnabled else {
             return
         }
 
         node.isFocusable = true
         node.isHitTestVisible = true
+        node.interceptsVerticalArrowKeys = true
+        node.accessibilityActions.append(
+            RetainedAccessibilityAction(name: "Increment", kind: .increment) {
+                Self.adjustSelection(
+                    selection,
+                    direction: 1,
+                    range: range,
+                    components: components,
+                    calendar: calendar,
+                    invalidate: invalidate
+                )
+            }
+        )
+        node.accessibilityActions.append(
+            RetainedAccessibilityAction(name: "Decrement", kind: .decrement) {
+                Self.adjustSelection(
+                    selection,
+                    direction: -1,
+                    range: range,
+                    components: components,
+                    calendar: calendar,
+                    invalidate: invalidate
+                )
+            }
+        )
         node.onKeyDown = { event in
             let direction: Int
             switch event.key {
@@ -15165,20 +15225,86 @@ public struct DatePicker: View {
                 return
             }
 
-            guard
-                let proposedDate = steppedDate(
+            Self.adjustSelection(
+                selection,
+                direction: direction,
+                range: range,
+                components: components,
+                calendar: calendar,
+                invalidate: invalidate
+            )
+        }
+    }
+
+    private static func configureStepperButtons(
+        on control: ViewNode,
+        selection: Binding<Date>,
+        range: DatePickerRange,
+        components: DatePickerComponents,
+        calendar: Calendar,
+        isEnabled: Bool,
+        invalidate: @escaping () -> Void
+    ) {
+        guard let buttons = control.children.last?.children, buttons.count == 2 else {
+            return
+        }
+
+        for (index, button) in buttons.enumerated() {
+            let direction = index == 0 ? 1 : -1
+            let canAdjust =
+                isEnabled
+                && steppedDate(
                     from: selection.wrappedValue,
                     direction: direction,
                     components: components,
                     calendar: calendar
-                ), range.contains(proposedDate)
-            else {
-                return
+                ).map(range.contains) == true
+            button.accessibilityLabel = direction > 0 ? "Increment" : "Decrement"
+            button.accessibilityTraits.formUnion(.isButton)
+            button.accessibilityRespondsToUserInteraction = canAdjust
+            button.isFocusable = canAdjust
+            button.isHitTestVisible = canAdjust
+
+            guard canAdjust else {
+                continue
             }
 
-            selection.wrappedValue = proposedDate
-            invalidate()
+            button.onActivate = {
+                Self.adjustSelection(
+                    selection,
+                    direction: direction,
+                    range: range,
+                    components: components,
+                    calendar: calendar,
+                    invalidate: invalidate
+                )
+            }
+            button.onRepeatActivate = button.onActivate
+            button.buttonRepeatBehavior = .enabled
         }
+    }
+
+    private static func adjustSelection(
+        _ selection: Binding<Date>,
+        direction: Int,
+        range: DatePickerRange,
+        components: DatePickerComponents,
+        calendar: Calendar,
+        invalidate: @escaping () -> Void
+    ) {
+        guard
+            let proposedDate = steppedDate(
+                from: selection.wrappedValue,
+                direction: direction,
+                components: components,
+                calendar: calendar
+            ), range.contains(proposedDate)
+        else {
+            return
+        }
+
+        selection.wrappedValue = proposedDate
+        invalidate()
     }
 
     private static func steppedDate(
@@ -16599,6 +16725,7 @@ public struct Picker<SelectionValue: Hashable>: View {
         selectedAnyValue: AnyHashable,
         options: [Option]
     ) -> ViewNode {
+        let appearance = context.controlPalette
         let optionNodes: [ViewNode] = options.map { option in
             let isSelected = option.value.map { AnyHashable($0) == selectedAnyValue } ?? false
             let indicatorNode =
@@ -16606,7 +16733,7 @@ public struct Picker<SelectionValue: Hashable>: View {
                 ? Controls.icon(
                     .checkmark,
                     preferredSize: Size(width: 18, height: 18),
-                    color: context.isEnabled ? context.tint : Color(red: 0.577, green: 0.577, blue: 0.577, alpha: 0.70),
+                    color: context.isEnabled ? appearance.accentInk(for: context.tint) : appearance.disabledLabel,
                     scale: 1.2,
                     displayScale: context.iconRasterDisplayScale
                 )
@@ -16622,26 +16749,29 @@ public struct Picker<SelectionValue: Hashable>: View {
                 cornerRadius: 6,
                 palette: SurfacePalette(
                     idle: isSelected
-                        ? context.tint.opacity(0.14)
-                        : Color(red: 0.156, green: 0.156, blue: 0.156, alpha: 0.34),
+                        ? appearance.listSelectionBackground(tint: context.tint)
+                        : .clear,
                     hovered: isSelected
-                        ? context.tint.opacity(0.22)
-                        : Color(red: 0.233, green: 0.233, blue: 0.233, alpha: 0.54),
+                        ? context.tint.opacity(appearance.isDark ? 0.24 : 0.18)
+                        : appearance.tertiaryFill,
                     focused: isSelected
-                        ? context.tint.opacity(0.28)
-                        : Color(red: 0.22, green: 0.30, blue: 0.40, alpha: 0.64),
+                        ? context.tint.opacity(appearance.isDark ? 0.28 : 0.20)
+                        : appearance.secondaryFill,
                     pressed: isSelected
-                        ? context.tint.opacity(0.34)
-                        : Color(red: 0.28, green: 0.38, blue: 0.50, alpha: 0.72)
+                        ? context.tint.opacity(appearance.isDark ? 0.34 : 0.24)
+                        : appearance.systemFill,
+                    disabledBackground: appearance.quinaryFill,
+                    disabledForeground: appearance.disabledLabel,
+                    disabledBorder: appearance.separator
                 ),
                 chrome: SurfaceChrome(
-                    borderColor: isSelected ? context.tint.opacity(0.36) : .clear,
+                    borderColor: isSelected ? appearance.controlBorderStrong : .clear,
                     borderHoveredColor: isSelected
-                        ? context.tint.opacity(0.50) : Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.12),
-                    borderFocusedColor: context.tint.opacity(0.64),
-                    borderPressedColor: context.tint.opacity(0.72),
+                        ? appearance.controlBorderStrong : appearance.controlBorder,
+                    borderFocusedColor: appearance.controlBorderStrong,
+                    borderPressedColor: appearance.controlBorderStrong,
                     borderWidth: isSelected ? 1 : 0,
-                    focusRingColor: context.tint.opacity(0.26),
+                    focusRingColor: appearance.accentInk(for: context.tint).opacity(0.45),
                     focusRingWidth: 2
                 ),
                 clipsToBounds: true,
@@ -16663,8 +16793,8 @@ public struct Picker<SelectionValue: Hashable>: View {
         }
 
         return Controls.stackPanel(
-            backgroundColor: Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 0.46),
-            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.08),
+            backgroundColor: appearance.controlBackground,
+            borderColor: appearance.controlBorder,
             borderWidth: 1,
             cornerRadius: 10,
             clipsToBounds: true,
@@ -16691,7 +16821,7 @@ public struct Picker<SelectionValue: Hashable>: View {
         let selectedIndex = options.firstIndex { $0.value == selectedValue } ?? 0
         let hasSelectableOption = options.contains { $0.value != nil }
 
-        return Controls.dropdown(
+        let dropdown = Controls.dropdown(
             runtime: runtime,
             options: titles,
             selectedIndex: selectedIndex,
@@ -16700,21 +16830,8 @@ public struct Picker<SelectionValue: Hashable>: View {
                 width: context.controlSize.pickerMenuPreferredSize.width + 24,
                 height: context.controlSize.pickerMenuPreferredSize.height + 4
             ),
-            palette: SurfacePalette(
-                idle: Color(red: 0.107, green: 0.107, blue: 0.107, alpha: 0.52),
-                hovered: Color(red: 0.175, green: 0.175, blue: 0.175, alpha: 0.64),
-                focused: Color(red: 0.232, green: 0.232, blue: 0.232, alpha: 0.76),
-                pressed: Color(red: 0.22, green: 0.31, blue: 0.44, alpha: 0.84)
-            ),
-            chrome: SurfaceChrome(
-                borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.12),
-                borderHoveredColor: context.tint.opacity(0.36),
-                borderFocusedColor: context.tint.opacity(0.54),
-                borderPressedColor: context.tint.opacity(0.66),
-                borderWidth: 1,
-                focusRingColor: context.tint.opacity(0.26),
-                focusRingWidth: 2
-            ),
+            palette: context.controlPalette.borderedButtonPalette,
+            chrome: context.controlPalette.buttonChrome(focusTint: context.tint),
             onSelect: { index in
                 guard options.indices.contains(index), let value = options[index].value else {
                     return
@@ -16724,6 +16841,8 @@ public struct Picker<SelectionValue: Hashable>: View {
                 context.invalidate()
             }
         )
+        Self.applyDropdownAppearance(to: dropdown, selectedIndex: selectedIndex, context: context)
+        return dropdown
     }
 
     private static func palettePickerNode(
@@ -16733,11 +16852,21 @@ public struct Picker<SelectionValue: Hashable>: View {
         selectedAnyValue: AnyHashable,
         options: [Option]
     ) -> ViewNode {
+        let appearance = context.controlPalette
         let itemHeight = context.controlSize.pickerMenuPreferredSize.height
         let itemSize = Size(width: max(44, itemHeight * 1.45), height: itemHeight)
         let optionNodes: [ViewNode] = options.map { option in
             let isSelected = option.value.map { AnyHashable($0) == selectedAnyValue } ?? false
-            let palette = isSelected ? selectedPalette(tint: context.tint) : unselectedPalette
+            let palette =
+                isSelected
+                ? selectedPalette(tint: context.tint, appearance: appearance)
+                : unselectedPalette(appearance: appearance)
+            if option.node.text != nil {
+                option.node.textStyle.color =
+                    context.isEnabled
+                    ? (isSelected ? appearance.selectedContentLabel : appearance.label)
+                    : appearance.disabledLabel
+            }
             return Controls.button(
                 runtime: runtime,
                 preferredSize: itemSize,
@@ -16746,14 +16875,12 @@ public struct Picker<SelectionValue: Hashable>: View {
                 palette: palette,
                 chrome: SurfaceChrome(
                     borderColor: isSelected
-                        ? context.tint.opacity(0.62) : Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.10),
-                    borderHoveredColor: isSelected
-                        ? context.tint.opacity(0.78) : Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.22),
-                    borderFocusedColor: isSelected
-                        ? context.tint.opacity(0.88) : Color(red: 0.92, green: 0.92, blue: 0.92, alpha: 0.30),
-                    borderPressedColor: Color(red: 0.996, green: 0.996, blue: 0.996, alpha: 0.36),
+                        ? appearance.controlBorderStrong : appearance.controlBorder,
+                    borderHoveredColor: appearance.controlBorderStrong,
+                    borderFocusedColor: appearance.controlBorderStrong,
+                    borderPressedColor: appearance.controlBorderStrong,
                     borderWidth: isSelected ? 2 : 1,
-                    focusRingColor: context.tint.opacity(0.30),
+                    focusRingColor: appearance.accentInk(for: context.tint).opacity(0.45),
                     focusRingWidth: 2
                 ),
                 clipsToBounds: true,
@@ -16775,8 +16902,8 @@ public struct Picker<SelectionValue: Hashable>: View {
         }
 
         return Controls.stackPanel(
-            backgroundColor: Color(red: 0.136, green: 0.136, blue: 0.136, alpha: 0.72),
-            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.08),
+            backgroundColor: appearance.controlBackground,
+            borderColor: appearance.controlBorder,
             borderWidth: 1,
             cornerRadius: 12,
             clipsToBounds: true,
@@ -16797,25 +16924,28 @@ public struct Picker<SelectionValue: Hashable>: View {
         selectedAnyValue: AnyHashable,
         options: [Option]
     ) -> ViewNode {
+        let appearance = context.controlPalette
         let itemHeight = max(1, Double(context.environmentValues.defaultWheelPickerItemHeight))
         let optionNodes: [ViewNode] = options.enumerated().map { index, option in
             let isSelected = option.value.map { AnyHashable($0) == selectedAnyValue } ?? false
             let title = firstText(in: option.node) ?? "OPTION \(index + 1)"
-            let palette = isSelected ? selectedPalette(tint: context.tint) : unselectedPalette
+            let palette =
+                isSelected
+                ? selectedPalette(tint: context.tint, appearance: appearance)
+                : unselectedPalette(appearance: appearance)
             let optionNode = Controls.button(
                 runtime: runtime,
                 layoutPriority: 1,
                 cornerRadius: 8,
                 palette: palette,
                 chrome: SurfaceChrome(
-                    borderColor: isSelected ? context.tint.opacity(0.48) : .clear,
+                    borderColor: isSelected ? appearance.controlBorderStrong : .clear,
                     borderHoveredColor: isSelected
-                        ? context.tint.opacity(0.64) : Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.14),
-                    borderFocusedColor: isSelected
-                        ? context.tint.opacity(0.78) : Color(red: 0.92, green: 0.92, blue: 0.92, alpha: 0.24),
-                    borderPressedColor: Color(red: 0.996, green: 0.996, blue: 0.996, alpha: 0.34),
+                        ? appearance.controlBorderStrong : appearance.controlBorder,
+                    borderFocusedColor: appearance.controlBorderStrong,
+                    borderPressedColor: appearance.controlBorderStrong,
                     borderWidth: isSelected ? 1 : 0,
-                    focusRingColor: context.tint.opacity(0.28),
+                    focusRingColor: appearance.accentInk(for: context.tint).opacity(0.45),
                     focusRingWidth: 2
                 ),
                 clipsToBounds: true,
@@ -16836,7 +16966,9 @@ public struct Picker<SelectionValue: Hashable>: View {
                     Controls.label(
                         title,
                         layoutPriority: 1,
-                        color: isSelected ? .white : .secondary,
+                        color: context.isEnabled
+                            ? (isSelected ? appearance.selectedContentLabel : appearance.secondaryLabel)
+                            : appearance.disabledLabel,
                         scale: 1.6,
                         weight: isSelected ? .semibold : .regular,
                         alignment: .center,
@@ -16850,8 +16982,8 @@ public struct Picker<SelectionValue: Hashable>: View {
         }
 
         return Controls.stackPanel(
-            backgroundColor: Color(red: 0.136, green: 0.136, blue: 0.136, alpha: 0.68),
-            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.08),
+            backgroundColor: appearance.controlBackground,
+            borderColor: appearance.controlBorder,
             borderWidth: 1,
             cornerRadius: 12,
             clipsToBounds: true,
@@ -16872,25 +17004,25 @@ public struct Picker<SelectionValue: Hashable>: View {
         selectedAnyValue: AnyHashable,
         options: [Option]
     ) -> ViewNode {
+        let appearance = context.controlPalette
         let optionNodes: [ViewNode] = options.enumerated().map { index, option in
             let isSelected = option.value.map { AnyHashable($0) == selectedAnyValue } ?? false
             let title = firstText(in: option.node) ?? "OPTION \(index + 1)"
-            return Controls.radioButton(
+            let radioButton = Controls.radioButton(
                 runtime: runtime,
                 label: title,
                 isSelected: isSelected,
                 isEnabled: context.isEnabled && option.value != nil,
                 layoutPriority: 1,
+                palette: appearance.borderedButtonPalette,
                 chrome: SurfaceChrome(
                     borderColor: isSelected
-                        ? context.tint.opacity(0.40) : Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.08),
-                    borderHoveredColor: isSelected
-                        ? context.tint.opacity(0.58) : Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.18),
-                    borderFocusedColor: isSelected
-                        ? context.tint.opacity(0.72) : Color(red: 0.92, green: 0.92, blue: 0.92, alpha: 0.26),
-                    borderPressedColor: Color(red: 0.996, green: 0.996, blue: 0.996, alpha: 0.34),
+                        ? appearance.controlBorderStrong : appearance.controlBorder,
+                    borderHoveredColor: appearance.controlBorderStrong,
+                    borderFocusedColor: appearance.controlBorderStrong,
+                    borderPressedColor: appearance.controlBorderStrong,
                     borderWidth: 1,
-                    focusRingColor: context.tint.opacity(0.28),
+                    focusRingColor: appearance.accentInk(for: context.tint).opacity(0.45),
                     focusRingWidth: 2
                 ),
                 selectedColor: context.tint,
@@ -16901,11 +17033,14 @@ public struct Picker<SelectionValue: Hashable>: View {
                     }
                 }
             )
+            radioButton.children.last?.textStyle.color =
+                context.isEnabled && option.value != nil ? appearance.label : appearance.disabledLabel
+            return radioButton
         }
 
         return Controls.stackPanel(
-            backgroundColor: Color(red: 0.136, green: 0.136, blue: 0.136, alpha: 0.72),
-            borderColor: Color(red: 0.977, green: 0.977, blue: 0.977, alpha: 0.08),
+            backgroundColor: appearance.controlBackground,
+            borderColor: appearance.controlBorder,
             borderWidth: 1,
             cornerRadius: 12,
             clipsToBounds: true,
@@ -16932,12 +17067,14 @@ public struct Picker<SelectionValue: Hashable>: View {
         let selectedIndex = options.firstIndex { $0.value == selectedValue } ?? 0
         let hasSelectableOption = options.contains { $0.value != nil }
 
-        return Controls.dropdown(
+        let dropdown = Controls.dropdown(
             runtime: runtime,
             options: titles,
             selectedIndex: selectedIndex,
             isEnabled: context.isEnabled && hasSelectableOption,
             preferredSize: context.controlSize.pickerMenuPreferredSize,
+            palette: context.controlPalette.borderedButtonPalette,
+            chrome: context.controlPalette.buttonChrome(focusTint: context.tint),
             onSelect: { index in
                 guard options.indices.contains(index), let value = options[index].value else {
                     return
@@ -16947,6 +17084,68 @@ public struct Picker<SelectionValue: Hashable>: View {
                 context.invalidate()
             }
         )
+        Self.applyDropdownAppearance(to: dropdown, selectedIndex: selectedIndex, context: context)
+        return dropdown
+    }
+
+    private static func applyDropdownAppearance(
+        to dropdown: ViewNode,
+        selectedIndex: Int,
+        context: ViewBuildContext
+    ) {
+        let appearance = context.controlPalette
+        let labelColor = context.isEnabled ? appearance.label : appearance.disabledLabel
+
+        if let header = dropdown.children.first {
+            header.children.first?.textStyle.color = labelColor
+            if header.children.count > 1 {
+                header.replaceChild(
+                    at: 1,
+                    with: Controls.icon(
+                        .chevronDown,
+                        preferredSize: Size(width: 16, height: 16),
+                        color: context.isEnabled ? appearance.secondaryLabel : appearance.disabledLabel,
+                        scale: 1.2,
+                        displayScale: context.iconRasterDisplayScale
+                    )
+                )
+            }
+        }
+
+        guard dropdown.children.count > 1 else {
+            return
+        }
+
+        let optionsList = dropdown.children[1]
+        optionsList.backgroundColor = appearance.elevatedSurface
+        optionsList.borderColor = appearance.elevatedSurfaceBorder
+
+        for (index, option) in optionsList.children.enumerated() {
+            let isSelected = index == selectedIndex
+            let idleColor =
+                isSelected && context.isEnabled
+                ? appearance.selectedContentBackground(tint: context.tint)
+                : .clear
+            option.backgroundColor = idleColor
+            option.backgroundGradient = nil
+            option.borderGradient = nil
+            option.children.first?.textStyle.color =
+                context.isEnabled
+                ? (isSelected ? appearance.selectedContentLabel : appearance.label)
+                : appearance.disabledLabel
+
+            if var surface = option.interactionSurface {
+                surface.idleBackground = idleColor
+                surface.hoveredBackground =
+                    isSelected ? appearance.accentHovered(context.tint) : appearance.tertiaryFill
+                surface.focusedBackground =
+                    isSelected ? appearance.accentHovered(context.tint) : appearance.secondaryFill
+                surface.pressedBackground =
+                    isSelected ? appearance.accentPressed(context.tint) : appearance.systemFill
+                surface.appliesSurfaceSheen = false
+                option.interactionSurface = surface
+            }
+        }
     }
 
     private static func firstText(in node: ViewNode) -> String? {
@@ -16963,22 +17162,12 @@ public struct Picker<SelectionValue: Hashable>: View {
         return nil
     }
 
-    private static func selectedPalette(tint: Color) -> SurfacePalette {
-        SurfacePalette(
-            idle: tint.opacity(0.82),
-            hovered: tint.opacity(0.90),
-            focused: tint.opacity(0.96),
-            pressed: tint
-        )
+    private static func selectedPalette(tint: Color, appearance: ControlPalette) -> SurfacePalette {
+        appearance.prominentPalette(tint: tint)
     }
 
-    private static var unselectedPalette: SurfacePalette {
-        SurfacePalette(
-            idle: Color(red: 0.225, green: 0.225, blue: 0.225, alpha: 0.78),
-            hovered: Color(red: 0.282, green: 0.282, blue: 0.282, alpha: 0.86),
-            focused: Color(red: 0.26, green: 0.35, blue: 0.47, alpha: 0.90),
-            pressed: Color(red: 0.31, green: 0.42, blue: 0.56, alpha: 0.96)
-        )
+    private static func unselectedPalette(appearance: ControlPalette) -> SurfacePalette {
+        appearance.borderedButtonPalette
     }
 }
 @MainActor
@@ -17829,6 +18018,8 @@ public struct Slider: View {
                 layoutPriority: minimumLabelViews.isEmpty && maximumLabelViews.isEmpty ? 0 : 1,
                 trackColor: context.controlPalette.controlTrack,
                 filledColor: context.tint,
+                palette: context.controlPalette.borderedButtonPalette,
+                chrome: context.controlPalette.buttonChrome(focusTint: context.tint, casts: false),
                 onValueChanged: { newValue in
                     binding.wrappedValue = Self.snappedValue(newValue, in: range, step: step)
                     context.invalidate()
@@ -17841,6 +18032,63 @@ public struct Slider: View {
             // falls back to `sliderPreferredSize` as its ideal width when
             // nothing proposes one (an intrinsic measure).
             sliderNode.layoutFillAxes = .horizontalOnly
+            let span = range.upperBound - range.lowerBound
+            if context.isEnabled, span.isFinite, span > 0 {
+                let increment =
+                    step.flatMap { value in
+                        value.isFinite && value > 0 ? value : nil
+                    } ?? span / 100
+                let horizontalDirection = context.layoutDirection == .rightToLeft ? -1.0 : 1.0
+                let applyValue: (Double) -> Void = { [weak sliderNode] proposedValue in
+                    let nextValue = Self.snappedValue(proposedValue, in: range, step: step)
+                    guard nextValue != binding.wrappedValue else {
+                        return
+                    }
+
+                    onEditingChanged(true)
+                    binding.wrappedValue = nextValue
+                    sliderNode?.accessibilityValue = String(nextValue)
+                    context.invalidate()
+                    onEditingChanged(false)
+                }
+
+                sliderNode.interceptsVerticalArrowKeys = true
+                sliderNode.onKeyDown = { event in
+                    let proposedValue: Double
+                    switch event.key {
+                    case .rightArrow:
+                        proposedValue = binding.wrappedValue + horizontalDirection * increment
+                    case .leftArrow:
+                        proposedValue = binding.wrappedValue - horizontalDirection * increment
+                    case .upArrow:
+                        proposedValue = binding.wrappedValue + increment
+                    case .downArrow:
+                        proposedValue = binding.wrappedValue - increment
+                    case .pageUp:
+                        proposedValue = binding.wrappedValue + max(increment, span / 10)
+                    case .pageDown:
+                        proposedValue = binding.wrappedValue - max(increment, span / 10)
+                    case .home:
+                        proposedValue = range.lowerBound
+                    case .end:
+                        proposedValue = range.upperBound
+                    default:
+                        return
+                    }
+
+                    applyValue(proposedValue)
+                }
+                sliderNode.accessibilityActions.append(
+                    RetainedAccessibilityAction(name: "Increment", kind: .increment) {
+                        applyValue(binding.wrappedValue + increment)
+                    }
+                )
+                sliderNode.accessibilityActions.append(
+                    RetainedAccessibilityAction(name: "Decrement", kind: .decrement) {
+                        applyValue(binding.wrappedValue - increment)
+                    }
+                )
+            }
 
             guard !context.labelsHidden else {
                 return sliderNode
@@ -20016,6 +20264,14 @@ private func textFieldInsertedCharacter(
     currentText: String,
     textInputAutocapitalization: TextInputAutocapitalization?
 ) -> String? {
+    // Real Win32 key-down events are followed by a layout-aware `WM_CHAR`.
+    // Printable insertion belongs exclusively to that stream; retaining the
+    // virtual-key inference here would duplicate every typed character and
+    // would still get international keyboards wrong.
+    guard event.textInputDelivery == .inferredFromVirtualKey else {
+        return nil
+    }
+
     let insertedCharacter: String
     if event.key == .enter {
         guard allowsNewlines else {

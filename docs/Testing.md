@@ -1,7 +1,12 @@
 # Testing And Visual Checks
 
 This repo uses first-class PowerShell scripts under `scripts/` for local Windows validation.
-`scripts/with-swift.ps1` prepares the Swift for Windows environment by locating Visual Studio through the active environment, `vswhere`, or installed Visual Studio 18/2022 instances before adding the Swift toolchain, runtime, and SDK paths.
+`scripts/with-swift.ps1` prepares the Swift for Windows environment by locating
+Visual Studio through the active environment, `vswhere`, or installed Visual
+Studio 18/2022 instances before adding the Swift toolchain, runtime, and SDK
+paths. The Visual Studio installer directory is also added to `PATH` before
+`VsDevCmd.bat` runs so its own `vswhere.exe` lookup works in hardened shells;
+developer-environment startup failures are reported immediately.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/with-swift.ps1 -CheckOnly
@@ -43,6 +48,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Ret
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIWindowHostTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter GPUISceneTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter TraversalStackHeadroomTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Win32TextInputTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIEnvironmentConsistencyTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter DraggableFocusRoutingTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter GradientRenderingFidelityTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter DemoProductPolishTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter DemoResponsiveProductPolishTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter SceneBoundaryResilienceTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter D3D11TransparentCompositingTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter D3D11ImageBindingLifetimeTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Win32PointerMessageRoutingTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Win32NativeFileDialogSafetyTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUITouchInputRoutingTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter RetainedInteractionLifecyclePolishTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter AccessibilityProjectionRuntimePolishTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIDisabledAccessibilityInvokeTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIDynamicTypeRangeTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIControlUsabilityTests
 ```
 
 `TraversalStackHeadroomTests` is the one suite whose failure mode is not a
@@ -444,6 +466,7 @@ Visual checks:
 
 - `scripts/demo-probe.ps1` launches the demo long enough to record presenter selection, then exits.
 - `scripts/demo-screenshot.ps1` builds the shared demo view through `WinSwiftUIRendererSnapshotter`, pulls the raw retained runtime scene, rasterizes it offscreen, and writes `artifacts/demo-screenshot.png`.
+- Add `-Screen dashboard`, `-Screen settings`, or `-Screen data` to capture one specific demo tab without rendering the other screens. `-Screen` and `-AllScreens` are mutually exclusive.
 - Add `-AllScreens` to `demo-screenshot.ps1` to capture all three demo tabs in one run: `artifacts/demo-screenshot-dashboard.png`, `artifacts/demo-screenshot-settings.png`, and `artifacts/demo-screenshot-data.png`. Default behavior (a single dashboard shot) is unchanged.
 - The underlying `swift-windowsui-snapshot` executable also accepts `--screen <dashboard|settings|data>` to render a single non-default tab directly; the default is `dashboard`.
 - `--appearance <light|dark>` (and `-Appearance` on `demo-screenshot.ps1`) wraps the demo in `.preferredColorScheme(...)`. Light-mode runs write `artifacts/demo-screenshot-<screen>-light.png` so both appearances can be captured side by side; the default is `dark`. Before this flag existed there was no way to render light mode at all, which is why control chrome could silently ignore `colorScheme`.

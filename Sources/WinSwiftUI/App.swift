@@ -1616,8 +1616,10 @@ enum WindowHostInputEvent {
     case mouseWheel(point: Point, delta: Double, axis: ScrollAxis?, scaleFactor: Double)
     case pointerDown(point: Point, scaleFactor: Double)
     case pointerUp(point: Point, scaleFactor: Double)
+    case pointerCancelled
     case contextClick(point: Point, scaleFactor: Double)
     case keyDown(KeyboardEvent)
+    case textInput(String)
     case keyboardFocusDidLeaveWindow
 }
 /// Per-window environment installed by `WinSwiftUIWindowCoordinator`. Hosts
@@ -1653,6 +1655,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private let backendResolution: RenderBackendResolution?
     private let inputRateTracker = WindowInputRateTracker()
     private let undoManager = UndoManager()
+    private var isPrimaryTouchActive = false
 
     /// Where a pacing verdict outlives the process, or `nil` for hosts that
     /// do not persist one (tests, direct embedders). See
@@ -2555,6 +2558,39 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         commitRuntimeState(in: window, interactive: true)
     }
 
+    func window(_ window: Win32Window, touchBegan points: [Point]) {
+        guard !isPrimaryTouchActive, let point = points.first else {
+            return
+        }
+
+        isPrimaryTouchActive = true
+        self.window(window, leftMouseDownAt: point)
+    }
+
+    func window(_ window: Win32Window, touchMoved points: [Point]) {
+        guard isPrimaryTouchActive, let point = points.first else {
+            return
+        }
+
+        self.window(window, pointerMovedTo: point)
+    }
+
+    func window(_ window: Win32Window, touchEnded points: [Point]) {
+        guard isPrimaryTouchActive, let point = points.first else {
+            return
+        }
+
+        isPrimaryTouchActive = false
+        self.window(window, leftMouseUpAt: point)
+    }
+
+    func windowDidCancelPointerInteraction(_ window: Win32Window) {
+        isPrimaryTouchActive = false
+        runtime.pointerCancelled()
+        onInputEventRouted?(.pointerCancelled)
+        commitRuntimeState(in: window, interactive: true)
+    }
+
     func windowDidReceiveRightClick(_ window: Win32Window, event: MouseEvent) {
         let scaleFactor = window.effectiveScaleFactor
         let logicalPoint = logicalPoint(event.position, scaleFactor: scaleFactor)
@@ -2584,7 +2620,26 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         commitRuntimeState(in: window, interactive: true)
     }
 
+    func window(_ window: Win32Window, didInputText text: String) {
+        guard !text.isEmpty else {
+            return
+        }
+
+        // The existing composition-commit path already replaces selections,
+        // updates caret chrome, supports secure fields, and rejects newlines
+        // in single-line controls. Tagging the source preserves the keyboard
+        // autocapitalization rules without altering genuine IME results.
+        runtime.imeComposition(IMECompositionEvent(phase: .committed(text), source: .keyboard))
+        onInputEventRouted?(.textInput(text))
+        commitRuntimeState(in: window, interactive: true)
+    }
+
     func windowDidLoseKeyboardFocus(_ window: Win32Window) {
+        if isPrimaryTouchActive {
+            isPrimaryTouchActive = false
+            runtime.pointerCancelled()
+            onInputEventRouted?(.pointerCancelled)
+        }
         runtime.keyboardFocusDidLeaveWindow()
         onInputEventRouted?(.keyboardFocusDidLeaveWindow)
         commitRuntimeState(in: window, interactive: true)
@@ -2655,6 +2710,10 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func windowWillClose(_ window: Win32Window) {
+        if isPrimaryTouchActive {
+            isPrimaryTouchActive = false
+            runtime.pointerCancelled()
+        }
         uiaBridge?.disconnect()
         // Release the GPU stack while the HWND is still alive. A swap chain
         // pins the window it presents to and nothing else in the process

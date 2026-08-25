@@ -21,8 +21,10 @@ limits in `README.md`, `docs/WinSwiftUI.md`, `docs/Testing.md`,
   properties, InvokePattern, focus/structure events via `CUIAInterop` +
   `UIAProviderBridge`); advanced patterns (Value/Text/Selection/Toggle) and
   live regions are **not implemented**.
-- `EnvironmentValues.colorSchemeContrast` exists; **Windows high-contrast /
-  system-settings wiring is not implemented**.
+- Windows light/dark preference, high contrast, text scale, and reduced
+  motion are sampled through `SystemAppearanceSnapshot`; settings broadcasts
+  refresh the retained environment. Native high-contrast theme color mapping
+  and live-theme manual verification remain incomplete.
 - `WinSwiftUIWindowCoordinator` hosts multiple windows (own host/runtime/
   renderer each); default `openWindow` / `dismissWindow` routing is live and
   `supportsMultipleWindows` is true for coordinator-managed hosts.
@@ -47,10 +49,10 @@ Architecture invariants that every phase must preserve:
 
 ## Immediate next wave — Product UI polish
 
-The stabilization baseline is now locally green: all 73 test targets pass,
-the demo builds, scene and frame screenshots generate, and the 84-entry gallery
-renders. The next work should deepen visible quality instead of adding more
-source-only API surface.
+The stabilization ladder covers retained-runtime and renderer tests, demo
+builds, scene/frame screenshots, and a reviewed multi-tier gallery gate. The
+next work should deepen visible quality instead of adding more source-only API
+surface.
 
 ### Priority order
 
@@ -71,7 +73,8 @@ source-only API surface.
 ### Exit criteria
 
 - [x] Reviewed gallery baselines fail CI on meaningful visual regressions
-      (`scripts/gallery-compare.ps1`, 25 Supported-tier baselines under
+      (`scripts/gallery-compare.ps1`, 61 Supported-tier, interaction-state,
+      light-appearance, and Canvas-path-gradient baselines under
       `Tests/fixtures/gallery-baselines/`, runs in `-Full` and Windows CI)
 - [x] Supported controls render without clipping at documented minimum widths
       (track controls re-resolve geometry in `onLayout`: slider, progress bar,
@@ -184,8 +187,7 @@ speculative API cloning.
 - Many APIs are **source-compatible shims** (metadata only, no-op, or
   partial retained behavior). Examples already documented in
   `docs/WinSwiftUI.md`: scroll observation callbacks, SF Symbol effects,
-  `matchedGeometryEffect` interpolation, programmatic `ScrollViewProxy`
-  scrolling, multi-window actions, Settings scene, full grid semantics,
+  `matchedGeometryEffect` interpolation, Settings scene, full grid semantics,
   native menus, asset catalogs, Canvas symbols / `withCGContext`.
 - Shared-demo subset in `Sources/SwiftWindowsDemo/` is the practical
   compatibility bar for same-source macOS builds.
@@ -211,13 +213,17 @@ speculative API cloning.
 
 ### Exit criteria
 
-- [ ] Published Supported / Accepted / Placeholder matrix for app-facing APIs
+- [x] Published Supported / Accepted / Placeholder matrix for app-facing APIs
+      (`docs/CompatibilityStatus.md` separates Implemented, Partial,
+      Shim / no-op, Placeholder panel, and Unsupported surfaces)
 - [ ] Every Supported control/modifier has at least one automated test or
       screenshot-backed demo usage
-- [ ] Placeholder panels remain clearly non-functional (no accidental
-      “works” claims)
+- [x] Placeholder panels remain clearly non-functional (no accidental
+      “works” claims; the compatibility matrix lists them separately and
+      explicitly excludes them from real product flows)
 - [ ] Same-source demo still builds against the documented subset
-- [ ] Contract script still passes; no second parallel UI abstraction
+- [x] Contract script still passes; no second parallel UI abstraction
+      (`scripts/agent-check.ps1 -ContractsOnly`)
 
 ### Validation commands
 
@@ -243,10 +249,12 @@ with native widgets.
   identifier, hidden, traits, child behavior, sort priority, actions
   (`accessibilityLabel`, traits add/remove, `accessibilityAction`, `help`,
   etc.).
-- Docs explicitly state: **native Win32 UI Automation exposure is not
-  implemented yet**.
-- Focus traversal, hit testing, and keyboard activation exist in
-  `RetainedViewRuntime` but are not projected as a UIA tree.
+- A native Win32 UI Automation fragment tree is derived from the retained
+  accessibility projection through `CUIAInterop`, `UIAProviderBridge`, and
+  `RuntimeUIAElementTreeSource`; default actions expose InvokePattern.
+- Retained focus, transform-aware bounds, hit testing, enabled state, and
+  focus/structure events are projected live. Value/Text/Selection/Toggle
+  patterns, live regions, and virtualized-item realization remain unsupported.
 
 ### Work items
 
@@ -304,12 +312,12 @@ high-contrast / accessibility display preferences in retained chrome.
 - `EnvironmentValues.colorScheme`, `colorSchemeContrast`,
   `preferredColorScheme`, dynamic type, legibility weight, and related
   accessibility preference shims exist.
-- Increased contrast brightens some semantic `.secondary` foregrounds.
-- **Not wired** to Windows high-contrast themes or a full semantic color
-  system (`docs/WinSwiftUI.md`).
-- `Win32Host` already handles some `WM_SETTINGCHANGE` traffic; luminance /
-  capture / reduced-motion style environment values are mostly overrideable
-  defaults, not OS-derived.
+- High contrast strengthens semantic foregrounds, hierarchical greys, and
+  control-palette borders/hairlines; complete native high-contrast theme color
+  mapping is not implemented.
+- `Win32Host` samples light/dark preference, high contrast, text scale, and
+  reduced motion at startup and refreshes appearance on `WM_SETTINGCHANGE` /
+  `WM_SYSCOLORCHANGE`; luminance and capture remain overrideable defaults.
 
 ### Work items
 
@@ -339,7 +347,8 @@ high-contrast / accessibility display preferences in retained chrome.
       (hierarchical greys snap to a legible HC ramp via `resolvedForContrast`)
 - [x] Unit tests cover mapping tables; screenshot optional HC fixture
       (`SystemAppearanceTests` — injected snapshots, precedence, grey ramp)
-- [ ] Docs describe precedence: app override > system > toolkit default
+- [x] Docs describe precedence: app override > system > toolkit default
+      (`README.md` and `docs/CompatibilityStatus.md`, System appearance)
 
 ### Validation commands
 
@@ -373,8 +382,11 @@ localized dashboard apps, without claiming full font shaping parity.
 - Localization: `LocalizedStringKey`, tables, `LocalizedStringResource`,
   locale/calendar/timeZone environment values partially used (e.g.
   `DatePicker`); not a complete resource catalog / pluralization story.
-- Clipboard: `ClipboardManager` supports Unicode text copy/paste; multi-format
-  is thin.
+- Clipboard: `ClipboardManager` supports Unicode text and Explorer-compatible
+  file-list (`CF_HDROP`) copy/paste, including type-aware `PasteButton`
+  delivery; malformed cross-process file lists, unsupported content types,
+  and relative text masquerading as URLs fail closed. Richer transferable
+  formats remain unsupported.
 - RTL: `layoutDirection` flips many stack/alignment paths; arbitrary custom
   drawing is not auto-mirrored.
 
@@ -405,7 +417,8 @@ localized dashboard apps, without claiming full font shaping parity.
 ### Exit criteria
 
 - [ ] Supported text inputs: select, copy, cut, paste, select-all work in demo
-- [ ] Selection binding updates are observable in tests
+- [x] Selection binding updates are observable in tests
+      (`TextInputSelectionTests.testShiftExtensionAndSelectAllWriteSelectionBinding`)
 - [ ] Localized demo strings resolve under a non-default locale override
 - [ ] No claim of full Unicode shaping / rich `AttributedString` editing
 - [ ] Scene and frame screenshots still generate; text regressions caught by
@@ -581,12 +594,12 @@ unsupported.
 
 | Area | Today |
 | --- | --- |
-| Clipboard | Unicode text + file-URL lists (`CF_HDROP`) via `ClipboardManager`; format enumeration (`hasText`/`hasFileURLs`) |
+| Clipboard | Unicode text + file-URL lists (`CF_HDROP`) via `ClipboardManager`; format enumeration (`hasText`/`hasFileURLs`); `PasteButton` delivers copied files for file-URL and URL content types |
 | File dialogs | `FileDialogManager` open/save Win32 common dialogs behind an injectable provider; `allowedContentTypes` map to extension filters (category types approximate) |
-| Drag/drop | SwiftUI-shaped APIs + retained metadata; limited OS formats |
-| Open URL | Compatibility helper present; verify shell execute path |
+| Drag/drop | Explorer file drops (`WM_DROPFILES`) reach retained `onDrop` destinations; OLE drag sessions and text drops remain unsupported |
+| Open URL | `Link` / `openURL` dispatch through hardened `ShellExecuteW` routing |
 | Undo | Per-window `UndoManager` shim; not fully bridged to edit commands |
-| Color picker | Retained palette keyboard UI; **no** native color dialog |
+| Color picker | Retained palette keyboard UI plus opt-in native `ChooseColorW` dialog |
 | Date picker | Retained label/value; not a native calendar control |
 | Map / WebView / PDF / AV / charts / tips / Store | **Placeholder panels** |
 | Asset catalogs | Not implemented; path/WIC load for common image files |
@@ -639,14 +652,15 @@ Targets already exist:
 
 - `SwiftWindowsCore`, `SwiftWindowsGraphics`, `SwiftWindowsLayout`
 - `SwiftWindowsPlatform`, `SwiftWindowsUI`, `SwiftWindowsRendererD3D11`
-- `WinSwiftUI` (depends on UI + **D3D11** today)
+- `WinSwiftUI` (renderer-neutral; depends on UI and renderer-neutral graphics)
 - `SwiftWindowsApp`, demo/snapshot/gallery executables
 - `SwiftWindowsScene` alternate scene path (not primary demo path)
 - `CDirect2DInterop` for native text/graphics interop
 
 Coupling pressure:
 
-- `WinSwiftUI` links `SwiftWindowsRendererD3D11` directly
+- The `swift-windowsui` executable composition root pins the concrete D3D11
+  backend through `RenderBackendFactory`; `WinSwiftUI` stays backend-neutral
 - Test target aggregates most libraries
 - Large `Views.swift` / `Core.swift` / `Runtime.swift` files increase
   merge and compile cost

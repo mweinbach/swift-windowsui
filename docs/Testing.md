@@ -37,6 +37,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
 - `agent-check.ps1 -Quick` runs contract checks, focused scene/renderer/runtime tests (including the two WARP suites, `D3D11BatchRendererRenderTests` and `CrossBackendPixelParityTests`, the pixel-format contract `PixelFormatContractTests`, and the device-loss suites `DeviceLostPolicyTests` / `DeviceLossRecoveryTests` / `PresentationFailurePolicyTests`), and the demo executable build serially. Add `-GalleryCompare` to also run the gallery regression gate.
 - Four P1 invariant suites gate Quick as well: `ScenePresentationOrderTests` (the single draw-order authority), `SharedCoverageKernelTests` (the CPU/GPU coverage kernel), `CPUGPUBlendModeContractTests` (source-over on both paths) and `ClipAbstractionTests` (one clip value, one space). All four are cheap — 0.02 s to 0.4 s of test time each, ~2.5 s of wall clock apiece once the build is warm, since a `swift test` invocation dominates. The remaining P1 suites (`CPURasterizerGPUModelTests`, `PathRasterizationQualityTests`, `BorderCornerArcGeometryTests`, `TextShapingPipelineTests`) stay Full-only. Keep the Quick gate under ~10 minutes: measure a candidate before promoting it.
 - Three P2 invariant suites joined them in P2F-GATES: `RenderPassAbstractionTests` (0.71 s — the render-pass vocabulary both backends speak; the contract check can only see that each side *mentions* the shared derivations, this checks they agree on the answers), `StrokeStyleContractTests` (0.03 s — caps, joins and the bounds outset that has to cover them, on both stroke routes), and `GlyphAtlasExhaustionSafetyTests` (0.06 s — never ship a glyph quad addressing someone else's atlas cell). All three are invisible to the screenshot gates: a stale UV renders as a plausible wrong character, and a blur schedule mismatch only shows on the GPU, which no screenshot goes through. The heavier P2 suites (`D3D11PathCacheTests`, `PathDashingTests`, `CacheComplexityAndReclamationTests`, `LazyStackVirtualizationTests`) stay Full-only.
+- Six product-behavior suites also gate Quick: `PathGradientRenderingTests` checks CPU/D3D11 gradient-path parity, authored endpoints, and normalized cache identity; `CanvasPathGradientIntegrationTests` checks retained Canvas lowering, transformed endpoints, and frame degradation; `RuntimeProgrammaticScrollTests` plus `WinSwiftUIScrollViewReaderTests` pin anchored scrolling, first-render replay, deferred lazy rows, and reader ownership; and `ClipboardFileFormatTests` plus `DropFilesPayloadHardeningTests` keep typed paste and hostile cross-process file-list validation fail-closed.
 - `agent-check.ps1 -Full` runs full tests, builds the demo, regenerates scene plus frame fallback screenshots, and runs the gallery regression gate.
 - Do not run multiple SwiftPM test/build commands against this checkout in parallel; they share `.build/build.db`.
 - Do not leave root-level logs or screenshots behind. Generated screenshots belong under `artifacts/`, and temporary logs should be deleted before handoff.
@@ -52,6 +53,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Win
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIEnvironmentConsistencyTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter DraggableFocusRoutingTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter GradientRenderingFidelityTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter PathGradientRenderingTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter CanvasPathGradientIntegrationTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter RuntimeProgrammaticScrollTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIScrollViewReaderTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter ClipboardFileFormatTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter DropFilesPayloadHardeningTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter DemoProductPolishTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter DemoResponsiveProductPolishTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter SceneBoundaryResilienceTests
@@ -546,11 +553,11 @@ Render the ladder by hand with
 
 `scripts/gallery-compare.ps1` turns the `swift-windowsui-gallery` tool into a visual regression gate for Supported-tier controls.
 
-- The gate covers a fixed subset of gallery entries in three tiers, **60** in all. The roster lives at the top of `scripts/gallery-compare.ps1`. Time-dependent entries (e.g. indeterminate progress) are deliberately excluded because their renders are not frame-stable.
+- The gate covers a fixed subset of gallery entries in three tiers, **61** in all. The roster lives at the top of `scripts/gallery-compare.ps1`. Time-dependent entries (e.g. indeterminate progress) are deliberately excluded because their renders are not frame-stable.
 
 | Tier | Entries | What it pins |
 | --- | --- | --- |
-| Control | 25 | Buttons, toggles, sliders, stepper, picker, progress views, text fields, list/form chrome — the Supported-tier controls as built |
+| Control and drawing | 26 | Buttons, toggles, sliders, stepper, picker, progress views, text fields, list/form chrome, and a curved multi-stop Canvas gradient fill/stroke |
 | Interaction state | 16 | `state-<control>-<state>` for button, toggle, text field, segmented picker: the idle → hover → pressed → focused → disabled ramps, driven through the runtime's own input |
 | Light appearance | 19 | `light-<id>`: each entry's dark twin rendered in the light appearance |
 
@@ -584,6 +591,7 @@ verification: nothing rendered it.
 
 - Checked-in baselines live in `tests/fixtures/gallery-baselines/` as compact PNGs. The rest of `artifacts/gallery/` stays generated-only.
 - A compare run re-renders the subset into `artifacts/gallery-compare/current/` and computes bounded per-entry diffs. A pixel counts as changed when any B/G/R/A channel differs by more than `-ChannelTolerance` (default 8). An entry fails when changed pixels exceed `-MaxChangedPercent` (default 0.5%) or any single channel delta exceeds `-MaxChannelDelta` (default 64). Missing baselines and canvas-size changes always fail. The raw-scene CPU rasterizer is deterministic, so unchanged code should produce 0% diffs.
+- Native icon glyphs still depend on the installed Segoe Fluent Icons face. A Windows font update can therefore change only a few DirectWrite antialiasing pixels; verify the changed-pixel bounds and refresh the corresponding dark/light control baselines together after confirming no layout, bezel, or text pixels moved.
 - Failures write red-overlay diff images to `artifacts/gallery-compare/diffs/` and a summary to `artifacts/gallery-compare/report.txt`; the script exits non-zero.
 - The gate runs as part of `agent-check.ps1 -Full` (and therefore in the Full stage of Windows CI, with the compare output uploaded as the `windows-gallery-compare` artifact). It is opt-in for Quick runs via `agent-check.ps1 -Quick -GalleryCompare`.
 

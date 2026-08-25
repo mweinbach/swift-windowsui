@@ -106,6 +106,15 @@ if ($Full) {
     Invoke-Step "SceneRasterizerTests" {
         & $testScript -Filter "SceneRasterizerTests"
     }
+    # Path fills/strokes intentionally bypass solid-quad promotion; both the
+    # raw scene rasterizer and shipping D3D11 path cache must preserve authored
+    # gradient stops, transformed coordinates, and cache identity.
+    Invoke-Step "PathGradientRenderingTests" {
+        & $testScript -Filter "PathGradientRenderingTests"
+    }
+    Invoke-Step "CanvasPathGradientIntegrationTests" {
+        & $testScript -Filter "CanvasPathGradientIntegrationTests"
+    }
     # The coverage kernel the CPU rasterizer shares with the quad shader,
     # checked against an independent transcription of the HLSL (~0.02 s).
     # A divergence here is invisible to every screenshot gate, because every
@@ -157,6 +166,15 @@ if ($Full) {
     Invoke-Step "MalformedInputResilienceTests" {
         & $testScript -Filter "MalformedInputResilienceTests"
     }
+    # External clipboard/drop payloads cross a trust boundary; malformed wide
+    # offsets and unsupported paste types must fail closed instead of trapping
+    # or delivering a mismatched payload.
+    Invoke-Step "DropFilesPayloadHardeningTests" {
+        & $testScript -Filter "DropFilesPayloadHardeningTests"
+    }
+    Invoke-Step "ClipboardFileFormatTests" {
+        & $testScript -Filter "ClipboardFileFormatTests"
+    }
     # One clip value in one space: the narrowing rule, the in-band encoding,
     # rounded clips on every family, and the coherence of the painted and the
     # interactive region under a transform (~0.06 s).
@@ -165,6 +183,14 @@ if ($Full) {
     }
     Invoke-Step "RetainedViewRuntimeTests" {
         & $testScript -Filter "RetainedViewRuntimeTests"
+    }
+    # Programmatic scrolling must work on first scene/frame render, resolve
+    # deferred lazy-stack rows, and preserve nested-reader ownership.
+    Invoke-Step "RuntimeProgrammaticScrollTests" {
+        & $testScript -Filter "RuntimeProgrammaticScrollTests"
+    }
+    Invoke-Step "WinSwiftUIScrollViewReaderTests" {
+        & $testScript -Filter "WinSwiftUIScrollViewReaderTests"
     }
     # The render-pass vocabulary both backends speak: the blur schedule, the
     # halving tap model and the texel-centre clamp, plus the cross-backend

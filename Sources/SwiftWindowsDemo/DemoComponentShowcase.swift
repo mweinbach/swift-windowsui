@@ -12,30 +12,24 @@
 struct DemoComponentShowcase: View {
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var model: DemoDashboardModel
+    @ObservedObject var galleryState: DemoGalleryState
 
     let compact: Bool
 
-    @State private var draftName = "Native component kit"
-    @State private var density: DemoShowcaseDensity = .balanced
-    @State private var liveUpdatesEnabled = true
-    @State private var notificationsEnabled = false
-    @State private var intensity = 0.62
-    @State private var concurrency = 3
-    @State private var inspectorExpanded = false
-
     init(model: DemoDashboardModel, compact: Bool = false) {
         self.model = model
+        self.galleryState = model.galleryState
         self.compact = compact
     }
 
     private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
 
     private var validDraft: Bool {
-        draftName.contains { !$0.isWhitespace } && draftName.count <= 36
+        galleryState.draftName.contains { !$0.isWhitespace } && galleryState.draftName.count <= 36
     }
 
     private var intensityPercent: Int {
-        Int((intensity * 100).rounded())
+        Int((galleryState.intensity * 100).rounded())
     }
 
     var body: some View {
@@ -165,7 +159,7 @@ struct DemoComponentShowcase: View {
             count: "Interactive"
         ) {
             VStack(alignment: .leading, spacing: DemoMetrics.s3) {
-                TextField("Name this component collection", text: $draftName)
+                TextField("Name this component collection", text: $galleryState.draftName)
                     .textFieldStyle(.roundedBorder)
                     .accessibilityIdentifier("gallery.input.name")
                     .accessibilityLabel("Component collection name")
@@ -204,11 +198,11 @@ struct DemoComponentShowcase: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
 
-            Text("\(draftName.count)/36")
+            Text("\(galleryState.draftName.count)/36")
                 .font(DemoType.captionStrong)
                 .foregroundColor(validDraft ? palette.accentInk : palette.warning)
                 .lineLimit(1)
-                .accessibilityLabel("\(draftName.count) of 36 characters")
+                .accessibilityLabel("\(galleryState.draftName.count) of 36 characters")
         }
         .accessibilityIdentifier("gallery.input.validation")
     }
@@ -224,7 +218,7 @@ struct DemoComponentShowcase: View {
 
     private func applyDraft() {
         guard validDraft else { return }
-        model.performAction("Applied component label: \(draftName)")
+        model.performAction("Applied component label: \(galleryState.draftName)")
     }
 
     // MARK: - Selection
@@ -285,10 +279,10 @@ struct DemoComponentShowcase: View {
 
     private var densityBinding: Binding<DemoShowcaseDensity> {
         Binding(
-            get: { density },
+            get: { galleryState.density },
             set: { nextDensity in
-                guard nextDensity != density else { return }
-                density = nextDensity
+                guard nextDensity != galleryState.density else { return }
+                galleryState.density = nextDensity
                 model.performAction("Set gallery density to \(nextDensity.label)")
             }
         )
@@ -296,10 +290,10 @@ struct DemoComponentShowcase: View {
 
     private var liveUpdatesBinding: Binding<Bool> {
         Binding(
-            get: { liveUpdatesEnabled },
+            get: { galleryState.liveUpdatesEnabled },
             set: { enabled in
-                guard enabled != liveUpdatesEnabled else { return }
-                liveUpdatesEnabled = enabled
+                guard enabled != galleryState.liveUpdatesEnabled else { return }
+                galleryState.liveUpdatesEnabled = enabled
                 model.performAction(enabled ? "Enabled gallery live updates" : "Paused gallery live updates")
             }
         )
@@ -307,10 +301,10 @@ struct DemoComponentShowcase: View {
 
     private var notificationsBinding: Binding<Bool> {
         Binding(
-            get: { notificationsEnabled },
+            get: { galleryState.notificationsEnabled },
             set: { enabled in
-                guard enabled != notificationsEnabled else { return }
-                notificationsEnabled = enabled
+                guard enabled != galleryState.notificationsEnabled else { return }
+                galleryState.notificationsEnabled = enabled
                 model.performAction(enabled ? "Enabled gallery notifications" : "Muted gallery notifications")
             }
         )
@@ -354,7 +348,7 @@ struct DemoComponentShowcase: View {
                     compact: compact
                 ) {
                     HStack(alignment: .center, spacing: DemoMetrics.s2) {
-                        Text("\(concurrency)")
+                        Text("\(galleryState.concurrency)")
                             .font(DemoType.captionStrong)
                             .foregroundStyle(.primary)
                             .frame(width: 20, alignment: .trailing)
@@ -382,7 +376,7 @@ struct DemoComponentShowcase: View {
                             .lineLimit(1)
                     }
 
-                    ProgressView(value: intensity)
+                    ProgressView(value: galleryState.intensity)
                         .progressViewStyle(.linear)
                         .accessibilityLabel("Pipeline capacity")
                         .accessibilityValue("\(intensityPercent) percent reserved")
@@ -395,10 +389,10 @@ struct DemoComponentShowcase: View {
 
     private var intensityBinding: Binding<Double> {
         Binding(
-            get: { intensity },
+            get: { galleryState.intensity },
             set: { newIntensity in
-                guard newIntensity != intensity else { return }
-                intensity = newIntensity
+                guard newIntensity != galleryState.intensity else { return }
+                galleryState.intensity = newIntensity
                 model.performAction("Set gallery intensity to \(Int((newIntensity * 100).rounded()))%")
             }
         )
@@ -406,10 +400,10 @@ struct DemoComponentShowcase: View {
 
     private var concurrencyBinding: Binding<Int> {
         Binding(
-            get: { concurrency },
+            get: { galleryState.concurrency },
             set: { newConcurrency in
-                guard newConcurrency != concurrency else { return }
-                concurrency = newConcurrency
+                guard newConcurrency != galleryState.concurrency else { return }
+                galleryState.concurrency = newConcurrency
                 model.performAction("Set gallery concurrency to \(newConcurrency)")
             }
         )
@@ -445,11 +439,11 @@ struct DemoComponentShowcase: View {
 
                 DisclosureGroup("Inspect component state", isExpanded: inspectorBinding) {
                     VStack(alignment: .leading, spacing: DemoMetrics.s2) {
-                        inspectorRow("Density", value: density.label)
-                        inspectorRow("Live updates", value: liveUpdatesEnabled ? "Enabled" : "Paused")
-                        inspectorRow("Notifications", value: notificationsEnabled ? "Enabled" : "Muted")
+                        inspectorRow("Density", value: galleryState.density.label)
+                        inspectorRow("Live updates", value: galleryState.liveUpdatesEnabled ? "Enabled" : "Paused")
+                        inspectorRow("Notifications", value: galleryState.notificationsEnabled ? "Enabled" : "Muted")
                         inspectorRow("Capacity", value: "\(intensityPercent)%")
-                        inspectorRow("Concurrency", value: "\(concurrency) tasks")
+                        inspectorRow("Concurrency", value: "\(galleryState.concurrency) tasks")
 
                         DemoButton("Reset showcase") {
                             resetShowcase()
@@ -489,10 +483,10 @@ struct DemoComponentShowcase: View {
 
     private var inspectorBinding: Binding<Bool> {
         Binding(
-            get: { inspectorExpanded },
+            get: { galleryState.inspectorExpanded },
             set: { expanded in
-                guard expanded != inspectorExpanded else { return }
-                inspectorExpanded = expanded
+                guard expanded != galleryState.inspectorExpanded else { return }
+                galleryState.inspectorExpanded = expanded
                 model.performAction(expanded ? "Expanded component inspector" : "Collapsed component inspector")
             }
         )
@@ -516,17 +510,17 @@ struct DemoComponentShowcase: View {
     }
 
     private func resetShowcase() {
-        draftName = "Native component kit"
-        density = .balanced
-        liveUpdatesEnabled = true
-        notificationsEnabled = false
-        intensity = 0.62
-        concurrency = 3
+        galleryState.draftName = "Native component kit"
+        galleryState.density = .balanced
+        galleryState.liveUpdatesEnabled = true
+        galleryState.notificationsEnabled = false
+        galleryState.intensity = 0.62
+        galleryState.concurrency = 3
         model.performAction("Reset component showcase")
     }
 }
 
-private enum DemoShowcaseDensity: String, Hashable {
+enum DemoShowcaseDensity: String, Hashable {
     case compact
     case balanced
     case relaxed

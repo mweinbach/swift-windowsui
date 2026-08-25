@@ -9296,14 +9296,18 @@ private enum ListSelectionMode {
     /// selection did not change (boundary reached, empty list, or a
     /// multi-selection list, where arrow-key movement would destroy the
     /// existing selection anchor).
-    func moveSelection(within orderedTags: [AnyHashable], delta: Int) -> AnyHashable? {
+    func moveSelection(
+        within orderedTags: [AnyHashable],
+        indicesByTag: [AnyHashable: Int],
+        delta: Int
+    ) -> AnyHashable? {
         guard case .single(let get, let set) = self, !orderedTags.isEmpty, delta != 0 else {
             return nil
         }
 
         let current = get()
         let nextIndex: Int
-        if let current, let currentIndex = orderedTags.firstIndex(of: current) {
+        if let current, let currentIndex = indicesByTag[current] {
             nextIndex = min(max(currentIndex + delta, 0), orderedTags.count - 1)
         } else {
             nextIndex = delta > 0 ? 0 : orderedTags.count - 1
@@ -9322,87 +9326,67 @@ private enum ListSelectionMode {
 ///
 /// Selectable rows register themselves in build order so an arrow-key press
 /// on the focused row can resolve the neighboring selectable tag, move focus,
-/// and scroll the target row into the viewport. Layout frames are captured
-/// through `ViewNode.onLayout` because resolved layout geometry is internal
-/// to the retained runtime.
+/// and scroll the target row into the viewport. The runtime owns the placed
+/// geometry and scroll clamp, including rows deferred by list virtualization;
+/// mirroring frames through `onLayout` would lose precisely those rows.
 @MainActor
 private final class ListKeyboardNavigationState {
     @MainActor
     private final class RowEntry {
-        let tag: AnyHashable
         weak var node: ViewNode?
-        var contentFrame: Rect?
 
-        init(tag: AnyHashable) {
-            self.tag = tag
+        init(node: ViewNode) {
+            self.node = node
         }
     }
 
-    private var entries: [RowEntry] = []
-    private var viewportHeight: Double = 0
+    private weak var runtime: RetainedViewRuntime?
+    private var orderedRowTags: [AnyHashable] = []
+    private var entriesByTag: [AnyHashable: RowEntry] = [:]
+    private var indicesByTag: [AnyHashable: Int] = [:]
 
-    var orderedTags: [AnyHashable] {
-        entries.map { $0.tag }
+    init(runtime: RetainedViewRuntime) {
+        self.runtime = runtime
     }
 
     func registerRow(tag: AnyHashable, node: ViewNode) {
-        let entry = RowEntry(tag: tag)
-        entry.node = node
-        entries.append(entry)
+        let entry = RowEntry(node: node)
+        let index = orderedRowTags.count
+        orderedRowTags.append(tag)
 
-        node.onLayout = { [weak entry] frame in
-            entry?.contentFrame = frame
-        }
-    }
-
-    func registerViewport(node: ViewNode) {
-        node.onLayout = { [weak self] frame in
-            self?.viewportHeight = frame.size.height
+        // Preserve the previous `first(where:)`/`firstIndex(of:)` behavior
+        // if application data accidentally repeats a selection identity.
+        if entriesByTag[tag] == nil {
+            entriesByTag[tag] = entry
+            indicesByTag[tag] = index
         }
     }
 
     func rowNode(for tag: AnyHashable) -> ViewNode? {
-        entries.first(where: { $0.tag == tag })?.node
+        entriesByTag[tag]?.node
     }
 
-    /// Adjusts the enclosing vertical scroll panel so the row for `tag` is
-    /// fully visible, when the layout metrics captured so far allow it.
+    func moveSelection(_ mode: ListSelectionMode, delta: Int) -> AnyHashable? {
+        mode.moveSelection(within: orderedRowTags, indicesByTag: indicesByTag, delta: delta)
+    }
+
+    /// Uses the already-placed row frame rather than a lifecycle callback, so
+    /// keyboard selection can reach a row whose subtree is still deferred.
     func scrollRowIntoView(tag: AnyHashable) {
         guard
-            let entry = entries.first(where: { $0.tag == tag }),
+            let entry = entriesByTag[tag],
             let rowNode = entry.node,
-            let rowFrame = entry.contentFrame
+            let runtime
         else {
             return
         }
 
-        var panel: ViewNode?
-        var ancestor = rowNode.parent
-        while let node = ancestor {
-            if node.scrollAxis == .vertical {
-                panel = node
-                break
+        if !runtime.scrollToDescendant(rowNode) {
+            let requestKey = "list.selection.\(String(describing: tag.base))"
+            runtime.scheduleAfterLayout(key: requestKey) { [weak runtime, weak rowNode] in
+                guard let runtime, let rowNode else { return }
+                _ = runtime.scrollToDescendant(rowNode)
             }
-            ancestor = node.parent
-        }
-        guard let panel, viewportHeight > 0 else {
-            return
-        }
-
-        let contentBottom = entries.compactMap { $0.contentFrame?.maxY }.max() ?? rowFrame.maxY
-        let maxOffset = max(0, contentBottom - viewportHeight)
-        let currentOffset = panel.scrollOffset
-
-        var nextOffset = currentOffset
-        if rowFrame.minY < currentOffset {
-            nextOffset = rowFrame.minY
-        } else if rowFrame.maxY > currentOffset + viewportHeight {
-            nextOffset = rowFrame.maxY - viewportHeight
-        }
-
-        nextOffset = min(max(nextOffset, 0), maxOffset)
-        if nextOffset != currentOffset {
-            panel.scrollOffset = nextOffset
         }
     }
 }
@@ -9614,7 +9598,7 @@ public struct List: View {
             let listChrome = context.listStyle.retainedChrome(palette: context.controlPalette)
             let alignmentAnchor = context.defaultScrollAnchor(for: .alignment)
             let isEditing = context.environmentValues.editMode?.wrappedValue.isEditing == true
-            let navigationState = ListKeyboardNavigationState()
+            let navigationState = ListKeyboardNavigationState(runtime: runtime)
             let node = Controls.scrollPanel(
                 axis: .vertical,
                 backgroundColor: listChrome.backgroundColor,
@@ -9706,7 +9690,6 @@ public struct List: View {
                     }
                 )
             )
-            navigationState.registerViewport(node: node)
             // A List is greedy on macOS: it takes the space it is offered
             // and proposes the row width across, instead of shrink-wrapping
             // its widest row.
@@ -9743,6 +9726,17 @@ public struct List: View {
             }
             if context.isScrollClipDisabled {
                 node.clipsToBounds = false
+            }
+            // Preserve the historical eager layout for small lists (and the
+            // compatibility tests inspecting it), while bounding recursive
+            // layout work for genuinely long, scrollable collections.
+            // `scrollToDescendant` can reveal placed-but-deferred rows, so
+            // keyboard navigation no longer needs an eager `onLayout` mirror.
+            if content.count > Self.layoutVirtualizationRowThreshold,
+                node.scrollAxis != nil,
+                let stackLayout = node.layoutMode.stackLayout
+            {
+                node.layoutMode = .lazyStack(stackLayout)
             }
             return node
         }
@@ -9844,6 +9838,7 @@ public struct List: View {
     }
 
     private static var defaultSelectionRowMinHeight: Double { 28 }
+    private static var layoutVirtualizationRowThreshold: Int { 64 }
 
     /// Corner radius of the selection fill. macOS inset/sidebar selection is
     /// a small ~6pt round rect; the 10 this used to use reads as a floating
@@ -9905,10 +9900,9 @@ public struct List: View {
         )
         rowNode.nodeTag = row.nodeTag ?? "selection:\(String(describing: tag.base))"
 
-        // Selection state projects as the isSelected state. Rows otherwise
-        // stay transparent containers so interactive row content keeps its
-        // own elements; a list/listItem control-type mapping is a projection
-        // follow-up.
+        // Mark both selected and unselected rows so platform accessibility
+        // providers can expose a complete SelectionItem pattern.
+        rowNode.accessibilityTraits.formUnion(.isSelectable)
         if isSelected {
             rowNode.accessibilityTraits.formUnion(.isSelected)
         }
@@ -9943,7 +9937,7 @@ public struct List: View {
                 return
             }
 
-            guard let target = selectionMode.moveSelection(within: navigationState.orderedTags, delta: delta)
+            guard let target = navigationState.moveSelection(selectionMode, delta: delta)
             else {
                 return
             }
@@ -10468,6 +10462,10 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
             children: [row]
         )
         rowNode.nodeTag = "table-selection:\(String(describing: tag.base))"
+        rowNode.accessibilityTraits.formUnion(.isSelectable)
+        if isSelected {
+            rowNode.accessibilityTraits.formUnion(.isSelected)
+        }
 
         guard context.isEnabled else {
             return rowNode
@@ -13743,6 +13741,9 @@ private func textInputComponent(
         // their text). Explicit accessibility modifiers apply after this
         // and win.
         node.accessibilityTraits.formUnion(.isTextInput)
+        if isSecure {
+            node.accessibilityTraits.formUnion(.isSecureTextInput)
+        }
         if let resolvedPlaceholder, !resolvedPlaceholder.isEmpty {
             node.accessibilityLabel = resolvedPlaceholder
         }

@@ -2783,37 +2783,40 @@ has nothing to provide. That is why the cost is *pinned* today
 seam would trade a documented linear cost for an undocumented correctness
 gap in scroll extents.
 
-#### Why `List` is not virtualized yet
+#### Large `List` collections now virtualize recursive layout
 
-`List` is the dominant long-list surface and its scroll panel *is* its
-vertical stack, so `.lazyStack` would drop onto it with no structural
-change. It has not, for one concrete reason: `List` rows do not have
-uniform semantics with `LazyVStack` rows.
+`List`'s scroll panel *is* its vertical stack. Scroll-enabled collections
+above 64 authored rows therefore use the same retained `.lazyStack`
+placement, viewport overscan, and deferred-subtree behavior as
+`LazyVStack`; smaller and scroll-disabled lists preserve their existing
+eager `.stack` contract. Every row and separator still receives its exact
+frame, so content size, scrollbar clamping, row identity, and screenshots
+remain unchanged while recursive layout work follows the viewport.
 
-`ViewNode.resolvedFrame` and `resolvedContentSize` are internal to
-`SwiftWindowsUI`, so `WinSwiftUI` cannot read a row's geometry directly.
-`ListKeyboardNavigationState` therefore mirrors every row's frame through
-`node.onLayout`, and `scrollRowIntoView(tag:)` — the arrow-key
-scroll-into-view — reads that mirror plus the maximum `maxY` across all
-rows to clamp the offset. Deferral silences `onLayout` for exactly the
-rows that selection would most need to scroll to, and truncates the
-content extent to the rows that happen to be in range: arrow-key
-navigation could not reach past the overscan, and the clamp would be
-computed from a fraction of the list. `LazyVStack` has no such mirror, so
-it does not have the problem.
+The former blocker was selection navigation: `ListKeyboardNavigationState`
+mirrored every row's geometry through `node.onLayout`, but a deferred row
+never fires that callback. The compatibility layer now delegates to the
+existing renderer-neutral `RetainedViewRuntime.scrollToDescendant`, which
+already resolves placed-but-deferred rows, reads the complete retained
+content extent, cancels momentum, and retries precise alignment after
+layout when necessary. Selection rows no longer need per-row or viewport
+layout-observer closures. Stable first-wins tag/index dictionaries also
+keep arrow-key neighbor and row lookup O(1), including at 1,000 rows.
 
-Adopting `.lazyStack` for `List` is therefore gated on giving the
-compatibility layer a supported way to read placed-but-deferred row
-geometry — either widening the resolved-layout surface or a runtime-side
-scroll-into-view that works on a placed row — not on the virtualization
-machinery, which is ready. The deferral semantic itself is pinned by
-`testALazyStackPublishesLayoutOnlyForRowsWithinRange`.
+Deferred rows project as childless accessibility placeholders with their
+real bounds; the Windows provider realizes them through the same retained
+scroll helper. `ScrollViewReader` continues to resolve both implicit and
+explicit identities in long lists. **Construction remains eager**: neither
+`List` nor `LazyVStack` yet has the data-driven builder/provider seam
+described above, so this bounds layout and paint, not the number of row
+views or retained nodes constructed.
 
-Pinned by `LazyStackVirtualizationTests` — including the property that
-matters most, that a virtualized list is **pixel-identical** to the eager
-one both before and after scrolling, and the same property with a plain
-panel between the scroll view and the stack — and by the layout-work,
-layout-visit and node-count budgets in `PerformanceBudgetGateTests`.
+Pinned by `ListVirtualizationTests` at 100 and 1,000 rows — including
+pixel-identical eager comparison before and after scrolling, keyboard
+selection of a deferred row, programmatic scrolling, accessibility
+placeholders, and small/scroll-disabled fallback — and by
+`LazyStackVirtualizationTests` plus the layout-work, layout-visit and
+node-count budgets in `PerformanceBudgetGateTests`.
 `virtualizedLayoutSkipCount` counts descents avoided;
 `layoutVisitCount` counts nodes `layoutSubtree` actually descended into,
 which is the only one of the two that can tell "skipped the descent" from

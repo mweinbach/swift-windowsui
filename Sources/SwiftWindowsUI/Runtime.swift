@@ -541,6 +541,12 @@ public struct RetainedAccessibilityTraits: OptionSet, Sendable, Equatable {
     public static let isToggle = RetainedAccessibilityTraits(rawValue: 1 << 15)
     public static let isProgressIndicator = RetainedAccessibilityTraits(rawValue: 1 << 16)
     public static let isTextInput = RetainedAccessibilityTraits(rawValue: 1 << 17)
+    /// Distinguishes password fields from ordinary editable text without
+    /// exposing their backing value to platform accessibility providers.
+    public static let isSecureTextInput = RetainedAccessibilityTraits(rawValue: 1 << 18)
+    /// Identifies retained List/Table rows that support selection even while
+    /// they are currently unselected.
+    public static let isSelectable = RetainedAccessibilityTraits(rawValue: 1 << 19)
 }
 public enum RetainedAccessibilityChildBehavior: Sendable, Equatable {
     case ignore
@@ -1547,8 +1553,173 @@ public struct RetainedCornerRadii: Equatable, Sendable {
         )
     }
 }
+
+/// Optional interaction callbacks used only by controls that actually handle
+/// pointer, keyboard, or focus events. Keeping these out of `ViewNode`'s
+/// inline storage means ordinary labels, layout wrappers, and list rows do not
+/// carry sixteen empty closure slots each.
+@MainActor
+private final class ViewNodeInteractionHandlers {
+    var pointerEnter: (() -> Void)?
+    var pointerExit: (() -> Void)?
+    var pointerMove: ((Point) -> Void)?
+    var pointerDown: (() -> Void)?
+    var pointerUpInside: (() -> Void)?
+    var pointerUpInsideAt: ((Point) -> Void)?
+    var pointerUpOutside: (() -> Void)?
+    var contextMenu: ((Point) -> Void)?
+    var focusEnter: (() -> Void)?
+    var focusExit: (() -> Void)?
+    var keyDown: ((KeyboardEvent) -> Void)?
+    var imeComposition: ((IMECompositionEvent) -> Void)?
+    var textInputCaretRectProvider: (() -> Rect?)?
+    var keyUp: ((KeyboardEvent) -> Void)?
+    var activate: (() -> Void)?
+    var repeatActivate: (() -> Void)?
+}
+
+/// Drag, drop, and dynamic-list editing are another independently optional
+/// capability: installing a button's activation handler must not also
+/// allocate space for sixteen unrelated drag/drop callbacks.
+@MainActor
+private final class ViewNodeDropHandlers {
+    var deleteRows: ((IndexSet) -> Void)?
+    var moveRows: ((IndexSet, Int) -> Void)?
+    var insertRows: ((Int, [Any]) -> Void)?
+    var dropRows: (([Any], Int) -> Void)?
+    var validateDrop: (([Any], Point) -> Bool)?
+    var dropEntered: (([Any], Point) -> Void)?
+    var dropUpdated: (([Any], Point) -> Any?)?
+    var dropExited: (() -> Void)?
+    var dropProviders: (([Any], Point) -> Bool)?
+    var dropPayloads: (([Any], Point) -> Bool)?
+    var makeDropConfiguration: (([Any], Point) -> Any?)?
+    var makeDragPayload: (() -> Any?)?
+    var makeDragItemProvider: (() -> Any?)?
+    var dragStart: ((Point) -> Void)?
+    var dragChange: ((Point, Point) -> Void)?
+    var dragEnd: ((Point, Point) -> Void)?
+}
+
+/// Layout/lifecycle observers and GeometryReader rebuilding are deliberately
+/// separate from control input: most retained nodes use none of these, while
+/// observable list rows can install one without paying for pointer handlers.
+@MainActor
+private final class ViewNodeLifecycleHandlers {
+    var layout: ((Rect) -> Void)?
+    var appearWithNode: ((ViewNode) -> Void)?
+    var disappearWithNode: ((ViewNode) -> Void)?
+    var appear: (() -> Void)?
+    var disappear: (() -> Void)?
+    var sizeChange: ((Rect) -> Void)?
+    var geometryReaderBuild: ((RetainedViewRuntime, Size) -> [ViewNode])?
+}
+
+/// Chart compatibility modifiers are rare on retained nodes, but their
+/// twenty-four optional strings used to occupy every single node. One lazy
+/// allocation keeps the existing modifier API and reconciliation semantics
+/// without making ordinary text/layout nodes pay the Charts storage tax.
+@MainActor
+private final class ViewNodeChartMetadata {
+    var xAxis: String?
+    var xScale: String?
+    var yScale: String?
+    var meshGradient: String?
+    var yAxis: String?
+    var legend: String?
+    var background: String?
+    var plotStyle: String?
+    var overlay: String?
+    var selection: String?
+    var scrollableAxes: String?
+    var foregroundStyleScale: String?
+    var symbolSize: String?
+    var symbol: String?
+    var angleScale: String?
+    var backgroundStyleScale: String?
+    var symbolScale: String?
+    var xVisibleDomain: String?
+    var yVisibleDomain: String?
+    var xSelection: String?
+    var ySelection: String?
+    var angleSelection: String?
+    var scrollPositionX: String?
+    var scrollPositionY: String?
+}
+
 @MainActor
 public final class ViewNode {
+    private var interactionHandlers: ViewNodeInteractionHandlers?
+    private var dropHandlers: ViewNodeDropHandlers?
+    private var lifecycleHandlers: ViewNodeLifecycleHandlers?
+    private var chartMetadata: ViewNodeChartMetadata?
+
+    /// Structural diagnostics for the sparse-storage regression tests. These
+    /// are computed flags, so observing them never creates optional storage.
+    internal var hasAllocatedInteractionHandlers: Bool { interactionHandlers != nil }
+    internal var hasAllocatedDropHandlers: Bool { dropHandlers != nil }
+    internal var hasAllocatedLifecycleHandlers: Bool { lifecycleHandlers != nil }
+    internal var hasAllocatedChartMetadata: Bool { chartMetadata != nil }
+
+    @inline(__always)
+    private func setInteractionHandler<Value>(
+        _ value: Value?,
+        at keyPath: ReferenceWritableKeyPath<ViewNodeInteractionHandlers, Value?>
+    ) {
+        if let interactionHandlers {
+            interactionHandlers[keyPath: keyPath] = value
+        } else if value != nil {
+            let handlers = ViewNodeInteractionHandlers()
+            handlers[keyPath: keyPath] = value
+            interactionHandlers = handlers
+        }
+    }
+
+    @inline(__always)
+    private func setDropHandler<Value>(
+        _ value: Value?,
+        at keyPath: ReferenceWritableKeyPath<ViewNodeDropHandlers, Value?>
+    ) {
+        if let dropHandlers {
+            dropHandlers[keyPath: keyPath] = value
+        } else if value != nil {
+            let handlers = ViewNodeDropHandlers()
+            handlers[keyPath: keyPath] = value
+            dropHandlers = handlers
+        }
+    }
+
+    @inline(__always)
+    private func setLifecycleHandler<Value>(
+        _ value: Value?,
+        at keyPath: ReferenceWritableKeyPath<ViewNodeLifecycleHandlers, Value?>
+    ) {
+        if let lifecycleHandlers {
+            lifecycleHandlers[keyPath: keyPath] = value
+        } else if value != nil {
+            let handlers = ViewNodeLifecycleHandlers()
+            handlers[keyPath: keyPath] = value
+            lifecycleHandlers = handlers
+        }
+    }
+
+    @inline(__always)
+    private func setChartMetadata(
+        _ value: String?,
+        at keyPath: ReferenceWritableKeyPath<ViewNodeChartMetadata, String?>
+    ) {
+        if let chartMetadata {
+            chartMetadata[keyPath: keyPath] = value
+        } else if value != nil {
+            let metadata = ViewNodeChartMetadata()
+            metadata[keyPath: keyPath] = value
+            chartMetadata = metadata
+        }
+        // Preserve the old stored properties' `didSet` semantics even when
+        // clearing an already-empty field does not allocate a metadata bag.
+        invalidateRuntime(.paint)
+    }
+
     public var frame: Rect {
         didSet { invalidateRuntime(.layout) }
     }
@@ -2556,99 +2727,123 @@ public final class ViewNode {
     }
 
     public var chartXAxis: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.xAxis }
+        set { setChartMetadata(newValue, at: \.xAxis) }
     }
 
     public var chartXScale: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.xScale }
+        set { setChartMetadata(newValue, at: \.xScale) }
     }
 
     public var chartYScale: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.yScale }
+        set { setChartMetadata(newValue, at: \.yScale) }
     }
 
     public var meshGradient: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.meshGradient }
+        set { setChartMetadata(newValue, at: \.meshGradient) }
     }
 
     public var chartYAxis: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.yAxis }
+        set { setChartMetadata(newValue, at: \.yAxis) }
     }
 
     public var chartLegend: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.legend }
+        set { setChartMetadata(newValue, at: \.legend) }
     }
 
     public var chartBackground: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.background }
+        set { setChartMetadata(newValue, at: \.background) }
     }
 
     public var chartPlotStyle: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.plotStyle }
+        set { setChartMetadata(newValue, at: \.plotStyle) }
     }
 
     public var chartOverlay: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.overlay }
+        set { setChartMetadata(newValue, at: \.overlay) }
     }
 
     public var chartSelection: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.selection }
+        set { setChartMetadata(newValue, at: \.selection) }
     }
 
     public var chartScrollableAxes: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.scrollableAxes }
+        set { setChartMetadata(newValue, at: \.scrollableAxes) }
     }
 
     public var chartForegroundStyleScale: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.foregroundStyleScale }
+        set { setChartMetadata(newValue, at: \.foregroundStyleScale) }
     }
 
     public var chartSymbolSize: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.symbolSize }
+        set { setChartMetadata(newValue, at: \.symbolSize) }
     }
 
     public var chartSymbol: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.symbol }
+        set { setChartMetadata(newValue, at: \.symbol) }
     }
 
     public var chartAngleScale: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.angleScale }
+        set { setChartMetadata(newValue, at: \.angleScale) }
     }
 
     public var chartBackgroundStyleScale: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.backgroundStyleScale }
+        set { setChartMetadata(newValue, at: \.backgroundStyleScale) }
     }
 
     public var chartSymbolScale: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.symbolScale }
+        set { setChartMetadata(newValue, at: \.symbolScale) }
     }
 
     public var chartXVisibleDomain: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.xVisibleDomain }
+        set { setChartMetadata(newValue, at: \.xVisibleDomain) }
     }
 
     public var chartYVisibleDomain: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.yVisibleDomain }
+        set { setChartMetadata(newValue, at: \.yVisibleDomain) }
     }
 
     public var chartXSelection: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.xSelection }
+        set { setChartMetadata(newValue, at: \.xSelection) }
     }
 
     public var chartYSelection: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.ySelection }
+        set { setChartMetadata(newValue, at: \.ySelection) }
     }
 
     public var chartAngleSelection: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.angleSelection }
+        set { setChartMetadata(newValue, at: \.angleSelection) }
     }
 
     public var chartScrollPositionX: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.scrollPositionX }
+        set { setChartMetadata(newValue, at: \.scrollPositionX) }
     }
 
     public var chartScrollPositionY: String? {
-        didSet { invalidateRuntime(.paint) }
+        get { chartMetadata?.scrollPositionY }
+        set { setChartMetadata(newValue, at: \.scrollPositionY) }
     }
 
     public var tableColumnHeadersVisible: Bool? {
@@ -2824,43 +3019,127 @@ public final class ViewNode {
     /// tree carries it.
     public var isTextInputCaret = false
 
-    public var onPointerEnter: (() -> Void)?
-    public var onPointerExit: (() -> Void)?
-    public var onPointerMove: ((Point) -> Void)?
-    public var onPointerDown: (() -> Void)?
-    public var onPointerUpInside: (() -> Void)?
-    public var onPointerUpInsideAt: ((Point) -> Void)?
-    public var onPointerUpOutside: (() -> Void)?
-    public var onContextMenu: ((Point) -> Void)?
-    public var onFocusEnter: (() -> Void)?
-    public var onFocusExit: (() -> Void)?
-    public var onKeyDown: ((KeyboardEvent) -> Void)?
+    public var onPointerEnter: (() -> Void)? {
+        get { interactionHandlers?.pointerEnter }
+        set { setInteractionHandler(newValue, at: \.pointerEnter) }
+    }
+    public var onPointerExit: (() -> Void)? {
+        get { interactionHandlers?.pointerExit }
+        set { setInteractionHandler(newValue, at: \.pointerExit) }
+    }
+    public var onPointerMove: ((Point) -> Void)? {
+        get { interactionHandlers?.pointerMove }
+        set { setInteractionHandler(newValue, at: \.pointerMove) }
+    }
+    public var onPointerDown: (() -> Void)? {
+        get { interactionHandlers?.pointerDown }
+        set { setInteractionHandler(newValue, at: \.pointerDown) }
+    }
+    public var onPointerUpInside: (() -> Void)? {
+        get { interactionHandlers?.pointerUpInside }
+        set { setInteractionHandler(newValue, at: \.pointerUpInside) }
+    }
+    public var onPointerUpInsideAt: ((Point) -> Void)? {
+        get { interactionHandlers?.pointerUpInsideAt }
+        set { setInteractionHandler(newValue, at: \.pointerUpInsideAt) }
+    }
+    public var onPointerUpOutside: (() -> Void)? {
+        get { interactionHandlers?.pointerUpOutside }
+        set { setInteractionHandler(newValue, at: \.pointerUpOutside) }
+    }
+    public var onContextMenu: ((Point) -> Void)? {
+        get { interactionHandlers?.contextMenu }
+        set { setInteractionHandler(newValue, at: \.contextMenu) }
+    }
+    public var onFocusEnter: (() -> Void)? {
+        get { interactionHandlers?.focusEnter }
+        set { setInteractionHandler(newValue, at: \.focusEnter) }
+    }
+    public var onFocusExit: (() -> Void)? {
+        get { interactionHandlers?.focusExit }
+        set { setInteractionHandler(newValue, at: \.focusExit) }
+    }
+    public var onKeyDown: ((KeyboardEvent) -> Void)? {
+        get { interactionHandlers?.keyDown }
+        set { setInteractionHandler(newValue, at: \.keyDown) }
+    }
     /// IME composition events routed by the runtime to the focused node;
     /// installed by text inputs, `nil` elsewhere.
-    public var onIMEComposition: ((IMECompositionEvent) -> Void)?
+    public var onIMEComposition: ((IMECompositionEvent) -> Void)? {
+        get { interactionHandlers?.imeComposition }
+        set { setInteractionHandler(newValue, at: \.imeComposition) }
+    }
     /// Reports the caret rectangle in root (logical) coordinates so the
     /// window host can position the OS IME candidate/composition window.
     /// Installed by text inputs; `nil` elsewhere.
-    public var textInputCaretRectProvider: (() -> Rect?)?
+    public var textInputCaretRectProvider: (() -> Rect?)? {
+        get { interactionHandlers?.textInputCaretRectProvider }
+        set { setInteractionHandler(newValue, at: \.textInputCaretRectProvider) }
+    }
     /// When true, unmodified up/down arrow keys are delivered to this node's
     /// `onKeyDown` before the runtime's scroll-key handling, so a focused node
     /// (e.g. a selectable list row) can claim vertical arrows for navigation.
     public var interceptsVerticalArrowKeys = false
-    public var onKeyUp: ((KeyboardEvent) -> Void)?
-    public var onActivate: (() -> Void)?
-    public var onRepeatActivate: (() -> Void)?
-    public var onDeleteRows: ((IndexSet) -> Void)?
-    public var onMoveRows: ((IndexSet, Int) -> Void)?
-    public var onInsertRows: ((Int, [Any]) -> Void)?
-    public var onDropRows: (([Any], Int) -> Void)?
-    public var onValidateDrop: (([Any], Point) -> Bool)?
-    public var onDropEntered: (([Any], Point) -> Void)?
-    public var onDropUpdated: (([Any], Point) -> Any?)?
-    public var onDropExited: (() -> Void)?
-    public var onDropProviders: (([Any], Point) -> Bool)?
-    public var onDropPayloads: (([Any], Point) -> Bool)?
-    public var onMakeDropConfiguration: (([Any], Point) -> Any?)?
-    public var onMakeDragPayload: (() -> Any?)?
+    public var onKeyUp: ((KeyboardEvent) -> Void)? {
+        get { interactionHandlers?.keyUp }
+        set { setInteractionHandler(newValue, at: \.keyUp) }
+    }
+    public var onActivate: (() -> Void)? {
+        get { interactionHandlers?.activate }
+        set { setInteractionHandler(newValue, at: \.activate) }
+    }
+    public var onRepeatActivate: (() -> Void)? {
+        get { interactionHandlers?.repeatActivate }
+        set { setInteractionHandler(newValue, at: \.repeatActivate) }
+    }
+    public var onDeleteRows: ((IndexSet) -> Void)? {
+        get { dropHandlers?.deleteRows }
+        set { setDropHandler(newValue, at: \.deleteRows) }
+    }
+    public var onMoveRows: ((IndexSet, Int) -> Void)? {
+        get { dropHandlers?.moveRows }
+        set { setDropHandler(newValue, at: \.moveRows) }
+    }
+    public var onInsertRows: ((Int, [Any]) -> Void)? {
+        get { dropHandlers?.insertRows }
+        set { setDropHandler(newValue, at: \.insertRows) }
+    }
+    public var onDropRows: (([Any], Int) -> Void)? {
+        get { dropHandlers?.dropRows }
+        set { setDropHandler(newValue, at: \.dropRows) }
+    }
+    public var onValidateDrop: (([Any], Point) -> Bool)? {
+        get { dropHandlers?.validateDrop }
+        set { setDropHandler(newValue, at: \.validateDrop) }
+    }
+    public var onDropEntered: (([Any], Point) -> Void)? {
+        get { dropHandlers?.dropEntered }
+        set { setDropHandler(newValue, at: \.dropEntered) }
+    }
+    public var onDropUpdated: (([Any], Point) -> Any?)? {
+        get { dropHandlers?.dropUpdated }
+        set { setDropHandler(newValue, at: \.dropUpdated) }
+    }
+    public var onDropExited: (() -> Void)? {
+        get { dropHandlers?.dropExited }
+        set { setDropHandler(newValue, at: \.dropExited) }
+    }
+    public var onDropProviders: (([Any], Point) -> Bool)? {
+        get { dropHandlers?.dropProviders }
+        set { setDropHandler(newValue, at: \.dropProviders) }
+    }
+    public var onDropPayloads: (([Any], Point) -> Bool)? {
+        get { dropHandlers?.dropPayloads }
+        set { setDropHandler(newValue, at: \.dropPayloads) }
+    }
+    public var onMakeDropConfiguration: (([Any], Point) -> Any?)? {
+        get { dropHandlers?.makeDropConfiguration }
+        set { setDropHandler(newValue, at: \.makeDropConfiguration) }
+    }
+    public var onMakeDragPayload: (() -> Any?)? {
+        get { dropHandlers?.makeDragPayload }
+        set { setDropHandler(newValue, at: \.makeDragPayload) }
+    }
     public var commandHandlers: [String: () -> Void] = [:]
     public var fileExporterConfiguration: RetainedFileExporterConfiguration?
     public var fileImporterConfiguration: RetainedFileImporterConfiguration?
@@ -2874,20 +3153,50 @@ public final class ViewNode {
     public var fileDialogConfirmationLabel: String?
     public var fileDialogDefaultDirectory: URL?
     public var fileDialogMessage: String?
-    public var onMakeDragItemProvider: (() -> Any?)?
-    public var onDragStart: ((Point) -> Void)?
-    public var onDragChange: ((Point, Point) -> Void)?
-    public var onDragEnd: ((Point, Point) -> Void)?
-    public var onLayout: ((Rect) -> Void)?
-    public var onAppearWithNode: ((ViewNode) -> Void)?
-    public var onDisappearWithNode: ((ViewNode) -> Void)?
+    public var onMakeDragItemProvider: (() -> Any?)? {
+        get { dropHandlers?.makeDragItemProvider }
+        set { setDropHandler(newValue, at: \.makeDragItemProvider) }
+    }
+    public var onDragStart: ((Point) -> Void)? {
+        get { dropHandlers?.dragStart }
+        set { setDropHandler(newValue, at: \.dragStart) }
+    }
+    public var onDragChange: ((Point, Point) -> Void)? {
+        get { dropHandlers?.dragChange }
+        set { setDropHandler(newValue, at: \.dragChange) }
+    }
+    public var onDragEnd: ((Point, Point) -> Void)? {
+        get { dropHandlers?.dragEnd }
+        set { setDropHandler(newValue, at: \.dragEnd) }
+    }
+    public var onLayout: ((Rect) -> Void)? {
+        get { lifecycleHandlers?.layout }
+        set { setLifecycleHandler(newValue, at: \.layout) }
+    }
+    public var onAppearWithNode: ((ViewNode) -> Void)? {
+        get { lifecycleHandlers?.appearWithNode }
+        set { setLifecycleHandler(newValue, at: \.appearWithNode) }
+    }
+    public var onDisappearWithNode: ((ViewNode) -> Void)? {
+        get { lifecycleHandlers?.disappearWithNode }
+        set { setLifecycleHandler(newValue, at: \.disappearWithNode) }
+    }
     public var pendingLifecycleTaskLaunches: [ViewLifecycleTaskLaunch] = []
 
     // Gap/Fix: Lifecycle hooks — called during appendCommands when node
     // first appears, disappears (removeFromParent), or changes frame size.
-    public var onAppear: (() -> Void)?
-    public var onDisappear: (() -> Void)?
-    public var onSizeChange: ((Rect) -> Void)?
+    public var onAppear: (() -> Void)? {
+        get { lifecycleHandlers?.appear }
+        set { setLifecycleHandler(newValue, at: \.appear) }
+    }
+    public var onDisappear: (() -> Void)? {
+        get { lifecycleHandlers?.disappear }
+        set { setLifecycleHandler(newValue, at: \.disappear) }
+    }
+    public var onSizeChange: ((Rect) -> Void)? {
+        get { lifecycleHandlers?.sizeChange }
+        set { setLifecycleHandler(newValue, at: \.sizeChange) }
+    }
 
     /// A `GeometryReader`'s body, kept so the runtime can re-invoke it once
     /// layout has resolved the slot the reader actually occupies. Build order
@@ -2900,7 +3209,10 @@ public final class ViewNode {
     /// a captured runtime would close a retain cycle back through the root.
     /// The returned node is a fresh build of the *same* reader, so the
     /// runtime adopts it onto this node instead of nesting it underneath.
-    public var geometryReaderBuild: ((RetainedViewRuntime, Size) -> [ViewNode])?
+    public var geometryReaderBuild: ((RetainedViewRuntime, Size) -> [ViewNode])? {
+        get { lifecycleHandlers?.geometryReaderBuild }
+        set { setLifecycleHandler(newValue, at: \.geometryReaderBuild) }
+    }
 
     /// The slot size `children` were last built against. `nil` on a node that
     /// is not a reader. Compared against `resolvedFrame.size` to decide
@@ -3560,30 +3872,6 @@ public final class ViewNode {
         self.matchedGeometryEffect = matchedGeometryEffect
         self.matchedTransitionSource = matchedTransitionSource
         self.navigationTransition = navigationTransition
-        self.chartXAxis = chartXAxis
-        self.chartXScale = chartXScale
-        self.chartYScale = chartYScale
-        self.meshGradient = meshGradient
-        self.chartYAxis = chartYAxis
-        self.chartLegend = chartLegend
-        self.chartBackground = chartBackground
-        self.chartPlotStyle = chartPlotStyle
-        self.chartOverlay = chartOverlay
-        self.chartSelection = chartSelection
-        self.chartScrollableAxes = chartScrollableAxes
-        self.chartForegroundStyleScale = chartForegroundStyleScale
-        self.chartSymbolSize = chartSymbolSize
-        self.chartSymbol = chartSymbol
-        self.chartAngleScale = chartAngleScale
-        self.chartBackgroundStyleScale = chartBackgroundStyleScale
-        self.chartSymbolScale = chartSymbolScale
-        self.chartXVisibleDomain = chartXVisibleDomain
-        self.chartYVisibleDomain = chartYVisibleDomain
-        self.chartXSelection = chartXSelection
-        self.chartYSelection = chartYSelection
-        self.chartAngleSelection = chartAngleSelection
-        self.chartScrollPositionX = chartScrollPositionX
-        self.chartScrollPositionY = chartScrollPositionY
         self.tableColumnHeadersVisible = tableColumnHeadersVisible
         self.isContentInvalidatable = isContentInvalidatable
         self.isLineSelectable = isLineSelectable
@@ -3603,41 +3891,6 @@ public final class ViewNode {
         self.sectionFooterChildCount = max(0, sectionFooterChildCount)
         self.phaseAnimatorState = phaseAnimatorState
         self.position = nil
-        self.onPointerEnter = nil
-        self.onPointerExit = nil
-        self.onPointerMove = nil
-        self.onPointerDown = nil
-        self.onPointerUpInside = nil
-        self.onPointerUpInsideAt = nil
-        self.onPointerUpOutside = nil
-        self.onContextMenu = nil
-        self.onFocusEnter = nil
-        self.onFocusExit = nil
-        self.onKeyDown = nil
-        self.onIMEComposition = nil
-        self.textInputCaretRectProvider = nil
-        self.onKeyUp = nil
-        self.onActivate = nil
-        self.onRepeatActivate = nil
-        self.onDeleteRows = nil
-        self.onMoveRows = nil
-        self.onInsertRows = nil
-        self.onDropRows = nil
-        self.onValidateDrop = nil
-        self.onDropEntered = nil
-        self.onDropUpdated = nil
-        self.onDropExited = nil
-        self.onDropProviders = nil
-        self.onDropPayloads = nil
-        self.onMakeDropConfiguration = nil
-        self.onMakeDragPayload = nil
-        self.onMakeDragItemProvider = nil
-        self.onDragStart = nil
-        self.onDragChange = nil
-        self.onDragEnd = nil
-        self.onLayout = nil
-        self.onAppearWithNode = nil
-        self.onDisappearWithNode = nil
         self.commandHandlers = [:]
         self.fileExporterConfiguration = nil
         self.fileImporterConfiguration = nil
@@ -3668,6 +3921,44 @@ public final class ViewNode {
         self.hasAppliedInitialScrollAnchor = false
         self.lastAnchoredScrollContentSize = frame.size
         self.lastAnchoredScrollFrameSize = frame.size
+
+        if chartXAxis != nil || chartXScale != nil || chartYScale != nil
+            || meshGradient != nil || chartYAxis != nil || chartLegend != nil
+            || chartBackground != nil || chartPlotStyle != nil || chartOverlay != nil
+            || chartSelection != nil || chartScrollableAxes != nil
+            || chartForegroundStyleScale != nil || chartSymbolSize != nil || chartSymbol != nil
+            || chartAngleScale != nil || chartBackgroundStyleScale != nil || chartSymbolScale != nil
+            || chartXVisibleDomain != nil || chartYVisibleDomain != nil || chartXSelection != nil
+            || chartYSelection != nil || chartAngleSelection != nil
+            || chartScrollPositionX != nil || chartScrollPositionY != nil
+        {
+            let metadata = ViewNodeChartMetadata()
+            metadata.xAxis = chartXAxis
+            metadata.xScale = chartXScale
+            metadata.yScale = chartYScale
+            metadata.meshGradient = meshGradient
+            metadata.yAxis = chartYAxis
+            metadata.legend = chartLegend
+            metadata.background = chartBackground
+            metadata.plotStyle = chartPlotStyle
+            metadata.overlay = chartOverlay
+            metadata.selection = chartSelection
+            metadata.scrollableAxes = chartScrollableAxes
+            metadata.foregroundStyleScale = chartForegroundStyleScale
+            metadata.symbolSize = chartSymbolSize
+            metadata.symbol = chartSymbol
+            metadata.angleScale = chartAngleScale
+            metadata.backgroundStyleScale = chartBackgroundStyleScale
+            metadata.symbolScale = chartSymbolScale
+            metadata.xVisibleDomain = chartXVisibleDomain
+            metadata.yVisibleDomain = chartYVisibleDomain
+            metadata.xSelection = chartXSelection
+            metadata.ySelection = chartYSelection
+            metadata.angleSelection = chartAngleSelection
+            metadata.scrollPositionX = chartScrollPositionX
+            metadata.scrollPositionY = chartScrollPositionY
+            self.chartMetadata = metadata
+        }
 
         for child in children {
             addChild(child)

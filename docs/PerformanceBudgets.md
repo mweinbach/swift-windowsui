@@ -19,6 +19,8 @@ budget test blocks release sign-off.
 | Budget | Bound | Enforcing test |
 | --- | --- | --- |
 | List virtualization | A 1000-row `LazyVStack` (22 px rows, 360 px viewport) renders < 1000 quads — primitive count tracks the visible window, not the data size | `DynamicListStressTests.testThousandItemListRendersWithNativeGlyphsAndBoundedPrimitives` |
+| Long SwiftUI List layout | Scroll-enabled `List` collections above 64 rows use retained `.lazyStack` layout; a 1000-row list in a 200 px viewport visits fewer than 240 nodes per pass while preserving eager-layout pixel parity, far-row keyboard selection, `ScrollViewReader`, and accessibility placeholders. Row **construction remains eager** | `ListVirtualizationTests.testThousandRowListLayoutVisitsStayProportionalToViewport`, `…testVirtualizedListRemainsPixelIdenticalToItsEagerLayout`, `…testKeyboardSelectionCanRevealADeferredFarAwayRow` |
+| Sparse retained-node capabilities | Ordinary rows allocate **zero** drag/drop or Charts metadata bags, and fewer than 12 input/lifecycle bags across a 500-row list; 39 optional callbacks plus 24 chart strings live in four independently lazy capability groups instead of every node | `ViewNodeSparseStorageTests.testOrdinaryNodeDoesNotAllocateOptionalCapabilityStorage`, `…testLongLazyListRowsDoNotAllocateRareCapabilityStorage` |
 | Native text at scale | Zero PixelText fallback at 13 pt across 100–5000-row lists; all text via DirectWrite glyphs | `DynamicListStressTests.testThousandItemListRendersWithNativeGlyphsAndBoundedPrimitives`, `…testListGrowingFromHundredsToThousandsKeepsRenderingConsistent` |
 | Scene determinism | Identical layer, quad, and glyph counts across re-snapshots of the same 1000-row list | `DynamicListStressTests.testRepeatedSnapshotsOfLargeListProduceDeterministicPrimitiveCounts` |
 | Demo dashboard scene | Full demo dashboard at 1280×720 stays under 1600 scene primitives / 500 quads (measured 802 / 216 when pinned) | `PerformanceBudgetGateTests.testDemoDashboardStaysWithinScenePrimitiveBudget` |
@@ -150,10 +152,18 @@ result.
 Two caveats, both honest. The worst frame varies run to run — 5.7 ms and
 8.6 ms across two consecutive runs, against 7.4 and 9.4 before — and a switch
 frame now also composites the outgoing page for the quarter-second the
-cross-dissolve lasts. And **node construction is untouched and is now the
-largest remaining piece**: a rebuild allocates a fresh `ViewNode` per node to
-copy onto the retained one, and `ViewNode` carries some 380 stored
-properties. That is a shape problem, not a hot spot.
+cross-dissolve lasts. **Node construction remains the largest measured
+piece**: a rebuild allocates a fresh `ViewNode` per node to copy onto the
+retained one. A later structural improvement moved 39 optional interaction,
+drag/drop, and lifecycle callbacks plus 24 optional Charts strings out of the
+always-present node footprint into four independently lazy capability bags.
+Ordinary labels, layout wrappers, and long-list rows allocate none of those
+bags; reconciliation skips each entire capability family when neither node
+has one. This reduces per-node memory and initialization/reconciliation work,
+but it deliberately does **not** claim a refreshed wall-clock result: the
+table above predates sparse storage and remains the last captured live run.
+True lazy row construction still requires the data-driven `ForEach`/builder
+seam described in `docs/GPURenderingPipeline.md`.
 
 ### 2026-08 — the presentation pacing watchdog
 

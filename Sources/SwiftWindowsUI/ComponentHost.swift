@@ -1106,45 +1106,47 @@ public final class ComponentHost {
         if target.navigationTransition != source.navigationTransition {
             target.navigationTransition = source.navigationTransition
         }
-        if target.chartXAxis != source.chartXAxis { target.chartXAxis = source.chartXAxis }
-        if target.chartXScale != source.chartXScale { target.chartXScale = source.chartXScale }
-        if target.chartYScale != source.chartYScale { target.chartYScale = source.chartYScale }
-        if target.meshGradient != source.meshGradient { target.meshGradient = source.meshGradient }
-        if target.chartYAxis != source.chartYAxis { target.chartYAxis = source.chartYAxis }
-        if target.chartLegend != source.chartLegend { target.chartLegend = source.chartLegend }
-        if target.chartBackground != source.chartBackground { target.chartBackground = source.chartBackground }
-        if target.chartPlotStyle != source.chartPlotStyle { target.chartPlotStyle = source.chartPlotStyle }
-        if target.chartOverlay != source.chartOverlay { target.chartOverlay = source.chartOverlay }
-        if target.chartSelection != source.chartSelection { target.chartSelection = source.chartSelection }
-        if target.chartScrollableAxes != source.chartScrollableAxes {
-            target.chartScrollableAxes = source.chartScrollableAxes
-        }
-        if target.chartForegroundStyleScale != source.chartForegroundStyleScale {
-            target.chartForegroundStyleScale = source.chartForegroundStyleScale
-        }
-        if target.chartSymbolSize != source.chartSymbolSize { target.chartSymbolSize = source.chartSymbolSize }
-        if target.chartSymbol != source.chartSymbol { target.chartSymbol = source.chartSymbol }
-        if target.chartAngleScale != source.chartAngleScale { target.chartAngleScale = source.chartAngleScale }
-        if target.chartBackgroundStyleScale != source.chartBackgroundStyleScale {
-            target.chartBackgroundStyleScale = source.chartBackgroundStyleScale
-        }
-        if target.chartSymbolScale != source.chartSymbolScale { target.chartSymbolScale = source.chartSymbolScale }
-        if target.chartXVisibleDomain != source.chartXVisibleDomain {
-            target.chartXVisibleDomain = source.chartXVisibleDomain
-        }
-        if target.chartYVisibleDomain != source.chartYVisibleDomain {
-            target.chartYVisibleDomain = source.chartYVisibleDomain
-        }
-        if target.chartXSelection != source.chartXSelection { target.chartXSelection = source.chartXSelection }
-        if target.chartYSelection != source.chartYSelection { target.chartYSelection = source.chartYSelection }
-        if target.chartAngleSelection != source.chartAngleSelection {
-            target.chartAngleSelection = source.chartAngleSelection
-        }
-        if target.chartScrollPositionX != source.chartScrollPositionX {
-            target.chartScrollPositionX = source.chartScrollPositionX
-        }
-        if target.chartScrollPositionY != source.chartScrollPositionY {
-            target.chartScrollPositionY = source.chartScrollPositionY
+        if target.hasAllocatedChartMetadata || source.hasAllocatedChartMetadata {
+            if target.chartXAxis != source.chartXAxis { target.chartXAxis = source.chartXAxis }
+            if target.chartXScale != source.chartXScale { target.chartXScale = source.chartXScale }
+            if target.chartYScale != source.chartYScale { target.chartYScale = source.chartYScale }
+            if target.meshGradient != source.meshGradient { target.meshGradient = source.meshGradient }
+            if target.chartYAxis != source.chartYAxis { target.chartYAxis = source.chartYAxis }
+            if target.chartLegend != source.chartLegend { target.chartLegend = source.chartLegend }
+            if target.chartBackground != source.chartBackground { target.chartBackground = source.chartBackground }
+            if target.chartPlotStyle != source.chartPlotStyle { target.chartPlotStyle = source.chartPlotStyle }
+            if target.chartOverlay != source.chartOverlay { target.chartOverlay = source.chartOverlay }
+            if target.chartSelection != source.chartSelection { target.chartSelection = source.chartSelection }
+            if target.chartScrollableAxes != source.chartScrollableAxes {
+                target.chartScrollableAxes = source.chartScrollableAxes
+            }
+            if target.chartForegroundStyleScale != source.chartForegroundStyleScale {
+                target.chartForegroundStyleScale = source.chartForegroundStyleScale
+            }
+            if target.chartSymbolSize != source.chartSymbolSize { target.chartSymbolSize = source.chartSymbolSize }
+            if target.chartSymbol != source.chartSymbol { target.chartSymbol = source.chartSymbol }
+            if target.chartAngleScale != source.chartAngleScale { target.chartAngleScale = source.chartAngleScale }
+            if target.chartBackgroundStyleScale != source.chartBackgroundStyleScale {
+                target.chartBackgroundStyleScale = source.chartBackgroundStyleScale
+            }
+            if target.chartSymbolScale != source.chartSymbolScale { target.chartSymbolScale = source.chartSymbolScale }
+            if target.chartXVisibleDomain != source.chartXVisibleDomain {
+                target.chartXVisibleDomain = source.chartXVisibleDomain
+            }
+            if target.chartYVisibleDomain != source.chartYVisibleDomain {
+                target.chartYVisibleDomain = source.chartYVisibleDomain
+            }
+            if target.chartXSelection != source.chartXSelection { target.chartXSelection = source.chartXSelection }
+            if target.chartYSelection != source.chartYSelection { target.chartYSelection = source.chartYSelection }
+            if target.chartAngleSelection != source.chartAngleSelection {
+                target.chartAngleSelection = source.chartAngleSelection
+            }
+            if target.chartScrollPositionX != source.chartScrollPositionX {
+                target.chartScrollPositionX = source.chartScrollPositionX
+            }
+            if target.chartScrollPositionY != source.chartScrollPositionY {
+                target.chartScrollPositionY = source.chartScrollPositionY
+            }
         }
         if target.tableColumnHeadersVisible != source.tableColumnHeadersVisible {
             target.tableColumnHeadersVisible = source.tableColumnHeadersVisible
@@ -1217,77 +1219,103 @@ public final class ComponentHost {
             target.previousPropertyValues = source.previousPropertyValues
         }
 
-        if target.onPointerEnter != nil || source.onPointerEnter != nil {
-            target.onPointerEnter = source.onPointerEnter
+        if target.hasAllocatedInteractionHandlers || source.hasAllocatedInteractionHandlers {
+            if target.onPointerEnter != nil || source.onPointerEnter != nil {
+                target.onPointerEnter = source.onPointerEnter
+            }
+            if target.onPointerExit != nil || source.onPointerExit != nil {
+                target.onPointerExit = source.onPointerExit
+            }
+            if target.onPointerMove != nil || source.onPointerMove != nil {
+                target.onPointerMove = source.onPointerMove
+            }
+            if target.onPointerDown != nil || source.onPointerDown != nil {
+                target.onPointerDown = source.onPointerDown
+            }
+            if target.onPointerUpInside != nil || source.onPointerUpInside != nil {
+                target.onPointerUpInside = source.onPointerUpInside
+            }
+            if target.onPointerUpInsideAt != nil || source.onPointerUpInsideAt != nil {
+                target.onPointerUpInsideAt = source.onPointerUpInsideAt
+            }
+            if target.onPointerUpOutside != nil || source.onPointerUpOutside != nil {
+                target.onPointerUpOutside = source.onPointerUpOutside
+            }
+            if target.onContextMenu != nil || source.onContextMenu != nil {
+                target.onContextMenu = source.onContextMenu
+            }
+            if target.onFocusEnter != nil || source.onFocusEnter != nil { target.onFocusEnter = source.onFocusEnter }
+            if target.onFocusExit != nil || source.onFocusExit != nil { target.onFocusExit = source.onFocusExit }
+            if target.onKeyDown != nil || source.onKeyDown != nil { target.onKeyDown = source.onKeyDown }
+            if target.onIMEComposition != nil || source.onIMEComposition != nil {
+                target.onIMEComposition = source.onIMEComposition
+            }
+            if target.textInputCaretRectProvider != nil || source.textInputCaretRectProvider != nil {
+                target.textInputCaretRectProvider = source.textInputCaretRectProvider
+            }
+            if target.onKeyUp != nil || source.onKeyUp != nil { target.onKeyUp = source.onKeyUp }
+            if target.onActivate != nil || source.onActivate != nil { target.onActivate = source.onActivate }
+            if target.onRepeatActivate != nil || source.onRepeatActivate != nil {
+                target.onRepeatActivate = source.onRepeatActivate
+            }
         }
-        if target.onPointerExit != nil || source.onPointerExit != nil { target.onPointerExit = source.onPointerExit }
-        if target.onPointerMove != nil || source.onPointerMove != nil { target.onPointerMove = source.onPointerMove }
-        if target.onPointerDown != nil || source.onPointerDown != nil { target.onPointerDown = source.onPointerDown }
-        if target.onPointerUpInside != nil || source.onPointerUpInside != nil {
-            target.onPointerUpInside = source.onPointerUpInside
+
+        if target.hasAllocatedDropHandlers || source.hasAllocatedDropHandlers {
+            if target.onDeleteRows != nil || source.onDeleteRows != nil { target.onDeleteRows = source.onDeleteRows }
+            if target.onMoveRows != nil || source.onMoveRows != nil { target.onMoveRows = source.onMoveRows }
+            if target.onInsertRows != nil || source.onInsertRows != nil { target.onInsertRows = source.onInsertRows }
+            if target.onDropRows != nil || source.onDropRows != nil { target.onDropRows = source.onDropRows }
+            if target.onValidateDrop != nil || source.onValidateDrop != nil {
+                target.onValidateDrop = source.onValidateDrop
+            }
+            if target.onDropEntered != nil || source.onDropEntered != nil {
+                target.onDropEntered = source.onDropEntered
+            }
+            if target.onDropUpdated != nil || source.onDropUpdated != nil {
+                target.onDropUpdated = source.onDropUpdated
+            }
+            if target.onDropExited != nil || source.onDropExited != nil { target.onDropExited = source.onDropExited }
+            if target.onDropProviders != nil || source.onDropProviders != nil {
+                target.onDropProviders = source.onDropProviders
+            }
+            if target.onDropPayloads != nil || source.onDropPayloads != nil {
+                target.onDropPayloads = source.onDropPayloads
+            }
+            if target.onMakeDropConfiguration != nil || source.onMakeDropConfiguration != nil {
+                target.onMakeDropConfiguration = source.onMakeDropConfiguration
+            }
+            if target.onMakeDragPayload != nil || source.onMakeDragPayload != nil {
+                target.onMakeDragPayload = source.onMakeDragPayload
+            }
+            if target.onMakeDragItemProvider != nil || source.onMakeDragItemProvider != nil {
+                target.onMakeDragItemProvider = source.onMakeDragItemProvider
+            }
+            if target.onDragStart != nil || source.onDragStart != nil { target.onDragStart = source.onDragStart }
+            if target.onDragChange != nil || source.onDragChange != nil { target.onDragChange = source.onDragChange }
+            if target.onDragEnd != nil || source.onDragEnd != nil { target.onDragEnd = source.onDragEnd }
         }
-        if target.onPointerUpInsideAt != nil || source.onPointerUpInsideAt != nil {
-            target.onPointerUpInsideAt = source.onPointerUpInsideAt
-        }
-        if target.onPointerUpOutside != nil || source.onPointerUpOutside != nil {
-            target.onPointerUpOutside = source.onPointerUpOutside
-        }
-        if target.onContextMenu != nil || source.onContextMenu != nil { target.onContextMenu = source.onContextMenu }
-        if target.onFocusEnter != nil || source.onFocusEnter != nil { target.onFocusEnter = source.onFocusEnter }
-        if target.onFocusExit != nil || source.onFocusExit != nil { target.onFocusExit = source.onFocusExit }
-        if target.onKeyDown != nil || source.onKeyDown != nil { target.onKeyDown = source.onKeyDown }
-        if target.onKeyUp != nil || source.onKeyUp != nil { target.onKeyUp = source.onKeyUp }
-        if target.onActivate != nil || source.onActivate != nil { target.onActivate = source.onActivate }
-        if target.onRepeatActivate != nil || source.onRepeatActivate != nil {
-            target.onRepeatActivate = source.onRepeatActivate
-        }
-        if target.onDeleteRows != nil || source.onDeleteRows != nil { target.onDeleteRows = source.onDeleteRows }
-        if target.onMoveRows != nil || source.onMoveRows != nil { target.onMoveRows = source.onMoveRows }
-        if target.onInsertRows != nil || source.onInsertRows != nil { target.onInsertRows = source.onInsertRows }
-        if target.onDropRows != nil || source.onDropRows != nil { target.onDropRows = source.onDropRows }
-        if target.onValidateDrop != nil || source.onValidateDrop != nil {
-            target.onValidateDrop = source.onValidateDrop
-        }
-        if target.onDropEntered != nil || source.onDropEntered != nil { target.onDropEntered = source.onDropEntered }
-        if target.onDropUpdated != nil || source.onDropUpdated != nil { target.onDropUpdated = source.onDropUpdated }
-        if target.onDropExited != nil || source.onDropExited != nil { target.onDropExited = source.onDropExited }
-        if target.onDropProviders != nil || source.onDropProviders != nil {
-            target.onDropProviders = source.onDropProviders
-        }
-        if target.onDropPayloads != nil || source.onDropPayloads != nil {
-            target.onDropPayloads = source.onDropPayloads
-        }
-        if target.onMakeDropConfiguration != nil || source.onMakeDropConfiguration != nil {
-            target.onMakeDropConfiguration = source.onMakeDropConfiguration
-        }
-        if target.onMakeDragPayload != nil || source.onMakeDragPayload != nil {
-            target.onMakeDragPayload = source.onMakeDragPayload
-        }
-        if target.onMakeDragItemProvider != nil || source.onMakeDragItemProvider != nil {
-            target.onMakeDragItemProvider = source.onMakeDragItemProvider
-        }
-        if target.onDragStart != nil || source.onDragStart != nil { target.onDragStart = source.onDragStart }
-        if target.onDragChange != nil || source.onDragChange != nil { target.onDragChange = source.onDragChange }
-        if target.onDragEnd != nil || source.onDragEnd != nil { target.onDragEnd = source.onDragEnd }
-        if target.onLayout != nil || source.onLayout != nil { target.onLayout = source.onLayout }
-        if target.onAppear != nil || source.onAppear != nil { target.onAppear = source.onAppear }
-        if target.onDisappear != nil || source.onDisappear != nil { target.onDisappear = source.onDisappear }
-        if target.onAppearWithNode != nil || source.onAppearWithNode != nil {
-            target.onAppearWithNode = source.onAppearWithNode
-        }
-        if target.onDisappearWithNode != nil || source.onDisappearWithNode != nil {
-            target.onDisappearWithNode = source.onDisappearWithNode
-        }
-        if target.onSizeChange != nil || source.onSizeChange != nil { target.onSizeChange = source.onSizeChange }
-        // The reader's body and the slot it was built from travel together:
-        // `target` has just adopted `source`'s children, so it has also
-        // adopted the size they were built against. Splitting them would
-        // leave the convergence loop comparing a slot against a body it did
-        // not produce, and it would rebuild forever. Guarded as a pair for
-        // the same reason: either both move or neither does.
-        if target.geometryReaderBuild != nil || source.geometryReaderBuild != nil {
-            target.geometryReaderBuild = source.geometryReaderBuild
-            target.geometryReaderBuiltSize = source.geometryReaderBuiltSize
+
+        if target.hasAllocatedLifecycleHandlers || source.hasAllocatedLifecycleHandlers {
+            if target.onLayout != nil || source.onLayout != nil { target.onLayout = source.onLayout }
+            if target.onAppear != nil || source.onAppear != nil { target.onAppear = source.onAppear }
+            if target.onDisappear != nil || source.onDisappear != nil { target.onDisappear = source.onDisappear }
+            if target.onAppearWithNode != nil || source.onAppearWithNode != nil {
+                target.onAppearWithNode = source.onAppearWithNode
+            }
+            if target.onDisappearWithNode != nil || source.onDisappearWithNode != nil {
+                target.onDisappearWithNode = source.onDisappearWithNode
+            }
+            if target.onSizeChange != nil || source.onSizeChange != nil { target.onSizeChange = source.onSizeChange }
+            // The reader's body and the slot it was built from travel together:
+            // `target` has just adopted `source`'s children, so it has also
+            // adopted the size they were built against. Splitting them would
+            // leave the convergence loop comparing a slot against a body it did
+            // not produce, and it would rebuild forever. Guarded as a pair for
+            // the same reason: either both move or neither does.
+            if target.geometryReaderBuild != nil || source.geometryReaderBuild != nil {
+                target.geometryReaderBuild = source.geometryReaderBuild
+                target.geometryReaderBuiltSize = source.geometryReaderBuiltSize
+            }
         }
         if target.onUpdatePlatformView != nil || source.onUpdatePlatformView != nil {
             target.onUpdatePlatformView = source.onUpdatePlatformView

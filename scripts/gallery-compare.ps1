@@ -87,6 +87,10 @@ $GalleryBaselineEntries = @(
     "form",
     "form-settings",
     "divider",
+    # A curved, inset diagonal three-stop fill plus independently shaded
+    # stroke. Rectangle gradients take the quad lane, so they cannot guard
+    # authored path endpoints, per-pixel ramps, or independent stroke colors.
+    "canvas-path-gradient",
 
     # Interaction-state tier. The hover/pressed/focus/disabled ramps were
     # pinned only by unit tests reading colour fields, so a ramp could go

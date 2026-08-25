@@ -820,6 +820,41 @@ struct SwiftWindowsUIGalleryTool {
                     .frame(width: 160, height: 140)
                 )),
             GallerySpec(
+                id: "canvas-path-gradient", title: "Canvas (gradient path)",
+                view: AnyView(
+                    Canvas { ctx, size in
+                        let bounds = Rect(
+                            x: 14, y: 16, width: size.width - 28, height: size.height - 32)
+                        let path = Path(ellipseIn: bounds)
+                        let fillGradient = Gradient(stops: [
+                            .init(color: Color(red: 0.32, green: 0.24, blue: 0.92, alpha: 1), location: 0),
+                            .init(color: Color(red: 0.16, green: 0.82, blue: 0.84, alpha: 1), location: 0.42),
+                            .init(color: Color(red: 0.96, green: 0.42, blue: 0.58, alpha: 1), location: 1),
+                        ])
+                        ctx.fill(
+                            path,
+                            with: .linearGradient(
+                                fillGradient,
+                                startPoint: CGPoint(x: bounds.minX + 12, y: bounds.minY + 8),
+                                endPoint: CGPoint(x: bounds.maxX - 12, y: bounds.maxY - 8)
+                            )
+                        )
+                        ctx.stroke(
+                            path,
+                            with: .linearGradient(
+                                Gradient(colors: [
+                                    Color(red: 1, green: 1, blue: 1, alpha: 0.9),
+                                    Color(red: 0.32, green: 0.86, blue: 1, alpha: 0.65),
+                                ]),
+                                startPoint: CGPoint(x: bounds.minX, y: bounds.minY),
+                                endPoint: CGPoint(x: bounds.minX, y: bounds.maxY)
+                            ),
+                            lineWidth: 3
+                        )
+                    }
+                    .frame(width: 160, height: 140)
+                )),
+            GallerySpec(
                 id: "canvas-transform", title: "Canvas (transform)",
                 view: AnyView(
                     Canvas { ctx, size in

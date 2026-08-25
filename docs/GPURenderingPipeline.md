@@ -210,8 +210,9 @@ preserves duplicate-position hard transitions. The lowering emits at most 64
 segments, including endpoint extensions, so an untrusted gradient cannot
 request an unbounded number of passes.
 The SwiftUI bridge reverses both the color sequence and stop locations when its
-start/end points run right-to-left or bottom-to-top; diagonal gradients still
-use their dominant axis.
+start/end points run right-to-left or bottom-to-top. Quad-backed gradients use
+the dominant axis; gradient-bearing paths retain their complete authored
+endpoint segment, including diagonal directions.
 
 `QuadPrimitive.segmented(for:opacity:)` expands nontrivial gradients into
 full-footprint quads, one per disjoint color interval. The footprint retains
@@ -230,6 +231,23 @@ the same scene boundary as the remaining quad fields.
 `GradientRenderingFidelityTests` covers authored positions, reverse directions,
 hard stops, transparency, strict segment budgeting, the frame bridge, and
 CPU/D3D11 parity.
+
+Canvas path fills and strokes carry the same authored stop sequence through
+`PathPrimitive.fillGradient` / `strokeGradient` instead of taking the
+solid-color tessellation lane. `PathPrimitive.setGradientEndpoints(start:end:)`
+retains the exact authored segment, rather than incorrectly stretching inset
+ramps across path bounds or expanded stroke bounds. That coordinate frame
+translates, scales, and rotates with the path, and the path rasterizer samples
+the piecewise-linear color once per covered pixel. The CPU screenshot
+rasterizer and D3D11's cached path textures therefore agree on curved geometry,
+transformed or diagonal ramps, thick strokes, hard stops, transparent stops,
+inherited opacity, and intermediate colors.
+Scene-boundary sanitation caps malformed stop lists, and the normalized path
+cache hashes gradient paint and its coordinate frame without sacrificing
+translation-invariant reuse. The separate `RenderFrame` fallback has no
+gradient-bearing path command and explicitly retains its first-stop behavior.
+`PathGradientRenderingTests`, `CanvasPathGradientIntegrationTests`, and the
+`canvas-path-gradient` gallery baseline protect this scene-path contract.
 
 The separate live `RenderFrame` → `D3D11Renderer` fallback presenter preserves
 the same authored stop sequence without routing through the scene bridge. Its
@@ -1006,6 +1024,9 @@ whether the path can be expressed as one or more axis-aligned
 fills (with or without intervening Canvas transforms) and horizontal /
 vertical stroked-line segments — the path is emitted as quads instead,
 bypassing CPU rasterization and the per-frame texture upload entirely.
+Paths with a gradient fill or stroke intentionally stay in the cached path
+raster lane: replacing one continuous coordinate frame with independently
+painted solid strips would lose their authored color stops.
 
 **Fills** take five GPU lanes today:
 
@@ -1103,7 +1124,8 @@ into a `BitmapSurface` and reused across frames:
    path (origin translated to `(0, 0)`), so simply moving the path
    doesn't bust the cache. The key is a scalar struct —
    `PathPrimitive.shapeHash` (a translation-invariant digest of the whole
-   element stream and the paint), the element count, the extent and the
+   element stream, solid/gradient paint, and translated gradient coordinate
+   frame), the element count, the extent and the
    raster window — so a lookup hashes and compares in constant time. It
    used to hold a whole normalized `PathPrimitive`, which meant building
    `path.translated(by: -origin)` on every frame for every path purely to

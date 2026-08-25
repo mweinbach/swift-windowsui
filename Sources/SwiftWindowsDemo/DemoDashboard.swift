@@ -1752,8 +1752,8 @@ struct DemoChartBar: Hashable {
 ///
 /// `Canvas` can draw the marks but not be *hovered*: its content is one node
 /// with no hit testing, and the column read this chart needs is per-bar. Views
-/// also get the gradient story right, since a `GraphicsContext` gradient on a
-/// path degrades to its first stop in this stack.
+/// keep each mark independently interactive; a single Canvas drawing cannot
+/// expose the per-bar hover targets this chart needs.
 struct DemoChartCard: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var hoveredIndex: Int?

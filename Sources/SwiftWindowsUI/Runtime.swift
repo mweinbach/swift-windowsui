@@ -8056,9 +8056,14 @@ public final class RetainedViewRuntime {
     /// Geometry-affecting mutations waiting for the next render pass. The
     /// current render keeps its consumed dirty flags until it closes, so
     /// post-layout callbacks must not mistake those flags for stale geometry;
-    /// `isLayoutInProgress` separately protects the active traversal.
+    /// `isLayoutInProgress` separately protects the active traversal. Runtime
+    /// animation/momentum wakeups can conservatively raise all global flags
+    /// without changing any node geometry, so the retained root must also
+    /// carry an actual layout/child invalidation before a request is deferred.
     public var hasPendingLayout: Bool {
-        !isRendering && !dirtyFlags.intersection([.layout, .children]).isEmpty
+        !isRendering
+            && !dirtyFlags.intersection([.layout, .children]).isEmpty
+            && !root.subtreeDirtyFlags.intersection([.layout, .children]).isEmpty
     }
 
     /// The `GeometryReader` nodes the pass that just ran walked past, in

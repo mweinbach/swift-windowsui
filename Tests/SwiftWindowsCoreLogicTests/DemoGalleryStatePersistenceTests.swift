@@ -72,12 +72,12 @@ final class DemoGalleryStatePersistenceTests: XCTestCase {
         performing action: @MainActor () -> Void
     ) async {
         let reloaded = expectation(description: "observed gallery state rebuilt the real window host")
-        host.onReloadContentCompleted = { [weak host] in
-            host?.onReloadContentCompleted = nil
+        host.onReloadContentCompleted = {
             reloaded.fulfill()
         }
         action()
         await fulfillment(of: [reloaded], timeout: 5)
+        host.onReloadContentCompleted = nil
     }
 
     func testEveryControlRenderingAndPresentationStateHasADeterministicDefault() async {
@@ -184,12 +184,12 @@ final class DemoGalleryStatePersistenceTests: XCTestCase {
         XCTAssertTrue(model.galleryState.notificationsEnabled)
         XCTAssertEqual(model.galleryState.intensity, 0.8, accuracy: 0.0001)
         XCTAssertNotNil(
-            firstNode(in: host.runtime.root, matching: { $0.text == "80%" }),
+            firstNode(in: host.hostedRuntime.root, matching: { $0.text == "80%" }),
             "the retained host must compose its follow-up tree from persisted slider state"
         )
         XCTAssertNotNil(
             firstNode(
-                in: host.runtime.root,
+                in: host.hostedRuntime.root,
                 matching: {
                     $0.text == "\(original.draftName.count)/36"
                 }),
@@ -202,7 +202,7 @@ final class DemoGalleryStatePersistenceTests: XCTestCase {
         model.selectedScreen = .gallery
         let (host, _) = makeHost(model: model)
 
-        guard let openSheet = activatingNode(in: host.runtime.root, label: "Open Sheet") else {
+        guard let openSheet = activatingNode(in: host.hostedRuntime.root, label: "Open Sheet") else {
             return XCTFail("the live gallery must expose an activatable sheet example")
         }
 
@@ -211,7 +211,7 @@ final class DemoGalleryStatePersistenceTests: XCTestCase {
         }
 
         XCTAssertTrue(model.galleryState.isSheetPresented)
-        XCTAssertNotNil(firstNode(in: host.runtime.root, matching: { $0.text == "Configure presentation" }))
+        XCTAssertNotNil(firstNode(in: host.hostedRuntime.root, matching: { $0.text == "Configure presentation" }))
 
         let reconstructed = WinSwiftUIRendererSnapshotter.snapshot(of: DemoRootView(model: model))
         XCTAssertNotNil(
@@ -223,7 +223,7 @@ final class DemoGalleryStatePersistenceTests: XCTestCase {
             model.galleryState.isSheetPresented = false
         }
 
-        guard let openPopover = activatingNode(in: host.runtime.root, label: "Show Popover") else {
+        guard let openPopover = activatingNode(in: host.hostedRuntime.root, label: "Show Popover") else {
             return XCTFail("the live gallery must expose an activatable popover example")
         }
 
@@ -233,7 +233,7 @@ final class DemoGalleryStatePersistenceTests: XCTestCase {
 
         XCTAssertTrue(model.galleryState.isPopoverPresented)
         XCTAssertNotNil(
-            firstNode(in: host.runtime.root, matching: { $0.text == "Renderer details" }),
+            firstNode(in: host.hostedRuntime.root, matching: { $0.text == "Renderer details" }),
             "a real observed-object rebuild must retain and compose the anchored popover"
         )
     }

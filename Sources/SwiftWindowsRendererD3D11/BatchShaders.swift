@@ -220,6 +220,28 @@ float3 applyColorEffect(float3 rgb, float effectType, float intensity, float par
 
     return rgb;
 }
+
+float gradientProgress(VSOutput input)
+{
+    if (input.gradientAxis > 1.5)
+    {
+        // Directional gradients reuse the four effect-parameter slots when
+        // no color effect is present. Points are stored in the quad's local
+        // pixel space so diagonal, inset and transformed ramps retain their
+        // authored coordinate frame without widening QuadInstance.
+        float2 start = float2(input.effectParam1, input.effectParam2);
+        float2 end = float2(input.effectParam3, input.effectParam4);
+        float2 axis = end - start;
+        float lengthSquared = dot(axis, axis);
+        return lengthSquared > 0.0
+            ? saturate(dot(input.localPosition - start, axis) / lengthSquared)
+            : 0.0;
+    }
+
+    return input.gradientAxis > 0.5
+        ? saturate(input.localPosition.x / max(input.size.x, 1.0))
+        : saturate(input.localPosition.y / max(input.size.y, 1.0));
+}
 """#
 
 let batchQuadShaderSource = batchQuadShaderSharedSource + "\n" + #"""
@@ -271,9 +293,7 @@ float4 psMain(VSOutput input) : SV_Target
     float edgeSoftness = aa + blur * 2.0;
     float alpha = saturate(0.5 - distance / edgeSoftness);
 
-    float gradientT = input.gradientAxis > 0.5
-        ? saturate(input.localPosition.x / max(input.size.x, 1.0))
-        : saturate(input.localPosition.y / max(input.size.y, 1.0));
+    float gradientT = gradientProgress(input);
 
     if (input.gradientSegment.z > 0.5)
     {
@@ -384,9 +404,7 @@ float4 psMain(VSOutput input) : SV_Target
     // coverage falloff is plain anti-aliasing — no blurRadius widening.
     float alpha = saturate(0.5 - distance / aa);
 
-    float gradientT = input.gradientAxis > 0.5
-        ? saturate(input.localPosition.x / max(input.size.x, 1.0))
-        : saturate(input.localPosition.y / max(input.size.y, 1.0));
+    float gradientT = gradientProgress(input);
 
     if (input.gradientSegment.z > 0.5)
     {

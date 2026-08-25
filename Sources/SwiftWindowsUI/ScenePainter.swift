@@ -55,11 +55,36 @@ public enum ScenePainter {
             placed = logicalPath
         }
         let path = placed.scaled(by: displayScale)
-        // Promoted path quads only carry a single solid fill/stroke color.
-        // Gradient-bearing geometry therefore stays in the path contract,
-        // where both scene rasterizers can sample every authored stop in the
-        // same translated, rotated, and device-scaled gradient space.
         if path.fillGradient != nil || path.strokeGradient != nil {
+            if path.fillGradient != nil,
+                path.strokeGradient == nil,
+                couldBeSingleQuadGradientFill(path)
+            {
+                // Ask the existing geometry tessellator whether the complete
+                // fill is exactly one rectangle or rounded rectangle. An
+                // opaque probe also admits gradients whose first stop is
+                // transparent; authored colors and opacity are restored by
+                // the bounded directional-gradient lowering afterward.
+                var geometry = path
+                geometry.fillGradient = nil
+                geometry.fillColor = .white
+                if let mixed = PathToQuadTessellator.tessellateMixed(geometry),
+                    mixed.residualPath == nil,
+                    mixed.quads.count == 1,
+                    let quads = path.gradientFillQuads(covering: mixed.quads[0])
+                {
+                    for quad in quads {
+                        scene.addQuad(quad, toLayer: layerIndex)
+                    }
+                    scene.paintMetrics.pathsPromotedToGPU += 1
+                    scene.paintMetrics.quadInstancesFromPromotedPaths += quads.count
+                    return
+                }
+            }
+
+            // Strokes, combined paint and complex fill topology still need
+            // one continuous coverage buffer to preserve joins, fill rules,
+            // translucent overlap and the authored gradient coordinate frame.
             scene.addPath(path, toLayer: layerIndex)
             scene.paintMetrics.pathsRasterizedOnCPU += 1
             return
@@ -88,6 +113,41 @@ public enum ScenePainter {
         if mixed.residualPath != nil {
             scene.paintMetrics.pathsRasterizedOnCPU += 1
         }
+    }
+
+    /// Reject general curves and polygons before probing the solid-path
+    /// tessellator. Without this cheap topology check, a large gradient
+    /// triangle could allocate thousands of scanline quads merely to discover
+    /// that its result cannot take the single-footprint gradient lane.
+    private static func couldBeSingleQuadGradientFill(_ path: PathPrimitive) -> Bool {
+        guard (4...6).contains(path.elements.count) || (9...10).contains(path.elements.count) else {
+            return false
+        }
+
+        var moveCount = 0
+        var vertexCount = 0
+        var arcCount = 0
+
+        for element in path.elements {
+            switch element {
+            case .moveTo:
+                moveCount += 1
+                vertexCount += 1
+            case .lineTo:
+                vertexCount += 1
+            case .arc:
+                arcCount += 1
+            case .close:
+                break
+            case .quadraticCurveTo, .cubicCurveTo:
+                return false
+            }
+        }
+
+        guard moveCount == 1 else { return false }
+        return arcCount == 0
+            ? (vertexCount == 4 || vertexCount == 5)
+            : (arcCount == 4 && vertexCount == 5)
     }
 
     public static func paint(root: ViewNode, clearColor: Color, surfaceSize: Size, displayScale: Double = 1.0)

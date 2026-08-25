@@ -69,6 +69,64 @@ final class GradientRenderingFidelityTests: XCTestCase {
         XCTAssertEqual(controlQuad.segmented(for: gradient), [controlQuad])
     }
 
+    func testDirectionalGradientPreservesQuadABIAndSurvivesSceneSanitation() async throws {
+        let gradient = SwiftWindowsGraphics.LinearGradient(
+            stops: [
+                GradientStop(color: Self.red, position: 0),
+                GradientStop(color: Self.green, position: 0.25),
+                GradientStop(color: Self.blue, position: 1),
+            ], axis: .horizontal)
+        let footprint = QuadPrimitive(x: 8, y: 12, width: 104, height: 60)
+        let quads = try XCTUnwrap(
+            footprint.segmented(
+                for: gradient,
+                from: Point(x: 24, y: 20),
+                to: Point(x: 96, y: 68)))
+
+        XCTAssertEqual(quads.count, 2)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 144)
+
+        var scene = GPUIScene(clearColor: .black)
+        for quad in quads {
+            scene.addQuad(quad)
+        }
+
+        let stored = try XCTUnwrap(scene.layers[0].quads.first)
+        XCTAssertTrue(stored.usesDirectionalGradient)
+        XCTAssertEqual(stored.gradientAxis, 2)
+        XCTAssertEqual(stored.effectParam1, 16)
+        XCTAssertEqual(stored.effectParam2, 8)
+        XCTAssertEqual(stored.effectParam3, 88)
+        XCTAssertEqual(stored.effectParam4, 56)
+        XCTAssertEqual(stored.gradientSegmentEnd, 0.25, accuracy: 0.0001)
+    }
+
+    func testDirectionalGradientRejectsAliasedEffectsAndUnrepresentableEndpoints() async {
+        let gradient = SwiftWindowsGraphics.LinearGradient(
+            startColor: Self.red,
+            endColor: Self.blue,
+            axis: .horizontal)
+        let start = Point(x: 10, y: 12)
+        let end = Point(x: 90, y: 64)
+
+        let effected = QuadPrimitive(x: 0, y: 0, width: 100, height: 80, effectType: 1)
+        XCTAssertNil(effected.segmented(for: gradient, from: start, to: end))
+
+        let rotated = QuadPrimitive(x: 0, y: 0, width: 100, height: 80, rotationRadians: 0.5)
+        XCTAssertNil(rotated.segmented(for: gradient, from: start, to: end))
+
+        let ordinary = QuadPrimitive(x: 0, y: 0, width: 100, height: 80)
+        XCTAssertNil(ordinary.segmented(for: gradient, from: Point(x: .infinity, y: 0), to: end))
+        XCTAssertNil(ordinary.segmented(for: gradient, from: start, to: Point(x: 2_000_000, y: 0)))
+
+        var scene = GPUIScene(clearColor: .black)
+        scene.addQuad(
+            QuadPrimitive(x: 0, y: 0, width: 100, height: 80, gradientAxis: 2, effectType: 1))
+        scene.addQuad(
+            QuadPrimitive(x: 0, y: 0, width: 100, height: 80, gradientAxis: .infinity))
+        XCTAssertEqual(scene.layers[0].quads.map(\.gradientAxis), [1, 1])
+    }
+
     func testIntermediateStopIsDrawnAtItsAuthoredLocation() async {
         let gradient = SwiftWindowsGraphics.LinearGradient(
             stops: [

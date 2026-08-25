@@ -33,7 +33,9 @@ public struct QuadPrimitive: Equatable, Sendable {
     public var endG: Float
     public var endB: Float
     public var endA: Float
-    // 0 = vertical, 1 = horizontal
+    // 0 = vertical, 1 = horizontal, 2 = authored two-dimensional vector.
+    // Directional gradients borrow effectParam1...4 for their quad-local
+    // start/end points; they are only emitted when effectType is zero.
     public var gradientAxis: Float
     // Clip bounds
     public var clipX: Float
@@ -162,6 +164,55 @@ public struct QuadPrimitive: Equatable, Sendable {
     public var gradientSegmentMode: Float {
         get { _reserved2 }
         set { _reserved2 = newValue }
+    }
+
+    /// True when this primitive samples an explicitly positioned,
+    /// two-dimensional gradient instead of stretching a ramp along one of its
+    /// bounds axes. The authored points occupy existing color-effect parameter
+    /// slots, preserving the structured-buffer's pinned 144-byte ABI.
+    public var usesDirectionalGradient: Bool {
+        gradientAxis > 1.5
+    }
+
+    /// Configures a gradient in surface coordinates while retaining this
+    /// quad's original footprint, rounded coverage and clip. The stored points
+    /// are quad-local, so moving the complete scene does not alter the sampled
+    /// ramp. Color effects own the same four existing ABI slots and therefore
+    /// cannot be combined with this representation.
+    public func segmented(
+        for gradient: LinearGradient,
+        from start: Point,
+        to end: Point,
+        opacity: Float = 1
+    ) -> [QuadPrimitive]? {
+        guard effectType == 0, rotationRadians == 0 else { return nil }
+
+        let coordinates = [
+            start.x - Double(x),
+            start.y - Double(y),
+            end.x - Double(x),
+            end.y - Double(y),
+        ]
+        let limit = Double(GPUISceneLimits.maxCoordinate)
+        guard coordinates.allSatisfy({ $0.isFinite && abs($0) <= limit }) else {
+            return nil
+        }
+
+        var quad = self
+        quad.gradientAxis = 2
+        quad.effectParam1 = Float(coordinates[0])
+        quad.effectParam2 = Float(coordinates[1])
+        quad.effectParam3 = Float(coordinates[2])
+        quad.effectParam4 = Float(coordinates[3])
+        quad.startR = gradient.startColor.red
+        quad.startG = gradient.startColor.green
+        quad.startB = gradient.startColor.blue
+        quad.startA = gradient.startColor.alpha * opacity
+        quad.endR = gradient.endColor.red
+        quad.endG = gradient.endColor.green
+        quad.endB = gradient.endColor.blue
+        quad.endA = gradient.endColor.alpha * opacity
+        return quad.segmented(for: gradient, opacity: opacity)
     }
 
     /// Expands an authored gradient into full-geometry, disjoint color
@@ -598,6 +649,23 @@ public struct PathPrimitive: Equatable, Sendable {
     var resolvedGradientSpace: PathGradientSpace? {
         guard fillGradient != nil || strokeGradient != nil else { return nil }
         return gradientSpace ?? PathGradientSpace(bounds: bounds)
+    }
+
+    /// Lowers a gradient-filled path that is already known to be exactly
+    /// covered by `quad` into GPU-native directional gradient instances.
+    /// Curved or combined fill/stroke paths remain eligible for the cached
+    /// coverage rasterizer when they cannot be represented by one quad.
+    public func gradientFillQuads(covering quad: QuadPrimitive) -> [QuadPrimitive]? {
+        guard let gradient = fillGradient,
+            strokeGradient == nil,
+            strokeColor.alpha <= 0 || lineWidth <= 0,
+            let space = resolvedGradientSpace
+        else {
+            return nil
+        }
+
+        let end = gradient.axis == .horizontal ? space.horizontalEnd : space.verticalEnd
+        return quad.segmented(for: gradient, from: space.origin, to: end)
     }
 
     /// The stroke style this primitive carries, for callers that speak

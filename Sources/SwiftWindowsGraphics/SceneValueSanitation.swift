@@ -221,7 +221,15 @@ public enum GPUISceneSanitizer {
         result.endG = GPUISceneValue.clamped(quad.endG, lower: 0, upper: 1)
         result.endB = GPUISceneValue.clamped(quad.endB, lower: 0, upper: 1)
         result.endA = GPUISceneValue.clamped(quad.endA, lower: 0, upper: 1)
-        result.gradientAxis = GPUISceneValue.clamped(quad.gradientAxis, lower: 0, upper: 1)
+        // Mode 2 borrows the four color-effect parameters for its authored
+        // endpoint vector. Accept that mode only from a genuine unrotated,
+        // effect-free directional quad; malformed selectors keep the original
+        // vertical/horizontal degradation instead of accidentally reusing an
+        // active effect's storage as geometry.
+        result.gradientAxis =
+            quad.gradientAxis == 2 && quad.effectType == 0 && quad.rotationRadians == 0
+            ? 2
+            : GPUISceneValue.clamped(quad.gradientAxis, lower: 0, upper: 1)
         result.gradientSegmentStart = GPUISceneValue.clamped(quad.gradientSegmentStart, lower: 0, upper: 1)
         result.gradientSegmentEnd = GPUISceneValue.clamped(quad.gradientSegmentEnd, lower: 0, upper: 1)
         result.gradientSegmentMode = GPUISceneValue.clamped(quad.gradientSegmentMode, lower: 0, upper: 2)

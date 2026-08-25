@@ -3,6 +3,7 @@ import SwiftWindowsCore
 import SwiftWindowsGraphics
 import XCTest
 
+@testable import SwiftWindowsRendererD3D11
 @testable import SwiftWindowsUI
 @testable import WinSwiftUI
 
@@ -64,7 +65,11 @@ final class CanvasPathGradientIntegrationTests: XCTestCase {
             ])
     }
 
-    func testAxisAlignedPathFillPreservesEveryGradientStopAndAvoidsSolidQuadPromotion() async throws {
+    private func gradientQuads(in scene: GPUIScene) -> [QuadPrimitive] {
+        scene.layers.flatMap(\.quads).filter(\.usesDirectionalGradient)
+    }
+
+    func testAxisAlignedPathFillPromotesEveryGradientStopToGPUQuads() async throws {
         let gradient = threeStopGradient
         let result = snapshot(
             Canvas { context, _ in
@@ -80,12 +85,16 @@ final class CanvasPathGradientIntegrationTests: XCTestCase {
             .frame(width: 160, height: 120)
         )
 
-        let primitive = try XCTUnwrap(result.scene.layers.flatMap(\.paths).first)
-        let retainedGradient = try XCTUnwrap(primitive.fillGradient)
-        XCTAssertEqual(retainedGradient.axis, .horizontal)
-        XCTAssertEqual(retainedGradient.stops.count, 3)
-        XCTAssertEqual(retainedGradient.stops[1].position, 0.25, accuracy: 0.0001)
-        XCTAssertEqual(result.scene.paintMetrics.pathsRasterizedOnCPU, 1)
+        let quads = gradientQuads(in: result.scene)
+        XCTAssertEqual(quads.count, 2)
+        XCTAssertEqual(quads[0].gradientSegmentEnd, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(quads[0].endG, 1, accuracy: 0.0001)
+        XCTAssertEqual(quads[1].endB, 1, accuracy: 0.0001)
+        XCTAssertTrue(result.scene.layers.flatMap(\.paths).isEmpty)
+        XCTAssertEqual(result.scene.paintMetrics.pathsPromotedToGPU, 1)
+        XCTAssertEqual(result.scene.paintMetrics.quadInstancesFromPromotedPaths, 2)
+        XCTAssertEqual(result.scene.paintMetrics.pathsRasterizedOnCPU, 0)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 144)
 
         let surface = raster(result.scene)
         XCTAssertGreaterThan(pixel(surface, x: 12, y: 50).red, 225)
@@ -109,10 +118,11 @@ final class CanvasPathGradientIntegrationTests: XCTestCase {
             .frame(width: 160, height: 120)
         )
 
-        let primitive = try XCTUnwrap(result.scene.layers.flatMap(\.paths).first)
-        let retainedGradient = try XCTUnwrap(primitive.fillGradient)
-        XCTAssertEqual(retainedGradient.stops.map(\.color), [Self.blue, Self.green, Self.red])
-        XCTAssertEqual(retainedGradient.stops[1].position, 0.75, accuracy: 0.0001)
+        let quads = gradientQuads(in: result.scene)
+        XCTAssertEqual(quads.count, 2)
+        XCTAssertEqual(quads[0].startB, 1, accuracy: 0.0001)
+        XCTAssertEqual(quads[0].gradientSegmentEnd, 0.75, accuracy: 0.0001)
+        XCTAssertEqual(quads[1].endR, 1, accuracy: 0.0001)
 
         let surface = raster(result.scene)
         XCTAssertGreaterThan(pixel(surface, x: 14, y: 50).blue, 225)
@@ -139,9 +149,10 @@ final class CanvasPathGradientIntegrationTests: XCTestCase {
             .frame(width: 160, height: 120)
         )
 
-        let primitive = try XCTUnwrap(result.scene.layers.flatMap(\.paths).first)
-        XCTAssertEqual(primitive.fillColor.alpha, 0)
-        XCTAssertEqual(primitive.fillGradient?.stops.last?.color, Self.blue)
+        let quad = try XCTUnwrap(gradientQuads(in: result.scene).first)
+        XCTAssertEqual(quad.startA, 0, accuracy: 0.0001)
+        XCTAssertEqual(quad.endB, 1, accuracy: 0.0001)
+        XCTAssertEqual(result.scene.paintMetrics.pathsPromotedToGPU, 1)
         XCTAssertGreaterThan(pixel(raster(result.scene), x: 105, y: 50).blue, 215)
     }
 
@@ -164,10 +175,9 @@ final class CanvasPathGradientIntegrationTests: XCTestCase {
             clearColor: .clear
         )
 
-        let primitive = try XCTUnwrap(result.scene.layers.flatMap(\.paths).first)
-        let retainedGradient = try XCTUnwrap(primitive.fillGradient)
-        XCTAssertEqual(retainedGradient.stops[0].color.alpha, 0.25, accuracy: 0.0001)
-        XCTAssertEqual(retainedGradient.stops[1].color.alpha, 0.25, accuracy: 0.0001)
+        let quad = try XCTUnwrap(gradientQuads(in: result.scene).first)
+        XCTAssertEqual(quad.startA, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(quad.endA, 0.25, accuracy: 0.0001)
         XCTAssertEqual(pixel(raster(result.scene), x: 60, y: 50).alpha, 64, accuracy: 1)
     }
 
@@ -247,11 +257,12 @@ final class CanvasPathGradientIntegrationTests: XCTestCase {
             displayScale: scale
         )
 
-        let primitive = try XCTUnwrap(result.scene.layers.flatMap(\.paths).first)
-        XCTAssertEqual(primitive.bounds.origin.x, 15, accuracy: 0.0001)
-        XCTAssertEqual(primitive.bounds.origin.y, 30, accuracy: 0.0001)
-        XCTAssertEqual(primitive.bounds.size.width, 150, accuracy: 0.0001)
-        XCTAssertEqual(primitive.bounds.size.height, 90, accuracy: 0.0001)
+        let quad = try XCTUnwrap(gradientQuads(in: result.scene).first)
+        XCTAssertEqual(quad.x, 15, accuracy: 0.0001)
+        XCTAssertEqual(quad.y, 30, accuracy: 0.0001)
+        XCTAssertEqual(quad.width, 150, accuracy: 0.0001)
+        XCTAssertEqual(quad.height, 90, accuracy: 0.0001)
+        XCTAssertEqual(quad.effectParam3, 150, accuracy: 0.0001)
 
         let surface = raster(result.scene, displayScale: scale)
         XCTAssertGreaterThan(pixel(surface, x: 53, y: 75).green, 235)
@@ -274,12 +285,143 @@ final class CanvasPathGradientIntegrationTests: XCTestCase {
             .frame(width: 160, height: 120)
         )
 
-        XCTAssertNotNil(try XCTUnwrap(result.scene.layers.flatMap(\.paths).first).fillGradient)
+        let quad = try XCTUnwrap(gradientQuads(in: result.scene).first)
+        XCTAssertEqual(quad.effectParam1, 30, accuracy: 0.0001)
+        XCTAssertEqual(quad.effectParam3, 80, accuracy: 0.0001)
         let surface = raster(result.scene)
         XCTAssertEqual(pixel(surface, x: 15, y: 50).red, 255)
         XCTAssertEqual(pixel(surface, x: 35, y: 50).blue, 0)
         XCTAssertEqual(pixel(surface, x: 100, y: 50).blue, 255)
         XCTAssertEqual(pixel(surface, x: 125, y: 50).red, 0)
+    }
+
+    func testDiagonalMultistopGradientPromotesAndMatchesHardwarePixels() async throws {
+        let gradient = threeStopGradient
+        let result = snapshot(
+            Canvas { context, _ in
+                context.fill(
+                    Path(Rect(x: 12, y: 12, width: 112, height: 88)),
+                    with: .linearGradient(
+                        gradient,
+                        startPoint: CGPoint(x: 28, y: 24),
+                        endPoint: CGPoint(x: 108, y: 88)
+                    )
+                )
+            }
+            .frame(width: 160, height: 120)
+        )
+
+        let quads = gradientQuads(in: result.scene)
+        XCTAssertEqual(quads.count, 2)
+        XCTAssertEqual(result.scene.paintMetrics.pathsPromotedToGPU, 1)
+        XCTAssertEqual(result.scene.paintMetrics.pathsRasterizedOnCPU, 0)
+        XCTAssertEqual(quads[0].effectParam1, 16, accuracy: 0.0001)
+        XCTAssertEqual(quads[0].effectParam2, 12, accuracy: 0.0001)
+        XCTAssertEqual(quads[0].effectParam3, 96, accuracy: 0.0001)
+        XCTAssertEqual(quads[0].effectParam4, 76, accuracy: 0.0001)
+
+        let cpu = raster(result.scene)
+        XCTAssertGreaterThan(pixel(cpu, x: 18, y: 18).red, 245)
+        XCTAssertGreaterThan(pixel(cpu, x: 48, y: 40).green, 240)
+        XCTAssertGreaterThan(pixel(cpu, x: 116, y: 94).blue, 245)
+
+        let gpu = try WARPBatchRenderer.render(result.scene, size: Self.size)
+        let report = comparePixels(gpu, cpu, tolerance: 4)
+        XCTAssertGreaterThanOrEqual(
+            report.matchRatio, 0.995,
+            "Directional GPU gradient mismatch: ratio \(report.matchRatio), max delta \(report.maxChannelDelta)")
+    }
+
+    func testRoundedRectangleGradientUsesOneDirectionalQuadPerColorInterval() async throws {
+        let gradient = threeStopGradient
+        let result = snapshot(
+            Canvas { context, _ in
+                var path = Path()
+                path.addRoundedRect(Rect(x: 12, y: 18, width: 100, height: 72), cornerRadius: 16)
+                context.fill(
+                    path,
+                    with: .linearGradient(
+                        gradient,
+                        startPoint: CGPoint(x: 12, y: 18),
+                        endPoint: CGPoint(x: 112, y: 90)
+                    )
+                )
+            }
+            .frame(width: 160, height: 120)
+        )
+
+        let quads = gradientQuads(in: result.scene)
+        XCTAssertEqual(quads.count, 2)
+        XCTAssertTrue(quads.allSatisfy { abs($0.cornerRadius - 16) < 0.0001 })
+        XCTAssertTrue(result.scene.layers.flatMap(\.paths).isEmpty)
+        XCTAssertEqual(result.scene.paintMetrics.pathsPromotedToGPU, 1)
+
+        let cpu = raster(result.scene)
+        let gpu = try WARPBatchRenderer.render(result.scene, size: Self.size)
+        let report = comparePixels(gpu, cpu, tolerance: 4)
+        XCTAssertGreaterThanOrEqual(report.matchRatio, 0.995)
+    }
+
+    func testComplexGradientFillRetainsContinuousCachedPathCoverage() async throws {
+        let gradient = threeStopGradient
+        let result = snapshot(
+            Canvas { context, _ in
+                var path = Path()
+                path.moveTo(Point(x: 20, y: 20))
+                path.addLine(to: Point(x: 120, y: 38))
+                path.addLine(to: Point(x: 52, y: 98))
+                path.closeSubpath()
+                context.fill(
+                    path,
+                    with: .linearGradient(
+                        gradient,
+                        startPoint: CGPoint(x: 20, y: 20),
+                        endPoint: CGPoint(x: 120, y: 98)
+                    )
+                )
+            }
+            .frame(width: 160, height: 120)
+        )
+
+        XCTAssertTrue(gradientQuads(in: result.scene).isEmpty)
+        XCTAssertNotNil(try XCTUnwrap(result.scene.layers.flatMap(\.paths).first).fillGradient)
+        XCTAssertEqual(result.scene.paintMetrics.pathsRasterizedOnCPU, 1)
+    }
+
+    func testPromotedHardStopCompositesEachTranslucentPixelOnlyOnce() async throws {
+        let translucentRed = Color(red: 1, green: 0, blue: 0, alpha: 0.4)
+        let translucentBlue = Color(red: 0, green: 0, blue: 1, alpha: 0.4)
+        let gradient = WinSwiftUI.Gradient(
+            stops: [
+                WinSwiftUI.Gradient.Stop(color: translucentRed, location: 0),
+                WinSwiftUI.Gradient.Stop(color: translucentRed, location: 0.5),
+                WinSwiftUI.Gradient.Stop(color: translucentBlue, location: 0.5),
+                WinSwiftUI.Gradient.Stop(color: translucentBlue, location: 1),
+            ])
+        let result = snapshot(
+            Canvas { context, _ in
+                context.fill(
+                    Path(Rect(x: 0, y: 16, width: 101, height: 64)),
+                    with: .linearGradient(
+                        gradient,
+                        startPoint: CGPoint(x: 0, y: 48),
+                        endPoint: CGPoint(x: 101, y: 48)
+                    )
+                )
+            }
+            .frame(width: 160, height: 120)
+        )
+
+        XCTAssertEqual(gradientQuads(in: result.scene).count, 2)
+        let cpu = raster(result.scene)
+        XCTAssertEqual(pixel(cpu, x: 49, y: 48).red, 102, accuracy: 1)
+        XCTAssertEqual(pixel(cpu, x: 50, y: 48).red, 0, accuracy: 1)
+        XCTAssertEqual(pixel(cpu, x: 50, y: 48).blue, 102, accuracy: 1)
+        XCTAssertEqual(pixel(cpu, x: 51, y: 48).blue, 102, accuracy: 1)
+
+        let gpu = try WARPBatchRenderer.render(result.scene, size: Self.size)
+        let report = comparePixels(gpu, cpu, tolerance: 4)
+        XCTAssertGreaterThanOrEqual(report.matchRatio, 0.995)
     }
 
     func testTranslatedScaledRectGradientTransformsItsInsetAuthoredEndpoints() async {
@@ -419,7 +561,10 @@ final class CanvasPathGradientIntegrationTests: XCTestCase {
             surfaceSize: Size(width: 160, height: 120)
         )
 
-        XCTAssertNotNil(try XCTUnwrap(scene.layers.flatMap(\.paths).first).fillGradient)
+        let quad = try XCTUnwrap(gradientQuads(in: scene).first)
+        XCTAssertEqual(quad.gradientAxis, 2)
+        XCTAssertEqual(scene.paintMetrics.pathsPromotedToGPU, 1)
+        XCTAssertEqual(scene.paintMetrics.pathsRasterizedOnCPU, 0)
         let surface = raster(scene)
         XCTAssertGreaterThan(pixel(surface, x: 85, y: 24).red, 210)
         XCTAssertGreaterThan(pixel(surface, x: 85, y: 75).blue, 210)

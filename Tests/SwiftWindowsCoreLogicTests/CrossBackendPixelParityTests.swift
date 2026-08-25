@@ -137,6 +137,60 @@ final class CrossBackendPixelParityTests: XCTestCase {
         )
     }
 
+    private static func directionalGradientScene(material: Bool = false) -> ParityScene {
+        let gradient = LinearGradient(
+            stops: material
+                ? [
+                    GradientStop(
+                        color: Color(red: 0.95, green: 0.25, blue: 0.15, alpha: 0.4),
+                        position: 0),
+                    GradientStop(
+                        color: Color(red: 0.10, green: 0.35, blue: 0.85, alpha: 0.6),
+                        position: 1),
+                ]
+                : [
+                    GradientStop(
+                        color: Color(red: 0.95, green: 0.25, blue: 0.15, alpha: 0.85),
+                        position: 0),
+                    GradientStop(
+                        color: Color(red: 0.15, green: 0.85, blue: 0.35, alpha: 0.55),
+                        position: 0.35),
+                    GradientStop(
+                        color: Color(red: 0.10, green: 0.35, blue: 0.85, alpha: 0.9),
+                        position: 1),
+                ],
+            axis: .horizontal)
+        let footprint = QuadPrimitive(
+            x: 12, y: 16, width: 104, height: 96,
+            cornerRadius: 18,
+            clipX: 20, clipY: 20, clipWidth: 90, clipHeight: 84,
+            clipCornerRadius: 12,
+            blurRadius: material ? 10 : 0)
+        let quads =
+            footprint.segmented(
+                for: gradient,
+                from: Point(x: 28, y: 32),
+                to: Point(x: 104, y: 98)) ?? []
+        XCTAssertFalse(quads.isEmpty, "the directional-gradient parity fixture failed to lower")
+
+        return ParityScene(
+            name: material ? "directional gradient material" : "directional multistop gradient",
+            size: surface,
+            scene: makeScene { scene in
+                if material {
+                    scene.addQuad(
+                        QuadPrimitive(
+                            x: 0, y: 0, width: 128, height: 128,
+                            startR: 0.1, startG: 0.45, startB: 0.75,
+                            endR: 0.85, endG: 0.3, endB: 0.2,
+                            gradientAxis: 1))
+                }
+                for quad in quads {
+                    scene.addQuad(quad)
+                }
+            })
+    }
+
     private static func uniformRadiusScene() -> ParityScene {
         ParityScene(
             name: "uniform corner radius",
@@ -1046,6 +1100,14 @@ final class CrossBackendPixelParityTests: XCTestCase {
 
     func testHorizontalGradientParity() async throws {
         try assertParity(Self.gradientScene(axis: 1, name: "horizontal gradient"))
+    }
+
+    func testDirectionalMultistopGradientParity() async throws {
+        try assertParity(Self.directionalGradientScene())
+    }
+
+    func testDirectionalMaterialGradientParity() async throws {
+        try assertParity(Self.directionalGradientScene(material: true))
     }
 
     func testUniformCornerRadiusParity() async throws { try assertParity(Self.uniformRadiusScene()) }

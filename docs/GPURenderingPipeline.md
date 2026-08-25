@@ -210,9 +210,10 @@ preserves duplicate-position hard transitions. The lowering emits at most 64
 segments, including endpoint extensions, so an untrusted gradient cannot
 request an unbounded number of passes.
 The SwiftUI bridge reverses both the color sequence and stop locations when its
-start/end points run right-to-left or bottom-to-top. Quad-backed gradients use
-the dominant axis; gradient-bearing paths retain their complete authored
-endpoint segment, including diagonal directions.
+start/end points run right-to-left or bottom-to-top. Ordinary retained-view
+gradient quads use the dominant axis. GPU-promoted rectangle and
+rounded-rectangle path fills instead retain their complete authored endpoint
+segment, including diagonal, inset, transformed, and device-scaled directions.
 
 `QuadPrimitive.segmented(for:opacity:)` expands nontrivial gradients into
 full-footprint quads, one per disjoint color interval. The footprint retains
@@ -232,22 +233,45 @@ the same scene boundary as the remaining quad fields.
 hard stops, transparency, strict segment budgeting, the frame bridge, and
 CPU/D3D11 parity.
 
-Canvas path fills and strokes carry the same authored stop sequence through
-`PathPrimitive.fillGradient` / `strokeGradient` instead of taking the
-solid-color tessellation lane. `PathPrimitive.setGradientEndpoints(start:end:)`
-retains the exact authored segment, rather than incorrectly stretching inset
-ramps across path bounds or expanded stroke bounds. That coordinate frame
-translates, scales, and rotates with the path, and the path rasterizer samples
-the piecewise-linear color once per covered pixel. The CPU screenshot
-rasterizer and D3D11's cached path textures therefore agree on curved geometry,
-transformed or diagonal ramps, thick strokes, hard stops, transparent stops,
-inherited opacity, and intermediate colors.
+Directional gradient quads encode `gradientAxis == 2`; the authored start and
+end points occupy the four existing color-effect parameter slots as quad-local
+pixel coordinates. This mode requires `effectType == 0` and an unrotated quad,
+so its storage never aliases a live effect and `QuadPrimitive` keeps its pinned
+144-byte structured-buffer stride. Both the CPU rasterizer and both D3D11 quad
+pixel shaders project each sample onto the same two-dimensional endpoint
+vector before applying the existing half-open stop intervals. Non-finite,
+out-of-range, rotated, or effect-bearing inputs decline promotion and retain
+their original path instead.
+
+Canvas path fills and strokes initially carry their authored stop sequence
+through `PathPrimitive.fillGradient` / `strokeGradient`.
+`PathPrimitive.setGradientEndpoints(start:end:)` retains the exact authored
+segment, rather than incorrectly stretching inset ramps across path bounds or
+expanded stroke bounds. If the existing solid-geometry tessellator proves that
+a gradient fill is covered exactly by **one** axis-aligned rectangle or rounded
+rectangle, `PathPrimitive.gradientFillQuads(covering:)` lowers that footprint
+into at most 64 instanced directional-gradient quads. The source path is counted
+as GPU-promoted and never enters the CPU raster cache. A transparent first stop
+does not suppress promotion, endpoint colors inherit every opacity multiplier,
+and rounded coverage and clips stay on the GPU footprint. A constant-cost
+topology prefilter rejects triangles, general curves, and large polygon streams
+before asking the solid tessellator to probe the footprint, so a complex
+gradient cannot accidentally allocate thousands of rejected scanline strips.
+
+Complex fills, non-simple topology, and all gradient strokes remain in the
+cached path lane, where the coverage rasterizer samples the piecewise-linear
+color once per covered pixel. The CPU screenshot rasterizer and D3D11's cached
+path textures therefore continue to agree on curved geometry that is not a
+single rounded rectangle, transformed or diagonal ramps, thick strokes, hard
+stops, transparent stops, inherited opacity, and intermediate colors.
 Scene-boundary sanitation caps malformed stop lists, and the normalized path
 cache hashes gradient paint and its coordinate frame without sacrificing
 translation-invariant reuse. The separate `RenderFrame` fallback has no
 gradient-bearing path command and explicitly retains its first-stop behavior.
 `PathGradientRenderingTests`, `CanvasPathGradientIntegrationTests`, and the
-`canvas-path-gradient` gallery baseline protect this scene-path contract.
+`canvas-path-gradient` gallery baseline protect this scene-path contract;
+`CrossBackendPixelParityTests` additionally gates clipped directional multi-stop
+quads and directional backdrop materials on an actual offscreen D3D11 device.
 
 The separate live `RenderFrame` → `D3D11Renderer` fallback presenter preserves
 the same authored stop sequence without routing through the scene bridge. Its
@@ -1024,9 +1048,12 @@ whether the path can be expressed as one or more axis-aligned
 fills (with or without intervening Canvas transforms) and horizontal /
 vertical stroked-line segments — the path is emitted as quads instead,
 bypassing CPU rasterization and the per-frame texture upload entirely.
-Paths with a gradient fill or stroke intentionally stay in the cached path
-raster lane: replacing one continuous coordinate frame with independently
-painted solid strips would lose their authored color stops.
+Gradient-filled rectangles and rounded rectangles take the same native GPU
+lane when their entire footprint is one quad: directional gradient instances
+retain their complete authored vector and bounded stop sequence. Gradient
+strokes and complex gradient fills intentionally stay in the cached path raster
+lane because independently painted strips could double-blend translucent
+coverage or lose continuous joins.
 
 **Fills** take five GPU lanes today:
 

@@ -448,7 +448,21 @@ private struct RasterTarget {
         rect: Rect
     ) -> RasterColor? {
         var progress: Float
-        if quad.gradientAxis > 0.5 {
+        if quad.usesDirectionalGradient {
+            let startX = Double(quad.effectParam1)
+            let startY = Double(quad.effectParam2)
+            let vectorX = Double(quad.effectParam3) - startX
+            let vectorY = Double(quad.effectParam4) - startY
+            let lengthSquared = vectorX * vectorX + vectorY * vectorY
+            if lengthSquared > 0, lengthSquared.isFinite {
+                let offsetX = localX - rect.minX - startX
+                let offsetY = localY - rect.minY - startY
+                progress = Float(
+                    clamp((offsetX * vectorX + offsetY * vectorY) / lengthSquared, lower: 0, upper: 1))
+            } else {
+                progress = 0
+            }
+        } else if quad.gradientAxis > 0.5 {
             progress = Float(clamp((localX - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1))
         } else {
             progress = Float(clamp((localY - rect.minY) / max(rect.size.height, 1), lower: 0, upper: 1))

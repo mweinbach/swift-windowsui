@@ -8053,6 +8053,14 @@ public final class RetainedViewRuntime {
     /// genuinely premature request from a missing or disabled scroll target.
     public var hasCompletedLayout: Bool { layoutPassID != 0 }
 
+    /// Geometry-affecting mutations waiting for the next render pass. The
+    /// current render keeps its consumed dirty flags until it closes, so
+    /// post-layout callbacks must not mistake those flags for stale geometry;
+    /// `isLayoutInProgress` separately protects the active traversal.
+    public var hasPendingLayout: Bool {
+        !isRendering && !dirtyFlags.intersection([.layout, .children]).isEmpty
+    }
+
     /// The `GeometryReader` nodes the pass that just ran walked past, in
     /// traversal order. Refilled by every pass and drained by
     /// `resolveGeometryReaderSlots`; empty for the overwhelming majority of
@@ -9044,6 +9052,7 @@ public final class RetainedViewRuntime {
 
         guard let scrollContainer, let axis = scrollContainer.scrollAxis,
             !isLayoutInProgress,
+            !hasPendingLayout,
             scrollContainer.cachedLayoutKey != nil,
             scrollContainer.pendingLayoutKey == nil
         else {

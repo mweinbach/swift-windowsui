@@ -218,6 +218,109 @@ final class WinSwiftUIScrollViewReaderTests: XCTestCase {
         }
     }
 
+    func testReconciledNewTargetScrollsAfterPendingLayoutBeforeNextRender() async {
+        await MainActor.run {
+            var proxy: ScrollViewProxy?
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let size = Size(width: 120, height: 100)
+            runtime.setRootSize(IntSize(width: 120, height: 100))
+            let host = ComponentHost(runtime: runtime)
+            let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: {})
+
+            let initialReader = ScrollViewReader { readerProxy in
+                proxy = readerProxy
+                ScrollView {
+                    Text("ZERO").frame(height: 40).id("zero")
+                    Text("ONE").frame(height: 40).id("one")
+                    Text("TWO").frame(height: 40).id("two")
+                    Text("THREE").frame(height: 40).id("three")
+                }
+            }
+            host.setContent(initialReader.makeComponent(context: context))
+            _ = runtime.renderScene()
+
+            let updatedReader = ScrollViewReader { readerProxy in
+                proxy = readerProxy
+                ScrollView {
+                    Text("ZERO").frame(height: 40).id("zero")
+                    Text("ONE").frame(height: 40).id("one")
+                    Text("TWO").frame(height: 40).id("two")
+                    Text("THREE").frame(height: 40).id("three")
+                    Text("FOUR").frame(height: 40).id("four")
+                    Text("FIVE").frame(height: 40).id("five")
+                }
+            }
+            host.setContent(updatedReader.makeComponent(context: context))
+
+            XCTAssertTrue(runtime.hasPendingLayout)
+            proxy?.scrollTo("five", anchor: .bottom)
+            XCTAssertEqual(runtime.root.children.first?.scrollOffset, 0)
+
+            _ = runtime.renderScene()
+
+            XCTAssertEqual(runtime.root.children.first?.scrollOffset, 140)
+        }
+    }
+
+    func testReorderedExistingTargetUsesItsNextLayoutPosition() async {
+        await MainActor.run {
+            var proxy: ScrollViewProxy?
+            let (runtime, node) = makeScrollReaderRuntime(
+                ScrollViewReader { readerProxy in
+                    proxy = readerProxy
+                    ScrollView {
+                        Text("ZERO").frame(height: 40).id("zero")
+                        Text("ONE").frame(height: 40).id("one")
+                        Text("TWO").frame(height: 40).id("two")
+                        Text("THREE").frame(height: 40).id("three")
+                        Text("FOUR").frame(height: 40).id("four")
+                    }
+                }
+            )
+            guard let movedTarget = retainedScrollTarget(named: "zero", in: node) else {
+                return XCTFail("Expected the existing leading row")
+            }
+            node.removeChild(movedTarget)
+            node.addChild(movedTarget)
+
+            XCTAssertTrue(runtime.hasPendingLayout)
+            proxy?.scrollTo("zero", anchor: .top)
+            XCTAssertEqual(node.scrollOffset, 0)
+
+            _ = runtime.renderScene()
+
+            XCTAssertEqual(node.scrollOffset, 100)
+        }
+    }
+
+    func testResizedViewportUsesItsNextLayoutBounds() async {
+        await MainActor.run {
+            var proxy: ScrollViewProxy?
+            let (runtime, node) = makeScrollReaderRuntime(
+                ScrollViewReader { readerProxy in
+                    proxy = readerProxy
+                    ScrollView {
+                        Text("ZERO").frame(height: 40).id("zero")
+                        Text("ONE").frame(height: 40).id("one")
+                        Text("TWO").frame(height: 40).id("two")
+                        Text("THREE").frame(height: 40).id("three")
+                        Text("FOUR").frame(height: 40).id("four")
+                        Text("FIVE").frame(height: 40).id("five")
+                    }
+                }
+            )
+            node.frame = Rect(origin: .zero, size: Size(width: 120, height: 60))
+
+            XCTAssertTrue(runtime.hasPendingLayout)
+            proxy?.scrollTo("five", anchor: .bottom)
+            XCTAssertEqual(node.scrollOffset, 0)
+
+            _ = runtime.renderScene()
+
+            XCTAssertEqual(node.scrollOffset, 180)
+        }
+    }
+
     func testForEachImplicitIdentitiesAreValidScrollTargets() async {
         await MainActor.run {
             var proxy: ScrollViewProxy?

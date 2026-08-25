@@ -16873,7 +16873,7 @@ final class ScrollViewProxyStorage {
                 target,
                 anchorX: request.anchor?.x,
                 anchorY: request.anchor?.y
-            ), !runtime.hasCompletedLayout || runtime.isLayoutInProgress {
+            ), !runtime.hasCompletedLayout || runtime.isLayoutInProgress || runtime.hasPendingLayout {
                 pendingRequests.append(request)
             }
         }
@@ -16905,7 +16905,8 @@ final class ScrollViewProxyStorage {
         {
             return false
         }
-        return !runtime.hasCompletedLayout || runtime.isLayoutInProgress || isWaitingForAttachment
+        return !runtime.hasCompletedLayout || runtime.isLayoutInProgress || runtime.hasPendingLayout
+            || isWaitingForAttachment
     }
 
     private func readerRoot(in runtime: RetainedViewRuntime) -> ViewNode? {

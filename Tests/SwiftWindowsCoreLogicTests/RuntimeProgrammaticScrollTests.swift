@@ -291,6 +291,60 @@ final class RuntimeProgrammaticScrollTests: XCTestCase {
         XCTAssertEqual(result.container.scrollOffset, 240, accuracy: 0.0001)
     }
 
+    func testPendingViewportResizeDefersScrollingUntilUpdatedGeometryIsLaidOut() async {
+        let result = fixture()
+        result.container.frame.size.height = 100
+
+        XCTAssertTrue(result.runtime.hasPendingLayout)
+        XCTAssertFalse(result.runtime.scrollToDescendant(result.rows[5]))
+        XCTAssertEqual(result.container.scrollOffset, 0, accuracy: 0.0001)
+
+        result.runtime.scheduleAfterLayout(key: "resized-scroll") { [weak runtime = result.runtime] in
+            guard let runtime else { return }
+            XCTAssertFalse(runtime.hasPendingLayout)
+            XCTAssertTrue(runtime.scrollToDescendant(result.rows[5]))
+        }
+
+        _ = result.runtime.renderScene()
+
+        XCTAssertEqual(
+            result.container.scrollOffset,
+            80,
+            accuracy: 0.0001,
+            "the new 100-point viewport, not its stale 70-point layout, determines minimal reveal"
+        )
+    }
+
+    func testPendingNewChildDefersScrollingUntilItsRealFrameExists() async {
+        let result = fixture()
+        let inserted = ViewNode(
+            preferredSize: Size(width: 90, height: 40),
+            isHitTestVisible: false
+        )
+        result.container.addChild(inserted)
+
+        XCTAssertTrue(result.runtime.hasPendingLayout)
+        XCTAssertFalse(result.runtime.scrollToDescendant(inserted, anchorY: 0))
+
+        result.runtime.scheduleAfterLayout(key: "inserted-scroll") { [weak runtime = result.runtime] in
+            guard let runtime else { return }
+            XCTAssertTrue(runtime.scrollToDescendant(inserted, anchorY: 0))
+        }
+
+        _ = result.runtime.renderScene()
+
+        XCTAssertEqual(result.container.scrollOffset, 570, accuracy: 0.0001)
+    }
+
+    func testPaintOnlyInvalidationDoesNotBlockCurrentScrollGeometry() async {
+        let result = fixture()
+        result.rows[3].backgroundColor = Color(red: 0, green: 0, blue: 1, alpha: 1)
+
+        XCTAssertFalse(result.runtime.hasPendingLayout)
+        XCTAssertTrue(result.runtime.scrollToDescendant(result.rows[8], anchorY: 0))
+        XCTAssertEqual(result.container.scrollOffset, 240, accuracy: 0.0001)
+    }
+
     func testAfterLayoutCallbacksAlsoRunBeforeFirstFramePathPaint() async {
         let result = fixture(render: false)
         result.runtime.scheduleAfterLayout(key: "frame-scroll") { [weak runtime = result.runtime] in

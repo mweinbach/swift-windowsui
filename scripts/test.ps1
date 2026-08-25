@@ -17,7 +17,11 @@ param(
 
     # Small XCTest classes can share one bounded alternation filter. This keeps
     # full validation serial while avoiding hundreds of SwiftPM startups.
-    [int]$MaxTargetsPerShard = 8
+    [int]$MaxTargetsPerShard = 8,
+
+    # Resume an interrupted serial run without repeating already verified shards.
+    # A release-quality validation still starts from the default first shard.
+    [int]$StartShard = 1
 )
 
 $ErrorActionPreference = "Stop"
@@ -373,6 +377,13 @@ if (-not (Test-Path -LiteralPath $withSwift)) {
     throw "Missing helper script: $withSwift"
 }
 
+if ($StartShard -lt 1) {
+    throw "-StartShard must be at least 1."
+}
+if ($StartShard -ne 1 -and -not $Sharded) {
+    throw "-StartShard is only supported with -Sharded."
+}
+
 $targets = Get-DiscoveredTestTargets -SourceRoot $testSources
 
 if ($Sharded) {
@@ -399,8 +410,19 @@ if ($Sharded) {
 
     $shardIndex = 0
     $shardTotal = $executionShards.Count
+    if ($StartShard -gt $shardTotal) {
+        throw "-StartShard $StartShard exceeds the $shardTotal available shard(s)."
+    }
+    if ($StartShard -gt 1) {
+        Write-Host "Resuming at shard $StartShard/$shardTotal; earlier shards are intentionally skipped."
+    }
+
     foreach ($shard in $executionShards) {
         $shardIndex++
+        if ($shardIndex -lt $StartShard) {
+            continue
+        }
+
         $targetNames = @($shard.Targets | ForEach-Object { $_.Name })
         $context = "{0}/{1} {2}" -f $shardIndex, $shardTotal, ($targetNames -join ", ")
         Write-Host ""
@@ -414,7 +436,12 @@ if ($Sharded) {
     }
 
     Write-Host ""
-    Write-Host "Sharded test run PASSED ($($selected.Count) target(s), $shardTotal serial invocation(s))." -ForegroundColor Green
+    if ($StartShard -eq 1) {
+        Write-Host "Sharded test run PASSED ($($selected.Count) target(s), $shardTotal serial invocation(s))." -ForegroundColor Green
+    } else {
+        $executedShardCount = $shardTotal - $StartShard + 1
+        Write-Host "Resumed sharded test run PASSED ($executedShardCount of $shardTotal serial invocation(s))." -ForegroundColor Green
+    }
     exit 0
 }
 

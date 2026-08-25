@@ -44,6 +44,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   stay below Windows command-line limits. The shared Swift/Visual Studio
   bootstrap initializes once per PowerShell process, preventing repeated test
   or lint shards from growing `PATH` until tool startup fails.
+- Interrupted sharded debugging can resume with
+  `scripts/test.ps1 -Sharded -StartShard <number>`; release validation always
+  starts at shard one and executes every discovered target.
 - Existing `ListFormQualityTests`, `DemoProductPolishTests`,
   `DemoInteractivePolishTests`, `DemoResponsiveLayoutTests`, and
   `DemoResponsiveProductPolishTests` also gate Quick so small-list keyboard

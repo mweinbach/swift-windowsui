@@ -4,8 +4,6 @@ import SwiftWindowsGraphics
 
 import SwiftWindowsLayout
 
-import SwiftWindowsPlatform
-
 public struct ControlAnimationStyle: Sendable {
     public var focusDuration: Double
     public var pressDuration: Double

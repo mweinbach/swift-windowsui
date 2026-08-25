@@ -67,19 +67,19 @@ public final class ComponentHost {
         runtime.recordMatchedGeometryFrames()
 
         let isProfiling = runtime.collectsPhaseTimings
-        let reloadStartedAt = isProfiling ? Win32Window.currentTimestampSeconds() : 0
+        let reloadStartedAt = isProfiling ? PlatformClock.now() : 0
 
         let oldChildren = runtime.root.children
         let components = buildComponents()
-        let composeEndedAt = isProfiling ? Win32Window.currentTimestampSeconds() : 0
+        let composeEndedAt = isProfiling ? PlatformClock.now() : 0
         let newNodes = components.map { $0.makeNode(runtime: runtime) }
-        let nodesEndedAt = isProfiling ? Win32Window.currentTimestampSeconds() : 0
+        let nodesEndedAt = isProfiling ? PlatformClock.now() : 0
 
         Self.reconcileChildren(of: runtime.root, oldChildren: oldChildren, newNodes: newNodes)
         if isProfiling {
             lastComposeSeconds = composeEndedAt - reloadStartedAt
             lastNodeConstructionSeconds = nodesEndedAt - composeEndedAt
-            lastReconcileSeconds = Win32Window.currentTimestampSeconds() - nodesEndedAt
+            lastReconcileSeconds = PlatformClock.now() - nodesEndedAt
         }
         if hasPerformedInitialBuild {
             Self.applyNewNodeTransitionsRecursively(in: runtime.root)

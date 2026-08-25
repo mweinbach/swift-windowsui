@@ -234,6 +234,203 @@ extension WindowDelegate {
     public func window(_ window: Win32Window, touchEnded points: [Point]) {}
     public func window(_ window: Win32Window, didReceiveFileDrop payload: FileDropPayload) {}
 }
+
+/// Bridges every legacy Win32 callback to the neutral host contract while
+/// preserving an existing concrete delegate.
+///
+/// Both consumers are weak. The window owns this adapter because its legacy
+/// delegate slot is weak, and removing the neutral host restores the original
+/// delegate instead of changing how the existing application is driven.
+@MainActor
+private final class Win32PlatformWindowHostAdapter: WindowDelegate {
+    weak var host: (any PlatformWindowHost)?
+    weak var downstream: (any WindowDelegate)?
+    private var lastReportedScaleFactor: Double
+
+    init(host: any PlatformWindowHost, downstream: (any WindowDelegate)?, scaleFactor: Double) {
+        self.host = host
+        self.downstream = downstream
+        self.lastReportedScaleFactor = scaleFactor
+    }
+
+    private func emit(_ event: PlatformWindowEvent, from window: Win32Window) {
+        host?.platformWindow(window, didReceive: event)
+    }
+
+    private func reportDisplayChange(from window: Win32Window) {
+        lastReportedScaleFactor = window.effectiveScaleFactor
+        emit(
+            .displayChanged(scaleFactor: lastReportedScaleFactor, refreshRate: window.monitorRefreshRate),
+            from: window
+        )
+    }
+
+    func windowDidCreate(_ window: Win32Window) {
+        downstream?.windowDidCreate(window)
+        emit(.created, from: window)
+    }
+
+    func window(_ window: Win32Window, didResizeTo size: IntSize) {
+        downstream?.window(window, didResizeTo: size)
+        emit(.resized(size), from: window)
+        if window.effectiveScaleFactor != lastReportedScaleFactor {
+            reportDisplayChange(from: window)
+        }
+    }
+
+    func windowNeedsDisplay(_ window: Win32Window) {
+        downstream?.windowNeedsDisplay(window)
+        emit(.needsDisplay, from: window)
+    }
+
+    func window(_ window: Win32Window, animationFrameAt timestamp: Double) {
+        downstream?.window(window, animationFrameAt: timestamp)
+        emit(.animationFrame(timestamp: timestamp), from: window)
+    }
+
+    func window(_ window: Win32Window, pointerMovedTo point: Point) {
+        downstream?.window(window, pointerMovedTo: point)
+        emit(.pointerMoved(point), from: window)
+    }
+
+    func windowPointerDidLeave(_ window: Win32Window) {
+        downstream?.windowPointerDidLeave(window)
+        emit(.pointerExited, from: window)
+    }
+
+    func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double) {
+        downstream?.window(window, mouseWheelAt: point, delta: delta)
+        emit(.scroll(position: point, delta: delta, axis: .vertical, source: .wheelNotch), from: window)
+    }
+
+    func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double, source: ScrollInputSource) {
+        downstream?.window(window, mouseWheelAt: point, delta: delta, source: source)
+        emit(.scroll(position: point, delta: delta, axis: .vertical, source: source), from: window)
+    }
+
+    func window(_ window: Win32Window, leftMouseDownAt point: Point) {
+        downstream?.window(window, leftMouseDownAt: point)
+        emit(.pointerButton(MouseEvent(button: .left, position: point), phase: .down), from: window)
+    }
+
+    func window(_ window: Win32Window, leftMouseUpAt point: Point) {
+        downstream?.window(window, leftMouseUpAt: point)
+        emit(.pointerButton(MouseEvent(button: .left, position: point), phase: .up), from: window)
+    }
+
+    func windowDidCancelPointerInteraction(_ window: Win32Window) {
+        downstream?.windowDidCancelPointerInteraction(window)
+        emit(.pointerInteractionCancelled, from: window)
+    }
+
+    func window(_ window: Win32Window, keyDown event: KeyboardEvent) {
+        downstream?.window(window, keyDown: event)
+        emit(.keyDown(event), from: window)
+    }
+
+    func window(_ window: Win32Window, didInputText text: String) {
+        downstream?.window(window, didInputText: text)
+        emit(.textInput(text), from: window)
+    }
+
+    func windowDidLoseKeyboardFocus(_ window: Win32Window) {
+        downstream?.windowDidLoseKeyboardFocus(window)
+        emit(.keyboardFocusLost, from: window)
+    }
+
+    func windowWillClose(_ window: Win32Window) {
+        emit(.willClose, from: window)
+        downstream?.windowWillClose(window)
+    }
+
+    func windowDidChangeDisplay(_ window: Win32Window) {
+        downstream?.windowDidChangeDisplay(window)
+        reportDisplayChange(from: window)
+    }
+
+    func windowDidChangeActiveState(_ window: Win32Window, isActive: Bool) {
+        downstream?.windowDidChangeActiveState(window, isActive: isActive)
+        emit(.activeStateChanged(isActive), from: window)
+    }
+
+    func windowDidReceiveRightClick(_ window: Win32Window, event: MouseEvent) {
+        downstream?.windowDidReceiveRightClick(window, event: event)
+        emit(.pointerButton(event, phase: .down), from: window)
+    }
+
+    func windowDidReceiveDoubleClick(_ window: Win32Window, event: MouseEvent) {
+        downstream?.windowDidReceiveDoubleClick(window, event: event)
+        emit(.pointerDoubleClicked(event), from: window)
+    }
+
+    func window(_ window: Win32Window, horizontalScrollAt point: Point, delta: Double) {
+        downstream?.window(window, horizontalScrollAt: point, delta: delta)
+        emit(.scroll(position: point, delta: delta, axis: .horizontal, source: .wheelNotch), from: window)
+    }
+
+    func window(
+        _ window: Win32Window,
+        horizontalScrollAt point: Point,
+        delta: Double,
+        source: ScrollInputSource
+    ) {
+        downstream?.window(window, horizontalScrollAt: point, delta: delta, source: source)
+        emit(.scroll(position: point, delta: delta, axis: .horizontal, source: source), from: window)
+    }
+
+    func windowDidChangeVisibility(_ window: Win32Window, isVisible: Bool) {
+        downstream?.windowDidChangeVisibility(window, isVisible: isVisible)
+        emit(.visibilityChanged(isVisible), from: window)
+    }
+
+    func windowDidChangeSystemSettings(_ window: Win32Window) {
+        downstream?.windowDidChangeSystemSettings(window)
+        emit(.systemAppearanceChanged, from: window)
+    }
+
+    func window(_ window: Win32Window, middleMouseDownAt point: Point) {
+        downstream?.window(window, middleMouseDownAt: point)
+        emit(.pointerButton(MouseEvent(button: .middle, position: point), phase: .down), from: window)
+    }
+
+    func window(_ window: Win32Window, middleMouseUpAt point: Point) {
+        downstream?.window(window, middleMouseUpAt: point)
+        emit(.pointerButton(MouseEvent(button: .middle, position: point), phase: .up), from: window)
+    }
+
+    func window(_ window: Win32Window, imeComposition event: IMECompositionEvent) {
+        downstream?.window(window, imeComposition: event)
+        emit(.imeComposition(event), from: window)
+    }
+
+    func windowTextInputCaretRect(_ window: Win32Window) -> Rect? {
+        downstream?.windowTextInputCaretRect(window) ?? host?.platformWindowTextInputCaretRect(window)
+    }
+
+    func window(_ window: Win32Window, touchBegan points: [Point]) {
+        downstream?.window(window, touchBegan: points)
+        emit(.touch(phase: .began, points: points), from: window)
+    }
+
+    func window(_ window: Win32Window, touchMoved points: [Point]) {
+        downstream?.window(window, touchMoved: points)
+        emit(.touch(phase: .moved, points: points), from: window)
+    }
+
+    func window(_ window: Win32Window, touchEnded points: [Point]) {
+        downstream?.window(window, touchEnded: points)
+        emit(.touch(phase: .ended, points: points), from: window)
+    }
+
+    func window(_ window: Win32Window, didReceiveFileDrop payload: FileDropPayload) {
+        downstream?.window(window, didReceiveFileDrop: payload)
+        emit(
+            .filesDropped(paths: payload.fileURLs.map(\.path), position: payload.clientPoint),
+            from: window
+        )
+    }
+}
+
 /// The window traits the scene layer asks for and the Win32 host can actually
 /// enforce.
 ///
@@ -296,8 +493,13 @@ public struct Win32PlatformError: Error, CustomStringConvertible, Sendable {
     }
 }
 @MainActor
-public final class Win32Window {
+public final class Win32Window: PlatformWindow {
     public weak var delegate: WindowDelegate?
+
+    /// `delegate` is weak, so the neutral adapter must stay owned by its
+    /// window while a platform-independent host is installed. The adapter
+    /// keeps both its host and any pre-existing delegate weak.
+    private var platformWindowHostAdapter: Win32PlatformWindowHostAdapter?
 
     /// Optional accessibility (UI Automation) provider consulted on
     /// `WM_GETOBJECT`. Nil by default; assign a provider (typically a
@@ -443,6 +645,42 @@ public final class Win32Window {
     public var nativeHandle: NativeWindowHandle? {
         let rawHandle: UnsafeMutableRawPointer? = unsafeBitCast(hwnd, to: UnsafeMutableRawPointer?.self)
         return NativeWindowHandle(rawPointer: rawHandle)
+    }
+
+    /// Installs the platform-neutral event contract without disrupting a
+    /// concrete delegate that was already driving the retained application.
+    ///
+    /// Existing hosts keep receiving every legacy callback; alternate hosts
+    /// receive the same events through their renderer-neutral contract.
+    public func setPlatformWindowHost(_ host: (any PlatformWindowHost)?) {
+        if let adapter = platformWindowHostAdapter {
+            guard let host else {
+                if delegate === adapter {
+                    delegate = adapter.downstream
+                }
+                platformWindowHostAdapter = nil
+                return
+            }
+
+            adapter.host = host
+            if delegate !== adapter {
+                adapter.downstream = delegate
+                delegate = adapter
+            }
+            return
+        }
+
+        guard let host else {
+            return
+        }
+
+        let adapter = Win32PlatformWindowHostAdapter(
+            host: host,
+            downstream: delegate,
+            scaleFactor: effectiveScaleFactor
+        )
+        platformWindowHostAdapter = adapter
+        delegate = adapter
     }
 
     public var scaleFactor: Double {
@@ -2176,33 +2414,13 @@ public final class Win32Window {
 
     /// The window's monotonic frame clock, in seconds.
     ///
-    /// `GetTickCount64` advances in system clock ticks — documented as 10–16 ms
-    /// and typically 15.625 ms — which is *coarser than a 60 Hz vsync period*.
-    /// Pacing fed by it saw 15.6 ms elapsed against a 16.667 ms interval, so
-    /// every other animation frame was dropped and every continuous animation
-    /// ran at ~30 fps with alternating 15.6/31.2 ms spacing, sampling the
-    /// easing curves in `docs/AnimationParity.md` on a quantized, jittering
-    /// clock. `QueryPerformanceCounter` is monotonic and sub-microsecond.
+    /// The shared core clock is monotonic, high-resolution, and has the same
+    /// origin as retained-runtime animation timestamps. Keeping this legacy
+    /// entry point as a forwarding adapter lets existing callers remain
+    /// source-compatible without coupling the runtime back to Win32.
     public static func currentTimestampSeconds() -> Double {
-        var counter = LARGE_INTEGER()
-        guard QueryPerformanceCounter(&counter), performanceCounterFrequency > 0 else {
-            return Double(GetTickCount64()) / 1000.0
-        }
-
-        return Double(counter.QuadPart) / performanceCounterFrequency
+        PlatformClock.now()
     }
-
-    /// Counts per second, fixed at boot on every supported Windows version, so
-    /// this is queried once. Zero means the query failed and the tick-count
-    /// fallback applies.
-    private static let performanceCounterFrequency: Double = {
-        var frequency = LARGE_INTEGER()
-        guard QueryPerformanceFrequency(&frequency), frequency.QuadPart > 0 else {
-            return 0
-        }
-
-        return Double(frequency.QuadPart)
-    }()
 
     private static func keyboardEvent(from wParam: WPARAM, lParam: LPARAM) -> KeyboardEvent {
         KeyboardEvent(
@@ -2568,6 +2786,53 @@ public enum Win32Application {
         PostQuitMessage(0)
     }
 }
+
+/// The Win32 implementation of the platform-neutral windowing factory.
+///
+/// Rendering remains a separate composition decision: this factory creates
+/// windows and runs their event loop without naming D3D11, Metal, Vulkan, or
+/// any other graphics backend.
+@MainActor
+public struct Win32PlatformHostFactory: PlatformHostFactory {
+    public init() {}
+
+    public var platformName: String {
+        "Windows / Win32"
+    }
+
+    public func makeWindow(configuration: PlatformWindowConfiguration) throws -> any PlatformWindow {
+        Win32Window(
+            title: configuration.title,
+            clientSize: configuration.clientSize,
+            titleBarVisibility: configuration.titleBarVisibility,
+            configuration: Win32WindowConfiguration(
+                minimumClientSize: configuration.minimumClientSize,
+                maximumClientSize: configuration.maximumClientSize,
+                normalizedPosition: configuration.normalizedPosition,
+                resizability: configuration.isResizable ? .resizable : .fixedSize,
+                isAlwaysOnTop: configuration.isAlwaysOnTop
+            )
+        )
+    }
+
+    public func start(window: any PlatformWindow) throws {
+        guard let window = window as? Win32Window else {
+            throw PlatformHostError.incompatibleWindow(expectedPlatform: platformName)
+        }
+
+        try Win32Application.start(window: window)
+    }
+
+    @discardableResult
+    public func runEventLoop() throws -> Int32 {
+        try Win32Application.runMessageLoop()
+    }
+
+    public func terminateEventLoop() {
+        Win32Application.terminateMessageLoop()
+    }
+}
+
 @MainActor
 private enum Win32HighDpiSupport {
     private static var didConfigure = false

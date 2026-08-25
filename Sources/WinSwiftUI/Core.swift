@@ -16752,6 +16752,9 @@ struct RetainedScrollTargetIdentity: Sendable {
     var isImplicitForEach: Bool
 }
 
+private enum ExplicitScrollTargetIdentityMarker {}
+private enum ImplicitScrollTargetIdentityMarker {}
+
 @MainActor
 final class ScrollViewProxyStorage {
     private struct ScrollRequest {
@@ -16940,7 +16943,8 @@ final class ScrollViewProxyStorage {
     private func targetNode(for targetIdentifier: String, in root: ViewNode) -> ViewNode? {
         var pendingNodes = [root]
         var implicitForEachTarget: ViewNode?
-        let identityKey = ObjectIdentifier(RetainedScrollTargetIdentity.self)
+        let explicitIdentityKey = ObjectIdentifier(ExplicitScrollTargetIdentityMarker.self)
+        let implicitIdentityKey = ObjectIdentifier(ImplicitScrollTargetIdentityMarker.self)
 
         while let node = pendingNodes.popLast() {
             if node.isHidden {
@@ -16952,15 +16956,18 @@ final class ScrollViewProxyStorage {
                 continue
             }
 
-            if let identity = node.retainedPreferenceValues[identityKey] as? RetainedScrollTargetIdentity,
-                identity.identifier == targetIdentifier
+            if let explicitIdentity = node.retainedPreferenceValues[explicitIdentityKey]
+                as? RetainedScrollTargetIdentity,
+                explicitIdentity.identifier == targetIdentifier
             {
-                if !identity.isImplicitForEach {
-                    return node
-                }
-                if implicitForEachTarget == nil {
-                    implicitForEachTarget = node
-                }
+                return node
+            }
+            if implicitForEachTarget == nil,
+                let implicitIdentity = node.retainedPreferenceValues[implicitIdentityKey]
+                    as? RetainedScrollTargetIdentity,
+                implicitIdentity.identifier == targetIdentifier
+            {
+                implicitForEachTarget = node
             }
 
             pendingNodes.append(contentsOf: node.children.reversed())
@@ -17433,11 +17440,14 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
         let capturedScrollTargetIdentity =
             scrollTargetIdentity
             ?? RetainedScrollTargetIdentity(identifier: capturedID, isImplicitForEach: false)
+        let scrollTargetIdentityKey =
+            capturedScrollTargetIdentity.isImplicitForEach
+            ? ObjectIdentifier(ImplicitScrollTargetIdentityMarker.self)
+            : ObjectIdentifier(ExplicitScrollTargetIdentityMarker.self)
         return Component { runtime in
             let node = inner.makeNode(runtime: runtime)
             node.nodeTag = capturedID
-            node.retainedPreferenceValues[ObjectIdentifier(RetainedScrollTargetIdentity.self)] =
-                capturedScrollTargetIdentity
+            node.retainedPreferenceValues[scrollTargetIdentityKey] = capturedScrollTargetIdentity
             return node
         }
     }

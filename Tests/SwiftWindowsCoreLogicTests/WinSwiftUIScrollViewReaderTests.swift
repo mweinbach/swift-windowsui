@@ -240,6 +240,57 @@ final class WinSwiftUIScrollViewReaderTests: XCTestCase {
         }
     }
 
+    func testExplicitRowIdentityInsideForEachRemainsAddressableAlongsideImplicitIdentity() async {
+        await MainActor.run {
+            var proxy: ScrollViewProxy?
+            let (runtime, node) = makeScrollReaderRuntime(
+                ScrollViewReader { readerProxy in
+                    proxy = readerProxy
+                    ScrollView {
+                        ForEach(0..<12, id: \.self) { index in
+                            Text("ROW \(index)").frame(height: 25).id("custom-\(index)")
+                        }
+                    }
+                }
+            )
+            defer { withExtendedLifetime(runtime) {} }
+
+            proxy?.scrollTo("custom-8", anchor: .top)
+            XCTAssertEqual(node.scrollOffset, 200)
+
+            proxy?.scrollTo("custom-0", anchor: .top)
+            XCTAssertEqual(node.scrollOffset, 0)
+
+            proxy?.scrollTo(8, anchor: .top)
+            XCTAssertEqual(node.scrollOffset, 200)
+        }
+    }
+
+    func testExplicitRowIdentityInsideListRemainsAddressableAlongsideImplicitIdentity() async {
+        await MainActor.run {
+            var proxy: ScrollViewProxy?
+            let (runtime, node) = makeScrollReaderRuntime(
+                ScrollViewReader { readerProxy in
+                    proxy = readerProxy
+                    List(0..<16, id: \.self) { index in
+                        Text("ROW \(index)").frame(height: 25).id("custom-\(index)")
+                    }
+                }
+            )
+            defer { withExtendedLifetime(runtime) {} }
+
+            proxy?.scrollTo("custom-8", anchor: .top)
+            let explicitOffset = node.scrollOffset
+            XCTAssertGreaterThan(explicitOffset, 0)
+
+            proxy?.scrollTo(0, anchor: .top)
+            XCTAssertLessThan(node.scrollOffset, explicitOffset)
+
+            proxy?.scrollTo(8, anchor: .top)
+            XCTAssertEqual(node.scrollOffset, explicitOffset)
+        }
+    }
+
     func testExplicitSuffixIdentityDoesNotCollideWithImplicitForEachIdentity() async {
         await MainActor.run {
             var proxy: ScrollViewProxy?

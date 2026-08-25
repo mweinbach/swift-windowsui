@@ -487,6 +487,34 @@ Assert-Contains `
     "Sources/SwiftWindowsCore/Geometry.swift" `
     "case\s+offscreen" `
     "RenderSurfaceTarget must retain a genuine offscreen surface that does not require a fabricated native window handle."
+Assert-NotContains `
+    "Sources/SwiftWindowsCore/Geometry.swift" `
+    "(?m)^\s*public\s+typealias\s+CGSize\s*=" `
+    "The portable SwiftWindowsCore product must not shadow Foundation's CGSize; SwiftUI-shaped aliases belong to WinSwiftUI."
+Assert-Contains `
+    "Sources/SwiftWindowsGraphics/CPUBatchRenderer.swift" `
+    "guard\s+case\s+\.offscreen\s*=\s*surface\.target" `
+    "The CPU reference renderer must reject native window targets instead of silently impersonating a presenter."
+Assert-Contains `
+    "Sources/WinSwiftUI/SoftwarePresentation.swift" `
+    "offscreenPixelSize:\s*surface\.pixelSize" `
+    "The software window presenter must attach its embedded CPU rasterizer to a genuine offscreen surface."
+Assert-Contains `
+    "Sources/WinSwiftUI/App.swift" `
+    "static\s+func\s+platformHostFactory\s*\(\s*\)\s*->\s*any\s+PlatformHostFactory" `
+    "WinSwiftUI.App must expose a platform-host factory independently of its render-backend factory."
+Assert-Contains `
+    "Sources/WinSwiftUI/App.swift" `
+    "platformHostFactory:\s*Self\.platformHostFactory\s*\(\s*\)" `
+    "The live application composition root must pass its selected platform-host factory to the window coordinator."
+Assert-Contains `
+    "Sources/WinSwiftUI/WindowCoordinator.swift" `
+    "platformHostFactory\.makeWindow\s*\(\s*configuration:" `
+    "The live window coordinator must ask the injected platform-host factory to create its native windows."
+Assert-Contains `
+    "Sources/WinSwiftUI/WindowCoordinator.swift" `
+    "factory\.runEventLoop\s*\(\s*\)" `
+    "The live window coordinator must delegate event-loop ownership to the injected platform-host factory."
 Assert-Contains `
     "Sources/swift-windowsui-snapshot/SnapshotMain.swift" `
     "offscreenPixelSize:" `

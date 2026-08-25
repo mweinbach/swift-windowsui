@@ -57,6 +57,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   genuine handle-free surfaces, truthful backend capabilities, safe software
   fallback, and equivalent scene/frame output without importing a concrete GPU
   backend.
+- `BackendCompositionContractTests`, `WindowCoordinatorTests`,
+  `RenderBackendAvailabilityTests`, and `SoftwarePresentationTests` verify that
+  real app composition uses independently injectable platform and renderer
+  factories, offscreen-only backends cannot masquerade as window presenters,
+  and software fallback actually blits its offscreen CPU output.
 - `ModalPresentationIsolationTests` and `DemoRendererIdentityTests` cover
   topmost modal focus/accessibility/shortcut isolation and renderer identities
   that remain accurate when the app switches between D3D11 and software.

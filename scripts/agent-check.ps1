@@ -139,6 +139,15 @@ if ($Full) {
     Invoke-Step "BackendInterchangeabilityConformanceTests" {
         & $testScript -Filter "BackendInterchangeabilityConformanceTests"
     }
+    Invoke-Step "RenderBackendAvailabilityTests" {
+        & $testScript -Filter "RenderBackendAvailabilityTests"
+    }
+    Invoke-Step "SoftwarePresentationTests" {
+        & $testScript -Filter "SoftwarePresentationTests"
+    }
+    Invoke-Step "BackendCompositionContractTests" {
+        & $testScript -Filter "BackendCompositionContractTests"
+    }
     # The GPU frame path and cross-backend pixel parity: these run the real
     # D3D11 batch renderer offscreen on WARP, so they observe what the CPU
     # rasterizer (which every screenshot goes through) cannot.
@@ -204,6 +213,9 @@ if ($Full) {
     Invoke-Step "PlatformHostContractTests" {
         & $testScript -Filter "PlatformHostContractTests"
     }
+    Invoke-Step "WindowCoordinatorTests" {
+        & $testScript -Filter "WindowCoordinatorTests"
+    }
     # Optional retained capabilities must stay genuinely sparse; rebuilding
     # controls must preserve their IME composition and caret callbacks.
     Invoke-Step "ViewNodeSparseStorageTests" {
@@ -234,6 +246,9 @@ if ($Full) {
     }
     Invoke-Step "TextInputSelectionTests" {
         & $testScript -Filter "TextInputSelectionTests"
+    }
+    Invoke-Step "Win32TextInputTests" {
+        & $testScript -Filter "Win32TextInputTests"
     }
     # Programmatic scrolling must work on first scene/frame render, resolve
     # deferred lazy-stack rows, and preserve nested-reader ownership.

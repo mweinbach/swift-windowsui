@@ -22,6 +22,9 @@ not imply that the complete Windows retained UI stack already runs everywhere.
 
 The macOS demo uses Apple's SwiftUI. It does not run the Windows retained
 runtime, Win32 event loop, Windows accessibility implementation, or D3D11.
+Portable clients use `SwiftWindowsCore.Size` alongside Foundation's own
+`CGSize` without a naming collision; the Windows `WinSwiftUI` compatibility
+facade continues to provide its SwiftUI-shaped `CGSize` alias.
 
 ## Platform boundary
 
@@ -41,10 +44,13 @@ runtime, Win32 event loop, Windows accessibility implementation, or D3D11.
 `Win32PlatformHostFactory` and `Win32Window` implement the current native
 adapter. A different platform can implement these same protocols without
 importing WinSDK, and the contract tests exercise an independent fake host.
-Existing `WinSwiftUI.App` and `WindowCoordinator` still construct their Win32
-host directly, so integrating a second real platform also requires replacing
-their concrete composition and providing platform-native text, image,
-accessibility, dialogs, and presentation services.
+`WinSwiftUI.App.platformHostFactory()` injects that platform decision into the
+real window coordinator, which asks the selected factory to create windows,
+start them, and own the event loop. The current retained window host still
+requires the factory-created window to be a `Win32Window`, so integrating a
+second real platform also requires replacing that concrete host assumption
+and providing platform-native text, image, accessibility, dialogs, and
+presentation services.
 
 ## Rendering-engine boundary
 
@@ -56,9 +62,14 @@ accessibility, dialogs, and presentation services.
   versus offscreen targets, execution model, capture, and presentation pacing.
 
 `RenderSurfaceTarget.window` carries an opaque `NativeWindowHandle`.
-`RenderSurfaceTarget.offscreen` contains no handle. The CPU reference backend
-genuinely renders offscreen; native D3D11 and Win32 software presenters reject
-offscreen attachment because they require an actual window.
+`RenderSurfaceTarget.offscreen` contains no handle, so
+`SurfaceDescriptor.windowHandle` is optional and existing callers that read
+its properties must unwrap it or switch on `target`. The CPU reference backend
+genuinely renders offscreen and rejects native-window attachment; native D3D11
+and Win32 software presenters reject offscreen attachment because they require
+an actual window. The software presenter composes those two capabilities by
+rasterizing into a genuine offscreen surface and then blitting the resulting
+bitmap to its separately owned native window.
 
 The composition root defaults to D3D11 and can select a complete CPU software
 window presenter without changing the app, views, layout, retained runtime,
@@ -81,9 +92,9 @@ those platform-specific implementations automatically.
 
 ## What remains before a second retained-runtime platform
 
-1. Inject `PlatformHostFactory` into the actual `WinSwiftUI.App` /
-   `WindowCoordinator` composition path instead of constructing `Win32Window`
-   directly.
+1. Make the existing `WinSwiftUI.App` / `WindowCoordinator` factory-injection
+   path accept a platform-neutral window host rather than requiring the
+   factory-created window to be a `Win32Window`.
 2. Extract DirectWrite/GDI text shaping and WIC image decoding behind portable
    services with native implementations for the target platform.
 3. Move platform appearance sampling, accessibility bridges, native dialogs,

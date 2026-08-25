@@ -239,11 +239,12 @@ final class FramePathDegradationTests: XCTestCase {
     }
 
     /// End-to-end contract for the shared demo: every command the retained
-    /// runtime delivers to the frame backend for the dashboard, settings, and
-    /// data screens is paintable after degradation — nothing a Supported
-    /// screen needs is silently dropped on the frame path.
+    /// runtime delivers to the frame backend for every screen, including the
+    /// component gallery, is paintable after degradation — nothing a supported
+    /// screen needs is silently dropped on the frame path. Iterating all cases
+    /// keeps newly added demo screens covered without another hard-coded list.
     func testDemoScreensDegradeToFullyPaintableFrameCommandStreams() async {
-        for screen in [DemoScreen.dashboard, .settings, .data] {
+        for screen in DemoScreen.allCases {
             let model = DemoDashboardModel()
             model.selectedScreen = screen
             let snapshot = WinSwiftUIRendererSnapshotter.snapshot(

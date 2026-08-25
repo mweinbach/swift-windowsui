@@ -198,7 +198,8 @@ private struct SnapshotOptions {
             case "--screen":
                 let value = try requireValue(after: argument, from: &iterator)
                 guard let parsed = DemoScreen(rawValue: value) else {
-                    throw SnapshotError.invalidArgument("--screen must be dashboard, settings, or data.")
+                    let supportedScreens = DemoScreen.allCases.map(\.rawValue).joined(separator: ", ")
+                    throw SnapshotError.invalidArgument("--screen must be one of: \(supportedScreens).")
                 }
                 screen = parsed
             case "--appearance":
@@ -362,7 +363,7 @@ private enum SnapshotError: Error, CustomStringConvertible {
                                           Rendering backend (default: raw-scene)
                   --format <bmp|png>      Output format (default: inferred from output extension, else bmp)
                   --html-report           Generate an HTML inspection report
-                  --screen <dashboard|settings|data>
+                  --screen <dashboard|settings|data|gallery>
                                           Demo tab to render (default: dashboard)
                   --appearance <light|dark>
                                           Color scheme to render in (default: dark)

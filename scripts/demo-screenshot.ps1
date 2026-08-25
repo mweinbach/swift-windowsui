@@ -15,8 +15,12 @@
     Mutually exclusive with -Width/-Height.
 
 .PARAMETER Screen
-    Render one specific demo tab: dashboard, settings, or data. Mutually
+    Render one specific demo tab: dashboard, settings, data, or gallery. Mutually
     exclusive with -AllScreens. The default remains the dashboard.
+
+.PARAMETER AllScreens
+    Render dashboard, settings, data, and gallery into separate screenshots.
+    Appearance and display-scale suffixes remain consistent for every screen.
 #>
 param(
     [string]$OutputPath = "",
@@ -31,7 +35,7 @@ param(
     [int]$WarmupMilliseconds = 0,
     [switch]$KeepOpen,
     [switch]$AllScreens,
-    [ValidateSet("dashboard", "settings", "data")]
+    [ValidateSet("dashboard", "settings", "data", "gallery")]
     [string]$Screen = "",
     [ValidateSet("light", "dark")]
     [string]$Appearance = "dark"
@@ -133,7 +137,7 @@ if ($AllScreens) {
     if ($Scale -ne 1.0) {
         $suffix += "-{0}x" -f ($Scale.ToString([System.Globalization.CultureInfo]::InvariantCulture))
     }
-    foreach ($screen in @("dashboard", "settings", "data")) {
+    foreach ($screen in @("dashboard", "settings", "data", "gallery")) {
         $screenPath = Join-Path $outputDirectory "demo-screenshot-$screen$suffix$extension"
         Invoke-DemoScreenshot -Path $screenPath -Screen $screen
     }

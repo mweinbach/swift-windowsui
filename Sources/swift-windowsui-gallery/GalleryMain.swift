@@ -875,6 +875,514 @@ struct SwiftWindowsUIGalleryTool {
                     .frame(width: 160, height: 140)
                 )),
 
+            // MARK: Showcase — typography, symbols, and component composition
+
+            GallerySpec(
+                id: "typography-scale", title: "Typography Scale",
+                view: AnyView(
+                    VStack(alignment: .leading, spacing: 9) {
+                        Text("Design system")
+                            .font(.largeTitle.weight(.semibold))
+                        Text("A complete type hierarchy")
+                            .font(.title3)
+                            .foregroundColor(.secondary)
+                        Divider()
+                        Text("Headline · Information that matters")
+                            .font(.headline)
+                        Text("Body · Every detail, beautifully clear.")
+                            .font(.body)
+                        Text("CAPTION · UPDATED JUST NOW")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(18)
+                    .frame(width: 300, height: 216, alignment: .leading)
+                ),
+                size: IntSize(width: 320, height: 240)),
+            GallerySpec(
+                id: "semantic-labels", title: "Labels and Symbol Styles",
+                view: AnyView(
+                    VStack(alignment: .leading, spacing: 15) {
+                        Label("Project overview", systemImage: "square.grid.2x2")
+                            .font(.headline)
+                            .foregroundColor(.blue)
+                        Label("Shared with your team", systemImage: "person")
+                            .foregroundColor(.secondary)
+                        Label("Notifications enabled", systemImage: "bell")
+                        Label("Synced and ready", systemImage: "checkmark.circle")
+                            .foregroundColor(.green)
+                        HStack(spacing: 18) {
+                            Label("Settings", systemImage: "gearshape")
+                                .labelStyle(IconOnlyLabelStyle())
+                            Label("Documents", systemImage: "doc.text")
+                                .labelStyle(TitleOnlyLabelStyle())
+                        }
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    }
+                    .padding(20)
+                    .frame(width: 280, height: 196, alignment: .leading)
+                ),
+                size: IntSize(width: 300, height: 220)),
+            GallerySpec(
+                id: "symbol-palette", title: "Individually Tinted Symbols",
+                view: AnyView(
+                    VStack(alignment: .leading, spacing: 18) {
+                        Text("SYMBOL LIBRARY")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                        HStack(spacing: 22) {
+                            Image(systemName: "sparkles")
+                                .foregroundColor(.purple)
+                            Image(systemName: "bolt.fill")
+                                .foregroundColor(.orange)
+                            Image(systemName: "heart.fill")
+                                .foregroundColor(.pink)
+                            Image(systemName: "star.fill")
+                                .foregroundColor(.yellow)
+                        }
+                        .font(.title2)
+                        HStack(spacing: 22) {
+                            Image(systemName: "folder.fill")
+                                .foregroundColor(.blue)
+                            Image(systemName: "chart.bar")
+                                .foregroundColor(.mint)
+                            Image(systemName: "globe")
+                                .foregroundColor(.cyan)
+                            Image(systemName: "checkmark.circle")
+                                .foregroundColor(.green)
+                        }
+                        .font(.title2)
+                        Text("Eight crisp, independently colored glyphs")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(22)
+                    .frame(width: 290, height: 204, alignment: .leading)
+                ),
+                size: IntSize(width: 320, height: 240)),
+            GallerySpec(
+                id: "status-badges", title: "Semantic Status Badges",
+                view: AnyView(
+                    VStack(alignment: .leading, spacing: 15) {
+                        Text("DEPLOYMENT STATUS")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                        HStack(spacing: 10) {
+                            Label("Healthy", systemImage: "checkmark.circle")
+                                .foregroundColor(.green)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.green.opacity(0.16), in: Capsule())
+                            Label("Building", systemImage: "bolt.fill")
+                                .foregroundColor(.orange)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.orange.opacity(0.16), in: Capsule())
+                        }
+                        .font(.caption.weight(.semibold))
+                        HStack(spacing: 10) {
+                            Label("Preview", systemImage: "sparkles")
+                                .foregroundColor(.purple)
+                            Label("Offline", systemImage: "xmark.circle")
+                                .foregroundColor(.secondary)
+                        }
+                        .font(.footnote)
+                    }
+                    .padding(20)
+                    .frame(width: 310, height: 164, alignment: .leading)
+                ),
+                size: IntSize(width: 340, height: 200)),
+            GallerySpec(
+                id: "button-control-sizes", title: "Button Control Sizes",
+                view: AnyView(
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("CONTROL SIZES")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                        HStack(spacing: 12) {
+                            Button("Mini") {}
+                                .controlSize(.mini)
+                                .frame(width: 64, height: 24)
+                            Button("Small") {}
+                                .controlSize(.small)
+                                .frame(width: 74, height: 28)
+                        }
+                        HStack(spacing: 12) {
+                            Button("Regular") {}
+                                .controlSize(.regular)
+                                .frame(width: 94, height: 32)
+                            Button("Large") {}
+                                .controlSize(.large)
+                                .frame(width: 96, height: 38)
+                        }
+                        Button("Primary action") {}
+                            .buttonStyle(BorderedProminentButtonStyle())
+                            .controlSize(.large)
+                            .frame(width: 168, height: 40)
+                    }
+                    .padding(18)
+                    .frame(width: 292, height: 206, alignment: .leading)
+                ),
+                size: IntSize(width: 320, height: 230)),
+            GallerySpec(
+                id: "tinted-controls", title: "Tinted Control Families",
+                view: AnyView(
+                    VStack(alignment: .leading, spacing: 15) {
+                        Text("ACCENT COLORS")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                        Toggle("Ocean", isOn: .constant(true))
+                            .tint(.cyan)
+                        Slider(value: .constant(0.72), in: 0...1)
+                            .tint(.purple)
+                        ProgressView(value: 0.58)
+                            .tint(.mint)
+                        Button("Continue") {}
+                            .buttonStyle(BorderedProminentButtonStyle())
+                            .tint(.indigo)
+                            .frame(width: 132, height: 34)
+                    }
+                    .padding(20)
+                    .frame(width: 286, height: 214, alignment: .leading)
+                ),
+                size: IntSize(width: 320, height: 250)),
+            GallerySpec(
+                id: "group-box", title: "Grouped Settings Card",
+                view: AnyView(
+                    GroupBox {
+                        VStack(alignment: .leading, spacing: 12) {
+                            LabeledContent("Region", value: "US East")
+                            LabeledContent("Environment", value: "Production")
+                            Divider()
+                            Toggle("Auto deploy", isOn: .constant(true))
+                        }
+                    } label: {
+                        Label("Deployment", systemImage: "bolt.fill")
+                            .font(.headline)
+                    }
+                    .frame(width: 284, height: 192)
+                    .padding(12)
+                ),
+                size: IntSize(width: 320, height: 240)),
+            GallerySpec(
+                id: "disclosure-collapsed", title: "Disclosure Group · Collapsed",
+                view: AnyView(
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("CONFIGURATION")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                        DisclosureGroup("Advanced options", isExpanded: .constant(false)) {
+                            Toggle("Verbose logging", isOn: .constant(false))
+                        }
+                        Divider()
+                        Label("Default settings applied", systemImage: "checkmark.circle")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(16)
+                    .frame(width: 290, height: 148, alignment: .leading)
+                ),
+                size: IntSize(width: 320, height: 180)),
+            GallerySpec(
+                id: "disclosure-expanded", title: "Disclosure Group · Expanded",
+                view: AnyView(
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("CONFIGURATION")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                        DisclosureGroup("Advanced options", isExpanded: .constant(true)) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Toggle("Verbose logging", isOn: .constant(true))
+                                LabeledContent("Retries", value: "3 attempts")
+                                ProgressView(value: 0.72)
+                            }
+                            .padding(.top, 4)
+                        }
+                    }
+                    .padding(16)
+                    .frame(width: 290, height: 194, alignment: .leading)
+                ),
+                size: IntSize(width: 320, height: 230)),
+            GallerySpec(
+                id: "labeled-content", title: "Key–Value Information Rows",
+                view: AnyView(
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label("Release details", systemImage: "doc.text")
+                            .font(.headline)
+                        Divider()
+                        LabeledContent("Version", value: "2.4.1")
+                        LabeledContent("Build", value: "8,420")
+                        LabeledContent("Platform") {
+                            Label("Windows", systemImage: "square.grid.2x2")
+                                .foregroundColor(.blue)
+                        }
+                        LabeledContent("Status") {
+                            Text("Ready")
+                                .foregroundColor(.green)
+                        }
+                    }
+                    .padding(18)
+                    .frame(width: 306, height: 198, alignment: .leading)
+                ),
+                size: IntSize(width: 340, height: 230)),
+            GallerySpec(
+                id: "content-unavailable", title: "Empty State with Action",
+                view: AnyView(
+                    ContentUnavailableView {
+                        Label("No results found", systemImage: "magnifyingglass")
+                            .font(.title3.weight(.semibold))
+                    } description: {
+                        Text("Try a different keyword or clear your filters.")
+                            .multilineTextAlignment(.center)
+                    } actions: {
+                        Button("Clear filters") {}
+                            .buttonStyle(BorderedProminentButtonStyle())
+                            .frame(width: 126, height: 32)
+                    }
+                    .frame(width: 308, height: 224)
+                ),
+                size: IntSize(width: 340, height: 260)),
+            GallerySpec(
+                id: "dashboard-metrics", title: "Live Metrics Dashboard",
+                view: AnyView(
+                    GroupBox {
+                        HStack(alignment: .top, spacing: 18) {
+                            Gauge(value: 0.68, in: 0...1) {
+                                Text("Compute")
+                            } currentValueLabel: {
+                                Text("68%")
+                            }
+                            .gaugeStyle(AccessoryCircularCapacityGaugeStyle())
+                            .tint(.blue)
+                            .frame(width: 84, height: 94)
+                            Gauge(value: 0.42, in: 0...1) {
+                                Text("Memory")
+                            } currentValueLabel: {
+                                Text("42%")
+                            }
+                            .gaugeStyle(CircularGaugeStyle())
+                            .tint(.mint)
+                            .frame(width: 84, height: 94)
+                        }
+                        Divider()
+                        Gauge("Storage", value: 0.73, in: 0...1)
+                            .gaugeStyle(LinearCapacityGaugeStyle())
+                            .tint(.purple)
+                    } label: {
+                        Label("System health", systemImage: "waveform.path.ecg")
+                            .font(.headline)
+                    }
+                    .frame(width: 322, height: 226)
+                    .padding(10)
+                ),
+                size: IntSize(width: 360, height: 260)),
+            GallerySpec(
+                id: "grid-layout", title: "Adaptive Metric Grid",
+                view: AnyView(
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("WORKSPACE OVERVIEW")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 10) {
+                            GridRow {
+                                GroupBox("Projects") {
+                                    Text("12")
+                                        .font(.title2.weight(.semibold))
+                                        .foregroundColor(.blue)
+                                }
+                                .frame(width: 132, height: 78)
+                                GroupBox("Members") {
+                                    Text("48")
+                                        .font(.title2.weight(.semibold))
+                                        .foregroundColor(.purple)
+                                }
+                                .frame(width: 132, height: 78)
+                            }
+                            GridRow {
+                                GroupBox("Uptime") {
+                                    Text("99.9%")
+                                        .font(.headline)
+                                        .foregroundColor(.green)
+                                }
+                                .frame(width: 132, height: 78)
+                                GroupBox("Regions") {
+                                    Text("3")
+                                        .font(.title2.weight(.semibold))
+                                        .foregroundColor(.orange)
+                                }
+                                .frame(width: 132, height: 78)
+                            }
+                        }
+                    }
+                    .padding(14)
+                    .frame(width: 310, height: 214, alignment: .leading)
+                ),
+                size: IntSize(width: 340, height: 240)),
+            GallerySpec(
+                id: "tab-view", title: "Tabbed Workspace",
+                view: AnyView(
+                    TabView(selection: .constant(0)) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("Overview", systemImage: "chart.bar")
+                                .font(.headline)
+                            Text("Your workspace is healthy and up to date.")
+                                .font(.body)
+                                .foregroundColor(.secondary)
+                            ProgressView("Weekly goal", value: 0.76)
+                            Button("View report") {}
+                                .buttonStyle(BorderedProminentButtonStyle())
+                                .frame(width: 124, height: 32)
+                        }
+                        .padding(16)
+                        .tabItem {
+                            Label("Overview", systemImage: "house")
+                        }
+                        .tag(0)
+                        Text("Recent activity")
+                            .tabItem {
+                                Label("Activity", systemImage: "waveform.path.ecg")
+                            }
+                            .tag(1)
+                        Text("Workspace settings")
+                            .tabItem {
+                                Label("Settings", systemImage: "gearshape")
+                            }
+                            .tag(2)
+                    }
+                    .frame(width: 332, height: 220)
+                ),
+                size: IntSize(width: 360, height: 250)),
+            GallerySpec(
+                id: "canvas-sparkline", title: "Canvas · Gradient Area Chart",
+                view: AnyView(
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("REQUESTS")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundColor(.secondary)
+                                Text("24,680")
+                                    .font(.title2.weight(.semibold))
+                            }
+                            Spacer()
+                            Text("+18.4%")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.green)
+                        }
+                        Canvas { context, size in
+                            let samples: [Double] = [0.38, 0.43, 0.36, 0.58, 0.51, 0.73, 0.64, 0.88]
+                            let horizontalStep = size.width / Double(samples.count - 1)
+                            let chartBottom = size.height - 4
+                            var line = Path()
+                            var area = Path()
+                            for (index, value) in samples.enumerated() {
+                                let point = Point(
+                                    x: Double(index) * horizontalStep,
+                                    y: chartBottom - value * (size.height - 12)
+                                )
+                                if index == 0 {
+                                    line.moveTo(point)
+                                    area.moveTo(Point(x: 0, y: chartBottom))
+                                    area.lineTo(point)
+                                } else {
+                                    line.lineTo(point)
+                                    area.lineTo(point)
+                                }
+                            }
+                            area.lineTo(Point(x: size.width, y: chartBottom))
+                            area.close()
+                            context.fill(
+                                area,
+                                with: .linearGradient(
+                                    Gradient(colors: [Color.blue.opacity(0.36), Color.blue.opacity(0.03)]),
+                                    startPoint: CGPoint(x: 0, y: 6),
+                                    endPoint: CGPoint(x: 0, y: chartBottom)
+                                )
+                            )
+                            context.stroke(
+                                line,
+                                with: .color(.cyan),
+                                style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
+                            )
+                            let latest = Point(x: size.width - 4, y: chartBottom - 0.88 * (size.height - 12))
+                            context.fill(
+                                Path(ellipseIn: Rect(x: latest.x - 4, y: latest.y - 4, width: 8, height: 8)),
+                                with: .color(.cyan)
+                            )
+                        }
+                        .frame(width: 292, height: 110)
+                    }
+                    .padding(16)
+                    .frame(width: 324, height: 198, alignment: .leading)
+                ),
+                size: IntSize(width: 340, height: 220)),
+            GallerySpec(
+                id: "canvas-donut", title: "Canvas · Segmented Donut Chart",
+                view: AnyView(
+                    HStack(spacing: 18) {
+                        ZStack {
+                            Canvas { context, size in
+                                let center = Point(x: size.width / 2, y: size.height / 2)
+                                let radius = min(size.width, size.height) / 2 - 12
+                                let ring = Path(
+                                    ellipseIn: Rect(
+                                        x: center.x - radius,
+                                        y: center.y - radius,
+                                        width: radius * 2,
+                                        height: radius * 2
+                                    )
+                                )
+                                context.stroke(
+                                    ring,
+                                    with: .color(Color.white.opacity(0.10)),
+                                    style: StrokeStyle(lineWidth: 12)
+                                )
+
+                                let segments: [(Double, Double, Color)] = [
+                                    (-Double.pi / 2, -Double.pi / 2 + Double.pi * 1.04, .blue),
+                                    (-Double.pi / 2 + Double.pi * 1.10, Double.pi * 1.10, .mint),
+                                    (Double.pi * 1.16, Double.pi * 1.42, .purple),
+                                ]
+                                for (startAngle, endAngle, color) in segments {
+                                    var segment = Path()
+                                    segment.arc(
+                                        center: center,
+                                        radius: radius,
+                                        startAngle: startAngle,
+                                        endAngle: endAngle
+                                    )
+                                    context.stroke(
+                                        segment,
+                                        with: .color(color),
+                                        style: StrokeStyle(lineWidth: 12, lineCap: .round)
+                                    )
+                                }
+                            }
+                            .frame(width: 138, height: 138)
+                            VStack(spacing: 3) {
+                                Text("84%")
+                                    .font(.title2.weight(.semibold))
+                                Text("capacity")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("Compute", systemImage: "bolt.fill")
+                                .foregroundColor(.blue)
+                            Label("Storage", systemImage: "folder.fill")
+                                .foregroundColor(.mint)
+                            Label("Network", systemImage: "globe")
+                                .foregroundColor(.purple)
+                        }
+                        .font(.caption)
+                    }
+                    .padding(14)
+                    .frame(width: 302, height: 200)
+                ),
+                size: IntSize(width: 320, height: 240)),
+
             // MARK: Interaction states
             //
             // One control per family, its ramp walked idle → hover → pressed →
@@ -1025,6 +1533,14 @@ private let lightTierEntryIDs: [String] = [
     "list-data",
     "form-settings",
     "divider",
+    "typography-scale",
+    "semantic-labels",
+    "group-box",
+    "disclosure-expanded",
+    "labeled-content",
+    "content-unavailable",
+    "dashboard-metrics",
+    "canvas-sparkline",
     "state-button-hover",
     "state-button-pressed",
     "state-button-focused",
@@ -1299,22 +1815,137 @@ private struct GalleryEntry {
 
 // MARK: - HTML Report
 
+private enum GalleryCategory: String, CaseIterable {
+    case components
+    case compositions
+    case typography
+    case layouts
+    case graphics
+    case interactions
+
+    var title: String {
+        switch self {
+        case .components: return "Components"
+        case .compositions: return "Compositions"
+        case .typography: return "Typography"
+        case .layouts: return "Layouts"
+        case .graphics: return "Graphics"
+        case .interactions: return "Interaction states"
+        }
+    }
+}
+
+private func galleryCategory(for entry: GalleryEntry) -> GalleryCategory {
+    let identifier =
+        entry.id.hasPrefix("light-")
+        ? String(entry.id.dropFirst("light-".count))
+        : entry.id
+
+    if identifier.hasPrefix("state-") {
+        return .interactions
+    }
+
+    let compositionIdentifiers: Set<String> = [
+        "controls-panel", "dashboard-metrics", "form-settings", "status-badges", "tinted-controls",
+    ]
+    if compositionIdentifiers.contains(identifier) {
+        return .compositions
+    }
+
+    let typographyIdentifiers: Set<String> = [
+        "semantic-labels", "symbol-palette", "text", "typography-scale",
+    ]
+    if typographyIdentifiers.contains(identifier) {
+        return .typography
+    }
+
+    let componentPrefixes = [
+        "button", "content-unavailable", "disclosure", "divider", "focus", "gauge", "group-box",
+        "labeled-content", "link", "menu", "picker", "progress", "secure-field", "slider", "stepper",
+        "text-field", "text-input", "toggle",
+    ]
+    if componentPrefixes.contains(where: { identifier.hasPrefix($0) }) {
+        return .components
+    }
+
+    let layoutPrefixes = [
+        "for-each", "form", "geometry", "grid", "group", "hstack", "if-else", "list", "navigation",
+        "scroll", "spacer", "tab", "vstack", "zstack",
+    ]
+    if layoutPrefixes.contains(where: { identifier.hasPrefix($0) }) {
+        return .layouts
+    }
+
+    return .graphics
+}
+
+/// Escapes every interpolated string before it reaches text or attribute HTML.
+/// The report is generated locally, but fixture titles still must not become
+/// executable markup if a future entry includes punctuation or user text.
+private func galleryEscapedHTML(_ value: String) -> String {
+    value
+        .replacingOccurrences(of: "&", with: "&amp;")
+        .replacingOccurrences(of: "<", with: "&lt;")
+        .replacingOccurrences(of: ">", with: "&gt;")
+        .replacingOccurrences(of: "\"", with: "&quot;")
+        .replacingOccurrences(of: "'", with: "&#39;")
+}
+
 private func writeGalleryHTML(entries: [GalleryEntry], to url: URL) throws {
+    let lightCount = entries.filter { $0.colorScheme == .light }.count
+    let stateCount = entries.filter { galleryCategory(for: $0) == .interactions }.count
+    let primitiveCount = entries.reduce(0) { $0 + $1.primitiveCount }
+
+    let categoryButtons = GalleryCategory.allCases.compactMap { category -> String? in
+        let count = entries.filter { galleryCategory(for: $0) == category }.count
+        guard count > 0 else { return nil }
+        return """
+            <button class="filter-chip" type="button" data-filter-kind="category" \
+            data-filter-value="\(category.rawValue)" aria-pressed="false">\
+            \(galleryEscapedHTML(category.title)) <span class="chip-count">\(count)</span></button>
+            """
+    }.joined(separator: "\n")
+
     let cards = entries.map { entry in
         // The wrapper carries the entry's own appearance: a light-tier PNG
         // reviewed inside a black tile reads as a rendering bug that is not
         // there, and hides the one that is.
         let wrapperClass = entry.colorScheme == .light ? "image-wrapper light" : "image-wrapper"
+        let appearance = entry.colorScheme == .light ? "light" : "dark"
+        let category = galleryCategory(for: entry)
+        let state = category == .interactions ? "interaction" : "reference"
+        let identifier = galleryEscapedHTML(entry.id)
+        let title = galleryEscapedHTML(entry.title)
+        let filename = galleryEscapedHTML(entry.filename)
+        let searchText = galleryEscapedHTML(
+            "\(entry.id) \(entry.title) \(category.title) \(appearance)".lowercased()
+        )
         return """
-            <div class="card">
-                <div class="\(wrapperClass)">
-                    <img src="\(entry.filename)" alt="\(entry.title)" width="\(entry.size.width)" height="\(entry.size.height)">
-                </div>
+            <article class="card" data-id="\(identifier)" data-category="\(category.rawValue)" \
+            data-appearance="\(appearance)" data-state="\(state)" \
+            data-primitives="\(entry.primitiveCount)" data-search="\(searchText)">
+                <a class="\(wrapperClass)" href="\(filename)" target="_blank" rel="noopener" \
+                aria-label="Open full-size snapshot for \(title)">
+                    <img src="\(filename)" alt="\(title)" width="\(entry.size.width)" \
+                    height="\(entry.size.height)" loading="lazy">
+                </a>
                 <div class="info">
-                    <div class="title">\(entry.title)</div>
-                    <div class="meta">\(entry.primitiveCount) primitives · \(entry.layerCount) layers</div>
+                    <div class="card-heading">
+                        <div>
+                            <div class="eyebrow">\(galleryEscapedHTML(category.title))</div>
+                            <div class="title">\(title)</div>
+                        </div>
+                        <span class="appearance-badge \(appearance)">\(appearance)</span>
+                    </div>
+                    <div class="fixture-row">
+                        <code class="fixture-id">\(identifier)</code>
+                        <button class="copy-button" type="button" data-copy="\(identifier)" \
+                        aria-label="Copy fixture identifier \(identifier)">Copy</button>
+                    </div>
+                    <div class="meta">\(entry.size.width) × \(entry.size.height) px \
+                    · \(entry.primitiveCount) primitives · \(entry.layerCount) layers</div>
                 </div>
-            </div>
+            </article>
             """
     }.joined(separator: "\n")
 
@@ -1323,66 +1954,396 @@ private func writeGalleryHTML(entries: [GalleryEntry], to url: URL) throws {
         <html lang="en">
         <head>
             <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <meta name="color-scheme" content="dark">
             <title>SwiftWindowsUI Gallery</title>
             <style>
+                :root {
+                    color-scheme: dark;
+                    --surface: #111820;
+                    --surface-raised: #17212c;
+                    --surface-muted: #0d141c;
+                    --border: rgba(171, 188, 208, 0.14);
+                    --text: #ecf2f8;
+                    --muted: #91a1b4;
+                    --accent: #7fd2c9;
+                }
+                * { box-sizing: border-box; }
                 body {
                     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                    margin: 24px;
-                    background: #0f1419;
-                    color: #e6edf3;
+                    margin: 0;
+                    background:
+                        radial-gradient(ellipse at 8% 0%, rgba(74, 155, 145, 0.12), transparent 32%),
+                        radial-gradient(ellipse at 95% 12%, rgba(90, 114, 174, 0.1), transparent 28%),
+                        #0a1017;
+                    color: var(--text);
+                    min-height: 100vh;
                 }
-                h1 { font-size: 22px; margin-bottom: 6px; }
-                .subtitle { color: #8b949e; font-size: 13px; margin-bottom: 24px; }
+                button, input { font: inherit; }
+                button:focus-visible, input:focus-visible, a:focus-visible {
+                    outline: 2px solid var(--accent);
+                    outline-offset: 3px;
+                }
+                .shell { width: min(1600px, calc(100% - 56px)); margin: 0 auto; }
+                .hero { padding: 64px 0 34px; }
+                .kicker, .eyebrow {
+                    color: var(--accent);
+                    font-size: 11px;
+                    font-weight: 650;
+                    letter-spacing: 0.09em;
+                    text-transform: uppercase;
+                }
+                h1 {
+                    font-size: clamp(34px, 5vw, 54px);
+                    letter-spacing: -0.055em;
+                    line-height: 1.03;
+                    margin: 13px 0 12px;
+                }
+                .subtitle {
+                    color: var(--muted);
+                    font-size: 15px;
+                    line-height: 1.65;
+                    margin: 0;
+                    max-width: 670px;
+                }
+                .statistics {
+                    display: grid;
+                    gap: 12px;
+                    grid-template-columns: repeat(4, minmax(0, 1fr));
+                    margin-top: 29px;
+                    max-width: 800px;
+                }
+                .stat {
+                    background: rgba(17, 24, 32, 0.82);
+                    border: 1px solid var(--border);
+                    border-radius: 13px;
+                    padding: 14px 15px;
+                }
+                .stat-value { font-size: 22px; font-weight: 650; letter-spacing: -0.035em; }
+                .stat-label { color: var(--muted); font-size: 11px; margin-top: 4px; }
+                .toolbar {
+                    background: rgba(10, 16, 23, 0.91);
+                    border-bottom: 1px solid var(--border);
+                    margin-bottom: 24px;
+                    padding: 16px 0 18px;
+                    position: sticky;
+                    top: 0;
+                    z-index: 2;
+                }
+                @supports (backdrop-filter: blur(16px)) {
+                    .toolbar { backdrop-filter: blur(16px); }
+                }
+                .toolbar-top, .filter-row, .filter-group {
+                    align-items: center;
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 10px;
+                }
+                .toolbar-top { justify-content: space-between; }
+                .search-wrap { flex: 1 1 280px; max-width: 460px; position: relative; }
+                .search {
+                    background: var(--surface);
+                    border: 1px solid var(--border);
+                    border-radius: 10px;
+                    color: var(--text);
+                    font-size: 13px;
+                    height: 42px;
+                    padding: 0 45px 0 14px;
+                    width: 100%;
+                }
+                .search::placeholder { color: var(--muted); }
+                kbd {
+                    background: var(--surface-raised);
+                    border: 1px solid var(--border);
+                    border-radius: 5px;
+                    color: var(--muted);
+                    font-size: 11px;
+                    padding: 2px 6px;
+                    position: absolute;
+                    right: 13px;
+                    top: 11px;
+                }
+                .filter-row { gap: 8px; margin-top: 13px; }
+                .filter-label {
+                    color: var(--muted);
+                    font-size: 11px;
+                    letter-spacing: 0.04em;
+                    margin-right: 2px;
+                }
+                .filter-chip {
+                    background: transparent;
+                    border: 1px solid var(--border);
+                    border-radius: 999px;
+                    color: var(--muted);
+                    cursor: pointer;
+                    font-size: 12px;
+                    padding: 7px 11px;
+                }
+                .filter-chip:hover { background: var(--surface-raised); color: var(--text); }
+                .filter-chip[aria-pressed="true"] {
+                    background: rgba(127, 210, 201, 0.12);
+                    border-color: rgba(127, 210, 201, 0.32);
+                    color: var(--accent);
+                }
+                .chip-count { color: var(--muted); font-size: 10px; margin-left: 3px; }
+                .filter-divider { background: var(--border); height: 20px; margin: 0 3px; width: 1px; }
+                .results-summary { color: var(--muted); font-size: 12px; }
+                .results-summary strong { color: var(--text); }
                 .grid {
                     display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-                    gap: 16px;
+                    gap: 18px;
+                    grid-template-columns: repeat(auto-fill, minmax(min(100%, 315px), 1fr));
+                    padding-bottom: 60px;
                 }
                 .card {
-                    background: #161b22;
-                    border: 1px solid #30363d;
-                    border-radius: 8px;
+                    background: var(--surface);
+                    border: 1px solid var(--border);
+                    border-radius: 14px;
                     overflow: hidden;
+                    transition: border-color 160ms ease, transform 160ms ease;
                 }
+                .card:hover { border-color: rgba(127, 210, 201, 0.38); transform: translateY(-2px); }
+                .card[hidden] { display: none; }
                 .image-wrapper {
                     background: #000;
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    padding: 8px;
+                    min-height: 230px;
+                    padding: 15px;
+                    text-decoration: none;
                 }
                 .image-wrapper.light { background: #ececec; }
                 .image-wrapper.light img { border-color: #c8c8c8; }
                 img {
+                    border: 1px solid rgba(171, 188, 208, 0.18);
+                    border-radius: 5px;
                     display: block;
-                    max-width: 100%;
                     height: auto;
-                    border-radius: 4px;
-                    border: 1px solid #30363d;
-                    image-rendering: pixelated;
+                    max-height: 280px;
+                    max-width: 100%;
+                    object-fit: contain;
                 }
                 .info {
-                    padding: 10px 12px;
-                    border-top: 1px solid #30363d;
+                    border-top: 1px solid var(--border);
+                    padding: 15px 15px 13px;
                 }
+                .card-heading { align-items: flex-start; display: flex; justify-content: space-between; }
+                .eyebrow { font-size: 9px; margin-bottom: 6px; }
                 .title {
-                    font-size: 13px;
+                    font-size: 14px;
                     font-weight: 600;
-                    margin-bottom: 4px;
+                    line-height: 1.35;
                 }
+                .appearance-badge {
+                    border: 1px solid var(--border);
+                    border-radius: 999px;
+                    color: var(--muted);
+                    font-size: 10px;
+                    padding: 4px 8px;
+                    white-space: nowrap;
+                }
+                .appearance-badge.light { color: #f1c97c; }
+                .fixture-row {
+                    align-items: center;
+                    display: flex;
+                    gap: 8px;
+                    justify-content: space-between;
+                    margin-top: 13px;
+                }
+                .fixture-id, .meta {
+                    font-family: ui-monospace, SFMono-Regular, "Cascadia Code", monospace;
+                }
+                .fixture-id { color: #b9cad8; font-size: 10px; overflow-wrap: anywhere; }
+                .copy-button {
+                    background: transparent;
+                    border: 1px solid var(--border);
+                    border-radius: 6px;
+                    color: var(--muted);
+                    cursor: pointer;
+                    flex-shrink: 0;
+                    font-size: 10px;
+                    padding: 4px 7px;
+                }
+                .copy-button:hover { border-color: rgba(127, 210, 201, 0.4); color: var(--accent); }
+                .copy-button.copied { color: var(--accent); }
                 .meta {
-                    font-size: 11px;
-                    color: #8b949e;
-                    font-family: ui-monospace, SFMono-Regular, monospace;
+                    color: var(--muted);
+                    font-size: 10px;
+                    line-height: 1.5;
+                    margin-top: 11px;
+                }
+                .empty-state {
+                    border: 1px dashed var(--border);
+                    border-radius: 14px;
+                    color: var(--muted);
+                    padding: 56px 22px;
+                    text-align: center;
+                }
+                .empty-state[hidden] { display: none; }
+                @media (max-width: 720px) {
+                    .shell { width: calc(100% - 32px); }
+                    .hero { padding-top: 42px; }
+                    .statistics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+                    .toolbar { position: static; }
+                    .toolbar-top { align-items: stretch; }
+                    .search-wrap { max-width: none; }
+                    .filter-divider { display: none; }
+                }
+                @media (prefers-reduced-motion: reduce) {
+                    *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
                 }
             </style>
         </head>
         <body>
-            <h1>SwiftWindowsUI Gallery</h1>
-            <div class="subtitle">\(entries.count) snapshots &middot; dark and light appearances &middot; raw-scene backend &middot; shapes, effects, and real controls</div>
-            <div class="grid">
-                \(cards)
-            </div>
+            <header class="shell hero">
+                <div class="kicker">SwiftWindowsUI / Visual laboratory</div>
+                <h1>The component gallery.</h1>
+                <p class="subtitle">Real retained-runtime snapshots across controls, layouts, graphics, \
+                interaction states, and complete compositions. Every image is captured directly from the \
+                renderer-neutral scene.</p>
+                <div class="statistics" aria-label="Gallery statistics">
+                    <div class="stat"><div class="stat-value">\(entries.count)</div>\
+                    <div class="stat-label">Visual fixtures</div></div>
+                    <div class="stat"><div class="stat-value">\(lightCount)</div>\
+                    <div class="stat-label">Light appearances</div></div>
+                    <div class="stat"><div class="stat-value">\(stateCount)</div>\
+                    <div class="stat-label">Interaction states</div></div>
+                    <div class="stat"><div class="stat-value">\(primitiveCount)</div>\
+                    <div class="stat-label">Scene primitives</div></div>
+                </div>
+            </header>
+            <section class="toolbar" aria-label="Gallery filters">
+                <div class="shell">
+                    <div class="toolbar-top">
+                        <label class="search-wrap">
+                            <input class="search" id="gallery-search" type="search" \
+                            placeholder="Search components, identifiers, or categories" \
+                            aria-label="Search visual fixtures" autocomplete="off">
+                            <kbd aria-hidden="true">/</kbd>
+                        </label>
+                        <div class="results-summary" id="results-summary" aria-live="polite">\
+                        <strong>\(entries.count)</strong> fixtures visible</div>
+                    </div>
+                    <div class="filter-row" aria-label="Appearance and state filters">
+                        <span class="filter-label">Appearance</span>
+                        <button class="filter-chip" type="button" data-filter-kind="appearance" \
+                        data-filter-value="all" aria-pressed="true">All</button>
+                        <button class="filter-chip" type="button" data-filter-kind="appearance" \
+                        data-filter-value="dark" aria-pressed="false">Dark</button>
+                        <button class="filter-chip" type="button" data-filter-kind="appearance" \
+                        data-filter-value="light" aria-pressed="false">Light</button>
+                        <span class="filter-divider" aria-hidden="true"></span>
+                        <span class="filter-label">Capture</span>
+                        <button class="filter-chip" type="button" data-filter-kind="state" \
+                        data-filter-value="all" aria-pressed="true">All</button>
+                        <button class="filter-chip" type="button" data-filter-kind="state" \
+                        data-filter-value="reference" aria-pressed="false">Reference</button>
+                        <button class="filter-chip" type="button" data-filter-kind="state" \
+                        data-filter-value="interaction" aria-pressed="false">Interactive</button>
+                    </div>
+                    <div class="filter-row" aria-label="Component category filters">
+                        <span class="filter-label">Category</span>
+                        <button class="filter-chip" type="button" data-filter-kind="category" \
+                        data-filter-value="all" aria-pressed="true">Everything</button>
+                        \(categoryButtons)
+                    </div>
+                </div>
+            </section>
+            <main class="shell">
+                <div class="grid" id="gallery-grid">
+                    \(cards)
+                </div>
+                <div class="empty-state" id="empty-state" hidden>No fixtures match these filters. \
+                Clear the search or choose another appearance.</div>
+            </main>
+            <script>
+                (() => {
+                    "use strict";
+                    const search = document.getElementById("gallery-search");
+                    const summary = document.getElementById("results-summary");
+                    const empty = document.getElementById("empty-state");
+                    const cards = Array.from(document.querySelectorAll(".card"));
+                    const filters = { appearance: "all", category: "all", state: "all" };
+
+                    function updateResults() {
+                        const query = search.value.trim().toLowerCase();
+                        let visible = 0;
+                        let primitives = 0;
+                        for (const card of cards) {
+                            const matches =
+                                (!query || card.dataset.search.includes(query)) &&
+                                (filters.appearance === "all" || card.dataset.appearance === filters.appearance) &&
+                                (filters.category === "all" || card.dataset.category === filters.category) &&
+                                (filters.state === "all" || card.dataset.state === filters.state);
+                            card.hidden = !matches;
+                            if (matches) {
+                                visible += 1;
+                                primitives += Number(card.dataset.primitives || 0);
+                            }
+                        }
+                        summary.replaceChildren();
+                        const count = document.createElement("strong");
+                        count.textContent = String(visible);
+                        summary.append(count, ` fixtures visible · ${primitives} primitives`);
+                        empty.hidden = visible !== 0;
+                    }
+
+                    document.addEventListener("click", async (event) => {
+                        const filter = event.target.closest("[data-filter-kind]");
+                        if (filter) {
+                            const kind = filter.dataset.filterKind;
+                            filters[kind] = filter.dataset.filterValue;
+                            for (const candidate of document.querySelectorAll("[data-filter-kind]")) {
+                                if (candidate.dataset.filterKind === kind) {
+                                    candidate.setAttribute("aria-pressed", String(candidate === filter));
+                                }
+                            }
+                            updateResults();
+                            return;
+                        }
+
+                        const copy = event.target.closest("[data-copy]");
+                        if (!copy) return;
+                        try {
+                            if (navigator.clipboard && window.isSecureContext) {
+                                await navigator.clipboard.writeText(copy.dataset.copy);
+                            } else {
+                                const selection = document.createElement("textarea");
+                                selection.value = copy.dataset.copy;
+                                selection.style.position = "fixed";
+                                selection.style.opacity = "0";
+                                document.body.append(selection);
+                                selection.select();
+                                const copied = document.execCommand("copy");
+                                selection.remove();
+                                if (!copied) throw new Error("Clipboard unavailable");
+                            }
+                            copy.textContent = "Copied";
+                            copy.classList.add("copied");
+                            window.setTimeout(() => {
+                                copy.textContent = "Copy";
+                                copy.classList.remove("copied");
+                            }, 1200);
+                        } catch {
+                            copy.textContent = "Unavailable";
+                        }
+                    });
+
+                    search.addEventListener("input", updateResults);
+                    document.addEventListener("keydown", (event) => {
+                        const editing = /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName);
+                        if (event.key === "/" && !editing) {
+                            event.preventDefault();
+                            search.focus();
+                        } else if (event.key === "Escape" && document.activeElement === search) {
+                            search.value = "";
+                            updateResults();
+                            search.blur();
+                        }
+                    });
+                })();
+            </script>
         </body>
         </html>
         """

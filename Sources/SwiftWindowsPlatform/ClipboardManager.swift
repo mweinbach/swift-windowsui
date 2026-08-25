@@ -91,16 +91,76 @@ public final class Win32ClipboardFileStore: ClipboardFileStore {
     }
 }
 
+/// Live Win32 Unicode-text clipboard store.
+///
+/// Kept separate from ``Win32ClipboardFileStore`` so callers can replace the
+/// platform's text and file-list services independently without changing the
+/// high-level clipboard API.
+public final class Win32ClipboardTextStore: ClipboardTextStore {
+    public init() {}
+
+    public var hasText: Bool {
+        IsClipboardFormatAvailable(UINT(CF_UNICODETEXT))
+    }
+
+    public func copyString(_ text: String) {
+        guard OpenClipboard(nil) else { return }
+        defer { CloseClipboard() }
+        EmptyClipboard()
+
+        let utf16 = text.utf16
+        let byteCount = (utf16.count + 1) * MemoryLayout<UTF16.CodeUnit>.size
+        guard let hGlobal = GlobalAlloc(UINT(GMEM_MOVEABLE), SIZE_T(byteCount)) else { return }
+        guard let ptr = GlobalLock(hGlobal) else {
+            GlobalFree(hGlobal)
+            return
+        }
+        defer { GlobalUnlock(hGlobal) }
+
+        let buffer = ptr.bindMemory(to: UTF16.CodeUnit.self, capacity: utf16.count + 1)
+        for (index, codeUnit) in utf16.enumerated() {
+            buffer[index] = codeUnit
+        }
+        buffer[utf16.count] = 0
+
+        _ = SetClipboardData(UINT(CF_UNICODETEXT), hGlobal)
+    }
+
+    public func pasteString() -> String? {
+        guard OpenClipboard(nil) else { return nil }
+        defer { CloseClipboard() }
+
+        guard let hGlobal = GetClipboardData(UINT(CF_UNICODETEXT)) else { return nil }
+        guard let ptr = GlobalLock(hGlobal) else { return nil }
+        defer { GlobalUnlock(hGlobal) }
+
+        // The clipboard block belongs to another process and may lack a null
+        // terminator, so the decode is bounded by the allocation size rather
+        // than scanning for a terminator blindly.
+        let unitCount = Int(GlobalSize(hGlobal)) / MemoryLayout<UTF16.CodeUnit>.size
+        let units = UnsafeBufferPointer(
+            start: ptr.assumingMemoryBound(to: UTF16.CodeUnit.self),
+            count: unitCount
+        )
+        return ClipboardManager.decodeNullTerminatedUTF16(units)
+    }
+}
+
 @MainActor
 public enum ClipboardManager {
+    /// Plain-text clipboard backend. Defaults to the real Win32 Unicode
+    /// clipboard; other platform hosts and headless tests can inject their
+    /// own ``ClipboardTextStore`` without touching the system clipboard.
+    public static var textStore: any ClipboardTextStore = Win32ClipboardTextStore()
+
     /// File-list clipboard backend. Defaults to the real Win32 `CF_HDROP`
     /// store; tests inject a fake `ClipboardFileStore` and restore this
-    /// afterwards. The plain-text path above does not go through this seam.
+    /// afterwards. File and text providers are independently replaceable.
     public static var fileStore: any ClipboardFileStore = Win32ClipboardFileStore()
 
     /// `true` when the clipboard currently carries Unicode text. Read-only.
     public static var hasText: Bool {
-        IsClipboardFormatAvailable(UINT(CF_UNICODETEXT))
+        textStore.hasText
     }
 
     /// `true` when the clipboard currently carries a file list (`CF_HDROP`).
@@ -125,45 +185,11 @@ public enum ClipboardManager {
     }
 
     public static func copyString(_ text: String) {
-        guard OpenClipboard(nil) else { return }
-        defer { CloseClipboard() }
-        EmptyClipboard()
-
-        let utf16 = text.utf16
-        let byteCount = (utf16.count + 1) * MemoryLayout<UTF16.CodeUnit>.size
-        guard let hGlobal = GlobalAlloc(UINT(GMEM_MOVEABLE), SIZE_T(byteCount)) else { return }
-        guard let ptr = GlobalLock(hGlobal) else {
-            GlobalFree(hGlobal)
-            return
-        }
-        defer { GlobalUnlock(hGlobal) }
-
-        let buffer = ptr.bindMemory(to: UTF16.CodeUnit.self, capacity: utf16.count + 1)
-        for (index, codeUnit) in utf16.enumerated() {
-            buffer[index] = codeUnit
-        }
-        buffer[utf16.count] = 0
-
-        _ = SetClipboardData(UINT(CF_UNICODETEXT), hGlobal)
+        textStore.copyString(text)
     }
 
     public static func pasteString() -> String? {
-        guard OpenClipboard(nil) else { return nil }
-        defer { CloseClipboard() }
-
-        guard let hGlobal = GetClipboardData(UINT(CF_UNICODETEXT)) else { return nil }
-        guard let ptr = GlobalLock(hGlobal) else { return nil }
-        defer { GlobalUnlock(hGlobal) }
-
-        // The clipboard block belongs to another process and may lack a null
-        // terminator, so the decode is bounded by the allocation size rather
-        // than scanning for a terminator blindly.
-        let unitCount = Int(GlobalSize(hGlobal)) / MemoryLayout<UTF16.CodeUnit>.size
-        let units = UnsafeBufferPointer(
-            start: ptr.assumingMemoryBound(to: UTF16.CodeUnit.self),
-            count: unitCount
-        )
-        return decodeNullTerminatedUTF16(units)
+        textStore.pasteString()
     }
 
     /// Decodes UTF-16 code units up to the first null, tolerating a missing

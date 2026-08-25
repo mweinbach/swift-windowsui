@@ -7,6 +7,25 @@ import XCTest
 @testable import WinSwiftUI
 
 final class WinSwiftUIButtonActionTests: XCTestCase {
+    @MainActor
+    private final class InMemoryClipboardTextStore: ClipboardTextStore {
+        private(set) var text: String?
+        private(set) var copyCallCount = 0
+
+        var hasText: Bool {
+            text != nil
+        }
+
+        func copyString(_ text: String) {
+            copyCallCount += 1
+            self.text = text
+        }
+
+        func pasteString() -> String? {
+            text
+        }
+    }
+
     func testImportButtonRendersAsButtonWithDefaultLabel() async {
         await MainActor.run {
             let button = ImportButton(supportedContentTypes: [UTType.plainText]) { _ in }
@@ -68,6 +87,11 @@ final class WinSwiftUIButtonActionTests: XCTestCase {
 
     func testExportButtonCopiesItemsToClipboardOnActivate() async {
         await MainActor.run {
+            let clipboard = InMemoryClipboardTextStore()
+            let originalClipboard = ClipboardManager.textStore
+            ClipboardManager.textStore = clipboard
+            defer { ClipboardManager.textStore = originalClipboard }
+
             let button = ExportButton(item: "clipboard test")
             let context = ViewBuildContext(
                 canvasSizeProvider: { Size(width: 200, height: 400) },
@@ -79,6 +103,7 @@ final class WinSwiftUIButtonActionTests: XCTestCase {
             node.onActivate?()
             let pasted = ClipboardManager.pasteItems(for: [UTType.plainText])
             XCTAssertTrue(pasted.contains(where: { ($0 as? String) == "clipboard test" }))
+            XCTAssertEqual(clipboard.copyCallCount, 1)
         }
     }
 }

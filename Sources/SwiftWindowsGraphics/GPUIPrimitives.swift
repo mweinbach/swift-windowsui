@@ -481,13 +481,52 @@ public struct ShadowPrimitive: Equatable, Sendable {
 
 // MARK: - Path Primitive
 
+/// The original coordinate frame of a path gradient, carried along with the
+/// path rather than reconstructed from its current axis-aligned bounds.
+///
+/// Reconstructing the endpoints after a rotation would leave the colour ramp
+/// upright while the covered shape turns. Keeping the two basis endpoints also
+/// lets a clipped D3D11 path-cache window sample the same portion of the ramp
+/// as a full CPU raster.
+struct PathGradientSpace: Equatable, Sendable {
+    var origin: Point
+    var horizontalEnd: Point
+    var verticalEnd: Point
+
+    init(bounds: Rect) {
+        origin = bounds.origin
+        horizontalEnd = Point(x: bounds.maxX, y: bounds.minY)
+        verticalEnd = Point(x: bounds.minX, y: bounds.maxY)
+    }
+
+    init(origin: Point, horizontalEnd: Point, verticalEnd: Point) {
+        self.origin = origin
+        self.horizontalEnd = horizontalEnd
+        self.verticalEnd = verticalEnd
+    }
+
+    func mapped(_ transform: (Point) -> Point) -> PathGradientSpace {
+        PathGradientSpace(
+            origin: transform(origin),
+            horizontalEnd: transform(horizontalEnd),
+            verticalEnd: transform(verticalEnd))
+    }
+}
+
 /// A CPU-rasterized path with fill and/or stroke. Not designed for D3D11
 /// structured buffers; the D3D11 backend tessellates or skips paths.
 public struct PathPrimitive: Equatable, Sendable {
     public var elements: [PathElement]
     public var bounds: Rect
     public var fillColor: Color
+    /// Optional piecewise-linear fill sampled across the path's original
+    /// bounds. Its stops supersede `fillColor`, which remains the frame-path
+    /// fallback and preserves compatibility with existing producers.
+    public var fillGradient: LinearGradient?
     public var strokeColor: Color
+    /// Optional piecewise-linear stroke sampled in the same coordinate frame
+    /// as `fillGradient` rather than separately for each flattened segment.
+    public var strokeGradient: LinearGradient?
     public var lineWidth: Double
     /// How the stroke ends an *open* subpath, how it turns a corner, and how
     /// long a miter may get before it degrades to a bevel.
@@ -513,11 +552,17 @@ public struct PathPrimitive: Equatable, Sendable {
     /// `scaled(by:)`.
     public var clipCornerRadius: Double
 
+    /// Internal because callers only author an axis-aligned `LinearGradient`;
+    /// path placement owns the subsequent translation, scaling and rotation.
+    var gradientSpace: PathGradientSpace?
+
     public init(
         elements: [PathElement],
         bounds: Rect,
         fillColor: Color = .clear,
+        fillGradient: LinearGradient? = nil,
         strokeColor: Color = .clear,
+        strokeGradient: LinearGradient? = nil,
         lineWidth: Double = 0,
         lineCap: StrokeStyle.LineCap = .butt,
         lineJoin: StrokeStyle.LineJoin = .miter,
@@ -528,13 +573,23 @@ public struct PathPrimitive: Equatable, Sendable {
         self.elements = elements
         self.bounds = bounds
         self.fillColor = fillColor
+        self.fillGradient = fillGradient
         self.strokeColor = strokeColor
+        self.strokeGradient = strokeGradient
         self.lineWidth = lineWidth
         self.lineCap = lineCap
         self.lineJoin = lineJoin
         self.miterLimit = miterLimit
         self.clipBounds = clipBounds
         self.clipCornerRadius = clipCornerRadius
+        self.gradientSpace =
+            fillGradient != nil || strokeGradient != nil ? PathGradientSpace(bounds: bounds) : nil
+    }
+
+    /// Handles callers which assign a gradient after creating a solid path.
+    var resolvedGradientSpace: PathGradientSpace? {
+        guard fillGradient != nil || strokeGradient != nil else { return nil }
+        return gradientSpace ?? PathGradientSpace(bounds: bounds)
     }
 
     /// The stroke style this primitive carries, for callers that speak
@@ -574,9 +629,19 @@ public struct PathPrimitive: Equatable, Sendable {
         hasher.combine(Self.discriminator(lineJoin))
         hasher.combine(miterLimit)
         Self.combine(color: fillColor, into: &hasher)
+        Self.combine(gradient: fillGradient, into: &hasher)
         Self.combine(color: strokeColor, into: &hasher)
+        Self.combine(gradient: strokeGradient, into: &hasher)
         let originX = bounds.origin.x
         let originY = bounds.origin.y
+        if let gradientSpace = resolvedGradientSpace {
+            hasher.combine(true)
+            Self.combine(point: gradientSpace.origin, originX: originX, originY: originY, into: &hasher)
+            Self.combine(point: gradientSpace.horizontalEnd, originX: originX, originY: originY, into: &hasher)
+            Self.combine(point: gradientSpace.verticalEnd, originX: originX, originY: originY, into: &hasher)
+        } else {
+            hasher.combine(false)
+        }
         for element in elements {
             Self.combine(element: element, originX: originX, originY: originY, into: &hasher)
         }
@@ -597,12 +662,25 @@ public struct PathPrimitive: Equatable, Sendable {
             lineJoin == other.lineJoin,
             miterLimit == other.miterLimit,
             fillColor == other.fillColor,
+            fillGradient == other.fillGradient,
             strokeColor == other.strokeColor,
+            strokeGradient == other.strokeGradient,
             bounds.size.width == other.bounds.size.width,
             bounds.size.height == other.bounds.size.height,
             bounds.origin.x == other.bounds.origin.x + offset.x,
             bounds.origin.y == other.bounds.origin.y + offset.y
         else { return false }
+        switch (resolvedGradientSpace, other.resolvedGradientSpace) {
+        case (let lhs?, let rhs?):
+            guard Self.matches(lhs.origin, rhs.origin, offset: offset),
+                Self.matches(lhs.horizontalEnd, rhs.horizontalEnd, offset: offset),
+                Self.matches(lhs.verticalEnd, rhs.verticalEnd, offset: offset)
+            else { return false }
+        case (nil, nil):
+            break
+        default:
+            return false
+        }
         for index in elements.indices {
             guard Self.matches(elements[index], other.elements[index], offset: offset) else {
                 return false
@@ -632,6 +710,28 @@ public struct PathPrimitive: Equatable, Sendable {
         hasher.combine(color.green)
         hasher.combine(color.blue)
         hasher.combine(color.alpha)
+    }
+
+    private static func combine(gradient: LinearGradient?, into hasher: inout Hasher) {
+        guard let gradient else {
+            hasher.combine(false)
+            return
+        }
+        hasher.combine(true)
+        hasher.combine(gradient.axis == .horizontal)
+        hasher.combine(gradient.reversesAuthoredStops)
+        hasher.combine(gradient.stops.count)
+        for stop in gradient.stops {
+            hasher.combine(stop.position)
+            combine(color: stop.color, into: &hasher)
+        }
+    }
+
+    private static func combine(
+        point: Point, originX: Double, originY: Double, into hasher: inout Hasher
+    ) {
+        hasher.combine(point.x - originX)
+        hasher.combine(point.y - originY)
     }
 
     private static func combine(
@@ -671,7 +771,7 @@ public struct PathPrimitive: Equatable, Sendable {
 
     private static func matches(_ lhs: PathElement, _ rhs: PathElement, offset: Point) -> Bool {
         func same(_ shifted: Point, _ unshifted: Point) -> Bool {
-            shifted.x == unshifted.x + offset.x && shifted.y == unshifted.y + offset.y
+            Self.matches(shifted, unshifted, offset: offset)
         }
         switch (lhs, rhs) {
         case (.moveTo(let a), .moveTo(let b)):
@@ -692,6 +792,10 @@ public struct PathPrimitive: Equatable, Sendable {
         default:
             return false
         }
+    }
+
+    private static func matches(_ lhs: Point, _ rhs: Point, offset: Point) -> Bool {
+        lhs.x == rhs.x + offset.x && lhs.y == rhs.y + offset.y
     }
 
     public var contentMask: GPUIContentMask {
@@ -777,11 +881,13 @@ public struct PathPrimitive: Equatable, Sendable {
             )
         }
 
-        return PathPrimitive(
+        var result = PathPrimitive(
             elements: translatedElements,
             bounds: translatedBounds,
             fillColor: fillColor,
+            fillGradient: fillGradient,
             strokeColor: strokeColor,
+            strokeGradient: strokeGradient,
             lineWidth: lineWidth,
             lineCap: lineCap,
             lineJoin: lineJoin,
@@ -789,6 +895,10 @@ public struct PathPrimitive: Equatable, Sendable {
             clipBounds: translatedClip,
             clipCornerRadius: clipCornerRadius
         )
+        result.gradientSpace = resolvedGradientSpace?.mapped {
+            Point(x: $0.x + offset.x, y: $0.y + offset.y)
+        }
+        return result
     }
 
     /// Returns a new path with every coordinate — elements, bounds, clip
@@ -828,11 +938,13 @@ public struct PathPrimitive: Equatable, Sendable {
             }
         }
 
-        return PathPrimitive(
+        var result = PathPrimitive(
             elements: scaledElements,
             bounds: bounds.scaled(by: factor),
             fillColor: fillColor,
+            fillGradient: fillGradient,
             strokeColor: strokeColor,
+            strokeGradient: strokeGradient,
             lineWidth: lineWidth * factor,
             lineCap: lineCap,
             lineJoin: lineJoin,
@@ -842,6 +954,8 @@ public struct PathPrimitive: Equatable, Sendable {
             clipBounds: clipBounds.map { $0.scaled(by: factor) },
             clipCornerRadius: clipCornerRadius * factor
         )
+        result.gradientSpace = resolvedGradientSpace?.mapped(scale)
+        return result
     }
 
     /// Returns a new path with every element turned by `radians` about
@@ -909,7 +1023,7 @@ public struct PathPrimitive: Equatable, Sendable {
         let halfWidth = (abs(cosR) * bounds.size.width + abs(sinR) * bounds.size.height) * 0.5
         let halfHeight = (abs(sinR) * bounds.size.width + abs(cosR) * bounds.size.height) * 0.5
 
-        return PathPrimitive(
+        var result = PathPrimitive(
             elements: turnedElements,
             bounds: Rect(
                 x: turnedCentre.x - halfWidth,
@@ -918,7 +1032,9 @@ public struct PathPrimitive: Equatable, Sendable {
                 height: halfHeight * 2
             ),
             fillColor: fillColor,
+            fillGradient: fillGradient,
             strokeColor: strokeColor,
+            strokeGradient: strokeGradient,
             lineWidth: lineWidth,
             lineCap: lineCap,
             lineJoin: lineJoin,
@@ -926,5 +1042,7 @@ public struct PathPrimitive: Equatable, Sendable {
             clipBounds: clipBounds,
             clipCornerRadius: clipCornerRadius
         )
+        result.gradientSpace = resolvedGradientSpace?.mapped(turn)
+        return result
     }
 }

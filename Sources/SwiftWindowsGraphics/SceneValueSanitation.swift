@@ -367,7 +367,92 @@ public enum GPUISceneSanitizer {
         result.clipCornerRadius = GPUISceneValue.clamped(
             path.clipCornerRadius.isFinite ? max(0, path.clipCornerRadius) : 0, to: Double(coordinateLimit))
         result.elements = clampedElements(path.elements)
+        result.fillGradient = path.fillGradient.map(sanitizedGradient)
+        result.strokeGradient = path.strokeGradient.map(sanitizedGradient)
+        result.gradientSpace = sanitizedGradientSpace(path.resolvedGradientSpace, fallbackBounds: result.bounds)
         return result
+    }
+
+    /// Path gradients run through the same scene boundary as their geometry.
+    /// A finite stop is clamped rather than discarded; non-finite positions
+    /// follow `LinearGradient.renderedSegments` and are ignored. Bounding the
+    /// authored list also bounds path-cache hashing and every raster lookup.
+    private static func sanitizedGradient(_ gradient: LinearGradient) -> LinearGradient {
+        let maximum = LinearGradient.maximumRenderedStops
+        let requiresSanitation =
+            gradient.stops.count > maximum
+            || gradient.stops.contains {
+                !$0.position.isFinite || $0.position < 0 || $0.position > 1
+                    || !gradientColorIsRepresentable($0.color)
+            }
+        guard requiresSanitation else { return gradient }
+
+        var result = gradient
+        let finiteCount = gradient.stops.reduce(into: 0) { count, stop in
+            if stop.position.isFinite { count += 1 }
+        }
+        var stops: [GradientStop] = []
+        stops.reserveCapacity(min(finiteCount, maximum))
+        var finiteIndex = 0
+        var nextSelectedIndex = 0
+
+        for stop in gradient.stops where stop.position.isFinite {
+            let shouldRetain: Bool
+            if finiteCount > maximum {
+                let selectedIndex = nextSelectedIndex * (finiteCount - 1) / (maximum - 1)
+                shouldRetain = finiteIndex == selectedIndex
+            } else {
+                shouldRetain = true
+            }
+            if shouldRetain {
+                stops.append(
+                    GradientStop(
+                        color: sanitizedGradientColor(stop.color),
+                        position: GPUISceneValue.clamped(stop.position, lower: 0, upper: 1)))
+                nextSelectedIndex += 1
+            }
+            finiteIndex += 1
+        }
+
+        if stops.isEmpty, let fallback = gradient.stops.first {
+            // `renderedSegments` uses the first authored colour when every
+            // position is invalid; sanitation must keep that visible fallback.
+            stops = [GradientStop(color: sanitizedGradientColor(fallback.color), position: 0)]
+        }
+
+        result.stops = stops
+        return result
+    }
+
+    private static func gradientColorIsRepresentable(_ color: Color) -> Bool {
+        color.red.isFinite && color.red >= 0 && color.red <= 1
+            && color.green.isFinite && color.green >= 0 && color.green <= 1
+            && color.blue.isFinite && color.blue >= 0 && color.blue <= 1
+            && color.alpha.isFinite && color.alpha >= 0 && color.alpha <= 1
+    }
+
+    private static func sanitizedGradientColor(_ color: Color) -> Color {
+        Color(
+            red: GPUISceneValue.clamped(color.red, lower: 0, upper: 1),
+            green: GPUISceneValue.clamped(color.green, lower: 0, upper: 1),
+            blue: GPUISceneValue.clamped(color.blue, lower: 0, upper: 1),
+            alpha: GPUISceneValue.clamped(color.alpha, lower: 0, upper: 1))
+    }
+
+    private static func sanitizedGradientSpace(
+        _ gradientSpace: PathGradientSpace?, fallbackBounds: Rect
+    ) -> PathGradientSpace? {
+        guard let gradientSpace else { return nil }
+        let points = [gradientSpace.origin, gradientSpace.horizontalEnd, gradientSpace.verticalEnd]
+        guard points.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else {
+            return PathGradientSpace(bounds: fallbackBounds)
+        }
+        let limit = Double(coordinateLimit)
+        return gradientSpace.mapped {
+            Point(
+                x: GPUISceneValue.clamped($0.x, to: limit),
+                y: GPUISceneValue.clamped($0.y, to: limit))
+        }
     }
 
     private static func clampedRect(_ rect: Rect) -> Rect {

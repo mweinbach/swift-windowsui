@@ -175,6 +175,73 @@ private func bilinearMix(
     return top + (bottom - top) * fractionY
 }
 
+/// A path-local colour ramp prepared once per fill/stroke rather than sorting
+/// authored stops again for every covered pixel.
+private struct RasterPathGradient {
+    private struct Segment {
+        var startColor: RasterColor
+        var endColor: RasterColor
+        var start: Float
+        var end: Float
+    }
+
+    private let segments: [Segment]
+    private let origin: Point
+    private let vectorX: Double
+    private let vectorY: Double
+    private let vectorLengthSquared: Double
+    let hasVisibleStops: Bool
+
+    init(_ gradient: LinearGradient, space: PathGradientSpace) {
+        segments = gradient.renderedSegments.map {
+            Segment(
+                startColor: RasterColor($0.startColor),
+                endColor: RasterColor($0.endColor),
+                start: $0.start,
+                end: $0.end)
+        }
+        hasVisibleStops = segments.contains { $0.startColor.alpha > 0 || $0.endColor.alpha > 0 }
+        origin = space.origin
+        let end = gradient.axis == .horizontal ? space.horizontalEnd : space.verticalEnd
+        vectorX = end.x - origin.x
+        vectorY = end.y - origin.y
+        vectorLengthSquared = vectorX * vectorX + vectorY * vectorY
+    }
+
+    func color(atPixelX x: Int, y: Int) -> RasterColor {
+        guard !segments.isEmpty else { return RasterColor(.clear) }
+
+        let progress: Float
+        if vectorLengthSquared > 0, vectorLengthSquared.isFinite {
+            let offsetX = Double(x) + 0.5 - origin.x
+            let offsetY = Double(y) + 0.5 - origin.y
+            let projection = (offsetX * vectorX + offsetY * vectorY) / vectorLengthSquared
+            progress = Float(clamp(projection, lower: 0, upper: 1))
+        } else {
+            progress = 0
+        }
+
+        // Intervals are half-open except for the final one. Choosing the next
+        // interval at its exact start preserves duplicate-position hard stops
+        // without blending two translucent colours over one another.
+        var low = 0
+        var high = segments.count - 1
+        while low < high {
+            let middle = low + (high - low) / 2
+            if progress < segments[middle].end {
+                high = middle
+            } else {
+                low = middle + 1
+            }
+        }
+
+        let segment = segments[low]
+        let length = segment.end - segment.start
+        let localProgress = length > 0 ? (progress - segment.start) / length : 0
+        return segment.startColor.interpolated(to: segment.endColor, progress: localProgress)
+    }
+}
+
 private struct RasterTarget {
     var width: Int
     var height: Int
@@ -759,15 +826,22 @@ private struct RasterTarget {
 
         let fillColor = RasterColor(path.fillColor)
         let strokeColor = RasterColor(path.strokeColor)
+        let gradientSpace = path.resolvedGradientSpace
+        let fillGradient = path.fillGradient.flatMap { gradient in
+            gradientSpace.map { RasterPathGradient(gradient, space: $0) }
+        }
+        let strokeGradient = path.strokeGradient.flatMap { gradient in
+            gradientSpace.map { RasterPathGradient(gradient, space: $0) }
+        }
         let flattened = FlattenedPath(path.elements)
 
-        if fillColor.alpha > 0 {
+        if fillGradient?.hasVisibleStops ?? (fillColor.alpha > 0) {
             var coverage = [Float](repeating: 0, count: bounds.width * bounds.height)
             PathCoverageRasterizer.accumulate(edges: flattened.fillEdges, bounds: bounds, into: &coverage)
-            blendCoverage(coverage, bounds: bounds, color: fillColor, clip: clip)
+            blendCoverage(coverage, bounds: bounds, color: fillColor, gradient: fillGradient, clip: clip)
         }
 
-        if strokeColor.alpha > 0, path.lineWidth > 0 {
+        if strokeGradient?.hasVisibleStops ?? (strokeColor.alpha > 0), path.lineWidth > 0 {
             var coverage = [Float](repeating: 0, count: bounds.width * bounds.height)
             PathCoverageRasterizer.accumulate(
                 edges: flattened.strokeOutlineEdges(
@@ -776,12 +850,13 @@ private struct RasterTarget {
                     lineJoin: path.lineJoin,
                     miterLimit: path.miterLimit),
                 bounds: bounds, into: &coverage)
-            blendCoverage(coverage, bounds: bounds, color: strokeColor, clip: clip)
+            blendCoverage(coverage, bounds: bounds, color: strokeColor, gradient: strokeGradient, clip: clip)
         }
     }
 
     private mutating func blendCoverage(
-        _ coverage: [Float], bounds: PixelBounds, color: RasterColor, clip: GPUIClipRegion
+        _ coverage: [Float], bounds: PixelBounds, color: RasterColor,
+        gradient: RasterPathGradient?, clip: GPUIClipRegion
     ) {
         for y in bounds.y0..<bounds.y1 {
             let rowOffset = (y - bounds.y0) * bounds.width
@@ -790,7 +865,8 @@ private struct RasterTarget {
                 guard value > 0 else { continue }
                 let clipAlpha = clip.alpha(atPixelX: x, y: y)
                 guard clipAlpha > 0 else { continue }
-                blend(color.withAlphaMultiplier(value * Float(clipAlpha)), x: x, y: y)
+                let pixelColor = gradient?.color(atPixelX: x, y: y) ?? color
+                blend(pixelColor.withAlphaMultiplier(value * Float(clipAlpha)), x: x, y: y)
             }
         }
     }

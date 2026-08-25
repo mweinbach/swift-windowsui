@@ -203,22 +203,59 @@ public enum ClipboardManager {
 
     public static func pasteItems(for types: [UTType]) -> [Any] {
         var results: [Any] = []
+        var cachedFileURLs: [URL]?
+        var deliveredURLIdentifiers = Set<String>()
+        var deliveredText = false
+
+        func fileURLsFromClipboard() -> [URL] {
+            if let cachedFileURLs {
+                return cachedFileURLs
+            }
+
+            let urls = pasteFileURLs()
+            cachedFileURLs = urls
+            return urls
+        }
+
+        func appendUniqueURLs(_ urls: [URL]) {
+            for url in urls where deliveredURLIdentifiers.insert(url.absoluteString).inserted {
+                results.append(url)
+            }
+        }
+
+        func appendClipboardText() {
+            guard !deliveredText, let text = pasteString(), !text.isEmpty else {
+                return
+            }
+
+            results.append(text)
+            deliveredText = true
+        }
+
         for type in types {
             switch type.identifier {
             case UTType.plainText.identifier, UTType.text.identifier, UTType.utf8PlainText.identifier:
-                if let text = pasteString(), !text.isEmpty {
-                    results.append(text)
+                appendClipboardText()
+            case UTType.fileURL.identifier:
+                let fileURLs = fileURLsFromClipboard()
+                if !fileURLs.isEmpty {
+                    appendUniqueURLs(fileURLs)
+                } else if let text = pasteString(), !text.isEmpty,
+                    let url = URL(string: text), url.isFileURL
+                {
+                    appendUniqueURLs([url])
                 }
-            case UTType.url.identifier, UTType.fileURL.identifier:
-                if let text = pasteString(), !text.isEmpty, let url = URL(string: text) {
-                    results.append(url)
+            case UTType.url.identifier:
+                let fileURLs = fileURLsFromClipboard()
+                if !fileURLs.isEmpty {
+                    appendUniqueURLs(fileURLs)
+                } else if let text = pasteString(), !text.isEmpty, let url = URL(string: text) {
+                    appendUniqueURLs([url])
                 }
             default:
-                if let text = pasteString(), !text.isEmpty {
-                    results.append(text)
-                }
+                appendClipboardText()
             }
         }
-        return results.isEmpty ? [] : results
+        return results
     }
 }

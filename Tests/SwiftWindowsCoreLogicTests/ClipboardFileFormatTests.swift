@@ -11,6 +11,7 @@ final class ClipboardFileFormatTests: XCTestCase {
     private final class FakeClipboardFileStore: ClipboardFileStore {
         private(set) var paths: [String] = []
         private(set) var copyCallCount = 0
+        private(set) var pasteCallCount = 0
 
         func containsFiles() -> Bool {
             !paths.isEmpty
@@ -22,8 +23,33 @@ final class ClipboardFileFormatTests: XCTestCase {
         }
 
         func pastedFiles() -> [String] {
-            paths
+            pasteCallCount += 1
+            return paths
         }
+    }
+
+    @MainActor
+    private static func withFakeFileStore(_ body: (FakeClipboardFileStore) -> Void) {
+        let fake = FakeClipboardFileStore()
+        let original = ClipboardManager.fileStore
+        ClipboardManager.fileStore = fake
+        defer { ClipboardManager.fileStore = original }
+        body(fake)
+    }
+
+    @MainActor
+    private static func firstActivatableNode(_ node: ViewNode) -> ViewNode? {
+        if node.onActivate != nil {
+            return node
+        }
+
+        for child in node.children {
+            if let match = firstActivatableNode(child) {
+                return match
+            }
+        }
+
+        return nil
     }
 
     func testCopyFileURLsRoundTripsThroughInjectedStore() async {
@@ -76,6 +102,110 @@ final class ClipboardFileFormatTests: XCTestCase {
         }
     }
 
+    func testPasteItemsReturnsEveryHDROPFileForFileURLRequests() async {
+        await MainActor.run {
+            Self.withFakeFileStore { fake in
+                let paths = [
+                    "C:\\data\\report.pdf",
+                    "D:\\photos\\image one.png",
+                    "C:\\data\\résumé-東京-🚀.txt",
+                ]
+                fake.copyFiles(paths)
+
+                let pasted = ClipboardManager.pasteItems(for: [.fileURL])
+                let urls = pasted.compactMap { $0 as? URL }
+
+                XCTAssertEqual(urls.count, paths.count)
+                XCTAssertEqual(urls.map(\.path), paths.map { URL(fileURLWithPath: $0).path })
+                XCTAssertTrue(urls.allSatisfy(\.isFileURL))
+                XCTAssertEqual(fake.pasteCallCount, 1)
+            }
+        }
+    }
+
+    func testPasteItemsAcceptsHDROPFilesForGeneralURLRequests() async {
+        await MainActor.run {
+            Self.withFakeFileStore { fake in
+                let paths = ["C:\\data\\first.txt", "C:\\data\\second.txt"]
+                fake.copyFiles(paths)
+
+                let urls = ClipboardManager.pasteItems(for: [.url]).compactMap { $0 as? URL }
+
+                XCTAssertEqual(urls.map(\.path), paths.map { URL(fileURLWithPath: $0).path })
+                XCTAssertEqual(fake.pasteCallCount, 1)
+            }
+        }
+    }
+
+    func testOverlappingURLTypesDoNotDuplicateFilesOrRereadTheClipboard() async {
+        await MainActor.run {
+            Self.withFakeFileStore { fake in
+                fake.copyFiles(["C:\\data\\first.txt", "C:\\data\\second.txt"])
+
+                let urls = ClipboardManager.pasteItems(for: [.fileURL, .url, .fileURL])
+                    .compactMap { $0 as? URL }
+
+                XCTAssertEqual(urls.count, 2)
+                XCTAssertEqual(fake.pasteCallCount, 1)
+            }
+        }
+    }
+
+    func testFileURLRequestsRejectNonFileURLText() async {
+        await MainActor.run {
+            Self.withFakeFileStore { _ in
+                ClipboardManager.copyString("https://example.com/report.pdf")
+                defer { ClipboardManager.copyString("") }
+
+                XCTAssertTrue(ClipboardManager.pasteItems(for: [.fileURL]).isEmpty)
+
+                let urls = ClipboardManager.pasteItems(for: [.url]).compactMap { $0 as? URL }
+                XCTAssertEqual(urls, [URL(string: "https://example.com/report.pdf")!])
+            }
+        }
+    }
+
+    func testOverlappingTextTypesDeliverOneClipboardPayload() async {
+        await MainActor.run {
+            ClipboardManager.copyString("one clipboard payload")
+            defer { ClipboardManager.copyString("") }
+
+            let text = ClipboardManager.pasteItems(for: [.text, .plainText, .utf8PlainText])
+                .compactMap { $0 as? String }
+
+            XCTAssertEqual(text, ["one clipboard payload"])
+        }
+    }
+
+    func testPasteButtonActivationDeliversCopiedFileReferences() async {
+        await MainActor.run {
+            Self.withFakeFileStore { fake in
+                let paths = ["C:\\data\\first.txt", "C:\\data\\second.txt"]
+                fake.copyFiles(paths)
+                var deliveredURLs: [URL] = []
+                let button = PasteButton(supportedContentTypes: [.fileURL]) { items in
+                    deliveredURLs = items.compactMap { $0 as? URL }
+                }
+                let context = ViewBuildContext(
+                    canvasSizeProvider: { Size(width: 200, height: 120) },
+                    invalidateHandler: {}
+                )
+                let runtime = RetainedViewRuntime(root: ViewNode())
+                let host = ComponentHost(runtime: runtime)
+                host.setContent(button.makeComponent(context: context))
+
+                guard let activatable = Self.firstActivatableNode(runtime.root) else {
+                    XCTFail("expected PasteButton to build an activatable node")
+                    return
+                }
+                activatable.onActivate?()
+
+                XCTAssertEqual(deliveredURLs.map(\.path), paths.map { URL(fileURLWithPath: $0).path })
+                XCTAssertEqual(fake.pasteCallCount, 1)
+            }
+        }
+    }
+
     func testWin32FileStoreRoundTripsHDROPOnRealClipboard() async {
         await MainActor.run {
             // Writes to the real OS clipboard (same precedent as the existing
@@ -92,6 +222,10 @@ final class ClipboardFileFormatTests: XCTestCase {
             XCTAssertTrue(store.containsFiles())
             XCTAssertTrue(ClipboardManager.hasFileURLs)
             XCTAssertEqual(store.pastedFiles(), paths)
+            XCTAssertEqual(
+                ClipboardManager.pasteItems(for: [.fileURL]).compactMap { $0 as? URL }.map(\.path),
+                paths.map { URL(fileURLWithPath: $0).path }
+            )
 
             // Restore a neutral clipboard state for subsequent tests.
             ClipboardManager.copyString("")

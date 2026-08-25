@@ -102,12 +102,18 @@ private struct DemoGalleryCardHeader: View {
 private struct DemoGalleryGradientCard: View {
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var model: DemoDashboardModel
-    @State private var colorsAreReversed = false
+    @ObservedObject var galleryState: DemoGalleryState
 
     let compact: Bool
 
     private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
     private var sampleWidth: CGFloat { compact ? 76 : 56 }
+
+    init(model: DemoDashboardModel, compact: Bool) {
+        self.model = model
+        self.compact = compact
+        self.galleryState = model.galleryState
+    }
 
     var body: some View {
         DemoCard(padding: DemoMetrics.s3) {
@@ -161,7 +167,7 @@ private struct DemoGalleryGradientCard: View {
 
                 DemoButton("Shuffle colors") {
                     withAnimation(model.animationsEnabled ? .easeInOut(duration: 0.3) : nil) {
-                        colorsAreReversed.toggle()
+                        galleryState.colorsAreReversed.toggle()
                     }
                     model.performAction("Shuffled gradient colors")
                 }
@@ -171,19 +177,19 @@ private struct DemoGalleryGradientCard: View {
     }
 
     private var primaryColors: [Color] {
-        colorsAreReversed
+        galleryState.colorsAreReversed
             ? [DemoSignature.layoutStop, palette.accentInk]
             : [palette.accentInk, DemoSignature.layoutStop]
     }
 
     private var radialColors: [Color] {
-        colorsAreReversed
+        galleryState.colorsAreReversed
             ? [DemoSignature.animationStop, palette.warning]
             : [palette.warning, DemoSignature.animationStop]
     }
 
     private var angularColors: [Color] {
-        colorsAreReversed
+        galleryState.colorsAreReversed
             ? [palette.accentInk, palette.success, DemoSignature.inputStop, palette.accentInk]
             : [palette.accentInk, DemoSignature.inputStop, palette.success, palette.accentInk]
     }
@@ -298,11 +304,17 @@ private struct DemoGalleryMaterialCard: View {
 private struct DemoGalleryMotionCard: View {
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var model: DemoDashboardModel
-    @State private var isExpanded = false
+    @ObservedObject var galleryState: DemoGalleryState
 
     let compact: Bool
 
     private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
+
+    init(model: DemoDashboardModel, compact: Bool) {
+        self.model = model
+        self.compact = compact
+        self.galleryState = model.galleryState
+    }
 
     var body: some View {
         DemoCard(padding: DemoMetrics.s3) {
@@ -318,16 +330,16 @@ private struct DemoGalleryMotionCard: View {
                         RoundedRectangle(cornerRadius: DemoMetrics.radiusMD)
                             .stroke(palette.strokeStrong, lineWidth: 1)
                             .frame(width: 48, height: 48)
-                            .rotationEffect(.degrees(isExpanded ? 18 : -12))
+                            .rotationEffect(.degrees(galleryState.isExpanded ? 18 : -12))
 
                         RoundedRectangle(cornerRadius: DemoMetrics.radiusSM)
                             .fill(palette.accentInk)
                             .frame(width: 28, height: 28)
-                            .rotationEffect(.degrees(isExpanded ? 45 : 0))
-                            .scaleEffect(isExpanded ? 1.12 : 0.88)
+                            .rotationEffect(.degrees(galleryState.isExpanded ? 45 : 0))
+                            .scaleEffect(galleryState.isExpanded ? 1.12 : 0.88)
                             .animation(
                                 model.animationsEnabled ? .easeInOut(duration: 0.35) : nil,
-                                value: isExpanded
+                                value: galleryState.isExpanded
                             )
                     }
                     .frame(width: 76, height: 76)
@@ -335,7 +347,7 @@ private struct DemoGalleryMotionCard: View {
                     .cornerRadius(DemoMetrics.radiusMD)
 
                     VStack(alignment: .leading, spacing: DemoMetrics.s1) {
-                        Text(isExpanded ? "Expanded" : "Resting")
+                        Text(galleryState.isExpanded ? "Expanded" : "Resting")
                             .font(DemoType.bodyStrong)
                             .foregroundStyle(.primary)
                             .lineLimit(1)
@@ -353,7 +365,7 @@ private struct DemoGalleryMotionCard: View {
 
                 DemoButton("Replay motion") {
                     withAnimation(model.animationsEnabled ? .easeInOut(duration: 0.35) : nil) {
-                        isExpanded.toggle()
+                        galleryState.isExpanded.toggle()
                     }
                     model.performAction("Replayed rendering motion")
                 }

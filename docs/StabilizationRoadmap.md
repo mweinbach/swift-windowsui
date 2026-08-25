@@ -18,13 +18,16 @@ limits in `README.md`, `docs/WinSwiftUI.md`, `docs/Testing.md`,
   coverage is richer (shadows, quads, paths, atlas-backed glyphs) but still
   incomplete relative to GPUI-style text/sprite systems.
 - Accessibility metadata is projected to native UI Automation (fragment tree,
-  properties, InvokePattern, focus/structure events via `CUIAInterop` +
-  `UIAProviderBridge`); advanced patterns (Value/Text/Selection/Toggle) and
-  live regions are **not implemented**.
-- Windows light/dark preference, high contrast, text scale, and reduced
-  motion are sampled through `SystemAppearanceSnapshot`; settings broadcasts
-  refresh the retained environment. Native high-contrast theme color mapping
-  and live-theme manual verification remain incomplete.
+  properties, Invoke/Value/Toggle/Selection/SelectionItem/VirtualizedItem
+  patterns, focus/structure events, and explicit live-region announcements via
+  `CUIAInterop` + `UIAProviderBridge`). Rich TextPattern, automatic live-region
+  observation, and fine-grained structure notifications remain unsupported.
+- Windows light/dark preference, high contrast, text scale, reduced motion,
+  and active contrast-theme semantic colors are sampled through
+  `SystemAppearanceSnapshot`; settings broadcasts refresh the inherited
+  retained environment. Native window/text/control/selection/disabled colors
+  drive control chrome and semantic text; live-theme manual verification
+  remains pending.
 - `WinSwiftUIWindowCoordinator` hosts multiple windows (own host/runtime/
   renderer each); default `openWindow` / `dismissWindow` routing is live and
   `supportsMultipleWindows` is true for coordinator-managed hosts.
@@ -251,10 +254,14 @@ with native widgets.
   etc.).
 - A native Win32 UI Automation fragment tree is derived from the retained
   accessibility projection through `CUIAInterop`, `UIAProviderBridge`, and
-  `RuntimeUIAElementTreeSource`; default actions expose InvokePattern.
-- Retained focus, transform-aware bounds, hit testing, enabled state, and
-  focus/structure events are projected live. Value/Text/Selection/Toggle
-  patterns, live regions, and virtualized-item realization remain unsupported.
+  `RuntimeUIAElementTreeSource`; default actions expose InvokePattern, text
+  fields expose secure-aware ValuePattern, switches expose TogglePattern, and
+  List/Table rows expose SelectionPattern + SelectionItemPattern.
+- Retained focus, transform-aware/offscreen bounds, hit testing, enabled
+  state, focus/structure events, and VirtualizedItemPattern realization are
+  projected live; the bridge can explicitly raise live-region change events.
+  Rich TextPattern, automatic live-region observation, and fine-grained
+  structure notifications remain unsupported.
 
 ### Work items
 
@@ -268,8 +275,8 @@ with native widgets.
    app-visible tree API.
 5. Cover with unit tests for mapping tables; add a small automation smoke
    path if a headless UIA client is practical on the CI host.
-6. Document remaining gaps (live regions, full text patterns, virtualized
-   lists) honestly.
+6. Document remaining gaps (automatic live regions, full text patterns,
+   multi-selection metadata, and lazy construction) honestly.
 
 ### Exit criteria
 
@@ -286,9 +293,9 @@ with native widgets.
       action invocation; `UIAProviderBridge` + `RuntimeUIAElementTreeSource`
       headless tests through the real COM vtables)
 - [x] Docs state remaining UIA pattern gaps
-      (see `docs/CompatibilityStatus.md`: no Value/Text/Selection/Toggle
-      patterns, no live regions, coarse structure-changed events,
-      `IsOffscreen` not provided)
+      (see `docs/CompatibilityStatus.md`: no rich TextPattern/text ranges,
+      automatic live-region observation, fine-grained structure notifications,
+      or advertised multi-selection container metadata)
 
 ### Validation commands
 
@@ -312,9 +319,10 @@ high-contrast / accessibility display preferences in retained chrome.
 - `EnvironmentValues.colorScheme`, `colorSchemeContrast`,
   `preferredColorScheme`, dynamic type, legibility weight, and related
   accessibility preference shims exist.
-- High contrast strengthens semantic foregrounds, hierarchical greys, and
-  control-palette borders/hairlines; complete native high-contrast theme color
-  mapping is not implemented.
+- High contrast samples the selected native window, text, control, highlight,
+  disabled, and link colors. The inherited palette drives retained control
+  surfaces, semantic foreground/backgrounds, selection, default accents, and
+  borders; dark/light identity follows the theme's actual window background.
 - `Win32Host` samples light/dark preference, high contrast, text scale, and
   reduced motion at startup and refreshes appearance on `WM_SETTINGCHANGE` /
   `WM_SYSCOLORCHANGE`; luminance and capture remain overrideable defaults.
@@ -344,9 +352,12 @@ high-contrast / accessibility display preferences in retained chrome.
       theme smoke still pending)
 - [ ] Supported demo controls remain legible in high contrast
 - [x] Semantic colors do not hard-code low-contrast greys when HC is on
-      (hierarchical greys snap to a legible HC ramp via `resolvedForContrast`)
+      (`GetSysColor` roles propagate through `HighContrastSystemColors`,
+      `EnvironmentValues`, `ControlPalette`, and semantic text/backgrounds)
 - [x] Unit tests cover mapping tables; screenshot optional HC fixture
-      (`SystemAppearanceTests` — injected snapshots, precedence, grey ramp)
+      (`SystemAppearanceTests` and `HighContrastSystemPaletteTests` — injected
+      snapshots, exact role mapping, COLORREF decoding, theme luminance,
+      override precedence, and contrast-on/off environment clearing)
 - [x] Docs describe precedence: app override > system > toolkit default
       (`README.md` and `docs/CompatibilityStatus.md`, System appearance)
 

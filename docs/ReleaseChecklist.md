@@ -31,7 +31,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-screenshot.ps1 
 ```
 
 - [ ] `-Full` green: full test suite, demo build, scene + frame screenshots,
-      gallery regression gate (25 baselines)
+      gallery regression gate (61 baselines)
 - [ ] `lint.ps1 -AllSwift` clean
 - [ ] Windows CI (`.github/workflows/windows-ci.yml`) Full stage green on the
       release commit, with screenshot artifacts uploaded

@@ -13,7 +13,8 @@ The repo now also includes `WinSwiftUI`, a SwiftUI-shaped compatibility layer fo
 - An active demo path that now defaults to `GPUIScene` -> `D3D11BatchRenderer`, with the `RenderFrame` -> `D3D11Renderer` path kept as an automatic same-session fallback and explicit debug override
 - A `WinSwiftUI` host loop that coalesces rebuilds, avoids duplicate invalidates, and only sustains high-rate frame pumping when input actually dirties presentation state
 - A GPUI-inspired batch scene path in native Swift that scales primitives into device pixels, keeps replayable scene paint records plus a per-layer `paintOperations` presentation stream, carries semantic content masks on typed primitives, assigns bounds-based draw orders from masked bounds inside `GPUIScene`, keeps family batches as an optimization surface, uses a runtime-owned logical text layout cache plus a native glyph atlas, and routes deferred-subtree prepaint plus deferred paint records through runtime-owned prepaint dispatch state while it is still being brought up toward Zed-style sprite batching
-- Axis-aligned linear gradients that retain authored intermediate color stops, custom stop positions, hard stops, and reversed endpoints across CPU snapshots, the D3D11 scene backend, and the live Direct2D/D3D11 frame fallback
+- Linear gradients that retain authored intermediate color stops, custom stop positions, hard stops, and reversed endpoints across CPU snapshots, the D3D11 scene backend, and the live Direct2D/D3D11 frame fallback; rectangular Canvas fills additionally promote diagonal, inset, transformed, and rounded multistop gradients directly to instanced GPU quads
+- GPU-native radial and angular shape gradients with authored centers, start/end radii or signed angular sweeps, intermediate and hard stops, transparency, rounded coverage, transforms, clips, and matching CPU snapshots
 - Native Windows character input with Unicode, keyboard-layout-aware punctuation, supplementary-plane characters, existing IME composition, and selection-safe editing; mouse, primary-touch, double-click, horizontal-wheel, and lost-capture interactions share the retained input path
 - A Windows-only implementation for the runtime/host/renderer layers today
 
@@ -38,12 +39,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-demo.ps1
 ```
 
 The app includes three same-source SwiftUI screens: an interactive rendering
-dashboard, appearance and application settings, and a searchable, paginated
-component inspector. Chart periods expose distinct live data, page-size changes
-can navigate every component, restarting a degraded component updates its actual
-health and load, and shorter windows use denser dashboard cards while keeping
-the settings save action visible. Pass `-FrameDebug` to the same script to exercise the
-fallback presentation path instead of the default D3D11 scene renderer.
+dashboard, appearance and application settings, and a searchable, sortable,
+paginated component inspector. Press `Ctrl+K` from any screen to open the
+keyboard-navigable command palette, including at the minimum window size; panel
+commands collapse or restore the sidebar and inspector without losing their
+content. Data-column headers toggle semantic sort order, pagination follows the
+filtered result set, and restarting a degraded component updates its real health
+and load. Settings expose dirty-state tracking, validation, `Ctrl+S` saving,
+and reset confirmation. Shorter windows adapt the dashboard, command palette,
+and inspector while preserving the settings save action. Pass `-FrameDebug` to
+the same script to exercise fallback presentation instead of the default D3D11
+scene renderer.
 
 ## Package Layout
 
@@ -98,12 +104,12 @@ Included today:
 
 - App hosting: `App`, `Scene`, `WindowGroup`
 - Multi-window: default `openWindow` / `dismissWindow` routing through `WinSwiftUIWindowCoordinator` — each window gets its own host, retained runtime, and renderer; `supportsMultipleWindows` is true for coordinator-managed hosts. `openSettings` / `Settings` scenes remain unsupported
-- Accessibility: retained accessibility metadata is projected to Windows UI Automation (fragment tree, trait-derived control types, transform-aware bounds, disabled-state-safe InvokePattern activation, focus/structure events); advanced Value/Text/Selection/Toggle patterns and live regions are not implemented
-- Text input: keyboard-layout-aware `WM_CHAR` Unicode entry, supplementary-plane characters, caret and highlighted selection, mouse-drag selection, clipboard shortcuts (Ctrl+C/X/V/A), and IME composition (marked text, candidate window positioned at the caret)
+- Accessibility: retained accessibility metadata is projected to Windows UI Automation (fragment tree, trait-derived control types, transform-aware/offscreen bounds, disabled-state-safe InvokePattern, editable non-password ValuePattern, TogglePattern, List/Table SelectionPattern and SelectionItemPattern, virtualized-row realization, focus/structure events, and an explicit live-region event bridge); rich TextPattern, automatic live-region observation, and fine-grained structure notifications remain unsupported
+- Text input: keyboard-layout-aware `WM_CHAR` Unicode entry, supplementary-plane characters, caret and highlighted selection, Unicode/grapheme-aware Ctrl+Left/Right word navigation and Ctrl+Shift word selection, mouse-drag selection, clipboard shortcuts (Ctrl+C/X/V/A), and IME composition (marked text, candidate window positioned at the caret)
 - Environment consistency: `.environment(\.isEnabled, ...)`, `.disabled(...)`, button/picker styles, foreground colors, accent colors, and nested dynamic-type limits propagate coherently into controls, `@Environment` readers, and `@ScaledMetric`; sliders support pointer focus and keyboard adjustment
 - Programmatic scrolling: `ScrollViewReader` / `ScrollViewProxy.scrollTo(_:anchor:)` resolve retained identifiers against the nearest scroll container, including deferred lazy-stack rows, with axis-aware anchor positioning and clamped offsets
 - Platform integrations: real Win32 open/save dialogs behind `fileImporter` / `fileExporter`, Unicode text and validated file-list (`CF_HDROP`) clipboard with fail-closed, type-aware `PasteButton` delivery, OS file drops (`WM_DROPFILES`) delivered to `onDrop`, an opt-in native `ChooseColorW` dialog for `ColorPicker`, and `Link` / `openURL` via `ShellExecuteW`
-- System appearance: light/dark and high contrast sampled at startup and re-sampled on `WM_SETTINGCHANGE` / `WM_SYSCOLORCHANGE`; app overrides (`preferredColorScheme`, explicit environment sets) take precedence
+- System appearance: light/dark and high contrast sampled at startup and re-sampled on `WM_SETTINGCHANGE` / `WM_SYSCOLORCHANGE`; actual Windows contrast-theme window, text, control, selection, disabled, and link colors propagate through the inherited environment and semantic control/text palette; app overrides (`preferredColorScheme`, explicit environment sets) take precedence
 - Core views: `Text`, including `Text(verbatim:)`, `StringProtocol`, and `LocalizedStringKey` inputs, `Image(systemName:)`, `Label`, `Link`, `Rectangle`, `RoundedRectangle`, `UnevenRoundedRectangle`, `Capsule`, `Circle`, `Ellipse`, `ContainerRelativeShape`, `AnyShape`, `Shape`, `Spacer`, `Divider`, `Group`, `GeometryReader`, `NavigationLink`
 - Containers: `NavigationStack`, `NavigationView`, `NavigationSplitView`, `TabView`, `VStack`, `HStack`, `LazyVStack`, `LazyHStack`, `Grid`, `GridRow`, `ZStack`, `ScrollView`, `ScrollViewReader`, `List` including data-driven and binding-backed row initializers, `Form`, `Section` including header/footer builder overloads, `GroupBox`, `DisclosureGroup`, `HSplitView`, `VSplitView`; stack spacing accepts SwiftUI-style `nil`
 - Collection helpers: `ForEach`, including open and closed integer ranges plus binding-backed mutable collections

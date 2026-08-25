@@ -202,6 +202,14 @@ if ($Full) {
     Invoke-Step "UIAAdvancedPatternTests" {
         & $testScript -Filter "UIAAdvancedPatternTests"
     }
+    # Native Windows contrast-theme colors must survive COLORREF decoding,
+    # inherited environments, semantic text, control chrome and selection.
+    Invoke-Step "HighContrastSystemPaletteTests" {
+        & $testScript -Filter "HighContrastSystemPaletteTests"
+    }
+    Invoke-Step "TextInputSelectionTests" {
+        & $testScript -Filter "TextInputSelectionTests"
+    }
     # Programmatic scrolling must work on first scene/frame render, resolve
     # deferred lazy-stack rows, and preserve nested-reader ownership.
     Invoke-Step "RuntimeProgrammaticScrollTests" {

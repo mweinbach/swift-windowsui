@@ -331,7 +331,8 @@ final class FramePathTextColorTests: XCTestCase {
             for case .drawBitmap(let draw) in commands {
                 XCTAssertLessThan(
                     draw.bitmap.width, 4096,
-                    "Suppressed icon text bitmap must stay within texture limits (got \(draw.bitmap.width)x\(draw.bitmap.height))")
+                    "Suppressed icon text bitmap must stay within texture limits (got \(draw.bitmap.width)x\(draw.bitmap.height))"
+                )
                 XCTAssertLessThan(draw.bitmap.height, 4096)
             }
         }

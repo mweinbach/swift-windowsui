@@ -85,8 +85,45 @@ try {
         $tempFiles += $tempFile
     }
 
-    & $withSwift swift-format lint --configuration $swiftFormatConfig --strict @tempFiles
-    exit $LASTEXITCODE
+    # Windows refuses native process launches once the expanded argument list
+    # exceeds its command-line limit. Temporary normalized paths are longer
+    # than their repository counterparts, so broad -AllSwift runs need bounded
+    # batches even when the same file set works on other platforms.
+    $maxBatchCommandCharacters = 7000
+    $baseCommandCharacters = $swiftFormatConfig.Length + 128
+    $lintBatches = New-Object 'System.Collections.Generic.List[object]'
+    $currentBatch = New-Object 'System.Collections.Generic.List[string]'
+    $currentCommandCharacters = $baseCommandCharacters
+
+    foreach ($tempFile in $tempFiles) {
+        $argumentCharacters = $tempFile.Length + 3
+        if ($currentBatch.Count -gt 0 -and ($currentCommandCharacters + $argumentCharacters) -gt $maxBatchCommandCharacters) {
+            $lintBatches.Add($currentBatch.ToArray())
+            $currentBatch = New-Object 'System.Collections.Generic.List[string]'
+            $currentCommandCharacters = $baseCommandCharacters
+        }
+
+        $currentBatch.Add($tempFile)
+        $currentCommandCharacters += $argumentCharacters
+    }
+
+    if ($currentBatch.Count -gt 0) {
+        $lintBatches.Add($currentBatch.ToArray())
+    }
+
+    for ($batchIndex = 0; $batchIndex -lt $lintBatches.Count; $batchIndex++) {
+        $batchFiles = @($lintBatches[$batchIndex])
+        if ($lintBatches.Count -gt 1) {
+            Write-Host "  swift-format batch $($batchIndex + 1)/$($lintBatches.Count) ($($batchFiles.Count) file(s))."
+        }
+
+        & $withSwift swift-format lint --configuration $swiftFormatConfig --strict @batchFiles
+        if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+        }
+    }
+
+    exit 0
 } finally {
     if (Test-Path -LiteralPath $tempRoot) {
         $resolvedTemp = (Resolve-Path -LiteralPath $tempRoot).Path

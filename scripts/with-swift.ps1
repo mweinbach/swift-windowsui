@@ -68,28 +68,33 @@ $vsArch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64" -or $env:PROCESSOR_ARCHITE
     "x64"
 }
 
-$vswherePath = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
-if (Test-Path -LiteralPath $vswherePath -PathType Leaf) {
-    # Recent VsDevCmd releases invoke vswhere by name after changing directory.
-    # Hosts that disable executable lookup in the current directory therefore
-    # print a spurious failure unless the installer directory is on PATH.
-    $vswhereDirectory = Split-Path -Parent $vswherePath
-    $env:PATH = "$vswhereDirectory;$env:PATH"
-}
-
-cmd /d /s /c "`"$vsDevCmd`" -arch=$vsArch -host_arch=$vsArch >nul && set" |
-    ForEach-Object {
-        if ($_ -match "^(.*?)=(.*)$") {
-            Set-Item -Path ("Env:" + $matches[1]) -Value $matches[2]
-        }
+$swiftEnvironmentSignature = "$vsDevCmd|$vsArch|$swiftBin|$swiftRuntime|$sdkRoot"
+if ($env:SWIFT_WINDOWSUI_DEV_ENV_SIGNATURE -ne $swiftEnvironmentSignature) {
+    $vswherePath = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path -LiteralPath $vswherePath -PathType Leaf) {
+        # Recent VsDevCmd releases invoke vswhere by name after changing directory.
+        # Hosts that disable executable lookup in the current directory therefore
+        # print a spurious failure unless the installer directory is on PATH.
+        $vswhereDirectory = Split-Path -Parent $vswherePath
+        $env:PATH = "$vswhereDirectory;$env:PATH"
     }
 
-if ($LASTEXITCODE -ne 0) {
-    throw "Visual Studio developer environment initialization failed with exit code $LASTEXITCODE."
+    cmd /d /s /c "`"$vsDevCmd`" -arch=$vsArch -host_arch=$vsArch >nul && set" |
+        ForEach-Object {
+            if ($_ -match "^(.*?)=(.*)$") {
+                Set-Item -Path ("Env:" + $matches[1]) -Value $matches[2]
+            }
+        }
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "Visual Studio developer environment initialization failed with exit code $LASTEXITCODE."
+    }
+
+    $env:PATH = "$swiftRuntime;$swiftBin;$env:PATH"
+    $env:SDKROOT = $sdkRoot
+    $env:SWIFT_WINDOWSUI_DEV_ENV_SIGNATURE = $swiftEnvironmentSignature
 }
 
-$env:PATH = "$swiftRuntime;$swiftBin;$env:PATH"
-$env:SDKROOT = $sdkRoot
 $env:SWIFT_REPO_ROOT = $repoRoot
 
 if ($CheckOnly) {

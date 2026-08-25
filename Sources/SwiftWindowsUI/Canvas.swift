@@ -12,11 +12,14 @@ public struct CanvasGraphicsContext {
     public enum Shading {
         case color(Color)
         case gradient(LinearGradient)
+        case positionedGradient(LinearGradient, startPoint: Point, endPoint: Point)
     }
 
     public enum Operation {
         case fillPath(RenderPath, Color)
+        case fillPathGradient(RenderPath, LinearGradient, startPoint: Point?, endPoint: Point?)
         case strokePath(RenderPath, Color, StrokeStyle)
+        case strokePathGradient(RenderPath, LinearGradient, StrokeStyle, startPoint: Point?, endPoint: Point?)
         case fillRect(Rect, Color)
         case fillRectGradient(Rect, LinearGradient)
         case strokeRect(Rect, Color, Double)
@@ -39,9 +42,10 @@ public struct CanvasGraphicsContext {
         case .color(let color):
             operations.append(.fillPath(renderPath, color))
         case .gradient(let gradient):
-            // Gap: gradient fill on path is not yet supported by the render pipeline.
-            // Fall back to the first stop color.
-            operations.append(.fillPath(renderPath, gradient.stops.first?.color ?? .clear))
+            operations.append(.fillPathGradient(renderPath, gradient, startPoint: nil, endPoint: nil))
+        case .positionedGradient(let gradient, let startPoint, let endPoint):
+            operations.append(
+                .fillPathGradient(renderPath, gradient, startPoint: startPoint, endPoint: endPoint))
         }
     }
 
@@ -51,7 +55,10 @@ public struct CanvasGraphicsContext {
         case .color(let color):
             operations.append(.strokePath(renderPath, color, style))
         case .gradient(let gradient):
-            operations.append(.strokePath(renderPath, gradient.stops.first?.color ?? .clear, style))
+            operations.append(.strokePathGradient(renderPath, gradient, style, startPoint: nil, endPoint: nil))
+        case .positionedGradient(let gradient, let startPoint, let endPoint):
+            operations.append(
+                .strokePathGradient(renderPath, gradient, style, startPoint: startPoint, endPoint: endPoint))
         }
     }
 
@@ -63,6 +70,11 @@ public struct CanvasGraphicsContext {
             operations.append(.fillRect(rect, color))
         case .gradient(let gradient):
             operations.append(.fillRectGradient(rect, gradient))
+        case .positionedGradient:
+            // A positioned ramp can begin/end inside the rectangle or follow
+            // a transformed vector; only the path pipeline can preserve that
+            // geometry. Existing plain gradients keep the exact quad fast path.
+            fill(Path(rect), with: shading)
         }
     }
 
@@ -71,7 +83,15 @@ public struct CanvasGraphicsContext {
         case .color(let color):
             operations.append(.strokeRect(rect, color, lineWidth))
         case .gradient(let gradient):
-            operations.append(.strokeRect(rect, gradient.stops.first?.color ?? .clear, lineWidth))
+            operations.append(
+                .strokePathGradient(
+                    RenderPath(path: Path(rect)), gradient, StrokeStyle(lineWidth: lineWidth),
+                    startPoint: nil, endPoint: nil))
+        case .positionedGradient(let gradient, let startPoint, let endPoint):
+            operations.append(
+                .strokePathGradient(
+                    RenderPath(path: Path(rect)), gradient, StrokeStyle(lineWidth: lineWidth),
+                    startPoint: startPoint, endPoint: endPoint))
         }
     }
 
@@ -185,9 +205,35 @@ extension CanvasGraphicsContext {
                             clipRect: currentClip
                         )))
 
+            case .fillPathGradient(let path, let gradient, _, _):
+                // RenderFrame has no gradient-bearing path command. Preserve
+                // its documented first-stop fallback while the default scene
+                // path carries the complete retained gradient.
+                let effectiveColor = gradient.startColor.multipliedAlpha(by: opacity)
+                guard effectiveColor.alpha > 0 else { continue }
+                commands.append(
+                    .fillPath(
+                        FillPathCommand(
+                            path: path.translated(by: origin),
+                            color: effectiveColor,
+                            clipRect: currentClip
+                        )))
+
             case .strokePath(let path, let color, let style):
                 let effectiveColor = color.multipliedAlpha(by: opacity)
                 guard effectiveColor.alpha > 0 else { continue }
+                commands.append(
+                    .strokePath(
+                        StrokePathCommand(
+                            path: path.translated(by: origin),
+                            color: effectiveColor,
+                            style: style,
+                            clipRect: currentClip
+                        )))
+
+            case .strokePathGradient(let path, let gradient, let style, _, _):
+                let effectiveColor = gradient.startColor.multipliedAlpha(by: opacity)
+                guard effectiveColor.alpha > 0, style.lineWidth > 0 else { continue }
                 commands.append(
                     .strokePath(
                         StrokePathCommand(

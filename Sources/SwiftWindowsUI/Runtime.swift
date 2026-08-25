@@ -7271,7 +7271,7 @@ public final class ViewNode {
         setScrollOffset(scrollOffset + delta)
     }
 
-    private func setScrollOffset(_ value: Double) -> Bool {
+    fileprivate func setScrollOffset(_ value: Double) -> Bool {
         let nextOffset = clampedScrollOffset(for: value)
         guard nextOffset != scrollOffset else {
             return false
@@ -7939,6 +7939,17 @@ public final class RetainedViewRuntime {
     private var isRendering = false
     private var pendingDirtyFlags: DirtyFlags = []
     private var pendingDirtyNodes: [PendingNodeInvalidation] = []
+    private var pendingAfterLayoutActions: [String: @MainActor () -> Void] = [:]
+    private var pendingAfterLayoutActionKeys: [String] = []
+    private var isDrainingAfterLayoutActions = false
+    private struct PendingPreciseScrollAlignment {
+        weak var target: ViewNode?
+        weak var container: ViewNode?
+        var anchorX: Double?
+        var anchorY: Double?
+        var expectedOffset: Double
+    }
+    private var pendingPreciseScrollAlignments: [PendingPreciseScrollAlignment] = []
     private var cachedFrame: RenderFrame?
     private var cachedScene: GPUIScene?
     /// The glyph-atlas generation `cachedScene`'s glyph quads were addressed
@@ -8032,6 +8043,15 @@ public final class RetainedViewRuntime {
     /// tell state a pass produced from state a previous pass left behind —
     /// see `ViewNode.isOnVirtualizationDescentPath`.
     internal private(set) var layoutPassID: UInt64 = 0
+    /// True only while a retained layout traversal is actively placing its
+    /// nodes. Post-layout callbacks run with this false, after geometry has
+    /// settled and programmatic scroll requests can safely be resolved.
+    public private(set) var isLayoutInProgress = false
+
+    /// Whether this runtime has begun at least one retained layout pass.
+    /// Clients combine this with `isLayoutInProgress` to distinguish a
+    /// genuinely premature request from a missing or disabled scroll target.
+    public var hasCompletedLayout: Bool { layoutPassID != 0 }
 
     /// The `GeometryReader` nodes the pass that just ran walked past, in
     /// traversal order. Refilled by every pass and drained by
@@ -8962,6 +8982,150 @@ public final class RetainedViewRuntime {
         }
 
         updateFocusTarget(to: node)
+    }
+
+    /// Schedules one callback after the next complete retained layout, shared
+    /// by scene and frame rendering. Reusing a key replaces the pending
+    /// callback without changing its position in the original request order.
+    ///
+    /// Callbacks run once, after geometry-reader convergence and before
+    /// prepaint. A callback scheduled from inside another callback belongs to
+    /// the next pass; this keeps re-entrant application code from turning one
+    /// frame into an unbounded callback loop.
+    public func scheduleAfterLayout(
+        key: String,
+        perform action: @escaping @MainActor () -> Void
+    ) {
+        if pendingAfterLayoutActions.updateValue(action, forKey: key) == nil {
+            pendingAfterLayoutActionKeys.append(key)
+        }
+        invalidate(.layout)
+    }
+
+    /// Moves the nearest retained scroll container until `descendant` is
+    /// visible. Explicit anchor coordinates align the same fractional point
+    /// on the target and viewport; without one, only the smallest movement
+    /// needed to reveal the target is applied.
+    ///
+    /// Lazy stacks assign every immediate row its real frame even when the
+    /// row's own subtree has never been laid out. If an ID lives below such a
+    /// deferred row, the row is the authoritative target until scrolling
+    /// brings its descendants into the active virtualization window.
+    ///
+    /// Returns false before the enclosing scroll container has completed a
+    /// layout pass so callers can keep pre-layout requests queued. A valid
+    /// request whose target is already visible returns true without inventing
+    /// an offset change.
+    @discardableResult
+    public func scrollToDescendant(
+        _ descendant: ViewNode,
+        anchorX: Double? = nil,
+        anchorY: Double? = nil
+    ) -> Bool {
+        guard descendant.runtime === self, layoutPassID != 0, !Self.hasHiddenAncestor(descendant) else {
+            return false
+        }
+
+        var target = descendant
+        var candidate: ViewNode? = descendant
+        var scrollContainer: ViewNode?
+        var depth = 0
+        while let node = candidate, depth < ViewNode.maximumTraversalDepth {
+            if node.isLayoutDeferredByVirtualization {
+                target = node
+            }
+            if node.scrollAxis != nil {
+                scrollContainer = node
+                break
+            }
+            candidate = node.parent
+            depth += 1
+        }
+
+        guard let scrollContainer, let axis = scrollContainer.scrollAxis,
+            !isLayoutInProgress,
+            scrollContainer.cachedLayoutKey != nil,
+            scrollContainer.pendingLayoutKey == nil
+        else {
+            return false
+        }
+
+        let anchor = axis == .horizontal ? anchorX : anchorY
+        guard anchor?.isFinite ?? true else {
+            return false
+        }
+
+        var targetFrame = target.resolvedFrame
+        var ancestor = target.parent
+        depth = 0
+        while let node = ancestor, node !== scrollContainer,
+            depth < ViewNode.maximumTraversalDepth
+        {
+            targetFrame = targetFrame.offsetBy(
+                dx: node.resolvedFrame.origin.x,
+                dy: node.resolvedFrame.origin.y
+            )
+            ancestor = node.parent
+            depth += 1
+        }
+        guard ancestor === scrollContainer else {
+            return false
+        }
+
+        let viewportExtent: Double
+        let targetStart: Double
+        let targetExtent: Double
+        switch axis {
+        case .horizontal:
+            viewportExtent = scrollContainer.resolvedFrame.size.width
+            targetStart = targetFrame.minX
+            targetExtent = targetFrame.size.width
+        case .vertical:
+            viewportExtent = scrollContainer.resolvedFrame.size.height
+            targetStart = targetFrame.minY
+            targetExtent = targetFrame.size.height
+        }
+        guard viewportExtent > 0, viewportExtent.isFinite,
+            targetStart.isFinite, targetExtent > 0, targetExtent.isFinite
+        else {
+            return false
+        }
+
+        let requestedOffset: Double
+        if let anchor {
+            let boundedAnchor = min(max(anchor, 0), 1)
+            requestedOffset = targetStart + targetExtent * boundedAnchor - viewportExtent * boundedAnchor
+        } else if targetStart < scrollContainer.scrollOffset {
+            requestedOffset = targetStart
+        } else if targetStart + targetExtent > scrollContainer.scrollOffset + viewportExtent {
+            requestedOffset = targetStart + targetExtent - viewportExtent
+        } else {
+            requestedOffset = scrollContainer.scrollOffset
+        }
+
+        cancelScrollMomentum(for: scrollContainer)
+        cancelScrollPresentedTween(for: scrollContainer)
+        _ = scrollContainer.setScrollOffset(requestedOffset)
+
+        // The next explicit request for a container supersedes any older
+        // deferred correction. Once its oversized lazy row is realized, an
+        // ID living deeper in that row needs one bounded second alignment to
+        // its own now-real frame rather than the row's coarse fallback.
+        pendingPreciseScrollAlignments.removeAll {
+            $0.container == nil || $0.target == nil || $0.container === scrollContainer
+        }
+        if target !== descendant {
+            pendingPreciseScrollAlignments.append(
+                PendingPreciseScrollAlignment(
+                    target: descendant,
+                    container: scrollContainer,
+                    anchorX: anchorX,
+                    anchorY: anchorY,
+                    expectedOffset: scrollContainer.scrollOffset
+                )
+            )
+        }
+        return true
     }
 
     /// A retained subtree that disappears cannot keep receiving keyboard,
@@ -10148,10 +10312,99 @@ public final class RetainedViewRuntime {
             runLayoutPass()
         }
 
+        if drainAfterLayoutActions() {
+            // Programmatic scrolling changes a scrollable node's presented
+            // offset after the first pass resolved it. Lazy content also
+            // needs its newly visible rows laid out before this same frame
+            // paints; one bounded settle pass handles both without allowing
+            // callback-created callbacks to recurse indefinitely.
+            settleLayoutAfterProgrammaticScroll()
+        }
+
+        if resolvePendingPreciseScrollAlignments() {
+            // A target inside an oversized, previously deferred lazy row
+            // acquires its own frame only after the row's first settle. One
+            // additional bounded pass aligns that precise frame and still
+            // paints the correct target in the same scene/frame.
+            settleLayoutAfterProgrammaticScroll()
+        }
+
         updatePrepaintState()
     }
 
+    private func drainAfterLayoutActions() -> Bool {
+        guard !isDrainingAfterLayoutActions, !pendingAfterLayoutActionKeys.isEmpty else {
+            return false
+        }
+
+        isDrainingAfterLayoutActions = true
+        let keys = pendingAfterLayoutActionKeys
+        let actions = pendingAfterLayoutActions
+        pendingAfterLayoutActionKeys.removeAll(keepingCapacity: true)
+        pendingAfterLayoutActions.removeAll(keepingCapacity: true)
+        defer { isDrainingAfterLayoutActions = false }
+
+        for key in keys {
+            guard let action = actions[key] else {
+                continue
+            }
+            action()
+        }
+        return true
+    }
+
+    private func resolvePendingPreciseScrollAlignments() -> Bool {
+        guard !pendingPreciseScrollAlignments.isEmpty else {
+            return false
+        }
+
+        let alignments = pendingPreciseScrollAlignments
+        pendingPreciseScrollAlignments.removeAll(keepingCapacity: true)
+        var didResolve = false
+        for alignment in alignments {
+            guard let target = alignment.target, let container = alignment.container,
+                target.runtime === self, container.runtime === self,
+                container.scrollOffset == alignment.expectedOffset,
+                nearestRetainedScrollContainer(of: target) === container
+            else {
+                continue
+            }
+            if scrollToDescendant(target, anchorX: alignment.anchorX, anchorY: alignment.anchorY) {
+                didResolve = true
+            }
+        }
+        return didResolve
+    }
+
+    private func nearestRetainedScrollContainer(of target: ViewNode) -> ViewNode? {
+        var current: ViewNode? = target
+        var depth = 0
+        while let node = current, depth < ViewNode.maximumTraversalDepth {
+            if node.scrollAxis != nil {
+                return node
+            }
+            current = node.parent
+            depth += 1
+        }
+        return nil
+    }
+
+    private func settleLayoutAfterProgrammaticScroll() {
+        runLayoutPass()
+        var convergenceRounds = 0
+        while convergenceRounds < Self.geometryReaderConvergenceLimit,
+            resolveGeometryReaderSlots()
+        {
+            convergenceRounds += 1
+            runLayoutPass()
+        }
+    }
+
     private func runLayoutPass() {
+        let wasLayoutInProgress = isLayoutInProgress
+        isLayoutInProgress = true
+        defer { isLayoutInProgress = wasLayoutInProgress }
+
         layoutPassID &+= 1
         currentPassLayoutVisitCount = 0
         pendingGeometryReaderNodes.removeAll(keepingCapacity: true)

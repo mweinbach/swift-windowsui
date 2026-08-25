@@ -55,6 +55,15 @@ public enum ScenePainter {
             placed = logicalPath
         }
         let path = placed.scaled(by: displayScale)
+        // Promoted path quads only carry a single solid fill/stroke color.
+        // Gradient-bearing geometry therefore stays in the path contract,
+        // where both scene rasterizers can sample every authored stop in the
+        // same translated, rotated, and device-scaled gradient space.
+        if path.fillGradient != nil || path.strokeGradient != nil {
+            scene.addPath(path, toLayer: layerIndex)
+            scene.paintMetrics.pathsRasterizedOnCPU += 1
+            return
+        }
         guard let mixed = PathToQuadTessellator.tessellateMixed(path) else {
             scene.addPath(path, toLayer: layerIndex)
             scene.paintMetrics.pathsRasterizedOnCPU += 1
@@ -2502,6 +2511,32 @@ public enum ScenePainter {
                     ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
                     placement: placement)
 
+            case .fillPathGradient(let path, let gradient, let startPoint, let endPoint):
+                guard opacity > 0, gradient.stops.contains(where: { $0.color.alpha > 0 }) else {
+                    continue
+                }
+                let translated = path.translated(by: origin)
+                guard let bounds = translated.segments.boundingRect, !bounds.isEmpty else { continue }
+                guard clipAllowsDrawing(clip: currentCullClip, rect: bounds) else { continue }
+                let effectiveGradient = canvasGradient(gradient, multipliedBy: opacity)
+                var primitive = PathPrimitive(
+                    elements: pathElements(from: translated.segments),
+                    bounds: bounds,
+                    fillColor: effectiveGradient.startColor,
+                    fillGradient: effectiveGradient,
+                    clipBounds: currentClip,
+                    clipCornerRadius: clipRadius(bounds)
+                )
+                if let startPoint, let endPoint {
+                    primitive.setGradientEndpoints(
+                        start: Point(x: startPoint.x + origin.x, y: startPoint.y + origin.y),
+                        end: Point(x: endPoint.x + origin.x, y: endPoint.y + origin.y)
+                    )
+                }
+                Self.emit(
+                    path: primitive, into: &scene, layerIndex: layerIndex, displayScale: displayScale,
+                    placement: placement)
+
             case .strokePath(let path, let color, let style):
                 let effectiveColor = color.multipliedAlpha(by: opacity)
                 guard effectiveColor.alpha > 0, style.lineWidth > 0 else { continue }
@@ -2538,6 +2573,48 @@ public enum ScenePainter {
                         clipBounds: currentClip,
                         clipCornerRadius: clipRadius(strokeBounds)
                     ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
+                    placement: placement)
+
+            case .strokePathGradient(let path, let gradient, let style, let startPoint, let endPoint):
+                guard opacity > 0, style.lineWidth > 0,
+                    gradient.stops.contains(where: { $0.color.alpha > 0 })
+                else {
+                    continue
+                }
+                let translated = path.translated(by: origin)
+                guard let pathBounds = translated.segments.boundingRect else { continue }
+                let solidElements = pathElements(from: translated.segments)
+                let strokeElements =
+                    PathDashing.dashed(
+                        solidElements, pattern: style.dashPattern, offset: style.dashOffset)
+                    ?? solidElements
+                let strokeBounds = pathBounds.outset(
+                    by: StrokeOutlineGeometry.boundsOutset(
+                        forElements: strokeElements, lineWidth: style.lineWidth, lineCap: style.lineCap,
+                        lineJoin: style.lineJoin, miterLimit: style.miterLimit))
+                guard !strokeBounds.isEmpty else { continue }
+                guard clipAllowsDrawing(clip: currentCullClip, rect: strokeBounds) else { continue }
+                let effectiveGradient = canvasGradient(gradient, multipliedBy: opacity)
+                var primitive = PathPrimitive(
+                    elements: strokeElements,
+                    bounds: strokeBounds,
+                    strokeColor: effectiveGradient.startColor,
+                    strokeGradient: effectiveGradient,
+                    lineWidth: style.lineWidth,
+                    lineCap: style.lineCap,
+                    lineJoin: style.lineJoin,
+                    miterLimit: style.miterLimit,
+                    clipBounds: currentClip,
+                    clipCornerRadius: clipRadius(strokeBounds)
+                )
+                if let startPoint, let endPoint {
+                    primitive.setGradientEndpoints(
+                        start: Point(x: startPoint.x + origin.x, y: startPoint.y + origin.y),
+                        end: Point(x: endPoint.x + origin.x, y: endPoint.y + origin.y)
+                    )
+                }
+                Self.emit(
+                    path: primitive, into: &scene, layerIndex: layerIndex, displayScale: displayScale,
                     placement: placement)
 
             case .fillRect(let rect, let color):
@@ -2685,6 +2762,19 @@ public enum ScenePainter {
                 currentCullClip = restored?.cull ?? baseClip.map { placement.unplacedFootprint(of: $0.rect) }
             }
         }
+    }
+
+    private static func canvasGradient(
+        _ gradient: LinearGradient,
+        multipliedBy opacity: Float
+    ) -> LinearGradient {
+        LinearGradient(
+            stops: gradient.stops.map {
+                GradientStop(color: $0.color.multipliedAlpha(by: opacity), position: $0.position)
+            },
+            axis: gradient.axis,
+            reversesAuthoredStops: gradient.reversesAuthoredStops
+        )
     }
 
     private static func pathElements(from segments: [RenderPath.Segment]) -> [PathElement] {

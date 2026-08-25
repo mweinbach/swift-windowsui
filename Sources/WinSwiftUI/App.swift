@@ -49,6 +49,14 @@ public protocol App {
     /// executable overrides this requirement with the concrete factory from
     /// the renderer backend target.
     static func renderBackendFactory() -> RenderBackendFactory
+
+    /// Override to inject the factory responsible for native window creation
+    /// and the application event loop, independently of renderer selection.
+    ///
+    /// The current retained window host still requires a `Win32Window`; an
+    /// incompatible factory fails explicitly instead of pretending that the
+    /// rest of the application is already platform-portable.
+    static func platformHostFactory() -> any PlatformHostFactory
 }
 extension App {
     /// The software presenter, not ``CPURenderBackendFactory``: an app that
@@ -57,6 +65,12 @@ extension App {
     /// so it is the snapshot and parity backend, never a window's presenter.
     public static func renderBackendFactory() -> RenderBackendFactory {
         SoftwareWindowRenderBackendFactory()
+    }
+
+    /// The current shipping platform implementation. Applications may
+    /// override this separately from their graphics backend factory.
+    public static func platformHostFactory() -> any PlatformHostFactory {
+        Win32PlatformHostFactory()
     }
 
     public static func main() {
@@ -68,6 +82,7 @@ extension App {
                 sceneConfigurations: [app.body.makeWindowConfiguration()],
                 renderBackendFactory: resolved.factory,
                 backendResolution: resolved.resolution,
+                platformHostFactory: Self.platformHostFactory(),
                 // `--diagnostics`: open the real window, drive it, measure it,
                 // write the report and close. Wired at the composition root
                 // rather than behind a build flag, because the session worth
@@ -2094,6 +2109,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     init(
         configuration: WindowGroupConfiguration,
+        platformWindow: Win32Window? = nil,
         // Headless defaults: the CPU reference backend, which rasterizes into
         // memory and never blits. That is only acceptable because this type is
         // internal and every real window is created by
@@ -2115,11 +2131,13 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         self.backendResolution = backendResolution
         self.presentPacingMemory = presentPacingMemory
         self.configuration = configuration
-        self.window = Win32Window(
-            title: configuration.title,
-            clientSize: WinSwiftUIWindowHost.initialClientSize(for: configuration),
-            titleBarVisibility: configuration.titleBarVisibility ?? .automatic,
-            configuration: WinSwiftUIWindowHost.platformConfiguration(for: configuration))
+        self.window =
+            platformWindow
+            ?? Win32Window(
+                title: configuration.title,
+                clientSize: WinSwiftUIWindowHost.initialClientSize(for: configuration),
+                titleBarVisibility: configuration.titleBarVisibility ?? .automatic,
+                configuration: WinSwiftUIWindowHost.platformConfiguration(for: configuration))
         self.renderer = renderer
         self.batchRenderer = batchRenderer
         self.surfaceDescriptorProvider = surfaceDescriptorProvider
@@ -2205,6 +2223,24 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             },
             resizability: resizability,
             isAlwaysOnTop: isAlwaysOnTop
+        )
+    }
+
+    /// Preserves every supported scene/window modifier when the composition
+    /// root delegates native window creation to its platform factory.
+    static func platformWindowConfiguration(
+        for configuration: WindowGroupConfiguration
+    ) -> PlatformWindowConfiguration {
+        let nativeConfiguration = platformConfiguration(for: configuration)
+        return PlatformWindowConfiguration(
+            title: configuration.title,
+            clientSize: initialClientSize(for: configuration),
+            titleBarVisibility: configuration.titleBarVisibility ?? .automatic,
+            minimumClientSize: nativeConfiguration.minimumClientSize,
+            maximumClientSize: nativeConfiguration.maximumClientSize,
+            normalizedPosition: nativeConfiguration.normalizedPosition,
+            isResizable: nativeConfiguration.resizability == .resizable,
+            isAlwaysOnTop: nativeConfiguration.isAlwaysOnTop
         )
     }
 

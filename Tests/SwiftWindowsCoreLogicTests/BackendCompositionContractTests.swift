@@ -1,4 +1,6 @@
+import SwiftWindowsCore
 import SwiftWindowsGraphics
+import SwiftWindowsPlatform
 import WinSwiftUI
 import XCTest
 
@@ -31,11 +33,31 @@ final class BackendCompositionContractTests: XCTestCase {
         }
     }
 
+    private struct HeadlessProbePlatformFactory: PlatformHostFactory {
+        var platformName: String { "Independent Platform Probe" }
+
+        func makeWindow(configuration: PlatformWindowConfiguration) throws -> any PlatformWindow {
+            try Win32PlatformHostFactory().makeWindow(configuration: configuration)
+        }
+
+        func start(window: any PlatformWindow) throws {}
+
+        func runEventLoop() throws -> Int32 {
+            0
+        }
+
+        func terminateEventLoop() {}
+    }
+
     private struct InjectedProbeApp: App {
         var body: Never { fatalError("probe app is never booted") }
 
         static func renderBackendFactory() -> RenderBackendFactory {
             HeadlessProbeFactory()
+        }
+
+        static func platformHostFactory() -> any PlatformHostFactory {
+            HeadlessProbePlatformFactory()
         }
     }
 
@@ -46,6 +68,7 @@ final class BackendCompositionContractTests: XCTestCase {
         // the assertion free of any D3D11 symbol so this test target would
         // compile even without SwiftWindowsRendererD3D11.
         XCTAssertEqual(factory.factoryName, SoftwareWindowRenderBackendFactory().factoryName)
+        XCTAssertEqual(NeutralProbeApp.platformHostFactory().platformName, Win32PlatformHostFactory().platformName)
     }
 
     func testDefaultRenderBackendFactoryCanActuallyPresent() async {
@@ -71,5 +94,6 @@ final class BackendCompositionContractTests: XCTestCase {
 
         XCTAssertEqual(factory.factoryName, "Headless Probe")
         XCTAssertNil(factory.makeBatchRenderBackend())
+        XCTAssertEqual(InjectedProbeApp.platformHostFactory().platformName, "Independent Platform Probe")
     }
 }

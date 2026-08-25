@@ -24,6 +24,64 @@ private final class CoordinatorHookLog {
     var runMessageLoopCallCount = 0
 }
 
+/// Records the real application/coordinator platform-factory composition
+/// without ever creating an HWND or entering a native message loop.
+@MainActor
+private final class CoordinatorPlatformFactoryLog: PlatformHostFactory {
+    let platformName = "Recording application platform"
+    var returnsIncompatibleWindow = false
+    private(set) var configurations: [PlatformWindowConfiguration] = []
+    private(set) var startedWindows: [any PlatformWindow] = []
+    private(set) var runEventLoopCount = 0
+    private(set) var terminateEventLoopCount = 0
+
+    func makeWindow(configuration: PlatformWindowConfiguration) throws -> any PlatformWindow {
+        configurations.append(configuration)
+        if returnsIncompatibleWindow {
+            return IncompatiblePlatformWindow(configuration: configuration)
+        }
+        return try Win32PlatformHostFactory().makeWindow(configuration: configuration)
+    }
+
+    func start(window: any PlatformWindow) throws {
+        startedWindows.append(window)
+    }
+
+    func runEventLoop() throws -> Int32 {
+        runEventLoopCount += 1
+        return 23
+    }
+
+    func terminateEventLoop() {
+        terminateEventLoopCount += 1
+    }
+
+    private final class IncompatiblePlatformWindow: PlatformWindow {
+        let title: String
+        let clientSize: IntSize
+        let scaleFactor: Double = 1
+        let effectiveScaleFactor: Double = 1
+        let monitorRefreshRate: UInt32 = 60
+        let isMinimized = false
+
+        init(configuration: PlatformWindowConfiguration) {
+            title = configuration.title
+            clientSize = configuration.clientSize
+        }
+
+        var nativeHandle: NativeWindowHandle? { nil }
+
+        func create() throws {}
+        func show() {}
+        func invalidate() {}
+        func requestClose() {}
+        func currentClientSize() -> IntSize { clientSize }
+        func setAnimationTimerEnabled(_ enabled: Bool, intervalMilliseconds: UInt32) {}
+        func clientRectToScreen(_ rect: Rect) -> Rect { rect }
+        func setPlatformWindowHost(_ host: (any PlatformWindowHost)?) {}
+    }
+}
+
 @MainActor
 private struct SceneStorageProbe {
     @SceneStorage("coordinator-probe-key") var text: String = "default"
@@ -122,6 +180,49 @@ final class WindowCoordinatorTests: XCTestCase {
 
             // Coordinator-managed windows report multi-window support.
             XCTAssertEqual(envRecorder.snapshots.last?.supportsMultipleWindows, true)
+
+            // The production path, unlike explicit legacy test hooks, now
+            // delegates window creation, startup, and its process event loop
+            // to the application's independently selected platform factory.
+            let platformFactory = CoordinatorPlatformFactoryLog()
+            var configuration = makeConfiguration(title: "Factory managed", windowID: "factory")
+            configuration.idealSize = IntSize(width: 840, height: 620)
+            configuration.minSize = IntSize(width: 400, height: 300)
+            configuration.maxSize = IntSize(width: 1200, height: 900)
+            configuration.defaultPosition = .coordinates(0.25, 0.75)
+            configuration.resizability = .contentSize
+            configuration.windowLevel = .floating
+            configuration.titleBarVisibility = .hidden
+
+            let platformCoordinator = WinSwiftUIWindowCoordinator(
+                sceneConfigurations: [configuration],
+                platformHostFactory: platformFactory
+            )
+
+            XCTAssertEqual(try? platformCoordinator.run(), 23)
+            XCTAssertEqual(platformFactory.configurations.count, 1)
+            XCTAssertEqual(platformFactory.startedWindows.count, 1)
+            XCTAssertEqual(platformFactory.runEventLoopCount, 1)
+
+            guard let created = platformFactory.configurations.first,
+                let managedHost = platformCoordinator.windows.first?.host
+            else {
+                return XCTFail("The platform factory must create and start the managed application window.")
+            }
+
+            XCTAssertEqual(created.title, "Factory managed")
+            XCTAssertEqual(created.clientSize, IntSize(width: 840, height: 620))
+            XCTAssertEqual(created.minimumClientSize, configuration.minSize)
+            XCTAssertEqual(created.maximumClientSize, configuration.maxSize)
+            XCTAssertEqual(created.normalizedPosition, Point(x: 0.25, y: 0.75))
+            XCTAssertFalse(created.isResizable)
+            XCTAssertTrue(created.isAlwaysOnTop)
+            XCTAssertEqual(created.titleBarVisibility, .hidden)
+            XCTAssertTrue(platformFactory.startedWindows.first === managedHost.platformWindow)
+            XCTAssertFalse(managedHost.platformWindow.postsQuitMessageOnDestroy)
+
+            managedHost.windowWillClose(managedHost.platformWindow)
+            XCTAssertEqual(platformFactory.terminateEventLoopCount, 1)
         }
     }
 
@@ -231,6 +332,26 @@ final class WindowCoordinatorTests: XCTestCase {
             XCTAssertFalse(coordinator.openWindow(payload: WindowActionPayload()))
             XCTAssertEqual(coordinator.windowCount, 1)
             XCTAssertEqual(log.startedHosts.count, 1)
+
+            // The app has a real factory composition seam, but its existing
+            // retained host still owns Win32-specific appearance, accessibility,
+            // and lifecycle behavior. Reject an alternate window explicitly.
+            let incompatibleFactory = CoordinatorPlatformFactoryLog()
+            incompatibleFactory.returnsIncompatibleWindow = true
+            let incompatibleCoordinator = WinSwiftUIWindowCoordinator(
+                sceneConfigurations: [makeConfiguration(windowID: "incompatible")],
+                platformHostFactory: incompatibleFactory
+            )
+
+            XCTAssertThrowsError(try incompatibleCoordinator.bootPrimaryWindow()) { error in
+                XCTAssertEqual(
+                    error as? PlatformHostError,
+                    .incompatibleWindow(expectedPlatform: "Windows / Win32")
+                )
+            }
+            XCTAssertEqual(incompatibleFactory.configurations.count, 1)
+            XCTAssertTrue(incompatibleFactory.startedWindows.isEmpty)
+            XCTAssertEqual(incompatibleCoordinator.windowCount, 0)
         }
     }
 

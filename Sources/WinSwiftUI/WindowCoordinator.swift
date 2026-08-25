@@ -45,6 +45,29 @@ struct WindowCoordinatorHooks {
             Win32Application.terminateMessageLoop()
         }
     )
+
+    /// Routes native startup and event-loop ownership through the same
+    /// platform factory that created each managed window.
+    @MainActor
+    static func platform(_ factory: any PlatformHostFactory) -> WindowCoordinatorHooks {
+        WindowCoordinatorHooks(
+            startWindow: { host in
+                // The coordinator owns the last-window quit policy; individual
+                // Win32 windows must not terminate the process on their own.
+                host.platformWindow.postsQuitMessageOnDestroy = false
+                try factory.start(window: host.platformWindow)
+            },
+            requestCloseWindow: { host in
+                host.platformWindow.requestClose()
+            },
+            runMessageLoop: {
+                try factory.runEventLoop()
+            },
+            terminateMessageLoop: {
+                factory.terminateEventLoop()
+            }
+        )
+    }
 }
 
 /// Hosts every live `WindowGroup` window of a running `WinSwiftUI.App`.
@@ -76,7 +99,7 @@ final class WinSwiftUIWindowCoordinator {
     /// value-based routing works the moment multi-scene app bodies exist.
     private let sceneConfigurations: [WindowGroupConfiguration]
     private let hooks: WindowCoordinatorHooks
-    private let hostFactory: @MainActor (WindowGroupConfiguration, Bool) -> WinSwiftUIWindowHost
+    private let hostFactory: @MainActor (WindowGroupConfiguration, Bool) throws -> WinSwiftUIWindowHost
     private let sceneStorageScopeProvider: @MainActor () -> String
 
     private(set) var windows: [ManagedWindow] = []
@@ -113,20 +136,30 @@ final class WinSwiftUIWindowCoordinator {
         // window that shows nothing while reporting itself healthy.
         renderBackendFactory: RenderBackendFactory = SoftwareWindowRenderBackendFactory(),
         backendResolution: RenderBackendResolution? = nil,
-        hooks: WindowCoordinatorHooks = .win32,
-        hostFactory: (@MainActor (WindowGroupConfiguration, Bool) -> WinSwiftUIWindowHost)? = nil,
+        platformHostFactory: any PlatformHostFactory = Win32PlatformHostFactory(),
+        hooks: WindowCoordinatorHooks? = nil,
+        hostFactory: (@MainActor (WindowGroupConfiguration, Bool) throws -> WinSwiftUIWindowHost)? = nil,
         sceneStorageScopeProvider: (@MainActor () -> String)? = nil,
         liveDiagnostics: LiveDiagnosticsConfiguration? = nil
     ) {
         precondition(!sceneConfigurations.isEmpty, "WinSwiftUIWindowCoordinator requires at least one scene.")
         self.sceneConfigurations = sceneConfigurations
-        self.hooks = hooks
+        self.hooks = hooks ?? .platform(platformHostFactory)
         self.liveDiagnosticsConfiguration = liveDiagnostics
         self.hostFactory =
             hostFactory
             ?? { configuration, isPrimary in
-                WinSwiftUIWindowHost(
+                let windowConfiguration = WinSwiftUIWindowHost.platformWindowConfiguration(for: configuration)
+                let platformWindow = try platformHostFactory.makeWindow(configuration: windowConfiguration)
+                guard let win32Window = platformWindow as? Win32Window else {
+                    throw PlatformHostError.incompatibleWindow(
+                        expectedPlatform: Win32PlatformHostFactory().platformName
+                    )
+                }
+
+                return WinSwiftUIWindowHost(
                     configuration: configuration,
+                    platformWindow: win32Window,
                     renderer: renderBackendFactory.makeRenderBackend(),
                     batchRenderer: renderBackendFactory.makeBatchRenderBackend(),
                     // Only the primary window writes the startup probe;
@@ -252,7 +285,7 @@ final class WinSwiftUIWindowCoordinator {
         isPrimary: Bool
     ) throws -> WinSwiftUIWindowHost {
         releaseClosedHosts()
-        let host = hostFactory(configuration, isPrimary)
+        let host = try hostFactory(configuration, isPrimary)
         host.windowEnvironment = WindowSceneEnvironment(
             openWindow: OpenWindowAction(payloadHandler: { [weak self] payload in
                 self?.openWindow(payload: payload)

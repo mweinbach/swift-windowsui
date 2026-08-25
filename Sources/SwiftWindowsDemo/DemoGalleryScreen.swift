@@ -124,12 +124,12 @@ struct DemoGalleryScreen: View {
                         if visibleCategories.isEmpty {
                             DemoGalleryEmptyState(model: model)
                         } else {
-                            if visibleCategories.contains(.controls) {
-                                DemoComponentShowcase(model: model, compact: compact)
-                            }
-
                             if visibleCategories.contains(.visuals) {
                                 DemoGalleryVisualShowcase(model: model, compact: compact)
+                            }
+
+                            if visibleCategories.contains(.controls) {
+                                DemoComponentShowcase(model: model, compact: compact)
                             }
 
                             if visibleCategories.contains(.presentations) {

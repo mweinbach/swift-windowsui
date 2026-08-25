@@ -197,6 +197,11 @@ if ($Full) {
     Invoke-Step "ListVirtualizationTests" {
         & $testScript -Filter "ListVirtualizationTests"
     }
+    # Small, eager Lists must retain their historical keyboard-selection and
+    # scroll-into-view behavior alongside the new large-list virtualization.
+    Invoke-Step "ListFormQualityTests" {
+        & $testScript -Filter "ListFormQualityTests"
+    }
     # Headless tests drive real COM vtables for secure Value, Toggle,
     # Selection/SelectionItem and VirtualizedItem accessibility patterns.
     Invoke-Step "UIAAdvancedPatternTests" {
@@ -220,6 +225,14 @@ if ($Full) {
     }
     Invoke-Step "DemoCommandPaletteAndTableWorkflowTests" {
         & $testScript -Filter "DemoCommandPaletteAndTableWorkflowTests"
+    }
+    # Existing dashboard and settings regressions cover compact page widths,
+    # inherited appearances, filtering, pagination, and control continuity.
+    Invoke-Step "DemoProductPolishTests" {
+        & $testScript -Filter "DemoProductPolishTests"
+    }
+    Invoke-Step "DemoInteractivePolishTests" {
+        & $testScript -Filter "DemoInteractivePolishTests"
     }
     # The render-pass vocabulary both backends speak: the blur schedule, the
     # halving tap model and the texel-centre clamp, plus the cross-backend

@@ -95,6 +95,15 @@ if ($Full) {
     Invoke-Step "frame fallback screenshot" {
         & $screenshotScript -FrameDebug -OutputPath (Join-Path $repoRoot "artifacts/demo-screenshot-frame.png")
     }
+    Invoke-Step "interactive gallery screenshot" {
+        & $screenshotScript -Screen gallery -OutputPath (Join-Path $repoRoot "artifacts/demo-screenshot-gallery.png")
+    }
+    Invoke-Step "interactive gallery light screenshot" {
+        & $screenshotScript -Screen gallery -Appearance light -OutputPath (Join-Path $repoRoot "artifacts/demo-screenshot-gallery-light.png")
+    }
+    Invoke-Step "interactive gallery frame fallback screenshot" {
+        & $screenshotScript -Screen gallery -FrameDebug -OutputPath (Join-Path $repoRoot "artifacts/demo-screenshot-gallery-frame.png")
+    }
     Invoke-Step "gallery regression gate" {
         & $galleryCompareScript
     }
@@ -110,6 +119,9 @@ if ($Full) {
     }
     Invoke-Step "SceneRasterizerTests" {
         & $testScript -Filter "SceneRasterizerTests"
+    }
+    Invoke-Step "ScenePrimitiveScaleInvarianceTests" {
+        & $testScript -Filter "ScenePrimitiveScaleInvarianceTests"
     }
     # Rectangular gradient fills now promote to directional GPU quads while
     # complex fills/strokes stay in the bounded path cache. Both routes must
@@ -185,6 +197,9 @@ if ($Full) {
     }
     Invoke-Step "PresentationFailurePolicyTests" {
         & $testScript -Filter "PresentationFailurePolicyTests"
+    }
+    Invoke-Step "FramePathDegradationTests" {
+        & $testScript -Filter "FramePathDegradationTests"
     }
     Invoke-Step "MalformedInputResilienceTests" {
         & $testScript -Filter "MalformedInputResilienceTests"
@@ -263,6 +278,15 @@ if ($Full) {
     }
     Invoke-Step "DemoRendererIdentityTests" {
         & $testScript -Filter "DemoRendererIdentityTests"
+    }
+    Invoke-Step "DemoShowcaseNavigationTests" {
+        & $testScript -Filter "DemoShowcaseNavigationTests"
+    }
+    Invoke-Step "DemoGalleryResponsiveTests" {
+        & $testScript -Filter "DemoGalleryResponsiveTests"
+    }
+    Invoke-Step "DemoGalleryStatePersistenceTests" {
+        & $testScript -Filter "DemoGalleryStatePersistenceTests"
     }
     # Existing dashboard and settings regressions cover compact page widths,
     # inherited appearances, filtering, pagination, and control continuity.

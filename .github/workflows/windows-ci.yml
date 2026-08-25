@@ -150,6 +150,12 @@ jobs:
             artifacts/demo-screenshot.raw.bmp
             artifacts/demo-screenshot-frame.png
             artifacts/demo-screenshot-frame.raw.bmp
+            artifacts/demo-screenshot-gallery.png
+            artifacts/demo-screenshot-gallery.raw.bmp
+            artifacts/demo-screenshot-gallery-light.png
+            artifacts/demo-screenshot-gallery-light.raw.bmp
+            artifacts/demo-screenshot-gallery-frame.png
+            artifacts/demo-screenshot-gallery-frame.raw.bmp
           if-no-files-found: warn
           retention-days: 14
 
@@ -160,6 +166,8 @@ jobs:
           name: windows-gallery-compare
           path: |
             artifacts/gallery-compare/report.txt
+            artifacts/gallery-compare/report.json
+            artifacts/gallery-compare/report.html
             artifacts/gallery-compare/current/*.png
             artifacts/gallery-compare/diffs/*.png
           if-no-files-found: warn

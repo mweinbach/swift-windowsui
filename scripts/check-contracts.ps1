@@ -271,6 +271,48 @@ Assert-NotContains `
     "(?m)^\s*for\s+\w+\s+in\s+" `
     "The shared demo must not use raw for loops in ViewBuilder source; use ForEach."
 
+# Additional demo screens compile as separate files in the same SwiftPM
+# target. Every one must independently choose Apple's SwiftUI or WinSwiftUI;
+# a conditional import in DemoDashboard.swift is not visible across files.
+$sharedDemoRoot = Get-RepoPath "Sources/SwiftWindowsDemo"
+foreach ($sharedDemoFile in (Get-ChildItem -LiteralPath $sharedDemoRoot -File -Filter *.swift)) {
+    $sharedDemoRelativePath = "Sources/SwiftWindowsDemo/$($sharedDemoFile.Name)"
+    Assert-Contains `
+        $sharedDemoRelativePath `
+        "#if\s+canImport\(SwiftUI\)" `
+        "$sharedDemoRelativePath must preserve the same-source SwiftUI conditional import."
+    Assert-Contains `
+        $sharedDemoRelativePath `
+        "(?m)^\s*import\s+WinSwiftUI\s*$" `
+        "$sharedDemoRelativePath must preserve its Windows WinSwiftUI fallback import."
+}
+Assert-Contains `
+    "Sources/SwiftWindowsDemo/DemoDashboard.swift" `
+    "DemoGalleryScreen\s*\(\s*model:\s*model\s*\)" `
+    "The interactive component gallery must remain an actual shared-source demo destination."
+Assert-Contains `
+    "Sources/SwiftWindowsDemo/DemoDashboard.swift" `
+    "let\s+galleryState\s*=\s*DemoGalleryState\s*\(\s*\)" `
+    "The app model must retain gallery interaction state across live retained-host view rebuilds."
+foreach ($galleryInteractiveSource in @(
+    "Sources/SwiftWindowsDemo/DemoComponentShowcase.swift",
+    "Sources/SwiftWindowsDemo/DemoGalleryPresentationShowcase.swift",
+    "Sources/SwiftWindowsDemo/DemoGalleryVisualShowcase.swift"
+)) {
+    Assert-NotContains `
+        $galleryInteractiveSource `
+        "(?m)^\s*@State\s+private\s+var\s+" `
+        "$galleryInteractiveSource must keep durable control, rendering, and presentation values in the model-owned observable gallery state."
+    Assert-Contains `
+        $galleryInteractiveSource `
+        "@ObservedObject\s+(?:private\s+)?var\s+galleryState" `
+        "$galleryInteractiveSource must observe its stable model-owned gallery state directly."
+}
+Assert-Contains `
+    "scripts/demo-screenshot.ps1" `
+    '(?s)ValidateSet\("dashboard",\s*"settings",\s*"data",\s*"gallery"\)' `
+    "The raw retained-runtime screenshot workflow must support every shared demo destination, including Gallery."
+
 Assert-Contains `
     "Sources/swift-windowsui-snapshot/SnapshotMain.swift" `
     "(?s)case \.scene:.*return \.rawScene" `

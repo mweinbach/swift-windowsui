@@ -21,7 +21,6 @@ public struct IntSize: Equatable, Sendable {
 
     public static let zero = IntSize(width: 0, height: 0)
 }
-public typealias CGSize = Size
 public struct Point: Equatable, Sendable {
     public var x: Double
     public var y: Double
@@ -1244,7 +1243,7 @@ public struct Path: Equatable, Sendable {
                 break
             }
         }
-        return Rect(origin: Point(x: minX, y: minY), size: CGSize(width: maxX - minX, height: maxY - minY))
+        return Rect(origin: Point(x: minX, y: minY), size: Size(width: maxX - minX, height: maxY - minY))
     }
 
     /// Returns true when `point` lies inside the path's interior under the

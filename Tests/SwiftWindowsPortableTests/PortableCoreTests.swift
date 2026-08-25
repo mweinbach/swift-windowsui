@@ -6,6 +6,14 @@ import SwiftWindowsScene
 import XCTest
 
 final class PortableCoreGeometryTests: XCTestCase {
+    func testFoundationCGSizeAndPortableSizeRemainUnambiguous() {
+        let foundationSize = CGSize(width: 13, height: 21)
+        let portableSize = Size(width: 13, height: 21)
+
+        XCTAssertEqual(Double(foundationSize.width), portableSize.width)
+        XCTAssertEqual(Double(foundationSize.height), portableSize.height)
+    }
+
     func testRectangleIntersectionAndHalfOpenContainment() {
         let rectangle = Rect(x: 3, y: 4, width: 12, height: 8)
 

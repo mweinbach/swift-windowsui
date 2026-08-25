@@ -18,6 +18,7 @@ on:
   workflow_dispatch:
   push:
     paths:
+      - "Package.swift"
       - "Sources/macos-reference-renderer/**"
       - ".github/workflows/macos-reference-render.yml"
   schedule:
@@ -146,17 +147,37 @@ jobs:
           set -euo pipefail
           swift run -c release macos-reference-renderer
 
-      - name: List output
+      - name: Verify complete canonical reference output
         run: |
           set -euo pipefail
           ls -la artifacts/macos-reference
-          # Fail early with a clear message if no PNGs were produced.
+          expected_count=0
+          for fixture in \
+            button-regular \
+            toggle-on \
+            slider-mid \
+            text-body \
+            system-colors \
+            stack-default-spacing
+          do
+            expected_count=$((expected_count + 1))
+            path="artifacts/macos-reference/$fixture.png"
+            if [ ! -f "$path" ]; then
+              echo "::error::Missing canonical macOS reference fixture: $path"
+              exit 1
+            fi
+            if [ ! -s "$path" ]; then
+              echo "::error::Canonical macOS reference fixture is empty: $path"
+              exit 1
+            fi
+          done
+
           png_count=$(find artifacts/macos-reference -maxdepth 1 -type f -name '*.png' | wc -l | tr -d ' ')
-          if [ "$png_count" -eq 0 ]; then
-            echo "::error::No PNG files written under artifacts/macos-reference/"
+          if [ "$png_count" -ne "$expected_count" ]; then
+            echo "::error::Expected exactly $expected_count canonical macOS reference PNGs; found $png_count"
             exit 1
           fi
-          echo "PNG count: $png_count"
+          echo "Verified all $png_count canonical macOS reference PNGs"
 
       - name: Upload PNG artifacts
         uses: actions/upload-artifact@v4

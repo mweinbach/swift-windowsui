@@ -327,10 +327,10 @@ struct DemoComponentShowcase: View {
                 ) {
                     HStack(alignment: .center, spacing: DemoMetrics.s2) {
                         Slider(value: intensityBinding, in: 0...1, step: 0.05)
-                            .frame(width: compact ? 136 : 160)
                             .accessibilityLabel("Render intensity")
                             .accessibilityValue("\(intensityPercent) percent")
                             .accessibilityIdentifier("gallery.range.intensity")
+                            .frame(width: compact ? 136 : 160)
 
                         Text("\(intensityPercent)%")
                             .font(DemoType.captionStrong)

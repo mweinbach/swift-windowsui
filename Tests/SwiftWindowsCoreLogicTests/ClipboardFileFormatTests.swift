@@ -165,6 +165,26 @@ final class ClipboardFileFormatTests: XCTestCase {
         }
     }
 
+    func testURLRequestsRejectRelativeClipboardText() async {
+        await MainActor.run {
+            Self.withFakeFileStore { _ in
+                defer { ClipboardManager.copyString("") }
+
+                for relativeText in ["report.pdf", "../secrets", "hello"] {
+                    ClipboardManager.copyString(relativeText)
+                    XCTAssertTrue(
+                        ClipboardManager.pasteItems(for: [.url]).isEmpty,
+                        "relative text should not become a typed URL: \(relativeText)")
+                }
+
+                ClipboardManager.copyString("myapp://documents/report")
+                XCTAssertEqual(
+                    ClipboardManager.pasteItems(for: [.url]).compactMap { $0 as? URL },
+                    [URL(string: "myapp://documents/report")!])
+            }
+        }
+    }
+
     func testOverlappingTextTypesDeliverOneClipboardPayload() async {
         await MainActor.run {
             ClipboardManager.copyString("one clipboard payload")
@@ -174,6 +194,23 @@ final class ClipboardFileFormatTests: XCTestCase {
                 .compactMap { $0 as? String }
 
             XCTAssertEqual(text, ["one clipboard payload"])
+        }
+    }
+
+    func testUnsupportedContentTypesDoNotReceiveClipboardText() async {
+        await MainActor.run {
+            ClipboardManager.copyString("clipboard text is not an image")
+            defer { ClipboardManager.copyString("") }
+
+            for unsupportedType in [UTType.image, .png, .pdf, UTType("com.example.custom")] {
+                XCTAssertTrue(
+                    ClipboardManager.pasteItems(for: [unsupportedType]).isEmpty,
+                    "unexpected clipboard payload for \(unsupportedType.identifier)")
+            }
+
+            XCTAssertEqual(
+                ClipboardManager.pasteItems(for: [.image, .text, .png]).compactMap { $0 as? String },
+                ["clipboard text is not an image"])
         }
     }
 

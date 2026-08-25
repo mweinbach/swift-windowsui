@@ -46,7 +46,10 @@ enum DropFilesPayloadValidator {
         let pFiles = Int(bytes.load(fromByteOffset: 0, as: UInt32.self))
         let wide = bytes.load(fromByteOffset: 16, as: UInt32.self) != 0
         let unitSize = wide ? 2 : 1
-        guard pFiles >= headerSize, pFiles + unitSize <= bytes.count else { return false }
+        guard pFiles >= headerSize,
+            pFiles + unitSize <= bytes.count,
+            !wide || pFiles.isMultiple(of: MemoryLayout<UInt16>.alignment)
+        else { return false }
 
         var offset = pFiles
         while true {

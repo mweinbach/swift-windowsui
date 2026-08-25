@@ -77,6 +77,16 @@ final class DropFilesPayloadHardeningTests: XCTestCase {
         XCTAssertTrue(isWellFormed(ansiPayload(paths: ["C:\\data\\a.txt"])))
     }
 
+    func testValidatorAcceptsAnsiPayloadAtOddOffset() async {
+        var bytes = ansiPayload(paths: ["C:\\data\\a.txt"])
+        bytes.insert(0xA5, at: 20)
+        bytes.withUnsafeMutableBytes { raw in
+            raw.storeBytes(of: UInt32(21), toByteOffset: 0, as: UInt32.self)
+        }
+
+        XCTAssertTrue(isWellFormed(bytes))
+    }
+
     // MARK: - Truncated / undersized blocks
 
     func testValidatorRejectsTruncatedHeader() async {
@@ -120,6 +130,10 @@ final class DropFilesPayloadHardeningTests: XCTestCase {
 
     func testValidatorRejectsPFilesInsideHeader() async {
         XCTAssertFalse(isWellFormed(widePayload(paths: ["C:\\a.txt"], pFiles: 8)))
+    }
+
+    func testValidatorRejectsUnalignedWidePFilesOffsetWithoutTrapping() async {
+        XCTAssertFalse(isWellFormed(widePayload(paths: ["C:\\a.txt"], pFiles: 21)))
     }
 
     func testValidatorRejectsHugePFilesOffset() async {

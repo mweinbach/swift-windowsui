@@ -249,11 +249,13 @@ public enum ClipboardManager {
                 let fileURLs = fileURLsFromClipboard()
                 if !fileURLs.isEmpty {
                     appendUniqueURLs(fileURLs)
-                } else if let text = pasteString(), !text.isEmpty, let url = URL(string: text) {
+                } else if let text = pasteString(), !text.isEmpty,
+                    let url = URL(string: text), let scheme = url.scheme, !scheme.isEmpty
+                {
                     appendUniqueURLs([url])
                 }
             default:
-                appendClipboardText()
+                break
             }
         }
         return results

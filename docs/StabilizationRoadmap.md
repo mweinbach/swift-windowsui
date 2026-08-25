@@ -36,8 +36,12 @@ limits in `README.md`, `docs/WinSwiftUI.md`, `docs/Testing.md`,
   runs contracts on every change, Quick on pull requests / branch pushes, and
   Full plus screenshot upload on main, schedule, and manual dispatch. Hosted
   runner results still need to be monitored for toolchain drift.
-- Shared demo source aims for import-swappable macOS SwiftUI compatibility;
-  the package itself remains **Windows-only** for runtime/host/renderer.
+- Public Core/Graphics/Layout/Scene package products and the genuine offscreen
+  CPU renderer are portable to Linux/macOS. The same demo source builds against
+  native Apple SwiftUI on macOS, while the complete retained `WinSwiftUI`
+  runtime, Win32 accessibility/text/image integration, and native Windows
+  presentation remain **Windows-only**. Neutral platform-host contracts are a
+  foundation for another host, not a claim that one already exists.
 
 Architecture invariants that every phase must preserve:
 

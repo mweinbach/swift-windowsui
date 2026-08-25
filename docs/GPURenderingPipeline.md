@@ -1651,10 +1651,11 @@ Coalescing the messages is the fix; dropping the rebuild is not.
 
 ## 4e. Frame clock, pacing, and DPI-correct window configuration
 
-**One monotonic clock.** `Win32Window.currentTimestampSeconds()` is
-`QueryPerformanceCounter` divided by a once-queried frequency, and *every*
-render entry point stamps its frame from it through the host's `frameClock`
-seam — `WM_PAINT` included. Two defects met at that sentence:
+**One monotonic clock.** `Win32Window.currentTimestampSeconds()` delegates to
+the portable `PlatformClock.now()` uptime clock, which derives seconds from
+`DispatchTime` nanoseconds. The Win32 host, retained runtime, profiling, and
+every render entry point share that exact monotonic origin through the host's
+`frameClock` seam — `WM_PAINT` included. Two defects met at that sentence:
 
 - `GetTickCount64` advances in system clock ticks (documented 10–16 ms,
   typically 15.625 ms), which is coarser than a 60 Hz vsync period. Feeding it

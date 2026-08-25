@@ -8,6 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $testScript = Join-Path $PSScriptRoot "test.ps1"
+$portableTestScript = Join-Path $PSScriptRoot "test-portable.ps1"
 $buildScript = Join-Path $PSScriptRoot "build.ps1"
 $lintScript = Join-Path $PSScriptRoot "lint.ps1"
 $contractScript = Join-Path $PSScriptRoot "check-contracts.ps1"
@@ -73,6 +74,10 @@ if ($ContractsOnly) {
 }
 
 # All SwiftPM steps below run strictly serially (shared .build/build.db).
+Invoke-Step "portable core, graphics, layout, and CPU backend tests" {
+    & $portableTestScript
+}
+
 if ($Full) {
     # Prefer sharded full tests: class/suite filters plus method batches for
     # oversized XCTest classes (avoids Windows error 206 on huge filter expansion).
@@ -128,6 +133,12 @@ if ($Full) {
     Invoke-Step "D3D11BatchRendererTests" {
         & $testScript -Filter "D3D11BatchRendererTests"
     }
+    Invoke-Step "RenderSurfaceTargetTests" {
+        & $testScript -Filter "RenderSurfaceTargetTests"
+    }
+    Invoke-Step "BackendInterchangeabilityConformanceTests" {
+        & $testScript -Filter "BackendInterchangeabilityConformanceTests"
+    }
     # The GPU frame path and cross-backend pixel parity: these run the real
     # D3D11 batch renderer offscreen on WARP, so they observe what the CPU
     # rasterizer (which every screenshot goes through) cannot.
@@ -178,6 +189,9 @@ if ($Full) {
     Invoke-Step "ClipboardFileFormatTests" {
         & $testScript -Filter "ClipboardFileFormatTests"
     }
+    Invoke-Step "ShareLinkFileClipboardTests" {
+        & $testScript -Filter "ShareLinkFileClipboardTests"
+    }
     # One clip value in one space: the narrowing rule, the in-band encoding,
     # rounded clips on every family, and the coherence of the painted and the
     # interactive region under a transform (~0.06 s).
@@ -186,6 +200,9 @@ if ($Full) {
     }
     Invoke-Step "RetainedViewRuntimeTests" {
         & $testScript -Filter "RetainedViewRuntimeTests"
+    }
+    Invoke-Step "PlatformHostContractTests" {
+        & $testScript -Filter "PlatformHostContractTests"
     }
     # Optional retained capabilities must stay genuinely sparse; rebuilding
     # controls must preserve their IME composition and caret callbacks.
@@ -207,6 +224,9 @@ if ($Full) {
     Invoke-Step "UIAAdvancedPatternTests" {
         & $testScript -Filter "UIAAdvancedPatternTests"
     }
+    Invoke-Step "ModalPresentationIsolationTests" {
+        & $testScript -Filter "ModalPresentationIsolationTests"
+    }
     # Native Windows contrast-theme colors must survive COLORREF decoding,
     # inherited environments, semantic text, control chrome and selection.
     Invoke-Step "HighContrastSystemPaletteTests" {
@@ -225,6 +245,9 @@ if ($Full) {
     }
     Invoke-Step "DemoCommandPaletteAndTableWorkflowTests" {
         & $testScript -Filter "DemoCommandPaletteAndTableWorkflowTests"
+    }
+    Invoke-Step "DemoRendererIdentityTests" {
+        & $testScript -Filter "DemoRendererIdentityTests"
     }
     # Existing dashboard and settings regressions cover compact page widths,
     # inherited appearances, filtering, pagination, and control continuity.

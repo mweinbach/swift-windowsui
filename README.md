@@ -16,19 +16,29 @@ The repo now also includes `WinSwiftUI`, a SwiftUI-shaped compatibility layer fo
 - Linear gradients that retain authored intermediate color stops, custom stop positions, hard stops, and reversed endpoints across CPU snapshots, the D3D11 scene backend, and the live Direct2D/D3D11 frame fallback; rectangular Canvas fills additionally promote diagonal, inset, transformed, and rounded multistop gradients directly to instanced GPU quads
 - GPU-native radial and angular shape gradients with authored centers, start/end radii or signed angular sweeps, intermediate and hard stops, transparency, rounded coverage, transforms, clips, and matching CPU snapshots
 - Native Windows character input with Unicode, keyboard-layout-aware punctuation, supplementary-plane characters, existing IME composition, and selection-safe editing; mouse, primary-touch, double-click, horizontal-wheel, and lost-capture interactions share the retained input path
-- A Windows-only implementation for the runtime/host/renderer layers today
+- Portable public Core, Graphics, Layout, and Scene products with a genuinely
+  headless CPU renderer; the full retained `WinSwiftUI` runtime and native
+  presentation remain Windows implementations today
 
 ## Same-Source Goal
 
-The current portability target is shared app source, not full package portability.
+Shared app source and the renderer-neutral package foundation are portable; the
+full retained runtime and Windows host are not yet interchangeable as a unit.
 
 - On Windows, app code can import `WinSwiftUI`
-- On macOS, the same view/app source can import `SwiftUI`
+- On macOS, the same view/app source can import native `SwiftUI` and build as
+  the `swift-windowsui` executable without Win32 or Direct3D dependencies
+- On Linux and macOS, clients can import the independently packaged
+  `SwiftWindowsCore`, `SwiftWindowsGraphics`, `SwiftWindowsLayout`, and
+  `SwiftWindowsScene` products and use the genuine offscreen CPU renderer
 - The demo in `Sources/SwiftWindowsDemo/DemoDashboard.swift` stays inside that shared subset
 
 Important limit:
 
-- The repository itself is still Windows-only because `SwiftWindowsPlatform` and `SwiftWindowsRendererD3D11` depend on Win32 and D3D11
+- `WinSwiftUI`, the complete retained UI engine, native accessibility,
+  DirectWrite/WIC text and image services, the Win32 host, and the D3D11
+  presenter remain Windows-only. Portable host contracts do not yet mean the
+  complete retained app can boot on another operating system.
 
 ## Run The Demo
 
@@ -36,6 +46,13 @@ Start the custom-rendered Windows app from the repository root:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-demo.ps1
+```
+
+Choose the rendering engine explicitly without changing application code:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-demo.ps1 -Backend d3d11
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-demo.ps1 -Backend software
 ```
 
 The app includes three same-source SwiftUI screens: an interactive rendering
@@ -55,10 +72,16 @@ scene renderer.
 
 Products:
 
+- `SwiftWindowsCore`, `SwiftWindowsGraphics`, `SwiftWindowsLayout`,
+  `SwiftWindowsScene`: independently consumable cross-platform foundations
 - `SwiftWindowsUI`: retained runtime and controls
 - `WinSwiftUI`: SwiftUI-shaped compatibility layer over the retained runtime
 - `SwiftWindowsApp`: app shell and D3D11 wiring
 - `swift-windowsui`: demo executable
+
+See [`docs/PlatformArchitecture.md`](docs/PlatformArchitecture.md) for the
+platform-versus-engine portability matrix, real swap boundaries, offscreen
+surface contract, and remaining work before a second retained-runtime host.
 
 Targets:
 

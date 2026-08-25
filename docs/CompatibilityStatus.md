@@ -30,6 +30,15 @@ Default demo path:
 Screenshot validation is raw retained-runtime output via
 `swift-windowsui-snapshot` and `GPUIRawSceneRasterizer`, not desktop capture.
 
+`SwiftWindowsCore`, `SwiftWindowsGraphics`, `SwiftWindowsLayout`, and
+`SwiftWindowsScene` are independently packaged portable foundations. Their
+platform host, clipboard, monotonic clock, offscreen surface, and backend
+capability contracts are renderer-neutral; the CPU renderer needs no fake
+window handle. On macOS the same demo source builds against native Apple
+SwiftUI. The complete retained `WinSwiftUI` engine, Win32 host, native text,
+accessibility bridge, and D3D11 presenter remain Windows-only. See
+[`PlatformArchitecture.md`](PlatformArchitecture.md) for the precise matrix.
+
 Detailed API notes live in [`docs/WinSwiftUI.md`](WinSwiftUI.md). Design and
 animation numeric parity tables live in [`docs/MacOSDesignParity.md`](MacOSDesignParity.md)
 and [`docs/AnimationParity.md`](AnimationParity.md).

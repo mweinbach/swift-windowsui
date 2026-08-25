@@ -47,6 +47,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
 - Interrupted sharded debugging can resume with
   `scripts/test.ps1 -Sharded -StartShard <number>`; release validation always
   starts at shard one and executes every discovered target.
+- `scripts/test-portable.ps1 -BuildProducts` verifies all four public portable
+  package products, builds their isolated Core/Graphics/Layout/Scene targets,
+  and executes the independent headless CPU/geometry/layout XCTest target.
+  Both Quick and Full run its portable test target separately because the
+  Windows-only sharded runner intentionally scans a different test directory.
+- `PlatformHostContractTests`, `RenderSurfaceTargetTests`, and
+  `BackendInterchangeabilityConformanceTests` verify alternate host lifecycle,
+  genuine handle-free surfaces, truthful backend capabilities, safe software
+  fallback, and equivalent scene/frame output without importing a concrete GPU
+  backend.
+- `ModalPresentationIsolationTests` and `DemoRendererIdentityTests` cover
+  topmost modal focus/accessibility/shortcut isolation and renderer identities
+  that remain accurate when the app switches between D3D11 and software.
 - Existing `ListFormQualityTests`, `DemoProductPolishTests`,
   `DemoInteractivePolishTests`, `DemoResponsiveLayoutTests`, and
   `DemoResponsiveProductPolishTests` also gate Quick so small-list keyboard

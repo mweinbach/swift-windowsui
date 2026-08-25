@@ -410,9 +410,88 @@ foreach ($rule in $script:dependencyDirectionRules) {
     }
 }
 
+# Portable package products must stay independent of native Windows SDKs,
+# not merely of internal platform modules. The dependency-direction rules
+# above cannot see an external `import WinSDK`, so enforce that boundary on
+# every source file that Linux/macOS builds directly.
+$portableSourceRoots = @(
+    "Sources/SwiftWindowsCore",
+    "Sources/SwiftWindowsGraphics",
+    "Sources/SwiftWindowsLayout",
+    "Sources/SwiftWindowsScene",
+    "Tests/SwiftWindowsPortableTests"
+)
+$portableForbiddenImports = @(
+    "WinSDK",
+    "SwiftWindowsPlatform",
+    "SwiftWindowsRendererD3D11",
+    "SwiftWindowsUI",
+    "WinSwiftUI",
+    "CDirect2DInterop",
+    "CUIAInterop"
+)
+foreach ($portableRoot in $portableSourceRoots) {
+    $portableRootPath = Get-RepoPath $portableRoot
+    if (-not (Test-Path -LiteralPath $portableRootPath)) {
+        continue
+    }
+
+    foreach ($portableFile in (Get-ChildItem -LiteralPath $portableRootPath -Recurse -File -Filter *.swift)) {
+        $portableImportMatches = Select-String -LiteralPath $portableFile.FullName -Pattern "(?m)^\s*(?:@_\w+\s+)*import\s+(?:(?:struct|class|enum|protocol|func|var|typealias)\s+)?([A-Za-z_][A-Za-z0-9_]*)"
+        foreach ($portableImportMatch in $portableImportMatches) {
+            $portableModule = $portableImportMatch.Matches[0].Groups[1].Value
+            if ($portableForbiddenImports -contains $portableModule) {
+                Add-Failure "$portableRoot must stay independently portable and must not import $portableModule. Found at $($portableFile.FullName):$($portableImportMatch.LineNumber)."
+            }
+        }
+    }
+}
+
 # WinSwiftUI must not declare a target dependency on the D3D11 backend; the
 # Windows product selects it at the composition root instead.
 $packageManifest = Read-RepoFile "Package.swift"
+
+foreach ($portableProduct in @("SwiftWindowsCore", "SwiftWindowsGraphics", "SwiftWindowsLayout", "SwiftWindowsScene")) {
+    $portableProductPattern = '\.library\s*\(\s*name:\s*"' + [regex]::Escape($portableProduct) + '"'
+    if ($packageManifest -notmatch $portableProductPattern) {
+        Add-Failure "Package.swift must expose $portableProduct as an independently consumable portable library product."
+    }
+}
+
+if ($packageManifest -match '(?s)#if\s+os\(Windows\)(?<windowsTargets>.*?)#elseif\s+os\(macOS\)') {
+    $windowsOnlyManifest = $Matches.windowsTargets
+    $windowsBranchText = $Matches[0]
+    foreach ($windowsOnlyTarget in @("CDirect2DInterop", "CUIAInterop", "SwiftWindowsPlatform", "SwiftWindowsRendererD3D11")) {
+        if ($windowsOnlyManifest -notmatch ('name:\s*"' + [regex]::Escape($windowsOnlyTarget) + '"')) {
+            Add-Failure "Package.swift must keep $windowsOnlyTarget inside its Windows-only target graph."
+        }
+    }
+
+    $nonWindowsManifest = $packageManifest.Replace($windowsBranchText, "#elseif os(macOS)")
+    foreach ($windowsLibrary in @("D2d1", "uiautomationcore", "ole32", "oleaut32", "D3DCompiler", "Shell32")) {
+        if ($nonWindowsManifest -match ('\.linkedLibrary\s*\(\s*"' + [regex]::Escape($windowsLibrary) + '"')) {
+            Add-Failure "Package.swift must not link Windows-only library $windowsLibrary from the portable or macOS target graphs."
+        }
+    }
+} else {
+    Add-Failure "Package.swift must isolate its Win32, UI Automation, and Direct3D target graph behind #if os(Windows)."
+}
+
+if ($packageManifest -notmatch '(?s)\.testTarget\s*\(\s*name:\s*"SwiftWindowsPortableTests"\s*,\s*dependencies:\s*\[(?<portableDeps>[^\]]*)\]') {
+    Add-Failure "Package.swift must declare SwiftWindowsPortableTests with an explicit portable dependency list."
+} elseif ($Matches.portableDeps -match 'SwiftWindowsPlatform|SwiftWindowsRendererD3D11|WinSwiftUI|CDirect2DInterop|CUIAInterop') {
+    Add-Failure "SwiftWindowsPortableTests must not depend on a Windows platform, native interop, UI facade, or D3D11 target."
+}
+
+Assert-Contains `
+    "Sources/SwiftWindowsCore/Geometry.swift" `
+    "case\s+offscreen" `
+    "RenderSurfaceTarget must retain a genuine offscreen surface that does not require a fabricated native window handle."
+Assert-Contains `
+    "Sources/swift-windowsui-snapshot/SnapshotMain.swift" `
+    "offscreenPixelSize:" `
+    "The CPU snapshot composition root must attach to a genuine offscreen surface rather than manufacture a window handle."
+
 if ($packageManifest -match '(?s)name:\s*"WinSwiftUI"\s*,\s*dependencies:\s*\[(?<deps>[^\]]*)\]') {
     if ($Matches.deps -match "SwiftWindowsRendererD3D11") {
         Add-Failure "Package.swift: the WinSwiftUI target must not depend on SwiftWindowsRendererD3D11; the facade stays renderer-neutral behind RenderBackendFactory and the composition root picks the backend."

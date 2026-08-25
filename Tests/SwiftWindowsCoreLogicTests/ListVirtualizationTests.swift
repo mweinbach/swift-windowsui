@@ -41,6 +41,35 @@ final class ListVirtualizationTests: XCTestCase {
 
         XCTAssertFalse(small.node.layoutMode.virtualizesChildren)
         XCTAssertEqual(small.runtime.virtualizedLayoutSkipCount, 0)
+
+        var selection: Int? = 0
+        let binding = Binding<Int?>(get: { selection }, set: { selection = $0 })
+        weak var releasedRuntime: RetainedViewRuntime?
+        let standaloneList: ViewNode = {
+            let result = makeRuntime(
+                List(0..<5, id: \.self, selection: binding) { index in
+                    Text("ROW \(index)")
+                        .frame(width: 220, height: 40)
+                },
+                size: IntSize(width: 260, height: 100)
+            )
+            releasedRuntime = result.runtime
+            return result.node
+        }()
+
+        XCTAssertNil(releasedRuntime, "row interaction state must never retain its runtime in a reference cycle")
+        let selectableRows = standaloneList.children.filter {
+            $0.accessibilityTraits.contains(.isSelectable)
+        }
+        for row in selectableRows.dropLast() {
+            row.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
+        }
+        XCTAssertEqual(selection, 4)
+        XCTAssertGreaterThan(
+            standaloneList.scrollOffset,
+            0,
+            "an already-laid-out standalone List must reveal keyboard selection after its runtime is released"
+        )
     }
 
     func testListsAboveThresholdUseViewportBoundedLayout() async {

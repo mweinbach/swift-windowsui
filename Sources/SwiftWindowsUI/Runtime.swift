@@ -1,11 +1,7 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
-
 import SwiftWindowsLayout
-
 // Gap/Fix: Granular dirty tracking — OptionSet replaces single isDirty boolean.
 import SwiftWindowsPlatform
 
@@ -7562,6 +7558,108 @@ public final class ViewNode {
         setScrollOffset(scrollOffset + delta)
     }
 
+    /// Reveals this node in its nearest scrollable ancestor. A live runtime
+    /// also cancels momentum and resolves deferred lazy-stack descendants;
+    /// an already-laid-out standalone tree can still adjust its own offset
+    /// without keeping the runtime alive through an interaction closure.
+    @discardableResult
+    public func scrollIntoView() -> Bool {
+        if let runtime {
+            return runtime.scrollToDescendant(self)
+        }
+
+        guard let (target, scrollContainer) = nearestScrollTarget(),
+            scrollContainer.cachedLayoutKey != nil,
+            scrollContainer.pendingLayoutKey == nil,
+            let requestedOffset = Self.requestedScrollOffset(
+                for: target,
+                within: scrollContainer,
+                anchor: nil
+            )
+        else {
+            return false
+        }
+
+        _ = scrollContainer.setScrollOffset(requestedOffset)
+        return true
+    }
+
+    fileprivate func nearestScrollTarget() -> (target: ViewNode, container: ViewNode)? {
+        var target = self
+        var candidate: ViewNode? = self
+        var depth = 0
+        while let node = candidate, depth < Self.maximumTraversalDepth {
+            guard !node.isHidden else { return nil }
+            if node.isLayoutDeferredByVirtualization {
+                target = node
+            }
+            if node.scrollAxis != nil {
+                return (target, node)
+            }
+            candidate = node.parent
+            depth += 1
+        }
+        return nil
+    }
+
+    fileprivate static func requestedScrollOffset(
+        for target: ViewNode,
+        within scrollContainer: ViewNode,
+        anchor: Double?
+    ) -> Double? {
+        guard let axis = scrollContainer.scrollAxis, anchor?.isFinite ?? true else {
+            return nil
+        }
+
+        var targetFrame = target.resolvedFrame
+        var ancestor = target.parent
+        var depth = 0
+        while let node = ancestor, node !== scrollContainer,
+            depth < maximumTraversalDepth
+        {
+            targetFrame = targetFrame.offsetBy(
+                dx: node.resolvedFrame.origin.x,
+                dy: node.resolvedFrame.origin.y
+            )
+            ancestor = node.parent
+            depth += 1
+        }
+        guard ancestor === scrollContainer else {
+            return nil
+        }
+
+        let viewportExtent: Double
+        let targetStart: Double
+        let targetExtent: Double
+        switch axis {
+        case .horizontal:
+            viewportExtent = scrollContainer.resolvedFrame.size.width
+            targetStart = targetFrame.minX
+            targetExtent = targetFrame.size.width
+        case .vertical:
+            viewportExtent = scrollContainer.resolvedFrame.size.height
+            targetStart = targetFrame.minY
+            targetExtent = targetFrame.size.height
+        }
+        guard viewportExtent > 0, viewportExtent.isFinite,
+            targetStart.isFinite, targetExtent > 0, targetExtent.isFinite
+        else {
+            return nil
+        }
+
+        if let anchor {
+            let boundedAnchor = min(max(anchor, 0), 1)
+            return targetStart + targetExtent * boundedAnchor - viewportExtent * boundedAnchor
+        }
+        if targetStart < scrollContainer.scrollOffset {
+            return targetStart
+        }
+        if targetStart + targetExtent > scrollContainer.scrollOffset + viewportExtent {
+            return targetStart + targetExtent - viewportExtent
+        }
+        return scrollContainer.scrollOffset
+    }
+
     fileprivate func setScrollOffset(_ value: Double) -> Bool {
         let nextOffset = clampedScrollOffset(for: value)
         guard nextOffset != scrollOffset else {
@@ -9343,23 +9441,8 @@ public final class RetainedViewRuntime {
             return false
         }
 
-        var target = descendant
-        var candidate: ViewNode? = descendant
-        var scrollContainer: ViewNode?
-        var depth = 0
-        while let node = candidate, depth < ViewNode.maximumTraversalDepth {
-            if node.isLayoutDeferredByVirtualization {
-                target = node
-            }
-            if node.scrollAxis != nil {
-                scrollContainer = node
-                break
-            }
-            candidate = node.parent
-            depth += 1
-        }
-
-        guard let scrollContainer, let axis = scrollContainer.scrollAxis,
+        guard let (target, scrollContainer) = descendant.nearestScrollTarget(),
+            let axis = scrollContainer.scrollAxis,
             !isLayoutInProgress,
             !hasPendingLayout,
             scrollContainer.cachedLayoutKey != nil,
@@ -9369,56 +9452,14 @@ public final class RetainedViewRuntime {
         }
 
         let anchor = axis == .horizontal ? anchorX : anchorY
-        guard anchor?.isFinite ?? true else {
-            return false
-        }
-
-        var targetFrame = target.resolvedFrame
-        var ancestor = target.parent
-        depth = 0
-        while let node = ancestor, node !== scrollContainer,
-            depth < ViewNode.maximumTraversalDepth
-        {
-            targetFrame = targetFrame.offsetBy(
-                dx: node.resolvedFrame.origin.x,
-                dy: node.resolvedFrame.origin.y
+        guard
+            let requestedOffset = ViewNode.requestedScrollOffset(
+                for: target,
+                within: scrollContainer,
+                anchor: anchor
             )
-            ancestor = node.parent
-            depth += 1
-        }
-        guard ancestor === scrollContainer else {
-            return false
-        }
-
-        let viewportExtent: Double
-        let targetStart: Double
-        let targetExtent: Double
-        switch axis {
-        case .horizontal:
-            viewportExtent = scrollContainer.resolvedFrame.size.width
-            targetStart = targetFrame.minX
-            targetExtent = targetFrame.size.width
-        case .vertical:
-            viewportExtent = scrollContainer.resolvedFrame.size.height
-            targetStart = targetFrame.minY
-            targetExtent = targetFrame.size.height
-        }
-        guard viewportExtent > 0, viewportExtent.isFinite,
-            targetStart.isFinite, targetExtent > 0, targetExtent.isFinite
         else {
             return false
-        }
-
-        let requestedOffset: Double
-        if let anchor {
-            let boundedAnchor = min(max(anchor, 0), 1)
-            requestedOffset = targetStart + targetExtent * boundedAnchor - viewportExtent * boundedAnchor
-        } else if targetStart < scrollContainer.scrollOffset {
-            requestedOffset = targetStart
-        } else if targetStart + targetExtent > scrollContainer.scrollOffset + viewportExtent {
-            requestedOffset = targetStart + targetExtent - viewportExtent
-        } else {
-            requestedOffset = scrollContainer.scrollOffset
         }
 
         cancelScrollMomentum(for: scrollContainer)

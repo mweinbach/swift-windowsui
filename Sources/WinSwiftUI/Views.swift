@@ -1,13 +1,8 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
-
 import SwiftWindowsLayout
-
 import SwiftWindowsPlatform
-
 import SwiftWindowsUI
 
 // MARK: - AsyncImage
@@ -9375,13 +9370,12 @@ private final class ListKeyboardNavigationState {
     func scrollRowIntoView(tag: AnyHashable) {
         guard
             let entry = entriesByTag[tag],
-            let rowNode = entry.node,
-            let runtime
+            let rowNode = entry.node
         else {
             return
         }
 
-        if !runtime.scrollToDescendant(rowNode) {
+        if !rowNode.scrollIntoView(), let runtime {
             let requestKey = "list.selection.\(String(describing: tag.base))"
             runtime.scheduleAfterLayout(key: requestKey) { [weak runtime, weak rowNode] in
                 guard let runtime, let rowNode else { return }

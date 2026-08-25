@@ -13953,6 +13953,28 @@ private func textInputComponent(
                 return
             }
 
+            // Word navigation has to run before the Ctrl+clipboard dispatch:
+            // arrows are not clipboard shortcuts, and the old switch's
+            // default swallowed Ctrl+Left/Right altogether. Character-based
+            // boundaries keep emoji and combining sequences indivisible.
+            if event.modifiers.contains(.control),
+                event.key == .leftArrow || event.key == .rightArrow
+            {
+                let state = currentSelectionState()
+                let destination = textInputWordBoundary(
+                    in: binding.wrappedValue,
+                    from: state.caret,
+                    movingForward: event.key == .rightArrow
+                )
+                if event.modifiers.contains(.shift) {
+                    applySelection(anchor: state.anchor, extent: destination)
+                } else {
+                    setCaretOffset(destination)
+                    context.invalidate()
+                }
+                return
+            }
+
             if event.modifiers.contains(.control) {
                 let clipboard = context.textInputClipboard ?? TextInputClipboardProvider.current
                 switch event.keyCode {
@@ -20321,6 +20343,73 @@ private func textFieldInsertedCharacter(
         textInputAutocapitalization: textInputAutocapitalization
     )
 }
+private enum TextInputWordBoundaryClass: Equatable {
+    case whitespace
+    case word
+    case punctuation
+
+    init(_ character: Character) {
+        if character.isWhitespace || character.isNewline {
+            self = .whitespace
+        } else if character.isLetter || character.isNumber || character == "_" {
+            self = .word
+        } else {
+            self = .punctuation
+        }
+    }
+}
+
+/// Returns a Character offset, never a UTF-8/UTF-16 offset: the retained
+/// editor's selection model counts extended grapheme clusters, so a family
+/// emoji or combining-accent sequence must be crossed in one movement.
+private func textInputWordBoundary(
+    in text: String,
+    from offset: Int,
+    movingForward: Bool
+) -> Int {
+    var characterOffset = clampedTextOffset(offset, in: text)
+    var index = text.index(text.startIndex, offsetBy: characterOffset)
+
+    if movingForward {
+        guard index < text.endIndex else { return characterOffset }
+
+        let initialClass = TextInputWordBoundaryClass(text[index])
+        if initialClass != .whitespace {
+            while index < text.endIndex,
+                TextInputWordBoundaryClass(text[index]) == initialClass
+            {
+                text.formIndex(after: &index)
+                characterOffset += 1
+            }
+        }
+
+        while index < text.endIndex,
+            TextInputWordBoundaryClass(text[index]) == .whitespace
+        {
+            text.formIndex(after: &index)
+            characterOffset += 1
+        }
+        return characterOffset
+    }
+
+    while index > text.startIndex {
+        let previous = text.index(before: index)
+        guard TextInputWordBoundaryClass(text[previous]) == .whitespace else { break }
+        index = previous
+        characterOffset -= 1
+    }
+
+    guard index > text.startIndex else { return characterOffset }
+    let initialClass = TextInputWordBoundaryClass(text[text.index(before: index)])
+    while index > text.startIndex {
+        let previous = text.index(before: index)
+        guard TextInputWordBoundaryClass(text[previous]) == initialClass else { break }
+        index = previous
+        characterOffset -= 1
+    }
+    return characterOffset
+}
+
 private func clampedTextOffset(_ offset: Int, in text: String) -> Int {
     min(max(0, offset), text.count)
 }

@@ -70,6 +70,80 @@ final class TextInputSelectionTests: XCTestCase {
                 node.textInputSelection,
                 RetainedTextSelection(indices: .range(4..<5), affinity: .upstream)
             )
+
+            // Ctrl+arrows move between Character-based word boundaries;
+            // emoji remain one grapheme, underscores stay in their word,
+            // and punctuation is a boundary of its own.
+            var unicodeValue = "alpha  👩🏽‍💻 café_42,終"
+            let unicodeNode = makeFieldNode(
+                text: Binding(get: { unicodeValue }, set: { unicodeValue = $0 })
+            )
+            func offset(of token: String) -> Int {
+                let index = unicodeValue.range(of: token)!.lowerBound
+                return unicodeValue.distance(from: unicodeValue.startIndex, to: index)
+            }
+
+            let backwardStops = [
+                offset(of: "終"),
+                offset(of: ","),
+                offset(of: "café_42"),
+                offset(of: "👩🏽‍💻"),
+                0,
+                0,
+            ]
+            for expectedOffset in backwardStops {
+                unicodeNode.onKeyDown?(controlKey(KeyboardKey.leftArrow.rawValue))
+                XCTAssertEqual(unicodeNode.textInputCaretOffset, expectedOffset)
+                XCTAssertNil(unicodeNode.textInputSelection)
+            }
+
+            let forwardStops = [
+                offset(of: "👩🏽‍💻"),
+                offset(of: "café_42"),
+                offset(of: ","),
+                offset(of: "終"),
+                unicodeValue.count,
+                unicodeValue.count,
+            ]
+            for expectedOffset in forwardStops {
+                unicodeNode.onKeyDown?(controlKey(KeyboardKey.rightArrow.rawValue))
+                XCTAssertEqual(unicodeNode.textInputCaretOffset, expectedOffset)
+                XCTAssertNil(unicodeNode.textInputSelection)
+            }
+
+            // Real window routing must not let an overflowing horizontal
+            // viewport consume a focused editor's Ctrl+word shortcut.
+            var nestedValue = "one two"
+            let horizontalRuntime = RetainedViewRuntime(root: ViewNode())
+            let viewportSize = Size(width: 120, height: 32)
+            let fieldContext = ViewBuildContext(
+                canvasSizeProvider: { viewportSize },
+                invalidateHandler: {}
+            )
+            let nestedField = TextField(
+                "VALUE",
+                text: Binding(get: { nestedValue }, set: { nestedValue = $0 })
+            )
+            .makeComponent(context: fieldContext)
+            .makeNode(runtime: horizontalRuntime)
+            nestedField.preferredSize = Size(width: 260, height: 28)
+            let horizontalScroll = Controls.scrollPanel(
+                axis: .horizontal,
+                frame: Rect(origin: .zero, size: viewportSize),
+                stackLayout: .horizontal(spacing: 0),
+                children: [nestedField]
+            )
+            horizontalRuntime.root.addChild(horizontalScroll)
+            horizontalRuntime.setRootSize(IntSize(width: 120, height: 32))
+            _ = horizontalRuntime.renderScene(at: 1)
+            horizontalRuntime.requestFocus(nestedField)
+
+            horizontalRuntime.keyDown(controlKey(KeyboardKey.leftArrow.rawValue))
+            XCTAssertEqual(nestedField.textInputCaretOffset, 4)
+            XCTAssertEqual(horizontalScroll.scrollOffset, 0)
+
+            horizontalRuntime.keyDown(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue))
+            XCTAssertGreaterThan(horizontalScroll.scrollOffset, 0, "ordinary arrows keep horizontal scroll behavior")
         }
     }
 
@@ -232,6 +306,16 @@ final class TextInputSelectionTests: XCTestCase {
 
             XCTAssertEqual(value, "a\nb")
             XCTAssertEqual(node.textInputCaretOffset, 3)
+
+            node.onKeyDown?(controlKey(KeyboardKey.leftArrow.rawValue))
+            XCTAssertEqual(node.textInputCaretOffset, 2)
+
+            node.onKeyDown?(controlKey(KeyboardKey.leftArrow.rawValue))
+            XCTAssertEqual(node.textInputCaretOffset, 0, "word navigation crosses hard-line whitespace")
+
+            node.onKeyDown?(controlKey(KeyboardKey.rightArrow.rawValue))
+            XCTAssertEqual(node.textInputCaretOffset, 2)
+            XCTAssertEqual(value, "a\nb", "word navigation must not edit multiline text")
         }
     }
 
@@ -321,6 +405,63 @@ final class TextInputSelectionTests: XCTestCase {
             }
             XCTAssertEqual(value.distance(from: value.startIndex, to: selectAllRange.lowerBound), 0)
             XCTAssertEqual(value.distance(from: value.startIndex, to: selectAllRange.upperBound), 4)
+
+            var unicodeValue = "go 👨‍👩‍👧‍👦 café"
+            var unicodeSelection: TextSelection? = TextSelection(insertionPoint: unicodeValue.endIndex)
+            let unicodeNode = TextField(
+                "VALUE",
+                text: Binding(get: { unicodeValue }, set: { unicodeValue = $0 }),
+                selection: Binding<TextSelection?>(
+                    get: { unicodeSelection },
+                    set: { unicodeSelection = $0 }
+                )
+            )
+            .makeComponent(context: context)
+            .makeNode(runtime: runtime)
+            let finalWordIndex = unicodeValue.range(of: "café")!.lowerBound
+            let emojiIndex = unicodeValue.range(of: "👨‍👩‍👧‍👦")!.lowerBound
+            let finalWordOffset = unicodeValue.distance(from: unicodeValue.startIndex, to: finalWordIndex)
+            let emojiOffset = unicodeValue.distance(from: unicodeValue.startIndex, to: emojiIndex)
+            let controlShiftLeft = KeyboardEvent(
+                keyCode: KeyboardKey.leftArrow.rawValue,
+                modifiers: [.control, .shift]
+            )
+            let controlShiftRight = KeyboardEvent(
+                keyCode: KeyboardKey.rightArrow.rawValue,
+                modifiers: [.control, .shift]
+            )
+
+            unicodeNode.onKeyDown?(controlShiftLeft)
+            XCTAssertEqual(
+                unicodeNode.textInputSelection,
+                RetainedTextSelection(indices: .range(finalWordOffset..<unicodeValue.count), affinity: .upstream)
+            )
+            XCTAssertEqual(unicodeSelection?.affinity, .upstream)
+
+            unicodeNode.onKeyDown?(controlShiftLeft)
+            XCTAssertEqual(
+                unicodeNode.textInputSelection,
+                RetainedTextSelection(indices: .range(emojiOffset..<unicodeValue.count), affinity: .upstream)
+            )
+            guard case .selection(let wordRange) = unicodeSelection?.indices else {
+                XCTFail("Expected Ctrl+Shift word selection to update the bound range")
+                return
+            }
+            XCTAssertEqual(
+                unicodeValue.distance(from: unicodeValue.startIndex, to: wordRange.lowerBound),
+                emojiOffset
+            )
+            XCTAssertEqual(
+                unicodeValue.distance(from: unicodeValue.startIndex, to: wordRange.upperBound),
+                unicodeValue.count
+            )
+
+            unicodeNode.onKeyDown?(controlShiftRight)
+            XCTAssertEqual(unicodeNode.textInputCaretOffset, finalWordOffset)
+
+            unicodeNode.onKeyDown?(controlShiftRight)
+            XCTAssertEqual(unicodeNode.textInputCaretOffset, unicodeValue.count)
+            XCTAssertTrue(unicodeSelection?.isInsertion ?? false)
         }
     }
 

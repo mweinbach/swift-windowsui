@@ -9247,6 +9247,19 @@ public final class RetainedViewRuntime {
             return
         }
 
+        // Ctrl+Left/Right belong to an active text editor even when it sits
+        // inside an overflowing horizontal scroll view. Window shortcuts
+        // were already offered the event above; ordinary arrows and focused
+        // non-editor controls keep the existing scroll behavior.
+        if event.modifiers.contains(.control),
+            event.key == .leftArrow || event.key == .rightArrow,
+            let focusedNode,
+            focusedNode.accessibilityTraits.contains(.isTextInput)
+        {
+            focusedNode.onKeyDown?(event)
+            return
+        }
+
         if let key = event.key, handleScrollKey(key) {
             return
         }

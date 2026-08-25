@@ -221,14 +221,23 @@ public enum GPUISceneSanitizer {
         result.endG = GPUISceneValue.clamped(quad.endG, lower: 0, upper: 1)
         result.endB = GPUISceneValue.clamped(quad.endB, lower: 0, upper: 1)
         result.endA = GPUISceneValue.clamped(quad.endA, lower: 0, upper: 1)
-        // Mode 2 borrows the four color-effect parameters for its authored
-        // endpoint vector. Accept that mode only from a genuine unrotated,
-        // effect-free directional quad; malformed selectors keep the original
-        // vertical/horizontal degradation instead of accidentally reusing an
-        // active effect's storage as geometry.
+        // Advanced gradient modes borrow all four color-effect parameters for
+        // their authored geometry. Accept only exact, effect-free selectors
+        // with representable parameters; malformed values retain the original
+        // vertical/horizontal degradation instead of reinterpreting a live
+        // effect or non-finite data as geometry. Directional endpoints are in
+        // surface space before placement and therefore still reject rotation;
+        // radial/conic geometry is quad-local and rotates with its footprint.
+        let parametersRepresentable =
+            quad.effectParam1.isFinite && abs(quad.effectParam1) <= coordinateLimit
+            && quad.effectParam2.isFinite && abs(quad.effectParam2) <= coordinateLimit
+            && quad.effectParam3.isFinite && abs(quad.effectParam3) <= coordinateLimit
+            && quad.effectParam4.isFinite && abs(quad.effectParam4) <= coordinateLimit
+        let isDirectional = quad.gradientAxis == 2 && quad.rotationRadians == 0
+        let isPolar = quad.gradientAxis == 3 || quad.gradientAxis == 4
         result.gradientAxis =
-            quad.gradientAxis == 2 && quad.effectType == 0 && quad.rotationRadians == 0
-            ? 2
+            (isDirectional || isPolar) && quad.effectType == 0 && parametersRepresentable
+            ? quad.gradientAxis
             : GPUISceneValue.clamped(quad.gradientAxis, lower: 0, upper: 1)
         result.gradientSegmentStart = GPUISceneValue.clamped(quad.gradientSegmentStart, lower: 0, upper: 1)
         result.gradientSegmentEnd = GPUISceneValue.clamped(quad.gradientSegmentEnd, lower: 0, upper: 1)

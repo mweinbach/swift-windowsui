@@ -2847,7 +2847,7 @@ extension RadialGradient {
     nonisolated init(_ gradient: SwiftWindowsGraphics.RadialGradient) {
         self.init(
             gradient: Gradient(stops: gradient.stops), center: UnitPoint(x: gradient.center.x, y: gradient.center.y),
-            startRadius: 0, endRadius: gradient.radius)
+            startRadius: gradient.startRadius, endRadius: gradient.radius)
     }
 }
 public struct AngularGradient: View, Sendable, Equatable {
@@ -2906,7 +2906,8 @@ extension AngularGradient {
     nonisolated init(_ gradient: SwiftWindowsGraphics.ConicGradient) {
         self.init(
             gradient: Gradient(stops: gradient.stops), center: UnitPoint(x: gradient.center.x, y: gradient.center.y),
-            startAngle: Angle(radians: gradient.angle), endAngle: Angle(radians: gradient.angle))
+            startAngle: Angle(radians: gradient.angle),
+            endAngle: Angle(radians: gradient.endAngle ?? gradient.angle))
     }
 }
 public struct EllipticalGradient: View, Sendable, Equatable {
@@ -6258,6 +6259,9 @@ struct TextDecorationSetting: Sendable {
 public struct EnvironmentValues: @unchecked Sendable {
     public var colorScheme: ColorScheme
     public var colorSchemeContrast: ColorSchemeContrast
+    /// Native Windows contrast-theme roles inherited from the window host.
+    /// Internal because this is platform integration, not a SwiftUI API.
+    var systemHighContrastColors: HighContrastSystemColors?
     public var scenePhase: ScenePhase
     public var controlActiveState: ControlActiveState
     public var appearsActive: Bool
@@ -6687,6 +6691,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     ) {
         self.colorScheme = colorScheme
         self.colorSchemeContrast = colorSchemeContrast
+        self.systemHighContrastColors = nil
         self.scenePhase = scenePhase
         self.controlActiveState = controlActiveState
         self.appearsActive = appearsActive
@@ -8288,38 +8293,44 @@ public struct ViewBuildContext {
             return color.resolvedForVisualEnvironment(
                 colorScheme: colorScheme,
                 contrast: colorSchemeContrast,
-                backgroundProminence: backgroundProminence
+                backgroundProminence: backgroundProminence,
+                systemColors: environmentValuesProvider().systemHighContrastColors
             )
         case .linearGradient(let gradient):
             return gradient.startColor.resolvedForVisualEnvironment(
                 colorScheme: colorScheme,
                 contrast: colorSchemeContrast,
-                backgroundProminence: backgroundProminence
+                backgroundProminence: backgroundProminence,
+                systemColors: environmentValuesProvider().systemHighContrastColors
             )
         case .radialGradient(let gradient):
             return gradient.stops.first?.color.resolvedForVisualEnvironment(
                 colorScheme: colorScheme,
                 contrast: colorSchemeContrast,
-                backgroundProminence: backgroundProminence
+                backgroundProminence: backgroundProminence,
+                systemColors: environmentValuesProvider().systemHighContrastColors
             ) ?? .clear
         case .conicGradient(let gradient):
             return gradient.stops.first?.color.resolvedForVisualEnvironment(
                 colorScheme: colorScheme,
                 contrast: colorSchemeContrast,
-                backgroundProminence: backgroundProminence
+                backgroundProminence: backgroundProminence,
+                systemColors: environmentValuesProvider().systemHighContrastColors
             ) ?? .clear
         case .materialFill(let tint, _):
             return tint.resolvedForVisualEnvironment(
                 colorScheme: colorScheme,
                 contrast: colorSchemeContrast,
-                backgroundProminence: backgroundProminence
+                backgroundProminence: backgroundProminence,
+                systemColors: environmentValuesProvider().systemHighContrastColors
             )
         case nil:
             return (environmentValuesProvider().foregroundColor ?? foregroundColorProvider())
                 .resolvedForVisualEnvironment(
                     colorScheme: colorScheme,
                     contrast: colorSchemeContrast,
-                    backgroundProminence: backgroundProminence
+                    backgroundProminence: backgroundProminence,
+                    systemColors: environmentValuesProvider().systemHighContrastColors
                 )
         }
     }
@@ -8330,7 +8341,8 @@ public struct ViewBuildContext {
             .resolvedForVisualEnvironment(
                 colorScheme: colorScheme,
                 contrast: colorSchemeContrast,
-                backgroundProminence: backgroundProminence
+                backgroundProminence: backgroundProminence,
+                systemColors: environmentValuesProvider().systemHighContrastColors
             )
     }
 
@@ -8339,12 +8351,17 @@ public struct ViewBuildContext {
             .resolvedForVisualEnvironment(
                 colorScheme: colorScheme,
                 contrast: colorSchemeContrast,
-                backgroundProminence: backgroundProminence
+                backgroundProminence: backgroundProminence,
+                systemColors: environmentValuesProvider().systemHighContrastColors
             )
     }
 
     public var tint: Color {
-        environmentValuesProvider().tint ?? environmentValuesProvider().accentColor ?? tintProvider()
+        let environment = environmentValuesProvider()
+        return environment.tint
+            ?? environment.accentColor
+            ?? (colorSchemeContrast == .increased ? environment.systemHighContrastColors?.selectedBackground : nil)
+            ?? tintProvider()
     }
 
     public var imageScale: Image.Scale {
@@ -8880,7 +8897,11 @@ public struct ViewBuildContext {
     /// literals; that is what makes `.preferredColorScheme(.light)` reach
     /// past the toolbar into buttons, fields, pickers and separators.
     public var controlPalette: ControlPalette {
-        ControlPalette.resolve(colorScheme: colorScheme, contrast: colorSchemeContrast)
+        ControlPalette.resolve(
+            colorScheme: colorScheme,
+            contrast: colorSchemeContrast,
+            systemColors: environmentValuesProvider().systemHighContrastColors
+        )
     }
 
     public var dynamicTypeSize: DynamicTypeSize {
@@ -17999,7 +18020,8 @@ extension SwiftWindowsCore.Color {
     public nonisolated func resolvedForVisualEnvironment(
         colorScheme: ColorScheme,
         contrast: ColorSchemeContrast,
-        backgroundProminence: BackgroundProminence
+        backgroundProminence: BackgroundProminence,
+        systemColors: HighContrastSystemColors? = nil
     ) -> SwiftWindowsCore.Color {
         // `.increased` background prominence is AppKit's "this sits on a
         // filled selection" signal: secondary text stops being secondary.
@@ -18023,7 +18045,11 @@ extension SwiftWindowsCore.Color {
             return SystemColorPalette.darkVariant(of: self) ?? self
         }
 
-        let palette = ControlPalette.resolve(colorScheme: colorScheme, contrast: contrast)
+        let palette = ControlPalette.resolve(
+            colorScheme: colorScheme,
+            contrast: contrast,
+            systemColors: systemColors
+        )
         if backgroundProminence == .increased {
             // An emphasised selection is the *same* saturated accent fill in
             // both appearances, so the ladder over it is built on
@@ -18083,15 +18109,21 @@ extension SwiftWindowsCore.Color {
     public nonisolated func resolvedForBackgroundVisualEnvironment(
         colorScheme: ColorScheme,
         contrast: ColorSchemeContrast,
-        backgroundProminence: BackgroundProminence
+        backgroundProminence: BackgroundProminence,
+        systemColors: HighContrastSystemColors? = nil
     ) -> SwiftWindowsCore.Color {
         if backgroundProminence != .increased, labelHierarchyLevel == .quaternary {
-            return ControlPalette.resolve(colorScheme: colorScheme, contrast: contrast).windowBackground
+            return ControlPalette.resolve(
+                colorScheme: colorScheme,
+                contrast: contrast,
+                systemColors: systemColors
+            ).windowBackground
         }
         return resolvedForVisualEnvironment(
             colorScheme: colorScheme,
             contrast: contrast,
-            backgroundProminence: backgroundProminence
+            backgroundProminence: backgroundProminence,
+            systemColors: systemColors
         )
     }
 }
@@ -18114,7 +18146,8 @@ extension ForegroundStyle {
     func resolvedForVisualEnvironment(
         colorScheme: ColorScheme,
         contrast: ColorSchemeContrast,
-        backgroundProminence: BackgroundProminence
+        backgroundProminence: BackgroundProminence,
+        systemColors: HighContrastSystemColors? = nil
     ) -> ForegroundStyle {
         switch self {
         case .color(let color):
@@ -18122,7 +18155,8 @@ extension ForegroundStyle {
                 color.resolvedForVisualEnvironment(
                     colorScheme: colorScheme,
                     contrast: contrast,
-                    backgroundProminence: backgroundProminence
+                    backgroundProminence: backgroundProminence,
+                    systemColors: systemColors
                 )
             )
         case .linearGradient(let gradient):
@@ -18130,7 +18164,8 @@ extension ForegroundStyle {
                 gradient.resolvedForVisualEnvironment(
                     colorScheme: colorScheme,
                     contrast: contrast,
-                    backgroundProminence: backgroundProminence
+                    backgroundProminence: backgroundProminence,
+                    systemColors: systemColors
                 )
             )
         case .radialGradient(let gradient):
@@ -18138,7 +18173,8 @@ extension ForegroundStyle {
                 gradient.resolvedForVisualEnvironment(
                     colorScheme: colorScheme,
                     contrast: contrast,
-                    backgroundProminence: backgroundProminence
+                    backgroundProminence: backgroundProminence,
+                    systemColors: systemColors
                 )
             )
         case .conicGradient(let gradient):
@@ -18146,7 +18182,8 @@ extension ForegroundStyle {
                 gradient.resolvedForVisualEnvironment(
                     colorScheme: colorScheme,
                     contrast: contrast,
-                    backgroundProminence: backgroundProminence
+                    backgroundProminence: backgroundProminence,
+                    systemColors: systemColors
                 )
             )
         case .materialFill(let tint, let blurRadius):
@@ -18154,7 +18191,8 @@ extension ForegroundStyle {
                 tint: tint.resolvedForVisualEnvironment(
                     colorScheme: colorScheme,
                     contrast: contrast,
-                    backgroundProminence: backgroundProminence
+                    backgroundProminence: backgroundProminence,
+                    systemColors: systemColors
                 ),
                 blurRadius: blurRadius
             )
@@ -18179,7 +18217,8 @@ extension LinearGradient {
     nonisolated func resolvedForVisualEnvironment(
         colorScheme: ColorScheme,
         contrast: ColorSchemeContrast,
-        backgroundProminence: BackgroundProminence
+        backgroundProminence: BackgroundProminence,
+        systemColors: HighContrastSystemColors? = nil
     ) -> LinearGradient {
         LinearGradient(
             gradient: Gradient(
@@ -18188,7 +18227,8 @@ extension LinearGradient {
                         color: stop.color.resolvedForVisualEnvironment(
                             colorScheme: colorScheme,
                             contrast: contrast,
-                            backgroundProminence: backgroundProminence
+                            backgroundProminence: backgroundProminence,
+                            systemColors: systemColors
                         ),
                         position: stop.position
                     )
@@ -18217,7 +18257,8 @@ extension RadialGradient {
     nonisolated func resolvedForVisualEnvironment(
         colorScheme: ColorScheme,
         contrast: ColorSchemeContrast,
-        backgroundProminence: BackgroundProminence
+        backgroundProminence: BackgroundProminence,
+        systemColors: HighContrastSystemColors? = nil
     ) -> RadialGradient {
         RadialGradient(
             gradient: Gradient(
@@ -18226,7 +18267,8 @@ extension RadialGradient {
                         color: stop.color.resolvedForVisualEnvironment(
                             colorScheme: colorScheme,
                             contrast: contrast,
-                            backgroundProminence: backgroundProminence
+                            backgroundProminence: backgroundProminence,
+                            systemColors: systemColors
                         ),
                         position: stop.position
                     )
@@ -18256,7 +18298,8 @@ extension ConicGradient {
     nonisolated func resolvedForVisualEnvironment(
         colorScheme: ColorScheme,
         contrast: ColorSchemeContrast,
-        backgroundProminence: BackgroundProminence
+        backgroundProminence: BackgroundProminence,
+        systemColors: HighContrastSystemColors? = nil
     ) -> ConicGradient {
         AngularGradient(
             gradient: Gradient(
@@ -18265,7 +18308,8 @@ extension ConicGradient {
                         color: stop.color.resolvedForVisualEnvironment(
                             colorScheme: colorScheme,
                             contrast: contrast,
-                            backgroundProminence: backgroundProminence
+                            backgroundProminence: backgroundProminence,
+                            systemColors: systemColors
                         ),
                         position: stop.position
                     )
@@ -18616,15 +18660,25 @@ extension SwiftWindowsGraphics.LinearGradient {
 extension SwiftWindowsGraphics.RadialGradient {
     public init(_ gradient: WinSwiftUI.RadialGradient) {
         let center = Point(x: gradient.center.x, y: gradient.center.y)
-        let radius = max(gradient.startRadius, gradient.endRadius)
-        self.init(center: center, radius: radius, stops: gradient.stops)
+        self.init(
+            center: center,
+            radius: gradient.endRadius,
+            stops: gradient.stops,
+            startRadius: gradient.startRadius,
+            centerIsUnitPoint: true)
     }
 }
 extension SwiftWindowsGraphics.ConicGradient {
     public init(_ gradient: WinSwiftUI.AngularGradient) {
         let center = Point(x: gradient.center.x, y: gradient.center.y)
         let angle = gradient.startAngle.radians
-        self.init(center: center, angle: angle, stops: gradient.stops)
+        let authoredEndAngle = gradient.endAngle.radians
+        self.init(
+            center: center,
+            angle: angle,
+            stops: gradient.stops,
+            endAngle: authoredEndAngle == angle ? nil : authoredEndAngle,
+            centerIsUnitPoint: true)
     }
 }
 extension EdgeInsets {
@@ -22855,7 +22909,8 @@ extension View {
             let resolved = color?.resolvedForBackgroundVisualEnvironment(
                 colorScheme: context.colorScheme,
                 contrast: context.colorSchemeContrast,
-                backgroundProminence: context.backgroundProminence
+                backgroundProminence: context.backgroundProminence,
+                systemColors: context.environmentValues.systemHighContrastColors
             )
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)

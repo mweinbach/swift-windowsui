@@ -923,7 +923,7 @@ public enum ScenePainter {
             // emit the border once, after children.
             let borderColor = node.borderGradient?.startColor ?? node.borderColor
             if hasPaintableExtent, !hasChildren,
-                borderColor.alpha > 0 || hasVisibleLinearGradient(node.borderGradient),
+                borderColor.alpha > 0 || hasVisibleGradient(node.borderGradient),
                 node.borderWidth > 0,
                 node.backgroundPath == nil,
                 clipAllowsDrawing(clip: effectiveClip, rect: paintFrame)
@@ -1013,7 +1013,7 @@ public enum ScenePainter {
 
             let resolvedBGColor = node.backgroundColor ?? node.backgroundGradient?.startColor
             if let bg = resolvedBGColor,
-                bg.alpha > 0 || hasVisibleLinearGradient(node.backgroundGradient),
+                bg.alpha > 0 || hasVisibleGradient(node.backgroundGradient),
                 fillRect.size.width > 0, fillRect.size.height > 0,
                 clipAllowsDrawing(clip: effectiveClip, rect: fillRect),
                 node.backgroundPath == nil
@@ -1567,7 +1567,7 @@ public enum ScenePainter {
         // the border ring remains visible when child content fills the frame.
         // Uses thin edge segments instead of a full-rect fill.
         if state.hasChildren,
-            state.borderColor.alpha > 0 || hasVisibleLinearGradient(node.borderGradient),
+            state.borderColor.alpha > 0 || hasVisibleGradient(node.borderGradient),
             node.borderWidth > 0,
             node.backgroundPath == nil,
             clipAllowsDrawing(clip: state.effectiveClip, rect: state.paintFrame)
@@ -2399,9 +2399,17 @@ public enum ScenePainter {
         quad.cornerRadiusBottomLeft = Float(max(0, cornerRadii.bottomLeft) * displayScale)
     }
 
-    private static func hasVisibleLinearGradient(_ gradient: GradientType?) -> Bool {
-        guard case .linear(let linear) = gradient else { return false }
-        return linear.stops.contains { $0.color.alpha > 0 }
+    private static func hasVisibleGradient(_ gradient: GradientType?) -> Bool {
+        switch gradient {
+        case .linear(let gradient):
+            return gradient.stops.contains { $0.color.alpha > 0 }
+        case .radial(let gradient):
+            return gradient.stops.contains { $0.color.alpha > 0 }
+        case .conic(let gradient):
+            return gradient.stops.contains { $0.color.alpha > 0 }
+        case nil:
+            return false
+        }
     }
 
     /// One logical fill remains one contiguous run in presentation order;
@@ -2413,7 +2421,23 @@ public enum ScenePainter {
         into scene: inout GPUIScene,
         layerIndex: Int
     ) {
-        guard case .linear(let linear) = gradient else {
+        let linear: LinearGradient
+        switch gradient {
+        case .linear(let authored):
+            linear = authored
+        case .radial(let authored):
+            guard quad.usesRadialGradient else {
+                scene.addQuad(quad, toLayer: layerIndex)
+                return
+            }
+            linear = LinearGradient(stops: authored.stops, axis: .horizontal)
+        case .conic(let authored):
+            guard quad.usesConicGradient else {
+                scene.addQuad(quad, toLayer: layerIndex)
+                return
+            }
+            linear = LinearGradient(stops: authored.stops, axis: .horizontal)
+        case nil:
             scene.addQuad(quad, toLayer: layerIndex)
             return
         }
@@ -2461,7 +2485,7 @@ public enum ScenePainter {
         blendMode: BlendMode = .normal
     ) -> QuadPrimitive {
         guard case .linear(let gradient) = gradient else {
-            return solidQuad(
+            let fallback = solidQuad(
                 rect: rect,
                 cornerRadius: cornerRadius,
                 cornerRadii: cornerRadii,
@@ -2476,6 +2500,19 @@ public enum ScenePainter {
                 clipCornerRadius: clipCornerRadius,
                 blendMode: blendMode
             )
+            if case .radial(let radial) = gradient {
+                return fallback.radialGradientQuad(
+                    for: radial,
+                    displayScale: displayScale,
+                    opacity: opacity) ?? fallback
+            }
+            if case .conic(let conic) = gradient {
+                return fallback.conicGradientQuad(
+                    for: conic,
+                    displayScale: displayScale,
+                    opacity: opacity) ?? fallback
+            }
+            return fallback
         }
 
         let scaledRect = scaleRect(rect, by: displayScale)

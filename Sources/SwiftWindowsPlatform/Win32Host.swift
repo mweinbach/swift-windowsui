@@ -2384,6 +2384,9 @@ public struct SystemAppearanceSnapshot: Sendable, Equatable {
 
     public var colorSchemePreference: ColorSchemePreference?
     public var isHighContrastEnabled: Bool
+    /// Exact semantic colors selected by the active Windows contrast theme.
+    /// Nil when high contrast is off or the sampler cannot provide a palette.
+    public var highContrastColors: HighContrastSystemColors?
     /// Text scale as a multiplier (1.0 == 100%). `nil` when unavailable.
     public var textScaleFactor: Double?
     /// Reduced-motion preference. `nil` when unavailable.
@@ -2392,11 +2395,13 @@ public struct SystemAppearanceSnapshot: Sendable, Equatable {
     public init(
         colorSchemePreference: ColorSchemePreference? = nil,
         isHighContrastEnabled: Bool = false,
+        highContrastColors: HighContrastSystemColors? = nil,
         textScaleFactor: Double? = nil,
         prefersReducedMotion: Bool? = nil
     ) {
         self.colorSchemePreference = colorSchemePreference
         self.isHighContrastEnabled = isHighContrastEnabled
+        self.highContrastColors = highContrastColors
         self.textScaleFactor = textScaleFactor
         self.prefersReducedMotion = prefersReducedMotion
     }
@@ -2420,9 +2425,11 @@ public struct Win32SystemAppearanceProvider: SystemAppearanceProvider {
     public init() {}
 
     public func sampleSystemAppearance() -> SystemAppearanceSnapshot {
-        SystemAppearanceSnapshot(
+        let isHighContrastEnabled = Self.sampleHighContrastEnabled()
+        return SystemAppearanceSnapshot(
             colorSchemePreference: Self.sampleColorSchemePreference(),
-            isHighContrastEnabled: Self.sampleHighContrastEnabled(),
+            isHighContrastEnabled: isHighContrastEnabled,
+            highContrastColors: isHighContrastEnabled ? Self.sampleHighContrastColors() : nil,
             textScaleFactor: Self.sampleTextScaleFactor(),
             prefersReducedMotion: Self.samplePrefersReducedMotion()
         )
@@ -2436,6 +2443,31 @@ public struct Win32SystemAppearanceProvider: SystemAppearanceProvider {
         }
 
         return (highContrast.dwFlags & DWORD(HCF_HIGHCONTRASTON)) != 0
+    }
+
+    private static func sampleHighContrastColors() -> HighContrastSystemColors {
+        HighContrastSystemColors(
+            windowBackground: systemColor(from: GetSysColor(Int32(COLOR_WINDOW))),
+            windowText: systemColor(from: GetSysColor(Int32(COLOR_WINDOWTEXT))),
+            controlBackground: systemColor(from: GetSysColor(Int32(COLOR_BTNFACE))),
+            controlText: systemColor(from: GetSysColor(Int32(COLOR_BTNTEXT))),
+            selectedBackground: systemColor(from: GetSysColor(Int32(COLOR_HIGHLIGHT))),
+            selectedText: systemColor(from: GetSysColor(Int32(COLOR_HIGHLIGHTTEXT))),
+            disabledText: systemColor(from: GetSysColor(Int32(COLOR_GRAYTEXT))),
+            linkText: systemColor(from: GetSysColor(Int32(COLOR_HOTLIGHT)))
+        )
+    }
+
+    /// COLORREF is 0x00BBGGRR, not RGBA/BGRA. Keeping this conversion in
+    /// one tested seam prevents custom blue/yellow themes from swapping red
+    /// and blue before their roles reach the retained palette.
+    static func systemColor(from colorRef: DWORD) -> SwiftWindowsCore.Color {
+        SwiftWindowsCore.Color(
+            red: Float(colorRef & 0xFF) / 255,
+            green: Float((colorRef >> 8) & 0xFF) / 255,
+            blue: Float((colorRef >> 16) & 0xFF) / 255,
+            alpha: 1
+        )
     }
 
     private static func samplePrefersReducedMotion() -> Bool? {

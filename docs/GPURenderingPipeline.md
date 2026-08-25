@@ -200,7 +200,7 @@ re-coalesces paint operations, and `paintRecords` is a reference log of
   checked arithmetic so malformed input becomes a typed validation defect
   instead of terminating the process (`SceneBoundaryResilienceTests`).
 
-### Linear-gradient stop lowering
+### Linear, radial, and angular gradient lowering
 
 Axis-aligned `LinearGradient` fills keep their complete authored stop sequence
 instead of reducing the gradient to its first and last colors.
@@ -243,6 +243,28 @@ vector before applying the existing half-open stop intervals. Non-finite,
 out-of-range, rotated, or effect-bearing inputs decline promotion and retain
 their original path instead.
 
+Radial and angular/conic retained fills use the same GPU-native quad pipeline
+instead of collapsing to their first authored color. `gradientAxis == 3`
+stores a quad-local center plus the authored start and end radii; the CPU and
+both D3D11 pixel shaders interpolate by distance, including nonzero, reversed,
+and equal-radius intervals. `gradientAxis == 4` stores a quad-local center,
+the starting angle, and a signed angular sweep; a missing or zero-width sweep
+means a complete clockwise turn, while partial and negative sweeps retain
+their authored extent and direction.
+
+The SwiftUI bridges distinguish normalized `UnitPoint` centers from absolute
+renderer-neutral centers and preserve radial start/end radii plus angular
+start/end angles in both conversion directions. Centers and radii scale once
+into device pixels, rounded coverage and clipping remain on the original quad,
+and polar gradients rotate with their footprint. Every gradient family shares
+the bounded 64-interval stop lowering, hard-transition ownership, inherited
+opacity, transparent-first-stop handling, and single-pass material fallback;
+unsupported color-effect combinations or non-finite/out-of-range geometry
+degrade safely. The 144-byte quad ABI remains unchanged. `RenderFrame` →
+`GPUIScene` also preserves radial and conic fills, while the independent live
+`RenderFrame` → `D3D11Renderer` fallback retains its documented first-color
+limitation.
+
 Canvas path fills and strokes initially carry their authored stop sequence
 through `PathPrimitive.fillGradient` / `strokeGradient`.
 `PathPrimitive.setGradientEndpoints(start:end:)` retains the exact authored
@@ -270,8 +292,9 @@ translation-invariant reuse. The separate `RenderFrame` fallback has no
 gradient-bearing path command and explicitly retains its first-stop behavior.
 `PathGradientRenderingTests`, `CanvasPathGradientIntegrationTests`, and the
 `canvas-path-gradient` gallery baseline protect this scene-path contract;
-`CrossBackendPixelParityTests` additionally gates clipped directional multi-stop
-quads and directional backdrop materials on an actual offscreen D3D11 device.
+`CrossBackendPixelParityTests` additionally gates clipped and rotated
+directional, radial, and angular multi-stop quads plus every corresponding
+backdrop material on an actual offscreen D3D11 device.
 
 The separate live `RenderFrame` → `D3D11Renderer` fallback presenter preserves
 the same authored stop sequence without routing through the scene bridge. Its

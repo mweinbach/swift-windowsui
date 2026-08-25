@@ -448,7 +448,28 @@ private struct RasterTarget {
         rect: Rect
     ) -> RasterColor? {
         var progress: Float
-        if quad.usesDirectionalGradient {
+        if quad.usesRadialGradient {
+            let offsetX = localX - rect.minX - Double(quad.effectParam1)
+            let offsetY = localY - rect.minY - Double(quad.effectParam2)
+            let distance = (offsetX * offsetX + offsetY * offsetY).squareRoot()
+            let startRadius = Double(quad.effectParam3)
+            let endRadius = Double(quad.effectParam4)
+            let span = endRadius - startRadius
+            if abs(span) > 0.000_001 {
+                progress = Float(clamp((distance - startRadius) / span, lower: 0, upper: 1))
+            } else {
+                progress = distance <= startRadius ? 0 : 1
+            }
+        } else if quad.usesConicGradient {
+            let offsetX = localX - rect.minX - Double(quad.effectParam1)
+            let offsetY = localY - rect.minY - Double(quad.effectParam2)
+            let rawAngle = atan2(offsetY, offsetX) + Double.pi / 2 - Double(quad.effectParam3)
+            let sweep = Double(quad.effectParam4)
+            let directedAngle = sweep < 0 ? -rawAngle : rawAngle
+            let completeTurn = 2 * Double.pi
+            let wrappedAngle = directedAngle - floor(directedAngle / completeTurn) * completeTurn
+            progress = Float(clamp(wrappedAngle / max(abs(sweep), 0.000_001), lower: 0, upper: 1))
+        } else if quad.usesDirectionalGradient {
             let startX = Double(quad.effectParam1)
             let startY = Double(quad.effectParam2)
             let vectorX = Double(quad.effectParam3) - startX

@@ -40,7 +40,6 @@ extension GPUIScene {
     /// Unsupported style features degrade to explicit fallbacks:
     /// - Ellipse clips: Fallback to bounding rect of the ellipse
     /// - Path clips: Fallback to full surface (no-op)
-    /// - Radial/conic gradients: Fallback to base color (`cmd.color`)
     /// - Per-command blend modes: Carried onto `QuadPrimitive.blendMode` and
     ///   never interpreted. The scene contract composites source-over on every
     ///   backend (`CPUGPUBlendModeContractTests`); the field survives the
@@ -76,12 +75,27 @@ extension GPUIScene {
                     from: cmd,
                     effectiveClip: effectiveClip
                 )
-                if case .linear(let gradient) = cmd.gradient {
-                    for segment in quad.segmented(for: gradient) {
-                        self.addQuad(segment)
-                    }
-                } else {
+                let loweredStops: LinearGradient?
+                switch cmd.gradient {
+                case .linear(let gradient):
+                    loweredStops = gradient
+                case .radial(let gradient):
+                    loweredStops =
+                        quad.usesRadialGradient
+                        ? LinearGradient(stops: gradient.stops, axis: .horizontal) : nil
+                case .conic(let gradient):
+                    loweredStops =
+                        quad.usesConicGradient
+                        ? LinearGradient(stops: gradient.stops, axis: .horizontal) : nil
+                case nil:
+                    loweredStops = nil
+                }
+                guard let loweredStops else {
                     self.addQuad(quad)
+                    continue
+                }
+                for segment in quad.segmented(for: loweredStops) {
+                    self.addQuad(segment)
                 }
 
             case .drawBitmap(let cmd):
@@ -269,7 +283,8 @@ extension GPUIScene {
     /// Gradient handling (VAL-SCENE-011):
     /// - Linear gradients: All stops are mapped to non-overlapping quad
     ///   intervals; ordinary two-stop fills retain their single primitive.
-    /// - Radial/conic gradients: Fallback to base color (`cmd.color`)
+    /// - Radial/conic gradients: Preserve authored centers, radii, angular
+    ///   spans and bounded intermediate stops through the same 144-byte ABI.
     private static func makeQuad(
         from cmd: FillRectCommand,
         effectiveClip: Rect
@@ -297,13 +312,15 @@ extension GPUIScene {
                 endA = lg.endColor.alpha
                 axis = lg.axis == .horizontal ? 1 : 0
             case .radial, .conic:
-                // VAL-SCENE-011: Radial/conic gradients fallback to base color (cmd.color)
-                // (keep the base color values already set)
+                // Advanced-mode configuration installs authored colors only
+                // after its geometry validates. Invalid centers/radii/angles
+                // therefore retain the historical solid `cmd.color` fallback
+                // instead of accidentally becoming a vertical linear ramp.
                 break
             }
         }
 
-        return QuadPrimitive(
+        let quad = QuadPrimitive(
             x: Float(cmd.rect.origin.x),
             y: Float(cmd.rect.origin.y),
             width: Float(cmd.rect.size.width),
@@ -319,6 +336,13 @@ extension GPUIScene {
             // Carried, not interpreted — same as the painter's direct lowering.
             blendMode: Float(cmd.blendMode.rawValue)
         )
+        if case .radial(let radial) = cmd.gradient {
+            return quad.radialGradientQuad(for: radial) ?? quad
+        }
+        if case .conic(let conic) = cmd.gradient {
+            return quad.conicGradientQuad(for: conic) ?? quad
+        }
+        return quad
     }
 
     /// Converts a `DrawBitmapCommand` to an `ImagePrimitive`.

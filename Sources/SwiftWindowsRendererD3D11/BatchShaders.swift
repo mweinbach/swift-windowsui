@@ -223,6 +223,32 @@ float3 applyColorEffect(float3 rgb, float effectType, float intensity, float par
 
 float gradientProgress(VSOutput input)
 {
+    if (input.gradientAxis > 3.5)
+    {
+        // Starting angles are clockwise from 12 o'clock in y-down space.
+        // A signed sweep preserves partial and reversed authored sectors.
+        const float tau = 6.283185307179586;
+        float2 center = float2(input.effectParam1, input.effectParam2);
+        float2 offset = input.localPosition - center;
+        float angle = atan2(offset.y, offset.x) + 1.570796326794897 - input.effectParam3;
+        float sweep = input.effectParam4;
+        float directed = sweep < 0.0 ? -angle : angle;
+        float wrapped = frac(directed / tau) * tau;
+        return saturate(wrapped / max(abs(sweep), 0.000001));
+    }
+
+    if (input.gradientAxis > 2.5)
+    {
+        float2 center = float2(input.effectParam1, input.effectParam2);
+        float distance = length(input.localPosition - center);
+        float startRadius = input.effectParam3;
+        float endRadius = input.effectParam4;
+        float span = endRadius - startRadius;
+        return abs(span) > 0.000001
+            ? saturate((distance - startRadius) / span)
+            : (distance <= startRadius ? 0.0 : 1.0);
+    }
+
     if (input.gradientAxis > 1.5)
     {
         // Directional gradients reuse the four effect-parameter slots when

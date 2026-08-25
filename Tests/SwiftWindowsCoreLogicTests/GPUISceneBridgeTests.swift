@@ -434,10 +434,10 @@ struct GPUISceneBridgeTests {
             ])
     }
 
-    // MARK: - VAL-SCENE-011: Unsupported style features degrade to explicit fallbacks
+    // MARK: - VAL-SCENE-011: Advanced gradients survive frame-to-scene lowering
 
-    @Test("Radial gradient degrades to base color fallback")
-    func radialGradientFallback() {
+    @Test("Radial gradient preserves authored center and radius")
+    func radialGradientLowering() {
         let startColor = Color(red: 1, green: 0, blue: 0, alpha: 1)
         let endColor = Color(red: 0, green: 0, blue: 1, alpha: 1)
         let radialGradient = RadialGradient(
@@ -460,15 +460,18 @@ struct GPUISceneBridgeTests {
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
 
-        // Radial gradient should fallback to base color (cmd.color)
         let quad = scene.layers[0].quads[0]
-        #expect(quad.startR == 1.0)  // white fallback (base color)
-        #expect(quad.endR == 1.0)  // same as start (no gradient)
-        #expect(quad.gradientAxis == 0)
+        #expect(quad.usesRadialGradient)
+        #expect(quad.startR == 1.0)
+        #expect(quad.endB == 1.0)
+        #expect(quad.effectParam1 == 50)
+        #expect(quad.effectParam2 == 50)
+        #expect(quad.effectParam3 == 0)
+        #expect(quad.effectParam4 == 50)
     }
 
-    @Test("Conic gradient degrades to base color fallback")
-    func conicGradientFallback() {
+    @Test("Conic gradient preserves authored center and angular sweep")
+    func conicGradientLowering() {
         let startColor = Color(red: 1, green: 0, blue: 0, alpha: 1)
         let endColor = Color(red: 0, green: 0, blue: 1, alpha: 1)
         let conicGradient = ConicGradient(
@@ -491,11 +494,13 @@ struct GPUISceneBridgeTests {
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
 
-        // Conic gradient should fallback to base color (cmd.color)
         let quad = scene.layers[0].quads[0]
-        #expect(quad.startR == 1.0)  // white fallback (base color)
-        #expect(quad.endR == 1.0)  // same as start
-        #expect(quad.gradientAxis == 0)
+        #expect(quad.usesConicGradient)
+        #expect(quad.startR == 1.0)
+        #expect(quad.endB == 1.0)
+        #expect(quad.effectParam1 == 50)
+        #expect(quad.effectParam2 == 50)
+        #expect(abs(quad.effectParam4 - Float(2 * Double.pi)) < 0.0001)
     }
 
     @Test("Ellipse clip degrades to bounding rect fallback")

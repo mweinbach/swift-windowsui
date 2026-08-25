@@ -333,25 +333,52 @@ public struct LinearGradientSegment: Equatable, Sendable {
 }
 public struct RadialGradient: Equatable, Sendable {
     public var center: Point
+    /// Logical radius where the first authored stop begins. Existing direct
+    /// renderer callers default to zero, preserving their original API.
+    public var startRadius: Double
+    /// Logical radius where the final authored stop ends.
     public var radius: Double
     public var stops: [GradientStop]
+    /// SwiftUI's `UnitPoint` centers are relative to the painted footprint;
+    /// direct renderer-neutral centers remain absolute surface coordinates.
+    public var centerIsUnitPoint: Bool
 
-    public init(center: Point, radius: Double, stops: [GradientStop]) {
+    public init(
+        center: Point,
+        radius: Double,
+        stops: [GradientStop],
+        startRadius: Double = 0,
+        centerIsUnitPoint: Bool = false
+    ) {
         self.center = center
+        self.startRadius = startRadius
         self.radius = radius
         self.stops = stops
+        self.centerIsUnitPoint = centerIsUnitPoint
     }
 }
 public struct ConicGradient: Equatable, Sendable {
     public var center: Point
     /// Starting angle in radians, measured clockwise from 12-o'clock.
     public var angle: Double
+    /// Optional authored ending angle. `nil` and a zero-width interval both
+    /// mean one complete revolution, matching existing conic callers.
+    public var endAngle: Double?
     public var stops: [GradientStop]
+    public var centerIsUnitPoint: Bool
 
-    public init(center: Point, angle: Double = 0, stops: [GradientStop]) {
+    public init(
+        center: Point,
+        angle: Double = 0,
+        stops: [GradientStop],
+        endAngle: Double? = nil,
+        centerIsUnitPoint: Bool = false
+    ) {
         self.center = center
         self.angle = angle
+        self.endAngle = endAngle
         self.stops = stops
+        self.centerIsUnitPoint = centerIsUnitPoint
     }
 }
 public enum GradientType: Equatable, Sendable {

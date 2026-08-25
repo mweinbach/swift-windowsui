@@ -390,7 +390,14 @@ public struct ControlPalette: Sendable, Equatable {
     /// Resolves the palette for an appearance. `.increased` contrast
     /// strengthens exactly the roles AppKit strengthens: hairlines, control
     /// borders and secondary/tertiary text.
-    public static func resolve(colorScheme: ColorScheme, contrast: ColorSchemeContrast = .standard) -> ControlPalette {
+    public static func resolve(
+        colorScheme: ColorScheme,
+        contrast: ColorSchemeContrast = .standard,
+        systemColors: HighContrastSystemColors? = nil
+    ) -> ControlPalette {
+        if contrast == .increased, let systemColors {
+            return nativeHighContrast(colors: systemColors, colorScheme: colorScheme)
+        }
         switch (colorScheme, contrast) {
         case (.dark, .standard):
             return darkStandard
@@ -401,6 +408,38 @@ public struct ControlPalette: Sendable, Equatable {
         case (.light, .increased):
             return lightIncreased
         }
+    }
+
+    /// A Windows contrast theme is a user-selected accessibility contract,
+    /// not a stronger version of our neutral dark/light ramp. Keep its actual
+    /// text, surface, selection, disabled, and border colors intact so themes
+    /// such as Aquatic/Desert and custom palettes remain legible.
+    private static func nativeHighContrast(
+        colors: HighContrastSystemColors, colorScheme: ColorScheme
+    ) -> ControlPalette {
+        var palette = colorScheme == .dark ? darkIncreased : lightIncreased
+        palette.windowBackground = colors.windowBackground
+        palette.controlBackground = colors.windowBackground
+        palette.controlSurface = colors.controlBackground
+        palette.controlSurfaceHovered = colors.selectedBackground
+        palette.controlSurfacePressed = colors.selectedBackground
+        palette.raisedSurface = colors.controlBackground
+        palette.label = colors.windowText
+        palette.secondaryLabel = colors.windowText
+        palette.tertiaryLabel = colors.controlText
+        palette.quaternaryLabel = colors.disabledText
+        palette.disabledLabel = colors.disabledText
+        palette.selectedContentLabel = colors.selectedText
+        palette.separator = colors.controlText
+        palette.controlBorder = colors.controlText
+        palette.controlBorderStrong = colors.selectedBackground
+        palette.unemphasizedSelectedBackground = colors.selectedBackground
+        palette.systemFill = colors.controlBackground
+        palette.secondaryFill = colors.controlBackground
+        palette.tertiaryFill = colors.controlBackground
+        palette.quaternaryFill = colors.controlBackground
+        palette.quinaryFill = colors.controlBackground
+        return palette
     }
 
     /// A light-appearance wash, mixed from the page's own ink rather than

@@ -33,6 +33,23 @@ final class GradientRenderingFidelityTests: XCTestCase {
             surfaceSize: Size(width: Double(Self.size.width), height: Double(Self.size.height)))
     }
 
+    private func scene(
+        for gradient: SwiftWindowsGraphics.GradientType,
+        frame: Rect = Rect(x: 0, y: 0, width: 120, height: 80),
+        cornerRadius: Double = 0,
+        clearColor: Color = .black
+    ) -> GPUIScene {
+        let root = ViewNode(
+            frame: frame,
+            backgroundColor: gradient.startColor,
+            backgroundGradient: gradient,
+            cornerRadius: cornerRadius)
+        return ScenePainter.paint(
+            root: root,
+            clearColor: clearColor,
+            surfaceSize: Size(width: Double(Self.size.width), height: Double(Self.size.height)))
+    }
+
     private func pixel(_ surface: BitmapSurface, x: Int, y: Int = 40) -> (red: Int, green: Int, blue: Int, alpha: Int) {
         let offset = y * Int(surface.bytesPerRow) + x * 4
         return (
@@ -125,6 +142,274 @@ final class GradientRenderingFidelityTests: XCTestCase {
         scene.addQuad(
             QuadPrimitive(x: 0, y: 0, width: 100, height: 80, gradientAxis: .infinity))
         XCTAssertEqual(scene.layers[0].quads.map(\.gradientAxis), [1, 1])
+    }
+
+    func testSwiftUIRadialGradientRendersAuthoredRadiiAndIntermediateStops() async throws {
+        let gradient = WinSwiftUI.RadialGradient(
+            gradient: WinSwiftUI.Gradient(
+                stops: [
+                    WinSwiftUI.Gradient.Stop(color: Self.red, location: 0),
+                    WinSwiftUI.Gradient.Stop(color: Self.green, location: 0.5),
+                    WinSwiftUI.Gradient.Stop(color: Self.blue, location: 1),
+                ]),
+            center: .center,
+            startRadius: 12,
+            endRadius: 48)
+        let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
+            of: WinSwiftUI.Rectangle().fill(gradient).frame(width: 120, height: 80),
+            size: Self.size,
+            displayScale: 1,
+            clearColor: .black)
+        let quads = snapshot.scene.layers.flatMap(\.quads).filter(\.usesRadialGradient)
+
+        XCTAssertEqual(quads.count, 2)
+        let quad = try XCTUnwrap(quads.first)
+        XCTAssertEqual(quad.effectParam1, 60, accuracy: 0.0001)
+        XCTAssertEqual(quad.effectParam2, 40, accuracy: 0.0001)
+        XCTAssertEqual(quad.effectParam3, 12, accuracy: 0.0001)
+        XCTAssertEqual(quad.effectParam4, 48, accuracy: 0.0001)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 144)
+
+        let bitmap = raster(snapshot.scene)
+        XCTAssertGreaterThan(pixel(bitmap, x: 60).red, 250)
+        XCTAssertGreaterThan(pixel(bitmap, x: 90).green, 240)
+        XCTAssertGreaterThan(pixel(bitmap, x: 114).blue, 250)
+    }
+
+    func testRadialGradientUnitCenterAndRadiiScaleExactlyOnce() async throws {
+        let gradient = WinSwiftUI.RadialGradient(
+            colors: [Self.red, Self.blue],
+            center: UnitPoint(x: 0.25, y: 0.75),
+            startRadius: 8,
+            endRadius: 32)
+        let scale = 1.5
+        let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
+            of: WinSwiftUI.Rectangle().fill(gradient).frame(width: 120, height: 80),
+            size: Self.size,
+            displayScale: scale,
+            clearColor: .black)
+        let quad = try XCTUnwrap(snapshot.scene.layers.flatMap(\.quads).first { $0.usesRadialGradient })
+
+        XCTAssertEqual(quad.effectParam1, 45, accuracy: 0.0001)
+        XCTAssertEqual(quad.effectParam2, 90, accuracy: 0.0001)
+        XCTAssertEqual(quad.effectParam3, 12, accuracy: 0.0001)
+        XCTAssertEqual(quad.effectParam4, 48, accuracy: 0.0001)
+
+        let bitmap = GPUIRawSceneRasterizer.rasterize(
+            snapshot.scene,
+            size: IntSize(width: 180, height: 120))
+        XCTAssertGreaterThan(pixel(bitmap, x: 45, y: 90).red, 245)
+        XCTAssertGreaterThan(pixel(bitmap, x: 99, y: 90).blue, 245)
+    }
+
+    func testRadialGradientReversedAndDegenerateRadiiStayDeterministic() async {
+        let reversed = SwiftWindowsGraphics.RadialGradient(
+            center: Point(x: 60, y: 40),
+            radius: 10,
+            stops: [
+                GradientStop(color: Self.red, position: 0),
+                GradientStop(color: Self.blue, position: 1),
+            ],
+            startRadius: 40)
+        let reversedBitmap = raster(scene(for: .radial(reversed)))
+        XCTAssertGreaterThan(pixel(reversedBitmap, x: 60).blue, 245)
+        XCTAssertGreaterThan(pixel(reversedBitmap, x: 109).red, 245)
+
+        let degenerate = SwiftWindowsGraphics.RadialGradient(
+            center: Point(x: 60, y: 40),
+            radius: 20,
+            stops: [
+                GradientStop(color: Self.red, position: 0),
+                GradientStop(color: Self.blue, position: 1),
+            ],
+            startRadius: 20)
+        let degenerateBitmap = raster(scene(for: .radial(degenerate)))
+        XCTAssertGreaterThan(pixel(degenerateBitmap, x: 60).red, 245)
+        XCTAssertGreaterThan(pixel(degenerateBitmap, x: 90).blue, 245)
+    }
+
+    func testTransparentFirstRadialStopDoesNotHideVisibleOuterColors() async {
+        let transparentRed = Color(red: 1, green: 0, blue: 0, alpha: 0)
+        let gradient = WinSwiftUI.RadialGradient(
+            colors: [transparentRed, Self.blue],
+            center: .center,
+            startRadius: 0,
+            endRadius: 35)
+        let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
+            of: WinSwiftUI.Rectangle().fill(gradient).frame(width: 120, height: 80),
+            size: Self.size,
+            displayScale: 1,
+            clearColor: .black)
+        let quads = snapshot.scene.layers.flatMap(\.quads).filter(\.usesRadialGradient)
+
+        XCTAssertEqual(quads.count, 1)
+        XCTAssertEqual(quads[0].startA, 0, accuracy: 0.0001)
+        XCTAssertGreaterThan(pixel(raster(snapshot.scene), x: 104).blue, 245)
+    }
+
+    func testSwiftUIAngularGradientRendersClockwiseAuthoredStops() async throws {
+        let gradient = WinSwiftUI.AngularGradient(
+            gradient: WinSwiftUI.Gradient(
+                stops: [
+                    WinSwiftUI.Gradient.Stop(color: Self.red, location: 0),
+                    WinSwiftUI.Gradient.Stop(color: Self.green, location: 0.5),
+                    WinSwiftUI.Gradient.Stop(color: Self.blue, location: 1),
+                ]),
+            center: .center)
+        let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
+            of: WinSwiftUI.Rectangle().fill(gradient).frame(width: 120, height: 80),
+            size: Self.size,
+            displayScale: 1,
+            clearColor: .black)
+        let quads = snapshot.scene.layers.flatMap(\.quads).filter(\.usesConicGradient)
+
+        XCTAssertEqual(quads.count, 2)
+        let quad = try XCTUnwrap(quads.first)
+        XCTAssertEqual(quad.effectParam1, 60, accuracy: 0.0001)
+        XCTAssertEqual(quad.effectParam2, 40, accuracy: 0.0001)
+        XCTAssertEqual(quad.effectParam4, Float(2 * Double.pi), accuracy: 0.0001)
+
+        let bitmap = raster(snapshot.scene)
+        XCTAssertGreaterThan(pixel(bitmap, x: 60, y: 8).red, 240)
+        XCTAssertGreaterThan(pixel(bitmap, x: 60, y: 72).green, 240)
+        XCTAssertGreaterThan(pixel(bitmap, x: 59, y: 8).blue, 240)
+    }
+
+    func testAngularGradientPreservesPartialAndReversedSweeps() async {
+        let partial = WinSwiftUI.AngularGradient(
+            colors: [Self.red, Self.blue],
+            center: .center,
+            startAngle: .zero,
+            endAngle: .degrees(180))
+        let partialSnapshot = WinSwiftUIRendererSnapshotter.snapshot(
+            of: WinSwiftUI.Rectangle().fill(partial).frame(width: 120, height: 80),
+            size: Self.size,
+            displayScale: 1,
+            clearColor: .black)
+        let partialBitmap = raster(partialSnapshot.scene)
+        XCTAssertGreaterThan(pixel(partialBitmap, x: 60, y: 8).red, 240)
+        XCTAssertGreaterThan(pixel(partialBitmap, x: 60, y: 72).blue, 240)
+        XCTAssertGreaterThan(pixel(partialBitmap, x: 16).blue, 240)
+
+        let reversed = WinSwiftUI.AngularGradient(
+            colors: [Self.red, Self.blue],
+            center: .center,
+            startAngle: .degrees(180),
+            endAngle: .zero)
+        let reversedSnapshot = WinSwiftUIRendererSnapshotter.snapshot(
+            of: WinSwiftUI.Rectangle().fill(reversed).frame(width: 120, height: 80),
+            size: Self.size,
+            displayScale: 1,
+            clearColor: .black)
+        let reversedBitmap = raster(reversedSnapshot.scene)
+        XCTAssertGreaterThan(pixel(reversedBitmap, x: 60, y: 72).red, 240)
+        XCTAssertGreaterThan(pixel(reversedBitmap, x: 60, y: 8).blue, 240)
+    }
+
+    func testPolarGradientBridgesRoundTripRadiiAnglesAndUnitCenters() async {
+        let radial = WinSwiftUI.RadialGradient(
+            colors: [Self.red, Self.blue],
+            center: UnitPoint(x: 0.25, y: 0.75),
+            startRadius: 12,
+            endRadius: 48)
+        let retainedRadial = SwiftWindowsGraphics.RadialGradient(radial)
+        XCTAssertTrue(retainedRadial.centerIsUnitPoint)
+        XCTAssertEqual(retainedRadial.startRadius, 12, accuracy: 0.0001)
+        XCTAssertEqual(retainedRadial.radius, 48, accuracy: 0.0001)
+        let radialRoundTrip = WinSwiftUI.RadialGradient(retainedRadial)
+        XCTAssertEqual(radialRoundTrip.startRadius, 12, accuracy: 0.0001)
+        XCTAssertEqual(radialRoundTrip.endRadius, 48, accuracy: 0.0001)
+
+        let conic = WinSwiftUI.AngularGradient(
+            colors: [Self.red, Self.blue],
+            center: UnitPoint(x: 0.4, y: 0.6),
+            startAngle: .degrees(30),
+            endAngle: .degrees(210))
+        let retainedConic = SwiftWindowsGraphics.ConicGradient(conic)
+        XCTAssertTrue(retainedConic.centerIsUnitPoint)
+        XCTAssertEqual(retainedConic.angle, Double.pi / 6, accuracy: 0.0001)
+        XCTAssertEqual(retainedConic.endAngle ?? 0, 7 * Double.pi / 6, accuracy: 0.0001)
+        let conicRoundTrip = WinSwiftUI.AngularGradient(retainedConic)
+        XCTAssertEqual(conicRoundTrip.startAngle.radians, Double.pi / 6, accuracy: 0.0001)
+        XCTAssertEqual(conicRoundTrip.endAngle.radians, 7 * Double.pi / 6, accuracy: 0.0001)
+    }
+
+    func testPolarGradientRejectsInvalidGeometryAndBoundsStopWork() async {
+        let footprint = QuadPrimitive(x: 0, y: 0, width: 120, height: 80)
+        let invalidCenter = SwiftWindowsGraphics.RadialGradient(
+            center: Point(x: .infinity, y: 0),
+            radius: 20,
+            stops: [GradientStop(color: Self.red, position: 0)])
+        XCTAssertNil(footprint.radialGradientQuad(for: invalidCenter))
+
+        let invalidRadius = SwiftWindowsGraphics.RadialGradient(
+            center: Point(x: 30, y: 30),
+            radius: .nan,
+            stops: [GradientStop(color: Self.red, position: 0)])
+        XCTAssertNil(footprint.radialGradientQuad(for: invalidRadius))
+
+        let invalidAngle = SwiftWindowsGraphics.ConicGradient(
+            center: Point(x: 30, y: 30),
+            angle: .infinity,
+            stops: [GradientStop(color: Self.red, position: 0)])
+        XCTAssertNil(footprint.conicGradientQuad(for: invalidAngle))
+
+        let stops = (0..<300).map { index in
+            GradientStop(color: index.isMultiple(of: 2) ? Self.red : Self.blue, position: Float(index) / 299)
+        }
+        let bounded = SwiftWindowsGraphics.RadialGradient(
+            center: Point(x: 60, y: 40),
+            radius: 50,
+            stops: stops)
+        XCTAssertLessThanOrEqual(
+            scene(for: .radial(bounded)).layers[0].quads.count,
+            SwiftWindowsGraphics.LinearGradient.maximumRenderedStops)
+
+        var sanitized = GPUIScene(clearColor: .black)
+        sanitized.addQuad(QuadPrimitive(x: 0, y: 0, width: 20, height: 20, gradientAxis: 3, effectType: 2))
+        sanitized.addQuad(
+            QuadPrimitive(
+                x: 0, y: 0, width: 20, height: 20,
+                gradientAxis: 4,
+                effectParam1: .nan))
+        XCTAssertEqual(sanitized.layers[0].quads.map(\.gradientAxis), [1, 1])
+    }
+
+    func testRadialAndAngularGradientsMatchRealD3D11Pixels() async throws {
+        let radial = SwiftWindowsGraphics.RadialGradient(
+            center: Point(x: 57, y: 43),
+            radius: 49,
+            stops: [
+                GradientStop(color: Color(red: 0.95, green: 0.1, blue: 0.2, alpha: 0.8), position: 0),
+                GradientStop(color: Color(red: 0.1, green: 0.9, blue: 0.2, alpha: 0.55), position: 0.4),
+                GradientStop(color: Color(red: 0.2, green: 0.25, blue: 0.95, alpha: 0.9), position: 1),
+            ],
+            startRadius: 8)
+        let angular = SwiftWindowsGraphics.ConicGradient(
+            center: Point(x: 56, y: 43),
+            angle: Double.pi / 5,
+            stops: [
+                GradientStop(color: Self.red, position: 0),
+                GradientStop(color: Self.green, position: 0.35),
+                GradientStop(color: Self.blue, position: 1),
+            ],
+            endAngle: 1.8 * Double.pi)
+
+        for gradient in [SwiftWindowsGraphics.GradientType.radial(radial), .conic(angular)] {
+            let scene = scene(
+                for: gradient,
+                frame: Rect(x: 6, y: 5, width: 108, height: 70),
+                cornerRadius: 14,
+                clearColor: Color(red: 0.08, green: 0.1, blue: 0.14, alpha: 1))
+            let report = comparePixels(
+                try WARPBatchRenderer.render(scene, size: Self.size),
+                raster(scene),
+                tolerance: 4)
+            XCTAssertGreaterThanOrEqual(
+                report.matchRatio,
+                0.995,
+                "Polar gradient mismatch: ratio \(report.matchRatio), max delta \(report.maxChannelDelta)")
+        }
     }
 
     func testIntermediateStopIsDrawnAtItsAuthoredLocation() async {

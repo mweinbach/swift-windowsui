@@ -33,9 +33,9 @@ public struct QuadPrimitive: Equatable, Sendable {
     public var endG: Float
     public var endB: Float
     public var endA: Float
-    // 0 = vertical, 1 = horizontal, 2 = authored two-dimensional vector.
-    // Directional gradients borrow effectParam1...4 for their quad-local
-    // start/end points; they are only emitted when effectType is zero.
+    // 0 = vertical, 1 = horizontal, 2 = authored two-dimensional vector,
+    // 3 = radial, 4 = angular/conic. Advanced modes borrow effectParam1...4
+    // for their quad-local geometry when effectType is zero.
     public var gradientAxis: Float
     // Clip bounds
     public var clipX: Float
@@ -171,7 +171,19 @@ public struct QuadPrimitive: Equatable, Sendable {
     /// bounds axes. The authored points occupy existing color-effect parameter
     /// slots, preserving the structured-buffer's pinned 144-byte ABI.
     public var usesDirectionalGradient: Bool {
-        gradientAxis > 1.5
+        gradientAxis == 2
+    }
+
+    /// Radial gradients store their local center and authored start/end radii
+    /// in the four otherwise-unused color-effect parameter slots.
+    public var usesRadialGradient: Bool {
+        gradientAxis == 3
+    }
+
+    /// Angular gradients store their local center, starting angle and signed
+    /// sweep in the four otherwise-unused color-effect parameter slots.
+    public var usesConicGradient: Bool {
+        gradientAxis == 4
     }
 
     /// Configures a gradient in surface coordinates while retaining this
@@ -213,6 +225,104 @@ public struct QuadPrimitive: Equatable, Sendable {
         quad.endB = gradient.endColor.blue
         quad.endA = gradient.endColor.alpha * opacity
         return quad.segmented(for: gradient, opacity: opacity)
+    }
+
+    /// Configures a radial-gradient footprint without widening the 144-byte
+    /// instance ABI. Relative SwiftUI centers resolve against this exact quad;
+    /// absolute renderer-neutral centers remain surface coordinates.
+    public func radialGradientQuad(
+        for gradient: RadialGradient,
+        displayScale: Double = 1,
+        opacity: Float = 1
+    ) -> QuadPrimitive? {
+        guard displayScale.isFinite, displayScale > 0,
+            gradient.startRadius >= 0, gradient.radius >= 0
+        else {
+            return nil
+        }
+        let center = localGradientCenter(
+            gradient.center,
+            isUnitPoint: gradient.centerIsUnitPoint,
+            displayScale: displayScale)
+        return parameterizedGradientQuad(
+            stops: gradient.stops,
+            mode: 3,
+            parameters: [
+                center.x,
+                center.y,
+                gradient.startRadius * displayScale,
+                gradient.radius * displayScale,
+            ],
+            opacity: opacity)
+    }
+
+    /// Configures an angular-gradient footprint. Equal or absent endpoint
+    /// angles mean a full turn; an explicit negative sweep reverses direction.
+    public func conicGradientQuad(
+        for gradient: ConicGradient,
+        displayScale: Double = 1,
+        opacity: Float = 1
+    ) -> QuadPrimitive? {
+        guard displayScale.isFinite, displayScale > 0 else { return nil }
+        let center = localGradientCenter(
+            gradient.center,
+            isUnitPoint: gradient.centerIsUnitPoint,
+            displayScale: displayScale)
+        let authoredSweep = gradient.endAngle.map { $0 - gradient.angle } ?? (2 * Double.pi)
+        let sweep = abs(authoredSweep) < 0.000_001 ? 2 * Double.pi : authoredSweep
+        return parameterizedGradientQuad(
+            stops: gradient.stops,
+            mode: 4,
+            parameters: [center.x, center.y, gradient.angle, sweep],
+            opacity: opacity)
+    }
+
+    private func localGradientCenter(
+        _ center: Point,
+        isUnitPoint: Bool,
+        displayScale: Double
+    ) -> Point {
+        if isUnitPoint {
+            return Point(
+                x: center.x * Double(width),
+                y: center.y * Double(height))
+        }
+        return Point(
+            x: center.x * displayScale - Double(x),
+            y: center.y * displayScale - Double(y))
+    }
+
+    private func parameterizedGradientQuad(
+        stops: [GradientStop],
+        mode: Float,
+        parameters: [Double],
+        opacity: Float
+    ) -> QuadPrimitive? {
+        guard effectType == 0, opacity.isFinite else { return nil }
+        let limit = Double(GPUISceneLimits.maxCoordinate)
+        guard parameters.count == 4,
+            parameters.allSatisfy({ $0.isFinite && abs($0) <= limit })
+        else {
+            return nil
+        }
+
+        let start = stops.first?.color ?? .clear
+        let end = stops.last?.color ?? start
+        var quad = self
+        quad.gradientAxis = mode
+        quad.effectParam1 = Float(parameters[0])
+        quad.effectParam2 = Float(parameters[1])
+        quad.effectParam3 = Float(parameters[2])
+        quad.effectParam4 = Float(parameters[3])
+        quad.startR = start.red
+        quad.startG = start.green
+        quad.startB = start.blue
+        quad.startA = start.alpha * opacity
+        quad.endR = end.red
+        quad.endG = end.green
+        quad.endB = end.blue
+        quad.endA = end.alpha * opacity
+        return quad
     }
 
     /// Expands an authored gradient into full-geometry, disjoint color

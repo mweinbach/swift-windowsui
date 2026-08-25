@@ -25,6 +25,12 @@ public enum SystemAppearanceMapping {
             return appOverride
         }
 
+        if snapshot?.isHighContrastEnabled == true,
+            let colors = snapshot?.highContrastColors
+        {
+            return colors.prefersLightAppearance ? .light : .dark
+        }
+
         switch snapshot?.colorSchemePreference {
         case .light:
             return .light
@@ -80,6 +86,11 @@ extension EnvironmentValues {
             snapshot: snapshot,
             fallback: colorSchemeContrast
         )
+        // Keep the palette inherited with every other environment value.
+        // Disabling high contrast must discard a prior custom theme rather
+        // than leaking its colors into the normal app appearance.
+        resolved.systemHighContrastColors =
+            snapshot.isHighContrastEnabled ? snapshot.highContrastColors : nil
         resolved.accessibilityReduceMotion = SystemAppearanceMapping.accessibilityReduceMotion(
             appOverride: nil,
             snapshot: snapshot,

@@ -191,6 +191,63 @@ final class CrossBackendPixelParityTests: XCTestCase {
             })
     }
 
+    private static func polarGradientScene(radial: Bool, material: Bool = false) -> ParityScene {
+        let stops =
+            material
+            ? [
+                GradientStop(color: Color(red: 0.95, green: 0.2, blue: 0.1, alpha: 0.35), position: 0),
+                GradientStop(color: Color(red: 0.15, green: 0.3, blue: 0.9, alpha: 0.6), position: 1),
+            ]
+            : [
+                GradientStop(color: Color(red: 0.95, green: 0.2, blue: 0.1, alpha: 0.85), position: 0),
+                GradientStop(color: Color(red: 0.1, green: 0.85, blue: 0.3, alpha: 0.55), position: 0.4),
+                GradientStop(color: Color(red: 0.15, green: 0.3, blue: 0.9, alpha: 0.9), position: 1),
+            ]
+        let footprint = QuadPrimitive(
+            x: 12, y: 16, width: 104, height: 96,
+            cornerRadius: 18,
+            clipX: 20, clipY: 20, clipWidth: 90, clipHeight: 84,
+            clipCornerRadius: 12,
+            blurRadius: material ? 10 : 0,
+            rotationRadians: material ? 0 : 0.12)
+        let configured: QuadPrimitive?
+        if radial {
+            configured = footprint.radialGradientQuad(
+                for: RadialGradient(
+                    center: Point(x: 66, y: 65),
+                    radius: 58,
+                    stops: stops,
+                    startRadius: 8))
+        } else {
+            configured = footprint.conicGradientQuad(
+                for: ConicGradient(
+                    center: Point(x: 66, y: 65),
+                    angle: Double.pi / 6,
+                    stops: stops,
+                    endAngle: material ? nil : 1.7 * Double.pi))
+        }
+        let quads = configured?.segmented(for: LinearGradient(stops: stops, axis: .horizontal)) ?? []
+        XCTAssertFalse(quads.isEmpty, "the polar-gradient parity fixture failed to lower")
+
+        let kind = radial ? "radial" : "angular"
+        return ParityScene(
+            name: material ? "\(kind) gradient material" : "\(kind) multistop gradient",
+            size: surface,
+            scene: makeScene { scene in
+                if material {
+                    scene.addQuad(
+                        QuadPrimitive(
+                            x: 0, y: 0, width: 128, height: 128,
+                            startR: 0.1, startG: 0.45, startB: 0.75,
+                            endR: 0.85, endG: 0.3, endB: 0.2,
+                            gradientAxis: 1))
+                }
+                for quad in quads {
+                    scene.addQuad(quad)
+                }
+            })
+    }
+
     private static func uniformRadiusScene() -> ParityScene {
         ParityScene(
             name: "uniform corner radius",
@@ -1108,6 +1165,22 @@ final class CrossBackendPixelParityTests: XCTestCase {
 
     func testDirectionalMaterialGradientParity() async throws {
         try assertParity(Self.directionalGradientScene(material: true))
+    }
+
+    func testRadialMultistopGradientParity() async throws {
+        try assertParity(Self.polarGradientScene(radial: true))
+    }
+
+    func testAngularMultistopGradientParity() async throws {
+        try assertParity(Self.polarGradientScene(radial: false))
+    }
+
+    func testRadialMaterialGradientParity() async throws {
+        try assertParity(Self.polarGradientScene(radial: true, material: true))
+    }
+
+    func testAngularMaterialGradientParity() async throws {
+        try assertParity(Self.polarGradientScene(radial: false, material: true))
     }
 
     func testUniformCornerRadiusParity() async throws { try assertParity(Self.uniformRadiusScene()) }

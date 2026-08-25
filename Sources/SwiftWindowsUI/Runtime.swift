@@ -3,7 +3,6 @@ import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsLayout
 // Gap/Fix: Granular dirty tracking — OptionSet replaces single isDirty boolean.
-import SwiftWindowsPlatform
 
 // MARK: - Animation interpolation support
 
@@ -2880,6 +2879,16 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    /// Modal intent can be explicit accessibility metadata or the portable
+    /// SwiftUI presentation modifier that disables background interaction.
+    /// The latter keeps custom overlays valid on Apple's SwiftUI, where
+    /// `AccessibilityTraits.isModal` is not part of the public API.
+    public var isModalPresentationScope: Bool {
+        accessibilityTraits.contains(.isModal)
+            || (presentationChrome.hasBackgroundInteractionOverride
+                && !presentationChrome.allowsBackgroundInteraction)
+    }
+
     public var isToolbarContainer: Bool {
         didSet { invalidateRuntime(.paint) }
     }
@@ -3267,7 +3276,7 @@ public final class ViewNode {
     /// which is the same value in production and unreachable by a tween in a
     /// test, since a detached node has no tweens.
     internal var animationClockNow: Double {
-        runtime?.clock() ?? Win32Window.currentTimestampSeconds()
+        runtime?.clock() ?? PlatformClock.now()
     }
 
     internal var resolvedFrame: Rect
@@ -8198,7 +8207,7 @@ public final class RetainedViewRuntime {
     /// Every start-time stamp in the runtime, in `Controls`, and in
     /// `ComponentHost`'s reconcile now reads this. Override it and the whole
     /// interaction layer runs on the timeline you choose.
-    public var clock: @MainActor () -> Double = { Win32Window.currentTimestampSeconds() }
+    public var clock: @MainActor () -> Double = { PlatformClock.now() }
 
     /// True while anything in this runtime still needs a frame tick. The host
     /// gates its animation timer on exactly this value, so every animation
@@ -8936,10 +8945,10 @@ public final class RetainedViewRuntime {
 
         let ownsRenderPass = beginRenderPass()
         defer { endRenderPass(ownsPass: ownsRenderPass) }
-        let phaseStartedAt = collectsPhaseTimings ? Win32Window.currentTimestampSeconds() : 0
+        let phaseStartedAt = collectsPhaseTimings ? PlatformClock.now() : 0
         updateResolvedLayout()
         applyMatchedGeometryAnimations()
-        let layoutEndedAt = collectsPhaseTimings ? Win32Window.currentTimestampSeconds() : 0
+        let layoutEndedAt = collectsPhaseTimings ? PlatformClock.now() : 0
 
         let previousScene = cachedScene
         var replayCount = 0
@@ -8959,7 +8968,7 @@ public final class RetainedViewRuntime {
         )
         prepaintState.deferredDraws = deferredDraws
         if collectsPhaseTimings {
-            let paintEndedAt = Win32Window.currentTimestampSeconds()
+            let paintEndedAt = PlatformClock.now()
             lastLayoutSeconds = layoutEndedAt - phaseStartedAt
             lastPaintSeconds = paintEndedAt - layoutEndedAt
         }
@@ -9317,6 +9326,19 @@ public final class RetainedViewRuntime {
             return
         }
 
+        // A newly presented modal can still inherit focus from the control
+        // that opened it. Never let its first Enter/Space/Escape reach that
+        // obscured control: move focus into the active presentation first.
+        if let modal = activeModalPresentationNode,
+            focusedNode.map({ !Self.isInteractionTarget($0, within: modal) }) ?? true
+        {
+            let firstModalFocus = prepaintState.focusOrder.first {
+                guard let candidate = node(for: $0) else { return false }
+                return Self.isInteractionTarget(candidate, within: modal)
+            }
+            updateFocusTarget(to: node(for: firstModalFocus))
+        }
+
         switch event.key {
 
         case .enter, .space:
@@ -9375,6 +9397,12 @@ public final class RetainedViewRuntime {
     /// active this is never called and keyboard input flows through
     /// `keyDown` exactly as before.
     public func imeComposition(_ event: IMECompositionEvent) {
+        if let modal = activeModalPresentationNode,
+            let focusedNode,
+            !Self.isInteractionTarget(focusedNode, within: modal)
+        {
+            return
+        }
         focusedNode?.onIMEComposition?(event)
     }
 
@@ -9383,7 +9411,13 @@ public final class RetainedViewRuntime {
     /// window. `nil` when the focused node is not a text input or cannot
     /// report a caret.
     public var focusedTextInputCaretRect: Rect? {
-        focusedNode?.textInputCaretRectProvider?()
+        if let modal = activeModalPresentationNode,
+            let focusedNode,
+            !Self.isInteractionTarget(focusedNode, within: modal)
+        {
+            return nil
+        }
+        return focusedNode?.textInputCaretRectProvider?()
     }
 
     public func requestFocus(_ node: ViewNode?) {
@@ -9393,6 +9427,17 @@ public final class RetainedViewRuntime {
         }
 
         guard node.isFocusable, !Self.hasHiddenAncestor(node) else {
+            return
+        }
+
+        // FocusState builds its destination before the new subtree is
+        // attached, so detached candidates must remain eligible. Attached
+        // background controls, including accessibility SetFocus requests,
+        // cannot steal focus from the topmost modal presentation.
+        if let modal = activeModalPresentationNode,
+            Self.isInteractionTarget(node, within: root),
+            !Self.isInteractionTarget(node, within: modal)
+        {
             return
         }
 
@@ -10509,8 +10554,16 @@ public final class RetainedViewRuntime {
 
     private func moveFocus(reverse: Bool) {
         updateResolvedLayout()
-        let focusableDispatchIndices = prepaintState.focusOrder
+        let modal = activeModalPresentationNode
+        let focusableDispatchIndices = prepaintState.focusOrder.filter { dispatchIndex in
+            guard let modal else { return true }
+            guard let candidate = node(for: dispatchIndex) else { return false }
+            return Self.isInteractionTarget(candidate, within: modal)
+        }
         guard !focusableDispatchIndices.isEmpty else {
+            if modal != nil {
+                updateFocusTarget(to: nil)
+            }
             return
         }
 
@@ -10558,11 +10611,24 @@ public final class RetainedViewRuntime {
         self.node(for: nearestDispatchIndex(from: dispatchIndex(for: node), where: { $0.onContextMenu != nil }))
     }
 
+    /// The last modal reached by prepaint is the frontmost presentation:
+    /// deferred overlays follow inline content and nested overlays follow the
+    /// presentation underneath them. Reading the same flattened ordering as
+    /// painting keeps this scope renderer- and platform-independent.
+    internal var activeModalPresentationNode: ViewNode? {
+        prepaintState.dispatchNodes.last {
+            $0.node.isModalPresentationScope
+                && !Self.hasHiddenAncestor($0.node)
+        }?.node
+    }
+
     private func activateKeyboardShortcut(for event: KeyboardEvent) -> Bool {
         updateResolvedLayout()
+        let modal = activeModalPresentationNode
         for dispatchState in prepaintState.dispatchNodes {
             let node = dispatchState.node
             guard
+                modal.map({ Self.isInteractionTarget(node, within: $0) }) ?? true,
                 node.onActivate != nil,
                 node.keyboardShortcuts.contains(where: { $0.matches(event) })
             else {
@@ -10579,7 +10645,12 @@ public final class RetainedViewRuntime {
 
     private func handleScrollKey(_ key: KeyboardKey) -> Bool {
         updateResolvedLayout()
-        let scrollableNode = nearestScrollableNode(from: focusedNode) ?? nearestScrollableNode(from: hoveredNode)
+        let modal = activeModalPresentationNode
+        let candidates = [nearestScrollableNode(from: focusedNode), nearestScrollableNode(from: hoveredNode)]
+        let scrollableNode = candidates.compactMap { $0 }.first { candidate in
+            guard let modal else { return true }
+            return Self.isInteractionTarget(candidate, within: modal)
+        }
         guard let scrollableNode else {
             return false
         }

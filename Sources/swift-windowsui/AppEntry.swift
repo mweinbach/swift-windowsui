@@ -3,25 +3,53 @@ import SwiftWindowsDemo
 #if canImport(SwiftUI)
     import SwiftUI
 #else
+    import class Foundation.ProcessInfo
     import SwiftWindowsGraphics
     import SwiftWindowsRendererD3D11
     import WinSwiftUI
 #endif
 @main
 struct SwiftWindowsUIDemoApp: App {
-    private let model = DemoDashboardModel()
+    private let model: DemoDashboardModel
 
-    init() {}
+    init() {
+        #if canImport(SwiftUI)
+            model = DemoDashboardModel(rendererIdentity: .nativeSwiftUI)
+        #else
+            let requestedIdentity: DemoRendererIdentity =
+                Self.requestsSoftwareBackend ? .software : .direct3D11
+            let requestedFactory = Self.renderBackendFactory()
+            let resolvedIdentity: DemoRendererIdentity
+
+            if !requestedFactory.probeAvailability().canPresent,
+                SoftwareWindowRenderBackendFactory().probeAvailability().canPresent
+            {
+                // App.main resolves an unavailable graphics factory to this
+                // same presenting fallback after initializing the app. Keep
+                // its dashboard honest even when that substitution is needed.
+                resolvedIdentity = .software
+            } else {
+                resolvedIdentity = requestedIdentity
+            }
+
+            model = DemoDashboardModel(rendererIdentity: resolvedIdentity)
+        #endif
+    }
 
     #if !canImport(SwiftUI)
-        /// Composition root (Phase 8 modularization): the Windows product pins
-        /// the D3D11 GPU backend here, at the executable that assembles the
-        /// app. The `WinSwiftUI` facade itself is renderer-neutral — its
-        /// default `renderBackendFactory()` is the software presenter that
-        /// ships with the facade — so library consumers no longer link
-        /// `SwiftWindowsRendererD3D11` transitively.
+        private static var requestsSoftwareBackend: Bool {
+            ProcessInfo.processInfo.environment["SWIFT_WINDOWSUI_RENDER_BACKEND"]?.lowercased() == "software"
+        }
+
+        /// Composition root: D3D11 remains the product default, while an
+        /// explicit environment selection can prove the same retained app
+        /// also presents through the interchangeable software backend.
+        /// `WinSwiftUI` itself stays neutral and never imports either engine.
         static func renderBackendFactory() -> RenderBackendFactory {
-            D3D11RenderBackendFactory()
+            if requestsSoftwareBackend {
+                return SoftwareWindowRenderBackendFactory()
+            }
+            return D3D11RenderBackendFactory()
         }
     #endif
 

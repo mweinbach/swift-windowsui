@@ -198,20 +198,27 @@ public enum AccessibilityProjection {
     /// projected as an element (typically a `pane`/`group` container) unless
     /// it is hidden, in which case the result is nil.
     public static func project(root: ViewNode) -> AccessibilityElementProjection? {
+        project(root: root, activeModalNode: topmostModalNode(in: root))
+    }
+
+    private static func project(
+        root: ViewNode,
+        activeModalNode: ViewNode?
+    ) -> AccessibilityElementProjection? {
         guard !isSubtreeHidden(root) else { return nil }
         return projectElement(
             root,
             parentOrigin: .zero,
             inheritedTransform: .identity,
-            forceElement: true
+            forceElement: true,
+            activeModalNode: activeModalNode
         )
     }
 
-    /// Projects a runtime's retained root. Equivalent to `project(root:)`;
-    /// focus state already rides on `ViewNode.isFocused`, so no separate
-    /// runtime lookup is required.
+    /// Projects a runtime's retained root. Its modal scope comes from the
+    /// exact prepaint order that keyboard routing and both renderers share.
     public static func project(runtime: RetainedViewRuntime) -> AccessibilityElementProjection? {
-        project(root: runtime.root)
+        project(root: runtime.root, activeModalNode: runtime.activeModalPresentationNode)
     }
 
     // MARK: - Trait → control type mapping table
@@ -274,10 +281,82 @@ public enum AccessibilityProjection {
         node.isAccessibilityHidden || node.isHidden
     }
 
+    /// Mirror prepaint's iterative, round-based deferred traversal for callers
+    /// that project a detached root without a runtime. Deferred overlays are
+    /// global to their round, not merely later than their immediate siblings.
+    private static func topmostModalNode(in node: ViewNode) -> ViewNode? {
+        var pending: [(node: ViewNode, resumesDeferred: Bool, depth: Int)] = [(node, true, 0)]
+        var deferred: [(node: ViewNode, depth: Int)] = []
+        var frontmost: ViewNode?
+
+        while !pending.isEmpty || !deferred.isEmpty {
+            if pending.isEmpty {
+                pending = deferred.reversed().map { ($0.node, true, $0.depth) }
+                deferred.removeAll(keepingCapacity: true)
+            }
+
+            guard let current = pending.popLast(),
+                current.depth <= ViewNode.maximumTraversalDepth,
+                !isSubtreeHidden(current.node),
+                !current.node.isLayoutDeferredByVirtualization
+            else {
+                continue
+            }
+
+            if !current.resumesDeferred, current.node.paintsInDeferredPhase {
+                deferred.append((current.node, current.depth))
+                continue
+            }
+
+            if current.node.isModalPresentationScope {
+                frontmost = current.node
+            }
+
+            let children: [ViewNode]
+            if current.node.children.contains(where: { $0.zIndex != 0 }) {
+                children = current.node.children.enumerated().sorted { lhs, rhs in
+                    if lhs.element.zIndex != rhs.element.zIndex {
+                        return lhs.element.zIndex < rhs.element.zIndex
+                    }
+                    return lhs.offset < rhs.offset
+                }.map(\.element)
+            } else {
+                children = current.node.children
+            }
+
+            for child in children.reversed() {
+                pending.append((child, false, current.depth + 1))
+            }
+        }
+
+        return frontmost
+    }
+
+    /// Keep the modal, every descendant inside it, and the ancestor chain
+    /// needed to preserve its root-relative transformed geometry.
+    private static func belongsToModalBranch(_ node: ViewNode, modal: ViewNode?) -> Bool {
+        guard let modal else { return true }
+
+        var ancestor: ViewNode? = node
+        while let candidate = ancestor {
+            if candidate === modal { return true }
+            ancestor = candidate.parent
+        }
+
+        ancestor = modal
+        while let candidate = ancestor {
+            if candidate === node { return true }
+            ancestor = candidate.parent
+        }
+
+        return false
+    }
+
     /// A node is an accessibility element when it carries any accessible
     /// content (label/value/hint/identifier, traits, actions, or bitmap text)
     /// or when an explicit child behavior was set on it.
     private static func isAccessibilityElement(_ node: ViewNode) -> Bool {
+        if node.isModalPresentationScope { return true }
         if node.accessibilityChildBehavior != nil { return true }
         if node.accessibilityLabel != nil { return true }
         if node.accessibilityValue != nil { return true }
@@ -295,7 +374,8 @@ public enum AccessibilityProjection {
         _ node: ViewNode,
         parentOrigin: Point,
         inheritedTransform: Transform2D,
-        forceElement: Bool
+        forceElement: Bool,
+        activeModalNode: ViewNode?
     ) -> AccessibilityElementProjection {
         let geometry = projectedGeometry(
             of: node,
@@ -308,23 +388,38 @@ public enum AccessibilityProjection {
         var name = node.accessibilityLabel ?? node.text ?? ""
         var projectedChildren: [AccessibilityElementProjection] = []
 
-        switch behavior {
-        case .ignore:
-            // Children are dropped from the accessibility tree entirely.
-            break
-        case .combine:
-            // Children merge into this element: descendant labels/text fold
-            // into the name (only when the node has no label of its own) and
-            // no child elements are projected.
-            if node.accessibilityLabel == nil, node.text == nil {
-                name = combinedDescendantName(of: node)
-            }
-        case .contain, nil:
+        if let activeModalNode, node !== activeModalNode {
+            // A modal wins over an ancestor's combine/ignore behavior. Its
+            // ancestors remain only as the geometry path needed to reach it;
+            // combining the blocked siblings would leak their spoken labels.
             projectedChildren = projectChildren(
                 of: node,
                 parentOrigin: childOrigin,
-                inheritedTransform: geometry.effectiveTransform
+                inheritedTransform: geometry.effectiveTransform,
+                activeModalNode: activeModalNode
             )
+        } else {
+            switch behavior {
+            case .ignore:
+                // Children are dropped from the accessibility tree entirely.
+                break
+            case .combine:
+                // Children merge into this element: descendant labels/text
+                // fold into its name unless an explicit label already wins.
+                if node.accessibilityLabel == nil, node.text == nil {
+                    name = combinedDescendantName(of: node)
+                }
+            case .contain, nil:
+                // Once inside the selected modal, synthetic representation
+                // nodes need no parent-chain membership: they intentionally
+                // are not attached to the retained tree.
+                projectedChildren = projectChildren(
+                    of: node,
+                    parentOrigin: childOrigin,
+                    inheritedTransform: geometry.effectiveTransform,
+                    activeModalNode: nil
+                )
+            }
         }
 
         return AccessibilityElementProjection(
@@ -336,7 +431,8 @@ public enum AccessibilityProjection {
             controlType: forceElement && !isAccessibilityElement(node)
                 ? .pane
                 : resolveControlType(for: node),
-            traits: node.accessibilityTraits,
+            traits: node.isModalPresentationScope
+                ? node.accessibilityTraits.union(.isModal) : node.accessibilityTraits,
             headingLevel: node.accessibilityHeadingLevel,
             isEnabled: node.accessibilityRespondsToUserInteraction ?? true,
             isFocused: node.isFocused,
@@ -356,12 +452,17 @@ public enum AccessibilityProjection {
     private static func projectChildren(
         of node: ViewNode,
         parentOrigin: Point,
-        inheritedTransform: Transform2D
+        inheritedTransform: Transform2D,
+        activeModalNode: ViewNode?
     ) -> [AccessibilityElementProjection] {
-        let childNodes = node.accessibilityRepresentationChildren ?? node.children
+        let childNodes =
+            activeModalNode == nil
+            ? (node.accessibilityRepresentationChildren ?? node.children)
+            : node.children
         var projected: [AccessibilityElementProjection] = []
         for child in childNodes {
             guard !isSubtreeHidden(child) else { continue }
+            guard belongsToModalBranch(child, modal: activeModalNode) else { continue }
             // A row a lazy stack has not laid out has a real frame of its own
             // and nothing but zeroes below it. Descending would report a
             // rectangle per descendant that a UIA client would take as real
@@ -383,7 +484,8 @@ public enum AccessibilityProjection {
                         child,
                         parentOrigin: parentOrigin,
                         inheritedTransform: inheritedTransform,
-                        forceElement: false
+                        forceElement: false,
+                        activeModalNode: activeModalNode
                     )
                 )
             } else {
@@ -399,7 +501,8 @@ public enum AccessibilityProjection {
                     contentsOf: projectChildren(
                         of: child,
                         parentOrigin: childOrigin,
-                        inheritedTransform: geometry.effectiveTransform
+                        inheritedTransform: geometry.effectiveTransform,
+                        activeModalNode: activeModalNode
                     )
                 )
             }

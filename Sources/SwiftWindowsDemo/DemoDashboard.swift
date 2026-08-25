@@ -15,16 +15,43 @@ import struct Foundation.URL
     import UniformTypeIdentifiers
 #endif
 
+/// Backend-neutral presentation identity injected by the executable that owns
+/// renderer selection. The shared dashboard never imports a graphics backend.
+public struct DemoRendererIdentity: Hashable, Sendable {
+    public let displayName: String
+    public let componentDescription: String
+
+    public init(displayName: String, componentDescription: String) {
+        self.displayName = displayName
+        self.componentDescription = componentDescription
+    }
+
+    public var readyEvent: String { "\(displayName) ready" }
+
+    public static let direct3D11 = Self(
+        displayName: "D3D11",
+        componentDescription: "D3D11 batch pipeline"
+    )
+
+    public static let software = Self(
+        displayName: "Software",
+        componentDescription: "Software CPU presentation pipeline"
+    )
+
+    public static let nativeSwiftUI = Self(
+        displayName: "SwiftUI",
+        componentDescription: "Native SwiftUI presentation pipeline"
+    )
+}
+
 @MainActor
 public final class DemoDashboardModel: ObservableObject {
+    public let rendererIdentity: DemoRendererIdentity
+
     @Published var selectedModule: DemoModule = .layout
     @Published var interactionCount = 0
     @Published var lastAction = "Ready"
-    @Published var recentEvents: [String] = [
-        "System ready",
-        "D3D11 ready",
-        "Window toolkit active",
-    ]
+    @Published var recentEvents: [String] = []
 
     /// Active top-level screen shown by the demo's `TabView` shell.
     @Published public var selectedScreen: DemoScreen = .dashboard {
@@ -88,7 +115,16 @@ public final class DemoDashboardModel: ObservableObject {
 
     private var savedSettings = DemoSettingsSnapshot.defaults
 
-    public init() {}
+    public init(rendererIdentity: DemoRendererIdentity = .direct3D11) {
+        self.rendererIdentity = rendererIdentity
+        recentEvents = [
+            "System ready",
+            rendererIdentity.readyEvent,
+            "Window toolkit active",
+        ]
+        components = DemoComponent.defaults(for: rendererIdentity)
+        selectedComponentID = components.first?.id
+    }
 
     /// Currently selected component on the data screen, if any.
     public var selectedComponent: DemoComponent? {
@@ -1375,6 +1411,7 @@ struct DemoCommandPaletteOverlay: View {
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
         }
         .zIndex(20)
+        .presentationBackgroundInteraction(.disabled)
     }
 }
 
@@ -1649,7 +1686,7 @@ struct DemoToolbar: View {
                         HStack(alignment: .center, spacing: DemoMetrics.s2 - 2) {
                             DemoStatusDot(palette.success)
 
-                            Text("D3D11")
+                            Text(model.rendererIdentity.displayName)
                                 .font(DemoType.captionStrong)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
@@ -3419,32 +3456,36 @@ public struct DemoComponent: Identifiable, Hashable, Sendable {
         )
     }
 
-    static let defaults: [DemoComponent] = [
-        DemoComponent(
-            id: 1, name: "Render host", detail: "D3D11 batch pipeline", version: "v2.4.1",
-            systemImage: "bolt.fill", load: 0.34),
-        DemoComponent(
-            id: 2, name: "Input router", detail: "Pointer and keyboard dispatch", version: "v1.9.0",
-            systemImage: "keyboard", load: 0.12),
-        DemoComponent(
-            id: 3, name: "Layout engine", detail: "Retained stack measurement", version: "v3.1.2",
-            systemImage: "rectangle.3.group", load: 0.48),
-        DemoComponent(
-            id: 4, name: "Animation ticker", detail: "Frame-driven state transitions", version: "v1.4.0",
-            systemImage: "sparkles", load: 0.27),
-        DemoComponent(
-            id: 5, name: "Control surfaces", detail: "Buttons, toggles, and pickers", version: "v2.0.3",
-            systemImage: "switch.2", load: 0.56),
-        DemoComponent(
-            id: 6, name: "Event log", detail: "Interaction telemetry buffer", version: "v0.9.8",
-            systemImage: "waveform.path.ecg", load: 0.71),
-        DemoComponent(
-            id: 7, name: "Document store", detail: "Settings persistence layer", version: "v1.2.5",
-            systemImage: "doc.text", load: 0.18),
-        DemoComponent(
-            id: 8, name: "System probe", detail: "Health and diagnostics", version: "v0.7.2",
-            systemImage: "info.circle", load: 0.90),
-    ]
+    static let defaults: [DemoComponent] = defaults(for: .direct3D11)
+
+    static func defaults(for rendererIdentity: DemoRendererIdentity) -> [DemoComponent] {
+        [
+            DemoComponent(
+                id: 1, name: "Render host", detail: rendererIdentity.componentDescription, version: "v2.4.1",
+                systemImage: "bolt.fill", load: 0.34),
+            DemoComponent(
+                id: 2, name: "Input router", detail: "Pointer and keyboard dispatch", version: "v1.9.0",
+                systemImage: "keyboard", load: 0.12),
+            DemoComponent(
+                id: 3, name: "Layout engine", detail: "Retained stack measurement", version: "v3.1.2",
+                systemImage: "rectangle.3.group", load: 0.48),
+            DemoComponent(
+                id: 4, name: "Animation ticker", detail: "Frame-driven state transitions", version: "v1.4.0",
+                systemImage: "sparkles", load: 0.27),
+            DemoComponent(
+                id: 5, name: "Control surfaces", detail: "Buttons, toggles, and pickers", version: "v2.0.3",
+                systemImage: "switch.2", load: 0.56),
+            DemoComponent(
+                id: 6, name: "Event log", detail: "Interaction telemetry buffer", version: "v0.9.8",
+                systemImage: "waveform.path.ecg", load: 0.71),
+            DemoComponent(
+                id: 7, name: "Document store", detail: "Settings persistence layer", version: "v1.2.5",
+                systemImage: "doc.text", load: 0.18),
+            DemoComponent(
+                id: 8, name: "System probe", detail: "Health and diagnostics", version: "v0.7.2",
+                systemImage: "info.circle", load: 0.90),
+        ]
+    }
 }
 
 // MARK: - Settings screen

@@ -11906,6 +11906,7 @@ public struct Menu: View {
                 )
                 overlayContainer.paintsInDeferredPhase = true
                 overlayContainer.nodeTag = "menu-overlay"
+                overlayContainer.accessibilityTraits.insert(.isModal)
                 children.append(overlayContainer)
             }
 

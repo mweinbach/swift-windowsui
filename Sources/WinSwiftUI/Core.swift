@@ -19154,6 +19154,10 @@ private func mergedPresentationChrome(
         result.horizontalCompactAdaptation = override.horizontalCompactAdaptation
         result.verticalCompactAdaptation = override.verticalCompactAdaptation
     }
+    if override.hasIsModalOverride {
+        result.hasIsModalOverride = true
+        result.isModal = override.isModal
+    }
     return result
 }
 @MainActor
@@ -19295,17 +19299,34 @@ private func retainedPresentationScrollContentNode(_ contentNode: ViewNode, pale
 /// Chains an Escape-key dismissal onto every node in the subtree, preserving
 /// any existing key-down handler, mirroring the Menu overlay's behavior.
 @MainActor
-private func attachRetainedEscapeDismiss(to node: ViewNode, dismiss: @escaping @MainActor () -> Void) {
+private func attachRetainedEscapeDismiss(
+    to node: ViewNode,
+    within presentation: ViewNode? = nil,
+    dismiss: @escaping @MainActor () -> Void
+) {
     let existingKeyDown = node.onKeyDown
     node.onKeyDown = { event in
+        // Capture ownership before the nested handler dismisses itself: an
+        // inner modal may remove its trait while restoring focus, but that
+        // one Escape must never cascade into its outer presentation.
+        let ownsModalEvent: Bool
+        if let presentation, presentation.isModalPresentationScope {
+            var ancestor: ViewNode? = node
+            while let candidate = ancestor, !candidate.isModalPresentationScope {
+                ancestor = candidate.parent
+            }
+            ownsModalEvent = ancestor === presentation
+        } else {
+            ownsModalEvent = true
+        }
         existingKeyDown?(event)
-        if event.key == .escape {
+        if event.key == .escape, ownsModalEvent {
             dismiss()
         }
     }
 
     for child in node.children {
-        attachRetainedEscapeDismiss(to: child, dismiss: dismiss)
+        attachRetainedEscapeDismiss(to: child, within: presentation, dismiss: dismiss)
     }
 }
 /// Runs `restoreFocus` before any existing activation handler in the subtree
@@ -19361,6 +19382,11 @@ private func retainedRestorePresentationFocus(
     baseNode: ViewNode,
     overlayNode: ViewNode
 ) {
+    // Dismissal restores focus before the presentation binding changes.
+    // Release this presentation's modal scope first so its source control
+    // (or an underlying nested modal) is eligible immediately.
+    overlayNode.accessibilityTraits.subtract(.isModal)
+
     if let focusedAtPresentation,
         !retainedPresentationNode(focusedAtPresentation, isWithin: overlayNode),
         retainedPresentationNode(focusedAtPresentation, isWithin: runtime.root)
@@ -19471,6 +19497,11 @@ private func retainedSheetPresentation(
         )
         overlayContainer.paintsInDeferredPhase = true
         overlayContainer.nodeTag = "sheet-overlay"
+        if presentationChrome.hasIsModalOverride
+            ? presentationChrome.isModal : !presentationChrome.allowsBackgroundInteraction
+        {
+            overlayContainer.accessibilityTraits.insert(.isModal)
+        }
         let root = Controls.panel(
             layoutMode: .absolute,
             isHitTestVisible: false,
@@ -19492,7 +19523,7 @@ private func retainedSheetPresentation(
                 dismissSheet()
             }
         }
-        attachRetainedEscapeDismiss(to: root, dismiss: dismissSheet)
+        attachRetainedEscapeDismiss(to: root, within: overlayContainer, dismiss: dismissSheet)
 
         root.onLayout = { bounds in
             let boundsFrame = Rect(origin: .zero, size: bounds.size)
@@ -19577,6 +19608,9 @@ private func retainedFullScreenCoverPresentation(
         )
         overlayContainer.paintsInDeferredPhase = true
         overlayContainer.nodeTag = "full-screen-cover-overlay"
+        if !presentationChrome.hasIsModalOverride || presentationChrome.isModal {
+            overlayContainer.accessibilityTraits.insert(.isModal)
+        }
         let root = Controls.panel(
             layoutMode: .absolute,
             isHitTestVisible: false,
@@ -19659,6 +19693,11 @@ private func retainedPopoverPresentation(
         )
         overlayContainer.paintsInDeferredPhase = true
         overlayContainer.nodeTag = "popover-overlay"
+        if presentationChrome.hasIsModalOverride
+            ? presentationChrome.isModal : !presentationChrome.allowsBackgroundInteraction
+        {
+            overlayContainer.accessibilityTraits.insert(.isModal)
+        }
         let root = Controls.panel(
             layoutMode: .absolute,
             isHitTestVisible: false,
@@ -19678,7 +19717,7 @@ private func retainedPopoverPresentation(
         scrimNode.onPointerDown = {
             dismissPopover()
         }
-        attachRetainedEscapeDismiss(to: root, dismiss: dismissPopover)
+        attachRetainedEscapeDismiss(to: root, within: overlayContainer, dismiss: dismissPopover)
 
         root.onLayout = { bounds in
             let boundsFrame = Rect(origin: .zero, size: bounds.size)
@@ -20002,6 +20041,7 @@ private func retainedAlertPresentation(
         )
         overlayContainer.paintsInDeferredPhase = true
         overlayContainer.nodeTag = "alert-overlay"
+        overlayContainer.accessibilityTraits.insert(.isModal)
         let root = Controls.panel(
             layoutMode: .absolute,
             isHitTestVisible: false,
@@ -20021,7 +20061,7 @@ private func retainedAlertPresentation(
             restoreFocus()
             dismiss()
         }
-        attachRetainedEscapeDismiss(to: root, dismiss: dismissAlert)
+        attachRetainedEscapeDismiss(to: root, within: overlayContainer, dismiss: dismissAlert)
         attachRetainedPresentationFocusRestore(to: alertNode, restoreFocus: restoreFocus)
 
         root.onLayout = { bounds in
@@ -20240,6 +20280,7 @@ private func retainedConfirmationDialogPresentation(
         )
         overlayContainer.paintsInDeferredPhase = true
         overlayContainer.nodeTag = "confirmation-dialog-overlay"
+        overlayContainer.accessibilityTraits.insert(.isModal)
         let root = Controls.panel(
             preferredSize: baseNode.intrinsicContentSize(),
             layoutMode: .absolute,
@@ -20263,7 +20304,7 @@ private func retainedConfirmationDialogPresentation(
         scrimNode.onPointerDown = {
             dismissDialog()
         }
-        attachRetainedEscapeDismiss(to: root, dismiss: dismissDialog)
+        attachRetainedEscapeDismiss(to: root, within: overlayContainer, dismiss: dismissDialog)
         attachRetainedPresentationFocusRestore(to: dialogNode, restoreFocus: restoreFocus)
 
         root.onLayout = { bounds in
@@ -20447,6 +20488,7 @@ private func retainedContextMenuPresentation(
         )
         overlayContainer.paintsInDeferredPhase = true
         overlayContainer.nodeTag = "context-menu-overlay"
+        overlayContainer.accessibilityTraits.insert(.isModal)
         let root = Controls.panel(
             preferredSize: baseNode.intrinsicContentSize(),
             layoutMode: .absolute,
@@ -20468,7 +20510,7 @@ private func retainedContextMenuPresentation(
             dismissWithFocusRestore()
         }
         attachRetainedActivationDismiss(to: itemNode, dismiss: dismissWithFocusRestore)
-        attachRetainedEscapeDismiss(to: root, dismiss: dismissWithFocusRestore)
+        attachRetainedEscapeDismiss(to: root, within: overlayContainer, dismiss: dismissWithFocusRestore)
 
         root.onLayout = { bounds in
             let boundsFrame = Rect(origin: .zero, size: bounds.size)

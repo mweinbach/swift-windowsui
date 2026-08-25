@@ -202,10 +202,10 @@ writes `artifacts/demo-screenshot.png`. Use
 `-AllScreens` for all four, or `-FrameDebug` to force the `RenderFrame` fallback
 path for visual comparison.
 
-The separate retained-runtime visual gallery includes 85 reviewed dark,
-interaction-state, and light-appearance fixtures. Its generated review portal
-supports searching and filtering examples, while the regression gate can list
-or compare selected fixture groups:
+The separate retained-runtime visual gallery contains 144 examples, including
+85 reviewed dark, interaction-state, and light-appearance regression fixtures.
+Its generated review portal supports searching and filtering examples, while
+the regression gate can list or compare selected fixture groups:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gallery-compare.ps1 -List

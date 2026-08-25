@@ -601,8 +601,9 @@ Render the ladder by hand with
 
 `scripts/gallery-compare.ps1` turns the `swift-windowsui-gallery` tool into a visual regression gate for Supported-tier controls.
 
-- The gate covers a fixed subset of gallery entries in three tiers, **85** in
-  all. The roster lives at the top of `scripts/gallery-compare.ps1`.
+- The full gallery contains **144** rendered examples; the gate covers a fixed
+  subset of **85** reviewed entries across three tiers. The roster lives at the
+  top of `scripts/gallery-compare.ps1`.
   Time-dependent entries (e.g. indeterminate progress) are deliberately
   excluded because their renders are not frame-stable.
 

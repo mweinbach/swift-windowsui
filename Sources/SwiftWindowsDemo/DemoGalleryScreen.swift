@@ -4,6 +4,39 @@
     import WinSwiftUI
 #endif
 
+/// Durable interaction state for the component workbench.
+///
+/// The retained Windows host recreates child view values when an observed
+/// object changes. A nested view's local `@State` therefore cannot own a sheet
+/// binding or an editor value: the next host rebuild would immediately replace
+/// it with the declaration's default. The app model retains this one object
+/// and each interactive collection observes it directly, preserving normal
+/// same-source SwiftUI bindings across both host and navigation rebuilds.
+@MainActor
+final class DemoGalleryState: ObservableObject {
+    // Control workbench.
+    @Published var draftName = "Native component kit"
+    @Published var density: DemoShowcaseDensity = .balanced
+    @Published var liveUpdatesEnabled = true
+    @Published var notificationsEnabled = false
+    @Published var intensity = 0.62
+    @Published var concurrency = 3
+    @Published var inspectorExpanded = false
+
+    // Rendering samples.
+    @Published var colorsAreReversed = false
+    @Published var isExpanded = false
+
+    // Presentation surfaces and their configuration.
+    @Published var isSheetPresented = false
+    @Published var isPopoverPresented = false
+    @Published var isAlertPresented = false
+    @Published var isConfirmationPresented = false
+    @Published var areInteractionDetailsExpanded = false
+    @Published var isLivePreviewEnabled = true
+    @Published var areAlignmentGuidesEnabled = false
+}
+
 /// The gallery filters real, interactive collections rather than static image
 /// thumbnails. Search includes the vocabulary an app author would naturally
 /// use, so looking for "blur material" finds its rendering collection even

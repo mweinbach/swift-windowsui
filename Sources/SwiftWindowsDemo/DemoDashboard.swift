@@ -66,6 +66,7 @@ public final class DemoDashboardModel: ObservableObject {
     // selection survive navigation while remaining deterministic in snapshots.
     @Published var selectedGalleryCategory: DemoGalleryCategory = .all
     @Published var galleryQuery = ""
+    let galleryState = DemoGalleryState()
 
     // Settings screen state
     @Published var displayName = "Operator"

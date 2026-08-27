@@ -676,6 +676,21 @@ validation and startup/render probes must run on this corrected candidate
 before the accumulated commits are pushed. This is a resource ownership fix,
 not a total RAM bound or completion of the original rendering gate.
 
+Full validation subsequently passed at `d648286`, including the atlas fix:
+3,416 XCTest executions and 134 Swift Testing executions, with no failures
+and the same one material-backdrop skip. All 161 Windows shards, the portable
+check, app build, five raw screenshots, and all 85 reviewed gallery baselines
+passed. The log is `artifacts/goal-agent-check-full-v3.log`; a separate copy of
+the gallery reports and a machine-readable result are preserved under
+`artifacts/goal-first-batch-d648286/` so later runs do not replace this evidence.
+Fresh native probes selected D3D11 scene presentation by default and Direct2D
+under frame debug, both after initial render returned. The refreshed dashboard,
+gallery, and Settings raw images were opened and inspected; the Settings copy
+now explicitly says that the demo sends no telemetry. These checks still do
+not establish native interaction, accessibility, recovery, or timing
+qualification. Sections 1 through 9 were compared against the starting commit
+and are unchanged; all nine original completion gates remain open.
+
 ### Additional state lifetime acceptance detail
 
 A source audit found that the current State and StateObject wrappers follow

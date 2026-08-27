@@ -108,8 +108,9 @@ excluded; the associated summary counts expose the remaining population.
 missing populations, phase populations, corrected update ordering, and
 explicit measurement limits using synthetic samples.
 
-The report measures CPU phases, `Present` call duration, and callback gaps.
-It does not measure GPU execution, display completion/deadlines, correlated
+By default the report measures CPU phases, `Present` call duration, and
+callback gaps. Optional GPU query collection is described below. Neither
+mode measures display completion/deadlines, correlated
 input-to-present latency, separate text work, cold-start latency, or first
 interaction latency. Resource binding is CPU binding work, not a separate
 upload timer; uploads can occur during submission. The `measurement` and
@@ -119,6 +120,76 @@ blocks use one; neither is a missed-presentation-deadline count. Recovery can
 produce a sample without a completed present, and current reports aggregate
 backends while identifying final backend health. Diagnostics also requests
 idle frames, so it does not qualify the normal settled-window scheduler.
+
+`--diagnostics-gpu-timing` explicitly enables asynchronous GPU timestamp
+collection on supporting batch backends. It is off by default, including
+ordinary `--diagnostics` runs. The D3D11 collector owns eight slots, each
+with two timestamp queries and one disjoint query, plus a queue capped at
+16 completed results. Each poll makes at most 24 `GetData` calls with
+`D3D11_ASYNC_GETDATA_DONOTFLUSH`. `S_FALSE` remains pending; only exact
+`S_OK` supplies data. Full rings skip collection, and all missing, invalid,
+disjoint, failed and dropped results remain countable. Collection does not
+spin, wait, issue a flush, or request additional presentations. These
+semantics follow Microsoft's [query documentation](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ne-d3d11-d3d11_query)
+and [GetData contract](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-getdata).
+
+The interval covers scene commands, including clears, uploads and nested
+image passes, and closes before diagnostic readback and `Present`. Its
+duration is elapsed GPU command time, not exclusive GPU utilization, CPU
+submission cost, or time until the pixels become visible. A positive
+frequency, non-disjoint interval and ordered timestamps are required.
+Device replacement invalidates pending measurements and releases the old
+queries; allocation or query failure disables repeated failures for that
+device without making rendering depend on instrumentation. Renderer
+teardown includes these objects in the existing COM lifetime checks.
+
+`BackendFrameSubmission` identifies the latest attempt and distinguishes
+submitted, offscreen, skipped, occluded, aborted and failed outcomes. A
+successful submission does not acknowledge display completion. Per-attempt
+draw counts and backend submit/Present fields now reset before early guards,
+so a skipped attempt no longer repeats the preceding frame's measurements.
+An uncompleted phase retains zero as a placeholder; use the submission
+outcome to distinguish it from a completed measurement. The report declares
+`measurement.backendPhaseZeroMayMeanUncompleted`. Partial draw counts
+and completed phases survive a later failure, and actual work before an
+occluded Present is retained. The successful CPU timer boundaries are
+unchanged; this corrects stale skipped-attempt data. GPU results
+carry the issuing `BackendFrameID` (device generation and frame number).
+Diagnostics joins delayed results to those original CPU samples and uses
+their timestamps for warmup, rather than attributing old GPU work to the
+frame that collects it. Each sampled frame drains one bounded poll. Finish
+performs one final nonblocking poll, snapshots pending work, disables the
+collector and drains cancellation records without querying released objects.
+Query polling in the diagnostics callback is outside the existing CPU frame
+timer; CPU accounting boundaries are unchanged. The issuing adapter flag is
+copied from a generation-matched cache into the submission record. Reading
+that record performs no device query. The existing adapter diagnostics
+lookup remains after the frame timer; a cold or mismatched cache leaves the
+issuing adapter unknown instead of borrowing a later device's classification.
+That lookup can populate the cache for subsequent frames. Getter and polling
+costs still affect elapsed session time and callback cadence, but do not enter
+the existing CPU phase measurements.
+
+Schema 2 gains an additive `gpu` block. `frameElapsedMs` contains uniquely
+joined, valid post-warmup intervals from submitted hardware frames, excluding
+motion capture. `frameElapsedMsWhileAnimating` and `frameElapsedMsWhileIdle`
+use the issuing frame's animation classification. The separately labeled
+`queryIntervalMs` includes other valid joined query intervals and must not
+be read as a hardware qualification result. `postWarmup` records submission,
+timing-status and eligibility counts; `sessionJoin` records duplicate,
+orphaned and excluded data. `collectorLifetime` reports capacities, poll
+budget, pending work at finish and dropped results, which are not warmup
+filtered. Empty timing summaries remain null. `slowGPUFrames` carries
+issuing-frame identifiers as decimal strings so UInt64 identities survive
+JSON readers without numeric precision loss.
+
+No display-deadline or native input timestamp correlation is added by this
+collector. `hardwareQualified`, `presentationDeadlinesMeasured` and
+`inputToPresentMeasured` remain false. WARP and mock results test collection
+and ownership, not physical GPU performance. A valid GPU interval alone
+cannot satisfy the unchanged section 4 gate in `goal.md`; actual display
+deadlines, native input-to-present latency, declared hardware conditions and
+sufficient qualifying workload coverage remain separate requirements.
 
 For a new capture, record the commit, dirty state, release executable hash,
 command, actual adapter, dimensions/DPI, machine and display information,
@@ -130,12 +201,12 @@ settings to manufacture a result. A unique report path does not isolate the
 demo settings or persisted pacing verdict. A reported 59/60 Hz display does
 not establish physical monitor identity or qualify 120/144 Hz operation.
 
-From the repository root, build and launch the release executable serially
-through the toolchain wrapper (`build.ps1` does not expose configuration,
-and `run-demo.ps1` does not forward diagnostics arguments):
+From the repository root, build and launch the release executable serially.
+`build.ps1` accepts an explicit configuration; `run-demo.ps1` does not forward
+diagnostics arguments, so launch the executable through the toolchain wrapper:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/with-swift.ps1 swift build --package-path . --configuration release --product swift-windowsui
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Product swift-windowsui -Configuration release
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/with-swift.ps1 .build/x86_64-unknown-windows-msvc/release/swift-windowsui.exe --diagnostics --diagnostics-seconds 32 --diagnostics-output artifacts/perf/<unique-run>/paced.json
 ```
 
@@ -143,6 +214,9 @@ Use a unique directory in place of `<unique-run>`. Clear startup-probe exit
 and frame-debug environment overrides before the diagnostics launch, and
 verify the reported backend. An optional separate run with
 `--diagnostics-no-vsync` measures unpaced CPU work, not GPU execution.
+Append `--diagnostics-gpu-timing` to request GPU query intervals, and use a
+different output such as `artifacts/perf/<unique-run>/gpu-paced.json` so the
+run with additional instrumentation does not overwrite its CPU-only baseline.
 The startup probe remains a separate presenter/initial-render check, not
 a cold-start latency measurement. Existing captures using schema 1 retain
 their original schema and accounting limitations; none are rewritten by

@@ -52,6 +52,8 @@ struct LiveFrameSample {
     var primitiveCount: Int
     var hadActiveAnimations: Bool
     var backend: PresentationBackendKind
+    var backendFrameSubmission: BackendFrameSubmission?
+    var gpuTimingAdapterIsSoftware: Bool?
     var atlasUploadedByteCount: UInt64
     /// Instanced draws this frame issued, and the primitives they covered.
     var drawCallCount: Int
@@ -99,6 +101,9 @@ public struct LiveDiagnosticsConfiguration: Equatable, Sendable {
     /// memory and written when the run ends, because encoding a PNG between
     /// two presents would stretch the very timeline being captured.
     public var motionFrameCount: Int
+    /// Opts in to bounded asynchronous GPU query collection. Query results
+    /// do not measure native input latency or display completion.
+    public var collectsGPUFrameTimings: Bool
 
     public init(
         durationSeconds: Double = 10,
@@ -107,7 +112,8 @@ public struct LiveDiagnosticsConfiguration: Equatable, Sendable {
         disablesVSync: Bool = false,
         capturesMotion: Bool = false,
         motionOutputDirectory: String = "artifacts/motion",
-        motionFrameCount: Int = 60
+        motionFrameCount: Int = 60,
+        collectsGPUFrameTimings: Bool = false
     ) {
         self.durationSeconds = max(0.5, durationSeconds)
         self.outputPath = outputPath
@@ -116,10 +122,11 @@ public struct LiveDiagnosticsConfiguration: Equatable, Sendable {
         self.capturesMotion = capturesMotion
         self.motionOutputDirectory = motionOutputDirectory
         self.motionFrameCount = max(4, motionFrameCount)
+        self.collectsGPUFrameTimings = collectsGPUFrameTimings
     }
 
     /// `--diagnostics [--diagnostics-seconds N] [--diagnostics-output PATH]
-    /// [--diagnostics-no-input] [--diagnostics-no-vsync]
+    /// [--diagnostics-no-input] [--diagnostics-no-vsync] [--diagnostics-gpu-timing]
     /// [--diagnostics-capture-motion [--diagnostics-motion-frames N]
     /// [--diagnostics-motion-output DIR]]`, or
     /// `SWIFT_WINDOWSUI_DIAGNOSTICS=1` with the matching `_SECONDS` /
@@ -157,6 +164,10 @@ public struct LiveDiagnosticsConfiguration: Equatable, Sendable {
 
         if arguments.contains("--diagnostics-no-vsync") {
             configuration.disablesVSync = true
+        }
+
+        if arguments.contains("--diagnostics-gpu-timing") {
+            configuration.collectsGPUFrameTimings = true
         }
 
         if arguments.contains("--diagnostics-capture-motion") {
@@ -211,6 +222,9 @@ final class LiveDiagnosticsSession {
     private var scriptedStepIndex = 0
     private var didExhaustScript = false
     private var didDisableVSync = false
+    private var didEnableGPUFrameTimings = false
+    private var gpuFrameTimings: [GPUFrameTimingResult] = []
+    private var gpuDiagnosticsAtFinish: GPUFrameTimingDiagnostics?
 
     /// Motion capture state. `nil` unless the run asked for it.
     private var motionRecorder: MotionCaptureRecorder?
@@ -251,6 +265,12 @@ final class LiveDiagnosticsSession {
         if configuration.disablesVSync {
             didDisableVSync = host?.setActiveBatchBackendVSync(false) ?? false
         }
+        if configuration.collectsGPUFrameTimings {
+            // Clear bounded records left by an earlier collector before this
+            // session establishes its own issuing-frame population.
+            _ = host?.takeCompletedGPUFrameTimings()
+            didEnableGPUFrameTimings = host?.setGPUFrameTimingEnabled(true) ?? false
+        }
         host?.onFramePresented = { [weak self] sample in
             self?.record(sample)
         }
@@ -286,6 +306,9 @@ final class LiveDiagnosticsSession {
 
         let previousSample = samples.last
         samples.append(sample)
+        if configuration.collectsGPUFrameTimings, let host {
+            gpuFrameTimings.append(contentsOf: host.takeCompletedGPUFrameTimings())
+        }
         host?.requestDiagnosticsFrame()
 
         let elapsed = clock() - startedAt
@@ -539,6 +562,16 @@ final class LiveDiagnosticsSession {
         }
         host.onFramePresented = nil
         host.hostedRuntime.collectsPhaseTimings = false
+        if configuration.collectsGPUFrameTimings {
+            // One nonblocking final poll. Unready queries remain visible in
+            // the snapshot and are cancelled rather than waited on or flushed.
+            gpuFrameTimings.append(contentsOf: host.takeCompletedGPUFrameTimings())
+            gpuDiagnosticsAtFinish = host.gpuFrameTimingDiagnostics
+            host.setGPUFrameTimingEnabled(false)
+            // Disabling releases queries. This final drain retrieves only
+            // bounded cancellation records and performs no GPU query calls.
+            gpuFrameTimings.append(contentsOf: host.takeCompletedGPUFrameTimings())
+        }
         finishMotionCapture(host: host)
 
         do {
@@ -572,6 +605,11 @@ final class LiveDiagnosticsSession {
         let elapsed = startedAt.map { clock() - $0 } ?? 0
 
         let timedSamples = samples.filter { sampleElapsed($0) >= Self.warmupSeconds }
+        let gpuReport = LiveGPUFrameTimingReport.build(
+            samples: samples, results: gpuFrameTimings, diagnostics: gpuDiagnosticsAtFinish,
+            requested: configuration.collectsGPUFrameTimings, initiallySupported: didEnableGPUFrameTimings,
+            capturesMotion: configuration.capturesMotion, sessionStartedAt: startedAt ?? 0,
+            warmupSeconds: Self.warmupSeconds)
 
         var report: [String: Any] = [:]
 
@@ -584,6 +622,7 @@ final class LiveDiagnosticsSession {
         report["vsyncDisabledForRun"] = didDisableVSync
         report["vsyncDisableRequested"] = configuration.disablesVSync
         report["scriptedStepsExecuted"] = executedStepCounts
+        report["gpu"] = gpuReport.json
         report["sampling"] = [
             "population": "framesEndingAtOrAfterWarmup",
             "status": timedSamples.isEmpty ? "noPostWarmupSamples" : "samplesAvailable",
@@ -605,8 +644,9 @@ final class LiveDiagnosticsSession {
             "userVisibleCostMeaning": "outsideFrameRebuildPlusCPUFrame",
             "backendHealthScope": "finalSnapshotNotFullRunHistory",
             "backendReturnCanSkipPresentationDuringRecovery": true,
+            "backendPhaseZeroMayMeanUncompleted": true,
             "inputToPresentMeasured": false,
-            "gpuExecutionMeasured": false,
+            "gpuExecutionMeasured": gpuReport.hasHardwareMeasurements,
             "presentationDeadlinesMeasured": false,
             "coldStartupMeasured": false,
             "hardwareQualified": false,
@@ -891,6 +931,13 @@ final class LiveDiagnosticsSession {
                 sample.rebuildPhaseTimingsAvailable ? sample.nodeConstructionSeconds * 1000 : nil),
             "reconcileMs": nullable(sample.rebuildPhaseTimingsAvailable ? sample.reconcileSeconds * 1000 : nil),
             "userVisibleCostMs": sample.userVisibleCostSeconds * 1000,
+            "backendFrameID": nullable(
+                sample.backendFrameSubmission?.id.map {
+                    ["deviceGeneration": String($0.deviceGeneration), "frameNumber": String($0.frameNumber)]
+                }),
+            "submissionOutcome": nullable(sample.backendFrameSubmission?.outcome.rawValue),
+            "gpuTimingStatusAtSubmission": nullable(sample.backendFrameSubmission?.gpuTimingStatus.rawValue),
+            "gpuTimingAdapterIsSoftware": nullable(sample.gpuTimingAdapterIsSoftware),
             "sceneBuildMs": sample.sceneBuildSeconds * 1000,
             "layoutMs": sample.layoutSeconds * 1000,
             "paintMs": sample.paintSeconds * 1000,

@@ -2396,6 +2396,23 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         return batchRenderer?.backendDiagnostics
     }
 
+    /// The owned batch backend can retain cancellation results after a
+    /// fallback detaches it. Draining must therefore not depend on which
+    /// backend currently presents, and must never start another frame.
+    var gpuFrameTimingDiagnostics: GPUFrameTimingDiagnostics? {
+        batchRenderer?.gpuFrameTimingDiagnostics
+    }
+
+    @discardableResult
+    func setGPUFrameTimingEnabled(_ enabled: Bool) -> Bool {
+        guard !enabled || !hasTornDownWindow else { return false }
+        return batchRenderer?.setGPUFrameTimingEnabled(enabled) ?? false
+    }
+
+    func takeCompletedGPUFrameTimings() -> [GPUFrameTimingResult] {
+        batchRenderer?.takeCompletedGPUFrameTimings() ?? []
+    }
+
     /// Asks the active batch backend to stop pacing presents to vblank.
     /// Returns whether it honoured the request.
     @discardableResult
@@ -3647,6 +3664,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         var bindEndedAt = frameStartedAt
         var primitiveCount = 0
         var visitedNodeCount = 0
+        var frameSubmission: BackendFrameSubmission?
 
         do {
             if activeBackend == .scene, let batchRenderer {
@@ -3664,7 +3682,17 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                 if isSamplingFrames {
                     bindEndedAt = frameClock()
                 }
-                try batchRenderer.render(scene: scene)
+                do {
+                    // Capture the attempt before recovery/fallback can replace
+                    // the device or detach the batch backend. A bind failure
+                    // never reads the preceding attempt's submission record.
+                    // This reads cached metadata only; the existing potentially
+                    // expensive diagnostics lookup stays after the frame timer.
+                    defer {
+                        if isSamplingFrames { frameSubmission = batchRenderer.lastFrameSubmission }
+                    }
+                    try batchRenderer.render(scene: scene)
+                }
                 noteSuccessfulSceneFrame()
             } else {
                 let frame = runtime.renderFrame(at: frameTimestamp)
@@ -3775,6 +3803,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                     primitiveCount: primitiveCount,
                     hadActiveAnimations: runtime.hasActiveAnimations,
                     backend: activeBackend == .scene ? .scene : .frame,
+                    backendFrameSubmission: frameSubmission,
+                    gpuTimingAdapterIsSoftware: frameSubmission?.adapterIsSoftware,
                     atlasUploadedByteCount: backendDiagnostics?.atlasUploadedByteCount ?? 0,
                     drawCallCount: backendDiagnostics?.lastDrawCallCount ?? 0,
                     drawnInstanceCount: backendDiagnostics?.lastDrawnInstanceCount ?? 0,

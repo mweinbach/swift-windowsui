@@ -143,6 +143,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   warmup, phase populations, and schema-2 nulls for missing evidence. Their
   injected clocks prove accounting, not hardware timing. Report tests replace
   window closure with a test callback and never post a process quit message.
+- `D3D11GPUFrameTimingCollectorTests`, `D3D11GPUFrameTimingNativeTests`,
+  `LiveGPUFrameTimingHostTests`, and `LiveGPUFrameTimingReportTests` also gate
+  Quick. They cover bounded nonblocking query polling, issuing-frame identity,
+  warmup and eligibility, missing results, device recovery, and tracked COM
+  ownership. Native tests use an owned offscreen WARP-first device and a
+  readback to complete test work before one bounded drain; production polling
+  never waits or flushes. A clock-cost regression keeps metadata lookup and
+  polling outside CPU frame timing with collection enabled or disabled.
+  These tests do not qualify hardware performance, input-to-present latency,
+  display deadlines, or driver-level leak freedom.
 - `test-checkout-metadata.ps1` gates Quick, Full, and pinned SDK capture. It
   reproduces unmapped-gitlink checkout cleanup in an owned temporary repository,
   verifies `.gitmodules`, and leaves the reference uninitialized and unfetched.

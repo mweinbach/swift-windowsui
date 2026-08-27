@@ -1499,7 +1499,7 @@ is a function from an HRESULT and an attempt number to a value there:
 
 | HRESULT | `PresentOutcome` | Meaning |
 |---|---|---|
-| `S_OK` and other success codes | `.presented` | the frame reached the screen |
+| `S_OK` and other success codes | `.presented` | submission succeeded; this does not acknowledge display completion |
 | `DXGI_STATUS_OCCLUDED` (positive) | `.occluded` | window invisible; flip-model `Present` stops blocking on vsync, so the frame loop must throttle rather than spin |
 | `DEVICE_REMOVED`, `DEVICE_RESET`, `DEVICE_HUNG`, `DRIVER_INTERNAL_ERROR` | `.deviceLost` | rebuild the device |
 | any other negative | `.failed` | a real failure that is not device loss |
@@ -1513,7 +1513,7 @@ comment is "if we don't wait, the final drawing result will be blank".
 
 The rebuild is bounded by `DeviceLostPolicy.maxRecoveryAttempts` (3)
 **consecutive** attempts, where "consecutive" means without an intervening
-present that reached the screen — so the budget bounds a device-loss storm,
+successful present submission — so the budget bounds a device-loss storm,
 not a session. Past it the renderer detaches itself and the failure reaches
 the host typed `.deviceLost`, at which point the §5 policy applies.
 
@@ -1912,6 +1912,32 @@ the batch backend again — pass `recoveryPolicy: .disabled`.
    targets and keep child resource IDs in their own namespace. Shadows,
    quads, glyphs, and pixelGlyphs use structured buffers per primitive type.
 5. After the layers are drawn, present the frame.
+
+Optional GPU diagnostics preserve that draw order and CPU accounting.
+`BatchRenderBackend` exposes unsupported defaults for submission records and
+GPU timing collection; the neutral `BackendFrameID`, `BackendFrameSubmission`
+and `GPUFrameTimingResult` types contain no D3D11 pointers. The batch renderer
+replaces its submission record on every attempt, so an early return cannot
+reuse a previous frame's successful outcome. Draw counts and backend phase
+fields also reset before early returns; an uncompleted phase stays zero
+with the attempt's explicit outcome rather than repeating old data. Partial
+draw counts survive failure, and completed timer boundaries are unchanged.
+Delayed query results retain
+their issuing device generation and frame number through the host and report.
+The record carries only the issuing generation's cached adapter flag, so
+collecting submission metadata adds no adapter query inside the existing
+CPU frame timer. A cold cache remains unknown; the existing diagnostics
+lookup after the timer warms later frames.
+
+With `--diagnostics-gpu-timing`, eight preallocated query slots bracket the
+outer scene command interval. They include nested passes and uploads, close
+before readback/Present, and resolve through a bounded nonblocking poll.
+Unready slots are never reused; disjoint, aborted and lost-device intervals
+have no duration. Detach releases every query and retains only a bounded
+queue of terminal records for the host to drain. No query is created for the
+default disabled path. These measurements describe elapsed GPU command time,
+not display completion or exclusive GPU utilization. Schema, populations and
+remaining qualification limits are documented in `docs/PerformanceBudgets.md`.
 
 The renderer is `@MainActor`.
 

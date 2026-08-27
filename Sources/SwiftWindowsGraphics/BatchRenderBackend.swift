@@ -108,6 +108,21 @@ public protocol BatchRenderBackend: AnyObject {
     /// upload work it has done. `nil` from backends that own no device.
     var backendDiagnostics: BatchBackendDiagnostics? { get }
 
+    /// The outcome of the latest render attempt, not the latest successful
+    /// frame. This is a cached snapshot and must not query device metadata
+    /// on access. Backends without submission tracking return nil.
+    var lastFrameSubmission: BackendFrameSubmission? { get }
+
+    /// Optional asynchronous GPU command-interval collection. Disabled by
+    /// default; unsupported backends must not manufacture zero measurements.
+    var gpuFrameTimingDiagnostics: GPUFrameTimingDiagnostics? { get }
+    func setGPUFrameTimingEnabled(_ enabled: Bool) -> Bool
+
+    /// Performs at most one bounded, nonblocking query poll and drains its
+    /// bounded result queue. Results identify the frames that issued them.
+    /// This must not flush, wait, render or request a new presentation.
+    func takeCompletedGPUFrameTimings() -> [GPUFrameTimingResult]
+
     /// What the last render left the presentation path in — occluded, or
     /// owing the screen a repaint after a device rebuild. Backends that
     /// cannot lose a device inherit the neutral value.
@@ -197,6 +212,14 @@ public protocol BatchRenderBackend: AnyObject {
 }
 
 extension BatchRenderBackend {
+    public var lastFrameSubmission: BackendFrameSubmission? { nil }
+
+    public var gpuFrameTimingDiagnostics: GPUFrameTimingDiagnostics? { nil }
+
+    public func setGPUFrameTimingEnabled(_ enabled: Bool) -> Bool { false }
+
+    public func takeCompletedGPUFrameTimings() -> [GPUFrameTimingResult] { [] }
+
     public var presentationState: PresentationState { PresentationState() }
 
     /// A backend with no swap chain never waits on a display, so nothing is

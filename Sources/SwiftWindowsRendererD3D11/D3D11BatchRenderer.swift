@@ -26,6 +26,45 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
     public var backendDisplayName: String { "D3D11 BATCH" }
 
+    public private(set) var lastFrameSubmission: BackendFrameSubmission?
+    private var gpuFrameTimingCollector: D3D11GPUFrameTimingCollector?
+
+    public var gpuFrameTimingDiagnostics: GPUFrameTimingDiagnostics? {
+        gpuFrameTimingCollector?.diagnostics
+            ?? GPUFrameTimingDiagnostics(isEnabled: false, isSupported: false)
+    }
+
+    @discardableResult
+    public func setGPUFrameTimingEnabled(_ enabled: Bool) -> Bool {
+        if enabled, gpuFrameTimingCollector == nil {
+            gpuFrameTimingCollector = D3D11GPUFrameTimingCollector()
+            attachGPUFrameTimingCollectorIfNeeded()
+        }
+        return gpuFrameTimingCollector?.setEnabled(enabled) ?? true
+    }
+
+    public func takeCompletedGPUFrameTimings() -> [GPUFrameTimingResult] {
+        gpuFrameTimingCollector?.takeCompletedResults() ?? []
+    }
+
+    private func attachGPUFrameTimingCollectorIfNeeded() {
+        guard let gpuFrameTimingCollector, let device, let deviceContext else { return }
+        gpuFrameTimingCollector.attach(
+            transport: D3D11TimestampQueryTransport(device: device, context: deviceContext),
+            deviceGeneration: deviceGeneration)
+    }
+
+    /// Selects only metadata already resolved for the issuing device. This
+    /// pure check cannot issue a COM query or reuse a replaced device's flag.
+    static func cachedAdapterIsSoftware(
+        forDeviceGeneration generation: UInt64,
+        cachedGeneration: UInt64?,
+        cachedIsSoftware: Bool?
+    ) -> Bool? {
+        guard generation != 0, generation == cachedGeneration else { return nil }
+        return cachedIsSoftware
+    }
+
     /// What this backend is actually running on, plus its cumulative atlas
     /// upload cost. The adapter half is resolved once per device and cached
     /// against `deviceGeneration`, so a caller may read this every frame.
@@ -661,6 +700,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             tally(UnsafeMutableRawPointer(entry.srv))
         }
 
+        count += gpuFrameTimingCollector?.ownedQueryCount ?? 0
+
         return count
     }
 
@@ -1166,6 +1207,10 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// Everything runs on the main actor, where the immediate context is
     /// used — there is no thread on which a deferred release would be safe.
     public func detach() {
+        // Query handles belong to this context. Invalidation also leaves
+        // terminal records available to the host after the context is gone.
+        gpuFrameTimingCollector?.detach()
+        lastFrameSubmission = nil
         if let deviceContext {
             var noTargets: UnsafeMutablePointer<ID3D11RenderTargetView>?
             deviceContext.pointee.lpVtbl.pointee.OMSetRenderTargets(deviceContext, 1, &noTargets, nil)
@@ -1298,6 +1343,16 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     }
 
     public func render(scene: GPUIScene) throws {
+        // Never let a skipped or failed attempt inherit a previous frame's
+        // identity or phase counters. A phase not completed by this attempt
+        // keeps zero; partial draws are not cleared on failure or occlusion.
+        // Query completion is reported separately.
+        lastSubmitSeconds = 0
+        lastPresentSeconds = 0
+        lastDrawCallCount = 0
+        lastDrawnInstanceCount = 0
+        lastFrameSubmission = BackendFrameSubmission(
+            outcome: .skipped, gpuTimingStatus: gpuFrameTimingCollector?.currentStatus ?? .disabled)
         guard isAttached, hasRenderTarget else {
             return
         }
@@ -1340,39 +1395,70 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             return
         }
 
+        let frameID = BackendFrameID(deviceGeneration: deviceGeneration, frameNumber: frameCounter)
+        // Resolving adapter diagnostics can query COM and allocate. Keep
+        // that work outside the legacy frame timers: this issuing snapshot
+        // uses only an already resolved cache for this exact generation.
+        // Capture it once so Present recovery cannot replace its device.
+        let adapterIsSoftware = Self.cachedAdapterIsSoftware(
+            forDeviceGeneration: frameID.deviceGeneration,
+            cachedGeneration: cachedAdapterDiagnosticsGeneration,
+            cachedIsSoftware: cachedAdapterDiagnostics?.isSoftware)
+        var gpuTimingStatus = gpuFrameTimingCollector?.currentStatus ?? .disabled
+        lastFrameSubmission = BackendFrameSubmission(
+            id: frameID, outcome: .aborted, gpuTimingStatus: gpuTimingStatus, adapterIsSoftware: adapterIsSoftware)
         let submitStartedAt = Self.nowSeconds()
-        lastDrawCallCount = 0
-        lastDrawnInstanceCount = 0
         imageRenderPassExecutionBudget =
             imageRenderPassExecutionBudgetOverrideForTesting ?? GPUISceneImageRenderPassBudget()
 
-        var finishedScene = scene
-        finishedScene.finish()
-        let renderPlan = try Self.makeRenderPlan(for: finishedScene, cachedResources: cachedResourcesForTesting)
+        do {
+            var finishedScene = scene
+            finishedScene.finish()
+            let renderPlan = try Self.makeRenderPlan(for: finishedScene, cachedResources: cachedResourcesForTesting)
 
-        bindFramePipelineState(deviceContext: deviceContext, surfaceSize: surfacePixelSize)
+            gpuTimingStatus = gpuFrameTimingCollector?.beginFrame(frameID) ?? .disabled
+            lastFrameSubmission = BackendFrameSubmission(
+                id: frameID, outcome: .aborted, gpuTimingStatus: gpuTimingStatus, adapterIsSoftware: adapterIsSoftware)
+            bindFramePipelineState(deviceContext: deviceContext, surfaceSize: surfacePixelSize)
 
-        let cc = finishedScene.clearColor
-        // Every draw and readback treats this render target as premultiplied.
-        // ClearRenderTargetView writes its values directly, bypassing blending,
-        // so a translucent straight-alpha clear must be converted first too.
-        // Otherwise its RGB can exceed its alpha and later source-over draws
-        // retain color from pixels that were meant to be partly transparent.
-        let clearValues: [FLOAT] = [
-            cc.red * cc.alpha,
-            cc.green * cc.alpha,
-            cc.blue * cc.alpha,
-            cc.alpha,
-        ]
-        clearValues.withUnsafeBufferPointer { buffer in
-            deviceContext.pointee.lpVtbl.pointee.ClearRenderTargetView(
-                deviceContext, renderTargetView, buffer.baseAddress)
+            let cc = finishedScene.clearColor
+            // Every draw and readback treats this render target as premultiplied.
+            // ClearRenderTargetView writes its values directly, bypassing blending,
+            // so a translucent straight-alpha clear must be converted first too.
+            // Otherwise its RGB can exceed its alpha and later source-over draws
+            // retain color from pixels that were meant to be partly transparent.
+            let clearValues: [FLOAT] = [
+                cc.red * cc.alpha,
+                cc.green * cc.alpha,
+                cc.blue * cc.alpha,
+                cc.alpha,
+            ]
+            clearValues.withUnsafeBufferPointer { buffer in
+                deviceContext.pointee.lpVtbl.pointee.ClearRenderTargetView(
+                    deviceContext, renderTargetView, buffer.baseAddress)
+            }
+
+            try updateFrameUniforms(surfaceSize: surfacePixelSize)
+            try renderSceneContents(
+                finishedScene, renderPlan: renderPlan, deviceContext: deviceContext,
+                surfaceSize: surfacePixelSize, imageRenderPassDepth: 0)
+            // End before readback or Present: Present may replace the device,
+            // so a function-level defer could touch a released context.
+            gpuFrameTimingCollector?.endFrame(frameID)
+        } catch {
+            let lostDevice = PresentationFailureKind.classifying(error) == .deviceLost
+            if gpuTimingStatus == .pending {
+                gpuTimingStatus = lostDevice ? .deviceLost : .aborted
+                gpuFrameTimingCollector?.abortFrame(
+                    frameID, status: gpuTimingStatus, failureCode: (error as? BatchRendererError)?.hresult)
+            }
+            // abortFrame(.deviceLost) invalidates instead of ending queries;
+            // this also handles losses on attempts that issued no interval.
+            if lostDevice { gpuFrameTimingCollector?.detach(status: .deviceLost) }
+            lastFrameSubmission = BackendFrameSubmission(
+                id: frameID, outcome: .aborted, gpuTimingStatus: gpuTimingStatus, adapterIsSoftware: adapterIsSoftware)
+            throw error
         }
-
-        try updateFrameUniforms(surfaceSize: surfacePixelSize)
-        try renderSceneContents(
-            finishedScene, renderPlan: renderPlan, deviceContext: deviceContext,
-            surfaceSize: surfacePixelSize, imageRenderPassDepth: 0)
 
         // Keep diagnostic readback outside submit/present timing; normal
         // presentation, including nested image passes, never reads back.
@@ -1380,7 +1466,18 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         capturePresentedFrameIfRequested()
 
         let presentStartedAt = Self.nowSeconds()
-        try presentFrame()
+        do {
+            try presentFrame()
+        } catch {
+            if gpuTimingStatus == .pending {
+                gpuTimingStatus = PresentationFailureKind.classifying(error) == .deviceLost ? .deviceLost : .aborted
+                gpuFrameTimingCollector?.abortFrame(
+                    frameID, status: gpuTimingStatus, failureCode: (error as? BatchRendererError)?.hresult)
+            }
+            lastFrameSubmission = BackendFrameSubmission(
+                id: frameID, outcome: .failed, gpuTimingStatus: gpuTimingStatus, adapterIsSoftware: adapterIsSoftware)
+            throw error
+        }
         let presentEndedAt = Self.nowSeconds()
         lastPresentSeconds = presentEndedAt - presentStartedAt
         if renderTargetKind == .swapChain {
@@ -1388,6 +1485,18 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                 seconds: lastPresentSeconds,
                 frameCostSeconds: lastSubmitSeconds,
                 at: presentEndedAt)
+        }
+        if deviceGeneration != frameID.deviceGeneration {
+            // Recovery returns without presenting the old device's frame.
+            lastFrameSubmission = BackendFrameSubmission(
+                id: frameID, outcome: .failed,
+                gpuTimingStatus: gpuTimingStatus == .pending ? .deviceLost : gpuTimingStatus,
+                adapterIsSoftware: adapterIsSoftware)
+        } else {
+            let outcome: BackendFrameSubmissionOutcome =
+                presentationState.isOccluded ? .occluded : (renderTargetKind == .offscreen ? .offscreen : .submitted)
+            lastFrameSubmission = BackendFrameSubmission(
+                id: frameID, outcome: outcome, gpuTimingStatus: gpuTimingStatus, adapterIsSoftware: adapterIsSoftware)
         }
     }
 
@@ -1911,6 +2020,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// typed `.deviceLost`, and this renderer is left detached so the host's
     /// downgrade does not inherit a half-built device.
     private func recoverFromDeviceLoss(hresult: HRESULT, operation: String) throws {
+        gpuFrameTimingCollector?.detach(status: .deviceLost)
         deviceLostRecoveryAttempts += 1
         let attempt = deviceLostRecoveryAttempts
         let removalReason = DeviceLostPolicy.removedReason(of: device)
@@ -2266,6 +2376,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                     createdFeatureLevel = featureLevel
                     deviceGeneration = Self.nextDeviceGeneration
                     Self.nextDeviceGeneration &+= 1
+                    attachGPUFrameTimingCollectorIfNeeded()
                     return
                 }
 

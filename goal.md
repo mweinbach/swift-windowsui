@@ -1214,3 +1214,47 @@ No production renderer, reviewed baseline, SDK pin, or skipped material test was
 changed. Quick and Full now run the synthetic classifier, and Quick also gates
 the tested undo-manager and bitmap-stretch suites. Native artifacts and review
 remain pending until the accumulated commits are pushed and hosted jobs run.
+
+Hosted Windows validation for `316ea9b` has now completed. All 169 Windows
+functional shards, portable tests, builds, and five raw renders passed, but
+the gallery gate failed on 67 of the 85 reviewed images. The runner also
+skipped three variable-font tests because Segoe UI Variable was unavailable,
+in addition to the existing material-backdrop skip. This is a failed hosted
+Full run, not a passing release gate. Its gallery and demo artifacts are
+preserved under `artifacts/goal-windows-ci-33110144711/`; their ZIP hashes are
+`c320f5f6aa2a04434c4bd542c6f4934cc277373aca2ae4dc43c5cd9859c493fb` and
+`2b3f9b35acaa2bb8284780245f3ce2891ef7af05271fece1f7f5e8623bb2fa17`.
+Font-profile comparison is in progress. Neither the 85 reviewed baselines nor
+their thresholds may be changed to conceal unexplained differences. The
+portable Ubuntu/macOS workflow passed; the pinned SDK workflow remains failed
+at inventory construction despite having exported all four requested graphs.
+
+Optional asynchronous GPU timing is now integrated for validation. It uses an
+eight-slot ring of disjoint/start/end queries and at most 24 nonblocking
+GetData calls per drain, without flushing, waiting, or requesting a frame.
+Results carry the issuing device generation and frame number; reports join
+them to that frame's warmup and adapter classification instead of the later
+polling frame. Missing, disjoint, full-ring, failed, cancelled, and recovery
+outcomes remain explicit, and software-device measurements cannot qualify
+hardware. Collection is disabled unless `--diagnostics-gpu-timing` is supplied.
+
+The focused integration run passed 208 XCTest executions across 16 targets
+and nine serial invocations, with zero failures or skips. This includes all
+57 new query, host, and report cases, plus related renderer, recovery,
+diagnostic-accounting, pacing, host, and ownership tests. Both native query
+tests ran on Microsoft Basic Render Driver with `isSoftware=true`; they
+checked completed intervals, cancellation, tracked COM release, pixel output,
+and device recovery. Evidence is `artifacts/goal-gpu-focused.log`. A review
+also found and corrected an expensive metadata lookup inside CPU frame timing
+and stale draw/phase counters on skipped render attempts. Deterministic clock
+tests preserve the existing CPU timing boundaries with collection on or off.
+The release build, expanded Quick/Full, native telemetry sample, and combined
+push still need completion. GPU command intervals do not measure display
+completion or native input latency, and all hardware qualification flags remain
+false until the original evidence requirements are met.
+
+The integrated GPU timing sources now also pass the optimized executable build
+in 225.66 seconds (`artifacts/goal-gpu-release-build.log`). Contracts and strict
+lint pass. The four GPU timing suites were added to Quick; Full discovers them
+with the rest of the test suite. This adds release compilation evidence while
+leaving broader validation, live telemetry, and hardware acceptance pending.

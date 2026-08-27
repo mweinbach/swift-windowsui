@@ -15,18 +15,116 @@ import SwiftWindowsUI
 public protocol Scene {
     associatedtype Body: Scene
 
+    @SceneBuilder
     var body: Body { get }
 
     func makeWindowConfiguration() -> WindowGroupConfiguration
+    func makeWindowConfigurations() -> [WindowGroupConfiguration]
 }
 extension Scene {
     public func makeWindowConfiguration() -> WindowGroupConfiguration {
         body.makeWindowConfiguration()
     }
+
+    /// Preserves every scene declared by a custom scene body. Primitive
+    /// scenes retain the existing single-configuration implementation.
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        if Body.self == Never.self {
+            return [makeWindowConfiguration()]
+        }
+        return body.makeWindowConfigurations()
+    }
 }
 extension Never: Scene {
     public func makeWindowConfiguration() -> WindowGroupConfiguration {
         fatalError("Never cannot build a window configuration")
+    }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        fatalError("Never cannot build window configurations")
+    }
+}
+
+/// The ordered scene declarations produced by a multi-scene app body.
+/// Configuration collection does not create native windows; the coordinator
+/// opens the primary window at launch and settings or secondary windows only
+/// when their corresponding scene action is invoked.
+@MainActor
+public struct SceneCollection: Scene {
+    public typealias Body = Never
+
+    private let configurations: [WindowGroupConfiguration]
+
+    init(configurations: [WindowGroupConfiguration]) {
+        self.configurations = configurations
+    }
+
+    public var body: Never {
+        fatalError("SceneCollection has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        guard let configuration = configurations.first else {
+            preconditionFailure("An empty scene collection has no single window configuration")
+        }
+        return configuration
+    }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        configurations
+    }
+}
+
+/// Marks scene content produced by an availability check. The marker keeps
+/// ordinary boolean branches out of SceneBuilder, matching SwiftUI's scene
+/// declaration syntax rather than the broader syntax of ViewBuilder.
+public protocol _LimitedAvailabilitySceneMarker {}
+
+@MainActor
+private struct LimitedAvailabilityScene: Scene, _LimitedAvailabilitySceneMarker {
+    let body: SceneCollection
+}
+
+/// Builds ordinary SwiftUI-shaped app and scene declarations, including
+/// multiple scenes and `if #available` declarations without an else branch.
+@resultBuilder
+@MainActor
+public enum SceneBuilder {
+    public static func buildExpression<Content: Scene>(_ content: Content) -> Content {
+        content
+    }
+
+    public static func buildBlock() -> SceneCollection {
+        SceneCollection(configurations: [])
+    }
+
+    public static func buildBlock<Content: Scene>(_ content: Content) -> Content {
+        content
+    }
+
+    public static func buildBlock<each Content: Scene>(
+        _ content: repeat each Content
+    ) -> SceneCollection {
+        var configurations: [WindowGroupConfiguration] = []
+        for scene in repeat each content {
+            configurations.append(contentsOf: scene.makeWindowConfigurations())
+        }
+        return SceneCollection(configurations: configurations)
+    }
+
+    /// SwiftUI supports availability conditions here, not arbitrary boolean
+    /// conditions, else branches, or loops. Only buildLimitedAvailability
+    /// supplies the marker needed by this optional entry point.
+    public static func buildOptional(
+        _ content: (any Scene & _LimitedAvailabilitySceneMarker)?
+    ) -> SceneCollection {
+        SceneCollection(configurations: content?.makeWindowConfigurations() ?? [])
+    }
+
+    public static func buildLimitedAvailability<Content: Scene>(
+        _ content: Content
+    ) -> any Scene & _LimitedAvailabilitySceneMarker {
+        LimitedAvailabilityScene(body: SceneCollection(configurations: content.makeWindowConfigurations()))
     }
 }
 @MainActor
@@ -35,6 +133,7 @@ public protocol App {
 
     init()
 
+    @SceneBuilder
     var body: Body { get }
 
     /// Override to inject a custom render backend factory.
@@ -75,7 +174,7 @@ extension App {
 
         do {
             let coordinator = WinSwiftUIWindowCoordinator(
-                sceneConfigurations: [app.body.makeWindowConfiguration()],
+                sceneConfigurations: app.body.makeWindowConfigurations(),
                 renderBackendFactory: resolved.factory,
                 backendResolution: resolved.resolution,
                 platformHostFactory: Self.platformHostFactory(),
@@ -608,6 +707,14 @@ public struct HandlesExternalEventsScene<Content: Scene>: Scene {
         configuration.handlesExternalEvents = conditions
         return configuration
     }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.handlesExternalEvents = conditions
+            return configuration
+        }
+    }
 }
 extension Scene {
     public func handlesExternalEvents(matching conditions: Set<String>) -> some Scene {
@@ -624,8 +731,13 @@ public struct ImmersionStyleScene<Content: Scene>: Scene {
     public var body: Never {
         fatalError("ImmersionStyleScene has no body")
     }
+
     public func makeWindowConfiguration() -> WindowGroupConfiguration {
         content.makeWindowConfiguration()
+    }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations()
     }
 }
 @MainActor
@@ -638,8 +750,13 @@ public struct VolumeBaseplateVisibilityScene<Content: Scene>: Scene {
     public var body: Never {
         fatalError("VolumeBaseplateVisibilityScene has no body")
     }
+
     public func makeWindowConfiguration() -> WindowGroupConfiguration {
         content.makeWindowConfiguration()
+    }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations()
     }
 }
 @MainActor
@@ -652,8 +769,13 @@ public struct PreferredSurroundingsEffectScene<Content: Scene>: Scene {
     public var body: Never {
         fatalError("PreferredSurroundingsEffectScene has no body")
     }
+
     public func makeWindowConfiguration() -> WindowGroupConfiguration {
         content.makeWindowConfiguration()
+    }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations()
     }
 }
 extension Scene {
@@ -905,6 +1027,14 @@ public struct CommandsScene<Content: Scene>: Scene {
         configuration.commands = commands
         return configuration
     }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.commands = commands
+            return configuration
+        }
+    }
 }
 extension Scene {
     public func commands(@CommandsBuilder _ commands: () -> CommandsConfiguration) -> some Scene {
@@ -940,6 +1070,14 @@ public struct DefaultSizeScene<Content: Scene>: Scene {
         configuration.size = size
         return configuration
     }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.size = size
+            return configuration
+        }
+    }
 }
 @MainActor
 public struct DefaultPositionScene<Content: Scene>: Scene {
@@ -961,6 +1099,14 @@ public struct DefaultPositionScene<Content: Scene>: Scene {
         var configuration = content.makeWindowConfiguration()
         configuration.defaultPosition = position
         return configuration
+    }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.defaultPosition = position
+            return configuration
+        }
     }
 }
 @MainActor
@@ -984,6 +1130,14 @@ public struct WindowResizabilityScene<Content: Scene>: Scene {
         configuration.resizability = resizability
         return configuration
     }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.resizability = resizability
+            return configuration
+        }
+    }
 }
 @MainActor
 public struct WindowToolbarStyleScene<Content: Scene>: Scene {
@@ -1005,6 +1159,14 @@ public struct WindowToolbarStyleScene<Content: Scene>: Scene {
         var configuration = content.makeWindowConfiguration()
         configuration.toolbarStyle = toolbarStyle
         return configuration
+    }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.toolbarStyle = toolbarStyle
+            return configuration
+        }
     }
 }
 extension Scene {
@@ -1144,6 +1306,14 @@ public struct MenuBarExtraStyleScene<Content: Scene>: Scene {
         configuration.menuBarExtraStyle = style
         return configuration
     }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.menuBarExtraStyle = style
+            return configuration
+        }
+    }
 }
 @MainActor
 public struct WindowStyleScene<Content: Scene>: Scene {
@@ -1165,6 +1335,14 @@ public struct WindowStyleScene<Content: Scene>: Scene {
         var configuration = content.makeWindowConfiguration()
         configuration.windowStyle = style
         return configuration
+    }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.windowStyle = style
+            return configuration
+        }
     }
 }
 @MainActor
@@ -1188,6 +1366,14 @@ public struct RestorationBehaviorScene<Content: Scene>: Scene {
         configuration.restorationBehavior = behavior
         return configuration
     }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.restorationBehavior = behavior
+            return configuration
+        }
+    }
 }
 @MainActor
 public struct LaunchBehaviorScene<Content: Scene>: Scene {
@@ -1209,6 +1395,14 @@ public struct LaunchBehaviorScene<Content: Scene>: Scene {
         var configuration = content.makeWindowConfiguration()
         configuration.launchBehavior = behavior
         return configuration
+    }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.launchBehavior = behavior
+            return configuration
+        }
     }
 }
 @MainActor
@@ -1232,6 +1426,14 @@ public struct WindowActivationModeScene<Content: Scene>: Scene {
         configuration.activationMode = mode
         return configuration
     }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.activationMode = mode
+            return configuration
+        }
+    }
 }
 @MainActor
 public struct WindowBackgroundDragBehaviorScene<Content: Scene>: Scene {
@@ -1253,6 +1455,14 @@ public struct WindowBackgroundDragBehaviorScene<Content: Scene>: Scene {
         var configuration = content.makeWindowConfiguration()
         configuration.backgroundDragBehavior = behavior
         return configuration
+    }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.backgroundDragBehavior = behavior
+            return configuration
+        }
     }
 }
 @MainActor
@@ -1276,6 +1486,14 @@ public struct WindowSubtitleScene<Content: Scene>: Scene {
         configuration.subtitle = subtitle
         return configuration
     }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.subtitle = subtitle
+            return configuration
+        }
+    }
 }
 @MainActor
 public struct WindowLevelScene<Content: Scene>: Scene {
@@ -1297,6 +1515,14 @@ public struct WindowLevelScene<Content: Scene>: Scene {
         var configuration = content.makeWindowConfiguration()
         configuration.windowLevel = level
         return configuration
+    }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.windowLevel = level
+            return configuration
+        }
     }
 }
 @MainActor
@@ -1320,6 +1546,14 @@ public struct WindowTitleBarScene<Content: Scene>: Scene {
         configuration.titleBarVisibility = titleBarVisibility
         return configuration
     }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.titleBarVisibility = titleBarVisibility
+            return configuration
+        }
+    }
 }
 @MainActor
 public struct WindowMinSizeScene<Content: Scene>: Scene {
@@ -1341,6 +1575,14 @@ public struct WindowMinSizeScene<Content: Scene>: Scene {
         var configuration = content.makeWindowConfiguration()
         configuration.minSize = size
         return configuration
+    }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.minSize = size
+            return configuration
+        }
     }
 }
 @MainActor
@@ -1364,6 +1606,14 @@ public struct WindowMaxSizeScene<Content: Scene>: Scene {
         configuration.maxSize = size
         return configuration
     }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.maxSize = size
+            return configuration
+        }
+    }
 }
 @MainActor
 public struct WindowIdealSizeScene<Content: Scene>: Scene {
@@ -1385,6 +1635,14 @@ public struct WindowIdealSizeScene<Content: Scene>: Scene {
         var configuration = content.makeWindowConfiguration()
         configuration.idealSize = size
         return configuration
+    }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.idealSize = size
+            return configuration
+        }
     }
 }
 @MainActor
@@ -1408,6 +1666,14 @@ public struct WindowIDScene<Content: Scene>: Scene {
         configuration.windowID = id
         return configuration
     }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.windowID = id
+            return configuration
+        }
+    }
 }
 @MainActor
 public struct EnvironmentScene<Content: Scene, Value>: Scene {
@@ -1428,8 +1694,21 @@ public struct EnvironmentScene<Content: Scene, Value>: Scene {
     }
 
     public func makeWindowConfiguration() -> WindowGroupConfiguration {
-        var configuration = content.makeWindowConfiguration()
+        applyingEnvironment(to: content.makeWindowConfiguration())
+    }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map { applyingEnvironment(to: $0) }
+    }
+
+    private func applyingEnvironment(to original: WindowGroupConfiguration) -> WindowGroupConfiguration {
+        var configuration = original
         configuration.content = configuration.content.map { AnyView($0.environment(keyPath, value)) }
+        if let buildContent = configuration.dataBoundContent {
+            configuration.dataBoundContent = { payload in
+                buildContent(payload).map { AnyView($0.environment(keyPath, value)) }
+            }
+        }
         return configuration
     }
 }
@@ -1450,8 +1729,21 @@ public struct EnvironmentObjectScene<Content: Scene, ObjectType: ObservableObjec
     }
 
     public func makeWindowConfiguration() -> WindowGroupConfiguration {
-        var configuration = content.makeWindowConfiguration()
+        applyingEnvironmentObject(to: content.makeWindowConfiguration())
+    }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map { applyingEnvironmentObject(to: $0) }
+    }
+
+    private func applyingEnvironmentObject(to original: WindowGroupConfiguration) -> WindowGroupConfiguration {
+        var configuration = original
         configuration.content = configuration.content.map { AnyView($0.environmentObject(object)) }
+        if let buildContent = configuration.dataBoundContent {
+            configuration.dataBoundContent = { payload in
+                buildContent(payload).map { AnyView($0.environmentObject(object)) }
+            }
+        }
         return configuration
     }
 }
@@ -1477,6 +1769,14 @@ public struct PersistenceBehaviorScene<Content: Scene>: Scene {
         configuration.persistenceBehavior = behavior
         return configuration
     }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.persistenceBehavior = behavior
+            return configuration
+        }
+    }
 }
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
 @MainActor
@@ -1500,6 +1800,14 @@ public struct WindowManagerRoleScene<Content: Scene>: Scene {
         configuration.windowManagerRole = role
         return configuration
     }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.windowManagerRole = role
+            return configuration
+        }
+    }
 }
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
 @MainActor
@@ -1522,6 +1830,14 @@ public struct AllowsWindowInliningScene<Content: Scene>: Scene {
         var configuration = content.makeWindowConfiguration()
         configuration.allowsWindowInlining = enabled
         return configuration
+    }
+
+    public func makeWindowConfigurations() -> [WindowGroupConfiguration] {
+        content.makeWindowConfigurations().map {
+            var configuration = $0
+            configuration.allowsWindowInlining = enabled
+            return configuration
+        }
     }
 }
 public struct WindowGroupConfiguration {
@@ -1642,6 +1958,7 @@ struct WindowSceneEnvironment {
     var dismissWindow: DismissWindowAction
     var supportsMultipleWindows: Bool
     var sceneStorageScope: String
+    var openSettings: OpenSettingsAction = .noop
 }
 @MainActor
 final class WinSwiftUIWindowHost: WindowDelegate {
@@ -2791,6 +3108,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                     undoManager: self?.undoManager,
                     openWindow: self?.windowEnvironment?.openWindow ?? .noop,
                     dismissWindow: self?.windowEnvironment?.dismissWindow ?? .noop,
+                    openSettings: self?.windowEnvironment?.openSettings ?? .noop,
                     sceneStorageScope: self?.windowEnvironment?.sceneStorageScope ?? "shared"
                 )
                 .applyingSystemAppearance(self?.window.systemAppearance ?? .unavailable)

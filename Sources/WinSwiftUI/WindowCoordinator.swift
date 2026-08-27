@@ -27,6 +27,14 @@ struct WindowCoordinatorHooks {
     /// last managed window has closed.
     var terminateMessageLoop: @MainActor () -> Void
 
+    /// Shows or restores an existing window and asks Windows to activate it.
+    /// A false result means the OS declined foreground activation, not that
+    /// the scene should be duplicated. Tests can record the request without
+    /// creating a native window.
+    var activateWindow: @MainActor (WinSwiftUIWindowHost) -> Bool = { host in
+        host.platformWindow.activate()
+    }
+
     /// The real Win32 hooks used by `App.main()`.
     static let win32 = WindowCoordinatorHooks(
         startWindow: { host in
@@ -70,7 +78,20 @@ struct WindowCoordinatorHooks {
     }
 }
 
-/// Hosts every live `WindowGroup` window of a running `WinSwiftUI.App`.
+enum WindowCoordinatorError: Error, Equatable, CustomStringConvertible {
+    case noLaunchableWindowScene
+
+    var description: String {
+        switch self {
+        case .noLaunchableWindowScene:
+            return
+                "The app declares no launchable window scene. Settings opens on demand; MenuBarExtra hosting is unsupported."
+        }
+    }
+}
+
+/// Hosts every live window and the on-demand Settings scene of a running
+/// `WinSwiftUI.App`.
 ///
 /// Each window gets its own `WinSwiftUIWindowHost` — and therefore its own
 /// `Win32Window`, `RetainedViewRuntime`, renderer attachment, UIA bridge, and
@@ -94,9 +115,8 @@ final class WinSwiftUIWindowCoordinator {
         let isPrimary: Bool
     }
 
-    /// Scene templates declared by the app body. Today the app model yields a
-    /// single configuration; the coordinator accepts several so id- and
-    /// value-based routing works the moment multi-scene app bodies exist.
+    /// Ordered scene templates declared by the app body. Settings and
+    /// MenuBarExtra configurations do not become the initial app window.
     private let sceneConfigurations: [WindowGroupConfiguration]
     private let hooks: WindowCoordinatorHooks
     private let hostFactory: @MainActor (WindowGroupConfiguration, Bool) throws -> WinSwiftUIWindowHost
@@ -142,7 +162,6 @@ final class WinSwiftUIWindowCoordinator {
         sceneStorageScopeProvider: (@MainActor () -> String)? = nil,
         liveDiagnostics: LiveDiagnosticsConfiguration? = nil
     ) {
-        precondition(!sceneConfigurations.isEmpty, "WinSwiftUIWindowCoordinator requires at least one scene.")
         self.sceneConfigurations = sceneConfigurations
         self.hooks = hooks ?? .platform(platformHostFactory)
         self.liveDiagnosticsConfiguration = liveDiagnostics
@@ -196,8 +215,13 @@ final class WinSwiftUIWindowCoordinator {
             return primary.host
         }
 
+        guard let configuration = sceneConfigurations.first(where: { !$0.isSettingsWindow && !$0.isMenuBarExtra })
+        else {
+            throw WindowCoordinatorError.noLaunchableWindowScene
+        }
+
         return try openManagedWindow(
-            configuration: sceneConfigurations[0],
+            configuration: configuration,
             presentedValue: nil,
             isPrimary: true
         )
@@ -216,6 +240,9 @@ final class WinSwiftUIWindowCoordinator {
 
         guard
             let template = sceneConfigurations.first(where: { template in
+                guard !template.isSettingsWindow && !template.isMenuBarExtra else {
+                    return false
+                }
                 if let id = payload.id, template.windowID != id {
                     return false
                 }
@@ -231,10 +258,14 @@ final class WinSwiftUIWindowCoordinator {
         }
 
         if let value = payload.value,
-            windows.contains(where: { $0.configuration.windowID == template.windowID && $0.presentedValue == value })
+            let existing = windows.first(where: {
+                $0.configuration.windowID == template.windowID && $0.presentedValue == value
+            })
         {
             // SwiftUI re-presents the existing window for an already-open
-            // value rather than opening a duplicate.
+            // value rather than opening a duplicate. Windows may decline a
+            // foreground request; that still must not duplicate the scene.
+            _ = hooks.activateWindow(existing.host)
             return true
         }
 
@@ -248,6 +279,30 @@ final class WinSwiftUIWindowCoordinator {
             return true
         } catch {
             print("[WinSwiftUI] Failed to open window: \(error)")
+            return false
+        }
+    }
+
+    /// Opens the app's Settings scene once, or shows/restores and requests
+    /// activation of its existing window. True reports successful scene
+    /// routing; foreground activation remains subject to Windows policy.
+    @discardableResult
+    func openSettings() -> Bool {
+        guard let template = sceneConfigurations.first(where: \.isSettingsWindow) else {
+            return false
+        }
+
+        if let existing = windows.first(where: { $0.configuration.isSettingsWindow }) {
+            _ = hooks.activateWindow(existing.host)
+            return true
+        }
+
+        do {
+            let host = try openManagedWindow(configuration: template, presentedValue: nil, isPrimary: false)
+            _ = hooks.activateWindow(host)
+            return true
+        } catch {
+            print("[WinSwiftUI] Failed to open Settings: \(error)")
             return false
         }
     }
@@ -294,7 +349,10 @@ final class WinSwiftUIWindowCoordinator {
                 self?.dismissWindow(payload: payload, from: host)
             }),
             supportsMultipleWindows: true,
-            sceneStorageScope: sceneStorageScopeProvider()
+            sceneStorageScope: sceneStorageScopeProvider(),
+            openSettings: OpenSettingsAction { [weak self] in
+                self?.openSettings()
+            }
         )
         host.onWindowClosed = { [weak self] closedHost in
             self?.windowDidClose(closedHost)
@@ -307,7 +365,21 @@ final class WinSwiftUIWindowCoordinator {
                 isPrimary: isPrimary
             )
         )
-        try hooks.startWindow(host)
+        do {
+            try hooks.startWindow(host)
+        } catch {
+            // A failed creation must not leave a registered phantom window
+            // that consumes the Settings singleton or prevents app exit.
+            // Tear down a partially attached renderer without applying the
+            // normal last-window quit policy, so a later open can retry.
+            host.onWindowClosed = nil
+            windows.removeAll { $0.host === host }
+            host.windowWillClose(host.platformWindow)
+            if host.platformWindow.nativeHandle != nil {
+                hooks.requestCloseWindow(host)
+            }
+            throw error
+        }
 
         // After `startWindow`: the session's first frame request needs a
         // window that has been created and has a presenter attached, which is

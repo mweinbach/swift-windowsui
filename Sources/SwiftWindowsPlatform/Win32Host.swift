@@ -1287,6 +1287,23 @@ public final class Win32Window: PlatformWindow {
         invalidate()
     }
 
+    /// Makes a managed window visible, restoring it if minimized, and asks
+    /// Windows to give it foreground activation. Windows can deny that
+    /// request while the user is working in another application; callers
+    /// must not interpret a denial as a missing window or create a duplicate.
+    @discardableResult
+    public func activate() -> Bool {
+        guard let hwnd else {
+            return false
+        }
+
+        ShowWindow(hwnd, IsIconic(hwnd) ? SW_RESTORE : SW_SHOW)
+        let didActivate = SetForegroundWindow(hwnd)
+        UpdateWindow(hwnd)
+        invalidate()
+        return didActivate
+    }
+
     public func invalidate() {
         invalidateRequestCount &+= 1
         guard let hwnd else {

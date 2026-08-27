@@ -381,9 +381,18 @@ These are bounded work items within the existing goal, not additional release
 conditions or substitutes for the gates above. Add test results and remaining
 limits here as each item is validated.
 
-- [ ] Host `Settings` alongside ordinary scenes through public scene composition;
+- [x] Host `Settings` alongside ordinary scenes through public scene composition;
       route `openSettings` to one reusable settings window and preserve normal
       window lifecycle, renderer injection, and focus requests.
+      `SettingsSceneHostingTests` passed 18 tests and the existing
+      `WindowCoordinatorTests` passed 11. Coverage includes multiple static
+      scenes, availability conditions, deferred environment propagation,
+      singleton reuse, closing/reopening, independent scene storage, failed
+      startup rollback, and activation requests. Foreground activation remains
+      subject to Windows policy. Dynamic scene registration, Settings-only
+      startup, automatic native Settings menu installation, and native macOS
+      lifecycle comparison remain outside this implemented slice and open
+      under the original product gates.
 - [x] Carry binding transactions through writes, projected bindings, state
       observation, and retained animation; restore ambient context after nested
       writes and explicit animation suppression.

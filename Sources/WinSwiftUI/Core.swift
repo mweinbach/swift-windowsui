@@ -4324,8 +4324,20 @@ public struct TypesettingWidth: Sendable, Equatable, Hashable {
     }
 }
 private func clampedTextSelectionOffset(for index: String.Index, in text: String) -> Int {
-    let offset = text.distance(from: text.startIndex, to: index)
-    return min(max(0, offset), text.count)
+    // Text and selection bindings can update separately, leaving an index
+    // from an older string. Even failable String index conversions require
+    // source-valid indices, so only pass destination-generated boundaries
+    // to String operations. Foreign positions use comparison order: without
+    // their source string, the original logical caret cannot be recovered.
+    var boundary = text.startIndex
+    var offset = 0
+    while boundary < text.endIndex {
+        let nextBoundary = text.index(after: boundary)
+        guard nextBoundary <= index else { return offset }
+        boundary = nextBoundary
+        offset += 1
+    }
+    return offset
 }
 private func textIndex(at offset: Int, in text: String) -> String.Index {
     text.index(text.startIndex, offsetBy: min(max(0, offset), text.count))

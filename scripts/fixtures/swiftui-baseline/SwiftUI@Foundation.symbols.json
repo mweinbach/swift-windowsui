@@ -1,0 +1,34 @@
+{
+  "metadata": {
+    "formatVersion": { "major": 0, "minor": 6, "patch": 0 },
+    "generator": "Synthetic exporter test fixture; not an Apple SDK capture"
+  },
+  "module": {
+    "name": "SwiftUI",
+    "platform": {
+      "architecture": "arm64", "vendor": "apple",
+      "operatingSystem": { "name": "macosx", "minimumVersion": { "major": 26, "minor": 5 } }
+    }
+  },
+  "symbols": [
+    {
+      "identifier": { "precise": "s:fixtureExternalExtension", "interfaceLanguage": "swift" },
+      "kind": { "identifier": "swift.extension", "displayName": "Extension" },
+      "names": { "title": "ExternalContainer" }, "pathComponents": ["ExternalContainer"], "accessLevel": "public",
+      "swiftExtension": { "extendedModule": "Foundation", "typeKind": "swift.struct" },
+      "swiftGenerics": { "constraints": [{ "kind": "conformance", "lhs": "Element", "rhs": "FixtureSharedView" }] }
+    },
+    {
+      "identifier": { "precise": "s:fixtureOverload2", "interfaceLanguage": "swift" },
+      "kind": { "identifier": "swift.method", "displayName": "Instance Method" },
+      "names": { "title": "fixture(_:)" }, "pathComponents": ["ExternalContainer", "fixture(_:)"], "accessLevel": "public"
+    }
+  ],
+  "relationships": [
+    {
+      "kind": "extensionTo", "source": "s:fixtureExternalExtension", "target": "s:ExternalContainer",
+      "swiftConstraints": [{ "kind": "conformance", "lhs": "Element", "rhs": "FixtureSharedView" }]
+    },
+    { "kind": "memberOf", "source": "s:fixtureOverload2", "target": "s:fixtureExternalExtension" }
+  ]
+}

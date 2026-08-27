@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "baselineId": "swiftui-macos-26.5-xcode-26.6",
+  "selectedOn": "2026-08-27",
+  "scope": {
+    "description": "Complete public desktop SwiftUI API and behavior surface in the pinned SDK, including SwiftUICore re-exports. Exported declarations are an audit input, not proof of completeness or behavior.",
+    "modules": ["SwiftUI", "SwiftUICore"],
+    "targets": ["arm64-apple-macosx26.5", "x86_64-apple-macosx26.5"],
+    "minimumAccessLevel": "public",
+    "includeSPISymbols": false,
+    "preserveAvailabilityMetadata": true,
+    "preserveExtensionGraphs": true,
+    "preserveSynthesizedMembers": true,
+    "allowedReexportedModules": ["SwiftUI", "SwiftUICore"],
+    "preservePublicInterfacesAndImports": true,
+    "exceptions": [],
+    "note": "An empty exception list grants no exceptions. Platform-service exceptions require individual justification; a missing graph symbol never removes a feature from goal.md. The package's macOS 15 deployment floor is not an API ceiling."
+  },
+  "toolchain": {
+    "xcodeVersion": "26.6",
+    "sdkName": "macosx",
+    "sdkVersion": "26.5",
+    "swiftCompilerMajorMinor": "6.3",
+    "swiftLanguageMode": "6",
+    "toolchainName": "XcodeDefault"
+  },
+  "reviewedIdentity": {
+    "status": "awaiting-actual-capture-and-review",
+    "xcodeBuildVersion": null,
+    "sdkBuildVersion": null,
+    "swiftCompilerVersionLine": null
+  },
+  "evidence": {
+    "sdkCapture": "not-run",
+    "inventoryReview": "not-started",
+    "behaviorConformance": "not-verified",
+    "nativeReferenceOSBuild": null,
+    "reviewedCaptureManifestSha256": null,
+    "reviewedInventorySha256": null,
+    "note": "Export never edits this file or promotes evidence status. Capture and review actual build identifiers and hashes before qualification."
+  },
+  "sources": [
+    "https://developer.apple.com/xcode/system-requirements",
+    "https://developer.apple.com/documentation/xcode-release-notes/xcode-26_6-release-notes",
+    "https://raw.githubusercontent.com/swiftlang/swift/swift-6.3-RELEASE/include/swift/Option/Options.td"
+  ]
+}

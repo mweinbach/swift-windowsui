@@ -1,0 +1,29 @@
+{
+  "metadata": {
+    "formatVersion": { "major": 0, "minor": 6, "patch": 0 },
+    "generator": "Synthetic exporter test fixture; not an Apple SDK capture"
+  },
+  "module": {
+    "name": "SwiftUICore",
+    "platform": {
+      "architecture": "arm64", "vendor": "apple",
+      "operatingSystem": { "name": "macosx", "minimumVersion": { "major": 26, "minor": 5 } }
+    }
+  },
+  "symbols": [
+    {
+      "identifier": { "precise": "s:FixtureViewV", "interfaceLanguage": "swift" },
+      "kind": { "identifier": "swift.struct", "displayName": "Structure" },
+      "names": { "title": "UppercaseFixtureView" }, "pathComponents": ["UppercaseFixtureView"], "accessLevel": "public",
+      "availability": []
+    },
+    {
+      "identifier": { "precise": "s:fixtureSharedViewP", "interfaceLanguage": "swift" },
+      "kind": { "identifier": "swift.protocol", "displayName": "Protocol" },
+      "names": { "title": "FixtureSharedView" }, "pathComponents": ["FixtureSharedView"], "accessLevel": "public"
+    }
+  ],
+  "relationships": [
+    { "kind": "conformsTo", "source": "s:FixtureViewV", "target": "s:ExternalProtocol", "targetFallback": "External.Protocol" }
+  ]
+}

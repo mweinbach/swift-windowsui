@@ -1,0 +1,8 @@
+// Synthetic parser fixture, not an Apple SwiftUI interface.
+@_exported import SwiftUICore
+public import Foundation
+#if arch(x86_64)
+@_exported
+import struct ExternalModule.Widget
+#endif
+@_implementationOnly import HiddenModule

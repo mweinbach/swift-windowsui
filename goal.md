@@ -337,6 +337,27 @@ can be implemented and tested in this checkout.
 
 ### Evidence required for each unchanged completion gate
 
+The fixed API audit baseline is the complete public desktop SwiftUI surface
+in the **macOS 26.5 SDK supplied with Xcode 26.6**, including SwiftUICore
+re-exports, using its Apple Swift 6.3 toolchain in Swift 6 mode. The audit
+includes both arm64 and x86_64 desktop declarations. Apple's
+[SDK requirements](https://developer.apple.com/xcode/system-requirements)
+identify those release versions; the exact installation build identifiers,
+compiler build string, native reference OS build, and inventory hashes still
+require an actual Mac capture and review. The package's macOS 15 deployment
+minimum does not restrict this API baseline to macOS 15. Future SDK releases
+do not automatically change this pinned target.
+
+[`docs/SwiftUIBaseline.md`](docs/SwiftUIBaseline.md) and
+[`docs/swiftui-baseline.json`](docs/swiftui-baseline.json) record this scope.
+`scripts/export-swiftui-baseline.ps1` captures unmodified public symbol graphs,
+interfaces, availability and extension metadata, and provenance on the pinned
+Mac; it rejects mismatched versions and does not silently reduce extraction
+options. `scripts/test-swiftui-baseline.ps1` passed 70 assertions on synthetic
+fixtures under Windows PowerShell. That result validates tooling, not an Apple
+SDK inventory or behavior. The full declaration/overlay review, native export,
+and conformance evidence remain open under gates 1–3.
+
 | Gate | Acceptance detail and evidence to retain |
 | --- | --- |
 | 1. Full desktop API and behavior | Pin SDK, toolchain, and OS reference versions; inventory public desktop declarations with stable identifiers; map each to implementation, behavioral fixtures, and any justified platform-service exception. A missing audit entry is a gap, not an implicit exception. |

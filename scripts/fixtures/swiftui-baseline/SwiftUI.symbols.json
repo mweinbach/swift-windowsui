@@ -1,0 +1,45 @@
+{
+  "metadata": {
+    "formatVersion": { "major": 0, "minor": 6, "patch": 0 },
+    "generator": "Synthetic exporter test fixture; not an Apple SDK capture"
+  },
+  "module": {
+    "name": "SwiftUI",
+    "platform": {
+      "architecture": "arm64", "vendor": "apple",
+      "operatingSystem": { "name": "macosx", "minimumVersion": { "major": 26, "minor": 5 } }
+    }
+  },
+  "symbols": [
+    {
+      "identifier": { "precise": "s:fixtureViewV", "interfaceLanguage": "swift" },
+      "kind": { "identifier": "swift.struct", "displayName": "Structure" },
+      "names": { "title": "FixtureView" }, "pathComponents": ["FixtureView"], "accessLevel": "public",
+      "availability": [
+        {
+          "domain": "macOS", "introduced": { "major": 15 }, "deprecated": { "major": 26, "minor": 5 },
+          "renamed": "NewFixtureView", "message": "fixture café — 日本語 😀", "futureAvailabilityField": ["preserve", "verbatim"]
+        },
+        { "domain": "iOS", "isUnconditionallyUnavailable": true }
+      ],
+      "declarationFragments": [{ "kind": "keyword", "spelling": "struct" }, { "kind": "text", "spelling": " FixtureView" }],
+      "futureSymbolMixin": { "retainedInRawGraph": true }
+    },
+    {
+      "identifier": { "precise": "s:fixtureOverload1", "interfaceLanguage": "swift" },
+      "kind": { "identifier": "swift.method", "displayName": "Instance Method" },
+      "names": { "title": "fixture(_:)" }, "pathComponents": ["FixtureView", "fixture(_:)"], "accessLevel": "public",
+      "availability": [{ "domain": "macOS", "introduced": { "major": 26, "minor": 5 } }]
+    },
+    {
+      "identifier": { "precise": "s:fixtureSharedViewP", "interfaceLanguage": "swift" },
+      "kind": { "identifier": "swift.protocol", "displayName": "Protocol" },
+      "names": { "title": "FixtureSharedView" }, "pathComponents": ["FixtureSharedView"], "accessLevel": "public",
+      "availability": []
+    }
+  ],
+  "relationships": [
+    { "kind": "memberOf", "source": "s:fixtureOverload1", "target": "s:fixtureViewV" },
+    { "kind": "conformsTo", "source": "s:fixtureViewV", "target": "s:fixtureSharedViewP" }
+  ]
+}

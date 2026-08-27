@@ -81,6 +81,10 @@ Invoke-Step "pinned SwiftUI baseline tooling fixtures" {
     & (Join-Path $PSScriptRoot "test-swiftui-baseline.ps1")
 }
 
+Invoke-Step "pinned material capture provenance fixtures (synthetic only)" {
+    & (Join-Path $PSScriptRoot "test-swiftui-material-reference.ps1")
+}
+
 Invoke-Step "gallery font provenance fixtures (synthetic only)" {
     & (Join-Path $PSScriptRoot "test-gallery-font-provenance.ps1")
 }

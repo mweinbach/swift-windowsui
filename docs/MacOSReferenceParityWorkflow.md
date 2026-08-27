@@ -212,3 +212,42 @@ outcome. Pinned-SDK execution and reviewed native behavior are still required
 before changing the material isolation contract or removing the existing skipped
 renderer regression. No production renderer, reviewed baseline, or SDK pin is
 modified by this diagnostic.
+
+The pinned `swiftui-baseline-capture.yml` job also runs these unchanged public
+fixtures, serially after a successful SDK export, through
+`scripts/capture-swiftui-material-reference.ps1`. Its material step has a 15 minute
+limit inside the existing 90 minute job; the wrapper reserves time for failure
+evidence with a 13 minute internal command budget. It uses the captured absolute
+XcodeDefault Swift executable, verifies its SHA256 and the live SDK settings
+against the export, and builds the release product in a fresh owned temporary
+SwiftPM scratch directory. It never reuses the repository's `.build` directory.
+The same executable runs the synthetic self-tests and then the native captures.
+Inherited compiler/SDK/driver overrides are rejected, as are untracked or ignored
+target sources and package configuration. Source and capture hashes are rechecked
+after execution. This closes the gap between the recorded commit/tool and what
+SwiftPM actually selects; [SwiftPM permits environment compiler overrides](https://github.com/swiftlang/swift-package-manager/blob/swift-6.3-RELEASE/Sources/PackageModel/UserToolchain.swift).
+
+`artifacts/swiftui-baseline/github-actions/material/context.json` links the
+material manifest and executable hashes to `capture/capture.json` and the exact
+baseline manifest hash. It verifies the completed export status/digest, copied
+manifest, live compiler/SDK identity, clean source commit, actual OS version and
+build, and native Intel architecture. Only small metadata files are read; this
+step does not load or reinterpret the SDK's large `inventory.json`. The original
+SDK `ci-context.json` still describes only the export step.
+
+The existing always-upload artifact includes the material context, command
+outputs, and every newly produced diagnostic PNG/manifest, also when controls are
+inconclusive or later provenance validation fails. Operational failures fail the
+step; a complete valid `inconclusive` result remains a preserved candidate. The
+sidecar records whether the captured environment matched, separately from
+`nativeRuntimeBuildReviewed`, `nativeBehaviorReviewed`, and `releaseQualified`,
+which remain false. Running on `macos-26-intel` does not review that observed OS
+build, establish arm64 native behavior, populate reviewed build pins, or qualify
+SwiftUI conformance. The SDK's two inventory targets do not supply two native
+rendering observations.
+
+`scripts/test-swiftui-material-reference.ps1` checks provenance rejection and
+inconclusive-result preservation with synthetic files on Windows or macOS. It
+does not produce or validate native pixels. The native spatial-filtering positive
+control still has to succeed before these observations can inform any review of
+material grouping; even then each wrapper needs its own review.

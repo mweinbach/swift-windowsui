@@ -8,6 +8,11 @@ on:
     paths:
       - ".gitmodules"
       - ".github/workflows/swiftui-baseline-capture.yml"
+      - "Package.swift"
+      - "Sources/macos-reference-renderer/**"
+      - "scripts/capture-swiftui-material-reference.ps1"
+      - "scripts/swiftui-material-reference-common.ps1"
+      - "scripts/test-swiftui-material-reference.ps1"
       - "scripts/export-swiftui-baseline.ps1"
       - "scripts/swiftui-baseline-common.ps1"
       - "scripts/swiftui-baseline-streaming.ps1"
@@ -45,6 +50,9 @@ jobs:
 
       - name: Verify inventory streaming fixtures
         run: ./scripts/test-swiftui-baseline.ps1
+
+      - name: Verify material capture provenance fixtures
+        run: ./scripts/test-swiftui-material-reference.ps1
 
       - name: Export pinned SDK candidate with CI provenance
         run: |
@@ -117,6 +125,10 @@ jobs:
               $context.finishedAtUtc = [DateTime]::UtcNow.ToString("o")
               [System.IO.File]::WriteAllText($contextPath, ($context | ConvertTo-Json -Depth 8) + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
           }
+
+      - name: Capture material candidates with the exported compiler and SDK
+        timeout-minutes: 15
+        run: ./scripts/capture-swiftui-material-reference.ps1
 
       - name: Upload candidate evidence and failure diagnostics
         if: always()

@@ -45,6 +45,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
 - Quick includes `RetainedViewIdentityTests`, `WinSwiftUIStructuralIdentityTests`, and `ViewIdentityRoleTests` for typed keys, structural branches and slots, erased fragments, and auxiliary builder roles. These check retained-node identity, not mounted `State` or `StateObject` storage.
 - `UndoManagerTests` and `WinSwiftUIBitmapStretchTests` also gate Quick, covering undo target/replay lifetime and ordinary bitmap stretch through layout, CPU scene/frame output, and D3D11. Full includes the same suites.
 - Quick and Full run the material diagnostic classifier's synthetic self-tests through `macos-reference-renderer`. These do not render native material on Windows or replace macOS capture, reviewed comparisons, or the unresolved material-backdrop regression.
+- Quick and Full also run `test-swiftui-material-reference.ps1` for bounded
+  metadata, source/tool identity, artifact hashes, and consistent control
+  classifications. These synthetic fixtures do not decode native material
+  pixels; the separate pinned macOS job builds and captures the public fixtures
+  with the exact compiler and SDK used for its completed inventory export.
 - Quick and Full run `test-swiftui-baseline.ps1` against synthetic exporter
   fixtures. These checks protect pinned-version rejection, inventory parsing,
   and provenance handling; they are not a native SDK capture or API conformance

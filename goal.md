@@ -1359,3 +1359,67 @@ and no baseline, pixel threshold, or runner was changed. A newer Server runner
 label alone does not establish the required fonts. The next hosted artifact
 must supply actual environment evidence before choosing a matching runner or
 reviewing a separate supported font profile.
+
+### Third-batch local validation checkpoint
+
+Full passed at clean source commit `5859bcb`: 3,753 passing XCTest cases and
+one existing material-backdrop skip, plus 134 passing Swift Testing cases.
+All 178 Windows shards covering 282 targets passed, as did the separate
+portable invocation, debug and release executable builds, five raw demo
+renders, and all 85 reviewed gallery baselines with unchanged thresholds.
+The 31 synthetic material-classifier checks, 489 SDK-tooling assertions, and
+44 font-provenance assertions also passed. Strict lint passed all 30 Swift
+files changed since the preceding push. The log is
+`artifacts/goal-third-batch-full.log`, SHA-256
+`241aaba535f14bb207ab7b025f6884ecfe8372ecaa0bc2fa20fc92154dc20df6`.
+
+The summary counts were independently reconciled against individual test-case
+outcomes. Full has 3,754 XCTest outcomes across 179 invocations when the skip
+and separate portable invocation are included. The earlier Quick summary
+omitted a suite reported with singular `test` wording: its exact total is
+1,387 passed plus one skipped across 89 invocations, with nine Swift Testing
+cases. This corrects reporting, not a test failure or an acceptance threshold.
+
+All five new raw images were inspected. Scene output retains rounded controls
+and backdrop filtering; frame fallback still has documented visible geometry,
+text, and material differences. The local gallery pass neither qualifies that
+fallback as visually equivalent nor resolves the hosted font-profile failure.
+The unchanged skipped case is
+`RenderPassAbstractionTests.testMaterialInsideADrawingGroupBlursNothing`;
+native material evidence and the complete grouped-backdrop contract remain open.
+
+A further 32.01-second release GPU-diagnostic run at the same clean source
+completed with exit code zero, 1,226 valid post-warmup query intervals and one
+explicit finish cancellation, without query failure, loss, or duplicate joins.
+Its 30.51-second post-warmup sample span is recorded under
+`artifacts/goal-native-gpu-29551ea17fa145b48bc476700984e98f/`.
+A delayed five-second process probe still returned no main-window handle.
+That observation is not proof of visibility or display delivery; all hardware,
+input-latency, and presentation-deadline qualification remains false. Both
+original user preference/pacing-file observations remained unchanged.
+
+The pinned SDK workflow now has a separate serial material capture step after
+a completed export. It verifies the captured compiler, SDK, source commit,
+manifest hashes, native OS/architecture, and clean build inputs, then builds
+the unchanged public fixtures in a fresh temporary scratch directory. It
+preserves raw captures and provenance even for inconclusive controls. It does
+not read the large API inventory, change pins, substitute another compiler,
+or treat an Intel capture as arm64 native execution.
+
+Root validation of this post-Full script/workflow addition passed 265 assertions
+across 100 synthetic fixtures on each of PowerShell 5.1 and 7.6.4, plus parser,
+workflow, and architecture checks. Quick and Full now run those synthetic
+provenance checks too. Logs are
+`artifacts/goal-material-provenance-root-ps51.log` and
+`artifacts/goal-material-provenance-root-ps7.log`. No Swift production or test
+source changed after the recorded Full run. Actual macOS compilation, capture,
+control review, and hosted results still require the next combined push.
+
+The next integration batch remains within the original state and editing
+requirements: automatic nonsecure editor undo and mounted `State` ownership.
+Their isolated source probes are not host-test evidence. A combined teardown
+review found that state-value destruction can reenter undo, while undo-target
+destruction can reenter a mounted binding. Integration must revoke both editor
+replay and state writes before either cleanup releases application payloads;
+real-host tests must cover both directions before this behavior is accepted.
+All nine original completion gates remain open.

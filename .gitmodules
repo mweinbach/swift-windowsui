@@ -1,0 +1,4 @@
+# Read-only architecture reference. CI does not initialize this submodule.
+[submodule "extern/zed"]
+	path = extern/zed
+	url = https://github.com/zed-industries/zed.git

@@ -73,6 +73,10 @@ if ($ContractsOnly) {
     exit 0
 }
 
+Invoke-Step "checkout metadata fixtures" {
+    & (Join-Path $PSScriptRoot "test-checkout-metadata.ps1")
+}
+
 Invoke-Step "pinned SwiftUI baseline tooling fixtures" {
     & (Join-Path $PSScriptRoot "test-swiftui-baseline.ps1")
 }

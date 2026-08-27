@@ -6,9 +6,11 @@ on:
     branches:
       - main
     paths:
+      - ".gitmodules"
       - ".github/workflows/swiftui-baseline-capture.yml"
       - "scripts/export-swiftui-baseline.ps1"
       - "scripts/swiftui-baseline-common.ps1"
+      - "scripts/test-checkout-metadata.ps1"
       - "docs/swiftui-baseline.json"
 
 permissions:
@@ -30,6 +32,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          submodules: false
+
+      - name: Verify checkout metadata fixtures
+        run: ./scripts/test-checkout-metadata.ps1
 
       - name: Export pinned SDK candidate with CI provenance
         run: |

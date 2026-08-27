@@ -870,3 +870,10 @@ found no evidence directory and the run has zero artifacts. No Xcode, SDK,
 compiler identity, or API inventory was captured. A verified metadata mapping
 and a bounded checkout fixture are being integrated without fetching or
 editing the reference checkout, changing SDK pins, or retaining credentials.
+
+The metadata repair is now integrated. Its fixture passed 20 real Git
+assertions locally, reproducing the original failure and showing that the
+verified mapping permits cleanup while the reference remains uninitialized at
+the same commit. Quick, Full, and the SDK workflow run that fixture. The new
+mapping does not change `extern/zed`, fetch it, or weaken credential cleanup.
+A new hosted candidate capture is still required after the next validated push.

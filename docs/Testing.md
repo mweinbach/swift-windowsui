@@ -138,6 +138,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   warmup, phase populations, and schema-2 nulls for missing evidence. Their
   injected clocks prove accounting, not hardware timing. Report tests replace
   window closure with a test callback and never post a process quit message.
+- `test-checkout-metadata.ps1` gates Quick, Full, and pinned SDK capture. It
+  reproduces unmapped-gitlink checkout cleanup in an owned temporary repository,
+  verifies `.gitmodules`, and leaves the reference uninitialized and unfetched.
+  Repository-redirection environment variables are rejected before Git runs.
 - `ModalPresentationIsolationTests` and `DemoRendererIdentityTests` cover
   topmost modal focus/accessibility/shortcut isolation and renderer identities
   that remain accurate when the app switches between D3D11 and software.

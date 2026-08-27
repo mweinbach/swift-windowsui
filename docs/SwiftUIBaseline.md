@@ -75,9 +75,18 @@ approves new SDK versions, or marks conformance complete.
 
 The [SwiftUI baseline candidate capture workflow](../.github/workflows/swiftui-baseline-capture.yml)
 can be dispatched manually. It also runs on pushes to `main` that change its
-workflow file, `scripts/export-swiftui-baseline.ps1`,
-`scripts/swiftui-baseline-common.ps1`, or `docs/swiftui-baseline.json`.
+workflow file, `.gitmodules`, `scripts/export-swiftui-baseline.ps1`,
+`scripts/swiftui-baseline-common.ps1`, `scripts/test-checkout-metadata.ps1`,
+or `docs/swiftui-baseline.json`.
 General Swift source changes do not trigger this capture.
+
+Checkout keeps `persist-credentials: false` and `submodules: false`. The
+read-only `extern/zed` gitlink has its verified upstream mapping in
+`.gitmodules`; the capture job never initializes or builds that reference.
+`scripts/test-checkout-metadata.ps1` reproduces the missing-mapping failure
+and verifies cleanup with the mapping in an isolated, uninitialized fixture.
+Run it with `pwsh -NoProfile -File scripts/test-checkout-metadata.ps1`, or
+Windows PowerShell using the repository's usual script invocation.
 
 One `macos-26-intel` job uses PowerShell and explicitly selects
 `/Applications/Xcode_26.6.app/Contents/Developer` through `DEVELOPER_DIR`.

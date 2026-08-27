@@ -152,7 +152,7 @@ limits still apply; this is not the completed product in `goal.md`.
 | Interaction | **Implemented** / **Partial** | `onTapGesture`, `onHover`, `disabled`, inherited `\.isEnabled`, `focusable`, `@FocusState`, primary-touch and mouse routing, double-click presses, drag-to-focus, capture-loss cancellation, keyboard shortcuts on activation |
 | List row chrome | **Partial** | Separators, insets, backgrounds, selection styling. `.automatic` / `.plain` / `.inset` paint a `textBackgroundColor` body; `.inset` rounds and rings it and insets its rows into it, and stripes replace row rules rather than joining them |
 | Animation (retained properties) | **Partial** | Opacity, background, explicit frame dimensions and 2D transforms; value-triggered `animation`, scoped transactions and in-flight continuity across unrelated rebuilds. Springs use damped physical timing. Delays, repeats, completion criteria and arbitrary `Animatable` data remain incomplete |
-| State wrappers | **Implemented** / **Partial** | `@State`, `Binding`, `@ObservedObject`, `@StateObject`, `@Published` (lightweight), `@AppStorage` |
+| State wrappers | **Partial** | Bindings, observed objects, lightweight published values, and app storage support the documented workflows. `@State` and `@StateObject` currently retain storage with the supplied Swift view value, not mounted identity: reconstructing a nested child resets its storage, while reusing one value across hosts shares it. StateObject construction is eager. Correct per-owner storage, lifecycle, and general DynamicProperty installation remain open; stable demo-owned models are not proof of those semantics |
 
 ---
 

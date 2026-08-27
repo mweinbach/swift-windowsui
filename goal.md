@@ -617,6 +617,45 @@ nested StateObject lifetime remains a separate audited gap; a demo ownership
 fix must not be presented as full property-wrapper conformance. The checkpoint
 above predates this correction and must be rerun after integration.
 
+### Additional state lifetime acceptance detail
+
+A source audit found that the current State and StateObject wrappers follow
+the lifetime of their stored Swift values, not mounted view identity.
+Reconstructing a nested child in a parent's body allocates fresh State
+storage and eagerly constructs another StateObject. Reusing the same view
+value in two hosts instead shares its storage; State keeps only the latest
+invalidation context. Retained node reconciliation happens after body
+evaluation and cannot repair that lost or shared property state. Existing
+tests that reuse a single view value or externally created observed model do
+not exercise these cases. These are source-derived reproductions awaiting
+dedicated executable tests, not new passing evidence.
+
+The required correction belongs to section 3's existing identity and state
+semantics. Resolve host-owned storage before body evaluation using a typed
+hierarchy of parent identity, concrete view type, structural child/branch,
+ForEach or explicit ID, and stable property declaration slot. The current
+builder flattens conditional structure, siblings share a build context, and
+`.id` stamps retained nodes only after child construction; all are relevant
+identity boundaries. A property-read counter or a single last-bound storage
+location cannot distinguish independent occurrences reliably.
+
+Preserve eager evaluation of a State seed while retaining its mounted value;
+hold StateObject's escaping construction factory and evaluate it once per
+mounted owner. Removal must retire the owner and invalidator without allowing
+stale bindings or transition overlays to target a replacement. Painting culls
+or deferred layout do not end a mounted lifetime. Projected bindings need a
+resolved owner/generation, and deferred builders, handlers, tasks, observation
+capture, transactions, and custom DynamicProperty composition must retain the
+right scope. Extend ViewBuildContext and per-host ownership, not global state.
+
+Required regressions include a freshly reconstructed child responding to its
+own action, unrelated parent updates, keyed reorder/insertion/removal, typed
+IDs with equal descriptions, sibling and conditional slots, explicit-ID reset,
+removal/reinsertion of a reused value, StateObject release, stale bindings,
+two hosts using the same value, bound-only reads, nested custom wrappers,
+and deferred geometry/task work. Managed-window content factories are a useful
+scene correction, but cannot alone satisfy this general state-lifetime gate.
+
 ### Additional performance evidence detail
 
 The current diagnostic harness was audited against the unchanged section 4

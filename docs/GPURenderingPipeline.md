@@ -783,6 +783,13 @@ without rearranging source indices. `TextShapingPipelineTests` compares
 Hebrew placements with DirectWrite hit testing and covers mixed Latin,
 Arabic, Hebrew, and fallback-font runs.
 
+Range formatting passes `DWRITE_TEXT_RANGE` as one packed 64-bit argument,
+as required by the Windows x64 ABI. Splitting its start and length into
+two arguments silently supplied empty ranges, so span fonts and OpenType
+features did not reach DirectWrite. Fitting measurements now apply the same
+span styles and typography features as shaped layout and rasterization;
+`testSpanFontSizeReachesShapingAndFittingMeasurement` checks both paths.
+
 The capture renderer is a COM object DirectWrite calls *back* into, and
 before it reports a run's baseline it asks that object two questions:
 `IsPixelSnappingDisabled` and `GetPixelsPerDip`. The capture answers

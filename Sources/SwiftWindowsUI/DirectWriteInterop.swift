@@ -7,8 +7,8 @@ import WinSDK
 
 // SetUnderline, SetStrikethrough, SetFontWeight, SetFontSize, SetTypography
 // use DWRITE_TEXT_RANGE which is a custom struct not representable in @convention(c).
-// These vtable slots are accessed via unsafeBitCast at call sites instead,
-// passing startPosition and length as separate UINT32 parameters.
+// Windows x64 passes this eight-byte value in one integer argument. The
+// call sites pass DWRITE_TEXT_RANGE.packedValue, never two UINT32 arguments.
 
 typealias DWriteFactoryType = UINT32
 typealias DWriteFontWeight = UINT32
@@ -54,6 +54,10 @@ let dwriteFontFeatureTagTabularFigures: DWriteFontFeatureTag = 0x6D75_6E74
 struct DWRITE_TEXT_RANGE {
     var startPosition: UINT32 = 0
     var length: UINT32 = 0
+
+    var packedValue: UInt64 {
+        UInt64(startPosition) | (UInt64(length) << 32)
+    }
 }
 struct DWriteFontFeature {
     var nameTag: DWriteFontFeatureTag

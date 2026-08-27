@@ -571,7 +571,7 @@ private final class DirectWriteSystem {
         // `tint` scales the colour channels by coverage.
         cropped.surface.format = .bgra8Premultiplied
 
-        let advance = measureSingleLine(text, format: format) ?? bounds.width
+        let advance = measureSingleLine(text, format: format, style: glyphStyle) ?? bounds.width
         return NativeGlyphBitmap(
             surface: cropped.surface,
             bearingX: Float(-(bounds.overhangLeft * scaleFactor)) + cropped.bearingX,
@@ -1188,22 +1188,23 @@ private final class DirectWriteSystem {
         if let style {
             let rangeStart: UINT32 = 0
             let rangeLength = UINT32(utf16.count)
+            let textRange = DWRITE_TEXT_RANGE(startPosition: rangeStart, length: rangeLength).packedValue
 
             if style.underline {
                 if let fn = layout.pointee.lpVtbl!.pointee.SetUnderline {
                     let proc = unsafeBitCast(
-                        fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UINT32, UINT32) -> HRESULT).self
+                        fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UInt64) -> HRESULT).self
                     )
-                    _ = proc(UnsafeMutableRawPointer(layout), WindowsBool(true), rangeStart, rangeLength)
+                    _ = proc(UnsafeMutableRawPointer(layout), WindowsBool(true), textRange)
                 }
             }
 
             if style.strikethrough {
                 if let fn = layout.pointee.lpVtbl!.pointee.SetStrikethrough {
                     let proc = unsafeBitCast(
-                        fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UINT32, UINT32) -> HRESULT).self
+                        fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UInt64) -> HRESULT).self
                     )
-                    _ = proc(UnsafeMutableRawPointer(layout), WindowsBool(true), rangeStart, rangeLength)
+                    _ = proc(UnsafeMutableRawPointer(layout), WindowsBool(true), textRange)
                 }
             }
 
@@ -1237,9 +1238,10 @@ private final class DirectWriteSystem {
         if let fn = layout.pointee.lpVtbl!.pointee.SetTypography {
             let proc = unsafeBitCast(
                 fn,
-                to: (@convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UINT32, UINT32) -> HRESULT)
+                to: (@convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UInt64) -> HRESULT)
                     .self)
-            _ = proc(UnsafeMutableRawPointer(layout), typographyRaw, startPosition, length)
+            let textRange = DWRITE_TEXT_RANGE(startPosition: startPosition, length: length).packedValue
+            _ = proc(UnsafeMutableRawPointer(layout), typographyRaw, textRange)
         }
     }
 
@@ -1290,27 +1292,28 @@ private final class DirectWriteSystem {
 
             let startPosition = UINT32(utf16View.distance(from: utf16View.startIndex, to: utf16Start))
             let length = UINT32(utf16View.distance(from: utf16Start, to: utf16End))
+            let textRange = DWRITE_TEXT_RANGE(startPosition: startPosition, length: length).packedValue
 
             let spanStyle = span.style
 
             if let fn = layout.pointee.lpVtbl!.pointee.SetFontWeight {
                 let proc = unsafeBitCast(
                     fn,
-                    to: (@convention(c) (UnsafeMutableRawPointer?, DWriteFontWeight, UINT32, UINT32) -> HRESULT).self)
-                _ = proc(UnsafeMutableRawPointer(layout), spanStyle.weight.dwriteWeight, startPosition, length)
+                    to: (@convention(c) (UnsafeMutableRawPointer?, DWriteFontWeight, UInt64) -> HRESULT).self)
+                _ = proc(UnsafeMutableRawPointer(layout), spanStyle.weight.dwriteWeight, textRange)
             }
 
             if let fn = layout.pointee.lpVtbl!.pointee.SetFontStyle {
                 let proc = unsafeBitCast(
-                    fn, to: (@convention(c) (UnsafeMutableRawPointer?, DWriteFontStyle, UINT32, UINT32) -> HRESULT).self
+                    fn, to: (@convention(c) (UnsafeMutableRawPointer?, DWriteFontStyle, UInt64) -> HRESULT).self
                 )
-                _ = proc(UnsafeMutableRawPointer(layout), spanStyle.dwriteFontStyle, startPosition, length)
+                _ = proc(UnsafeMutableRawPointer(layout), spanStyle.dwriteFontStyle, textRange)
             }
 
             if let fn = layout.pointee.lpVtbl!.pointee.SetFontSize {
                 let proc = unsafeBitCast(
-                    fn, to: (@convention(c) (UnsafeMutableRawPointer?, FLOAT, UINT32, UINT32) -> HRESULT).self)
-                _ = proc(UnsafeMutableRawPointer(layout), FLOAT(spanStyle.nativeFontPixelSize), startPosition, length)
+                    fn, to: (@convention(c) (UnsafeMutableRawPointer?, FLOAT, UInt64) -> HRESULT).self)
+                _ = proc(UnsafeMutableRawPointer(layout), FLOAT(spanStyle.nativeFontPixelSize), textRange)
             }
 
             let typographyFeatures = spanStyle.dwriteTypographyFeatures
@@ -1326,18 +1329,18 @@ private final class DirectWriteSystem {
             if spanStyle.underline {
                 if let fn = layout.pointee.lpVtbl!.pointee.SetUnderline {
                     let proc = unsafeBitCast(
-                        fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UINT32, UINT32) -> HRESULT).self
+                        fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UInt64) -> HRESULT).self
                     )
-                    _ = proc(UnsafeMutableRawPointer(layout), WindowsBool(true), startPosition, length)
+                    _ = proc(UnsafeMutableRawPointer(layout), WindowsBool(true), textRange)
                 }
             }
 
             if spanStyle.strikethrough {
                 if let fn = layout.pointee.lpVtbl!.pointee.SetStrikethrough {
                     let proc = unsafeBitCast(
-                        fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UINT32, UINT32) -> HRESULT).self
+                        fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UInt64) -> HRESULT).self
                     )
-                    _ = proc(UnsafeMutableRawPointer(layout), WindowsBool(true), startPosition, length)
+                    _ = proc(UnsafeMutableRawPointer(layout), WindowsBool(true), textRange)
                 }
             }
         }
@@ -1627,7 +1630,7 @@ private final class DirectWriteSystem {
             if let cached = memo[line] {
                 return cached
             }
-            let base = self?.measureSingleLine(line, format: format) ?? 0
+            let base = self?.measureSingleLine(line, format: format, style: style) ?? 0
             let spaced: Double
             if tracking == 0 {
                 spaced = base
@@ -1738,12 +1741,17 @@ private final class DirectWriteSystem {
         return makeLineMeasurer(style: style, format: format)(text)
     }
 
-    private func measureSingleLine(_ text: String, format: UnsafeMutablePointer<IDWriteTextFormat>) -> Double? {
+    private func measureSingleLine(
+        _ text: String, format: UnsafeMutablePointer<IDWriteTextFormat>, style: PixelTextStyle? = nil
+    ) -> Double? {
         guard !text.isEmpty else {
             return 0
         }
 
-        guard let layout = createTextLayout(text: text, format: format, size: Size(width: 4096, height: 4096)) else {
+        guard
+            let layout = createTextLayout(
+                text: text, format: format, size: Size(width: 4096, height: 4096), style: style)
+        else {
             return nil
         }
         defer {

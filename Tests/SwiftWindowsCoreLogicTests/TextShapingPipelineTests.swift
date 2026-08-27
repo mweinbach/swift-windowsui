@@ -71,6 +71,27 @@ final class TextShapingPipelineTests: XCTestCase {
     }
 
     @MainActor
+    func testSpanFontSizeReachesShapingAndFittingMeasurement() async throws {
+        let text = "Small Large Small"
+        var style = bodyStyle()
+        var spanStyle = style
+        spanStyle.nativeFontSize = 32
+        let spanRange = text.index(text.startIndex, offsetBy: 6)..<text.index(text.startIndex, offsetBy: 11)
+        style.spans = [TextSpan(text: "Large", style: spanStyle, range: spanRange)]
+        let line = try XCTUnwrap(NativeTextRenderer.layout(text, style: style, scaleFactor: 1)?.lines.first)
+
+        XCTAssertTrue(line.glyphs.contains { $0.fontSize == 32 }, "the native range setter must change the span")
+        for glyph in line.glyphs {
+            let sourceIndex = try XCTUnwrap(glyph.sourceIndex)
+            XCTAssertEqual(
+                glyph.fontSize, (6..<11).contains(sourceIndex) ? 32 : 16, accuracy: 0.001,
+                "the packed range must preserve both its start and its length")
+        }
+        let fittingWidth = try XCTUnwrap(DirectWriteTextRenderer.measuredLineWidthForTesting(text, style: style))
+        XCTAssertEqual(fittingWidth, line.width, accuracy: 0.001, "fitting must measure the styled glyphs it paints")
+    }
+
+    @MainActor
     func testShapingDisabledFallsBackToPerCharacterWalk() async throws {
         NativeTextRenderer.isGlyphShapingEnabled = false
         defer { NativeTextRenderer.isGlyphShapingEnabled = true }

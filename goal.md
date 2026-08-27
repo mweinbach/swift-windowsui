@@ -1054,3 +1054,46 @@ passed. Logs are `artifacts/goal-batch-two-final-focused.log`,
 `artifacts/goal-batch-two-all-changed-lint.log`. These focused results do not
 replace the pending Quick/Full, raw-render, hosted, or hardware qualification
 gates, and none of the nine original completion gates is closed.
+
+### Second-batch completed local validation
+
+The clean source revision `74ee04b` passed Quick and Full serially. Quick
+executed 1,253 XCTest cases and 9 Swift Testing cases; Full executed 3,619
+XCTest cases and 134 Swift Testing cases across the portable check and 169
+Windows shards. Both had zero failures and the one known material-backdrop
+skip. These are test executions, not counts of distinct compatibility
+requirements. The demo built, all 85 reviewed gallery baselines passed their
+existing thresholds, and no baseline was updated.
+
+Raw dashboard, dark/light gallery, frame-fallback, settings, and tall gallery
+renders were inspected. The 1.25-scale, 1,280-by-3,400 logical gallery render
+includes the new press-and-hold card and its ordinary-button alternative.
+The frame-debug renders still visibly differ in corners, material treatment,
+and text appearance; passing this regression ladder does not establish full
+scene/frame or native SwiftUI visual parity. Native startup probes separately
+confirmed the D3D11 batch presenter and the explicit Direct2D frame presenter
+attached and returned an initial render. They do not establish recovery,
+latency, long-session reliability, or Narrator completion.
+
+The evidence is preserved under `artifacts/goal-second-batch-74ee04b/`, with
+source revision, log hashes, raw renders, native probe results, and the gallery
+comparison report. The final evidence note changes documentation only after
+that validated source revision. The accumulated commits are ready for one
+combined push, after which Windows/portable hosted validation and the repaired
+pinned-SDK candidate capture must run on the pushed revision. Release and
+hardware qualification remain false, and all original completion gates remain
+open.
+
+The next state work is ordered around actual ownership boundaries. Typed
+structural identity must first pass its 37 authored regressions; it does not
+install State storage. Ordinary custom-view State then needs copied-wrapper
+installation, host-owned cells and mount generations, bindings that retain
+their original cell, adoption/reentrancy hooks, staged observations, and
+deferred GeometryReader scopes. Only actual abandoned candidates are rolled
+back; nonthrowing View construction is not being replaced with a speculative
+failure API. Outgoing generations lose write permission before cleanup while
+retaining cleanup reads until cancellation/disappearance finishes. Declared,
+evaluated, and adopted content must remain distinct; skipping a body or paint
+cannot by itself retire its state. Lazy StateObject factory ownership follows
+as a separate tested slice, with uninstalled/stale access policy and inactive
+container behavior still requiring explicit native qualification.

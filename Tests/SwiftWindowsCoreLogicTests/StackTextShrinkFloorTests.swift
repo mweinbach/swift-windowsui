@@ -14,8 +14,10 @@ import XCTest
 
 /// Lays out `root` with one render pass.
 @MainActor
-private func renderStackFloorProbe(_ root: ViewNode) {
-    _ = RetainedViewRuntime(root: root).renderFrame()
+private func renderStackFloorProbe(_ root: ViewNode, displayScale: Double = 1) {
+    let runtime = RetainedViewRuntime(root: root)
+    runtime.displayScale = displayScale
+    _ = runtime.renderFrame()
 }
 
 @MainActor
@@ -30,11 +32,222 @@ private func makeWrappingSubtitleNode() -> ViewNode {
     return node
 }
 
+@MainActor
+private func makeNativeWrappingSubtitleNode() -> ViewNode {
+    let node = makeWrappingSubtitleNode()
+    node.textStyle.nativeFontSize = 13
+    return node
+}
+
+@MainActor
+private func wrappedSubtitleHeight(width: Double = 120, displayScale: Double = 1) -> Double {
+    let text = makeNativeWrappingSubtitleNode()
+    let root = ViewNode(
+        frame: Rect(x: 0, y: 0, width: width, height: 500),
+        layoutMode: .stack(.vertical(alignment: .leading)),
+        children: [text]
+    )
+    renderStackFloorProbe(root, displayScale: displayScale)
+    return text.resolvedFrame.height
+}
+
 /// Pins the stack shrink floor: text-bearing nodes keep their measured
 /// main-axis size when a stack runs out of room, while padding, spacers,
 /// and flexible siblings absorb the squeeze first (and content overflows
 /// rather than crushing text below its measured size).
 final class StackTextShrinkFloorTests: XCTestCase {
+
+    func testWrappingTextMeasuresAtItsPreferredWidthBeforePlacingTheNextRow() async {
+        await MainActor.run {
+            for scale in [1.0, 1.25, 1.5, 1.75, 2.0] {
+                let wrappedHeight = wrappedSubtitleHeight(displayScale: scale)
+
+                let text = makeNativeWrappingSubtitleNode()
+                text.preferredSize = Size(width: 120, height: 0)
+                let nextRow = makeSingleLineCaptionNode()
+                let root = ViewNode(
+                    frame: Rect(x: 0, y: 0, width: 500, height: 500),
+                    layoutMode: .stack(.vertical(spacing: 8, alignment: .leading)),
+                    children: [text, nextRow]
+                )
+                renderStackFloorProbe(root, displayScale: scale)
+
+                XCTAssertGreaterThan(wrappedHeight, 30, "The fixture must wrap at \(scale)x")
+                XCTAssertEqual(text.resolvedFrame.width, 120, accuracy: 0.001)
+                XCTAssertEqual(
+                    text.resolvedFrame.height, wrappedHeight, accuracy: 0.001,
+                    "A paragraph must measure at its own width, not its wider parent's proposal at \(scale)x")
+                XCTAssertEqual(
+                    nextRow.resolvedFrame.minY, wrappedHeight + 8, accuracy: 0.001,
+                    "The following row must start after every wrapped line at \(scale)x")
+            }
+        }
+    }
+
+    func testFixedWidthPaddedContainerIncludesEveryWrappedLineInItsHeight() async {
+        await MainActor.run {
+            for scale in [1.0, 1.25, 1.5, 1.75, 2.0] {
+                let wrappedHeight = wrappedSubtitleHeight(displayScale: scale)
+
+                let text = makeNativeWrappingSubtitleNode()
+                let container = ViewNode(
+                    layoutMode: .stack(
+                        .vertical(
+                            padding: EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 10),
+                            alignment: .leading)),
+                    preferredSize: Size(width: 140, height: 0),
+                    children: [text]
+                )
+                let nextRow = makeSingleLineCaptionNode()
+                let root = ViewNode(
+                    frame: Rect(x: 0, y: 0, width: 500, height: 500),
+                    layoutMode: .stack(.vertical(spacing: 8, alignment: .leading)),
+                    children: [container, nextRow]
+                )
+                renderStackFloorProbe(root, displayScale: scale)
+
+                XCTAssertGreaterThan(wrappedHeight, 30, "The fixture must wrap at \(scale)x")
+                XCTAssertEqual(container.resolvedFrame.width, 140, accuracy: 0.001)
+                XCTAssertEqual(text.resolvedFrame.height, wrappedHeight, accuracy: 0.001)
+                XCTAssertEqual(
+                    container.resolvedFrame.height, wrappedHeight + 8, accuracy: 0.001,
+                    "A fixed-width container must propagate its inner width during measurement at \(scale)x")
+                XCTAssertEqual(nextRow.resolvedFrame.minY, wrappedHeight + 16, accuracy: 0.001)
+            }
+        }
+    }
+
+    func testHorizontalWrappingRowRemeasuresBeforePlacingTheNextRow() async {
+        await MainActor.run {
+            for scale in [1.0, 1.25, 1.5, 1.75, 2.0] {
+                let wrappedHeight = wrappedSubtitleHeight(displayScale: scale)
+                let text = makeNativeWrappingSubtitleNode()
+                let row = ViewNode(
+                    layoutMode: .stack(.horizontal(alignment: .leading)), children: [text])
+                let nextRow = makeSingleLineCaptionNode()
+                let root = ViewNode(
+                    frame: Rect(x: 0, y: 0, width: 120, height: 500),
+                    layoutMode: .stack(.vertical(spacing: 8, alignment: .leading)),
+                    children: [row, nextRow]
+                )
+                renderStackFloorProbe(root, displayScale: scale)
+
+                XCTAssertGreaterThan(wrappedHeight, 30, "The fixture must wrap at \(scale)x")
+                XCTAssertEqual(row.resolvedFrame.width, 120, accuracy: 0.001)
+                XCTAssertEqual(row.resolvedFrame.height, wrappedHeight, accuracy: 0.001)
+                XCTAssertEqual(text.resolvedFrame.height, wrappedHeight, accuracy: 0.001)
+                XCTAssertEqual(
+                    nextRow.resolvedFrame.minY, wrappedHeight + 8, accuracy: 0.001,
+                    "A horizontal row must report its wrapped height to the parent at \(scale)x")
+            }
+        }
+    }
+
+    func testWrappingLabelsKeepTheirAllocatedWidthsAndHeightUnderVerticalPressure() async {
+        await MainActor.run {
+            let wrappedHeight = wrappedSubtitleHeight()
+            let first = makeNativeWrappingSubtitleNode()
+            let second = makeNativeWrappingSubtitleNode()
+            let row = ViewNode(
+                layoutMode: .stack(.horizontal(spacing: 8, alignment: .leading)), children: [first, second])
+            let flexibleSibling = ViewNode(
+                backgroundColor: .white, preferredSize: Size(width: 100, height: 300))
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 248, height: wrappedHeight + 20),
+                layoutMode: .stack(.vertical(spacing: 8, alignment: .leading)),
+                children: [row, flexibleSibling]
+            )
+            renderStackFloorProbe(root)
+
+            XCTAssertGreaterThan(wrappedHeight, 30)
+            XCTAssertEqual(first.resolvedFrame.width, 120, accuracy: 0.001)
+            XCTAssertEqual(second.resolvedFrame.width, 120, accuracy: 0.001)
+            XCTAssertEqual(second.resolvedFrame.maxX, 248, accuracy: 0.001)
+            XCTAssertEqual(first.resolvedFrame.height, wrappedHeight, accuracy: 0.001)
+            XCTAssertEqual(second.resolvedFrame.height, wrappedHeight, accuracy: 0.001)
+            XCTAssertEqual(
+                row.resolvedFrame.height, wrappedHeight, accuracy: 0.001,
+                "A row's vertical floor must use its allocated widths, not the unwrapped ideal widths")
+            XCTAssertEqual(flexibleSibling.resolvedFrame.height, 12, accuracy: 0.001)
+        }
+    }
+
+    func testEqualWidthColumnsIncludeTheirWrappedTextInTheRowHeight() async {
+        await MainActor.run {
+            let wrappedHeight = wrappedSubtitleHeight()
+            let texts = [makeNativeWrappingSubtitleNode(), makeNativeWrappingSubtitleNode()]
+            let columns = texts.map { text in
+                ViewNode(
+                    layoutMode: .stack(
+                        .vertical(
+                            padding: EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8),
+                            alignment: .leading)),
+                    children: [text])
+            }
+            let row = ViewNode(
+                layoutMode: .stack(.horizontal(spacing: 8, alignment: .leading, distribution: .fillEqually)),
+                children: columns)
+            let nextRow = makeSingleLineCaptionNode()
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 280, height: 500),
+                layoutMode: .stack(.vertical(spacing: 8, alignment: .leading)),
+                children: [row, nextRow]
+            )
+            renderStackFloorProbe(root)
+
+            for (column, text) in zip(columns, texts) {
+                XCTAssertEqual(column.resolvedFrame.width, 136, accuracy: 0.001)
+                XCTAssertEqual(column.resolvedFrame.height, wrappedHeight + 8, accuracy: 0.001)
+                XCTAssertEqual(text.resolvedFrame.height, wrappedHeight, accuracy: 0.001)
+            }
+            XCTAssertEqual(row.resolvedFrame.height, wrappedHeight + 8, accuracy: 0.001)
+            XCTAssertEqual(nextRow.resolvedFrame.minY, wrappedHeight + 16, accuracy: 0.001)
+        }
+    }
+
+    func testHorizontalFixedSizeWrapperKeepsItsWidthBesideWrappingText() async {
+        await MainActor.run {
+            let fixedText = ViewNode(text: "FIXED")
+            fixedText.textStyle.lineBreakMode = .wrap
+            let fixed = ViewNode(
+                layoutMode: .stack(
+                    .vertical(padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))),
+                fixedSizeAxes: FixedSizeAxes(horizontal: true, vertical: false),
+                children: [fixedText])
+            let idealWidth = fixed.intrinsicContentSize().width
+            let wrappingText = makeNativeWrappingSubtitleNode()
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: idealWidth + 88, height: 200),
+                layoutMode: .stack(.horizontal(spacing: 8, alignment: .leading)),
+                children: [fixed, wrappingText])
+            renderStackFloorProbe(root)
+
+            XCTAssertEqual(
+                fixed.resolvedFrame.width, idealWidth, accuracy: 0.001,
+                "fixedSize on a wrapper protects the subtree even when its text can wrap")
+            XCTAssertEqual(wrappingText.resolvedFrame.width, 80, accuracy: 0.001)
+            XCTAssertEqual(wrappingText.resolvedFrame.maxX, root.resolvedFrame.width, accuracy: 0.001)
+        }
+    }
+
+    func testGreedyPreferredWidthMeasuresAtTheAcceptedProposal() async {
+        await MainActor.run {
+            let expectedHeight = wrappedSubtitleHeight(width: 500)
+            let text = makeNativeWrappingSubtitleNode()
+            text.preferredSize = Size(width: 120, height: 0)
+            text.layoutFillAxes = LayoutFillAxes(horizontal: true, vertical: false)
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 500, height: 500),
+                layoutMode: .stack(.vertical(alignment: .leading)),
+                children: [text])
+            renderStackFloorProbe(root)
+
+            XCTAssertEqual(text.resolvedFrame.width, 500, accuracy: 0.001)
+            XCTAssertEqual(
+                text.resolvedFrame.height, expectedHeight, accuracy: 0.001,
+                "A greedy node's preferred width is an ideal; content measures at its accepted wider proposal")
+        }
+    }
 
     /// A squeezed vertical stack must leave a single-line text child at
     /// exactly the height it measures in an unsqueezed stack, taking the

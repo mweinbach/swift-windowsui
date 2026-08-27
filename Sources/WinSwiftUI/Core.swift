@@ -10189,6 +10189,7 @@ extension Shape {
                 backgroundColor: fillColor,
                 isHitTestVisible: false
             )
+            node.layoutFillAxes = .both
             var segments: [RenderPath.Segment] = []
             for element in unitPath.elements {
                 switch element {
@@ -20557,13 +20558,9 @@ extension View {
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
-                if width != nil || height != nil {
-                    let existingPreferredSize = childNode.preferredSize ?? .zero
-                    childNode.preferredSize = Size(
-                        width: width ?? existingPreferredSize.width,
-                        height: height ?? existingPreferredSize.height
-                    )
-                }
+                // The frame owns its dimensions and aligns the child's measured
+                // content inside them. Overwriting the child would stretch text
+                // and replace the dimensions of an earlier frame modifier.
                 return Controls.stackPanel(
                     preferredSize: Size(width: width ?? 0, height: height ?? 0),
                     stackLayout: .vertical(
@@ -20720,13 +20717,6 @@ extension View {
 
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
-                if width != nil || height != nil {
-                    let existingPreferredSize = childNode.preferredSize ?? .zero
-                    childNode.preferredSize = Size(
-                        width: width ?? existingPreferredSize.width,
-                        height: height ?? existingPreferredSize.height
-                    )
-                }
                 return Controls.stackPanel(
                     preferredSize: Size(width: width ?? 0, height: height ?? 0),
                     stackLayout: .vertical(

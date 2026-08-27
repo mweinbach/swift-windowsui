@@ -79,6 +79,76 @@ final class TraversalStackHeadroomTests: XCTestCase {
         }
     }
 
+    /// Width allocation may grow a fixed-width wrapper without changing the
+    /// width it proposes to its content. Repeating that unchanged measurement
+    /// at every level turns a two-pass row measurement into exponential work.
+    func testGrowingNestedFixedWidthRowsDoNotRemeasureUnchangedContent() async {
+        await MainActor.run {
+            let originalOverrides = NativeTextRenderer.testingOverrides
+            defer { NativeTextRenderer.testingOverrides = originalOverrides }
+            var measurements = 0
+            NativeTextRenderer.testingOverrides.measure = { _, _, _, _ in
+                measurements += 1
+                return Size(width: 10, height: 10)
+            }
+
+            let depth = 14
+            var node = ViewNode(text: "Leaf")
+            for level in 0..<depth {
+                node.layoutPriority = 1
+                node = ViewNode(
+                    layoutMode: .stack(.horizontal()),
+                    preferredSize: Size(width: Double(20 + level * 10), height: 0),
+                    children: [node])
+            }
+
+            // Unattached measurement exercises the runtime's tree walk
+            // without WindowTextSystem hiding repeated leaf measurements.
+            let size = node.intrinsicContentSize()
+            XCTAssertEqual(size, Size(width: 150, height: 10))
+            XCTAssertGreaterThan(measurements, 0)
+            XCTAssertLessThanOrEqual(
+                measurements, depth * 2 + 2,
+                "Fixed-width content with an unchanged proposal must not be measured twice per ancestor")
+        }
+    }
+
+    func testConstrainedNestedRowsMemoizeProposalsOnlyForTheCurrentMeasurement() async {
+        await MainActor.run {
+            let originalOverrides = NativeTextRenderer.testingOverrides
+            defer { NativeTextRenderer.testingOverrides = originalOverrides }
+            var measurements = 0
+            NativeTextRenderer.testingOverrides.layout = { _, _, _, _ in nil }
+            NativeTextRenderer.testingOverrides.measure = { text, _, _, _ in
+                measurements += 1
+                return Size(width: 1_000, height: text == "Changed" ? 20 : 10)
+            }
+
+            let depth = 14
+            let leaf = ViewNode(text: "Leaf")
+            leaf.textStyle.lineBreakMode = .wrap
+            var node = leaf
+            for level in (0..<depth).reversed() {
+                node = ViewNode(
+                    layoutMode: .stack(.horizontal()),
+                    preferredSize: Size(width: Double(80 + level * 10), height: 0),
+                    children: [node])
+            }
+            let runtime = RetainedViewRuntime(root: node)
+            XCTAssertEqual(node.intrinsicContentSize(), Size(width: 80, height: 10))
+            XCTAssertGreaterThan(measurements, 0)
+            XCTAssertLessThanOrEqual(
+                measurements + runtime.lastMeasureReuseCount, depth * depth * 4,
+                "Repeated ideal and constrained proposals must not walk a nested row exponentially")
+
+            // No paint has cleared the dirty flags. A new measurement walk
+            // must nevertheless observe the mutation rather than retain the
+            // previous walk's memoized answer.
+            leaf.text = "Changed"
+            XCTAssertEqual(node.intrinsicContentSize(), Size(width: 80, height: 20))
+        }
+    }
+
     /// Past the cap the contract is a truncated picture and one diagnostic, not
     /// an access violation — asserted here at the *production* cap rather than a
     /// lowered one, because a lowered cap proves the branch works, not that the

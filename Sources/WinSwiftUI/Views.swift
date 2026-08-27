@@ -2212,6 +2212,7 @@ public struct Arc: View {
                 borderWidth: 0,
                 isHitTestVisible: false
             )
+            node.layoutFillAxes = .both
             node.onLayout = { [weak node] bounds in
                 guard let node else { return }
                 var path = Path()
@@ -3180,6 +3181,7 @@ public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedCo
                 backgroundColor: fillColor,
                 isHitTestVisible: false
             )
+            node.layoutFillAxes = .both
             var segments: [RenderPath.Segment] = []
             for element in unitPath.elements {
                 switch element {
@@ -3676,6 +3678,7 @@ private func shapeComponent(
         )
         node.cornerRadii = cornerRadii
         node.clipFillStyle = fillRuleStyle
+        node.layoutFillAxes = .both
         node.borderStrokeStyle =
             lineWidth > 0 ? strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: []) : nil
         return node
@@ -3701,6 +3704,7 @@ private func capsuleComponent(
             isHitTestVisible: false
         )
         node.clipFillStyle = fillRuleStyle
+        node.layoutFillAxes = .both
         node.borderStrokeStyle =
             lineWidth > 0 ? strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: []) : nil
         node.onLayout = { [weak node] bounds in
@@ -5796,6 +5800,7 @@ public struct Text: View {
     private let content: String
     private var color: Color?
     private var font: Font??
+    private var fontWeight: Font.Weight?
     private var fontDesign: Font.Design?
     private var fontWidth: Font.Width??
     private var isItalic: Bool?
@@ -5830,6 +5835,7 @@ public struct Text: View {
         self.content = content
         self.color = nil
         self.font = nil
+        self.fontWeight = nil
         self.fontDesign = nil
         self.fontWidth = nil
         self.isItalic = nil
@@ -5871,6 +5877,7 @@ public struct Text: View {
         content: String,
         color: Color?,
         font: Font??,
+        fontWeight: Font.Weight?,
         fontDesign: Font.Design?,
         fontWidth: Font.Width??,
         isItalic: Bool?,
@@ -5902,6 +5909,7 @@ public struct Text: View {
         self.content = content
         self.color = color
         self.font = font
+        self.fontWeight = fontWeight
         self.fontDesign = fontDesign
         self.fontWidth = fontWidth
         self.isItalic = isItalic
@@ -6086,6 +6094,7 @@ public struct Text: View {
             content: lhs.content + rhs.content,
             color: lhs.color ?? rhs.color,
             font: lhs.font != nil ? lhs.font : rhs.font,
+            fontWeight: lhs.fontWeight ?? rhs.fontWeight,
             fontDesign: lhs.fontDesign ?? rhs.fontDesign,
             fontWidth: lhs.fontWidth != nil ? lhs.fontWidth : rhs.fontWidth,
             isItalic: lhs.isItalic != nil ? lhs.isItalic : rhs.isItalic,
@@ -6134,6 +6143,9 @@ public struct Text: View {
             resolvedFont = font ?? .body
         } else {
             resolvedFont = inheritedFont
+        }
+        if let fontWeight {
+            resolvedFont = resolvedFont.weight(fontWeight)
         }
         if let fontDesign {
             resolvedFont = resolvedFont.withDesign(fontDesign)
@@ -6349,20 +6361,7 @@ public struct Text: View {
 
     public func fontWeight(_ weight: Font.Weight?) -> Text {
         var copy = self
-        guard let weight else {
-            if let font = copy.font, let resolvedFont = font {
-                copy.font = .some(resolvedFont.weight(.regular))
-            }
-            return copy
-        }
-
-        let baseFont: Font
-        if let font = copy.font {
-            baseFont = font ?? .body
-        } else {
-            baseFont = .body
-        }
-        copy.font = .some(baseFont.weight(weight))
+        copy.fontWeight = weight
         return copy
     }
 

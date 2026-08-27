@@ -3400,6 +3400,93 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextFontWeightPreservesInheritedFontAndDynamicType() async {
+        await MainActor.run {
+            let inheritedFont = Font.system(.largeTitle, design: .serif)
+                .width(.condensed)
+                .leading(.loose)
+            let node = makeNode(
+                VStack {
+                    Text("BOLD").bold()
+                    Text("SEMIBOLD").fontWeight(.semibold)
+                    Text("REGULAR").bold(false)
+                    Text("RESTORED").bold().fontWeight(nil)
+                }
+                .font(inheritedFont)
+                .fontWeight(.semibold)
+                .dynamicTypeSize(.xxLarge)
+            )
+            let expectedSize = Font.largeTitle.size * DynamicTypeSize.xxLarge.retainedFontScale
+
+            XCTAssertEqual(node.children[0].textStyle.weight, .bold)
+            XCTAssertEqual(node.children[1].textStyle.weight, .semibold)
+            XCTAssertEqual(node.children[2].textStyle.weight, .regular)
+            XCTAssertEqual(node.children[3].textStyle.weight, .semibold)
+            for child in node.children {
+                XCTAssertEqual(child.textStyle.nativeFontSize, expectedSize)
+                XCTAssertEqual(child.textStyle.fontFamily, "Georgia")
+                XCTAssertEqual(child.textStyle.fontWidth, .condensed)
+                XCTAssertEqual(child.textStyle.lineSpacing, expectedSize * 0.40, accuracy: 0.001)
+            }
+        }
+    }
+
+    func testTextFontWeightModifiersPreserveExplicitFontRegardlessOfOrder() async {
+        await MainActor.run {
+            let explicitFont = Font.custom("Aptos", fixedSize: 24)
+                .weight(.semibold)
+                .width(.expanded)
+                .leading(.loose)
+                .italic()
+                .monospacedDigit()
+                .smallCaps()
+            let node = makeNode(
+                VStack {
+                    Text("BEFORE").bold().font(explicitFont)
+                    Text("AFTER").font(explicitFont).bold()
+                    Text("REGULAR").bold(false).font(explicitFont)
+                    Text("RESTORED").font(explicitFont).bold().fontWeight(nil)
+                }
+                .dynamicTypeSize(.accessibility1)
+            )
+
+            XCTAssertEqual(node.children[0].textStyle.weight, .bold)
+            XCTAssertEqual(node.children[1].textStyle.weight, .bold)
+            XCTAssertEqual(node.children[2].textStyle.weight, .regular)
+            XCTAssertEqual(node.children[3].textStyle.weight, .semibold)
+            for child in node.children {
+                XCTAssertEqual(child.textStyle.nativeFontSize, 24)
+                XCTAssertEqual(child.textStyle.fontFamily, "Aptos")
+                XCTAssertEqual(child.textStyle.fontWidth, .expanded)
+                XCTAssertEqual(child.textStyle.lineSpacing, 24 * 0.40, accuracy: 0.001)
+                XCTAssertTrue(child.textStyle.isItalic)
+                XCTAssertTrue(child.textStyle.monospacedDigits)
+                XCTAssertTrue(child.textStyle.lowercaseSmallCaps)
+                XCTAssertTrue(child.textStyle.uppercaseSmallCaps)
+            }
+        }
+    }
+
+    func testConcatenatedTextPreservesFontWeightOverride() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    (Text("LEFT").bold() + Text("RIGHT")).font(.title)
+                    (Text("LEFT") + Text("RIGHT").fontWeight(.semibold)).font(.title)
+                    (Text("LEFT").bold(false) + Text("RIGHT").bold()).font(.title)
+                }
+            )
+
+            XCTAssertEqual(node.children[0].textStyle.weight, .bold)
+            XCTAssertEqual(node.children[1].textStyle.weight, .semibold)
+            XCTAssertEqual(node.children[2].textStyle.weight, .regular)
+            for child in node.children {
+                XCTAssertEqual(child.text, "LEFTRIGHT")
+                XCTAssertEqual(child.textStyle.nativeFontSize, Font.title.size)
+            }
+        }
+    }
+
     func testTextSpacingModifiersMapToRetainedTextStyleAndMeasurement() async {
         await MainActor.run {
             let spacedNode = makeNode(
@@ -4924,6 +5011,73 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFixedFrameAlignsIntrinsicTextWithoutStretchingIt() async {
+        await MainActor.run {
+            let node = renderedNode(
+                Text("FRAME")
+                    .frame(width: 200, height: 80, alignment: .bottomTrailing)
+            )
+            let textNode = node.children[0]
+            let intrinsicSize = textNode.intrinsicContentSize()
+
+            XCTAssertEqual(node.resolvedFrame.size, Size(width: 200, height: 80))
+            XCTAssertNil(textNode.preferredSize)
+            XCTAssertGreaterThan(intrinsicSize.width, 0)
+            XCTAssertLessThan(intrinsicSize.width, 200)
+            XCTAssertLessThan(intrinsicSize.height, 80)
+            XCTAssertEqual(textNode.resolvedFrame.size, intrinsicSize)
+            XCTAssertEqual(textNode.resolvedFrame.maxX, 200, accuracy: 0.001)
+            XCTAssertEqual(textNode.resolvedFrame.maxY, 80, accuracy: 0.001)
+        }
+    }
+
+    func testNestedFixedFramesPreserveInnerDimensionsAndAlignment() async {
+        await MainActor.run {
+            let node = renderedNode(
+                Text("INNER")
+                    .frame(width: 80, height: 30, alignment: .topLeading)
+                    .frame(width: 200, height: 80, alignment: .bottomTrailing)
+            )
+            let innerFrame = node.children[0]
+            let textNode = innerFrame.children[0]
+
+            XCTAssertEqual(node.resolvedFrame.size, Size(width: 200, height: 80))
+            XCTAssertEqual(innerFrame.preferredSize, Size(width: 80, height: 30))
+            XCTAssertEqual(innerFrame.resolvedFrame, Rect(x: 120, y: 50, width: 80, height: 30))
+            XCTAssertNil(textNode.preferredSize)
+            XCTAssertEqual(textNode.resolvedFrame.origin, .zero)
+            XCTAssertEqual(textNode.resolvedFrame.size, textNode.intrinsicContentSize())
+        }
+    }
+
+    func testFixedFramesProposeTheirSizeToFlexibleShapes() async {
+        await MainActor.run {
+            struct FrameTestShape: Shape {
+                func path(in rect: Rect) -> Path {
+                    var path = Path()
+                    path.addRect(rect)
+                    return path
+                }
+            }
+            let rectangle = renderedNode(Rectangle().frame(width: 120, height: 40))
+            let capsule = renderedNode(Capsule().frame(width: 120, height: 40))
+            let arc = renderedNode(
+                Arc(startAngle: .zero, endAngle: .degrees(180), clockwise: false)
+                    .frame(width: 120, height: 40)
+            )
+            let trimmedShape = renderedNode(Rectangle().trim(from: 0, to: 0.5).frame(width: 120, height: 40))
+            let customShape = renderedNode(FrameTestShape().frame(width: 120, height: 40))
+
+            for node in [rectangle, capsule, arc, trimmedShape, customShape] {
+                let shape = node.children[0]
+                XCTAssertEqual(node.resolvedFrame.size, Size(width: 120, height: 40))
+                XCTAssertNil(shape.preferredSize)
+                XCTAssertEqual(shape.resolvedFrame, Rect(x: 0, y: 0, width: 120, height: 40))
+            }
+            XCTAssertEqual(capsule.children[0].cornerRadius, 20)
+        }
+    }
+
     func testFrameConstraintOverloadMapsToRetainedLayoutConstraints() async {
         await MainActor.run {
             let constrainedNode = makeNode(
@@ -4991,15 +5145,34 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             XCTAssertEqual(fullNode.preferredSize, Size(width: 320, height: 180))
-            XCTAssertEqual(fullNode.children[0].preferredSize, Size(width: 320, height: 180))
+            XCTAssertNil(fullNode.children[0].preferredSize)
             guard case .stack(let fullLayout) = fullNode.layoutMode else {
                 return XCTFail("Expected containerRelativeFrame to wrap content in a stack layout")
             }
             XCTAssertEqual(fullLayout, .vertical(padding: .zero, alignment: .trailing, mainAlignment: .end))
 
             XCTAssertEqual(transformedNode.preferredSize, Size(width: 100, height: 80))
-            XCTAssertEqual(transformedNode.children[0].preferredSize, Size(width: 100, height: 80))
+            XCTAssertNil(transformedNode.children[0].preferredSize)
             XCTAssertEqual(countedNode.preferredSize, Size(width: 196, height: 76))
+        }
+    }
+
+    func testContainerRelativeFrameAlignsIntrinsicText() async {
+        await MainActor.run {
+            let node = renderedNode(
+                Text("FULL")
+                    .containerRelativeFrame([.horizontal, .vertical], alignment: .bottomTrailing),
+                size: Size(width: 320, height: 180)
+            )
+            let textNode = node.children[0]
+            let intrinsicSize = textNode.intrinsicContentSize()
+
+            XCTAssertEqual(node.resolvedFrame.size, Size(width: 320, height: 180))
+            XCTAssertLessThan(intrinsicSize.width, 320)
+            XCTAssertLessThan(intrinsicSize.height, 180)
+            XCTAssertEqual(textNode.resolvedFrame.size, intrinsicSize)
+            XCTAssertEqual(textNode.resolvedFrame.maxX, 320, accuracy: 0.001)
+            XCTAssertEqual(textNode.resolvedFrame.maxY, 180, accuracy: 0.001)
         }
     }
 

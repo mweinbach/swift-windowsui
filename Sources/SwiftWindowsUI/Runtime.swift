@@ -1398,6 +1398,31 @@ struct MeasurementPlan {
     var measuresChildrenIndividually = false
 }
 
+/// A single synchronous measurement can propose several widths to a subtree.
+/// Dirty nodes cannot use their previous frame's cache yet, so retain these
+/// answers only for this walk to avoid repeating an entire nested row for
+/// every proposal. The memo owns no nodes and is discarded when the walk ends.
+@MainActor
+private final class MeasurementMemo {
+    struct Key: Hashable {
+        var node: ObjectIdentifier
+        var measurement: ViewMeasureCacheKey
+        var depth: Int
+
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(node)
+            hasher.combine(measurement.constraints.minWidth)
+            hasher.combine(measurement.constraints.maxWidth)
+            hasher.combine(measurement.constraints.minHeight)
+            hasher.combine(measurement.constraints.maxHeight)
+            hasher.combine(measurement.displayScale)
+            hasher.combine(depth)
+        }
+    }
+
+    var sizes: [Key: Size] = [:]
+}
+
 /// How far along the track a stack has placed, and the widest child so far.
 /// Carried as one value because the placement loop is the frame the layout
 /// recursion descends from, and it is kept deliberately narrow.
@@ -4664,7 +4689,7 @@ public final class ViewNode {
         let contentRect = Rect(origin: .zero, size: resolvedFrame.size).inset(by: stackLayout.padding)
         let visibleChildren = children.filter { !$0.isHidden }
         let childConstraints = stackChildConstraints(for: contentRect.size, axis: stackLayout.axis)
-        let desiredSizes = visibleChildren.map { $0.sizeThatFits(in: childConstraints) }
+        var desiredSizes = visibleChildren.map { $0.sizeThatFits(in: childConstraints) }
         let desiredMainSizes = desiredSizes.map { size in
             stackLayout.axis == .vertical ? size.height : size.width
         }
@@ -4674,101 +4699,26 @@ public final class ViewNode {
         let availableChildMainExtent = max(0, availableMainExtent - spacingTotal)
         let allowsOverflowAlongMainAxis = scrollAxis == stackScrollAxis(for: stackLayout.axis)
 
-        // Shrink floors keep text-bearing content readable under
-        // pressure: a squeezed stack compresses padding, spacers, and
-        // flexible siblings before it crushes a label below its
-        // measured main-axis size (see stackShrinkFloorMainExtent).
-        // Computed only when a squeeze actually occurs. A floor
-        // protects a child from sibling pressure, never from a
-        // container that is smaller than the child alone, so each
-        // floor is capped at this node's full main extent (full, not
-        // the content box: floors may extend into padding — that is
-        // how padding compresses before text).
-        var shrinkFloors: [Double] = []
-        if !allowsOverflowAlongMainAxis,
-            stackLayout.distribution != .fillEqually,
-            desiredMainSizes.reduce(0, +) > availableChildMainExtent
-        {
-            let floorCap =
-                stackLayout.axis == .vertical
-                ? resolvedFrame.size.height : resolvedFrame.size.width
-            shrinkFloors = visibleChildren.map {
-                min(
-                    $0.stackShrinkFloorMainExtent(along: stackLayout.axis, constraints: childConstraints),
-                    floorCap
-                )
-            }
-        }
+        let allocatedMainSizes = allocatedStackMainSizes(
+            for: stackLayout,
+            desiredMainSizes: desiredMainSizes,
+            children: visibleChildren,
+            childConstraints: childConstraints,
+            fullMainExtent: stackLayout.axis == .vertical ? resolvedFrame.height : resolvedFrame.width,
+            availableChildMainExtent: availableChildMainExtent,
+            allowsOverflowAlongMainAxis: allowsOverflowAlongMainAxis)
 
-        // Allocate main sizes with flex support
-        var allocatedMainSizes: [Double]
-        if allowsOverflowAlongMainAxis {
-            allocatedMainSizes = desiredMainSizes
-        } else if stackLayout.distribution == .fillEqually, !visibleChildren.isEmpty {
-            // Equality wins over content pressure: every child gets the
-            // same share of the track, shrink floors and flex do not
-            // apply. An unconstrained track falls back to the widest
-            // desired extent so intrinsic measurement stays equal too.
-            let share =
-                availableChildMainExtent.isFinite
-                ? max(0, availableChildMainExtent / Double(visibleChildren.count))
-                : (desiredMainSizes.max() ?? 0)
-            allocatedMainSizes = [Double](repeating: share, count: visibleChildren.count)
-        } else {
-            allocatedMainSizes = allocateMainSizes(
-                desiredSizes: desiredMainSizes,
-                children: visibleChildren,
-                axis: stackLayout.axis,
-                availableExtent: availableChildMainExtent,
-                shrinkFloors: shrinkFloors
-            )
-        }
-
-        // Apply flex grow/shrink
-        if !allowsOverflowAlongMainAxis, stackLayout.distribution != .fillEqually,
-            !visibleChildren.isEmpty
-        {
-            let allocatedTotal = allocatedMainSizes.reduce(0, +)
-            let remaining = availableChildMainExtent - allocatedTotal
-
-            if remaining > 0 {
-                // Distribute remaining space to items with flexGrow > 0
-                let totalGrow = visibleChildren.reduce(0.0) { $0 + $1.flexItem.grow }
-                if totalGrow > 0 {
-                    var leftover = remaining
-                    for (i, child) in visibleChildren.enumerated() {
-                        guard child.flexItem.grow > 0 else { continue }
-                        let share: Double
-                        if i == visibleChildren.count - 1 {
-                            share = leftover
-                        } else {
-                            share = remaining * (child.flexItem.grow / totalGrow)
-                            leftover -= share
-                        }
-                        allocatedMainSizes[i] += share
-                    }
-                }
-            } else if remaining < 0 {
-                // Shrink items with flexShrink > 0, still honoring the
-                // shrink floors so text is never crushed below its
-                // measured main-axis size.
-                let deficit = -remaining
-                let totalShrink = visibleChildren.reduce(0.0) { $0 + $1.flexItem.shrink }
-                if totalShrink > 0 {
-                    var leftover = deficit
-                    for (i, child) in visibleChildren.enumerated() {
-                        guard child.flexItem.shrink > 0 else { continue }
-                        let share: Double
-                        if i == visibleChildren.count - 1 {
-                            share = leftover
-                        } else {
-                            share = deficit * (child.flexItem.shrink / totalShrink)
-                            leftover -= share
-                        }
-                        allocatedMainSizes[i] = max(
-                            shrinkFloors.isEmpty ? 0 : shrinkFloors[i], allocatedMainSizes[i] - share)
-                    }
-                }
+        if stackLayout.axis == .horizontal {
+            for index in visibleChildren.indices
+            where allocatedMainSizes[index] != desiredSizes[index].width
+                && visibleChildren[index].needsMeasurement(
+                    atStackWidth: allocatedMainSizes[index], originalConstraints: childConstraints)
+            {
+                desiredSizes[index].height =
+                    visibleChildren[index].sizeThatFits(
+                        in: LayoutConstraints(
+                            maxWidth: allocatedMainSizes[index], maxHeight: childConstraints.maxHeight)
+                    ).height
             }
         }
 
@@ -4834,6 +4784,88 @@ public final class ViewNode {
             mainCursorStart: mainCursor,
             allowsOverflowAlongMainAxis: allowsOverflowAlongMainAxis
         )
+    }
+
+    /// Measurement and placement must allocate the same widths before asking
+    /// children for their heights. Keep floors, equal shares, and flex rules in
+    /// one place so a wrapping row cannot measure one width and paint another.
+    @inline(never)
+    private func allocatedStackMainSizes(
+        for stackLayout: StackLayout,
+        desiredMainSizes: [Double],
+        children visibleChildren: [ViewNode],
+        childConstraints: LayoutConstraints,
+        fullMainExtent: Double,
+        availableChildMainExtent: Double,
+        allowsOverflowAlongMainAxis: Bool
+    ) -> [Double] {
+        if allowsOverflowAlongMainAxis { return desiredMainSizes }
+
+        if stackLayout.distribution == .fillEqually, !visibleChildren.isEmpty {
+            let share =
+                availableChildMainExtent.isFinite
+                ? max(0, availableChildMainExtent / Double(visibleChildren.count))
+                : (desiredMainSizes.max() ?? 0)
+            return [Double](repeating: share, count: visibleChildren.count)
+        }
+
+        // A floor protects text from siblings, not from a container smaller
+        // than the child alone. The full extent includes padding, which can
+        // compress before text loses any of its measured height.
+        var shrinkFloors: [Double] = []
+        if desiredMainSizes.reduce(0, +) > availableChildMainExtent {
+            shrinkFloors = visibleChildren.map {
+                min(
+                    $0.stackShrinkFloorMainExtent(along: stackLayout.axis, constraints: childConstraints),
+                    fullMainExtent)
+            }
+        }
+
+        var allocatedMainSizes = allocateMainSizes(
+            desiredSizes: desiredMainSizes,
+            children: visibleChildren,
+            axis: stackLayout.axis,
+            availableExtent: availableChildMainExtent,
+            shrinkFloors: shrinkFloors)
+
+        let remaining = availableChildMainExtent - allocatedMainSizes.reduce(0, +)
+        if remaining > 0 {
+            let totalGrow = visibleChildren.reduce(0.0) { $0 + $1.flexItem.grow }
+            if totalGrow > 0 {
+                var leftover = remaining
+                for (i, child) in visibleChildren.enumerated() {
+                    guard child.flexItem.grow > 0 else { continue }
+                    let share: Double
+                    if i == visibleChildren.count - 1 {
+                        share = leftover
+                    } else {
+                        share = remaining * (child.flexItem.grow / totalGrow)
+                        leftover -= share
+                    }
+                    allocatedMainSizes[i] += share
+                }
+            }
+        } else if remaining < 0 {
+            let deficit = -remaining
+            let totalShrink = visibleChildren.reduce(0.0) { $0 + $1.flexItem.shrink }
+            if totalShrink > 0 {
+                var leftover = deficit
+                for (i, child) in visibleChildren.enumerated() {
+                    guard child.flexItem.shrink > 0 else { continue }
+                    let share: Double
+                    if i == visibleChildren.count - 1 {
+                        share = leftover
+                    } else {
+                        share = deficit * (child.flexItem.shrink / totalShrink)
+                        leftover -= share
+                    }
+                    allocatedMainSizes[i] = max(
+                        shrinkFloors.isEmpty ? 0 : shrinkFloors[i], allocatedMainSizes[i] - share)
+                }
+            }
+        }
+
+        return allocatedMainSizes
     }
 
     /// Where one child of a stack goes, and how much of the cross axis it
@@ -6730,11 +6762,15 @@ public final class ViewNode {
     /// what matter here — `TraversalStackHeadroomTests` measures the result at
     /// `maximumTraversalDepth`.
     fileprivate func sizeThatFits(in constraints: LayoutConstraints) -> Size {
+        sizeThatFits(in: constraints, memo: MeasurementMemo())
+    }
+
+    private func sizeThatFits(in constraints: LayoutConstraints, memo: MeasurementMemo) -> Size {
         guard ViewNode.enterTraversal() else { return .zero }
         defer { ViewNode.leaveTraversal() }
 
         var plan = MeasurementPlan()
-        if let cached = beginMeasurement(constraints, into: &plan) {
+        if let cached = beginMeasurement(constraints, into: &plan, memo: memo) {
             return cached
         }
 
@@ -6744,11 +6780,79 @@ public final class ViewNode {
             childSizes.append(
                 child.sizeThatFits(
                     in: plan.measuresChildrenIndividually
-                        ? absoluteChildConstraints(for: child, in: plan.effectiveConstraints)
-                        : plan.childConstraints))
+                        ? absoluteChildConstraints(for: child, in: plan.childConstraints)
+                        : plan.childConstraints,
+                    memo: memo))
         }
 
-        return finishMeasurement(plan: plan, childSizes: childSizes)
+        // Children have now resolved inherited greed, so a row containing a
+        // Spacer can accept its proposal before widths are allocated.
+        updateInheritedStackFillAxes()
+        if let widths = horizontalStackMeasurementWidths(
+            childSizes: childSizes,
+            constraints: plan.effectiveConstraints,
+            childConstraints: plan.childConstraints)
+        {
+            var index = 0
+            for child in children where !child.isHidden {
+                if widths[index] != childSizes[index].width,
+                    child.needsMeasurement(atStackWidth: widths[index], originalConstraints: plan.childConstraints)
+                {
+                    childSizes[index].height =
+                        child.sizeThatFits(
+                            in: LayoutConstraints(maxWidth: widths[index], maxHeight: plan.childConstraints.maxHeight),
+                            memo: memo
+                        ).height
+                }
+                // Keep the allocated width, not the longest wrapped line's
+                // slightly smaller advance: narrowing the row again here can
+                // cause another line break when it is finally placed.
+                childSizes[index].width = widths[index]
+                index += 1
+            }
+        }
+
+        return finishMeasurement(plan: plan, childSizes: childSizes, memo: memo)
+    }
+
+    @inline(never)
+    private func horizontalStackMeasurementWidths(
+        childSizes: [Size],
+        constraints: LayoutConstraints,
+        childConstraints: LayoutConstraints
+    ) -> [Double]? {
+        guard let stackLayout = layoutMode.stackLayout, stackLayout.axis == .horizontal,
+            scrollAxis != .horizontal, contentMeasurementConstraints(in: constraints).maxWidth.isFinite
+        else { return nil }
+
+        let measuredSize = Self.stackMeasuredSize(of: childSizes, stackLayout: stackLayout)
+        let width = applyingExplicitDimensions(to: measuredSize, constraints: constraints).width
+        let availableExtent = max(
+            0,
+            width - stackMainPadding(for: stackLayout)
+                - stackLayoutSpacingTotal(count: childSizes.count, spacing: stackLayout.spacing))
+        let desiredWidths = childSizes.map(\.width)
+        let widths = allocatedStackMainSizes(
+            for: stackLayout,
+            desiredMainSizes: desiredWidths,
+            children: children.filter { !$0.isHidden },
+            childConstraints: childConstraints,
+            fullMainExtent: width,
+            availableChildMainExtent: availableExtent,
+            allowsOverflowAlongMainAxis: false)
+        return widths == desiredWidths ? nil : widths
+    }
+
+    /// A larger allocated frame does not necessarily change a child's content
+    /// proposal: an explicitly sized or fixed-size child can keep its own
+    /// width. Avoid recursively measuring that unchanged subtree again at
+    /// every enclosing horizontal stack.
+    private func needsMeasurement(atStackWidth width: Double, originalConstraints: LayoutConstraints) -> Bool {
+        let original = contentMeasurementConstraints(in: applyingLayoutConstraints(to: originalConstraints))
+        let proposed = contentMeasurementConstraints(
+            in: applyingLayoutConstraints(
+                to: LayoutConstraints(maxWidth: width, maxHeight: originalConstraints.maxHeight)))
+        return original.maxWidth != proposed.maxWidth
     }
 
     /// The cache probe and everything a node can decide before it measures a
@@ -6757,7 +6861,8 @@ public final class ViewNode {
     @inline(never)
     private func beginMeasurement(
         _ constraints: LayoutConstraints,
-        into plan: inout MeasurementPlan
+        into plan: inout MeasurementPlan,
+        memo: MeasurementMemo
     ) -> Size? {
         let displayScale = runtime?.displayScale ?? 1.0
         let effectiveConstraints = applyingLayoutConstraints(to: constraints)
@@ -6767,19 +6872,29 @@ public final class ViewNode {
             runtime?.recordMeasureReuse()
             return cachedMeasuredSize
         }
+        let memoKey = MeasurementMemo.Key(
+            node: ObjectIdentifier(self), measurement: cacheKey, depth: ViewNode.traversalDepth)
+        if let measuredSize = memo.sizes[memoKey] {
+            cachedMeasureKey = cacheKey
+            cachedMeasuredSize = measuredSize
+            runtime?.recordMeasureReuse()
+            return measuredSize
+        }
 
+        let contentConstraints = contentMeasurementConstraints(in: effectiveConstraints)
         plan.effectiveConstraints = effectiveConstraints
         plan.cacheKey = cacheKey
-        plan.contentSize = bitmapContentSize() ?? textContentSize(in: effectiveConstraints) ?? .zero
+        plan.contentSize = bitmapContentSize() ?? textContentSize(in: contentConstraints) ?? .zero
 
         switch layoutMode {
         case .absolute:
             // Every child gets what is left of the container from its own
             // origin, so this is the one mode whose proposal is per child.
+            plan.childConstraints = contentConstraints
             plan.measuresChildrenIndividually = true
         case .stack(let stackLayout), .lazyStack(let stackLayout):
             plan.childConstraints = stackChildConstraints(
-                for: insetConstraints(effectiveConstraints, by: stackLayout.padding),
+                for: insetConstraints(contentConstraints, by: stackLayout.padding),
                 axis: stackLayout.axis)
         case .flex:
             plan.childConstraints = .unconstrained
@@ -6801,12 +6916,7 @@ public final class ViewNode {
     /// Folds the children's measured sizes into this node's own size, applies
     /// its explicit dimensions, and caches the answer.
     @inline(never)
-    private func finishMeasurement(plan: MeasurementPlan, childSizes: [Size]) -> Size {
-        // Before this node answers for itself: the children have measured, so
-        // their own inherited greed is this pass's, and folding it in here is
-        // what carries a `Spacer` up out of the row it sits in.
-        updateInheritedStackFillAxes()
-
+    private func finishMeasurement(plan: MeasurementPlan, childSizes: [Size], memo: MeasurementMemo) -> Size {
         let measuredSize: Size
         switch layoutMode {
         case .absolute:
@@ -6821,6 +6931,10 @@ public final class ViewNode {
             to: measuredSize, constraints: plan.effectiveConstraints)
         cachedMeasureKey = plan.cacheKey
         cachedMeasuredSize = resolvedSize
+        memo.sizes[
+            MeasurementMemo.Key(
+                node: ObjectIdentifier(self), measurement: plan.cacheKey, depth: ViewNode.traversalDepth)
+        ] = resolvedSize
         return resolvedSize
     }
 
@@ -6918,6 +7032,35 @@ public final class ViewNode {
         }
 
         return Size(width: Double(bitmapSurface.width), height: Double(bitmapSurface.height))
+    }
+
+    /// Measure content at the width it will actually receive. Applying a
+    /// preferred width only after measurement gives a narrow paragraph the
+    /// height of the wider proposal, so its last lines collide with the next
+    /// row. Keep these content proposals separate from the node's sizing
+    /// constraints: an explicit fill axis may still accept the full proposal.
+    private func contentMeasurementConstraints(in constraints: LayoutConstraints) -> LayoutConstraints {
+        let width: Double
+        if let explicitWidth,
+            !(frame.size.width <= 0 && layoutFillAxes.horizontal && constraints.maxWidth.isFinite)
+        {
+            width = clampedExtent(explicitWidth, min: constraints.minWidth, max: constraints.maxWidth)
+        } else {
+            width = constraints.maxWidth
+        }
+
+        let height: Double
+        if let explicitHeight,
+            !(frame.size.height <= 0 && layoutFillAxes.vertical && constraints.maxHeight.isFinite)
+        {
+            height = clampedExtent(explicitHeight, min: constraints.minHeight, max: constraints.maxHeight)
+        } else {
+            height = constraints.maxHeight
+        }
+
+        return LayoutConstraints(
+            minWidth: constraints.minWidth, maxWidth: width,
+            minHeight: constraints.minHeight, maxHeight: height)
     }
 
     private func applyingExplicitDimensions(to size: Size, constraints: LayoutConstraints) -> Size {
@@ -7262,8 +7405,8 @@ public final class ViewNode {
     /// preserves the previous shrink behavior for them. Two escape
     /// hatches keep pinned control chrome contained: a `clipsToBounds`
     /// container absorbs squeeze instead of propagating a floor, and
-    /// explicit single-line text takes no width floor because truncation
-    /// is its degrade path.
+    /// text that can wrap or explicitly truncate takes no width floor. Its
+    /// measured height still protects every line after width allocation.
     fileprivate func stackShrinkFloorMainExtent(
         along axis: StackAxis,
         constraints: LayoutConstraints
@@ -7290,12 +7433,20 @@ public final class ViewNode {
             return 0
         }
 
+        // fixedSize can live on a padding/container wrapper rather than on
+        // the text itself. It ends width negotiation for the whole subtree.
+        if axis == .horizontal, fixedSizeAxes?.horizontal == true {
+            return max(declaredMinimum, sizeThatFits(in: constraints).width)
+        }
+
         if let text, !text.isEmpty {
-            // Explicit single-line text opted into truncation as its
-            // degrade path: an over-long label shows an ellipsis instead
-            // of resisting the squeeze, so it takes no width floor. The
-            // vertical floor (line height) still applies.
-            if axis == .horizontal, textStyle.maximumNumberOfLines == 1 {
+            // Wrapping text accepts a narrower width and asks for more
+            // height; explicit single-line text can truncate. Neither should
+            // force a row past its trailing edge just to retain an ideal
+            // width. Their vertical floors still preserve the measured lines.
+            if axis == .horizontal,
+                textStyle.maximumNumberOfLines == 1 || textStyle.lineBreakMode == .wrap
+            {
                 return declaredMinimum
             }
             let measured = sizeThatFits(in: constraints)
@@ -7311,12 +7462,26 @@ public final class ViewNode {
             return declaredMinimum
         }
 
+        let effectiveConstraints = applyingLayoutConstraints(to: constraints)
         let contentConstraints = insetConstraints(
-            applyingLayoutConstraints(to: constraints), by: stackLayout.padding)
+            contentMeasurementConstraints(in: effectiveConstraints), by: stackLayout.padding)
         let childConstraints = stackChildConstraints(for: contentConstraints, axis: stackLayout.axis)
         let visibleChildren = children.filter { !$0.isHidden }
-        let childFloors = visibleChildren.map {
-            $0.stackShrinkFloorMainExtent(along: axis, constraints: childConstraints)
+        let allocatedWidths: [Double]?
+        if axis == .vertical, stackLayout.axis == .horizontal, contentConstraints.maxWidth.isFinite {
+            let childSizes = visibleChildren.map { $0.sizeThatFits(in: childConstraints) }
+            updateInheritedStackFillAxes()
+            allocatedWidths = horizontalStackMeasurementWidths(
+                childSizes: childSizes, constraints: effectiveConstraints, childConstraints: childConstraints)
+        } else {
+            allocatedWidths = nil
+        }
+        let childFloors = visibleChildren.enumerated().map { index, child in
+            child.stackShrinkFloorMainExtent(
+                along: axis,
+                constraints: allocatedWidths.map {
+                    LayoutConstraints(maxWidth: $0[index], maxHeight: childConstraints.maxHeight)
+                } ?? childConstraints)
         }
 
         let combinedFloor: Double
@@ -7360,13 +7525,18 @@ public final class ViewNode {
     /// Applies a wheel impulse to scrollOffset and returns the signed offset
     /// change that was actually applied (0 when no movement happened).
     fileprivate func applyMouseWheelDelta(_ delta: Double) -> Double {
-        guard isScrollable else {
+        guard isScrollable, delta.isFinite, scrollStep.isFinite, scrollStep > 0 else {
             return 0
         }
 
-        let previousOffset = scrollOffset
-        let nextOffset = clampedScrollOffset(for: scrollOffset - delta * scrollStep)
+        let previousOffset = clampedScrollOffset(for: scrollOffset)
+        let proposedOffset = previousOffset - delta * scrollStep
+        guard proposedOffset.isFinite else { return 0 }
+        let nextOffset = clampedScrollOffset(for: proposedOffset)
         guard nextOffset != previousOffset else {
+            if scrollOffset != nextOffset {
+                scrollOffset = nextOffset
+            }
             return 0
         }
 
@@ -7384,11 +7554,12 @@ public final class ViewNode {
     /// Must be read *before* `applyMouseWheelDelta`, which moves the offset out
     /// from under it.
     fileprivate func refusedMouseWheelDelta(_ delta: Double) -> Double {
-        guard isScrollable, maxScrollOffset > 0 else {
+        guard isScrollable, maxScrollOffset > 0, delta.isFinite, scrollStep.isFinite, scrollStep > 0 else {
             return 0
         }
 
-        let proposedOffset = scrollOffset - delta * scrollStep
+        let proposedOffset = clampedScrollOffset(for: scrollOffset) - delta * scrollStep
+        guard proposedOffset.isFinite else { return 0 }
         return proposedOffset - clampedScrollOffset(for: proposedOffset)
     }
 

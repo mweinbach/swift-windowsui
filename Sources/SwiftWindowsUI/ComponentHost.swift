@@ -405,9 +405,11 @@ public final class ComponentHost {
     /// which node the new build corresponds to. `RetainedViewRuntime` uses it
     /// to re-seat a `GeometryReader` body on its resolved slot.
     static func adopt(source: ViewNode, into target: ViewNode) {
+        target.invalidateRenderLifecycleCandidates()
+        revokeDepartingTextInputOwnership(source: source, target: target)
         withReconcileAnimationTransaction(source: source, previous: target) {
             updateNodeProperties(target: target, source: source)
-            reconcileChildren(of: target, oldChildren: target.children, newNodes: source.children)
+            reconcilePreparedChildren(of: target, oldChildren: target.children, newNodes: source.children)
         }
     }
 
@@ -473,6 +475,15 @@ public final class ComponentHost {
     /// runtime-owned focus, scroll state, and animations. Raw retained trees
     /// without typed identities keep their existing matching behavior.
     static func reconcileChildren(of parent: ViewNode, oldChildren: [ViewNode], newNodes: [ViewNode]) {
+        parent.invalidateRenderLifecycleCandidates()
+        // Mark every departure before any branch starts its callbacks. A
+        // callback in an earlier branch can otherwise replay a later editor
+        // that will leave in the same adoption but still reaches the root.
+        revokeDepartingTextInputOwnership(oldChildren: oldChildren, newNodes: newNodes)
+        reconcilePreparedChildren(of: parent, oldChildren: oldChildren, newNodes: newNodes)
+    }
+
+    private static func matchingChildren(oldChildren: [ViewNode], newNodes: [ViewNode]) -> [ViewNode?] {
         var matches = [ViewNode?](repeating: nil, count: newNodes.count)
         var isClaimed = [Bool](repeating: false, count: oldChildren.count)
 
@@ -526,6 +537,34 @@ public final class ComponentHost {
             }
         }
 
+        return matches
+    }
+
+    private static func revokeDepartingTextInputOwnership(source: ViewNode, target: ViewNode) {
+        if let controller = source.textInputController {
+            controller.prepareForReconciliation(from: target.textInputController, onto: target)
+        } else {
+            target.textInputController?.revokeOwnership(from: target)
+        }
+        revokeDepartingTextInputOwnership(oldChildren: target.children, newNodes: source.children)
+    }
+
+    private static func revokeDepartingTextInputOwnership(oldChildren: [ViewNode], newNodes: [ViewNode]) {
+        let matches = matchingChildren(oldChildren: oldChildren, newNodes: newNodes)
+        let survivors = Set(matches.compactMap { $0 }.map(ObjectIdentifier.init))
+        for oldNode in oldChildren where !survivors.contains(ObjectIdentifier(oldNode)) {
+            oldNode.revokeTextInputOwnership()
+        }
+        for (index, newNode) in newNodes.enumerated() {
+            if let oldNode = matches[index] {
+                revokeDepartingTextInputOwnership(source: newNode, target: oldNode)
+            }
+        }
+    }
+
+    private static func reconcilePreparedChildren(of parent: ViewNode, oldChildren: [ViewNode], newNodes: [ViewNode]) {
+        let matches = matchingChildren(oldChildren: oldChildren, newNodes: newNodes)
+
         var nextChildren: [ViewNode] = []
         nextChildren.reserveCapacity(newNodes.count)
         for (newIndex, newNode) in newNodes.enumerated() {
@@ -536,7 +575,7 @@ public final class ComponentHost {
             }
             withReconcileAnimationTransaction(source: newNode, previous: oldNode) {
                 updateNodeProperties(target: oldNode, source: newNode)
-                reconcileChildren(of: oldNode, oldChildren: oldNode.children, newNodes: newNode.children)
+                reconcilePreparedChildren(of: oldNode, oldChildren: oldNode.children, newNodes: newNode.children)
             }
             nextChildren.append(oldNode)
         }
@@ -1529,10 +1568,12 @@ public final class ComponentHost {
             target.phaseAnimatorState = source.phaseAnimatorState
         }
 
-        if target.hasAppeared {
+        if target.hasAppeared, !target.hasPendingAppearanceCallbacks {
             for launch in source.pendingLifecycleTaskLaunches {
                 target.launchLifecycleTask(launch)
             }
+        } else {
+            target.pendingLifecycleTaskLaunches = source.pendingLifecycleTaskLaunches
         }
 
         target.onUpdatePlatformView?(target)

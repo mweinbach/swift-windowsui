@@ -257,8 +257,13 @@ The GUI demo was also launched with a short `swift run swift-windowsui` startup 
 ## Documentation
 
 Additional framework notes live in [`docs/WinSwiftUI.md`](docs/WinSwiftUI.md).
+Ordinary mounted `@State` ownership, dynamic-property installation, and their
+current toolchain and lifetime limits are in
+[`docs/MountedState.md`](docs/MountedState.md).
 The fixed desktop SDK audit baseline and capture procedure live in
-[`docs/SwiftUIBaseline.md`](docs/SwiftUIBaseline.md). The current application
+[`docs/SwiftUIBaseline.md`](docs/SwiftUIBaseline.md). The API audit ledger
+format and its unreviewed evidence limits are in
+[`docs/SwiftUIAPIAudit.md`](docs/SwiftUIAPIAudit.md). The current application
 templates, persistence adapters, and remaining catalog requirements are in
 [`docs/TemplateCatalog.md`](docs/TemplateCatalog.md).
 Testing and visual-check commands live in [`docs/Testing.md`](docs/Testing.md).

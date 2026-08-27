@@ -53,12 +53,32 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
 - Do not run multiple SwiftPM test/build commands against this checkout in parallel; they share `.build/build.db`.
 - Use `async` test methods in `@MainActor` XCTest classes. With the current Windows toolchain, synchronous actor-isolated methods can compile but crash SwiftPM's test discovery when it casts them to nonisolated callbacks, before a filter executes. A standalone XCTest entrypoint does not validate that discovery path.
 - Quick includes `RetainedViewIdentityTests`, `WinSwiftUIStructuralIdentityTests`, and `ViewIdentityRoleTests` for typed keys, structural branches and slots, erased fragments, and auxiliary builder roles. These check retained-node identity, not mounted `State` or `StateObject` storage.
-- `UndoManagerTests`, `TextInputUndoTests`, `TextInputUndoSessionTests`, and
+- Quick separately includes `DynamicPropertyInstallationTests`,
+  `StateMountRegistryTests`, `RetainedBuildLifecycleTests`, the seven
+  `MountedState`/`MountedOutlineGroup` suites, and
+  `EditorStateOwnershipTeardownTests`. They cover ordinary mounted State,
+  candidate adoption, deferred GeometryReader scope, retired binding guards,
+  queued transactions, and accounting. They do not qualify StateObject or
+  general native SwiftUI lifetime. See [MountedState.md](MountedState.md).
+- Sharded `-Filter` target selection uses class-name substring/wildcard
+  matching before it builds XCTest filters. Pass explicit class names joined
+  by `|`; do not assume a regular expression such as `MountedState.*Tests`
+  selects every intended source class. Check the reported targets and case
+  counts, including accidental suffix matches such as `GeometryTests`.
+- `UndoManagerTests`, `TextInputUndoTests`, `TextInputUndoSessionTests`,
+  `TextInputConstructionLifetimeTests`, `TextSelectionIndexSafetyTests`, and
   `SheetContentIdentityTests` gate Quick, covering target/replay lifetime,
   automatic editor history, and background editor identity through Boolean and
-  item sheet presentation. `WinSwiftUIBitmapStretchTests` covers ordinary bitmap
+  item sheet presentation, fresh versus retired editor adoption, and safe
+  selection handling after the bound text changes. `WinSwiftUIBitmapStretchTests` covers ordinary bitmap
   stretch through layout, CPU scene/frame output, and D3D11. Full includes them all.
 - Quick and Full run the material diagnostic classifier's synthetic self-tests through `macos-reference-renderer`. These do not render native material on Windows or replace macOS capture, reviewed comparisons, or the unresolved material-backdrop regression.
+- Quick and Full also run the API audit intake, ledger, and default bounded
+  memory fixtures. The pinned macOS capture workflow runs the same three
+  scripts before export. These synthetic tests preserve full record scope,
+  hashes, rejected inputs, and publication boundaries; they do not establish
+  a successful native capture or any API conformance. The opt-in large fixture
+  remains separate. See [SwiftUIAPIAudit.md](SwiftUIAPIAudit.md).
 - Quick and Full also run `test-swiftui-material-reference.ps1` for bounded
   metadata, source/tool identity, artifact hashes, and consistent control
   classifications. These synthetic fixtures do not decode native material
@@ -85,6 +105,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   genuine handle-free surfaces, truthful backend capabilities, safe software
   fallback, and equivalent scene/frame output without importing a concrete GPU
   backend.
+- `RenderLifecycleDeliveryTests` and `SceneLifecycleHostTests` exercise scene-only
+  appearance, removal and task cancellation, raw snapshots, shared frame/scene
+  lifetimes, visibility and deferred paint, callback-driven rebuilds, retained
+  dirty flags, active-build deferral, close before backend submission, and active
+  task cancellation after State/editor revocation during close and host release.
+  Task cases cover latest deferred declarations, duplicate-key suppression,
+  ordinary node reinsertion, and rejected launches from close cancellation.
+  The batch host cases do not prime lifecycle by rendering a fallback frame first.
+- `ViewSnapshotTaskLifetimeTests` checks cooperative cancellation and payload
+  release for the two bitmap-only snapshot helpers, including actual renderer
+  failures. Borrowed runtimes and the runtime returned by the SwiftUI snapshotter
+  stay caller-owned and active until caller cleanup. It runs in Quick with the
+  lifecycle suites and existing `ViewSnapshotTests`.
 - `BackendCompositionContractTests`, `WindowCoordinatorTests`,
   `RenderBackendAvailabilityTests`, and `SoftwarePresentationTests` verify that
   real app composition uses independently injectable platform and renderer
@@ -151,6 +184,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   `UndoManagerTests` alongside both. See [TextInputUndo.md](TextInputUndo.md)
   for the one-edit policy and identity/native-parity limits. These suites do
   not establish typing groups or a document save/dirty workflow.
+- `EditorStateOwnershipTeardownTests` combines mounted State with plain and
+  mounted editor bindings. It checks ownership revocation before State/undo
+  payload release, departure callbacks, and host deinitialization while handles
+  survive, plus Unicode/IME replay, keyed editor membership, and current bindings
+  after queued rebuilds. Run it with the mounted-State and text-input suites.
 - `Win32WindowCloseRequestTests`, `WindowDismissBehaviorTests`, and
   `PlatformHostContractTests` cover close preflight, concrete and neutral vetoes,
   the current retained policy, reentrant decisions, handle lifetime, and

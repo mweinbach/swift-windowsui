@@ -77,8 +77,24 @@ Invoke-Step "checkout metadata fixtures" {
     & (Join-Path $PSScriptRoot "test-checkout-metadata.ps1")
 }
 
+Invoke-Step "lint explicit-path fixtures (synthetic only)" {
+    & (Join-Path $PSScriptRoot "test-lint-paths.ps1")
+}
+
 Invoke-Step "pinned SwiftUI baseline tooling fixtures" {
     & (Join-Path $PSScriptRoot "test-swiftui-baseline.ps1")
+}
+
+Invoke-Step "SwiftUI API audit capture intake fixtures (synthetic only)" {
+    & (Join-Path $PSScriptRoot "test-swiftui-api-audit-capture.ps1")
+}
+
+Invoke-Step "SwiftUI API audit ledger fixtures (synthetic only)" {
+    & (Join-Path $PSScriptRoot "test-swiftui-api-audit.ps1")
+}
+
+Invoke-Step "SwiftUI API audit bounded-memory fixtures (synthetic only)" {
+    & (Join-Path $PSScriptRoot "test-swiftui-api-audit-memory.ps1")
 }
 
 Invoke-Step "pinned material capture provenance fixtures (synthetic only)" {
@@ -269,7 +285,13 @@ if ($Full) {
         & $testScript -Sharded -Filter "RetainedViewIdentityTests|WinSwiftUIStructuralIdentityTests|ViewIdentityRoleTests"
     }
     Invoke-Step "undo ownership and bitmap stretch" {
-        & $testScript -Sharded -Filter "UndoManagerTests|TextInputUndoTests|TextInputUndoSessionTests|SheetContentIdentityTests|WinSwiftUIBitmapStretchTests"
+        & $testScript -Sharded -Filter "UndoManagerTests|TextInputUndoTests|TextInputUndoSessionTests|TextInputConstructionLifetimeTests|TextSelectionIndexSafetyTests|SheetContentIdentityTests|WinSwiftUIBitmapStretchTests"
+    }
+    Invoke-Step "mounted State ownership and editor teardown" {
+        & $testScript -Sharded -Filter "DynamicPropertyInstallationTests|StateMountRegistryTests|RetainedBuildLifecycleTests|MountedStateDeclarationTests|MountedStateDispatchTests|MountedStateEpochTests|MountedStateHostTimingTests|MountedStateLifecycleTests|MountedStateQueuedTransactionTests|MountedOutlineGroupStateTests|EditorStateOwnershipTeardownTests"
+    }
+    Invoke-Step "shared scene and frame lifecycle delivery" {
+        & $testScript -Sharded -Filter "RenderLifecycleDeliveryTests|SceneLifecycleHostTests|RuntimeRenderPassReentrancyTests|ViewSnapshotTaskLifetimeTests|ViewSnapshotTests"
     }
     Invoke-Step "asynchronous GPU timing diagnostics" {
         & $testScript -Sharded -Filter "D3D11GPUFrameTimingCollectorTests|D3D11GPUFrameTimingNativeTests|LiveGPUFrameTimingHostTests|LiveGPUFrameTimingReportTests"

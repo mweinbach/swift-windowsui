@@ -82,9 +82,7 @@ final class RuntimeRenderPassReentrancyTests: XCTestCase {
                 sibling.opacity = 0.5
             }
 
-            // The scene path fires no lifecycle closures itself, so drive the
-            // frame path once to get the closure to run mid-pass.
-            _ = runtime.renderFrame()
+            _ = runtime.renderScene()
 
             XCTAssertTrue(didReenter)
             XCTAssertTrue(

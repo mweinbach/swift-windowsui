@@ -13892,6 +13892,13 @@ private final class TextInputInteractionController: RetainedTextInputController,
         }
     }
 
+    func revokeOwnership(from node: ViewNode) {
+        // Reconciliation also moves fresh nodes out of their unattached
+        // construction parents. Only a live attachment owns history to revoke;
+        // attaching a previously retired controller never revives its session.
+        if isAttached, self.node === node { undoSession?.markInvalid() }
+    }
+
     func willDetach(from node: ViewNode) {
         if self.node === node { undoSession?.invalidate() }
     }
@@ -13915,11 +13922,24 @@ private final class TextInputInteractionController: RetainedTextInputController,
     func invalidateUndoDisplay() { current?.invalidate?() }
     func applyUndoText(_ text: String, selection: TextInputUndoSelection) { writeUndoText?(text, selection) }
 
+    private func transferableUndoSession(from previous: TextInputInteractionController?) -> TextInputUndoSession? {
+        guard !isSecure, readText != nil, let manager = configuredUndoManager,
+            let old = previous?.undoSession, old.isValid, old.manager === manager,
+            previous?.isSecure == isSecure, previous?.allowsNewlines == allowsNewlines
+        else { return nil }
+        return old
+    }
+
+    func prepareForReconciliation(from previous: (any RetainedTextInputController)?, onto node: ViewNode) {
+        guard let previous = previous as? TextInputInteractionController, previous.node === node else { return }
+        if transferableUndoSession(from: previous) == nil {
+            previous.revokeOwnership(from: node)
+        }
+    }
+
     func configureUndoSession(from previous: TextInputInteractionController? = nil) {
         if !isSecure, let manager = configuredUndoManager, let text = readText?() {
-            if let old = previous?.undoSession, old.isValid, old.manager === manager,
-                previous?.isSecure == isSecure, previous?.allowsNewlines == allowsNewlines
-            {
+            if let old = transferableUndoSession(from: previous) {
                 undoSession = old
             } else {
                 previous?.undoSession?.invalidate()
@@ -13969,10 +13989,13 @@ private final class TextInputInteractionController: RetainedTextInputController,
     }
 }
 
-/// Invalidate every closing session before releasing any history payload, then
-/// let the host deliver focus-exit callbacks before detaching the controllers.
+/// First revoke every closing session without releasing history payloads.
+/// The host can then revoke its other owners before purging history, and still
+/// deliver normal focus-exit callbacks before detaching the controllers.
 @MainActor
-func prepareTextInputUndoForWindowClose(in runtime: RetainedViewRuntime) -> @MainActor () -> Void {
+func prepareTextInputUndoForWindowClose(in runtime: RetainedViewRuntime) -> (
+    purgeHistory: @MainActor () -> Void, detach: @MainActor () -> Void
+) {
     var pending = [runtime.root]
     var controllers: [(ViewNode, TextInputInteractionController)] = []
     while let node = pending.popLast() {
@@ -13982,10 +14005,14 @@ func prepareTextInputUndoForWindowClose(in runtime: RetainedViewRuntime) -> @Mai
         }
     }
     for (_, controller) in controllers { controller.undoSession?.markInvalid() }
-    for (_, controller) in controllers { controller.undoSession?.purgeHistory() }
-    return {
-        for (node, controller) in controllers { controller.detach(from: node) }
-    }
+    return (
+        purgeHistory: {
+            for (_, controller) in controllers { controller.undoSession?.purgeHistory() }
+        },
+        detach: {
+            for (node, controller) in controllers { controller.detach(from: node) }
+        }
+    )
 }
 
 @MainActor

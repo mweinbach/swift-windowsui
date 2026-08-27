@@ -2630,6 +2630,18 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         }
     }
 
+    isolated deinit {
+        if !hasTornDownWindow {
+            hasTornDownWindow = true
+            runtime.stopRenderLifecycleCallbacks()
+            let textInputTeardown = prepareTextInputUndoForWindowClose(in: runtime)
+            stateMountCoordinator.close()
+            textInputTeardown.purgeHistory()
+            runtime.cancelRenderLifecycleTasks()
+            textInputTeardown.detach()
+        }
+    }
+
     // MARK: - Window configuration
     //
     // The scene modifiers have always parsed `minSize` / `maxSize` /
@@ -3241,7 +3253,13 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     func windowWillClose(_ window: Win32Window) {
         guard !hasTornDownWindow else { return }
         hasTornDownWindow = true
+        runtime.stopRenderLifecycleCallbacks()
+        // Revoke every capability before any ownership cleanup releases
+        // application payloads that may reenter undo or escaped State bindings.
+        let textInputTeardown = prepareTextInputUndoForWindowClose(in: runtime)
         stateMountCoordinator.close()
+        textInputTeardown.purgeHistory()
+        runtime.cancelRenderLifecycleTasks()
         reloadScheduled = false
         pendingChangedObjects.removeAll()
         pendingObservedObjectContexts.removeAll()
@@ -3252,14 +3270,13 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         nextBatchRecoveryAttemptAt = nil
         resetObservedObjects()
         syncAnimationDriver(for: window)
-        let finishTextInputTeardown = prepareTextInputUndoForWindowClose(in: runtime)
         // Direct teardown and failed-start rollback need not receive native
         // capture/focus-loss messages. Cancel every input source after setting
         // the closed guard, so cleanup cannot reenter this host to start work.
         isPrimaryTouchActive = false
         runtime.pointerCancelled()
         runtime.keyboardFocusDidLeaveWindow()
-        finishTextInputTeardown()
+        textInputTeardown.detach()
         uiaBridge?.disconnect()
         window.accessibilityProvider = nil
         // Release the GPU stack while the HWND is still alive. A swap chain
@@ -3808,6 +3825,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         do {
             if activeBackend == .scene, let batchRenderer {
                 let scene = sceneRenderer(runtime, frameTimestamp)
+                guard !hasTornDownWindow else { return false }
                 if isSamplingFrames {
                     sceneBuildEndedAt = frameClock()
                     primitiveCount = scene.layers.reduce(0) { $0 + $1.paintOperations.count }
@@ -3835,6 +3853,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                 noteSuccessfulSceneFrame()
             } else {
                 let frame = runtime.renderFrame(at: frameTimestamp)
+                guard !hasTornDownWindow else { return false }
                 if isSamplingFrames {
                     sceneBuildEndedAt = frameClock()
                     bindEndedAt = sceneBuildEndedAt
@@ -3846,6 +3865,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                 try renderer.render(frame: frame)
             }
         } catch {
+            guard !hasTornDownWindow else { return false }
             guard activeBackend == .scene else {
                 // Frame-path render failure: policy is to keep the session
                 // alive and log — rate-limited, because a deterministic
@@ -3863,7 +3883,9 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                     in: window
                 )
                 didAttachFrameBackend = true
-                try renderer.render(frame: runtime.renderFrame(at: frameTimestamp))
+                let frame = runtime.renderFrame(at: frameTimestamp)
+                guard !hasTornDownWindow else { return false }
+                try renderer.render(frame: frame)
             } catch {
                 guard didAttachFrameBackend else {
                     // Both presenters are gone. Leaving `activeBackend` on

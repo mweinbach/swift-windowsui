@@ -82,13 +82,36 @@ Reentrant requests do not consume another action. The manager's `canUndo` and
 `canRedo` still report recorded history; they do not perform all editor input
 eligibility checks or provide native menu validation.
 
-Closing a host marks every current editor session invalid before releasing any
-history payload, then removes only those sessions' actions. The host still
+Closing a host marks every current editor session invalid, then revokes all
+mounted State writes before releasing State or history payloads. A State value's
+deinitializer cannot replay a closing plain-binding editor, and discarded undo
+payloads cannot write through an escaped mounted State binding. History cleanup
+removes only the closing sessions' actions. Render lifecycle delivery stops
+before cleanup, and tasks are cancelled after State and editor writes are
+revoked; a synchronous cancellation handler cannot regain either capability.
+The host still
 delivers normal focus-exit callbacks before detaching the controllers. This
 also applies when a sheet editor is focused. A refused close keeps history.
 Neither an overridden manager nor a default manager deliberately shared with
 another window is cleared wholesale: other windows' editor actions and manual
 application targets remain owned by their callers.
+
+Ordinary reconciliation identifies all departing editors before any branch
+starts dismantling or disappearance callbacks. This follows the State epoch's
+ownership preparation and leaves compatible surviving sessions untouched. A
+change of undo manager or incompatible input kind retires the old session even
+when its retained node survives. A
+callback in an earlier branch therefore cannot replay another editor departing
+later in the same adoption. Direct retained removals and GeometryReader adoption
+use the same ownership boundary.
+
+If a host is released without explicit window-close notification, its isolated
+deinitializer revokes editor and State ownership and purges those editor targets.
+An externally retained runtime or binding does not extend the host's write
+permission. This fallback does not invoke native window teardown or explicit
+focus, disappearance, or window-closed callbacks. Explicit close retains the
+existing pointer, focus, and window-closed callbacks. Neither path adds
+whole-tree `onDisappear` delivery for window closure.
 
 ## Validation and remaining scope
 
@@ -98,8 +121,10 @@ clipboard operations, environment overrides, modal input isolation, identity
 changes, external replacements, setter reentry, removal, and window closure.
 `TextInputUndoSessionTests` covers replacement deltas and manager/session races;
 `UndoManagerTests` protects ordinary application targets and reciprocal action
-registration. Run these with the existing text input, reconciliation, and close
-suites when changing the integration.
+registration. `EditorStateOwnershipTeardownTests` covers the combined mounted
+State/editor ownership boundaries, including payload deinitializers and escaped
+handles. Run these with the existing text input, reconciliation, and close suites
+when changing the integration.
 
 This is a bounded editor history path, not a complete document workflow. Native
 typing-group behavior, full Foundation grouping/event notifications, platform

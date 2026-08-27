@@ -3476,8 +3476,8 @@ public final class ViewNode {
     }
     public var pendingLifecycleTaskLaunches: [ViewLifecycleTaskLaunch] = []
 
-    // Gap/Fix: Lifecycle hooks — called during appendCommands when node
-    // first appears, disappears (removeFromParent), or changes frame size.
+    // Lifecycle hooks are delivered by the shared render lifecycle pass, or
+    // by removal when a previously appeared node leaves the retained tree.
     public var onAppear: (() -> Void)? {
         get { lifecycleHandlers?.appear }
         set { setLifecycleHandler(newValue, at: \.appear) }
@@ -3521,6 +3521,10 @@ public final class ViewNode {
     public var geometryReaderBuiltSize: Size?
 
     internal private(set) var hasAppeared = false
+    /// A rebuilding onAppear action must not drop the remaining node/task
+    /// callback or invoke its replacement before the new frame is resolved.
+    internal private(set) var hasPendingAppearanceCallbacks = false
+    private var hasPendingAppearanceNodeCallback = false
 
     /// Marks a node that arrived in its host's *first* build.
     ///
@@ -3540,7 +3544,7 @@ public final class ViewNode {
     /// Whether this node has already played the transition it arrived with.
     ///
     /// `applyNewNodeTransitionsRecursively` fires on `!hasAppeared`, and
-    /// `hasAppeared` is set by the paint traversal — which does not reach
+    /// `hasAppeared` is set by the render lifecycle stage — which does not reach
     /// every node it retains, so the two are not the same question. A node
     /// the traversal never marked would play its insertion transition again
     /// on every subsequent rebuild: a `TabView` page faded in correctly on the
@@ -3556,6 +3560,7 @@ public final class ViewNode {
     public internal(set) var isRemovalOverlay: Bool = false
     private var previousFrame: Rect?
     private var lifecycleTasks: [String: Task<Void, Never>] = [:]
+    private var acceptsLifecycleTasks = true
 
     public private(set) weak var parent: ViewNode?
     public private(set) var children: [ViewNode]
@@ -4310,6 +4315,7 @@ public final class ViewNode {
         let interactionRuntime = runtime
         interactionRuntime?.beginLongPressReconciliation()
         defer { interactionRuntime?.endLongPressReconciliation() }
+        for child in children { child.revokeTextInputOwnership() }
         for child in children {
             if child.transition.removal.kind != .identity, child.applyRemovalTransition() {
                 child.isRemovalOverlay = true
@@ -4378,6 +4384,7 @@ public final class ViewNode {
     /// place that decides what leaving looks like — shared by `removeChild`,
     /// `replaceChild` and `setChildren`.
     private func detachRemovedChild(_ removed: ViewNode) {
+        removed.revokeTextInputOwnership()
         removed.onDismantlePlatformView?(removed)
         if removed.transition.removal.kind != .identity, removed.applyRemovalTransition() {
             removed.isRemovalOverlay = true
@@ -4438,6 +4445,7 @@ public final class ViewNode {
 
         let surviving = Set(nextChildren.map(ObjectIdentifier.init))
         let departing = children.filter { !surviving.contains(ObjectIdentifier($0)) }
+        for child in departing { child.revokeTextInputOwnership() }
         children = []
         for child in departing {
             detachRemovedChild(child)
@@ -4471,7 +4479,21 @@ public final class ViewNode {
         return true
     }
 
-    fileprivate func setRuntime(_ runtime: RetainedViewRuntime?) {
+    /// Ownership revocation cannot release history or invoke application
+    /// callbacks. All members of a departure batch must be marked first.
+    func revokeTextInputOwnership() {
+        var pending = [self]
+        while let node = pending.popLast() {
+            pending.append(contentsOf: node.children)
+            node.textInputController?.revokeOwnership(from: node)
+        }
+    }
+
+    fileprivate func setRuntime(_ runtime: RetainedViewRuntime?, hasRevokedTextInputOwnership: Bool = false) {
+        let isLeavingRuntime = self.runtime != nil && self.runtime !== runtime
+        if isLeavingRuntime, !hasRevokedTextInputOwnership {
+            revokeTextInputOwnership()
+        }
         if self.runtime !== runtime {
             if let state = scrollContainerState { state.attachmentGeneration &+= 1 }
             self.runtime?.unregisterScrollObservationNode(self)
@@ -4500,8 +4522,13 @@ public final class ViewNode {
             runtime?.registerScrollObservationNode(self)
         }
         for child in children {
-            child.setRuntime(runtime)
+            child.setRuntime(
+                runtime, hasRevokedTextInputOwnership: hasRevokedTextInputOwnership || isLeavingRuntime)
         }
+    }
+
+    internal func invalidateRenderLifecycleCandidates() {
+        runtime?.invalidateRenderLifecycleCandidates()
     }
 
     internal func markSubtreeDisappeared() {
@@ -4510,6 +4537,8 @@ public final class ViewNode {
             onDisappearWithNode?(self)
             cancelLifecycleTasks()
             hasAppeared = false
+            hasPendingAppearanceCallbacks = false
+            hasPendingAppearanceNodeCallback = false
         }
         // A node that leaves and comes back is a real insertion the second
         // time, whatever it was on the host's first build — and whatever it
@@ -4523,7 +4552,10 @@ public final class ViewNode {
     }
 
     public func launchLifecycleTask(_ launch: ViewLifecycleTaskLaunch) {
+        guard acceptsLifecycleTasks, runtime?.permitsRenderLifecycleCallbacks != false else { return }
         lifecycleTasks[launch.key]?.cancel()
+        // Cancelling the previous task may synchronously close this owner.
+        guard acceptsLifecycleTasks, runtime?.permitsRenderLifecycleCallbacks != false else { return }
         lifecycleTasks[launch.key] = Task(priority: launch.priority) {
             await launch.action()
         }
@@ -4535,10 +4567,14 @@ public final class ViewNode {
     }
 
     private func cancelLifecycleTasks() {
-        for task in lifecycleTasks.values {
-            task.cancel()
-        }
+        for task in takeLifecycleTasks() { task.cancel() }
+    }
+
+    fileprivate func takeLifecycleTasks(retiring: Bool = false) -> [Task<Void, Never>] {
+        if retiring { acceptsLifecycleTasks = false }
+        let tasks = Array(lifecycleTasks.values)
         lifecycleTasks.removeAll()
+        return tasks
     }
 
     // MARK: - Traversal depth
@@ -6269,8 +6305,6 @@ public final class ViewNode {
                 continue
             }
 
-            node.fireFrameLifecycleCallbacks(absoluteFrame: absoluteFrame)
-
             // The frame path emits its geometry at `paintFrame` — the node's
             // own transform applied — so it has to clip there too. Clipping the
             // untransformed `absoluteFrame` while drawing the transformed one
@@ -6399,26 +6433,116 @@ public final class ViewNode {
         }
     }
 
-    /// Gap/Fix: Lifecycle — fire onAppear the first time a node is rendered,
-    /// and onSizeChange when its resolved frame moved. Removal overlays are
-    /// skipped: they have already appeared, and onDisappear waits for the
-    /// transition to finish.
-    private func fireFrameLifecycleCallbacks(absoluteFrame: Rect) {
-        guard !isRemovalOverlay else { return }
-        if !hasAppeared {
-            hasAppeared = true
-            isInitialBuildNode = false
-            onAppear?()
-            onAppearWithNode?(self)
-            if scrollIndicatorsFlashOnAppear {
-                runtime?.flashScrollIndicator(for: self)
+    @MainActor
+    fileprivate struct RenderLifecycleCandidate {
+        weak var node: ViewNode?
+        let absoluteFrame: Rect
+    }
+
+    /// Lifecycle belongs to the mounted tree, not a painter's recording or
+    /// replay. Snapshot the same visibility and geometry the frame traversal
+    /// used before moving its callbacks to the shared render entry point.
+    fileprivate func appendRenderLifecycleCandidates(
+        into candidates: inout [RenderLifecycleCandidate],
+        parentOrigin: Point,
+        inheritedClip: RuntimeClipShape?,
+        inheritedOpacity: Float = 1,
+        inheritedTransform: Transform2D = .identity
+    ) {
+        let baseDepth = ViewNode.traversalDepth
+        defer { ViewNode.traversalDepth = baseDepth }
+        var traversal = [
+            FrameTraversalContext(
+                node: self, parentOrigin: parentOrigin, inheritedClip: inheritedClip,
+                inheritedOpacity: inheritedOpacity, inheritedBlendMode: .normal,
+                inheritedTransform: inheritedTransform, depth: 0)
+        ]
+        while let context = traversal.popLast() {
+            let node = context.node
+            guard ViewNode.enterTraversal(atDepth: baseDepth + context.depth),
+                !node.isHidden, !node.isRemovalOverlay, !node.isLayoutDeferredByVirtualization
+            else { continue }
+            let absoluteFrame = Rect(
+                x: context.parentOrigin.x + node.resolvedFrame.origin.x,
+                y: context.parentOrigin.y + node.resolvedFrame.origin.y,
+                width: node.resolvedFrame.size.width,
+                height: node.resolvedFrame.size.height)
+            let (paintFrame, effectiveTransform) = Self.accumulatedPaintGeometry(
+                of: absoluteFrame, transform: node.transform, inheritedTransform: context.inheritedTransform)
+            guard context.inheritedClip.allowsSubtreeTraversal(bounds: paintFrame) else { continue }
+            if !node.hasAppeared || node.hasPendingAppearanceCallbacks || node.previousFrame != absoluteFrame {
+                candidates.append(RenderLifecycleCandidate(node: node, absoluteFrame: absoluteFrame))
             }
-            previousFrame = absoluteFrame
+
+            // The node itself appears before its own clip or opacity can stop
+            // descent. In particular an opacity-zero node does not make its
+            // descendants appear, and an unclipped zero-size box can overflow.
+            var effectiveClip = context.inheritedClip
+            if node.clipsToBounds {
+                guard
+                    let clipped = context.inheritedClip.narrowed(
+                        to: paintFrame, radii: node.cornerRadii, uniformRadius: node.cornerRadius,
+                        space: .painted)
+                else { continue }
+                effectiveClip = clipped
+            }
+            let effectiveOpacity = context.inheritedOpacity * Float(node.opacity)
+            guard effectiveOpacity > 0 else { continue }
+            let childOrigin = Point(
+                x: absoluteFrame.origin.x - (node.scrollAxis == .horizontal ? node.resolvedScrollOffset : 0),
+                y: absoluteFrame.origin.y - (node.scrollAxis == .vertical ? node.resolvedScrollOffset : 0))
+            for child in node.orderedChildrenForPaint().reversed() where !child.paintsInDeferredPhase {
+                traversal.append(
+                    FrameTraversalContext(
+                        node: child, parentOrigin: childOrigin, inheritedClip: effectiveClip,
+                        inheritedOpacity: effectiveOpacity, inheritedBlendMode: .normal,
+                        inheritedTransform: effectiveTransform, depth: context.depth + 1))
+            }
         }
-        if let prev = previousFrame, prev != absoluteFrame {
-            onSizeChange?(absoluteFrame)
-        }
+    }
+
+    fileprivate func fireRenderLifecycleCallbacks(absoluteFrame: Rect, in runtime: RetainedViewRuntime) {
+        guard runtime.canDeliverRenderLifecycle(to: self) else { return }
+        let isFirstAppearance = !hasAppeared
+        let isCompletingAppearance = isFirstAppearance || hasPendingAppearanceCallbacks
+        let didMove = !isCompletingAppearance && previousFrame != nil && previousFrame != absoluteFrame
+        let revision = runtime.renderLifecycleRevision
+        // Commit this event before invoking application code. Nested renders
+        // must not observe an unfinished appearance or repeat a size change.
+        hasAppeared = true
+        isInitialBuildNode = false
         previousFrame = absoluteFrame
+        if isFirstAppearance {
+            hasPendingAppearanceCallbacks = true
+            hasPendingAppearanceNodeCallback = true
+            onAppear?()
+            guard hasAppeared, runtime.canDeliverRenderLifecycle(to: self) else { return }
+            // The same retained node can now carry a different task or node
+            // callback. Finish that phase only after its new geometry settles;
+            // do not lose it or repeat the already delivered onAppear action.
+            guard runtime.renderLifecycleRevision == revision else { return }
+        }
+        if hasPendingAppearanceCallbacks {
+            if hasPendingAppearanceNodeCallback {
+                hasPendingAppearanceNodeCallback = false
+                onAppearWithNode?(self)
+                guard hasAppeared, runtime.canDeliverRenderLifecycle(to: self) else { return }
+                guard runtime.renderLifecycleRevision == revision else { return }
+            }
+            // Some producers register only pending launches, with no node
+            // callback. Keep the newest build's declarations through a
+            // deferred appearance, without restarting keys its hook launched.
+            let launches = pendingLifecycleTaskLaunches
+            pendingLifecycleTaskLaunches.removeAll()
+            for launch in launches where lifecycleTasks[launch.key] == nil {
+                launchLifecycleTask(launch)
+            }
+            hasPendingAppearanceCallbacks = false
+            if scrollIndicatorsFlashOnAppear {
+                runtime.flashScrollIndicator(for: self)
+            }
+        }
+        if didMove { onSizeChange?(absoluteFrame) }
     }
 
     /// The replay key both walks mint, out of line so each pays for one key
@@ -8951,6 +9075,9 @@ public final class RetainedViewRuntime {
     /// Invalidation staging for the duration of a render pass — see
     /// `beginRenderPass()` / `endRenderPass()`.
     private var isRendering = false
+    fileprivate var permitsRenderLifecycleCallbacks = true
+    private var isDeliveringRenderLifecycleCallbacks = false
+    fileprivate var renderLifecycleRevision: UInt64 = 0
     private var pendingDirtyFlags: DirtyFlags = []
     private var pendingDirtyNodes: [PendingNodeInvalidation] = []
     private var pendingAfterLayoutActions: [String: @MainActor () -> Void] = [:]
@@ -9536,6 +9663,7 @@ public final class RetainedViewRuntime {
         defer { endRenderPass(ownsPass: ownsRenderPass) }
         updateResolvedLayout()
         applyMatchedGeometryAnimations()
+        deliverRenderLifecycleCallbacks(ownsRenderPass: ownsRenderPass)
 
         let previousFrame = cachedFrameSnapshot
         let snapshotIdentity = PaintSnapshotIdentity()
@@ -9650,6 +9778,7 @@ public final class RetainedViewRuntime {
         let phaseStartedAt = collectsPhaseTimings ? PlatformClock.now() : 0
         updateResolvedLayout()
         applyMatchedGeometryAnimations()
+        deliverRenderLifecycleCallbacks(ownsRenderPass: ownsRenderPass)
         // Another window can recycle the process atlas during a layout or
         // observation callback, after entry but before replay selection.
         discardSceneWithStaleAtlas()
@@ -11702,7 +11831,94 @@ public final class RetainedViewRuntime {
         return didUpdate
     }
 
+    /// Closing a host revokes future render callbacks without delivering any
+    /// lifecycle or releasing application payloads. A retained runtime can
+    /// still be inspected after its host has gone away.
+    public func stopRenderLifecycleCallbacks() {
+        permitsRenderLifecycleCallbacks = false
+        renderLifecycleRevision &+= 1
+    }
+
+    /// Cancel a closed host's tasks only after its editor and State writes
+    /// have been revoked: cancellation handlers can synchronously reenter app
+    /// code. Clear every owned task slot before the first handler runs, without
+    /// synthesizing disappearance, focus changes, or platform callbacks.
+    public func cancelRenderLifecycleTasks() {
+        var nodes = [root] + transitionOverlays
+        var visited = Set<ObjectIdentifier>()
+        var tasks: [Task<Void, Never>] = []
+        while let node = nodes.popLast() {
+            guard visited.insert(ObjectIdentifier(node)).inserted else { continue }
+            nodes.append(contentsOf: node.children)
+            tasks.append(contentsOf: node.takeLifecycleTasks(retiring: true))
+        }
+        for task in tasks { task.cancel() }
+    }
+
+    /// An accepted rebuild can retain a node while replacing its callbacks and
+    /// geometry. Its old lifecycle snapshot must not run on the new build.
+    func invalidateRenderLifecycleCandidates() {
+        if isDeliveringRenderLifecycleCallbacks { renderLifecycleRevision &+= 1 }
+    }
+
+    fileprivate func canDeliverRenderLifecycle(to node: ViewNode) -> Bool {
+        guard permitsRenderLifecycleCallbacks, node.runtime === self else { return false }
+        var current: ViewNode? = node
+        var depth = 0
+        while let candidate = current, depth < ViewNode.maximumTraversalDepth {
+            guard !candidate.isHidden, !candidate.isRemovalOverlay, !candidate.isLayoutDeferredByVirtualization
+            else { return false }
+            if candidate === root { return true }
+            current = candidate.parent
+            depth += 1
+        }
+        return false
+    }
+
+    /// Both presentation paths enter here after layout has settled. Neither a
+    /// hit-test/layout query nor a painter's atlas retry or isolated recording
+    /// is a new appearance. Paint cache replay cannot bypass this stage.
+    private func deliverRenderLifecycleCallbacks(ownsRenderPass: Bool) {
+        guard ownsRenderPass, permitsRenderLifecycleCallbacks else { return }
+        guard !hasActiveRetainedBuild, !isLayoutInProgress, !isResolvingLayoutFrame else {
+            // A completion may render while its build still owns the guard.
+            // Keep a normal follow-up render pending even if its pixels cache.
+            invalidate(.layout)
+            return
+        }
+        isDeliveringRenderLifecycleCallbacks = true
+        defer { isDeliveringRenderLifecycleCallbacks = false }
+        let revision = renderLifecycleRevision
+        var candidates: [ViewNode.RenderLifecycleCandidate] = []
+        root.appendRenderLifecycleCandidates(into: &candidates, parentOrigin: .zero, inheritedClip: nil)
+        for index in orderedDeferredDrawIndices(prepaintState.deferredDraws) {
+            guard case .subtree(let payload) = prepaintState.deferredDraws[index].payload,
+                let node = payload.node
+            else { continue }
+            node.appendRenderLifecycleCandidates(
+                into: &candidates, parentOrigin: payload.parentOrigin, inheritedClip: payload.inheritedClip,
+                inheritedOpacity: payload.inheritedOpacity, inheritedTransform: payload.inheritedTransform)
+        }
+        var delivered = Set<ObjectIdentifier>()
+        for candidate in candidates {
+            guard permitsRenderLifecycleCallbacks else { return }
+            guard renderLifecycleRevision == revision else {
+                // Application callbacks may synchronously rebuild, move, or
+                // remove the rest of this snapshot. Resolve the new tree on a
+                // later pass instead of delivering its stale frames/callbacks.
+                invalidate(.layout)
+                return
+            }
+            guard let node = candidate.node, delivered.insert(ObjectIdentifier(node)).inserted else { continue }
+            node.fireRenderLifecycleCallbacks(absoluteFrame: candidate.absoluteFrame, in: self)
+        }
+        if permitsRenderLifecycleCallbacks, renderLifecycleRevision != revision {
+            invalidate(.layout)
+        }
+    }
+
     fileprivate func invalidate(_ flags: DirtyFlags = .all) {
+        invalidateRenderLifecycleCandidates()
         guard isRendering else {
             dirtyFlags.insert(flags)
             return
@@ -11711,6 +11927,7 @@ public final class RetainedViewRuntime {
     }
 
     fileprivate func invalidate(_ flags: DirtyFlags, from node: ViewNode) {
+        invalidateRenderLifecycleCandidates()
         guard isRendering else {
             dirtyFlags.insert(flags)
             return

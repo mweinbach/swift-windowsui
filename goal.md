@@ -1484,3 +1484,279 @@ the existing four-argument testing override without changing its assertions.
 Quick now includes the new suites. Mounted-State interaction and complete
 batch validation still await the next integration; no native behavior or
 release qualification is inferred from these focused tests.
+
+### Mounted State integration and first production test pass
+
+Ordinary custom struct views now receive host-owned State cells before body
+evaluation. Typed structural identity selects an owner; typed declaration key
+paths and concrete existential types select its property slots. The installer
+rewrites a copy, leaving the source seed untouched. Reconstruction and keyed
+reordering preserve surviving owners; separate occurrences and hosts receive
+separate cells. Retired bindings keep their last readable value, reject writes
+before projected getters or setters, and never reconnect to a new generation.
+Reference values retain normal alias semantics rather than being deep-copied.
+
+Root and deferred GeometryReader candidates use provisional ownership epochs.
+Abandonment preserves the committed tree and its observations; adopted builds
+finish before queued builds under their captured transaction. A host mutation
+revision rejects obsolete requests without allowing a redundant control
+invalidation to replace a binding transaction. Inactive known declarations,
+disjoint ViewThatFits candidate scopes, and typed OutlineGroup rows have
+specific coverage. Opaque inactive bodies, eager outline realization, and
+independent simultaneous transaction behavior remain documented limits.
+
+The adapter uses typed Swift reflection key paths, not raw field writes.
+Unsupported class/enum dynamic properties, owning immutable declarations,
+ambiguous metadata, and ownership replacement during custom update are
+diagnosed. Consumer reflection metadata must stay enabled. StateObject
+ownership and lazy initialization are not activated by this slice; inherited
+View.body builder support and complete native lifecycle conformance also
+remain open. [MountedState.md](docs/MountedState.md) records the implementation,
+reentrancy, retirement, and toolchain constraints in more detail.
+
+The first actual production build succeeded. Binding host transactions passed
+nine cases and the installer passed all 24 cases before the combined editor
+suite failed. A separate serial run then passed 81 cases across ten state,
+container, epoch, queue, and accounting targets with no failures or skips.
+Evidence is `artifacts/goal-mounted-state-focused.log` and
+`artifacts/goal-mounted-state-independent.log`; these are partial integration
+results, not a passing combined suite or Full validation.
+
+The failing combined run exposed a stale selection index during a synchronous
+editor rebuild after undo shortens text, plus disappearance fixtures whose
+scene-only render had never delivered appearance callbacks. Both require
+runtime corrections and preserved assertions before acceptance. The intended
+teardown order revokes editor replay and State writes before releasing either
+kind of application payload. Quick now includes these ownership suites, but
+no new completion gate is checked by this first pass.
+
+The existing identity, geometry, observation, settings, sheet, and transaction
+regression selection also passed 179 cases across 18 targets and nine serial
+invocations (`artifacts/goal-mounted-state-existing.log`). A narrow selection
+correction now walks only valid boundaries in the current string, using an
+incoming stale index for comparison rather than passing it to String APIs.
+All eight new safety cases passed, including real mounted TextField and
+TextEditor shortening. The combined suite now runs all eight cases without
+the crash; six pass, while the two scene-disappearance cases still await the
+shared lifecycle correction. Unknown foreign-string provenance permits only
+a safe positional fallback, not reconstruction of the original logical caret.
+These intermediate results are in `artifacts/goal-state-selection-correction.log`.
+
+### Fourth-batch reference provenance and hosted review
+
+Material captures now record effective SwiftUI environment observations,
+system accessibility flags before and after each capture attempt, application
+activation, host attachment/backing metadata, and AppKit's recommended bitmap
+format. Unobserved values stay explicitly unknown. Reused environment
+observations carry their original sample count/time rather than pretending to
+be fresh reads. The old top-level accessibility record is retained and labeled
+as an end-of-run sample; it cannot prove the settings of an earlier capture.
+
+All six fixtures, two repetitions, 50 ms settling, fixed 2x RGBA capture,
+public view-cache API, classifier thresholds, and system preferences remain
+unchanged. The recommended bitmap is inspected after capture and never replaces
+the actual bitmap. Root debug and release self-tests passed 46 checks, comprising
+31 unchanged classifier checks and 15 added metadata checks. Native AppKit
+compilation and capture remain pending; provenance alone cannot make the
+previous opaque positive control conclusive.
+
+Third-push Windows run `33120202997` completed 178 shards covering 282 targets:
+3,750 XCTest cases passed, four were skipped, and none failed. Both debug and
+release demo builds passed. The skips are the existing material case and three
+variable-font cases. The run then failed the unchanged gallery gate with 67
+of 85 entries regressed. Actual collected font metadata confirms absent Segoe
+UI Variable families and Segoe Fluent Icons, with classic Segoe UI and MDL2
+present. This is font availability evidence, not actual glyph-face ownership
+or approval of a second baseline profile. Current pixel and font comparisons
+are being reviewed without changing fonts, runner labels, or thresholds.
+
+Verified artifacts are under `artifacts/goal-windows-ci-33120202997/`. The
+gallery ZIP SHA-256 is
+`2b1ce4bc531d364b0b2c96826023c31a10dd92449ded6eb5a277e8a1e4e94a22`;
+the demo ZIP SHA-256 is
+`d6caeb30bb3f1fe0a9e0d1051c448469af30237ea516f35df854aec11c2f6b5e`.
+Hosted visual validation and the exact release-revision gate remain open.
+
+### Identity matching experiment, not performance qualification
+
+The isolated identity probe now compiles and verifies both an unmetered release
+executable and a separate operation-count executable against frozen source
+`fce78ec`. Both verification runs and the count run agree on all 3,842 matching
+inputs across five algorithms and 3,624 construction-identity checks. The
+count report has 105 matching observations across 21 inputs and 15 separate
+construction/hashing observations. Recorded source, compiler, executable,
+result, and log hashes were reconciled with no mismatch.
+
+A direct single-child path avoids dictionary hashing for tested singleton
+matches; an all-typed unchanged-order path replaces repeated dictionary work
+with corresponding identity comparisons. These are candidate observations,
+not an accepted production optimization. Payload counters omit segment
+traversal, allocation, ARC, String-tag work, array shifting, and elapsed time.
+No timing workload ran. Current reconciliation also performs a departure
+prepass, which the frozen single-call probe does not measure as a whole.
+
+The original probe preparation was stopped after PowerShell expanded provider
+metadata attached to a compiler-version string during JSON serialization.
+Version 2 uses plain file strings and bounded data-only serialization; its
+44 guard assertions passed on PowerShell 5.1 and 7. Original inputs and failed
+run artifacts remain unchanged. The version-2 source manifest SHA-256 is
+`741e226ee4862a9b02f73fa6443b7a49478518bede10d9abaedb527b2cba0ce3`;
+the build manifest SHA-256 is
+`d97db4578ad58ffe8e2bfa18396ec0f33ed0e783d58be1dbe5e26dcbd98503fa`.
+Root invocation records are `artifacts/goal-identity-probe-v2-prepare.log`,
+`artifacts/goal-identity-probe-v2-verify.log`,
+`artifacts/goal-identity-probe-v2-metered-verify.log`, and
+`artifacts/goal-identity-probe-v2-counts.log`. Controlled timing, production
+integration, and whole-app hardware acceptance remain separate open work.
+
+### Editor adoption correction
+
+The next existing-editor regression run exposed another teardown integration
+error: moving a newly built editor from its unattached construction parent
+revoked its fresh undo session before first adoption, blocking its first text
+write. The correction must distinguish an attached departing editor from a
+never-adopted candidate without reviving a retired session. Existing identity
+replacement and sheet-close assertions remain unchanged. The failed run is
+preserved in `artifacts/goal-selection-editor-regressions.log`.
+
+### API audit ledger intake and complete captured records
+
+`scripts/build-swiftui-api-audit.ps1` now builds an immutable first-stage
+ledger only from a successful, hash-consistent candidate capture. It streams
+every raw graph and the complete inventory, independently reconciling precise
+identifiers, declaration occurrences, relationships, graph partitions, counts,
+and hashes. Raw symbol mixins and signatures are retained, as are interface
+and overlay source lines and producer headers. Selected work queues never
+remove entries from the ledger. Every record remains unreviewed: an exported
+identifier count is not an API implementation or conformance percentage.
+
+The tool does not repair a capture, change the pinned SDK, infer native
+behavior, or classify Windows implementations. It distinguishes interface
+producer metadata from extractor identity and preserves unknown, deprecated,
+underscored, synthesized, extension, and architecture-specific declarations
+for review. Complete scope and remaining mapping work are documented in
+[SwiftUIAPIAudit.md](docs/SwiftUIAPIAudit.md).
+
+Root validation passed 391 ledger, 32 intake, 19 default memory, and 489
+existing baseline-tooling assertions on each of PowerShell 5.1 and 7. The
+original failed native capture was also rejected without modifying its status
+or publishing a ledger. Both runtimes reindexed all 22 original raw graphs
+after the streaming-reader extension and reproduced the same inventory
+SHA-256, `e77f25fc01bf355d476740bf16ac4ea5fb54da7f0a7495e6fd5037686de4a063`.
+This is a regression check of those captured bytes, not a successful export.
+Logs use the `artifacts/goal-api-audit-` and
+`artifacts/goal-fourth-sdk-reindex-` prefixes.
+
+Separately, the isolated large synthetic regression passed 20 assertions on
+each runtime with an inventory exceeding 2.74 GB and 320,038 declaration
+occurrences, including one 320,000-occurrence group. Final measured process
+peaks were 181.6 MiB on PowerShell 5.1 and 241.9 MiB on PowerShell 7; these
+include generation, indexing, audit, and checks. They are not native API or
+application frame-timing evidence. Quick, Full, and the pinned macOS workflow
+now include the three default audit fixture scripts; the large case stays
+opt-in. A fresh successful pinned export and actual declaration/interface
+review remain required under the unchanged original gates.
+
+The current CI font investigation also independently reproduced the retained
+classic-font comparison: 68 of 85 images are exact, 69 pass the unchanged
+thresholds, and every differing pixel in the remaining 17 images lies inside
+the recorded icon regions. All 13 shared registered font files differ in
+version/hash between the recorded machines, including MDL2 1.84 versus 1.86.
+Those facts localize the discrepancy without identifying each final glyph's
+font face. No renderer defect, accepted alternate baseline, or native glyph
+ownership is inferred. The evidence manifest SHA-256 is
+`795431fa0bb4a1e07dfa5cc3713d3d82a11fb435921c43f47272244d8b43379e`.
+
+### Editor construction and lint validation follow-up
+
+The editor adoption correction now requires an attached controller before
+revoking its undo ownership. Moving a fresh editor out of an unattached
+construction parent no longer disables its first write; reattaching an
+already retired controller still cannot restore its session. Root validation
+passed 117 tests across the undo, editor session, construction lifetime,
+selection-index safety, editing, and geometry filters, with no failures or
+skips. All three previously failing editor regressions passed unchanged.
+The new construction tests cover both TextField and TextEditor. Their
+construction preconditions use public tree structure rather than widening
+access to the runtime's private attachment field. The exact run is retained
+in `artifacts/goal-editor-construction-correction-v2.log`. Combined
+disappearance tests still await the separate scene lifecycle correction;
+this focused result is not Full validation.
+
+`scripts/lint.ps1` now rejects every missing, blank, or directory entry in an
+explicit `-Path` list before invoking the formatter. It does not split
+literal comma-containing filenames or discard invalid members of mixed
+lists. Default changed-file discovery, formatter policy, and ContractsOnly
+behavior are unchanged. Root ran 27 synthetic cases and 67 assertions on
+each of PowerShell 5.1 and 7; both passed. The new fixture script uses owned
+temporary files and fake tools, so these results test selection and failure
+propagation, not Swift formatting. Quick and Full include this fixture gate.
+Root logs are `artifacts/goal-lint-paths-root-ps51.log` and
+`artifacts/goal-lint-paths-root-ps7.log`. This closes the earlier misleading
+no-files lint success without replacing the actual changed-file lint run.
+
+### Shared scene and frame lifecycle integration
+
+The primary scene renderer previously did not deliver the lifecycle callbacks
+that the frame fallback delivered. This also prevented real disappearance
+callbacks from running for scene-only hosts. The shared runtime now stages
+appearance, node callbacks, task launches, and size changes after settled
+layout on either render path, before paint recording. Layout queries, atlas
+retries, isolated recordings, and cached paint replay do not create additional
+appearances. Candidate revision checks preserve callback-driven invalidation
+and postpone callbacks whose retained geometry or configuration changed.
+
+Close and host release stop future delivery before revoking editor and State
+ownership, then remove all owned task slots before invoking cancellation
+handlers. A handler cannot launch new work on a closed owner. Deferred
+appearance keeps the latest pending-only launches used by Timeline views and
+does not duplicate a task already launched by the current node callback.
+These are bounded runtime semantics; full native task identity, ordering,
+and general task-key replacement/cancellation reentrancy remain unqualified.
+
+The integrated increment has 26 new async tests and one strengthened existing
+reentry test. Its first root compile exposed two accesses to a fileprivate
+runtime field from ComponentHost. An internal node forwarding method fixes
+that access without widening the field's visibility. The failed compile is
+preserved in `artifacts/goal-scene-lifecycle-focused.log`; the corrected run
+uses `artifacts/goal-scene-lifecycle-focused-v2.log` and is not yet a Full
+validation result. Independent review also found that the two bitmap-only
+ViewSnapshot overloads must cancel tasks when their temporary runtime ends,
+including rendering failure. That narrow follow-up is being validated
+separately; borrowed or explicitly returned runtimes must remain usable.
+
+The second compile reached the test module and found the same private-field
+assumption in one host fixture. The fixture now checks that the removed node
+has no resolved layout frame and that changing its opacity cannot dirty its
+former runtime. This tests the attachment behavior without exposing the
+runtime field. The third focused run passed all 133 tests across ten targets
+and seven serial invocations, with no failures or skips: all 26 new lifecycle
+tests, three existing render-reentry tests, all eight combined State/editor
+teardown cases, 18 mounted-State lifecycle cases, five editor-construction
+cases, 46 editor-undo cases, 18 undo-session cases, and nine cache/replay cases.
+The previously missing disappearance assertions passed unchanged.
+`artifacts/goal-scene-lifecycle-focused-v3.log` is the passing run; the earlier
+two compile failures remain recorded. The nonexistent
+`GeometryReaderRuntimeTests` name selected no target in this invocation;
+GeometryReader coverage comes from separately named suites and Full, not an
+assumed extra result in this count.
+
+Window-close lifecycle remains bounded: explicit close preserves the existing
+pointer, focus, and window-closed callbacks, and both close paths revoke writes
+before cancelling tasks. The retained tree is still inspectable afterward;
+this increment does not add whole-tree `onDisappear` delivery when a window
+closes. Full native window lifecycle behavior remains part of the original
+requirement, not a completion claim from the conditional-removal tests.
+
+The bitmap-only snapshot follow-up passed all 59 focused tests across seven
+targets and three serial invocations, with no failures or skips. Its five new
+async cases cover both owned overloads, genuine CPU-renderer invalid-size
+failures after scene lifecycle delivery, cooperative task completion and
+payload release, and unchanged caller ownership for borrowed and explicitly
+returned runtimes. Nine existing snapshot tests and the lifecycle, combined
+teardown, reentry, and selection-safety cases also passed. The run is
+`artifacts/goal-snapshot-task-lifetime-focused.log`. Strict lint passed on all
+12 remaining changed Swift files in
+`artifacts/goal-fourth-working-swift-lint-v4.log`; earlier lint covered the
+already committed State and selection changes. Full and hosted validation
+of the combined revision remain required.

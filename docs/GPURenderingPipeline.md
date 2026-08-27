@@ -79,8 +79,8 @@ permanently — the overlay was painted once at its start value, the frame
 that painted it cleared the dirty flags, and nothing ever ticked again.
 
 **Dirty-flag integrity.** A render pass runs app code inside its own
-traversal (`onLayout` during layout; `onAppear`, `onSizeChange` and
-`canvasDraw` during paint) and ends by clearing `dirtyFlags`. Passes are
+traversal (`onLayout` during layout; `onAppear` and `onSizeChange` after
+layout; `canvasDraw` during paint) and ends by clearing `dirtyFlags`. Passes are
 therefore bracketed by `beginRenderPass()` / `endRenderPass()`:
 invalidations raised while a pass is open are staged and applied after
 the clear, and the raising node's subtree flags are re-applied too — the
@@ -94,6 +94,46 @@ into `dirtyFlags`, which the outer pass then wiped — a permanently clean
 runtime the host stops requesting frames for. Nested passes are counted
 in `RetainedViewRuntime.reentrantRenderPassCount` and reported once on
 stderr.
+
+**Render lifecycle.** `renderScene` and `renderFrame` share one lifecycle
+stage after layout and matched geometry settle, before either painter chooses
+its cached output. The stage belongs only to the outer render: layout and hit
+testing queries, nested rendering, atlas retries, and isolated scene recordings
+do not deliver appearances. A bounded traversal snapshots weak node references
+and absolute layout frames, including presented scroll offsets. It preserves
+the former frame path's hidden, ancestor clip, opacity, zero-extent, and deferred
+paint ordering; virtualized subtrees with deferred layout and removal overlays
+cannot acquire new appearances.
+
+Appearance state and the previous frame advance before application callbacks.
+Removal or host teardown suppresses the remaining callbacks on that node. An
+accepted rebuild or mutation during delivery invalidates the remaining snapshot
+and leaves another render pending, so callbacks never use a later build with an
+earlier build's geometry. If `onAppear` changes its own node, its node/task hook
+remains pending until the new layout settles; `onAppear` is not repeated and a
+new `task(id:)` is not launched ahead of that completion. Pending-only task
+declarations survive this deferral, and completing them does not repeat a node
+hook or restart a key the hook already launched. Rendering inside an active
+build or layout scope also defers lifecycle without letting a clean scene cache
+swallow it. Host teardown revokes delivery before releasing owned payloads.
+After editor and State writes are revoked, it clears task slots across the root
+and removal overlays before canceling any task: cancellation handlers may
+synchronously reenter app code, but cannot launch work on the closed owner.
+A close during scene or frame generation aborts backend binding and submission.
+This does not synthesize disappearance from host deinitialization or establish
+native SwiftUI ordering for every lifecycle combination. Native task call-site
+identity and general same-key launch/cancel reentrancy remain unqualified.
+`RenderLifecycleDeliveryTests` and
+`SceneLifecycleHostTests` cover the retained contract on both presentation paths.
+
+The two `ViewSnapshot.rasterize` overloads that create a temporary runtime and
+return only a bitmap stop lifecycle delivery and request task cancellation in
+deferred cleanup, on success and rendering failure. Cancellation is cooperative:
+the synchronous helper cannot await a task or force its action to finish.
+`rasterize(runtime:)` borrows its runtime and does not end its lifetime. The
+SwiftUI snapshotter returns its runtime to the caller, which remains responsible
+for its work. `ViewSnapshotTaskLifetimeTests` distinguishes these ownership
+boundaries without synthesizing disappearance callbacks.
 
 **Snapshot ownership.** A cached range belongs to the exact output that
 contains its records. Prepaint ranges carry one immutable identity; frame

@@ -8,6 +8,9 @@ import SwiftWindowsGraphics
 /// 2. **Visual regression baselines** — write BMP files for human inspection.
 /// 3. **CI / headless validation** — ``CPUBatchRenderer`` works without D3D11.
 ///
+/// Owned runtimes request cooperative task cancellation without synthesizing
+/// disappearance callbacks. Rendering an existing runtime preserves its lifetime.
+///
 /// Example:
 /// ```swift
 /// let bitmap = ViewSnapshot.rasterize(
@@ -20,6 +23,7 @@ import SwiftWindowsGraphics
 public enum ViewSnapshot {
 
     /// Rasterize a single ``Component`` to a bitmap at the given logical size.
+    /// Its temporary runtime requests task cancellation on return or error.
     public static func rasterize(
         component: Component,
         size: Size,
@@ -27,6 +31,10 @@ public enum ViewSnapshot {
         displayScale: Double = 1.0
     ) throws -> BitmapSurface {
         let runtime = RetainedViewRuntime(clearColor: clearColor, displayScale: displayScale)
+        defer {
+            runtime.stopRenderLifecycleCallbacks()
+            runtime.cancelRenderLifecycleTasks()
+        }
         let host = ComponentHost(runtime: runtime)
         host.setContent(component)
         runtime.setRootSize(IntSize(width: Int32(size.width), height: Int32(size.height)))
@@ -34,6 +42,7 @@ public enum ViewSnapshot {
     }
 
     /// Rasterize an array of components (using ``ComponentBuilder`` syntax).
+    /// Its temporary runtime requests task cancellation on return or error.
     public static func rasterize(
         @ComponentBuilder components: @escaping () -> [Component],
         size: Size,
@@ -41,6 +50,10 @@ public enum ViewSnapshot {
         displayScale: Double = 1.0
     ) throws -> BitmapSurface {
         let runtime = RetainedViewRuntime(clearColor: clearColor, displayScale: displayScale)
+        defer {
+            runtime.stopRenderLifecycleCallbacks()
+            runtime.cancelRenderLifecycleTasks()
+        }
         let host = ComponentHost(runtime: runtime)
         host.setComponents(components)
         runtime.setRootSize(IntSize(width: Int32(size.width), height: Int32(size.height)))
@@ -48,6 +61,7 @@ public enum ViewSnapshot {
     }
 
     /// Rasterize an existing ``RetainedViewRuntime`` whose tree has already been built.
+    /// The caller keeps lifecycle ownership; this does not stop the runtime's tasks.
     public static func rasterize(
         runtime: RetainedViewRuntime,
         size: Size

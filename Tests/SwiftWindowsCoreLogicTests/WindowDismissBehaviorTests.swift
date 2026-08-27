@@ -1,4 +1,5 @@
 import CUIAInterop
+import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import WinSDK
@@ -49,6 +50,27 @@ private struct RemovedWindowClosePolicyContent: View {
             Text("Window content")
                 .id("window-content")
         }
+    }
+}
+
+@MainActor
+private struct WindowCloseGestureStateContent: View {
+    @GestureState var isHolding = false
+    var onUpdating: @MainActor (Bool) -> Void = { _ in }
+    var onRecognized: @MainActor () -> Void = {}
+
+    var body: some View {
+        Text(isHolding ? "Holding" : "Ready")
+            .frame(width: 120, height: 60)
+            .accessibilityIdentifier("policy")
+            .gesture(
+                LongPressGesture(minimumDuration: 1)
+                    .updating($isHolding) { value, state, _ in
+                        state = value
+                        onUpdating(value)
+                    }
+                    .onEnded { _ in onRecognized() }
+            )
     }
 }
 
@@ -145,6 +167,25 @@ final class WindowDismissBehaviorTests: XCTestCase {
             candidates.append(contentsOf: node.children)
         }
         return try XCTUnwrap(nil, "The test view failed to produce its policy node.")
+    }
+
+    private func inputClock(for harness: Harness) -> RuntimeTestClock {
+        let clock = RuntimeTestClock()
+        clock.now = 1_000
+        harness.host.frameClock = { clock.now }
+        harness.host.hostedRuntime.clock = { clock.now }
+        return clock
+    }
+
+    private func inputCenter(of node: ViewNode) -> Point {
+        var point = Point(x: node.resolvedFrame.midX, y: node.resolvedFrame.midY)
+        var ancestor = node.parent
+        while let current = ancestor {
+            point.x += current.resolvedFrame.origin.x
+            point.y += current.resolvedFrame.origin.y
+            ancestor = current.parent
+        }
+        return point
     }
 
     func testWindowWithoutModifierUsesEnabledSceneDefault() async throws {
@@ -463,6 +504,195 @@ final class WindowDismissBehaviorTests: XCTestCase {
         XCTAssertEqual(renderer.detachCount, frameDetaches)
         XCTAssertEqual(batch.detachCount, sceneDetaches)
         XCTAssertFalse(host.currentTimerState.isEnabled)
+    }
+
+    func testDirectCloseCancelsMouseLongPressAndResetsGestureState() async throws {
+        var updates: [Bool] = []
+        var completions = 0
+        let content = WindowCloseGestureStateContent(
+            onUpdating: { updates.append($0) }, onRecognized: { completions += 1 })
+        let harness = try makeHost(content)
+        defer { tearDown(harness) }
+        let clock = inputClock(for: harness)
+        let point = inputCenter(of: try policyNode(in: harness))
+
+        harness.host.window(harness.window, leftMouseDownAt: point)
+        XCTAssertTrue(content.isHolding)
+        XCTAssertEqual(updates, [true])
+
+        // No HWND, focus-loss, capture-loss, or touch callback precedes this
+        // teardown. Mouse holds must terminate through the host itself.
+        harness.host.windowWillClose(harness.window)
+        harness.host.windowWillClose(harness.window)
+        clock.now += 2
+        harness.host.window(harness.window, animationFrameAt: clock.now)
+        harness.host.window(harness.window, leftMouseUpAt: point)
+
+        XCTAssertFalse(content.isHolding)
+        XCTAssertEqual(updates, [true], "Cancellation must not synthesize an updating(false) event.")
+        XCTAssertEqual(completions, 0)
+        XCTAssertFalse(harness.host.hostedRuntime.hasActiveAnimations)
+        XCTAssertNil(harness.host.hostedRuntime.focusedNode)
+        XCTAssertFalse(harness.host.currentTimerState.isEnabled)
+        XCTAssertEqual(harness.batchRenderer.detachCount, 1)
+    }
+
+    func testCloseCleanupCannotReenterPointerKeyboardOrFocusInput() async throws {
+        let harness = try makeHost(Text("Close target").frame(width: 120, height: 60).accessibilityIdentifier("policy"))
+        defer { tearDown(harness) }
+        let clock = inputClock(for: harness)
+        let node = try policyNode(in: harness)
+        defer {
+            node.onFocusExit = nil
+            node.longPressGesture = nil
+        }
+        let point = inputCenter(of: node)
+        var pressing: [Bool] = []
+        var begins = 0
+        var cleanups = 0
+        var completions = 0
+        var activations = 0
+        var textEvents = 0
+        var focusExits = 0
+        var attemptedPointerReentry = false
+        var attemptedFocusReentry = false
+        node.isHitTestVisible = true
+        node.isFocusable = true
+        node.onActivate = { activations += 1 }
+        node.onIMEComposition = { _ in textEvents += 1 }
+        node.longPressGesture = RetainedLongPressGesture(
+            minimumDuration: 1,
+            onBegin: { _ in
+                begins += 1
+                return { cleanups += 1 }
+            },
+            onPressingChanged: { value in
+                pressing.append(value)
+                if !value, !attemptedPointerReentry {
+                    attemptedPointerReentry = true
+                    harness.host.window(harness.window, leftMouseDownAt: point)
+                    harness.host.injectDiagnosticsClick(at: point)
+                    harness.host.window(harness.window, keyDown: KeyboardEvent(keyCode: UInt32(VK_RETURN)))
+                }
+            }, onRecognized: { completions += 1 })
+        node.onFocusExit = {
+            focusExits += 1
+            guard !attemptedFocusReentry else { return }
+            attemptedFocusReentry = true
+            harness.host.window(harness.window, keyDown: KeyboardEvent(keyCode: UInt32(VK_RETURN)))
+            harness.host.window(harness.window, didInputText: "late text")
+            harness.host.window(harness.window, imeComposition: IMECompositionEvent(phase: .updated("late IME")))
+            harness.host.windowDidLoseKeyboardFocus(harness.window)
+        }
+        harness.host.window(harness.window, leftMouseDownAt: point)
+        XCTAssertEqual(pressing, [true])
+        XCTAssertTrue(harness.host.hostedRuntime.focusedNode === node)
+        var routedAfterClose = 0
+        harness.host.onInputEventRouted = { _ in routedAfterClose += 1 }
+
+        harness.host.windowWillClose(harness.window)
+        harness.host.windowWillClose(harness.window)
+        clock.now += 2
+        _ = harness.host.hostedRuntime.tickAnimations(at: clock.now)
+
+        XCTAssertEqual(pressing, [true, false])
+        XCTAssertEqual(begins, 1)
+        XCTAssertEqual(cleanups, 1)
+        XCTAssertEqual(completions, 0)
+        XCTAssertEqual(activations, 0)
+        XCTAssertEqual(textEvents, 0)
+        XCTAssertEqual(focusExits, 1)
+        XCTAssertEqual(routedAfterClose, 0)
+        XCTAssertNil(harness.host.hostedRuntime.focusedNode)
+        XCTAssertFalse(harness.host.hostedRuntime.hasActiveAnimations)
+    }
+
+    func testClosedHostRejectsLateInputAndDoesNotInvalidateItsRemainingHWND() async throws {
+        let harness = try makeHost(
+            Text("Late input target").frame(width: 120, height: 60).accessibilityIdentifier("policy"), native: true)
+        defer { tearDown(harness) }
+        let handle = try nativeHandle(harness.window)
+        let node = try policyNode(in: harness)
+        let logicalPoint = inputCenter(of: node)
+        let scale = harness.window.effectiveScaleFactor
+        let point = Point(x: logicalPoint.x * scale, y: logicalPoint.y * scale)
+        var actions = 0
+        var routed = 0
+        node.isHitTestVisible = true
+        node.isFocusable = true
+        node.onActivate = { actions += 1 }
+        node.onContextMenu = { _ in actions += 1 }
+        node.onDropPayloads = { _, _ in
+            actions += 1
+            return true
+        }
+        harness.host.windowWillClose(harness.window)
+        harness.host.onInputEventRouted = { _ in routed += 1 }
+        let frameCount = harness.renderer.renderedFrames.count
+        let sceneCount = harness.batchRenderer.renderedScenes.count
+        ValidateRect(handle, nil)
+
+        harness.host.window(harness.window, leftMouseDownAt: point)
+        harness.host.window(harness.window, pointerMovedTo: point)
+        harness.host.window(harness.window, leftMouseUpAt: point)
+        harness.host.window(harness.window, touchBegan: [point])
+        harness.host.window(harness.window, touchMoved: [point])
+        harness.host.window(harness.window, touchEnded: [point])
+        harness.host.window(harness.window, mouseWheelAt: point, delta: 1)
+        harness.host.window(harness.window, mouseWheelAt: point, delta: 1, source: .precise)
+        harness.host.window(harness.window, horizontalScrollAt: point, delta: 1)
+        harness.host.window(harness.window, horizontalScrollAt: point, delta: 1, source: .precise)
+        harness.host.windowDidReceiveRightClick(harness.window, event: MouseEvent(button: .right, position: point))
+        harness.host.window(harness.window, keyDown: KeyboardEvent(keyCode: UInt32(VK_RETURN)))
+        harness.host.window(harness.window, didInputText: "late")
+        harness.host.window(harness.window, imeComposition: IMECompositionEvent(phase: .committed("late")))
+        harness.host.window(
+            harness.window,
+            didReceiveFileDrop: FileDropPayload(
+                fileURLs: [URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("not-created.txt")],
+                clientPoint: point))
+        harness.host.windowDidCancelPointerInteraction(harness.window)
+        harness.host.windowPointerDidLeave(harness.window)
+        harness.host.windowDidLoseKeyboardFocus(harness.window)
+        harness.host.injectDiagnosticsPointerMove(to: logicalPoint)
+        harness.host.injectDiagnosticsScroll(at: logicalPoint, delta: 1)
+        harness.host.injectDiagnosticsClick(at: logicalPoint)
+        harness.host.requestDiagnosticsFrame()
+        harness.host.windowNeedsDisplay(harness.window)
+
+        XCTAssertEqual(actions, 0)
+        XCTAssertEqual(routed, 0)
+        XCTAssertEqual(harness.renderer.renderedFrames.count, frameCount)
+        XCTAssertEqual(harness.batchRenderer.renderedScenes.count, sceneCount)
+        XCTAssertNil(harness.host.windowTextInputCaretRect(harness.window))
+        XCTAssertNil(harness.host.hostedRuntime.focusedNode)
+        XCTAssertFalse(harness.host.currentTimerState.isEnabled)
+        XCTAssertFalse(
+            GetUpdateRect(handle, nil, false), "Closed-host callbacks must not dirty even an HWND awaiting rollback.")
+    }
+
+    func testNormalFocusLossStillCancelsAHoldAndAllowsLaterInput() async throws {
+        var completions = 0
+        let content = WindowCloseGestureStateContent(onRecognized: { completions += 1 })
+        let harness = try makeHost(content)
+        defer { tearDown(harness) }
+        let clock = inputClock(for: harness)
+        let point = inputCenter(of: try policyNode(in: harness))
+
+        harness.host.window(harness.window, leftMouseDownAt: point)
+        XCTAssertTrue(content.isHolding)
+        harness.host.windowDidLoseKeyboardFocus(harness.window)
+        XCTAssertFalse(content.isHolding)
+        XCTAssertEqual(completions, 0)
+        XCTAssertEqual(harness.batchRenderer.detachCount, 0)
+
+        clock.now += 2
+        harness.host.window(harness.window, leftMouseDownAt: point)
+        XCTAssertTrue(content.isHolding)
+        clock.now += 1
+        harness.host.window(harness.window, leftMouseUpAt: point)
+        XCTAssertFalse(content.isHolding)
+        XCTAssertEqual(completions, 1, "Only teardown should permanently reject subsequent input.")
     }
 
     func testApprovedTeardownCancelsQueuedObservedReloadsAndRemainsIdempotent() async throws {

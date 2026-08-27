@@ -2428,17 +2428,21 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func injectDiagnosticsPointerMove(to logicalPoint: Point) {
+        guard !hasTornDownWindow else { return }
         runtime.pointerMoved(to: logicalPoint)
         commitRuntimeState(in: window, interactive: true)
     }
 
     func injectDiagnosticsScroll(at logicalPoint: Point, delta: Double) {
+        guard !hasTornDownWindow else { return }
         runtime.mouseWheel(at: logicalPoint, delta: delta, source: .wheelNotch)
         commitRuntimeState(in: window, interactive: true)
     }
 
     func injectDiagnosticsClick(at logicalPoint: Point) {
+        guard !hasTornDownWindow else { return }
         runtime.pointerDown(at: logicalPoint)
+        guard !hasTornDownWindow else { return }
         runtime.pointerUp(at: logicalPoint)
         commitRuntimeState(in: window, interactive: true)
     }
@@ -2908,6 +2912,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, pointerMovedTo point: Point) {
+        guard !hasTornDownWindow else { return }
         let scaleFactor = window.effectiveScaleFactor
         let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
         runtime.pointerMoved(to: logicalPoint)
@@ -2916,6 +2921,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func windowPointerDidLeave(_ window: Win32Window) {
+        guard !hasTornDownWindow else { return }
         runtime.pointerExitedWindow()
         onInputEventRouted?(.pointerExitedWindow)
         commitRuntimeState(in: window, interactive: true)
@@ -2926,6 +2932,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double, source: ScrollInputSource) {
+        guard !hasTornDownWindow else { return }
         let scaleFactor = window.effectiveScaleFactor
         let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
         runtime.mouseWheel(at: logicalPoint, delta: delta, source: source)
@@ -2940,6 +2947,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     func window(
         _ window: Win32Window, horizontalScrollAt point: Point, delta: Double, source: ScrollInputSource
     ) {
+        guard !hasTornDownWindow else { return }
         let scaleFactor = window.effectiveScaleFactor
         let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
         runtime.mouseWheel(at: logicalPoint, delta: delta, axis: .horizontal, source: source)
@@ -2948,6 +2956,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, leftMouseDownAt point: Point) {
+        guard !hasTornDownWindow else { return }
         let scaleFactor = window.effectiveScaleFactor
         let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
         runtime.pointerDown(at: logicalPoint)
@@ -2956,6 +2965,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, leftMouseUpAt point: Point) {
+        guard !hasTornDownWindow else { return }
         let scaleFactor = window.effectiveScaleFactor
         let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
         runtime.pointerUp(at: logicalPoint)
@@ -2964,7 +2974,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, touchBegan points: [Point]) {
-        guard !isPrimaryTouchActive, let point = points.first else {
+        guard !hasTornDownWindow, !isPrimaryTouchActive, let point = points.first else {
             return
         }
 
@@ -2973,7 +2983,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, touchMoved points: [Point]) {
-        guard isPrimaryTouchActive, let point = points.first else {
+        guard !hasTornDownWindow, isPrimaryTouchActive, let point = points.first else {
             return
         }
 
@@ -2981,7 +2991,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, touchEnded points: [Point]) {
-        guard isPrimaryTouchActive, let point = points.first else {
+        guard !hasTornDownWindow, isPrimaryTouchActive, let point = points.first else {
             return
         }
 
@@ -2990,6 +3000,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func windowDidCancelPointerInteraction(_ window: Win32Window) {
+        guard !hasTornDownWindow else { return }
         isPrimaryTouchActive = false
         runtime.pointerCancelled()
         onInputEventRouted?(.pointerCancelled)
@@ -2997,6 +3008,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func windowDidReceiveRightClick(_ window: Win32Window, event: MouseEvent) {
+        guard !hasTornDownWindow else { return }
         let scaleFactor = window.effectiveScaleFactor
         let logicalPoint = logicalPoint(event.position, scaleFactor: scaleFactor)
         runtime.contextClick(at: logicalPoint)
@@ -3005,28 +3017,32 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, imeComposition event: IMECompositionEvent) {
+        guard !hasTornDownWindow else { return }
         runtime.imeComposition(event)
         commitRuntimeState(in: window, interactive: true)
     }
 
     func windowTextInputCaretRect(_ window: Win32Window) -> Rect? {
-        runtime.focusedTextInputCaretRect
+        guard !hasTornDownWindow else { return nil }
+        return runtime.focusedTextInputCaretRect
     }
 
     func window(_ window: Win32Window, didReceiveFileDrop payload: FileDropPayload) {
+        guard !hasTornDownWindow else { return }
         let logicalPoint = logicalPoint(payload.clientPoint, scaleFactor: window.effectiveScaleFactor)
         _ = runtime.performFileDrop(payload.fileURLs, at: logicalPoint)
         commitRuntimeState(in: window, interactive: true)
     }
 
     func window(_ window: Win32Window, keyDown event: KeyboardEvent) {
+        guard !hasTornDownWindow else { return }
         runtime.keyDown(event)
         onInputEventRouted?(.keyDown(event))
         commitRuntimeState(in: window, interactive: true)
     }
 
     func window(_ window: Win32Window, didInputText text: String) {
-        guard !text.isEmpty else {
+        guard !hasTornDownWindow, !text.isEmpty else {
             return
         }
 
@@ -3040,6 +3056,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func windowDidLoseKeyboardFocus(_ window: Win32Window) {
+        guard !hasTornDownWindow else { return }
         if isPrimaryTouchActive {
             isPrimaryTouchActive = false
             runtime.pointerCancelled()
@@ -3145,10 +3162,12 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         nextBatchRecoveryAttemptAt = nil
         resetObservedObjects()
         syncAnimationDriver(for: window)
-        if isPrimaryTouchActive {
-            isPrimaryTouchActive = false
-            runtime.pointerCancelled()
-        }
+        // Direct teardown and failed-start rollback need not receive native
+        // capture/focus-loss messages. Cancel every input source after setting
+        // the closed guard, so cleanup cannot reenter this host to start work.
+        isPrimaryTouchActive = false
+        runtime.pointerCancelled()
+        runtime.keyboardFocusDidLeaveWindow()
         uiaBridge?.disconnect()
         window.accessibilityProvider = nil
         // Release the GPU stack while the HWND is still alive. A swap chain
@@ -3510,6 +3529,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     private func commitRuntimeState(in window: Win32Window, interactive: Bool = false) {
+        guard !hasTornDownWindow else { return }
         let needsPresentation = runtime.isDirty || pendingPresentation
 
         if interactive && needsPresentation {
@@ -3525,6 +3545,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     private func requestFrame(in window: Win32Window) {
+        guard !hasTornDownWindow else { return }
         let wasPending = pendingPresentation
         pendingPresentation = true
         syncAnimationDriver(for: window)

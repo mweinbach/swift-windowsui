@@ -138,8 +138,26 @@ try {
     $sdkSettingsCopy = Join-Path $captureRoot ([System.IO.Path]::GetFileName($sdkSettingsPath))
     Copy-Item -LiteralPath $sdkSettingsPath -Destination $sdkSettingsCopy
     $interfaceRecords = [System.Collections.Generic.List[object]]::new()
+    $crossImportDefinitions = [System.Collections.Generic.List[object]]::new()
     foreach ($module in $manifest.scope.modules) {
         $interfaceDirectory = Join-Path $sdkPath "System/Library/Frameworks/$module.framework/Modules/$module.swiftmodule"
+        $frameworkModulesDirectory = Split-Path -Parent $interfaceDirectory
+        # The compiler can silently skip cross-import modules that fail to
+        # load. Preserve their declarations for an explicit completeness
+        # review rather than treating exit 0 as proof all overlays appeared.
+        foreach ($definition in Get-ChildItem -LiteralPath $frameworkModulesDirectory -Filter '*.swiftoverlay' -File -Recurse) {
+            $relativeDefinition = Get-SwiftUIBaselineRelativePath -Root $frameworkModulesDirectory -Path $definition.FullName
+            $definitionCopy = Join-Path $captureRoot "cross-imports/$module/$relativeDefinition"
+            [void](New-Item -ItemType Directory -Path (Split-Path -Parent $definitionCopy) -Force)
+            Copy-Item -LiteralPath $definition.FullName -Destination $definitionCopy
+            $crossImportDefinitions.Add([pscustomobject][ordered]@{
+                module = $module
+                path = Get-SwiftUIBaselineRelativePath -Root $captureRoot -Path $definitionCopy
+                sdkRelativeSource = Get-SwiftUIBaselineRelativePath -Root $sdkPath -Path $definition.FullName
+                sha256 = (Get-FileHash -LiteralPath $definitionCopy -Algorithm SHA256).Hash.ToLowerInvariant()
+                evaluation = "not-performed; reconcile definitions with emitted graphs during inventory review"
+            })
+        }
         $interfaces = @(Get-ChildItem -LiteralPath $interfaceDirectory -Filter '*.swiftinterface' -File -Recurse |
             Where-Object { $_.Name -notmatch '\.(private|package)\.swiftinterface$' })
         if ($interfaces.Count -eq 0) { throw "No public Swift interfaces found for '$module'; import/re-export evidence would be incomplete." }
@@ -174,6 +192,7 @@ try {
                 "-minimum-access-level", "public",
                 "-emit-extension-block-symbols",
                 "-experimental-allowed-reexported-modules=$($manifest.scope.allowedReexportedModules -join ',')",
+                "-v",
                 "-pretty-print",
                 "-output-dir", $directory
             )
@@ -223,6 +242,8 @@ try {
         }
         requestedScope = $manifest.scope
         publicInterfaces = $interfaceRecords.ToArray()
+        crossImportDefinitions = $crossImportDefinitions.ToArray()
+        crossImportOverlayCompleteness = "not-verified; compiler may silently skip an overlay that fails to load"
         inventory = [ordered]@{
             path = "inventory.json"
             sha256 = (Get-FileHash -LiteralPath $inventoryPath -Algorithm SHA256).Hash.ToLowerInvariant()

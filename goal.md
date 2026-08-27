@@ -357,6 +357,11 @@ options. `scripts/test-swiftui-baseline.ps1` passed 70 assertions on synthetic
 fixtures under Windows PowerShell. That result validates tooling, not an Apple
 SDK inventory or behavior. The full declaration/overlay review, native export,
 and conformance evidence remain open under gates 1–3.
+Follow-up tooling checks passed 75 assertions after covering Apple's
+driver-prefixed compiler version output and retaining cross-import overlay
+declarations. The upstream exporter can skip unloadable overlay modules, so
+even a successful capture explicitly leaves overlay completeness unverified
+until reconciled with the public SDK interfaces.
 
 | Gate | Acceptance detail and evidence to retain |
 | --- | --- |

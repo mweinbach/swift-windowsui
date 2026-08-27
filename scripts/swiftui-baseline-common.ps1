@@ -72,7 +72,7 @@ function ConvertTo-SwiftUIBaselineIdentity {
 
     $xcodeVersion = [regex]::Match($XcodeOutput, '(?m)^Xcode (\d+\.\d+(?:\.\d+)?)[ \t]*\r?$')
     $xcodeBuild = [regex]::Match($XcodeOutput, '(?m)^Build version ([A-Za-z0-9]+)[ \t]*\r?$')
-    $swiftVersion = [regex]::Match($SwiftOutput, '(?m)^(Apple Swift version (\d+\.\d+(?:\.\d+)?)(?:[^\r\n]*))\r?$')
+    $swiftVersion = [regex]::Match($SwiftOutput, '(?m)^((?:swift-driver version: [^ \t\r\n]+[ \t]+)?Apple Swift version (\d+\.\d+(?:\.\d+)?)(?=[ \t(]|\r?$)[^\r\n]*)\r?$')
     if (-not $xcodeVersion.Success -or -not $xcodeBuild.Success) {
         throw "Cannot identify the Xcode release and build from xcodebuild -version."
     }
@@ -294,6 +294,7 @@ function New-SwiftUIBaselineInventory {
         evidenceKind = "compiler-exported-api-inventory-only"
         completeness = "requires-public-interface-and-documentation-audit"
         behaviorConformance = "not-verified"
+        crossImportOverlayCompleteness = "requires-declaration-and-interface-audit"
         symbolIdentity = "case-sensitive identifier.precise; occurrences retained across targets and re-exports"
         rawGraphsAreAuthoritative = $true
         counts = [ordered]@{

@@ -41,6 +41,10 @@ foreach ($name in @("export-swiftui-baseline.ps1", "swiftui-baseline-common.ps1"
 # These identifiers are deliberately synthetic. They never update the real
 # manifest or imply that a particular Apple Xcode/SDK build has been captured.
 $identity = ConvertTo-SwiftUIBaselineIdentity -XcodeOutput "Xcode 26.6`nBuild version TESTXCODE1" -SDKVersion "26.5" -SDKBuildVersion "TESTSDK1" -SwiftOutput "Apple Swift version 6.3 (synthetic test compiler)`nTarget: arm64-apple-macosx26.5"
+$driverLine = "swift-driver version: 0.0-fixture Apple Swift version 6.3.1 (synthetic test compiler)"
+$driverIdentity = ConvertTo-SwiftUIBaselineIdentity -XcodeOutput "Xcode 26.6`r`nBuild version TESTXCODE1" -SDKVersion "26.5" -SDKBuildVersion "TESTSDK1" -SwiftOutput "$driverLine`r`nTarget: arm64-apple-macosx26.5"
+Assert-BaselineTest ($driverIdentity.swiftCompilerVersion -ceq "6.3.1") "accept the Apple driver-prefixed version output"
+Assert-BaselineTest ($driverIdentity.swiftCompilerVersionLine -ceq $driverLine) "retain the exact driver/compiler build line"
 $unreviewedManifest = Copy-BaselineTestObject $manifest
 foreach ($field in @("xcodeBuildVersion", "sdkBuildVersion", "swiftCompilerVersionLine")) {
     $unreviewedManifest.reviewedIdentity.$field = $null
@@ -65,6 +69,7 @@ foreach ($field in @("xcodeBuildVersion", "sdkBuildVersion", "swiftCompilerVersi
 }
 Assert-BaselineThrows { ConvertTo-SwiftUIBaselineIdentity -XcodeOutput "Xcode 26.6 beta" -SDKVersion "26.5" -SDKBuildVersion "TEST" -SwiftOutput "Apple Swift version 6.3" } 'Cannot identify' "reject ambiguous Xcode identity"
 Assert-BaselineThrows { ConvertTo-SwiftUIBaselineIdentity -XcodeOutput "Xcode 26.6`nBuild version TEST" -SDKVersion "26.5" -SDKBuildVersion "TEST" -SwiftOutput "Swift version 6.3 (swift.org)" } 'released Apple Swift' "reject another compiler distribution"
+Assert-BaselineThrows { ConvertTo-SwiftUIBaselineIdentity -XcodeOutput "Xcode 26.6`nBuild version TEST" -SDKVersion "26.5" -SDKBuildVersion "TEST" -SwiftOutput "Apple Swift version 6.3-dev (fixture)" } 'released Apple Swift' "reject a development compiler version suffix"
 
 $narrowedManifest = Copy-BaselineTestObject $manifest
 $narrowedManifest.scope.modules = @("SwiftUI")
@@ -98,6 +103,7 @@ Assert-BaselineTest ($inventory.counts.declarationOccurrences -eq 14) "preserve 
 Assert-BaselineTest ($inventory.counts.relationshipOccurrences -eq 10) "preserve every relationship"
 Assert-BaselineTest ($inventory.behaviorConformance -ceq "not-verified") "inventory never implies behavior conformance"
 Assert-BaselineTest ($inventory.completeness -ceq "requires-public-interface-and-documentation-audit") "compiler graph is not the completed API audit"
+Assert-BaselineTest ($inventory.crossImportOverlayCompleteness -ceq "requires-declaration-and-interface-audit") "successful extraction does not imply complete cross-import coverage"
 $shared = @($inventory.symbols | Where-Object { $_.preciseIdentifier -ceq "s:fixtureSharedViewP" })
 Assert-BaselineTest ($shared.Count -eq 1 -and $shared[0].occurrences.Count -eq 4) "re-export does not erase declaring-module occurrences"
 $upper = @($inventory.symbols | Where-Object { $_.preciseIdentifier -ceq "s:FixtureViewV" })

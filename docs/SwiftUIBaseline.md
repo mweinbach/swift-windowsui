@@ -85,6 +85,7 @@ complete evidence and must not replace a reviewed capture.
 | `SDKSettings.json` or `SDKSettings.plist` | SDK identity metadata copied and hashed from the selected installation; this is not a hash of the entire SDK |
 | `graphs/<target>/<module>/*.symbols.json` | All raw compiler graphs, including extension partitions such as `SwiftUI@Foundation.symbols.json` |
 | `interfaces/<module>/*.swiftinterface` | Public textual interfaces, unchanged and individually hashed; private and package interfaces are not copied |
+| `cross-imports/<module>/` | Any `.swiftoverlay` declaration files found under those frameworks' module directories, copied and hashed for subsequent audit |
 | `inventory.json` | Deterministic index by case-sensitive `identifier.precise`, with every target/module occurrence and raw graph location retained |
 | `module-cache/` | Disposable extraction cache, not conformance evidence |
 
@@ -120,6 +121,14 @@ overload, conditional declaration, macro, synthesized requirement, or
 platform adaptation needed by the goal. Reconcile the graph union with the
 captured public interfaces and Apple documentation before declaring the API
 audit complete. Document discrepancies rather than discarding them.
+
+The [pinned extractor implementation](https://github.com/swiftlang/swift/blob/swift-6.3-RELEASE/lib/DriverTool/swift_symbolgraph_extract_main.cpp)
+can silently skip cross-import overlay modules that fail to load. Verbose
+command output records the modules it did emit, and captured overlay
+declarations provide another audit input. Neither exit code zero nor an empty
+overlay-definition list proves that all cross-import combinations were
+covered. Their completeness remains explicitly unverified in the inventory
+and capture records until reviewed against the SDK and public interfaces.
 
 For each audited declaration or behavior, later conformance records must
 identify its precise symbol/overload, public availability, relevant reference

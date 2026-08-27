@@ -33,6 +33,7 @@
   "evidence": {
     "sdkCapture": "not-run",
     "inventoryReview": "not-started",
+    "crossImportOverlayAudit": "not-started",
     "behaviorConformance": "not-verified",
     "nativeReferenceOSBuild": null,
     "reviewedCaptureManifestSha256": null,

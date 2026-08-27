@@ -1345,14 +1345,6 @@ public final class D3D11Renderer: RenderBackend {
 
         let constantBufferResource = UnsafeMutableRawPointer(constantBuffer).assumingMemoryBound(to: ID3D11Resource.self)
 
-        func submitRectangle() {
-            withUnsafePointer(to: &uniforms) { pointer in
-                deviceContext.pointee.lpVtbl.pointee.UpdateSubresource(
-                    deviceContext, constantBufferResource, 0, nil, UnsafeRawPointer(pointer), 0, 0)
-            }
-            deviceContext.pointee.lpVtbl.pointee.Draw(deviceContext, 6, 0)
-        }
-
         if let gradientPlan {
             for (index, segment) in gradientPlan.segments.enumerated() {
                 uniforms.startRed = segment.startColor.red
@@ -1366,11 +1358,30 @@ public final class D3D11Renderer: RenderBackend {
                 uniforms.gradientSegmentStart = segment.start
                 uniforms.gradientSegmentEnd = segment.end
                 uniforms.gradientSegmentMode = gradientPlan.segmentMode(at: index)
-                submitRectangle()
+                submitRectangle(
+                    uniforms: &uniforms, deviceContext: deviceContext,
+                    constantBufferResource: constantBufferResource)
             }
         } else {
-            submitRectangle()
+            submitRectangle(
+                uniforms: &uniforms, deviceContext: deviceContext,
+                constantBufferResource: constantBufferResource)
         }
+    }
+
+    /// Keep the scoped upload in the renderer's main-actor call. Explicit
+    /// parameters avoid nested-function captures of the non-Sendable COM
+    /// pointers, and the uniforms pointer exists only during the upload.
+    private func submitRectangle(
+        uniforms: inout RectangleUniforms,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
+        constantBufferResource: UnsafeMutablePointer<ID3D11Resource>
+    ) {
+        withUnsafePointer(to: &uniforms) { pointer in
+            deviceContext.pointee.lpVtbl.pointee.UpdateSubresource(
+                deviceContext, constantBufferResource, 0, nil, UnsafeRawPointer(pointer), 0, 0)
+        }
+        deviceContext.pointee.lpVtbl.pointee.Draw(deviceContext, 6, 0)
     }
 
     private func draw(

@@ -97,6 +97,11 @@ if ($Full) {
     Invoke-Step "swift build swift-windowsui" {
         & $buildScript -Product "swift-windowsui"
     }
+    # Optimized compilation can expose isolation and generic-specialization
+    # diagnostics that the debug test build does not diagnose.
+    Invoke-Step "swift build release swift-windowsui" {
+        & $buildScript -Product "swift-windowsui" -Configuration "release"
+    }
     Invoke-Step "scene screenshot" {
         & $screenshotScript
     }

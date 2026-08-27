@@ -6815,7 +6815,15 @@ public struct Image: View {
                 )
             }
         case .bitmap(let bitmap):
-            let preferredSize = resolvedPreferredSize(baseSize: bitmap?.logicalSize, requiresExplicitOptIn: false)
+            // Ordinary stretching accepts layout's finite proposal. Keep the
+            // bitmap as its intrinsic fallback instead of pinning an explicit
+            // preferred size, which also defeats fill in absolute containers.
+            // Aspect, tile, and cap-inset modes need their own sizing/paint rules.
+            let stretchesToProposal =
+                isResizable && resizingMode == .stretch && capInsets == .zero && contentMode == nil
+            let preferredSize =
+                stretchesToProposal
+                ? nil : resolvedPreferredSize(baseSize: bitmap?.logicalSize, requiresExplicitOptIn: false)
             return Component { _ in
                 guard let bitmap else {
                     let node = Controls.panel(preferredSize: preferredSize, isHitTestVisible: false)
@@ -6825,6 +6833,7 @@ public struct Image: View {
 
                 let renderedBitmap = resolvedBitmapSurface(bitmap, context: context)
                 let node = Controls.image(renderedBitmap, preferredSize: preferredSize)
+                if stretchesToProposal { node.layoutFillAxes = .both }
                 applyImageMetadata(to: node, context: context)
                 return node
             }

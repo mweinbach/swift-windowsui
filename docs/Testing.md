@@ -184,6 +184,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Dem
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter SceneBoundaryResilienceTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter D3D11TransparentCompositingTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter D3D11ImageBindingLifetimeTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIBitmapStretchTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Win32PointerMessageRoutingTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Win32NativeFileDialogSafetyTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter FileDocumentExportTests

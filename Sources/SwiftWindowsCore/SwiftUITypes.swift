@@ -20,16 +20,52 @@ public enum AnimationEasing: Sendable, Equatable {
             return t * (2 - t)
         case .easeInOut:
             return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
-        case .spring(let response, let dampingRatio):
-            let scaledTime = t / max(response, 0.001)
-            let damping = max(dampingRatio, 0.001)
-            let decay = exp(-damping * scaledTime * 5.0)
-            let oscillation = cos(scaledTime * 2.0 * Double.pi)
-            let value = 1.0 - decay * oscillation
-            return max(0.0, min(1.0, value))
+        case .spring(_, let dampingRatio):
+            return springValue(t: t, dampingRatio: dampingRatio)
         case .timingCurve(let c0x, let c0y, let c1x, let c1y):
             return cubicBezierValue(t: t, c0x: c0x, c0y: c0y, c1x: c1x, c1y: c1y)
         }
+    }
+
+    private func springValue(t: Double, dampingRatio: Double) -> Double {
+        guard t > 0 else { return 0 }
+        guard t < 1 else { return 1 }
+
+        // `t` is normalized over the spring's `response * 5` envelope.
+        // With natural frequency 2π / response, the dimensionless time is
+        // therefore 10πt. Dividing normalized time by response again would
+        // make the physical response scale with response squared.
+        let time = 10.0 * Double.pi * t
+        // Invalid physical parameters fall back to a stable, non-bouncing
+        // response instead of propagating NaN into retained geometry.
+        let damping = dampingRatio.isFinite && dampingRatio >= 0 ? dampingRatio : 1
+
+        // A zero-velocity, critically damped spring never overshoots. Use
+        // its limiting form near 1 to avoid an unstable division by zero.
+        if abs(damping - 1) < 0.000_001 {
+            return 1 - (1 + time) * exp(-time)
+        }
+
+        if damping < 1 {
+            let frequency = sqrt(1 - damping * damping)
+            let angle = frequency * time
+            let displacement =
+                exp(-damping * time)
+                * (cos(angle) + damping / frequency * sin(angle))
+            // An underdamped spring must pass through its target. Clamping
+            // at 1 creates a long plateau followed by a visible backslide.
+            return 1 - displacement
+        }
+
+        // Compute the slow mode without squaring or adding large damping
+        // values. Divide both modes by the fast rate (1 / slowRate), so even
+        // the largest finite damping never creates an infinity / infinity.
+        let inverseDamping = 1 / damping
+        let slowRate = inverseDamping / (1 + sqrt(1 - inverseDamping * inverseDamping))
+        let rateRatio = slowRate * slowRate
+        let displacement =
+            (exp(-slowRate * time) - rateRatio * exp(-time / slowRate)) / (1 - rateRatio)
+        return 1 - displacement
     }
 
     private func cubicBezierValue(t: Double, c0x: Double, c0y: Double, c1x: Double, c1y: Double) -> Double {

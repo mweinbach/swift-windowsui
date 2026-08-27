@@ -97,6 +97,8 @@ final class SwitchKnobMotionTests: XCTestCase {
     /// entire claim.
     func testTheKnobIsDrawnInFlightAcrossTheTrack() async {
         let harness = makeSwitch()
+        let startTime = 100.0
+        harness.runtime.clock = { startTime }
         guard let knobStart = harness.knob()?.resolvedFrame.origin.x else { return XCTFail("no knob") }
 
         harness.toggle()
@@ -105,11 +107,9 @@ final class SwitchKnobMotionTests: XCTestCase {
             harness.knob()?.frame.origin.x ?? -1, knobStart, accuracy: 0.001,
             "the frame the state changed on still shows the knob where it was")
 
-        var clock = Win32Window.currentTimestampSeconds()
         var sampled: [Double] = []
-        for _ in 0..<24 {
-            clock += 1.0 / 60.0
-            _ = harness.runtime.tickAnimations(at: clock)
+        for sample in 1...36 {
+            _ = harness.runtime.tickAnimations(at: startTime + Double(sample) / 60)
             sampled.append(harness.knob()?.frame.origin.x ?? -1)
         }
 
@@ -122,9 +122,37 @@ final class SwitchKnobMotionTests: XCTestCase {
             travelled.count, 3,
             "the knob has to be drawn between its two ends, not teleported: \(sampled)")
         XCTAssertEqual(sampled.last ?? -1, knobEnd, accuracy: 0.5, "and it arrives")
+        let approaching = sampled.prefix(while: { $0 <= knobEnd })
         XCTAssertTrue(
-            zip(sampled, sampled.dropFirst()).allSatisfy { $1 >= $0 - 0.001 },
-            "the travel is monotonic across its span: \(sampled)")
+            zip(approaching, approaching.dropFirst()).allSatisfy { $1 >= $0 - 0.001 },
+            "the initial approach is monotonic before crossing the target: \(sampled)")
+        let overshoot = (sampled.max() ?? knobEnd) - knobEnd
+        XCTAssertGreaterThan(overshoot, 0, "the snappy spring passes continuously through its target")
+        XCTAssertLessThan(
+            overshoot, (knobEnd - knobStart) * 0.01,
+            "the snappy spring's overshoot is less than one percent of its travel")
+    }
+
+    func testTheKnobDoesNotRetreatLongAfterReachingTheTrackEnd() async {
+        let harness = makeSwitch()
+        let startTime = 100.0
+        harness.runtime.clock = { startTime }
+
+        harness.toggle()
+        _ = harness.runtime.renderFrame()
+
+        let knobEnd =
+            MacOSControlMetrics.Toggle.regularSize.width - MacOSControlMetrics.Toggle.knobDiameter
+            - MacOSControlMetrics.Toggle.knobInset
+        for sample in 1...150 {
+            let elapsed = Double(sample) / 60
+            _ = harness.runtime.tickAnimations(at: startTime + elapsed)
+            if elapsed >= 1 {
+                XCTAssertEqual(
+                    harness.knob()?.frame.origin.x ?? -1, knobEnd, accuracy: 0.01,
+                    "the spring must not pause at its target and retreat by a visible fraction of a pixel later")
+            }
+        }
     }
 
     /// The track cross-fades over the interval the knob's spring occupies —

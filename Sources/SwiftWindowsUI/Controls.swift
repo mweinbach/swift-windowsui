@@ -1344,17 +1344,14 @@ public enum Controls {
     /// named spring rather than restated, so it cannot drift from the constant
     /// `docs/AnimationParity.md` pins.
     ///
-    /// The envelope is `response * 5` (this stack's spring convention), but
-    /// `AnimationEasing.spring` clamps its first overshoot, so the knob is
-    /// *there* at `0.25 * response` of normalised progress — 0.3125s of
-    /// travel. That is the number to compare against NSSwitch, and it is what
-    /// `switchTrackCrossfadeDuration` matches.
+    /// The envelope remains `response * 5` (this stack's spring convention).
+    /// Its damped response covers 97% of the travel during the track's
+    /// 0.3125s cross-fade, then settles with a small, continuous overshoot.
     public static let switchKnobAnimation = AnimationTransaction(
         duration: Animation.snappy.duration, easing: Animation.snappy.easing)
 
-    /// Where the knob's spring saturates: the interval the travel actually
-    /// occupies, and therefore the interval the track's fill cross-fades over
-    /// so the two read as one movement.
+    /// The track's established cross-fade interval, covering the main part
+    /// of the knob's travel while its spring finishes settling.
     public static let switchTrackCrossfadeDuration = Animation.snappy.duration * 0.125
 
     /// The track's fill cross-fade.

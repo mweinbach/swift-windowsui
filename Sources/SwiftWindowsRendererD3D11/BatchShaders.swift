@@ -275,12 +275,13 @@ float4 psMain(VSOutput input) : SV_Target
 {
     float clipAlpha = 1.0;
 
-    // Per-pixel clip check: if clip rect has positive dimensions, discard outside it
+    // Top/left inclusive, bottom/right exclusive, like the rasterized geometry.
+    // Inclusive far edges make adjacent clips both paint a pixel-centre seam.
     if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
     {
         if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
-            input.pixelPosition.x > input.clipRect.x + input.clipRect.z ||
-            input.pixelPosition.y > input.clipRect.y + input.clipRect.w)
+            input.pixelPosition.x >= input.clipRect.x + input.clipRect.z ||
+            input.pixelPosition.y >= input.clipRect.y + input.clipRect.w)
         {
             discard;
         }
@@ -395,7 +396,17 @@ cbuffer BackdropRegion : register(b1)
     float4 backdropUVBounds;
 };
 
-float4 psMain(VSOutput input) : SV_Target
+// The material already contains the filtered destination. Retain only the
+// uncovered part of the original target, not (1 - material alpha), or a
+// translucent backdrop is composited twice. The second output supplies that
+// coverage independently of the material's alpha to the dual-source blend.
+struct MaterialPSOutput
+{
+    float4 color : SV_Target0;
+    float4 coverage : SV_Target1;
+};
+
+MaterialPSOutput psMain(VSOutput input)
 {
     float clipAlpha = 1.0;
 
@@ -403,8 +414,8 @@ float4 psMain(VSOutput input) : SV_Target
     if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
     {
         if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
-            input.pixelPosition.x > input.clipRect.x + input.clipRect.z ||
-            input.pixelPosition.y > input.clipRect.y + input.clipRect.w)
+            input.pixelPosition.x >= input.clipRect.x + input.clipRect.z ||
+            input.pixelPosition.y >= input.clipRect.y + input.clipRect.w)
         {
             discard;
         }
@@ -470,15 +481,18 @@ float4 psMain(VSOutput input) : SV_Target
     float4 backdrop = backdropTexture.Sample(
         backdropSampler, clamp(uv, backdropUVBounds.xy, backdropUVBounds.zw));
 
-    // Source-over composite of the tint over the blurred backdrop,
-    // matching what the CPU rasterizer's in-place blur + blend yields.
+    // Source-over composite of the tint over the blurred backdrop. This is
+    // the complete material pixel, which replaces the target by coverage.
     float3 composited = color.rgb * color.a + backdrop.rgb * (1.0 - color.a);
     float outA = input.blurOpaque > 0.5
         ? 1.0
         : color.a + backdrop.a * (1.0 - color.a);
 
     float coverage = alpha * clipAlpha;
-    return float4(composited * coverage, outA * coverage);
+    MaterialPSOutput output;
+    output.color = float4(composited * coverage, outA * coverage);
+    output.coverage = float4(0.0, 0.0, 0.0, coverage);
+    return output;
 }
 """#
 
@@ -675,8 +689,8 @@ float4 psMain(VSOutput input) : SV_Target
     if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
     {
         if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
-            input.pixelPosition.x > input.clipRect.x + input.clipRect.z ||
-            input.pixelPosition.y > input.clipRect.y + input.clipRect.w)
+            input.pixelPosition.x >= input.clipRect.x + input.clipRect.z ||
+            input.pixelPosition.y >= input.clipRect.y + input.clipRect.w)
         {
             discard;
         }
@@ -824,8 +838,8 @@ float4 psMain(VSOutput input) : SV_Target
     if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
     {
         if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
-            input.pixelPosition.x > input.clipRect.x + input.clipRect.z ||
-            input.pixelPosition.y > input.clipRect.y + input.clipRect.w)
+            input.pixelPosition.x >= input.clipRect.x + input.clipRect.z ||
+            input.pixelPosition.y >= input.clipRect.y + input.clipRect.w)
         {
             discard;
         }

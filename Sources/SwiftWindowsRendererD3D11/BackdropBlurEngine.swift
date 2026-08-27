@@ -1,11 +1,7 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
-
 import WinSDK
-
 import WinSDK.DirectX
 
 // MARK: - D3D11BackdropBlurEngine
@@ -158,18 +154,20 @@ final class D3D11BackdropBlurEngine {
         let samplerHR = device.pointee.lpVtbl.pointee.CreateSamplerState(device, &samplerDescriptor, &samplerState)
         try Self.throwIfFailed(samplerHR, operation: "ID3D11Device.CreateSamplerState(backdropBlur)")
 
-        // Same premultiplied source-over blend the batch pipeline uses:
-        // the composite draw must blend its coverage-weighted result over
-        // the untouched backdrop at the quad's anti-aliased edges.
+        // The shader has already composited tint over the blurred backdrop.
+        // Replace the covered portion of the original target: using source
+        // alpha here would blend that backdrop a second time and increase
+        // opacity during fades. SV_Target1 carries geometric/clip coverage
+        // independently of the premultiplied material in SV_Target0.
         var blendDescriptor = D3D11_BLEND_DESC()
         blendDescriptor.AlphaToCoverageEnable = false
         blendDescriptor.IndependentBlendEnable = false
         blendDescriptor.RenderTarget.0.BlendEnable = true
         blendDescriptor.RenderTarget.0.SrcBlend = D3D11_BLEND_ONE
-        blendDescriptor.RenderTarget.0.DestBlend = D3D11_BLEND_INV_SRC_ALPHA
+        blendDescriptor.RenderTarget.0.DestBlend = D3D11_BLEND_INV_SRC1_ALPHA
         blendDescriptor.RenderTarget.0.BlendOp = D3D11_BLEND_OP_ADD
         blendDescriptor.RenderTarget.0.SrcBlendAlpha = D3D11_BLEND_ONE
-        blendDescriptor.RenderTarget.0.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA
+        blendDescriptor.RenderTarget.0.DestBlendAlpha = D3D11_BLEND_INV_SRC1_ALPHA
         blendDescriptor.RenderTarget.0.BlendOpAlpha = D3D11_BLEND_OP_ADD
         blendDescriptor.RenderTarget.0.RenderTargetWriteMask = UINT8(D3D11_COLOR_WRITE_ENABLE_ALL.rawValue)
         let blendHR = device.pointee.lpVtbl.pointee.CreateBlendState(device, &blendDescriptor, &blendState)

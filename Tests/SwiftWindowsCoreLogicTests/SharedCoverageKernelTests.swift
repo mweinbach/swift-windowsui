@@ -192,4 +192,16 @@ final class SharedCoverageKernelTests: XCTestCase {
         XCTAssertEqual(fractional.alpha(atPixelX: 10, y: 5), 1.0)
         XCTAssertEqual(fractional.alpha(atPixelX: 20, y: 5), 0.0, "20.5 is past 20.2 and the shader discards")
     }
+
+    func testAdjacentFractionalClipsOwnTheirSharedPixelOnlyOnce() {
+        let left = GPUIClipRegion(x: 0.0, y: 0.0, width: 8.5, height: 24.0)
+        let right = GPUIClipRegion(x: 8.5, y: 0.0, width: 15.5, height: 24.0)
+        let top = GPUIClipRegion(x: 0.0, y: 0.0, width: 24.0, height: 8.5)
+        let bottom = GPUIClipRegion(x: 0.0, y: 8.5, width: 24.0, height: 15.5)
+
+        XCTAssertEqual(left.alpha(atPixelX: 8, y: 12), 0)
+        XCTAssertEqual(right.alpha(atPixelX: 8, y: 12), 1)
+        XCTAssertEqual(top.alpha(atPixelX: 12, y: 8), 0)
+        XCTAssertEqual(bottom.alpha(atPixelX: 12, y: 8), 1)
+    }
 }

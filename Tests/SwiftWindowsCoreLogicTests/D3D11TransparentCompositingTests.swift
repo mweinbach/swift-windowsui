@@ -77,4 +77,118 @@ final class D3D11TransparentCompositingTests: XCTestCase {
         XCTAssertEqual(color.blue, 1, accuracy: 0.01)
         XCTAssertEqual(color.alpha, 0.5, accuracy: 0.01)
     }
+
+    /// At fractional DPI an adjacent viewport boundary can pass through a
+    /// pixel centre. That pixel belongs to the later clip; accepting both
+    /// far and near edges composites two translucent rows into a dark seam.
+    func testAdjacentFractionalClipsDoNotDoubleCompositeTheirSharedPixel() async throws {
+        for vertical in [false, true] {
+            var scene = GPUIScene(clearColor: .white)
+            scene.addQuad(
+                QuadPrimitive(
+                    x: 0, y: 0, width: 24, height: 24,
+                    startR: 1, startG: 0, startB: 0, startA: 0.5,
+                    endR: 1, endG: 0, endB: 0, endA: 0.5,
+                    clipX: 0, clipY: 0,
+                    clipWidth: vertical ? 24 : 8.5,
+                    clipHeight: vertical ? 8.5 : 24
+                )
+            )
+            scene.addQuad(
+                QuadPrimitive(
+                    x: 0, y: 0, width: 24, height: 24,
+                    startR: 0, startG: 0, startB: 1, startA: 0.5,
+                    endR: 0, endG: 0, endB: 1, endA: 0.5,
+                    clipX: vertical ? 0 : 8.5,
+                    clipY: vertical ? 8.5 : 0,
+                    clipWidth: vertical ? 24 : 15.5,
+                    clipHeight: vertical ? 15.5 : 24
+                )
+            )
+            scene.finish()
+
+            let gpu = try WARPBatchRenderer.render(scene, size: Self.surfaceSize)
+            let cpu = GPUIRawSceneRasterizer.rasterize(scene, size: Self.surfaceSize)
+            for bitmap in [gpu, cpu] {
+                let seam = try XCTUnwrap(bitmap.pixelColor(atX: vertical ? 12 : 8, y: vertical ? 8 : 12))
+                XCTAssertEqual(seam.red, 0.5, accuracy: 0.01)
+                XCTAssertEqual(seam.green, 0.5, accuracy: 0.01, "the earlier red clip must not darken the blue row")
+                XCTAssertEqual(seam.blue, 1, accuracy: 0.01)
+            }
+            let report = comparePixels(gpu, cpu, tolerance: 2)
+            XCTAssertEqual(report.matchRatio, 1, accuracy: 0.001)
+        }
+    }
+
+    /// Blurring a uniform backdrop without tint is a no-op, including its
+    /// alpha. Source-over of the complete material pixel over that backdrop
+    /// used to turn 50% opacity into 75%, then 87.5% under a second material.
+    func testTransparentMaterialsPreserveUniformTranslucentBackdrop() async throws {
+        let clear = Color(red: 0.8, green: 0.4, blue: 0.2, alpha: 0.5)
+        var scene = GPUIScene(clearColor: clear)
+        let beforeGPU = try WARPBatchRenderer.render(scene, size: Self.surfaceSize)
+        let beforeCPU = GPUIRawSceneRasterizer.rasterize(scene, size: Self.surfaceSize)
+        for _ in 0..<2 {
+            scene.addQuad(
+                QuadPrimitive(
+                    x: 4.5, y: 4.5, width: 15, height: 15, cornerRadius: 4,
+                    startR: 0, startG: 0, startB: 0, startA: 0,
+                    endR: 0, endG: 0, endB: 0, endA: 0,
+                    blurRadius: 6
+                )
+            )
+        }
+        scene.finish()
+
+        let gpu = try WARPBatchRenderer.render(scene, size: Self.surfaceSize)
+        let cpu = GPUIRawSceneRasterizer.rasterize(scene, size: Self.surfaceSize)
+        for (before, after) in [(beforeGPU, gpu), (beforeCPU, cpu)] {
+            let report = comparePixels(before, after, tolerance: 2)
+            XCTAssertEqual(report.matchRatio, 1, accuracy: 0.001, "untinted uniform material changed its backdrop")
+            let center = try XCTUnwrap(after.pixelColor(atX: 12, y: 12))
+            XCTAssertEqual(center.alpha, 0.5, accuracy: 0.01)
+        }
+        let parity = comparePixels(gpu, cpu.premultipliedAlpha(), tolerance: 2)
+        XCTAssertEqual(parity.matchRatio, 1, accuracy: 0.001)
+    }
+
+    /// The target keeps (1 - geometric coverage), independently of the
+    /// material's alpha. This pins the fully covered interior, a half-covered
+    /// geometry or rounded-clip edge, and blurOpaque.
+    func testTranslucentMaterialReplacesBackdropByCoverage() async throws {
+        for (forceOpaque, clipped) in [(false, false), (true, false), (false, true), (true, true)] {
+            var scene = GPUIScene(clearColor: Color(red: 1, green: 0, blue: 0, alpha: 0.5))
+            scene.addQuad(
+                QuadPrimitive(
+                    x: clipped ? 0 : 4.5, y: clipped ? 0 : 4,
+                    width: clipped ? 24 : 16, height: clipped ? 24 : 16,
+                    startR: 0, startG: 0, startB: 1, startA: 0.4,
+                    endR: 0, endG: 0, endB: 1, endA: 0.4,
+                    clipX: clipped ? 4.5 : 0, clipY: clipped ? 4 : 0,
+                    clipWidth: clipped ? 16 : 0, clipHeight: clipped ? 16 : 0,
+                    clipCornerRadius: clipped ? 4 : 0,
+                    blurRadius: 6, blurOpaque: forceOpaque ? 1 : 0
+                )
+            )
+            scene.finish()
+            let materialAlpha: Float = forceOpaque ? 1 : 0.7
+            let edgeAlpha = (materialAlpha + 0.5) / 2
+            let gpu = try WARPBatchRenderer.render(scene, size: Self.surfaceSize)
+            let cpu = GPUIRawSceneRasterizer.rasterize(scene, size: Self.surfaceSize)
+
+            for bitmap in [gpu, cpu] {
+                let center = try XCTUnwrap(bitmap.pixelColor(atX: 12, y: 12))
+                XCTAssertEqual(center.alpha, materialAlpha, accuracy: 0.01)
+                XCTAssertEqual(center.red, 0.3 / materialAlpha, accuracy: 0.01)
+                XCTAssertEqual(center.blue, 0.4 / materialAlpha, accuracy: 0.01)
+
+                let edge = try XCTUnwrap(bitmap.pixelColor(atX: 4, y: 12))
+                XCTAssertEqual(edge.alpha, edgeAlpha, accuracy: 0.01)
+                XCTAssertEqual(edge.red, 0.4 / edgeAlpha, accuracy: 0.01)
+                XCTAssertEqual(edge.blue, 0.2 / edgeAlpha, accuracy: 0.01)
+            }
+            let report = comparePixels(gpu, cpu.premultipliedAlpha(), tolerance: 2)
+            XCTAssertEqual(report.matchRatio, 1, accuracy: 0.001)
+        }
+    }
 }

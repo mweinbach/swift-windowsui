@@ -192,10 +192,10 @@ public struct GPUIClipRegion: Equatable, Sendable {
         guard isActive else { return 1 }
         let centreX = Double(pixelX) + 0.5
         let centreY = Double(pixelY) + 0.5
-        // Note the asymmetry, transcribed rather than tidied: the shader
-        // discards on `< min` and on `> max`, so a centre exactly on the
-        // far edge survives.
-        if centreX < x || centreY < y || centreX > x + width || centreY > y + height {
+        // Match the shader and the geometry's top-left fill rule. Including
+        // the far edge lets adjacent scroll clips both paint the shared row
+        // when that boundary lands on a pixel centre at fractional DPI.
+        if centreX < x || centreY < y || centreX >= x + width || centreY >= y + height {
             return 0
         }
         guard cornerRadius > 0 else { return 1 }

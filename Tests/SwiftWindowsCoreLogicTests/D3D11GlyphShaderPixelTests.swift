@@ -390,6 +390,27 @@ final class D3D11GlyphShaderPixelTests: XCTestCase {
 
     // MARK: - Tests
 
+    /// A scrolling viewport must cut off a glyph at its trailing edge even
+    /// when the edge passes exactly through a device-pixel centre.
+    func testGlyphDoesNotBleedAcrossFractionalTrailingClipEdges() async throws {
+        let device = try makeWARPDevice()
+        defer { device.release() }
+        let harness = try makeHarness(device: device, width: 64, height: 32)
+        defer { harness.release() }
+
+        var glyph = makeEntryGlyph(screenX: 16, screenY: 12, screenW: Float(Self.entrySize))
+        glyph.clipX = 16.5
+        glyph.clipY = 12.5
+        glyph.clipWidth = 4
+        glyph.clipHeight = 4
+        let pixels = try drawAndReadBack(device: device, harness: harness, glyph: glyph)
+
+        XCTAssertGreaterThan(redRow(pixels, width: harness.width, y: 12)[16], 0, "leading edges remain inclusive")
+        XCTAssertGreaterThan(redRow(pixels, width: harness.width, y: 15)[19], 0, "ink inside the clip remains visible")
+        XCTAssertEqual(redRow(pixels, width: harness.width, y: 15)[20], 0, "right-edge pixel belongs outside the clip")
+        XCTAssertEqual(redRow(pixels, width: harness.width, y: 16)[19], 0, "bottom-edge pixel belongs outside the clip")
+    }
+
     /// The contract the painter relies on: an integer-snapped quad exactly
     /// as wide as its atlas entry samples the atlas 1:1 — every destination
     /// pixel maps to a texel centre, so ink covers precisely the entry's

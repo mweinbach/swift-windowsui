@@ -416,17 +416,26 @@ private struct RasterTarget {
                 let compositedGreen = color.green * color.alpha + Float(backdrop[offset + 1]) / 255 * inverse
                 let compositedRed = color.red * color.alpha + Float(backdrop[offset + 2]) / 255 * inverse
                 let backdropAlpha = Float(backdrop[offset + 3]) / 255
-                let outputAlpha = forcesOpaque ? 1 : color.alpha + backdropAlpha * inverse
-                guard outputAlpha > 0 else { continue }
+                let materialAlpha = forcesOpaque ? 1 : color.alpha + backdropAlpha * inverse
 
-                blend(
-                    RasterColor(
-                        red: compositedRed / outputAlpha,
-                        green: compositedGreen / outputAlpha,
-                        blue: compositedBlue / outputAlpha,
-                        alpha: outputAlpha * Float(coverage * clipAlpha)
-                    ),
-                    x: x, y: y)
+                // This material pixel already contains the backdrop. Replace
+                // the covered fraction instead of blending it over that same
+                // backdrop again; source-over would turn a uniform 50%-alpha
+                // backdrop into 75% alpha even with a fully transparent tint.
+                // The GPU's dual-source blend uses this same coverage factor.
+                let mask = Float(coverage * clipAlpha)
+                let destinationOffset = pixelOffset(x: x, y: y)
+                let retainedAlpha = Float(pixels[destinationOffset + 3]) / 255 * (1 - mask)
+                let outputAlpha = materialAlpha * mask + retainedAlpha
+                let unpremultiply: Float = outputAlpha > 0 ? 1 / outputAlpha : 0
+                pixels[destinationOffset] = byte(
+                    (compositedBlue * mask + Float(pixels[destinationOffset]) / 255 * retainedAlpha) * unpremultiply)
+                pixels[destinationOffset + 1] = byte(
+                    (compositedGreen * mask + Float(pixels[destinationOffset + 1]) / 255 * retainedAlpha)
+                        * unpremultiply)
+                pixels[destinationOffset + 2] = byte(
+                    (compositedRed * mask + Float(pixels[destinationOffset + 2]) / 255 * retainedAlpha) * unpremultiply)
+                pixels[destinationOffset + 3] = byte(outputAlpha)
             }
         }
     }

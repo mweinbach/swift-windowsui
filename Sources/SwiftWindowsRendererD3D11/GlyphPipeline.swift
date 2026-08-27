@@ -109,8 +109,8 @@ float4 psMain(VSOutput input) : SV_Target {
     {
         float2 pixelPos = input.pixelPosition;
         if (pixelPos.x < input.clipRect.x || pixelPos.y < input.clipRect.y ||
-            pixelPos.x > input.clipRect.x + input.clipRect.z ||
-            pixelPos.y > input.clipRect.y + input.clipRect.w)
+            pixelPos.x >= input.clipRect.x + input.clipRect.z ||
+            pixelPos.y >= input.clipRect.y + input.clipRect.w)
         {
             discard;
         }

@@ -482,6 +482,32 @@ limits here as each item is validated.
       material backdrops, native color-space parity, and hardware pacing
       remain open under the original rendering and animation gates.
 
+### Atlas resource ownership correction
+
+Before pushing the first batch, source review identified paint-time memory
+amplification in color-effect text passes. Each source retained an
+intermediate native glyph-atlas snapshot; later glyph writes could copy the
+full 2048-by-2048 BGRA atlas, or 16 MiB, for another small text source. The
+source-image pixel budgets are checked later and do not bound those atlas
+copies. This issue exists without the pending Canvas-symbol work and needs
+an independent correction under the existing rendering/resource gates.
+
+The correction must bind one completed atlas across the frame's nested
+source namespaces and their ancestors, preserve previously returned scenes
+as immutable values, and detach atlas references from retained replay copies.
+Nested native-glyph use must participate in generation checks before cached
+UVs can be rebound. Immediate CPU isolation rasterization needs a bound
+snapshot only for its short rendering scope. A nested source sharing the
+parent's already uploaded atlas must not request another full upload.
+
+Required evidence includes many tiny distinct-glyph color sources sharing
+one buffer, old-scene pixels after later writes/recycling, replay invalidation,
+safe observer reentry, bounded retry behavior, and real WARP upload/namespace
+checks. The current candidate's other passing tests do not prove these
+ownership properties. The correction and its tests are prepared separately;
+no arbitrary retention guard, increased tolerance, or reduced completion
+scope substitutes for fixing the ownership.
+
 ### Additional text resilience detail
 
 Native text tinting now clamps channels before converting them to integers;
@@ -627,8 +653,14 @@ preference remains shared. Late opening, independent scroll phases/offsets,
 same-window rebuilds, and tab remounts are covered. All 50 Swift files changed
 in the batch passed strict lint, and the two builder actor annotations passed
 an additional file lint after compilation identified their missing isolation.
-The fresh whole-ladder result for this corrected candidate is recorded below
-once it completes; the focused pass does not replace it.
+Quick and Full then passed again at `afd56db`. Quick reported 1,000 XCTest
+cases and nine Swift Testing cases; Full reported 3,409 XCTest cases and
+134 Swift Testing cases. Both retained the same single material-backdrop
+skip and had no failures. All 85 reviewed baselines still matched within
+their existing thresholds. The logs are `goal-agent-check-quick-v4.log` and
+`goal-agent-check-full-v2.log` under `artifacts/`. This checkpoint includes
+the window ownership correction but still predates the atlas resource
+ownership correction above, which must be verified before the batch is pushed.
 
 ### Additional state lifetime acceptance detail
 

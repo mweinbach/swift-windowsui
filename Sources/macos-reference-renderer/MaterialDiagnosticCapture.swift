@@ -6,11 +6,19 @@
 
     /// Public SwiftUI drawing only; no native visual-effect wrappers or private
     /// renderer calls. The wallpaper stays outside each isolated panel.
+    @MainActor
     private struct MaterialDiagnosticFixture: View {
         let fixture: MaterialDiagnosticPlan.Fixture
+        let environmentRecorder: MaterialDiagnosticEnvironmentRecorder
         private let plan = MaterialDiagnosticPlan.self
 
         var body: some View {
+            MaterialDiagnosticEnvironmentProbe(recorder: environmentRecorder, content: content)
+                .environment(\.colorScheme, .light)
+                .environment(\.displayScale, CGFloat(plan.scale))
+        }
+
+        private var content: some View {
             ZStack(alignment: .topLeading) {
                 VStack(spacing: 0) {
                     HStack(spacing: 0) {
@@ -31,8 +39,6 @@
                     .offset(x: CGFloat(plan.panel.x), y: CGFloat(plan.panel.y))
             }
             .frame(width: CGFloat(plan.width), height: CGFloat(plan.height))
-            .environment(\.colorScheme, .light)
-            .environment(\.displayScale, CGFloat(plan.scale))
         }
 
         private func gray(_ value: Double) -> Color {
@@ -60,6 +66,59 @@
     }
 
     @MainActor
+    private final class MaterialDiagnosticEnvironmentRecorder {
+        private(set) var observation = MaterialDiagnosticMetadata.EnvironmentObservation()
+
+        func record(_ values: MaterialDiagnosticMetadata.EnvironmentValues) {
+            observation.record(values, timestampUTC: materialDiagnosticTimestampUTC())
+        }
+    }
+
+    /// A transparent observer inside the existing fixture environment. Its
+    /// recorder is not observable state and never requests layout or display.
+    @MainActor
+    private struct MaterialDiagnosticEnvironmentProbe<Content: View>: View {
+        let recorder: MaterialDiagnosticEnvironmentRecorder
+        let content: Content
+        @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        @Environment(\.colorScheme) private var colorScheme
+        @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+        @Environment(\.displayScale) private var displayScale
+
+        var body: some View {
+            recorder.record(
+                MaterialDiagnosticMetadata.EnvironmentValues(
+                    reduceTransparency: reduceTransparency, reduceMotion: reduceMotion,
+                    colorScheme: colorSchemeName, colorSchemeContrast: contrastName,
+                    displayScale: Double(displayScale)))
+            return content
+        }
+
+        private var colorSchemeName: String {
+            switch colorScheme {
+            case .light: return "light"
+            case .dark: return "dark"
+            @unknown default: return "unknown"
+            }
+        }
+
+        private var contrastName: String {
+            switch colorSchemeContrast {
+            case .standard: return "standard"
+            case .increased: return "increased"
+            @unknown default: return "unknown"
+            }
+        }
+    }
+
+    private func materialDiagnosticTimestampUTC() -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: Date())
+    }
+
+    @MainActor
     enum MaterialDiagnosticCapture {
         private struct BitmapDescription: Codable {
             let pixelWidth: Int
@@ -71,7 +130,7 @@
             let colorSpaceName: String
         }
 
-        private struct Capture: Codable {
+        private struct Capture: Encodable {
             let repetition: Int
             let timestampUTC: String
             let pngFile: String?
@@ -79,9 +138,10 @@
             let decodedPNG: BitmapDescription?
             let measurements: MaterialDiagnosticMeasurements?
             let error: String?
+            let captureProvenance: MaterialDiagnosticMetadata.Capture
         }
 
-        private struct Observation: Codable {
+        private struct Observation: Encodable {
             let fixture: MaterialDiagnosticPlan.Fixture
             let modifierOrder: String
             let captures: [Capture]
@@ -118,6 +178,8 @@
             let repetitions = MaterialDiagnosticPlan.repetitions
             let settlingMillisecondsBeforeEachCapture = MaterialDiagnosticPlan.settlingMilliseconds
             let provenance: [String: String]
+            let systemAccessibilityScope =
+                "sampled once after all captures; per-capture before/after values are in captureProvenance"
             let systemAccessibility: [String: Bool]
             let controlsByRepetition: [MaterialDiagnosticControlResult]
             let positiveControlStatus: String
@@ -135,7 +197,9 @@
             _ = NSApp.setActivationPolicy(.prohibited)
             var observations: [Observation] = []
             for fixture in MaterialDiagnosticPlan.Fixture.allCases {
-                let host = NSHostingView(rootView: MaterialDiagnosticFixture(fixture: fixture))
+                let environmentRecorder = MaterialDiagnosticEnvironmentRecorder()
+                let host = NSHostingView(
+                    rootView: MaterialDiagnosticFixture(fixture: fixture, environmentRecorder: environmentRecorder))
                 host.frame = NSRect(
                     x: 0, y: 0,
                     width: CGFloat(MaterialDiagnosticPlan.width), height: CGFloat(MaterialDiagnosticPlan.height))
@@ -145,7 +209,10 @@
                     host.layoutSubtreeIfNeeded()
                     try await Task.sleep(for: .milliseconds(MaterialDiagnosticPlan.settlingMilliseconds))
                     host.layoutSubtreeIfNeeded()
-                    captures.append(capture(host, fixture: fixture, repetition: repetition, output: output))
+                    captures.append(
+                        capture(
+                            host, environmentRecorder: environmentRecorder,
+                            fixture: fixture, repetition: repetition, output: output))
                 }
                 let measured = captures.compactMap(\.measurements)
                 observations.append(
@@ -182,8 +249,11 @@
         }
 
         private static func capture<V: View>(
-            _ host: NSHostingView<V>, fixture: MaterialDiagnosticPlan.Fixture, repetition: Int, output: URL
+            _ host: NSHostingView<V>, environmentRecorder: MaterialDiagnosticEnvironmentRecorder,
+            fixture: MaterialDiagnosticPlan.Fixture, repetition: Int, output: URL
         ) -> Capture {
+            let before = captureSnapshot(host, environmentRecorder: environmentRecorder)
+            var cacheDisplayCompleted = false
             var pngFile: String?
             var hash: String?
             var description: BitmapDescription?
@@ -202,6 +272,7 @@
                 storage.initialize(repeating: 0, count: bitmap.bytesPerRow * bitmap.pixelsHigh)
                 bitmap.size = NSSize(width: CGFloat(plan.width), height: CGFloat(plan.height))
                 host.cacheDisplay(in: host.bounds, to: bitmap)
+                cacheDisplayCompleted = true
                 guard let converted = bitmap.converting(to: .sRGB, renderingIntent: .default),
                     let png = converted.representation(using: .png, properties: [:])
                 else { throw captureError("Could not convert the captured bitmap to sRGB and encode PNG.") }
@@ -231,9 +302,75 @@
             } catch {
                 failure = String(describing: error)
             }
+            let after = captureSnapshot(host, environmentRecorder: environmentRecorder)
+            // Inspect the public factory's recommendation without using it to
+            // change the fixed 2x bitmap or to perform a second render.
+            let recommendedBitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds).map(bitmapMetadata)
             return Capture(
                 repetition: repetition, timestampUTC: ISO8601DateFormatter().string(from: Date()),
-                pngFile: pngFile, sha256: hash, decodedPNG: description, measurements: measurements, error: failure)
+                pngFile: pngFile, sha256: hash, decodedPNG: description, measurements: measurements, error: failure,
+                captureProvenance: MaterialDiagnosticMetadata.Capture(
+                    before: before, after: after, cacheDisplayCompleted: cacheDisplayCompleted,
+                    recommendedBitmap: MaterialDiagnosticMetadata.BitmapRecommendation(bitmap: recommendedBitmap)))
+        }
+
+        private static func captureSnapshot<V: View>(
+            _ host: NSHostingView<V>, environmentRecorder: MaterialDiagnosticEnvironmentRecorder
+        ) -> MaterialDiagnosticMetadata.Snapshot {
+            let timestamp = materialDiagnosticTimestampUTC()
+            let workspace = NSWorkspace.shared
+            let systemAccessibility = MaterialDiagnosticMetadata.SystemAccessibility(
+                reduceTransparency: workspace.accessibilityDisplayShouldReduceTransparency,
+                increaseContrast: workspace.accessibilityDisplayShouldIncreaseContrast,
+                reduceMotion: workspace.accessibilityDisplayShouldReduceMotion)
+            let window = host.window.map {
+                MaterialDiagnosticMetadata.Window(
+                    isVisible: $0.isVisible, isMiniaturized: $0.isMiniaturized,
+                    isKeyWindow: $0.isKeyWindow, isMainWindow: $0.isMainWindow,
+                    occlusionStateVisible: $0.occlusionState.contains(.visible),
+                    backingScaleFactor: Double($0.backingScaleFactor))
+            }
+            let layer = host.layer
+            let hostMetadata = MaterialDiagnosticMetadata.Host(
+                hasWindow: window != nil, hasSuperview: host.superview != nil,
+                isHidden: host.isHidden, isHiddenOrHasHiddenAncestor: host.isHiddenOrHasHiddenAncestor,
+                isFlipped: host.isFlipped, effectiveAppearance: host.effectiveAppearance.name.rawValue,
+                frame: rectangleMetadata(host.frame), bounds: rectangleMetadata(host.bounds),
+                visibleRect: rectangleMetadata(host.visibleRect),
+                convertedBackingBounds: rectangleMetadata(host.convertToBacking(host.bounds)),
+                wantsLayer: host.wantsLayer, hasLayer: layer != nil,
+                layerContentsScale: layer.map { Double($0.contentsScale) }, window: window)
+            let policy: String
+            switch NSApp.activationPolicy() {
+            case .regular: policy = "regular"
+            case .accessory: policy = "accessory"
+            case .prohibited: policy = "prohibited"
+            @unknown default: policy = "unknown"
+            }
+            return MaterialDiagnosticMetadata.Snapshot(
+                timestampUTC: timestamp, systemAccessibility: systemAccessibility,
+                swiftUIEnvironment: environmentRecorder.observation,
+                application: MaterialDiagnosticMetadata.Application(
+                    activationPolicy: policy, isActive: NSApp.isActive,
+                    isHidden: NSApp.isHidden, isRunning: NSApp.isRunning),
+                host: hostMetadata)
+        }
+
+        private static func rectangleMetadata(_ rectangle: NSRect) -> MaterialDiagnosticMetadata.Rectangle {
+            MaterialDiagnosticMetadata.Rectangle(
+                x: Double(rectangle.origin.x), y: Double(rectangle.origin.y),
+                width: Double(rectangle.width), height: Double(rectangle.height))
+        }
+
+        private static func bitmapMetadata(_ bitmap: NSBitmapImageRep) -> MaterialDiagnosticMetadata.Bitmap {
+            MaterialDiagnosticMetadata.Bitmap(
+                pixelWidth: bitmap.pixelsWide, pixelHeight: bitmap.pixelsHigh,
+                logicalWidth: Double(bitmap.size.width), logicalHeight: Double(bitmap.size.height),
+                bitsPerSample: bitmap.bitsPerSample, samplesPerPixel: bitmap.samplesPerPixel,
+                hasAlpha: bitmap.hasAlpha, isPlanar: bitmap.isPlanar,
+                bitsPerPixel: bitmap.bitsPerPixel, bytesPerRow: bitmap.bytesPerRow,
+                bitmapFormatRawValue: bitmap.bitmapFormat.rawValue,
+                colorSpaceName: bitmap.colorSpaceName.rawValue)
         }
 
         private static func modifierOrder(_ fixture: MaterialDiagnosticPlan.Fixture) -> String {

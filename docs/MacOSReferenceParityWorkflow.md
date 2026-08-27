@@ -146,9 +146,9 @@ swift run macos-reference-renderer --self-test-material-diagnostics
 swift run macos-reference-renderer --material-diagnostics
 ```
 
-The first command exercises portable synthetic classifier checks and works on
-Windows too. Those pixels are not native reference images. The second command
-requires macOS and writes a unique run directory under
+The first command exercises portable synthetic classifier and report metadata
+checks and works on Windows too. Those values are not native observations. The
+second command requires macOS and writes a unique run directory under
 `artifacts/macos-reference/material-diagnostics/`, containing a JSON manifest
 and two PNG captures of each fixture:
 
@@ -204,6 +204,26 @@ requested/effective appearance, accessibility settings, capture method, modifier
 order, and repetition results. Capture-time tool versions are not an embedded
 binary build identity; CI logs supply the build linkage. System accessibility
 settings are recorded, never changed to force a passing result.
+
+Each capture's `captureProvenance` also records `NSWorkspace` accessibility flags
+before and after its synchronous cache/encode/measurement attempt, together with
+application activation/visibility, host attachment/visibility, and backing geometry.
+The original top-level `systemAccessibility` remains an end-of-run sample; it does
+not establish what was enabled during an earlier capture. A transparent SwiftUI
+probe inside the fixture's existing light/2x environment records effective Reduce
+Transparency, Reduce Motion, color scheme/contrast, and display scale when its
+body evaluates. Its snapshots include the evaluation count and time: unchanged
+counts mean a reused observation, and an unevaluated probe reports `unobserved`
+with null values. These observations are separate from system preferences and
+cannot establish what the compositor used. Missing host windows/layers are not
+reported as observed visibility or backing values.
+
+After each attempt, the helper records only the format and dimensions returned by
+`bitmapImageRepForCachingDisplay(in:)`, or an explicit `unavailable` result. The
+recommended bitmap is never rendered into or substituted for the existing fixed
+2x bitmap. No window is created, no accessibility setting is changed, and neither
+the settling policy nor the control thresholds change. Additional provenance
+alone cannot turn an inconclusive material control into a positive one.
 
 The existing `macos-15` workflow runs these diagnostics after the canonical
 captures and uploads `macos-material-diagnostics-candidate`, including JSON.

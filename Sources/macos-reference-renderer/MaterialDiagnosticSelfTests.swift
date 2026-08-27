@@ -1,7 +1,7 @@
 import Foundation
 
-/// Portable classifier checks. These synthetic pixels are never native
-/// reference images and cannot establish what SwiftUI renders on macOS.
+/// Portable classifier and metadata checks. These synthetic values are never
+/// native observations and cannot establish what SwiftUI renders on macOS.
 enum MaterialDiagnosticSelfTests {
     static func run() throws -> Int {
         var count = 0
@@ -114,6 +114,125 @@ enum MaterialDiagnosticSelfTests {
         let data = try JSONEncoder().encode(controls(filtered))
         let decoded = try JSONDecoder().decode(MaterialDiagnosticControlResult.self, from: data)
         try check(decoded.status == .confirmed && decoded.reasons.isEmpty, "Control result JSON round trip")
+
+        func object(_ value: some Encodable) throws -> [String: Any] {
+            let data = try JSONEncoder().encode(value)
+            guard let result = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw NSError(
+                    domain: "MaterialDiagnosticSelfTests", code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "Metadata must encode a JSON object"])
+            }
+            return result
+        }
+        var environment = MaterialDiagnosticMetadata.EnvironmentObservation()
+        let unobserved = environment
+        let unknownJSON = try object(unobserved)
+        try check(
+            unobserved.status == "unobserved" && unobserved.bodyEvaluationCount == 0,
+            "No body evaluation is explicitly unobserved")
+        try check(
+            unknownJSON["values"] is NSNull && unknownJSON["latestBodyEvaluationUTC"] is NSNull,
+            "Unknown effective environment values encode as null, not requested defaults")
+        let effective = MaterialDiagnosticMetadata.EnvironmentValues(
+            reduceTransparency: false, reduceMotion: false, colorScheme: "light",
+            colorSchemeContrast: "standard", displayScale: 2)
+        environment.record(effective, timestampUTC: "synthetic-first-evaluation")
+        let firstObservation = environment
+        let observedJSON = try object(firstObservation)
+        let observedValues = observedJSON["values"] as? [String: Any]
+        try check(
+            observedJSON["status"] as? String == "observed"
+                && observedValues?["reduceTransparency"] as? Bool == false
+                && observedValues?["reduceMotion"] as? Bool == false,
+            "Observed false accessibility flags are distinct from unknown")
+        try check(
+            firstObservation.bodyEvaluationCount == 1
+                && firstObservation.latestBodyEvaluationUTC == "synthetic-first-evaluation",
+            "Effective values retain the actual body evaluation count and timestamp")
+        try check(environment == firstObservation, "Reading a snapshot does not invent a fresh body evaluation")
+        environment.record(
+            MaterialDiagnosticMetadata.EnvironmentValues(
+                reduceTransparency: true, reduceMotion: true, colorScheme: "unknown",
+                colorSchemeContrast: "unknown", displayScale: 1),
+            timestampUTC: "synthetic-second-evaluation")
+        try check(
+            environment.bodyEvaluationCount == 2
+                && environment.latestBodyEvaluationUTC == "synthetic-second-evaluation"
+                && environment.values?.reduceTransparency == true,
+            "A later body evaluation replaces values and advances provenance")
+        try check(
+            unobserved.values == nil && firstObservation.values == effective,
+            "Before and after snapshots do not alias the recorder's mutable state")
+
+        let unavailableBitmap = MaterialDiagnosticMetadata.BitmapRecommendation(bitmap: nil)
+        let unavailableJSON = try object(unavailableBitmap)
+        try check(
+            unavailableJSON["status"] as? String == "unavailable" && unavailableJSON["bitmap"] is NSNull,
+            "A missing recommended bitmap has an explicit unavailable state")
+        let recommendation = MaterialDiagnosticMetadata.BitmapRecommendation(
+            bitmap: MaterialDiagnosticMetadata.Bitmap(
+                pixelWidth: 384, pixelHeight: 288, logicalWidth: 384, logicalHeight: 288,
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                bitsPerPixel: 32, bytesPerRow: 1_536, bitmapFormatRawValue: 0, colorSpaceName: "synthetic-RGB"))
+        let bitmapJSON = try object(recommendation)["bitmap"] as? [String: Any]
+        try check(
+            recommendation.status == "observed" && bitmapJSON?["pixelWidth"] as? Int == 384
+                && bitmapJSON?["bytesPerRow"] as? Int == 1_536 && bitmapJSON?["bitmapFormatRawValue"] as? UInt == 0,
+            "Recommended bitmap metadata preserves its actual dimensions and format")
+        try check(
+            MaterialDiagnosticPlan.scale == 2 && MaterialDiagnosticPlan.width * MaterialDiagnosticPlan.scale == 768,
+            "A diagnostic 1x recommendation does not replace the 2x capture plan")
+
+        let bounds = MaterialDiagnosticMetadata.Rectangle(x: 0, y: 0, width: 384, height: 288)
+        let host = MaterialDiagnosticMetadata.Host(
+            hasWindow: false, hasSuperview: false, isHidden: false, isHiddenOrHasHiddenAncestor: false,
+            isFlipped: true, effectiveAppearance: "synthetic-aqua", frame: bounds, bounds: bounds,
+            visibleRect: bounds, convertedBackingBounds: bounds, wantsLayer: false, hasLayer: false,
+            layerContentsScale: nil, window: nil)
+        let application = MaterialDiagnosticMetadata.Application(
+            activationPolicy: "prohibited", isActive: false, isHidden: false, isRunning: false)
+        let before = MaterialDiagnosticMetadata.Snapshot(
+            timestampUTC: "synthetic-before",
+            systemAccessibility: MaterialDiagnosticMetadata.SystemAccessibility(
+                reduceTransparency: true, increaseContrast: false, reduceMotion: true),
+            swiftUIEnvironment: unobserved, application: application, host: host)
+        let after = MaterialDiagnosticMetadata.Snapshot(
+            timestampUTC: "synthetic-after",
+            systemAccessibility: MaterialDiagnosticMetadata.SystemAccessibility(
+                reduceTransparency: false, increaseContrast: true, reduceMotion: true),
+            swiftUIEnvironment: firstObservation, application: application, host: host)
+        let capture = MaterialDiagnosticMetadata.Capture(
+            before: before, after: after, cacheDisplayCompleted: true, recommendedBitmap: recommendation)
+        let captureJSON = try object(capture)
+        let beforeJSON = captureJSON["before"] as? [String: Any]
+        let afterJSON = captureJSON["after"] as? [String: Any]
+        try check(
+            captureJSON["schemaVersion"] as? Int == 1 && captureJSON["cacheDisplayCompleted"] as? Bool == true
+                && beforeJSON?["timestampUTC"] as? String == "synthetic-before"
+                && afterJSON?["timestampUTC"] as? String == "synthetic-after",
+            "Per-capture provenance retains both timestamped observations")
+        let beforeFlags = beforeJSON?["systemAccessibility"] as? [String: Any]
+        let afterFlags = afterJSON?["systemAccessibility"] as? [String: Any]
+        try check(
+            beforeFlags?["reduceTransparency"] as? Bool == true
+                && afterFlags?["reduceTransparency"] as? Bool == false,
+            "System flags are sampled separately before and after a capture")
+        try check(
+            after.systemAccessibility.reduceMotion && after.swiftUIEnvironment.values?.reduceMotion == false,
+            "System preferences never substitute for observed SwiftUI environment values")
+        let hostJSON = afterJSON?["host"] as? [String: Any]
+        try check(
+            hostJSON?["hasWindow"] as? Bool == false && hostJSON?["window"] == nil
+                && hostJSON?["hasLayer"] as? Bool == false && hostJSON?["layerContentsScale"] == nil,
+            "An unattached host does not invent window visibility or layer backing values")
+        let failed = MaterialDiagnosticMetadata.Capture(
+            before: before, after: before, cacheDisplayCompleted: false, recommendedBitmap: unavailableBitmap)
+        let failedJSON = try object(failed)
+        try check(
+            failedJSON["cacheDisplayCompleted"] as? Bool == false
+                && failed.before.swiftUIEnvironment.status == "unobserved"
+                && failed.after.swiftUIEnvironment.status == "unobserved",
+            "An incomplete capture can retain unknown provenance without fabricated observations")
         return count
     }
 }

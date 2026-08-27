@@ -168,6 +168,10 @@ public protocol WindowDelegate: AnyObject {
     /// dead-key composition, international layouts, and supplementary Unicode.
     func window(_ window: Win32Window, didInputText text: String)
     func windowDidLoseKeyboardFocus(_ window: Win32Window)
+    /// Checks an ordinary close request before HWND destruction or teardown.
+    /// Return false to keep the window alive; a deferred decision can retry
+    /// with `requestClose()` after updating the host's state.
+    func windowShouldClose(_ window: Win32Window) -> Bool
     func windowWillClose(_ window: Win32Window)
     func windowDidChangeDisplay(_ window: Win32Window)
     func windowDidChangeActiveState(_ window: Win32Window, isActive: Bool)
@@ -212,6 +216,7 @@ extension WindowDelegate {
     public func window(_ window: Win32Window, keyDown event: KeyboardEvent) {}
     public func window(_ window: Win32Window, didInputText text: String) {}
     public func windowDidLoseKeyboardFocus(_ window: Win32Window) {}
+    public func windowShouldClose(_ window: Win32Window) -> Bool { true }
     public func windowWillClose(_ window: Win32Window) {}
     public func windowDidChangeDisplay(_ window: Win32Window) {}
     public func windowDidChangeActiveState(_ window: Win32Window, isActive: Bool) {}
@@ -336,6 +341,11 @@ private final class Win32PlatformWindowHostAdapter: WindowDelegate {
     func windowDidLoseKeyboardFocus(_ window: Win32Window) {
         downstream?.windowDidLoseKeyboardFocus(window)
         emit(.keyboardFocusLost, from: window)
+    }
+
+    func windowShouldClose(_ window: Win32Window) -> Bool {
+        guard downstream?.windowShouldClose(window) ?? true else { return false }
+        return host?.platformWindowShouldClose(window) ?? true
     }
 
     func windowWillClose(_ window: Win32Window) {
@@ -513,6 +523,10 @@ public final class Win32Window: PlatformWindow {
     /// once the last managed window has closed.
     public var postsQuitMessageOnDestroy = true
 
+    /// Native close-button and system-menu availability. The delegate still
+    /// checks every delivered close request, including posted `WM_CLOSE`.
+    public private(set) var isCloseButtonEnabled = true
+
     public let title: String
     public private(set) var clientSize: IntSize
     /// Whether the last `WM_SIZE` reported the window minimized. `clientSize`
@@ -530,6 +544,9 @@ public final class Win32Window: PlatformWindow {
     /// button-up must not cancel its own press before the delegate can handle it.
     private var isReleasingPointerCapture = false
     private var isAnimationTimerRunning = false
+    private var isHandlingCloseRequest = false
+    private var hasDeliveredWillClose = false
+    private var windowLifetimeGeneration: UInt64 = 0
 
     // Size-move tracking
     private var isInSizeMove = false
@@ -1010,6 +1027,9 @@ public final class Win32Window: PlatformWindow {
             return
         }
 
+        hasDeliveredWillClose = false
+        windowLifetimeGeneration &+= 1
+
         try Self.registerWindowClass()
 
         guard let instance = GetModuleHandleW(nil) else {
@@ -1095,6 +1115,7 @@ public final class Win32Window: PlatformWindow {
         // known. The size constraints ride `WM_GETMINMAXINFO`; the style
         // already carries the fixed-size decision.
         applyConfigurationToCreatedWindow()
+        applyCloseButtonEnabled()
 
         // Prime the system appearance snapshot at startup so the first
         // environment build sees current OS settings.
@@ -1343,12 +1364,35 @@ public final class Win32Window: PlatformWindow {
     }
 
     public func requestClose() {
-        guard let hwnd else {
-            PostQuitMessage(0)
+        guard let hwnd, !isHandlingCloseRequest, !hasDeliveredWillClose else {
             return
         }
 
         PostMessageW(hwnd, UINT(WM_CLOSE), 0, 0)
+    }
+
+    /// Discards an HWND whose application host failed to start. Rollback is
+    /// unconditional: neither a view policy nor an auxiliary delegate may
+    /// retain an unowned window after its renderer has already been released.
+    /// Ordinary application dismissal must use `requestClose()` instead.
+    public func destroyForFailedStartup() {
+        guard let hwnd else { return }
+        DestroyWindow(hwnd)
+    }
+
+    /// Updates the native affordance without destroying the window. A close
+    /// callback may refresh this from newer state before deciding the request.
+    public func setCloseButtonEnabled(_ enabled: Bool) {
+        guard isCloseButtonEnabled != enabled else { return }
+        isCloseButtonEnabled = enabled
+        applyCloseButtonEnabled()
+    }
+
+    private func applyCloseButtonEnabled() {
+        guard let hwnd, let menu = GetSystemMenu(hwnd, false) else { return }
+        let state = isCloseButtonEnabled ? MF_ENABLED : MF_GRAYED
+        EnableMenuItem(menu, UINT(SC_CLOSE), UINT(MF_BYCOMMAND | state))
+        DrawMenuBar(hwnd)
     }
 
     /// Closes this window after `seconds`, independently of the frame loop.
@@ -2137,7 +2181,28 @@ public final class Win32Window: PlatformWindow {
             handleTouchMessage(hwnd: hwnd, wParam: wParam, lParam: lParam)
             return 0
 
+        case UINT(WM_CLOSE):
+            // Both the native close affordances and requestClose() arrive
+            // here. A rejected request must not stop timers, detach a backend,
+            // disconnect UIA, or remove the coordinator's live-window record.
+            guard !isHandlingCloseRequest, !hasDeliveredWillClose else { return 0 }
+            isHandlingCloseRequest = true
+            defer { isHandlingCloseRequest = false }
+            let requestedLifetime = windowLifetimeGeneration
+            guard delegate?.windowShouldClose(self) ?? true,
+                isCloseButtonEnabled,
+                let currentHandle = self.hwnd, currentHandle == hwnd,
+                windowLifetimeGeneration == requestedLifetime,
+                !hasDeliveredWillClose
+            else { return 0 }
+            // The callback can reenter native code or destroy the window
+            // itself. Recheck the handle before approving its destruction.
+            DestroyWindow(currentHandle)
+            return 0
+
         case UINT(WM_DESTROY):
+            guard !hasDeliveredWillClose else { return 0 }
+            hasDeliveredWillClose = true
             setAnimationTimerEnabled(false)
             cancelCloseWatchdogIfNeeded()
             delegate?.windowWillClose(self)
@@ -2519,20 +2584,19 @@ public final class Win32Window: PlatformWindow {
         let rawValue = GetWindowLongPtrW(hwnd, GWLP_USERDATA)
         if let rawSelf = UnsafeMutableRawPointer(bitPattern: Int(rawValue)) {
             let unmanaged = Unmanaged<Win32Window>.fromOpaque(rawSelf)
-            let result = unmanaged.takeUnretainedValue()
-                .handleMessage(hwnd: hwnd, message: message, wParam: wParam, lParam: lParam)
+            let window = unmanaged.takeUnretainedValue()
+            return withExtendedLifetime(window) {
+                let result = window.handleMessage(hwnd: hwnd, message: message, wParam: wParam, lParam: lParam)
 
-            // Balance `create()`'s `passRetained` here rather than inside the
-            // handler, so the deallocation — which can run the delegate chain's
-            // teardown — never happens on a frame that is still executing a
-            // method on the window.
-            if message == UINT(WM_NCDESTROY),
-                unmanaged.takeUnretainedValue().consumeRetainedSelfReferenceOwnership()
-            {
-                unmanaged.release()
+                // WM_CLOSE can destroy the HWND synchronously. Keep the Swift
+                // window alive until every enclosing wndproc frame returns,
+                // even when the coordinator drops it during WM_DESTROY.
+                if message == UINT(WM_NCDESTROY), window.consumeRetainedSelfReferenceOwnership() {
+                    unmanaged.release()
+                }
+
+                return result
             }
-
-            return result
         }
 
         return DefWindowProcW(hwnd, message, wParam, lParam)

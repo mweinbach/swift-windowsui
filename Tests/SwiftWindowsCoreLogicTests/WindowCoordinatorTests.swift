@@ -1,21 +1,17 @@
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
-
 import SwiftWindowsRendererD3D11
-
 @preconcurrency import XCTest
 
 @testable import SwiftWindowsPlatform
-
 @testable import SwiftWindowsUI
+@testable import WinSwiftUI
 
 // Multi-window lifecycle tests (Phase 5). Drives WinSwiftUIWindowCoordinator
 // headlessly: the window-factory seam substitutes fake render backends and
-// simulates WM_CLOSE/WM_DESTROY delivery by calling windowWillClose directly,
+// simulates WM_CLOSE/WM_DESTROY delivery by checking windowShouldClose before
+// calling windowWillClose,
 // so no real HWNDs are created.
-
-@testable import WinSwiftUI
 
 @MainActor
 private final class CoordinatorHookLog {
@@ -109,6 +105,7 @@ final class WindowCoordinatorTests: XCTestCase {
             },
             requestCloseWindow: { host in
                 // Simulate WM_CLOSE → WM_DESTROY delivery headlessly.
+                guard host.windowShouldClose(host.platformWindow) else { return }
                 host.windowWillClose(host.platformWindow)
             },
             runMessageLoop: {

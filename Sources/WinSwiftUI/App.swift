@@ -2013,6 +2013,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private let inputRateTracker = WindowInputRateTracker()
     private let undoManager = UndoManager()
     private var isPrimaryTouchActive = false
+    private var hasTornDownWindow = false
+    private var isEvaluatingWindowClosePolicy = false
 
     /// Where a pacing verdict outlives the process, or `nil` for hosts that
     /// do not persist one (tests, direct embedders). See
@@ -2514,6 +2516,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             return [self.buildRootComponent()]
         }
         window.delegate = self
+        syncWindowDismissBehavior()
 
         // UI Automation wiring: the bridge re-projects the retained tree on
         // every UIA query; focus events ride the runtime's focus hook.
@@ -2652,6 +2655,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func windowDidCreate(_ window: Win32Window) {
+        guard !hasTornDownWindow else { return }
+        syncWindowDismissBehavior()
         reportUnsupportedWindowConfigurationIfNeeded()
         do {
             guard let surface = surfaceDescriptorProvider(window) else {
@@ -2679,6 +2684,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// a window that recovers a presenter is in exactly the state a window
     /// that never lost one is.
     private func activatePresenter(with surface: SurfaceDescriptor) throws {
+        guard !hasTornDownWindow else { return }
         surfaceDescriptor = surface
         try attachPreferredRenderer(to: surface)
         // A freshly attached backend has never been told what it is presenting
@@ -2698,6 +2704,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         NativeTextRenderer.claimDefaultIconDisplayScale(scaleFactor, owner: self)
         runtime.setRootSize(logicalSize(for: surface))
         componentHost.reload()
+        syncWindowDismissBehavior()
         uiaBridge?.raiseStructureChanged()
     }
 
@@ -2742,7 +2749,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// presenter is attached and this frame may proceed.
     @discardableResult
     private func attemptPresenterAttachRetryIfDue(in window: Win32Window) -> Bool {
-        guard !isRendererReady,
+        guard !hasTornDownWindow, !isRendererReady,
             !isPresenterUnavailable,
             let dueAt = nextPresenterAttachAttemptAt,
             recoveryClock() >= dueAt
@@ -2783,6 +2790,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, didResizeTo size: IntSize) {
+        guard !hasTornDownWindow else { return }
         // An empty client rect is not a layout. Minimizing used to rebuild the
         // whole component tree at 0×0 — through collapsed-frame layout, a UIA
         // structure change and a renderer resize — and then do it all again on
@@ -2817,6 +2825,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     ///   doing that from inside `WM_PAINT`'s BeginPaint/EndPaint pair
     ///   re-dirties the region the paint just validated — the window spins.
     private func applyResize(_ size: IntSize, in window: Win32Window, requestsFrame: Bool) {
+        guard !hasTornDownWindow else { return }
         // Whatever the drag left behind is superseded by this size, including
         // when this call *is* the drag's final `WM_EXITSIZEMOVE` delivery.
         // Without this the next frame would rebuild a second time for a size
@@ -2834,6 +2843,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             surfaceDescriptor?.scaleFactor = scaleFactor
             runtime.setRootSize(logicalSize(for: size, scaleFactor: scaleFactor))
             chargingRebuildCost { componentHost.reload() }
+            syncWindowDismissBehavior()
             executedResizeRebuildCount += 1
 
             // A drag is one structural event, not a hundred. The bridge
@@ -3035,6 +3045,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, animationFrameAt timestamp: Double) {
+        guard !hasTornDownWindow else { return }
         guard isRendererReady else {
             // While no presenter is attached the timer runs only to drive the
             // bounded attach retry: there is nothing to tick and nothing to
@@ -3093,12 +3104,47 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         }
     }
 
+    func windowShouldClose(_ window: Win32Window) -> Bool {
+        guard !isEvaluatingWindowClosePolicy else { return false }
+        isEvaluatingWindowClosePolicy = true
+        defer { isEvaluatingWindowClosePolicy = false }
+        // A state write and a close can share one native message turn. Consume
+        // the pending observed-object rebuild before reading its policy.
+        if !hasTornDownWindow {
+            flushObservedObjectReload(in: window, requestsFrame: false)
+        }
+        syncWindowDismissBehavior()
+        // Rebuild completion can mutate another observed value or pump a
+        // native dialog. Do not approve using a tree already due for rebuild,
+        // or spin here waiting for arbitrary application callbacks to settle.
+        return hasTornDownWindow || (!reloadScheduled && window.isCloseButtonEnabled)
+    }
+
+    private func syncWindowDismissBehavior() {
+        // Failed-start rollback can already have torn down this host before
+        // requesting native cleanup. It must not leave an unowned disabled
+        // HWND alive; the idempotent teardown below will not run twice.
+        window.setCloseButtonEnabled(hasTornDownWindow || runtime.windowDismissalBehavior != .disabled)
+    }
+
     func windowWillClose(_ window: Win32Window) {
+        guard !hasTornDownWindow else { return }
+        hasTornDownWindow = true
+        reloadScheduled = false
+        pendingChangedObjects.removeAll()
+        pendingObservedObjectContexts.removeAll()
+        pendingLiveResizeSize = nil
+        pendingPresentation = false
+        nextPresenterAttachAttemptAt = nil
+        nextBatchRecoveryAttemptAt = nil
+        resetObservedObjects()
+        syncAnimationDriver(for: window)
         if isPrimaryTouchActive {
             isPrimaryTouchActive = false
             runtime.pointerCancelled()
         }
         uiaBridge?.disconnect()
+        window.accessibilityProvider = nil
         // Release the GPU stack while the HWND is still alive. A swap chain
         // pins the window it presents to and nothing else in the process
         // will ever release it, so a closed window without this leaks its
@@ -3209,6 +3255,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     private func reloadContent(requestsFrame: Bool = true) {
+        guard !hasTornDownWindow else { return }
         executedReloadCount += 1
 
         // Record the objects the ComponentHost accesses during this rebuild
@@ -3216,11 +3263,14 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         componentHost.observedObjects.removeAll()
         resetObservedObjects()
         chargingRebuildCost { componentHost.reload() }
+        guard !hasTornDownWindow else { return }
+        syncWindowDismissBehavior()
         uiaBridge?.raiseStructureChanged()
 
         // Present any file-importer / exporter / mover dialogs whose
         // isPresented binding has been set to true.
         componentHost.processPendingFileDialogs()
+        guard !hasTornDownWindow else { return }
 
         // After rebuild, snapshot which objects were observed.
         for identifier in observedObjectTokens.keys {
@@ -3240,6 +3290,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     private func observeObject(_ object: any ObservableObject) {
+        guard !hasTornDownWindow else { return }
         let identifier = ObjectIdentifier(object)
         guard observedObjectTokens[identifier] == nil else {
             return
@@ -3372,6 +3423,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// none of the changed objects are in the host's dependency set, the
     /// rebuild is skipped entirely.
     private func scheduleObservedObjectReload(for changedObjectID: ObjectIdentifier) {
+        guard !hasTornDownWindow else { return }
         pendingChangedObjects.insert(changedObjectID)
         observedObjectChangeSequence &+= 1
         pendingObservedObjectContexts[changedObjectID] = ObservedObjectReloadContext(
@@ -3413,7 +3465,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private func flushObservedObjectReload(
         in window: Win32Window, requestsFrame: Bool, preservingCurrentTransaction: Bool = false
     ) -> Bool {
-        guard reloadScheduled else { return false }
+        guard !hasTornDownWindow, reloadScheduled else { return false }
         reloadScheduled = false
 
         let changedObjects = pendingChangedObjects
@@ -3477,6 +3529,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     @discardableResult
     private func renderCurrentFrame(in window: Win32Window, timestamp: Double? = nil) -> Bool {
+        guard !hasTornDownWindow else { return false }
         // The drag's newest size, applied once, here — not once per mouse
         // report in the wndproc. Before the presenter check, so the runtime's
         // root is the window's size even on a frame that cannot be presented.
@@ -3541,6 +3594,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         // invalidating again from inside BeginPaint/EndPaint. A rejected
         // dependency must not turn its native wake into a duplicate present.
         flushObservedObjectReload(in: window, requestsFrame: false)
+        guard !hasTornDownWindow else { return false }
         guard runtime.isDirty || pendingPresentation || runtime.hasActiveAnimations || inputRateTracker.isHighRate
         else {
             syncAnimationDriver(for: window)
@@ -3865,6 +3919,15 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     private func syncAnimationDriver(for window: Win32Window) {
+        guard !hasTornDownWindow else {
+            window.setAnimationTimerEnabled(false)
+            currentTimerState = TimerState(
+                isEnabled: false,
+                intervalMilliseconds: currentTimerState.intervalMilliseconds,
+                usesHighResolution: currentTimerState.usesHighResolution,
+                refreshRate: currentTimerState.refreshRate)
+            return
+        }
         let refreshRate = max(Int(window.monitorRefreshRate), 1)
         runtime.minimumFrameInterval = Self.pacingInterval(forRefreshRate: refreshRate)
         window.useHighResolutionTimer = true

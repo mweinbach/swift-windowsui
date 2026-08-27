@@ -16,6 +16,34 @@ The default demo path now uses `GPUIScene` -> `D3D11BatchRenderer`, with
 `RenderFrame` -> `D3D11Renderer` kept as an automatic fallback and explicit
 debug override.
 
+## Window close requests
+
+`windowDismissBehavior(.disabled)` now reaches the native window. The current
+retained declaration disables the titlebar/system-menu Close command and
+rejects ordinary close requests, including `dismissWindow`, before any HWND,
+renderer, accessibility, or coordinator teardown. `.enabled` and `.automatic`
+allow ordinary close; removing the modifier restores the scene default. An
+enclosing declaration wins over declarations inside its subtree, with source
+order as the fallback between siblings. That conflict rule is deterministic
+on Windows but has not been compared with native SwiftUI.
+
+`Win32Window` handles `WM_CLOSE` through `WindowDelegate.windowShouldClose`;
+the neutral adapter also preserves `PlatformWindowHost.platformWindowShouldClose`.
+A veto leaves the window alive. A host can finish a deferred decision and
+request close again later; `windowWillClose` remains an idempotent teardown
+notification after destruction begins. This follows the native
+[WM_CLOSE decision boundary](https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-close).
+
+Apple describes default programmatic dismissal as
+[interactive](https://developer.apple.com/documentation/swiftui/dismissbehavior/interactive),
+like standard window-close controls. Its separate destructive transaction
+behavior is not implemented here. This close-policy foundation also does not
+implement document dirty state, Save/Discard/Cancel, or complete modal-window
+dismissal semantics. `interactiveDismissDisabled` still governs retained
+presentations separately. `Win32WindowCloseRequestTests`,
+`WindowDismissBehaviorTests`, and `PlatformHostContractTests` cover the new
+boundary; native tests use owned hidden windows with bounded message delivery.
+
 ## Rendering Contract
 
 `GPUIScene.paintOperations` is the source-of-truth paint stream for typed

@@ -119,6 +119,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   drag anchors, callback-triggered rebuild/removal, and release on host close.
   Related selection, IME, drag, native-input, and sparse-storage suites must
   also pass; these tests do not establish undo or vertical caret behavior.
+- `Win32WindowCloseRequestTests`, `WindowDismissBehaviorTests`, and
+  `PlatformHostContractTests` cover close preflight, concrete and neutral vetoes,
+  the current retained policy, reentrant decisions, handle lifetime, and
+  idempotent teardown. Native cases create owned hidden windows and drain only
+  bounded close messages. Failed startup uses an unconditional cleanup hook;
+  ordinary dismissal still follows policy. Document save decisions and native
+  conflicting-modifier precedence remain separate requirements.
 - `ModalPresentationIsolationTests` and `DemoRendererIdentityTests` cover
   topmost modal focus/accessibility/shortcut isolation and renderer identities
   that remain accurate when the app switches between D3D11 and software.

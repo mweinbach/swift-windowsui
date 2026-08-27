@@ -580,13 +580,24 @@ The document/editor template needs further work beyond those two input/file
 fixes: real document sessions and projected document bindings, installed
 new/open/save environment actions, undo/redo registration, vertical caret
 navigation and scrolling, document commands, and unsaved-change handling.
-Currently `DocumentGroup` is a shim, command descriptors are not native menus,
-and titlebar close reaches destruction without a veto or deferred decision.
-`windowDismissBehavior` metadata and retained-presentation dismissal policy do
-not protect document windows. Save/Discard/Cancel must run before teardown,
-preserve edits on cancellation or failure, and close exactly once after an
-approved result. These remain requirements of the original document lifecycle,
-text/input, and template gates; a successful dialog alone closes none of them.
+`DocumentGroup` remains a shim and command descriptors are not native menus.
+The initial audit also found that titlebar close reached destruction without
+a veto or deferred decision. The second batch adds `WM_CLOSE` preflight
+through concrete and neutral host delegates, consumes the latest retained
+`windowDismissBehavior`, updates native Close availability, and keeps refused
+windows and their renderers/accessibility/coordinator ownership alive.
+Reentrant decisions, stale observed-state rebuilds, duplicate teardown, HWND
+lifetime reuse, and failed-start cleanup have dedicated tests authored for
+serial validation. Enclosing declarations take precedence on Windows;
+conflicting native modifier precedence remains unqualified.
+
+This is the host decision seam, not a completed document workflow.
+Save/Discard/Cancel must still run before teardown, preserve edits on
+cancellation or failure, and close exactly once after an approved result.
+Destructive dismissal transactions and full modal dismissal behavior also
+remain unimplemented. These remain requirements of the original document
+lifecycle, text/input, and template gates; a successful dialog or close-policy
+veto alone closes none of them.
 
 ### First integrated validation checkpoint
 
@@ -740,6 +751,16 @@ document-session wrapper and encodes synchronously on the main actor.
 Directory/package, multiple-document, ReferenceFileDocument/Transferable,
 background-encoding, document ownership, and native workflow parity remain
 requirements, not exceptions granted by this slice.
+
+Ordinary native and programmatic window-close requests now consult the current
+retained dismissal policy before destroying their HWND. Concrete and neutral
+host vetoes both apply; refused windows keep their presentation/accessibility
+resources and coordinator records. Teardown is guarded against duplicates and
+late observed rebuilds or presenter retries. Failed-start rollback has a
+separate unconditional destroy path so a veto cannot strand an unowned window.
+Twenty-six new tests await integrated execution, including owned hidden native
+windows. This establishes a close decision boundary, not document dirty-state
+ownership or Save/Discard/Cancel behavior.
 
 ### Additional state lifetime acceptance detail
 

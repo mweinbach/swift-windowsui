@@ -35,6 +35,13 @@ struct WindowCoordinatorHooks {
         host.platformWindow.activate()
     }
 
+    /// Startup rollback has already released the host's resources and removed
+    /// its coordinator record. It is not an ordinary dismiss request and must
+    /// not be vetoed by any installed delegate or view policy.
+    var discardFailedWindow: @MainActor (WinSwiftUIWindowHost) -> Void = { host in
+        host.platformWindow.destroyForFailedStartup()
+    }
+
     /// The real Win32 hooks used by `App.main()`.
     static let win32 = WindowCoordinatorHooks(
         startWindow: { host in
@@ -378,7 +385,7 @@ final class WinSwiftUIWindowCoordinator {
             windows.removeAll { $0.host === host }
             host.windowWillClose(host.platformWindow)
             if host.platformWindow.nativeHandle != nil {
-                hooks.requestCloseWindow(host)
+                hooks.discardFailedWindow(host)
             }
             throw error
         }

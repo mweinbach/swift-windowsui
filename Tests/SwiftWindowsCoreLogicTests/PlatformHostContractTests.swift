@@ -1,10 +1,8 @@
 import Foundation
 import SwiftWindowsCore
-
 @preconcurrency import XCTest
 
 @testable import SwiftWindowsPlatform
-
 @testable import SwiftWindowsUI
 
 /// Proves that a complete window/event lifecycle can be supplied by a host
@@ -18,6 +16,13 @@ final class PlatformHostContractTests: XCTestCase {
         var events: [PlatformWindowEvent] = []
         var windowTitles: [String] = []
         var caretRect: Rect?
+        var allowsClose = true
+        private(set) var closeRequestCount = 0
+
+        func platformWindowShouldClose(_ window: any PlatformWindow) -> Bool {
+            closeRequestCount += 1
+            return allowsClose
+        }
 
         func platformWindow(_ window: any PlatformWindow, didReceive event: PlatformWindowEvent) {
             windowTitles.append(window.title)
@@ -75,6 +80,7 @@ final class PlatformHostContractTests: XCTestCase {
         }
 
         func requestClose() {
+            guard host?.platformWindowShouldClose(self) ?? true else { return }
             closeCount += 1
             emit(.willClose)
         }
@@ -146,6 +152,14 @@ final class PlatformHostContractTests: XCTestCase {
         private(set) var keyboardEvents: [KeyboardEvent] = []
         private(set) var closeCount = 0
 
+        var allowsClose = true
+        private(set) var closeRequestCount = 0
+
+        func windowShouldClose(_ window: Win32Window) -> Bool {
+            closeRequestCount += 1
+            return allowsClose
+        }
+
         func windowDidCreate(_ window: Win32Window) {
             createdCount += 1
         }
@@ -161,6 +175,78 @@ final class PlatformHostContractTests: XCTestCase {
         func windowWillClose(_ window: Win32Window) {
             closeCount += 1
         }
+    }
+
+    func testAlternateHostCanRefuseCloseBeforeAnyTeardownEvent() async throws {
+        let factory = InMemoryPlatformHostFactory()
+        let recorder = EventRecorder()
+        recorder.allowsClose = false
+        let window = try factory.makeWindow(
+            configuration: PlatformWindowConfiguration(
+                title: "Refused close", clientSize: IntSize(width: 100, height: 80)))
+        window.setPlatformWindowHost(recorder)
+
+        window.requestClose()
+        XCTAssertEqual(recorder.closeRequestCount, 1)
+        XCTAssertTrue(recorder.events.isEmpty)
+
+        recorder.allowsClose = true
+        window.requestClose()
+        XCTAssertEqual(recorder.closeRequestCount, 2)
+        XCTAssertEqual(recorder.events.count, 1)
+        guard case .willClose = recorder.events.first else {
+            return XCTFail("Only approval should deliver teardown.")
+        }
+    }
+
+    func testWin32AdapterPreservesBothConsumersCloseVetoes() async {
+        let window = Win32Window(title: "Close forwarding", clientSize: IntSize(width: 100, height: 80))
+        let legacy = LegacyDelegateRecorder()
+        let neutral = EventRecorder()
+        window.delegate = legacy
+        window.setPlatformWindowHost(neutral)
+
+        legacy.allowsClose = false
+        XCTAssertEqual(window.delegate?.windowShouldClose(window), false)
+        XCTAssertEqual(legacy.closeRequestCount, 1)
+        XCTAssertEqual(neutral.closeRequestCount, 0)
+
+        legacy.allowsClose = true
+        neutral.allowsClose = false
+        XCTAssertEqual(window.delegate?.windowShouldClose(window), false)
+        XCTAssertEqual(legacy.closeRequestCount, 2)
+        XCTAssertEqual(neutral.closeRequestCount, 1)
+
+        neutral.allowsClose = true
+        XCTAssertEqual(window.delegate?.windowShouldClose(window), true)
+        XCTAssertEqual(legacy.closeCount, 0)
+        XCTAssertTrue(neutral.events.isEmpty, "An approval query is not a teardown event.")
+
+        window.delegate?.windowWillClose(window)
+        XCTAssertEqual(legacy.closeCount, 1)
+        XCTAssertEqual(neutral.events.count, 1)
+    }
+
+    func testWin32AdapterUsesLatestHostAndRestoresOriginalClosePolicy() async {
+        let window = Win32Window(title: "Replaced close host", clientSize: IntSize(width: 100, height: 80))
+        let legacy = LegacyDelegateRecorder()
+        let first = EventRecorder()
+        first.allowsClose = false
+        let second = EventRecorder()
+        window.delegate = legacy
+        window.setPlatformWindowHost(first)
+        XCTAssertEqual(window.delegate?.windowShouldClose(window), false)
+
+        window.setPlatformWindowHost(second)
+        XCTAssertEqual(window.delegate?.windowShouldClose(window), true)
+        XCTAssertEqual(first.closeRequestCount, 1)
+        XCTAssertEqual(second.closeRequestCount, 1)
+
+        window.setPlatformWindowHost(nil)
+        XCTAssertTrue(window.delegate === legacy)
+        legacy.allowsClose = false
+        XCTAssertEqual(window.delegate?.windowShouldClose(window), false)
+        XCTAssertEqual(second.closeRequestCount, 1)
     }
 
     func testAlternateFactoryOwnsWindowLifecycleWithoutNativeWindow() async throws {

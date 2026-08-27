@@ -190,7 +190,7 @@ behavior** unless a note says otherwise.
 
 | API | Status | Behavior today |
 | --- | --- | --- |
-| `openWindow` / `dismissWindow` | **Implemented** (default routing) | Coordinator opens independent windows (own host/runtime/renderer) for id- and value-based WindowGroups; dismiss closes the calling scene's window or matches by id/value |
+| `openWindow` / `dismissWindow` | **Implemented** (default routing) | Coordinator opens independent windows (own host/runtime/renderer) for id- and value-based WindowGroups; dismiss requests close of the calling scene's window or matches by id/value. Ordinary requests respect the current `windowDismissBehavior` before native teardown; destructive dismissal transactions and document save decisions remain unsupported |
 | `openSettings`, `SettingsLink` | **Implemented** for coordinator hosts | Opens the first declared Settings scene on demand, reuses its existing window, and requests restore/foreground activation. Closing permits reopening. Windows can decline foreground activation; no duplicate is created. No declared Settings scene or standalone host means no default routing |
 | `requestReview` | **Shim / no-op** (default) | No StoreKit / Microsoft Store review prompt |
 | `Settings` | **Partial** | Real on-demand singleton alongside ordinary window scenes, with per-window runtime, renderer, environment, and scene-storage scope. Automatic native Settings menus, Settings-only startup, dynamic scene changes, and full scene restoration remain unsupported |
@@ -213,6 +213,7 @@ size is scaled by the target monitor's DPI and turned into a window rect with
 | `windowResizability(.minSize / .maxSize)` | **Partial** | Stays resizable; the declared min/max ride the track sizes above |
 | `defaultPosition` | **Implemented** | Placed at the normalized position within the target monitor's work area |
 | `windowLevel` | **Partial** | Any non-`.normal`/`.base` level becomes `HWND_TOPMOST`; Win32 has no finer z-band vocabulary |
+| `windowDismissBehavior` | **Partial** | `.disabled` disables native Close and refuses titlebar/system/programmatic `WM_CLOSE` requests before teardown. `.enabled`, `.automatic`, and modifier removal restore ordinary close. Current retained declarations are re-read after pending observed updates; enclosing declarations win, then source order. Conflicting-modifier native precedence, destructive dismissal transactions, and unsaved-document decisions are not qualified |
 | `windowToolbarStyle`, `navigationSubtitle`, `windowStyle`, `menuBarExtraStyle`, restoration / launch / activation / background-drag behaviors, `windowManagerRole`, `allowsWindowInlining` | **Shim** | Parsed and reported once at window creation (`unsupportedWindowConfigurationModifiers`), never silently dropped |
 
 ### Environment / system flags

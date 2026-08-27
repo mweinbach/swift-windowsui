@@ -92,12 +92,22 @@ public enum PlatformWindowEvent: Sendable {
 public protocol PlatformWindowHost: AnyObject {
     func platformWindow(_ window: any PlatformWindow, didReceive event: PlatformWindowEvent)
 
+    /// Consulted before an ordinary close request destroys the native window.
+    /// Returning false preserves the window and its resources. A host may
+    /// resolve a deferred decision and call `requestClose()` again later.
+    /// `.willClose` is a teardown notification, not this permission check.
+    func platformWindowShouldClose(_ window: any PlatformWindow) -> Bool
+
     /// The focused text input's logical caret rectangle, when available.
     /// Native input-method integrations use it to position candidate windows.
     func platformWindowTextInputCaretRect(_ window: any PlatformWindow) -> Rect?
 }
 
 extension PlatformWindowHost {
+    public func platformWindowShouldClose(_ window: any PlatformWindow) -> Bool {
+        true
+    }
+
     public func platformWindowTextInputCaretRect(_ window: any PlatformWindow) -> Rect? {
         nil
     }

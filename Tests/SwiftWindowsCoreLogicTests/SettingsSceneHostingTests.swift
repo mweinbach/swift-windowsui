@@ -128,6 +128,7 @@ final class SettingsSceneHostingTests: XCTestCase {
             },
             requestCloseWindow: { host in
                 log.closeRequests.append(host)
+                guard host.windowShouldClose(host.platformWindow) else { return }
                 host.windowWillClose(host.platformWindow)
             },
             runMessageLoop: {

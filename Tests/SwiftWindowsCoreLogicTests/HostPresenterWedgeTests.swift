@@ -1,12 +1,9 @@
 import SwiftWindowsCore
 import SwiftWindowsGraphics
-
 @preconcurrency import XCTest
 
 @testable import SwiftWindowsPlatform
-
 @testable import SwiftWindowsUI
-
 @testable import WinSwiftUI
 
 // WS-10: the host must never turn a failure into a wedge.
@@ -265,7 +262,10 @@ final class HostPresenterWedgeTests: XCTestCase {
         let surface = makeSurface()
         let hooks = WindowCoordinatorHooks(
             startWindow: { host in host.windowDidCreate(host.platformWindow) },
-            requestCloseWindow: { host in host.windowWillClose(host.platformWindow) },
+            requestCloseWindow: { host in
+                guard host.windowShouldClose(host.platformWindow) else { return }
+                host.windowWillClose(host.platformWindow)
+            },
             runMessageLoop: { 0 },
             terminateMessageLoop: {}
         )

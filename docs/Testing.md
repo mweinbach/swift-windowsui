@@ -102,6 +102,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   alongside `SceneColorEffectPassTests` and `D3D11ImageRenderPassTests`, which
   cover ordered subtree effects, fractional-DPI coverage, real WARP execution,
   replay/resource isolation, bounded malformed passes, and resource reuse.
+- `SceneAtlasLifetimeTests` and `D3D11SharedSceneAtlasTests` also gate Quick.
+  They check one completed atlas buffer shared by nested color-effect sources,
+  immutable previously returned scenes, nested replay after atlas recycling,
+  safe observer reentry, CPU isolation cache retries, and actual WARP upload
+  sharing and restoration when a child has a different atlas.
 - `ModalPresentationIsolationTests` and `DemoRendererIdentityTests` cover
   topmost modal focus/accessibility/shortcut isolation and renderer identities
   that remain accurate when the app switches between D3D11 and software.
@@ -235,6 +240,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Cr
   unchanged = zero, frame 3 with a small region = one boxed upload. Also
   pins image texture/SRV pointer identity across rebinds and across a
   frame that renumbers the texture IDs.
+- `SceneAtlasLifetimeTests` and `D3D11SharedSceneAtlasTests` extend that protocol
+  across nested scene namespaces. Image-only ancestors bind the completed
+  atlas so descendants can borrow the same GPU texture. Retained replay copies
+  release atlas pixels recursively and track descendant native glyph usage
+  when invalidating stale UVs. Keeping old returned frames can still retain
+  one atlas buffer per frame; these tests do not establish a total RAM bound.
 - `GlyphAtlasExhaustionSafetyTests` — an atlas rect handed out before a
   recovery addresses a different glyph after it, so no holder of one may
   outlive the recycle: the generation token only moves when shelves are

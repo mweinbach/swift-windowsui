@@ -318,13 +318,14 @@ public enum ScenePainter {
                 }
             }
 
-            if usedNativeGlyphs {
-                scene.glyphAtlas = NativeGlyphAtlas.shared.snapshotIfUsedInCurrentFrame()
-            }
-            if usedPixelGlyphs {
-                scene.pixelGlyphAtlas = pixelGlyphAtlasSnapshot()
-            }
-            attachCachedGlyphAtlases(to: &scene)
+            // Sources record UVs without retaining intermediate atlas Data.
+            // Once this attempt is safe, every namespace receives the same
+            // final pixels instead of keeping one full atlas per color pass.
+            let nativeAtlas =
+                usedNativeGlyphs
+                ? NativeGlyphAtlas.shared.snapshotIfUsedInCurrentFrame()
+                : NativeGlyphAtlas.shared.snapshotForCachedGlyphs()
+            attachGlyphAtlases(to: &scene, native: nativeAtlas, pixel: pixelGlyphAtlasSnapshot())
 
             deferredDraws = attemptDeferredDraws
             replayCount = attemptReplayCount
@@ -1449,6 +1450,7 @@ public enum ScenePainter {
                     bitmap = cached
                     scene.paintMetrics.compositingGroupsReused += 1
                 } else {
+                    let sourceAtlasGeneration = NativeGlyphAtlas.shared.atlasGeneration
                     var subScene = GPUIScene(clearColor: buffer.clearColor)
                     var subDeferred: [DeferredDrawState] = []
                     var subNative = false
@@ -1492,12 +1494,7 @@ public enum ScenePainter {
                     // end of `paint`, and letting the sub-scene call
                     // `snapshotIfUsedInCurrentFrame()` would hand the outer scene an
                     // empty dirty region for glyphs it still has to upload.
-                    if subNative {
-                        subScene.glyphAtlas = NativeGlyphAtlas.shared.currentSnapshot()
-                    }
-                    if subPixel {
-                        subScene.pixelGlyphAtlas = pixelGlyphAtlasSnapshot()
-                    }
+                    attachCachedGlyphAtlases(to: &subScene)
                     // Glyph usage inside the group is glyph usage for the frame: the
                     // atlas-recovery retry and the outer snapshot both key off it.
                     // A reused bitmap has its glyphs baked in and needs neither.
@@ -1506,7 +1503,11 @@ public enum ScenePainter {
 
                     bitmap = GPUIRawSceneRasterizer.rasterize(subScene, size: subSize)
                     scene.paintMetrics.compositingGroupsRasterized += 1
-                    if buffer.pass.isCacheable, !skipCacheUpdates {
+                    if subNative, NativeGlyphAtlas.shared.atlasGeneration != sourceAtlasGeneration {
+                        // The outer attempt must retry. Do not let stale UVs
+                        // baked into this image become a post-recycle cache.
+                        node.releaseCompositingGroupCache()
+                    } else if buffer.pass.isCacheable, !skipCacheUpdates {
                         node.cachedCompositingGroupKey = cacheKey
                         node.cachedCompositingGroupBitmap = bitmap
                         // Only text ties the bitmap to the atlas; a group without
@@ -1896,8 +1897,9 @@ public enum ScenePainter {
             }
         }
         source.finish()
-        if subNative { source.glyphAtlas = NativeGlyphAtlas.shared.currentSnapshot() }
-        if subPixel { source.pixelGlyphAtlas = pixelGlyphAtlasSnapshot() }
+        // Bind the completed attempt's atlas later, after every sibling has
+        // finished inserting glyphs. Retaining it here forces full Data COW
+        // copies on those later writes, independent of the source pixel budget.
         usedNativeGlyphs = usedNativeGlyphs || subNative
         usedPixelGlyphs = usedPixelGlyphs || subPixel
 
@@ -2038,6 +2040,7 @@ public enum ScenePainter {
             bitmap = cached
             scene.paintMetrics.contentBlurPassesReused += 1
         } else {
+            let sourceAtlasGeneration = NativeGlyphAtlas.shared.atlasGeneration
             var subNative = false
             var subPixel = false
             let rasterized = rasterizeIsolatedSubtree(
@@ -2056,7 +2059,9 @@ public enum ScenePainter {
             usedPixelGlyphs = usedPixelGlyphs || subPixel
 
             bitmap = PremultipliedImageBlur.blurred(rasterized, radius: deviceRadius)
-            if buffer.pass.isCacheable {
+            if subNative, NativeGlyphAtlas.shared.atlasGeneration != sourceAtlasGeneration {
+                node.releaseCompositingGroupCache()
+            } else if buffer.pass.isCacheable {
                 node.cachedCompositingGroupKey = isolation.cacheKey
                 node.cachedCompositingGroupBitmap = bitmap
                 // Only text ties the bitmap to the atlas; a pass without
@@ -2161,12 +2166,7 @@ public enum ScenePainter {
         // returns immediately when its atlas is nil. The peek deliberately
         // does not consume the atlas dirty region: the frame has a single
         // consumer at the end of `paint`.
-        if usedNativeGlyphs {
-            subScene.glyphAtlas = NativeGlyphAtlas.shared.currentSnapshot()
-        }
-        if usedPixelGlyphs {
-            subScene.pixelGlyphAtlas = pixelGlyphAtlasSnapshot()
-        }
+        attachCachedGlyphAtlases(to: &subScene)
         return GPUIRawSceneRasterizer.rasterize(subScene, size: buffer.size)
     }
 
@@ -2511,16 +2511,78 @@ public enum ScenePainter {
     /// screenshot, gallery baseline and macOS parity render) got `nil` and drew
     /// no text at all, for a frame the user sees text in.
     ///
-    /// Cheap by construction: the snapshot carries the atlas `Data` by
-    /// reference and declares `.unchanged` at the version the consumer already
-    /// holds, so a GPU backend skips the upload.
+    /// The snapshot shares the atlas `Data`; its content version and dirty
+    /// region let a GPU backend skip uploads when it already has these pixels.
     static func attachCachedGlyphAtlases(to scene: inout GPUIScene) {
-        if scene.usesGlyphs, scene.glyphAtlas == nil {
-            scene.glyphAtlas = NativeGlyphAtlas.shared.snapshotForCachedGlyphs()
+        attachGlyphAtlases(
+            to: &scene, native: NativeGlyphAtlas.shared.snapshotForCachedGlyphs(),
+            pixel: pixelGlyphAtlasSnapshot())
+    }
+
+    /// Retained replay logs own primitive addresses, not atlas pixels. Scene
+    /// sources are values: stripping this copy never changes an earlier
+    /// returned scene that shares its arrays or atlas Data.
+    static func detachGlyphAtlasesForReplay(from scene: inout GPUIScene) -> Bool {
+        var remaining = GPUISceneLimits.maxImageRenderPassCount + 1
+        let usage = visitAtlasNamespaces(in: &scene, depth: 0, remaining: &remaining) { namespace, _, _ in
+            namespace.glyphAtlas = nil
+            namespace.pixelGlyphAtlas = nil
         }
-        if scene.usesPixelGlyphs, scene.pixelGlyphAtlas == nil {
-            scene.pixelGlyphAtlas = pixelGlyphAtlasSnapshot()
+        return usage.native
+    }
+
+    private static func attachGlyphAtlases(
+        to scene: inout GPUIScene, native: GlyphAtlasSnapshot?, pixel: GlyphAtlasSnapshot?
+    ) {
+        // No glyph writes occur between the completed parent snapshot and
+        // these descendants. They carry the same final bytes and version;
+        // the parent's update owns the upload. A standalone child consumer
+        // still uploads fully when uninitialized or at a different version.
+        var inheritedNative = native
+        inheritedNative?.update = .unchanged
+        var inheritedPixel = pixel
+        inheritedPixel?.update = .unchanged
+        var remaining = GPUISceneLimits.maxImageRenderPassCount + 1
+        visitAtlasNamespaces(in: &scene, depth: 0, remaining: &remaining) { namespace, usage, depth in
+            // An image-only ancestor supplies the shared texture to its
+            // children, so D3D11 borrows one atlas upload across the graph.
+            if usage.native, namespace.glyphAtlas == nil {
+                namespace.glyphAtlas = depth == 0 ? native : inheritedNative
+            }
+            if usage.pixel, namespace.pixelGlyphAtlas == nil {
+                namespace.pixelGlyphAtlas = depth == 0 ? pixel : inheritedPixel
+            }
         }
+    }
+
+    private struct SceneAtlasUsage {
+        var native = false
+        var pixel = false
+    }
+
+    /// Valid source graphs have at most 1,024 passes and depth 32. Invalid
+    /// tails remain for renderer validation to reject; atlas bookkeeping must
+    /// not expand a hostile graph merely to prepare its diagnostic output.
+    @discardableResult
+    private static func visitAtlasNamespaces(
+        in scene: inout GPUIScene, depth: Int, remaining: inout Int,
+        update: (inout GPUIScene, SceneAtlasUsage, Int) -> Void
+    ) -> SceneAtlasUsage {
+        guard remaining > 0, depth <= GPUISceneLimits.maxImageRenderPassDepth else { return SceneAtlasUsage() }
+        remaining -= 1
+        var usage = SceneAtlasUsage(native: scene.usesGlyphs, pixel: scene.usesPixelGlyphs)
+        if depth < GPUISceneLimits.maxImageRenderPassDepth {
+            for index in scene.imageRenderPasses.indices {
+                guard remaining > 0 else { break }
+                let childUsage = visitAtlasNamespaces(
+                    in: &scene.imageRenderPasses[index].scene, depth: depth + 1,
+                    remaining: &remaining, update: update)
+                usage.native = usage.native || childUsage.native
+                usage.pixel = usage.pixel || childUsage.pixel
+            }
+        }
+        update(&scene, usage, depth)
+        return usage
     }
 
     /// Snapshot of the shared pixel-font atlas. The pixel atlas is built

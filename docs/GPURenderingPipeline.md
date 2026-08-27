@@ -2151,6 +2151,27 @@ effect. `SceneColorEffectPassTests` and `D3D11ImageRenderPassTests` exercise
 ordering, alpha, mixed primitives, replay, fractional DPI, real WARP execution,
 malformed graphs, and resource lifetime.
 
+Color-effect sources record glyph UVs without retaining intermediate native
+atlas pixels. Once the outer paint attempt completes without recycling, one
+final atlas snapshot is attached throughout the bounded source graph, including
+image-only ancestors. Descendants share its bytes and content version with
+an unchanged upload marker, allowing D3D11 to borrow the parent texture. An
+uninitialized or differently versioned consumer still performs a full upload.
+This avoids a full 2048-by-2048 BGRA copy for each small text effect as later
+siblings add glyphs. A previously returned scene remains an immutable value;
+retaining multiple old frames can still retain one 16 MiB buffer per frame.
+
+Retained replay copies recursively detach atlas references and include nested
+native glyph usage in their generation guard. The runtime checks that guard
+both on entry and after layout callbacks. If a scroll observer reenters after
+another window recycled the atlas, it receives an explicit clear-color-only
+snapshot with a diagnostic instead of stale UVs or reentrant layout repair;
+the normal render rebuilds after delivery. Immediate CPU drawing-group and
+blur rasterization bind a snapshot only for that scope and do not publish
+their bitmap cache if its glyph generation changed during rasterization.
+`SceneAtlasLifetimeTests` and `D3D11SharedSceneAtlasTests` protect these lifetime,
+replay, retry, and real GPU upload behaviors.
+
 Structural checks charge each declared pass within each nested namespace.
 Execution charges actual source realizations. CPU cache hits allocate no
 new source and do not spend that budget again; noncontiguous GPU references

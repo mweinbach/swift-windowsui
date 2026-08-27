@@ -662,6 +662,20 @@ their existing thresholds. The logs are `goal-agent-check-quick-v4.log` and
 the window ownership correction but still predates the atlas resource
 ownership correction above, which must be verified before the batch is pushed.
 
+The independent atlas correction then passed 247 focused XCTest cases across
+14 targets in 12 serial invocations, without failures or skips. This includes
+five new scene lifetime cases and two new real WARP resource cases. Completed
+color-effect sources now share the final atlas across nested namespaces;
+retained replay copies detach it recursively and guard descendant glyph UVs.
+The tests exercise previously returned immutable scenes, recycling, observer
+reentry, CPU isolation retries, and shared GPU uploads. All 52 changed Swift
+files passed strict lint, and contracts passed before and after integration.
+Evidence is in `artifacts/goal-atlas-lifetime-recheck.log` and
+`artifacts/goal-batch-lint-atlas.log`. The new suites also gate Quick. Full
+validation and startup/render probes must run on this corrected candidate
+before the accumulated commits are pushed. This is a resource ownership fix,
+not a total RAM bound or completion of the original rendering gate.
+
 ### Additional state lifetime acceptance detail
 
 A source audit found that the current State and StateObject wrappers follow

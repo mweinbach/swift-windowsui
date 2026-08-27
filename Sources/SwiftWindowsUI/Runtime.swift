@@ -8826,6 +8826,8 @@ public final class RetainedViewRuntime {
     /// against, or `nil` when it draws no native glyph. `nil` for a scene
     /// without glyphs rather than "unknown": there is nothing to go stale.
     private var cachedSceneAtlasGeneration: UInt64?
+    private var sceneAtlasRefreshPending = false
+    internal private(set) var sceneAtlasDeferralCount: UInt64 = 0
     private var prepaintState = RuntimePrepaintState()
 
     /// Access to current prepaint state for testing deferred scene-path behavior.
@@ -9403,8 +9405,24 @@ public final class RetainedViewRuntime {
 
     /// Render the current view tree as a GPUIScene for batch rendering.
     public func renderScene(at timestamp: Double = 0) -> GPUIScene {
-        if scrollObserverRegistry?.isDelivering == true, let cachedScene {
-            return shippable(cachedScene)
+        discardSceneWithStaleAtlas()
+        if scrollObserverRegistry?.isDelivering == true {
+            if let cachedScene { return shippable(cachedScene) }
+            if sceneAtlasRefreshPending {
+                // A callback cannot re-enter layout to repair stale UVs. Ship
+                // an explicit empty snapshot for this inspection; the normal
+                // render resumes after delivery and reconstructs the source.
+                sceneAtlasDeferralCount &+= 1
+                if sceneAtlasDeferralCount == 1 {
+                    FileHandle.standardError.write(
+                        Data(
+                            "[SwiftWindowsUI] Scene snapshot deferred during scroll observation after glyph-atlas recycling.\n"
+                                .utf8))
+                }
+                var deferredScene = GPUIScene(clearColor: clearColor)
+                deferredScene.finish()
+                return deferredScene
+            }
         }
         // WS-14's stale-UV rule, applied to the one holder that had escaped it.
         // `shippable` staples the *current* shared atlas onto a scene whose
@@ -9415,11 +9433,6 @@ public final class RetainedViewRuntime {
         // this runtime dirty. Dropping the cache forces a real paint — which
         // also drops the replay source, since replayed primitives carry the
         // same dead UVs.
-        if let generation = cachedSceneAtlasGeneration, generation != NativeGlyphAtlas.shared.atlasGeneration {
-            cachedSceneSnapshot = nil
-            cachedSceneAtlasGeneration = nil
-        }
-
         if let cachedScene, !isDirty {
             sceneCacheHitCount &+= 1
             lastSceneReplayCount = 0
@@ -9452,6 +9465,9 @@ public final class RetainedViewRuntime {
         let phaseStartedAt = collectsPhaseTimings ? PlatformClock.now() : 0
         updateResolvedLayout()
         applyMatchedGeometryAnimations()
+        // Another window can recycle the process atlas during a layout or
+        // observation callback, after entry but before replay selection.
+        discardSceneWithStaleAtlas()
         let layoutEndedAt = collectsPhaseTimings ? PlatformClock.now() : 0
 
         let previousScene = cachedSceneSnapshot
@@ -9480,11 +9496,11 @@ public final class RetainedViewRuntime {
 
         // The retained copy drops the atlases on purpose: it outlives the
         // frame, and a snapshot holding the atlas `Data` across frames turns
-        // the next glyph write into a copy of the whole 2048² buffer. It is a
-        // replay source, and replay reads primitives, never atlases.
+        // the next glyph write into a copy of the whole 2048² buffer. Child
+        // scene sources are replay holders too; detach their references and
+        // include their native UVs in generation invalidation.
         var cachedSceneCopy = scene
-        cachedSceneCopy.glyphAtlas = nil
-        cachedSceneCopy.pixelGlyphAtlas = nil
+        let cachesNativeGlyphs = ScenePainter.detachGlyphAtlasesForReplay(from: &cachedSceneCopy)
         sceneRebuildCount &+= 1
         contentRevision &+= 1
         lastSceneReplayCount = replayCount
@@ -9492,12 +9508,22 @@ public final class RetainedViewRuntime {
         lastDeferredDrawFrameReplayCount = 0
         lastScenePaintMetrics = scene.paintMetrics
         cachedSceneSnapshot = ScenePaintSnapshot(scene: cachedSceneCopy, identity: paintedSnapshot.identity)
-        cachedSceneAtlasGeneration = cachedSceneCopy.usesGlyphs ? NativeGlyphAtlas.shared.atlasGeneration : nil
+        cachedSceneAtlasGeneration = cachesNativeGlyphs ? NativeGlyphAtlas.shared.atlasGeneration : nil
+        sceneAtlasRefreshPending = false
         cachedFrameSnapshot = nil
         if timestamp > 0 {
             lastRenderTime = timestamp
         }
         return scene
+    }
+
+    private func discardSceneWithStaleAtlas() {
+        guard let generation = cachedSceneAtlasGeneration,
+            generation != NativeGlyphAtlas.shared.atlasGeneration
+        else { return }
+        cachedSceneSnapshot = nil
+        cachedSceneAtlasGeneration = nil
+        sceneAtlasRefreshPending = true
     }
 
     /// A cached scene made shippable again.

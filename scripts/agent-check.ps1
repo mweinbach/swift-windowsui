@@ -125,7 +125,7 @@ if ($Full) {
         & $testScript -Filter "SceneRasterizerTests"
     }
     Invoke-Step "color-effect passes and native text safety" {
-        & $testScript -Sharded -Filter "SceneColorEffectPassTests|D3D11ImageRenderPassTests|NativeTextConversionSafetyTests"
+        & $testScript -Sharded -Filter "SceneColorEffectPassTests|D3D11ImageRenderPassTests|SceneAtlasLifetimeTests|D3D11SharedSceneAtlasTests|NativeTextConversionSafetyTests"
     }
     Invoke-Step "ScenePrimitiveScaleInvarianceTests" {
         & $testScript -Filter "ScenePrimitiveScaleInvarianceTests"

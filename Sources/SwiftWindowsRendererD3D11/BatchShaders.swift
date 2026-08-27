@@ -2,6 +2,45 @@
 // HLSL shader source lives in raw string literals; swift-format mangles their
 // required indentation, so this file opts out of lint/format entirely.
 
+import SwiftWindowsGraphics
+
+// Color operations are shared by primitive shading and isolated image passes.
+// Each operation receives straight RGB; the caller clamps between stages and
+// premultiplies only after the full chain has finished.
+private let batchColorEffectShaderSource = #"""
+float3 applyColorEffect(float3 rgb, float effectType, float intensity, float param1, float param2, float param3, float param4)
+{
+    if (effectType < 0.5) return rgb;
+    if (effectType < 1.5) return rgb + intensity;
+    if (effectType < 2.5) return (rgb - 0.5) * intensity + 0.5;
+    if (effectType < 3.5)
+    {
+        float lum = dot(rgb, float3(0.299, 0.587, 0.114));
+        return lerp(float3(lum, lum, lum), rgb, intensity);
+    }
+    if (effectType < 4.5)
+    {
+        float lum = dot(rgb, float3(0.299, 0.587, 0.114));
+        return lerp(rgb, float3(lum, lum, lum), intensity);
+    }
+    if (effectType < 5.5) return 1.0 - rgb;
+    if (effectType < 6.5)
+    {
+        if (param1 == 0.0) return rgb;
+        float cosA = cos(param1);
+        float sinA = sin(param1);
+        float3x3 rot = float3x3(
+            float3(0.299 + 0.701 * cosA + 0.168 * sinA, 0.587 - 0.587 * cosA + 0.330 * sinA, 0.114 - 0.114 * cosA - 0.497 * sinA),
+            float3(0.299 - 0.299 * cosA - 0.328 * sinA, 0.587 + 0.413 * cosA + 0.035 * sinA, 0.114 - 0.114 * cosA + 0.292 * sinA),
+            float3(0.299 - 0.300 * cosA + 1.250 * sinA, 0.587 - 0.588 * cosA - 1.050 * sinA, 0.114 + 0.886 * cosA - 0.203 * sinA)
+        );
+        return mul(rot, rgb);
+    }
+    if (effectType < 7.5) return rgb * float3(param1, param2, param3);
+    return rgb;
+}
+"""#
+
 // MARK: - Instanced Quad Shader (StructuredBuffer at t0, cbuffer at b0)
 
 // Shared prefix for every quad-family shader: frame uniforms, the
@@ -10,7 +49,7 @@
 // shader and the material backdrop-composite pixel shader differ only
 // in their psMain, so both concatenate this prefix to guarantee the
 // vertex stage and instance layout stay in lockstep.
-private let batchQuadShaderSharedSource = #"""
+private let batchQuadShaderSharedSource = batchColorEffectShaderSource + "\n" + #"""
 cbuffer FrameUniforms : register(b0)
 {
     float2 surfaceSize;
@@ -174,53 +213,6 @@ float roundedRectDistance(float2 localPosition, float2 size, float4 cornerRadii)
     return length(max(delta, float2(0.0, 0.0))) + min(max(delta.x, delta.y), 0.0) - clampedRadius;
 }
 
-float3 applyColorEffect(float3 rgb, float effectType, float intensity, float param1, float param2, float param3, float param4)
-{
-    // 0 = none
-    if (effectType < 0.5) return rgb;
-
-    // 1 = brightness
-    if (effectType < 1.5) return rgb + intensity;
-
-    // 2 = contrast
-    if (effectType < 2.5) return (rgb - 0.5) * (1.0 + intensity) + 0.5;
-
-    // 3 = saturation
-    if (effectType < 3.5)
-    {
-        float lum = dot(rgb, float3(0.299, 0.587, 0.114));
-        return lerp(float3(lum, lum, lum), rgb, 1.0 + intensity);
-    }
-
-    // 4 = grayscale
-    if (effectType < 4.5)
-    {
-        float lum = dot(rgb, float3(0.299, 0.587, 0.114));
-        return lerp(rgb, float3(lum, lum, lum), intensity);
-    }
-
-    // 5 = colorInvert
-    if (effectType < 5.5) return 1.0 - rgb;
-
-    // 6 = hueRotation
-    if (effectType < 6.5)
-    {
-        float cosA = cos(param1);
-        float sinA = sin(param1);
-        float3x3 rot = float3x3(
-            float3(0.299 + 0.701 * cosA + 0.168 * sinA, 0.587 - 0.587 * cosA + 0.330 * sinA, 0.114 - 0.114 * cosA - 0.497 * sinA),
-            float3(0.299 - 0.299 * cosA - 0.328 * sinA, 0.587 + 0.413 * cosA + 0.035 * sinA, 0.114 - 0.114 * cosA + 0.292 * sinA),
-            float3(0.299 - 0.300 * cosA + 1.250 * sinA, 0.587 - 0.588 * cosA - 1.050 * sinA, 0.114 + 0.886 * cosA - 0.203 * sinA)
-        );
-        return mul(rot, rgb);
-    }
-
-    // 7 = colorMultiply
-    if (effectType < 7.5) return rgb * float3(param1, param2, param3);
-
-    return rgb;
-}
-
 float gradientProgress(VSOutput input)
 {
     if (input.gradientAxis > 3.5)
@@ -341,9 +333,9 @@ float4 psMain(VSOutput input) : SV_Target
     // 8 = luminanceToAlpha
     if (input.effectType > 7.5 && input.effectType < 8.5)
     {
-        float lum = dot(color.rgb, float3(0.299, 0.587, 0.114));
-        color.rgb = float3(lum, lum, lum);
-        color.a = lum;
+        float lum = dot(color.rgb, float3(0.2126, 0.7152, 0.0722));
+        color.rgb = float3(0.0, 0.0, 0.0);
+        color.a *= lum;
     }
     else
     {
@@ -462,9 +454,9 @@ MaterialPSOutput psMain(VSOutput input)
     // 8 = luminanceToAlpha
     if (input.effectType > 7.5 && input.effectType < 8.5)
     {
-        float lum = dot(color.rgb, float3(0.299, 0.587, 0.114));
-        color.rgb = float3(lum, lum, lum);
-        color.a = lum;
+        float lum = dot(color.rgb, float3(0.2126, 0.7152, 0.0722));
+        color.rgb = float3(0.0, 0.0, 0.0);
+        color.a *= lum;
     }
     else
     {
@@ -580,7 +572,7 @@ float4 psMain(VSOutput input) : SV_Target
 
 // MARK: - Instanced Image Shader (StructuredBuffer at t0, Texture2D at t1)
 
-let batchImageShaderSource = #"""
+private let batchImageShaderSharedSource = #"""
 cbuffer FrameUniforms : register(b0)
 {
     float2 surfaceSize;
@@ -681,7 +673,9 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     output.clipRadius = inst.clipCornerRadius;
     return output;
 }
+"""#
 
+let batchImageShaderSource = batchImageShaderSharedSource + "\n" + #"""
 float4 psMain(VSOutput input) : SV_Target
 {
     // Per-pixel clip check
@@ -716,6 +710,53 @@ float4 psMain(VSOutput input) : SV_Target
     // result stays premultiplied.
     float4 sampleColor = imageTexture.Sample(imageSampler, input.uv);
     return sampleColor * input.opacity * clipAlpha;
+}
+"""#
+
+// An isolated pass is filtered at its original texel resolution before its
+// image primitive scales or rotates it. Filtering after bilinear sampling
+// would change contrast/brightness clamping at transparent and colored edges.
+let batchImageColorEffectShaderSource = batchImageShaderSharedSource + "\n" + batchColorEffectShaderSource + "\n" + #"""
+struct ColorEffectStage
+{
+    float effectType, intensity, param1, param2;
+    float param3, param4, pad0, pad1;
+};
+
+cbuffer ColorEffectChain : register(b1)
+{
+    float4 colorEffectCount;
+    ColorEffectStage colorEffects[\#(GPUISceneLimits.maxColorEffects)];
+};
+
+float4 psMain(VSOutput input) : SV_Target
+{
+    float4 sampled = imageTexture.Sample(imageSampler, input.uv);
+    if (sampled.a <= 0.0) return float4(0.0, 0.0, 0.0, 0.0);
+
+    float4 color = float4(saturate(sampled.rgb / sampled.a), sampled.a);
+    [loop]
+    for (uint index = 0; index < (uint)colorEffectCount.x; ++index)
+    {
+        ColorEffectStage effect = colorEffects[index];
+        if (effect.effectType > 7.5 && effect.effectType < 8.5)
+        {
+            color.a *= dot(color.rgb, float3(0.2126, 0.7152, 0.0722));
+            color.rgb = float3(0.0, 0.0, 0.0);
+        }
+        else
+        {
+            color.rgb = saturate(applyColorEffect(
+                color.rgb, effect.effectType, effect.intensity,
+                effect.param1, effect.param2, effect.param3, effect.param4));
+            if (effect.effectType > 6.5 && effect.effectType < 7.5)
+            {
+                color.a *= effect.param4;
+            }
+        }
+        color = saturate(color);
+    }
+    return float4(color.rgb * color.a, color.a);
 }
 """#
 

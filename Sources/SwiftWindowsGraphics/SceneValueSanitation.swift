@@ -76,6 +76,20 @@ public enum GPUISceneLimits {
     /// the CPU reference and the GPU path drawing the same surfaces.
     public static let maxSurfaceDimension = 16_384
 
+    /// Bounds scratch surfaces and recursive image passes independently of
+    /// the main window. Requests above these limits are explicit scene defects.
+    public static let maxImageRenderPassPixels = 4_194_304
+    /// Cumulative source pixels across one scene graph or render execution.
+    /// At BGRA8 this is 64 MiB of source payload, not a total-memory bound:
+    /// filter outputs, CPU conversion scratch and other renderer resources
+    /// have separate lifetimes and are not included in this count.
+    public static let maxImageRenderPassTotalPixels = 16_777_216
+    public static let maxImageRenderPassDepth = 32
+    /// Also bound branching graphs: a shallow value graph can share child
+    /// arrays while expanding into exponentially many renderer passes.
+    public static let maxImageRenderPassCount = 1_024
+    public static let maxColorEffects = 256
+
     /// Largest number of flattening recursions a single curve may take.
     /// The flatness test compares against NaN forever when a control
     /// point is non-finite, so the depth cap — not the flatness test —
@@ -578,6 +592,7 @@ public struct SceneDefect: Equatable, Sendable, CustomStringConvertible {
         /// A glyph atlas snapshot's declared size does not match (or
         /// overruns) its pixel buffer.
         case glyphAtlasBufferMismatch(width: Int32, height: Int32, byteCount: Int, requiredByteCount: Int)
+        case invalidImageRenderPass(textureID: Int32, reason: String)
     }
 
     public var kind: Kind
@@ -599,6 +614,8 @@ public struct SceneDefect: Equatable, Sendable, CustomStringConvertible {
                 + "\(startIndex)..<\(upperBound) of a \(familyCount)-element family."
         case .glyphAtlasBufferMismatch(let width, let height, let byteCount, let requiredByteCount):
             return "Glyph atlas is \(width)×\(height) but holds \(byteCount) bytes (needs \(requiredByteCount))."
+        case .invalidImageRenderPass(let textureID, let reason):
+            return "Scene image render pass \(textureID) is invalid: \(reason)."
         }
     }
 }
@@ -646,6 +663,13 @@ extension GPUIScene {
     /// downgraded by the host's fallback policy; a thrown
     /// `sceneContent` failure can.
     public func validate() -> [SceneDefect] {
+        var imageRenderPassBudget = GPUISceneImageRenderPassBudget()
+        return validate(imageRenderPassDepth: 0, imageRenderPassBudget: &imageRenderPassBudget)
+    }
+
+    private func validate(
+        imageRenderPassDepth: Int, imageRenderPassBudget: inout GPUISceneImageRenderPassBudget
+    ) -> [SceneDefect] {
         var defects: [SceneDefect] = []
 
         if layers.count > GPUISceneLimits.maxLayers {
@@ -688,6 +712,41 @@ extension GPUIScene {
         }
         if let defect = pixelGlyphAtlas?.structuralDefect {
             defects.append(defect)
+        }
+
+        var imageIDs = Set(imageResources.map(\.textureID))
+        for pass in imageRenderPasses {
+            // Charge each declared namespace independently, even when its
+            // value arrays share storage with another branch. Stop rejected
+            // extents as well as exhausted budgets so invalid declarations
+            // cannot turn this into an unbounded diagnostic walk.
+            let admitted = imageRenderPassBudget.consume(size: pass.size)
+            let reason: String?
+            if !pass.hasValidExtent {
+                reason = "extent exceeds the offscreen pixel budget or has no pixels"
+            } else if !admitted {
+                reason =
+                    imageRenderPassBudget.remainingPasses == 0
+                    ? "image-pass count exceeds \(GPUISceneLimits.maxImageRenderPassCount)"
+                    : "cumulative source pixels exceed \(GPUISceneLimits.maxImageRenderPassTotalPixels)"
+            } else if pass.textureID < 0 || !imageIDs.insert(pass.textureID).inserted {
+                reason = "texture ID is negative or has more than one source"
+            } else if pass.colorEffects.count > GPUISceneLimits.maxColorEffects {
+                reason = "effect chain exceeds \(GPUISceneLimits.maxColorEffects) operations"
+            } else if imageRenderPassDepth >= GPUISceneLimits.maxImageRenderPassDepth {
+                reason = "nesting exceeds \(GPUISceneLimits.maxImageRenderPassDepth) passes"
+            } else {
+                reason = nil
+            }
+            if let reason {
+                defects.append(SceneDefect(kind: .invalidImageRenderPass(textureID: pass.textureID, reason: reason)))
+                if !admitted { break }
+            } else {
+                defects.append(
+                    contentsOf: pass.scene.validate(
+                        imageRenderPassDepth: imageRenderPassDepth + 1,
+                        imageRenderPassBudget: &imageRenderPassBudget))
+            }
         }
 
         return defects

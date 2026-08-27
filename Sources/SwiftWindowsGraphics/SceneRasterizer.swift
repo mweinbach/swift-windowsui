@@ -40,6 +40,23 @@ private func rotatedCorner(_ dx: Double, _ dy: Double, cosR: Double, sinR: Doubl
 
 public enum GPUIRawSceneRasterizer {
     public static func rasterize(_ scene: GPUIScene, size: IntSize) -> BitmapSurface {
+        rasterize(scene, size: size, imageRenderPassBudget: GPUISceneImageRenderPassBudget())
+    }
+
+    /// A value-scoped test seam exercises exhaustion with tiny images without
+    /// allocating the production budget or changing process-global limits.
+    internal static func rasterize(
+        _ scene: GPUIScene, size: IntSize, imageRenderPassBudget: GPUISceneImageRenderPassBudget
+    ) -> BitmapSurface {
+        var budget = imageRenderPassBudget
+        return rasterize(
+            scene, size: size, imageRenderPassDepth: 0, imageRenderPassBudget: &budget)
+    }
+
+    private static func rasterize(
+        _ scene: GPUIScene, size: IntSize, imageRenderPassDepth: Int,
+        imageRenderPassBudget: inout GPUISceneImageRenderPassBudget
+    ) -> BitmapSurface {
         // Clamped at both ends: the backing buffer is `width * height * 4`
         // bytes and `bitmapSurface()` reports the stride as an `Int32`, so
         // an absurd surface size is an allocation failure or an overflow
@@ -53,7 +70,9 @@ public enum GPUIRawSceneRasterizer {
         let imageBindings = Dictionary(
             scene.imageResources.map { ($0.textureID, $0.bitmap) }, uniquingKeysWith: { _, latest in latest })
 
-        rasterizeLayerOperations(in: scene, target: &target, imageBindings: imageBindings)
+        rasterizeLayerOperations(
+            in: scene, target: &target, imageBindings: imageBindings,
+            imageRenderPassDepth: imageRenderPassDepth, imageRenderPassBudget: &imageRenderPassBudget)
 
         return target.bitmapSurface()
     }
@@ -101,8 +120,13 @@ public enum GPUIRawSceneRasterizer {
     private static func rasterizeLayerOperations(
         in scene: GPUIScene,
         target: inout RasterTarget,
-        imageBindings: [Int32: BitmapSurface]
+        imageBindings: [Int32: BitmapSurface],
+        imageRenderPassDepth: Int,
+        imageRenderPassBudget: inout GPUISceneImageRenderPassBudget
     ) {
+        var resolvedImages = imageBindings
+        let passes = Dictionary(
+            scene.imageRenderPasses.map { ($0.textureID, $0) }, uniquingKeysWith: { _, last in last })
         for run in scene.presentationOrder() {
             let layer = scene.layers[run.layerIndex]
             switch run.kind {
@@ -116,7 +140,28 @@ public enum GPUIRawSceneRasterizer {
                 for index in run.range { target.drawGlyph(layer.pixelGlyphs[index], atlas: scene.pixelGlyphAtlas) }
             case .image:
                 for index in run.range {
-                    if let bitmap = imageBindings[layer.images[index].textureID] {
+                    let textureID = layer.images[index].textureID
+                    if resolvedImages[textureID] == nil, let pass = passes[textureID] {
+                        if pass.hasValidExtent,
+                            pass.colorEffects.count <= GPUISceneLimits.maxColorEffects,
+                            imageRenderPassDepth < GPUISceneLimits.maxImageRenderPassDepth,
+                            imageRenderPassBudget.consume(size: pass.size)
+                        {
+                            let bitmap = rasterize(
+                                pass.scene, size: pass.size, imageRenderPassDepth: imageRenderPassDepth + 1,
+                                imageRenderPassBudget: &imageRenderPassBudget)
+                            resolvedImages[textureID] = SceneColorEffects.applying(pass.colorEffects, to: bitmap)
+                        } else {
+                            // The software reference cannot throw through its
+                            // historical API. A conspicuous unsupported tile
+                            // makes a rejected effect visible; validate() gives
+                            // the caller its precise structural diagnosis.
+                            resolvedImages[textureID] = BitmapSurface(
+                                width: 2, height: 2, bytesPerRow: 8,
+                                pixels: Data([255, 0, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 0, 255, 255]))
+                        }
+                    }
+                    if let bitmap = resolvedImages[textureID] {
                         target.drawImage(layer.images[index], bitmap: bitmap)
                     }
                 }
@@ -513,8 +558,8 @@ private struct RasterTarget {
         // applyColorEffect because it writes alpha as well as rgb.
         if quad.effectType > 7.5, quad.effectType < 8.5 {
             let luminance = Float(
-                0.299 * Double(color.red) + 0.587 * Double(color.green) + 0.114 * Double(color.blue))
-            return RasterColor(red: luminance, green: luminance, blue: luminance, alpha: luminance)
+                0.2126 * Double(color.red) + 0.7152 * Double(color.green) + 0.0722 * Double(color.blue))
+            return RasterColor(red: 0, green: 0, blue: 0, alpha: color.alpha * luminance)
         }
         return applyRasterColorEffect(
             color, effectType: quad.effectType, intensity: quad.effectIntensity, param1: quad.effectParam1,
@@ -1104,9 +1149,9 @@ private func applyRasterColorEffect(
     // 2 = contrast
     if t < 2.5 {
         return RasterColor(
-            red: (color.red - 0.5) * Float(1.0 + i) + 0.5,
-            green: (color.green - 0.5) * Float(1.0 + i) + 0.5,
-            blue: (color.blue - 0.5) * Float(1.0 + i) + 0.5,
+            red: (color.red - 0.5) * Float(i) + 0.5,
+            green: (color.green - 0.5) * Float(i) + 0.5,
+            blue: (color.blue - 0.5) * Float(i) + 0.5,
             alpha: color.alpha
         )
     }
@@ -1115,9 +1160,9 @@ private func applyRasterColorEffect(
     if t < 3.5 {
         let lum = Float(0.299 * Double(color.red) + 0.587 * Double(color.green) + 0.114 * Double(color.blue))
         return RasterColor(
-            red: lum + (color.red - lum) * Float(1.0 + i),
-            green: lum + (color.green - lum) * Float(1.0 + i),
-            blue: lum + (color.blue - lum) * Float(1.0 + i),
+            red: lum + (color.red - lum) * Float(i),
+            green: lum + (color.green - lum) * Float(i),
+            blue: lum + (color.blue - lum) * Float(i),
             alpha: color.alpha
         )
     }
@@ -1141,6 +1186,7 @@ private func applyRasterColorEffect(
     // 6 = hueRotation
     if t < 6.5 {
         let angle = Double(param1)
+        if angle == 0 { return color }
         let cosA = cos(angle)
         let sinA = sin(angle)
         let r = color.red

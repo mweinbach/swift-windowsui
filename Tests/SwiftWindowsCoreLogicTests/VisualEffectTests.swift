@@ -152,7 +152,7 @@ struct VisualEffectTests {
 
     // MARK: - Scene Integration Test
 
-    @Test("ScenePainter encodes effects into quad primitives")
+    @Test("ScenePainter records effects on a renderer-owned subtree pass")
     func scenePainterEncodesEffects() async {
         let root = ViewNode(
             frame: Rect(x: 0, y: 0, width: 100, height: 100),
@@ -167,21 +167,16 @@ struct VisualEffectTests {
             displayScale: 1
         )
 
-        guard let firstLayer = scene.layers.first else {
-            Issue.record("Expected at least one layer")
+        guard let pass = scene.imageRenderPasses.first else {
+            Issue.record("Expected a scene-backed color-effect pass")
             return
         }
-
-        guard let quad = firstLayer.quads.first else {
-            Issue.record("Expected at least one quad")
-            return
-        }
-
-        #expect(quad.effectType == 1)
-        #expect(quad.effectIntensity == 0.25)
+        #expect(pass.colorEffects == [.brightness(0.25)])
+        #expect(pass.scene.layers.first?.quads.first?.effectType == 0)
+        #expect(scene.imageResources.isEmpty)
     }
 
-    @Test("ScenePainter encodes hueRotation into quad primitives")
+    @Test("ScenePainter preserves hueRotation on the subtree pass")
     func scenePainterEncodesHueRotation() async {
         let root = ViewNode(
             frame: Rect(x: 0, y: 0, width: 100, height: 100),
@@ -196,21 +191,15 @@ struct VisualEffectTests {
             displayScale: 1
         )
 
-        guard let firstLayer = scene.layers.first else {
-            Issue.record("Expected at least one layer")
+        guard let pass = scene.imageRenderPasses.first else {
+            Issue.record("Expected a scene-backed color-effect pass")
             return
         }
-
-        guard let quad = firstLayer.quads.first else {
-            Issue.record("Expected at least one quad")
-            return
-        }
-
-        #expect(quad.effectType == 6)
-        #expect(quad.effectParam1 == Float(Double.pi / 2))
+        #expect(pass.colorEffects == [.hueRotation(Double.pi / 2)])
+        #expect(pass.scene.layers.first?.quads.first?.effectType == 0)
     }
 
-    @Test("ScenePainter encodes colorMultiply into quad primitives")
+    @Test("ScenePainter preserves colorMultiply on the subtree pass")
     func scenePainterEncodesColorMultiply() async {
         // Assert against live system color components (macOS HIG values), not
         // pure primaries, so this test verifies effect-parameter propagation.
@@ -228,21 +217,12 @@ struct VisualEffectTests {
             displayScale: 1
         )
 
-        guard let firstLayer = scene.layers.first else {
-            Issue.record("Expected at least one layer")
+        guard let pass = scene.imageRenderPasses.first else {
+            Issue.record("Expected a scene-backed color-effect pass")
             return
         }
-
-        guard let quad = firstLayer.quads.first else {
-            Issue.record("Expected at least one quad")
-            return
-        }
-
-        let tolerance: Float = 1e-5
-        #expect(quad.effectType == 7)
-        #expect(abs(quad.effectParam1 - multiply.red) <= tolerance)
-        #expect(abs(quad.effectParam2 - multiply.green) <= tolerance)
-        #expect(abs(quad.effectParam3 - multiply.blue) <= tolerance)
+        #expect(pass.colorEffects == [.colorMultiply(multiply)])
+        #expect(pass.scene.layers.first?.quads.first?.effectType == 0)
     }
 
     // MARK: - Blur Tests

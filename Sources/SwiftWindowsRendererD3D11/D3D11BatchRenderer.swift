@@ -1,17 +1,13 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
-
 import WinSDK
-
-// MARK: - D3D11BatchRenderer
-
 /// Instanced batch renderer using StructuredBuffer-based instanced draw calls.
 /// Instead of one draw call per rectangle, all primitives of the same type are
 /// uploaded to a single GPU buffer and drawn in one DrawInstanced call.
 import WinSDK.DirectX
+
+// MARK: - D3D11BatchRenderer
 
 // MARK: - Error Type
 
@@ -262,6 +258,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     private var quadPS: UnsafeMutablePointer<ID3D11PixelShader>?
     private var imageVS: UnsafeMutablePointer<ID3D11VertexShader>?
     private var imagePS: UnsafeMutablePointer<ID3D11PixelShader>?
+    private var imageColorEffectPS: UnsafeMutablePointer<ID3D11PixelShader>?
+    private var colorEffectUniformBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var glyphVS: UnsafeMutablePointer<ID3D11VertexShader>?
     private var glyphPS: UnsafeMutablePointer<ID3D11PixelShader>?
     private var shadowVS: UnsafeMutablePointer<ID3D11VertexShader>?
@@ -378,6 +376,31 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// Bindings installed directly through `bindImageResource` remain valid
     /// until replaced or detached; scene-owned IDs follow their scene instead.
     private var sceneImageTextureIDs: Set<Int32> = []
+    /// Child scenes have independent texture IDs, but their immutable bitmap
+    /// content still participates in the shared upload cache across frames.
+    private var imageRenderPassBitmapKeys: Set<BitmapContentKey> = []
+    private var imageRenderPassExecutionBudget = GPUISceneImageRenderPassBudget()
+    /// Exercises actual source resolutions independently of structural scene
+    /// validation. This instance-only override cannot raise the shared limits.
+    internal var imageRenderPassExecutionBudgetOverrideForTesting: GPUISceneImageRenderPassBudget?
+
+    /// One temporary target owned by a scene-backed image draw. It is never
+    /// installed in the bitmap cache and never read back to the CPU.
+    private struct ImageRenderPassTarget {
+        var texture: UnsafeMutablePointer<ID3D11Texture2D>?
+        var view: UnsafeMutablePointer<ID3D11RenderTargetView>?
+        var srv: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+
+        mutating func release() {
+            releaseCOM(&srv)
+            releaseCOM(&view)
+            releaseCOM(&texture)
+        }
+    }
+
+    /// The image-effect cbuffer is a float4 count followed by one eight-float
+    /// stage per supported effect, exactly as in the image-effect HLSL.
+    private static let colorEffectUniformFloatCount = 4 + GPUISceneLimits.maxColorEffects * 8
 
     /// Image textures are large (a 4K background is 33 MB), so the cache is
     /// bounded twice: by bytes, and by how long an entry may go unused.
@@ -603,6 +626,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         tally(quadPS.map(UnsafeMutableRawPointer.init))
         tally(imageVS.map(UnsafeMutableRawPointer.init))
         tally(imagePS.map(UnsafeMutableRawPointer.init))
+        tally(imageColorEffectPS.map(UnsafeMutableRawPointer.init))
+        tally(colorEffectUniformBuffer.map(UnsafeMutableRawPointer.init))
         tally(glyphVS.map(UnsafeMutableRawPointer.init))
         tally(glyphPS.map(UnsafeMutableRawPointer.init))
         tally(shadowVS.map(UnsafeMutableRawPointer.init))
@@ -796,6 +821,28 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             imageBindings.removeValue(forKey: textureID)
         }
         sceneImageTextureIDs = currentSceneTextureIDs
+
+        imageRenderPassBitmapKeys.removeAll(keepingCapacity: true)
+        var budget = GPUISceneImageRenderPassBudget()
+        func collectImageRenderPassBitmapKeys(in namespace: GPUIScene, depth: Int) {
+            // Match validation's depth-first namespace order. Count values at
+            // every occurrence; shared child arrays do not make sources free.
+            var textureIDs = Set(namespace.imageResources.map(\.textureID))
+            for pass in namespace.imageRenderPasses {
+                guard budget.consume(size: pass.size) else { return }
+                guard pass.textureID >= 0, textureIDs.insert(pass.textureID).inserted,
+                    pass.colorEffects.count <= GPUISceneLimits.maxColorEffects,
+                    depth < GPUISceneLimits.maxImageRenderPassDepth
+                else { continue }
+                for binding in pass.scene.imageResources {
+                    imageRenderPassBitmapKeys.insert(binding.bitmap.contentKey)
+                }
+                collectImageRenderPassBitmapKeys(in: pass.scene, depth: depth + 1)
+            }
+        }
+        // Binding precedes validation. Stop each rejected namespace walk;
+        // makeRenderPlan will report its invalid scene before any drawing.
+        collectImageRenderPassBitmapKeys(in: scene, depth: 0)
     }
 
     /// Releases the GPU side of every cached image and forgets the
@@ -809,6 +856,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
         imageBindings.removeAll()
         sceneImageTextureIDs.removeAll()
+        imageRenderPassBitmapKeys.removeAll()
     }
 
     private func releaseImageTexture(forKey key: BitmapContentKey) {
@@ -841,7 +889,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         guard !imageTextures.isEmpty else {
             return
         }
-        var referenced = Set<BitmapContentKey>(minimumCapacity: imageBindings.count)
+        var referenced = imageRenderPassBitmapKeys
         for bitmap in imageBindings.values {
             referenced.insert(bitmap.contentKey)
         }
@@ -961,10 +1009,14 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             pixelGlyphAtlasSource = nil
         }
 
+        let renderPassTextureIDs = Set(scene.imageRenderPasses.map(\.textureID))
         var unresolvedTextureIDs = Set<Int32>()
         for layer in scene.layers {
             for image in layer.images
-            where image.textureID < 0 || !cachedResources.boundImageTextureIDs.contains(image.textureID) {
+            where image.textureID < 0
+                || (!cachedResources.boundImageTextureIDs.contains(image.textureID)
+                    && !renderPassTextureIDs.contains(image.textureID))
+            {
                 unresolvedTextureIDs.insert(image.textureID)
             }
         }
@@ -1146,6 +1198,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         releaseCOM(&rasterizerState)
         releaseCOM(&blendState)
         releaseCOM(&frameUniformBuffer)
+        releaseCOM(&colorEffectUniformBuffer)
 
         releaseCOM(&shadowPS)
         releaseCOM(&shadowVS)
@@ -1153,6 +1206,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         releaseCOM(&glyphVS)
         releaseCOM(&imagePS)
         releaseCOM(&imageVS)
+        releaseCOM(&imageColorEffectPS)
         releaseCOM(&quadPS)
         releaseCOM(&quadVS)
 
@@ -1289,6 +1343,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         let submitStartedAt = Self.nowSeconds()
         lastDrawCallCount = 0
         lastDrawnInstanceCount = 0
+        imageRenderPassExecutionBudget =
+            imageRenderPassExecutionBudgetOverrideForTesting ?? GPUISceneImageRenderPassBudget()
 
         var finishedScene = scene
         finishedScene.finish()
@@ -1314,13 +1370,51 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
 
         try updateFrameUniforms(surfaceSize: surfacePixelSize)
-        if renderPlan.glyphAtlasSource == .snapshot, let snapshot = finishedScene.glyphAtlas {
+        try renderSceneContents(
+            finishedScene, renderPlan: renderPlan, deviceContext: deviceContext,
+            surfaceSize: surfacePixelSize, imageRenderPassDepth: 0)
+
+        // Keep diagnostic readback outside submit/present timing; normal
+        // presentation, including nested image passes, never reads back.
+        lastSubmitSeconds = Self.nowSeconds() - submitStartedAt
+        capturePresentedFrameIfRequested()
+
+        let presentStartedAt = Self.nowSeconds()
+        try presentFrame()
+        let presentEndedAt = Self.nowSeconds()
+        lastPresentSeconds = presentEndedAt - presentStartedAt
+        if renderTargetKind == .swapChain {
+            presentPacingPolicy.recordPresent(
+                seconds: lastPresentSeconds,
+                frameCostSeconds: lastSubmitSeconds,
+                at: presentEndedAt)
+        }
+    }
+
+    /// Draws into the currently bound target without clearing, presenting,
+    /// evicting resources or resetting frame diagnostics. Both the outer frame
+    /// and a nested image source execute the same presentation-order steps.
+    private func renderSceneContents(
+        _ finishedScene: GPUIScene,
+        renderPlan: RenderPlan,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
+        surfaceSize: IntSize,
+        imageRenderPassDepth: Int
+    ) throws {
+        if renderPlan.glyphAtlasSource == .snapshot || !finishedScene.imageRenderPasses.isEmpty,
+            let snapshot = finishedScene.glyphAtlas
+        {
             try updateGlyphAtlasTexture(snapshot, slot: &glyphAtlas)
         }
-        if renderPlan.pixelGlyphAtlasSource == .snapshot, let snapshot = finishedScene.pixelGlyphAtlas {
+        if renderPlan.pixelGlyphAtlasSource == .snapshot || !finishedScene.imageRenderPasses.isEmpty,
+            let snapshot = finishedScene.pixelGlyphAtlas
+        {
             try updateGlyphAtlasTexture(snapshot, slot: &pixelGlyphAtlas)
         }
 
+        let imagePasses = Dictionary(
+            finishedScene.imageRenderPasses.map { ($0.textureID, $0) },
+            uniquingKeysWith: { _, latest in latest })
         for step in renderPlan.steps {
             switch step {
             case .shadows(let layerIndex, let range):
@@ -1361,7 +1455,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                             layer.quads,
                             index: index,
                             deviceContext: deviceContext,
-                            surfaceSize: surfacePixelSize
+                            surfaceSize: surfaceSize
                         )
                     }
                 }
@@ -1383,6 +1477,17 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                 )
             case .images(let layerIndex, let range, let textureID):
                 let layer = finishedScene.layers[layerIndex]
+                if let pass = imagePasses[textureID] {
+                    var target = try renderImageRenderPass(
+                        pass, deviceContext: deviceContext, depth: imageRenderPassDepth + 1)
+                    defer { target.release() }
+                    guard let textureSRV = target.srv else {
+                        throw BatchRendererError(operation: "Resolve image render pass", hresult: batchHresultHandle)
+                    }
+                    try renderImageBatch(
+                        layer.images, range: range, deviceContext: deviceContext, textureSRV: textureSRV)
+                    continue
+                }
                 let imageSRV = try ensureImageResourceSRV(for: textureID)
                 try renderImageBatch(
                     layer.images,
@@ -1399,29 +1504,292 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                 )
             }
         }
+    }
 
-        // Between the two clocks on purpose. The capture is measurement
-        // scaffolding that stalls the GPU, and charging it to either the
-        // submit or the present figure would make a capture run's timings
-        // lie about the app. It still shows up in the whole-frame number,
-        // which is honest: the frame really did take that long.
-        lastSubmitSeconds = Self.nowSeconds() - submitStartedAt
-        capturePresentedFrameIfRequested()
-
-        let presentStartedAt = Self.nowSeconds()
-        try presentFrame()
-        let presentEndedAt = Self.nowSeconds()
-        lastPresentSeconds = presentEndedAt - presentStartedAt
-        // The watchdog judges the *paced* present against the display period,
-        // and needs this frame's own cost to tell "the compositor is stalling
-        // us" from "we are too slow for the display".
-        if renderTargetKind == .swapChain {
-            presentPacingPolicy.recordPresent(
-                seconds: lastPresentSeconds,
-                frameCostSeconds: lastSubmitSeconds,
-                at: presentEndedAt
-            )
+    /// Renders a child on this device, preserving the parent's target and
+    /// resource namespace. Only the returned target survives this call; its
+    /// caller releases it immediately after the corresponding image run.
+    private func renderImageRenderPass(
+        _ pass: GPUISceneImageRenderPass,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
+        depth: Int
+    ) throws -> ImageRenderPassTarget {
+        guard pass.hasValidExtent, depth <= GPUISceneLimits.maxImageRenderPassDepth,
+            pass.colorEffects.count <= GPUISceneLimits.maxColorEffects
+        else {
+            throw BatchRendererError(
+                operation: "Validate image render pass", hresult: batchHresultInvalidArgument,
+                details: "The image pass exceeds the shared extent, nesting or effect-count limit.",
+                failureKind: .sceneContent)
         }
+        // Charge each realization, including repeated noncontiguous image
+        // runs. This bounds nominal source payload, not driver or total GPU
+        // memory; a filtered source also needs one same-size output target.
+        guard imageRenderPassExecutionBudget.consume(size: pass.size) else {
+            throw BatchRendererError(
+                operation: "Execute image render pass", hresult: batchHresultInvalidArgument,
+                details: "The frame exceeds the shared image-pass source-count or cumulative source-pixel budget.",
+                failureKind: .sceneContent)
+        }
+
+        var target = try createImageRenderPassTarget(size: pass.size)
+        var transfersTarget = false
+        defer { if !transfersTarget { target.release() } }
+
+        let parentTargetView = renderTargetView
+        let parentTargetKind = renderTargetKind
+        let parentOffscreenTexture = offscreenTexture
+        let parentSize = targetPixelSize
+        let parentBindings = imageBindings
+        let parentGlyphAtlas = glyphAtlas
+        let parentPixelGlyphAtlas = pixelGlyphAtlas
+
+        // Sharing is safe only when the atlas protocol says the child would
+        // upload nothing. A different atlas gets a separate slot, so returning
+        // from the child cannot silently change a later parent glyph run.
+        let sharesGlyphAtlas =
+            glyphAtlas.srv != nil
+            && pass.scene.glyphAtlas?.uploadDecision(for: glyphAtlas.state) == .skip
+        let sharesPixelGlyphAtlas =
+            pixelGlyphAtlas.srv != nil
+            && pass.scene.pixelGlyphAtlas?.uploadDecision(for: pixelGlyphAtlas.state) == .skip
+
+        var parentStateRestored = false
+        func restoreParentState() throws {
+            guard !parentStateRestored else { return }
+            if !sharesGlyphAtlas { glyphAtlas.release() }
+            if !sharesPixelGlyphAtlas { pixelGlyphAtlas.release() }
+            glyphAtlas = parentGlyphAtlas
+            pixelGlyphAtlas = parentPixelGlyphAtlas
+            imageBindings = parentBindings
+            renderTargetView = parentTargetView
+            renderTargetKind = parentTargetKind
+            offscreenTexture = parentOffscreenTexture
+            targetPixelSize = parentSize
+            parentStateRestored = true
+            defer { bindFramePipelineState(deviceContext: deviceContext, surfaceSize: parentSize) }
+            // The same buffer object served the smaller target, so restoring
+            // its binding alone is insufficient: restore its pixel dimensions.
+            try updateFrameUniforms(surfaceSize: parentSize)
+        }
+        defer {
+            // Preserve an existing child failure while unwinding. Successful
+            // passes restore explicitly below so a restoration error propagates.
+            if !parentStateRestored { try? restoreParentState() }
+        }
+
+        renderTargetView = target.view
+        renderTargetKind = .offscreen
+        offscreenTexture = target.texture
+        targetPixelSize = pass.size
+        imageBindings = Dictionary(
+            pass.scene.imageResources.map { ($0.textureID, $0.bitmap) },
+            uniquingKeysWith: { _, latest in latest })
+        if !sharesGlyphAtlas { glyphAtlas = AtlasTextureSlot() }
+        if !sharesPixelGlyphAtlas { pixelGlyphAtlas = AtlasTextureSlot() }
+
+        var childScene = pass.scene
+        childScene.finish()
+        let plan = try Self.makeRenderPlan(for: childScene, cachedResources: cachedResourcesForTesting)
+        bindFramePipelineState(deviceContext: deviceContext, surfaceSize: pass.size)
+        try updateFrameUniforms(surfaceSize: pass.size)
+        clearImageRenderPassTarget(target, color: childScene.clearColor, deviceContext: deviceContext)
+        try renderSceneContents(
+            childScene, renderPlan: plan, deviceContext: deviceContext,
+            surfaceSize: pass.size, imageRenderPassDepth: depth)
+
+        if pass.colorEffects.isEmpty {
+            try restoreParentState()
+            transfersTarget = true
+            return target
+        }
+        var filtered = try filterImageRenderPassTarget(
+            target, size: pass.size, effects: pass.colorEffects, deviceContext: deviceContext)
+        var transfersFilteredTarget = false
+        defer { if !transfersFilteredTarget { filtered.release() } }
+        try restoreParentState()
+        transfersFilteredTarget = true
+        return filtered
+    }
+
+    private func createImageRenderPassTarget(size: IntSize) throws -> ImageRenderPassTarget {
+        guard let device else {
+            throw BatchRendererError(operation: "Create image render pass target", hresult: batchHresultHandle)
+        }
+        guard size.width > 0, size.height > 0,
+            Int(size.width) <= GPUISceneLimits.maxSurfaceDimension,
+            Int(size.height) <= GPUISceneLimits.maxSurfaceDimension,
+            Int64(size.width) * Int64(size.height) <= Int64(GPUISceneLimits.maxImageRenderPassPixels)
+        else {
+            throw BatchRendererError(
+                operation: "Create image render pass target", hresult: batchHresultInvalidArgument,
+                details: "The scratch target exceeds the shared image-pass extent limit.",
+                failureKind: .sceneContent)
+        }
+
+        var target = ImageRenderPassTarget()
+        var transfersTarget = false
+        defer { if !transfersTarget { target.release() } }
+
+        var descriptor = D3D11_TEXTURE2D_DESC()
+        descriptor.Width = UINT(size.width)
+        descriptor.Height = UINT(size.height)
+        descriptor.MipLevels = 1
+        descriptor.ArraySize = 1
+        descriptor.Format = DXGI_FORMAT_B8G8R8A8_UNORM
+        descriptor.SampleDesc = DXGI_SAMPLE_DESC(Count: 1, Quality: 0)
+        descriptor.Usage = D3D11_USAGE_DEFAULT
+        descriptor.BindFlags = UINT(D3D11_BIND_RENDER_TARGET.rawValue | D3D11_BIND_SHADER_RESOURCE.rawValue)
+
+        let textureHR = makeCOM(into: &target.texture) { texture in
+            device.pointee.lpVtbl.pointee.CreateTexture2D(device, &descriptor, nil, &texture)
+        }
+        try throwIfFailed(textureHR, operation: "ID3D11Device.CreateTexture2D(image pass)")
+        guard let texture = target.texture else {
+            throw BatchRendererError(operation: "CreateTexture2D(image pass)", hresult: batchHresultHandle)
+        }
+        let resource = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
+        let viewHR = makeCOM(into: &target.view) { view in
+            device.pointee.lpVtbl.pointee.CreateRenderTargetView(device, resource, nil, &view)
+        }
+        try throwIfFailed(viewHR, operation: "ID3D11Device.CreateRenderTargetView(image pass)")
+        let srvHR = makeCOM(into: &target.srv) { srv in
+            device.pointee.lpVtbl.pointee.CreateShaderResourceView(device, resource, nil, &srv)
+        }
+        try throwIfFailed(srvHR, operation: "ID3D11Device.CreateShaderResourceView(image pass)")
+        transfersTarget = true
+        return target
+    }
+
+    private func clearImageRenderPassTarget(
+        _ target: ImageRenderPassTarget,
+        color: Color,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>
+    ) {
+        let values: [FLOAT] = [
+            color.red * color.alpha, color.green * color.alpha, color.blue * color.alpha, color.alpha,
+        ]
+        values.withUnsafeBufferPointer { buffer in
+            deviceContext.pointee.lpVtbl.pointee.ClearRenderTargetView(
+                deviceContext, target.view, buffer.baseAddress)
+        }
+    }
+
+    /// Filtering at 1:1 keeps per-effect clamping ahead of image interpolation,
+    /// matching the CPU reference when the final image is scaled or rotated.
+    private func filterImageRenderPassTarget(
+        _ source: ImageRenderPassTarget,
+        size: IntSize,
+        effects: [SceneColorEffect],
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>
+    ) throws -> ImageRenderPassTarget {
+        try ensureImageColorEffectPipeline()
+        guard let sourceSRV = source.srv, let imageColorEffectPS, let colorEffectUniformBuffer else {
+            throw BatchRendererError(operation: "Resolve image color-effect pipeline", hresult: batchHresultHandle)
+        }
+        var target = try createImageRenderPassTarget(size: size)
+        var transfersTarget = false
+        defer { if !transfersTarget { target.release() } }
+
+        // renderImageRenderPass's defer restores the enclosing scene after
+        // this filter, including when a buffer upload or draw throws.
+        renderTargetView = target.view
+        offscreenTexture = target.texture
+        bindFramePipelineState(deviceContext: deviceContext, surfaceSize: size)
+        clearImageRenderPassTarget(target, color: .clear, deviceContext: deviceContext)
+
+        var uniforms = [Float](repeating: 0, count: Self.colorEffectUniformFloatCount)
+        uniforms[0] = Float(effects.count)
+        for (index, effect) in effects.enumerated() {
+            let offset = 4 + index * 8
+            switch effect.sanitized {
+            case .brightness(let amount):
+                uniforms[offset] = 1
+                uniforms[offset + 1] = Float(amount)
+            case .contrast(let amount):
+                uniforms[offset] = 2
+                uniforms[offset + 1] = Float(amount)
+            case .saturation(let amount):
+                uniforms[offset] = 3
+                uniforms[offset + 1] = Float(amount)
+            case .grayscale(let amount):
+                uniforms[offset] = 4
+                uniforms[offset + 1] = Float(amount)
+            case .colorInvert:
+                uniforms[offset] = 5
+            case .hueRotation(let angle):
+                uniforms[offset] = 6
+                uniforms[offset + 2] = Float(angle)
+            case .colorMultiply(let color):
+                uniforms[offset] = 7
+                uniforms[offset + 2] = color.red
+                uniforms[offset + 3] = color.green
+                uniforms[offset + 4] = color.blue
+                uniforms[offset + 5] = color.alpha
+            case .luminanceToAlpha:
+                uniforms[offset] = 8
+            }
+        }
+        let bufferResource = UnsafeMutableRawPointer(colorEffectUniformBuffer).assumingMemoryBound(
+            to: ID3D11Resource.self)
+        uniforms.withUnsafeBytes { bytes in
+            deviceContext.pointee.lpVtbl.pointee.UpdateSubresource(
+                deviceContext, bufferResource, 0, nil, bytes.baseAddress, 0, 0)
+        }
+        var constantBuffer: UnsafeMutablePointer<ID3D11Buffer>? = colorEffectUniformBuffer
+        deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 1, 1, &constantBuffer)
+        defer {
+            var nullBuffer: UnsafeMutablePointer<ID3D11Buffer>? = nil
+            deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 1, 1, &nullBuffer)
+        }
+
+        let image = ImagePrimitive(screenW: Float(size.width), screenH: Float(size.height))
+        try renderImageBatch(
+            [image], range: 0..<1, deviceContext: deviceContext, textureSRV: sourceSRV,
+            pixelShader: imageColorEffectPS)
+        transfersTarget = true
+        return target
+    }
+
+    private func ensureImageColorEffectPipeline() throws {
+        if imageColorEffectPS != nil, colorEffectUniformBuffer != nil { return }
+        guard let device else {
+            throw BatchRendererError(operation: "Create image color-effect pipeline", hresult: batchHresultHandle)
+        }
+
+        var shaderBlob: UnsafeMutablePointer<ID3DBlob>? = try Self.compileShaderSource(
+            source: batchImageColorEffectShaderSource, entryPoint: "psMain", profile: "ps_5_0")
+        defer { releaseCOM(&shaderBlob) }
+        guard let shaderBlob else {
+            throw BatchRendererError(operation: "Compile image color-effect shader", hresult: batchHresultHandle)
+        }
+
+        var shader: UnsafeMutablePointer<ID3D11PixelShader>?
+        var buffer: UnsafeMutablePointer<ID3D11Buffer>?
+        defer {
+            releaseCOM(&shader)
+            releaseCOM(&buffer)
+        }
+        let shaderHR = makeCOM(into: &shader) { value in
+            device.pointee.lpVtbl.pointee.CreatePixelShader(
+                device, shaderBlob.pointee.lpVtbl.pointee.GetBufferPointer(shaderBlob),
+                SIZE_T(shaderBlob.pointee.lpVtbl.pointee.GetBufferSize(shaderBlob)), nil, &value)
+        }
+        try throwIfFailed(shaderHR, operation: "ID3D11Device.CreatePixelShader(image color effects)")
+        var descriptor = D3D11_BUFFER_DESC()
+        descriptor.ByteWidth = UINT(Self.colorEffectUniformFloatCount * MemoryLayout<Float>.stride)
+        descriptor.Usage = D3D11_USAGE_DEFAULT
+        descriptor.BindFlags = UINT(D3D11_BIND_CONSTANT_BUFFER.rawValue)
+        let bufferHR = makeCOM(into: &buffer) { value in
+            device.pointee.lpVtbl.pointee.CreateBuffer(device, &descriptor, nil, &value)
+        }
+        try throwIfFailed(bufferHR, operation: "ID3D11Device.CreateBuffer(image color effects)")
+        releaseCOM(&imageColorEffectPS)
+        releaseCOM(&colorEffectUniformBuffer)
+        imageColorEffectPS = shader
+        colorEffectUniformBuffer = buffer
+        shader = nil
+        buffer = nil
     }
 
     /// Binds every piece of pipeline state the batched draws assume: the
@@ -1818,44 +2186,27 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     // MARK: - Static Shader Validation (for testing)
 
     public static func validateBatchShadersForTesting() throws {
-        var quadVSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
-            source: batchQuadShaderSource, entryPoint: "vsMain", profile: "vs_5_0")
-        var quadPSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
-            source: batchQuadShaderSource, entryPoint: "psMain", profile: "ps_5_0")
-        var imageVSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
-            source: batchImageShaderSource, entryPoint: "vsMain", profile: "vs_5_0")
-        var imagePSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
-            source: batchImageShaderSource, entryPoint: "psMain", profile: "ps_5_0")
-        var shadowVSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
-            source: batchShadowShaderSource, entryPoint: "vsMain", profile: "vs_5_0")
-        var shadowPSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
-            source: batchShadowShaderSource, entryPoint: "psMain", profile: "ps_5_0")
-        var glyphVSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
-            source: GlyphPipelineResources.vertexShaderSource,
-            entryPoint: GlyphPipelineResources.vertexShaderEntryPoint, profile: "vs_5_0")
-        var glyphPSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
-            source: GlyphPipelineResources.vertexShaderSource, entryPoint: GlyphPipelineResources.pixelShaderEntryPoint,
-            profile: "ps_5_0")
-        var materialVSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
-            source: batchMaterialQuadShaderSource, entryPoint: "vsMain", profile: "vs_5_0")
-        var materialPSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
-            source: batchMaterialQuadShaderSource, entryPoint: "psMain", profile: "ps_5_0")
-        var blurVSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
-            source: batchBackdropBlurShaderSource, entryPoint: "vsMain", profile: "vs_5_0")
-        var blurPSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
-            source: batchBackdropBlurShaderSource, entryPoint: "psMain", profile: "ps_5_0")
-        releaseCOM(&blurPSBlob)
-        releaseCOM(&blurVSBlob)
-        releaseCOM(&materialPSBlob)
-        releaseCOM(&materialVSBlob)
-        releaseCOM(&glyphPSBlob)
-        releaseCOM(&glyphVSBlob)
-        releaseCOM(&shadowPSBlob)
-        releaseCOM(&shadowVSBlob)
-        releaseCOM(&imagePSBlob)
-        releaseCOM(&imageVSBlob)
-        releaseCOM(&quadPSBlob)
-        releaseCOM(&quadVSBlob)
+        let shaders: [(source: String, vertex: String, pixel: String)] = [
+            (batchQuadShaderSource, "vsMain", "psMain"),
+            (batchImageShaderSource, "vsMain", "psMain"),
+            (batchImageColorEffectShaderSource, "vsMain", "psMain"),
+            (batchShadowShaderSource, "vsMain", "psMain"),
+            (
+                GlyphPipelineResources.vertexShaderSource,
+                GlyphPipelineResources.vertexShaderEntryPoint, GlyphPipelineResources.pixelShaderEntryPoint
+            ),
+            (batchMaterialQuadShaderSource, "vsMain", "psMain"),
+            (batchBackdropBlurShaderSource, "vsMain", "psMain"),
+        ]
+        for shader in shaders {
+            for (entryPoint, profile) in [(shader.vertex, "vs_5_0"), (shader.pixel, "ps_5_0")] {
+                var blob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
+                    source: shader.source, entryPoint: entryPoint, profile: profile)
+                // A later shader failing compilation must not leak the blobs
+                // produced by earlier iterations of this validation.
+                defer { releaseCOM(&blob) }
+            }
+        }
     }
 
     // MARK: - Device Creation
@@ -2792,7 +3143,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         _ instances: [ImagePrimitive],
         range: Range<Int>,
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
-        textureSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>
+        textureSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>,
+        pixelShader: UnsafeMutablePointer<ID3D11PixelShader>? = nil
     ) throws {
         let instanceCount = range.count
         guard instanceCount > 0 else {
@@ -2812,7 +3164,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             let imageInstanceBuffer,
             let imageInstanceSRV,
             let imageVS,
-            let imagePS
+            let selectedPixelShader = pixelShader ?? imagePS
         else {
             return
         }
@@ -2820,7 +3172,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         try uploadInstances(instances, range: range, buffer: imageInstanceBuffer, deviceContext: deviceContext)
 
         deviceContext.pointee.lpVtbl.pointee.VSSetShader(deviceContext, imageVS, nil, 0)
-        deviceContext.pointee.lpVtbl.pointee.PSSetShader(deviceContext, imagePS, nil, 0)
+        deviceContext.pointee.lpVtbl.pointee.PSSetShader(deviceContext, selectedPixelShader, nil, 0)
 
         var instanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = imageInstanceSRV
         deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &instanceSRV)

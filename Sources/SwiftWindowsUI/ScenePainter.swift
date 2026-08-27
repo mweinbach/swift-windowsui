@@ -386,6 +386,10 @@ public enum ScenePainter {
         /// deliberately *not* inherited: a nested `.blur()` inside a blurred
         /// subtree is its own isolation, exactly as it is in SwiftUI.
         let suppressesContentBlurIsolation: Bool
+        /// Suppression applies only to the node re-entered by its own pass.
+        /// Descendants still create their own ordered effect boundaries.
+        let suppressesColorEffectIsolation: Bool
+        let colorEffectPassDepth: Int
     }
 
     private struct PaintNodeFinishState {
@@ -438,7 +442,9 @@ public enum ScenePainter {
         inheritedTransform: Transform2D = .identity,
         isInsideDrawingGroup: Bool = false,
         skipCacheUpdates: Bool = false,
-        suppressesContentBlurIsolation: Bool = false
+        suppressesContentBlurIsolation: Bool = false,
+        suppressesColorEffectIsolation: Bool = false,
+        colorEffectPassDepth: Int = 0
     ) {
         var traversal: [PaintTraversalStep] = [
             .enter(
@@ -453,7 +459,9 @@ public enum ScenePainter {
                     inheritedTransform: inheritedTransform,
                     isInsideDrawingGroup: isInsideDrawingGroup,
                     skipCacheUpdates: skipCacheUpdates,
-                    suppressesContentBlurIsolation: suppressesContentBlurIsolation
+                    suppressesContentBlurIsolation: suppressesContentBlurIsolation,
+                    suppressesColorEffectIsolation: suppressesColorEffectIsolation,
+                    colorEffectPassDepth: colorEffectPassDepth
                 )
             )
         ]
@@ -672,7 +680,7 @@ public enum ScenePainter {
 
             // GPUI/Zed carries opacity as an inherited paint scalar.
             let opacity = primitiveOpacity * Float(node.opacity)
-            let colorEffects = inheritedColorEffects + node.colorEffects
+            let colorEffects = context.suppressesColorEffectIsolation ? [] : node.colorEffects + inheritedColorEffects
             // The node's own backdrop blur (Material). A subtree-wide
             // `.blur()` is `contentBlurRadius` and is emitted as one pass in
             // `finishPaintNode`, after everything below has painted.
@@ -750,6 +758,30 @@ public enum ScenePainter {
                 }
             }
 
+            // A color modifier filters the composed subtree, including its
+            // own decoration, text, images and paths. Record that subtree as
+            // a scene-backed image; the selected backend owns its offscreen
+            // rendering and executes every authored color operation in order.
+            if !colorEffects.isEmpty, !context.suppressesColorEffectIsolation {
+                appendIsolatedColorEffects(
+                    context,
+                    effects: colorEffects,
+                    fallbackFrame: paintFrame,
+                    into: &scene,
+                    deferredDraws: &deferredDraws,
+                    surfaceSize: surfaceSize,
+                    displayScale: displayScale,
+                    textSystem: textSystem,
+                    usedNativeGlyphs: &usedNativeGlyphs,
+                    usedPixelGlyphs: &usedPixelGlyphs)
+                if !skipCacheUpdates {
+                    node.cachedSceneKey = cacheKey
+                    node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
+                }
+                node.markSubtreeRendered()
+                continue
+            }
+
             // `.blur(radius:)` blurs *this subtree*, and nothing else. The
             // subtree renders into its own offscreen buffer, is blurred
             // there, and is composited back — so a sibling one pixel outside
@@ -773,7 +805,9 @@ public enum ScenePainter {
                         primitiveOpacity: primitiveOpacity,
                         layerIndex: layerIndex,
                         isInsideDrawingGroup: isInsideDrawingGroup,
-                        skipCacheUpdates: skipCacheUpdates
+                        skipCacheUpdates: skipCacheUpdates,
+                        suppressesColorEffectIsolation: context.suppressesColorEffectIsolation,
+                        colorEffectPassDepth: context.colorEffectPassDepth
                     ),
                     into: &scene,
                     deferredDraws: &deferredDraws,
@@ -1413,7 +1447,8 @@ public enum ScenePainter {
                             replayCount: &subReplay,
                             inheritedTransform: subInheritedTransform,
                             isInsideDrawingGroup: true,
-                            skipCacheUpdates: true
+                            skipCacheUpdates: true,
+                            colorEffectPassDepth: context.colorEffectPassDepth
                         )
                     }
 
@@ -1523,7 +1558,9 @@ public enum ScenePainter {
                                 // walks past the end of the record log.
                                 isInsideDrawingGroup: isInsideDrawingGroup,
                                 skipCacheUpdates: skipCacheUpdates,
-                                suppressesContentBlurIsolation: false
+                                suppressesContentBlurIsolation: false,
+                                suppressesColorEffectIsolation: false,
+                                colorEffectPassDepth: context.colorEffectPassDepth
                             )
                         )
                     )
@@ -1716,6 +1753,144 @@ public enum ScenePainter {
     /// Everything the isolation pass needs from the traversal. It travels as
     /// one value so the branch in `paintNode` — a function that recurses —
     /// costs one argument rather than a dozen more live locals.
+    private static func sceneColorEffect(_ effect: RetainedColorEffect) -> SceneColorEffect {
+        switch effect {
+        case .brightness(let value): return .brightness(value)
+        case .contrast(let value): return .contrast(value)
+        case .saturation(let value): return .saturation(value)
+        case .grayscale(let value): return .grayscale(value)
+        case .colorInvert: return .colorInvert
+        case .hueRotation(let value): return .hueRotation(value)
+        case .colorMultiply(let color): return .colorMultiply(color)
+        case .luminanceToAlpha: return .luminanceToAlpha
+        }
+    }
+
+    /// Records a complete subtree without rasterizing it. The source keeps
+    /// the original device-pixel grid until its actual paint footprint is
+    /// known, then moves by an even integer offset into a cropped image pass.
+    /// That preserves overflow, shadow tails and the original 2x2 derivative
+    /// grid used by CPU coverage and HLSL fwidth at fractional display scales.
+    private static func appendIsolatedColorEffects(
+        _ context: PaintTraversalContext,
+        effects: [RetainedColorEffect],
+        fallbackFrame: Rect,
+        into scene: inout GPUIScene,
+        deferredDraws: inout [DeferredDrawState],
+        surfaceSize: Size,
+        displayScale: Double,
+        textSystem: WindowTextSystem,
+        usedNativeGlyphs: inout Bool,
+        usedPixelGlyphs: inout Bool
+    ) {
+        let claims = claimDeferredDescendants(
+            of: context.node, in: &deferredDraws, includingOwnIndicator: true)
+        var source = GPUIScene(clearColor: .clear)
+        var subDeferred: [DeferredDrawState] = []
+        var subNative = false
+        var subPixel = false
+        var subReplay = 0
+        let canRecord =
+            context.colorEffectPassDepth < GPUISceneLimits.maxImageRenderPassDepth
+            && effects.count <= GPUISceneLimits.maxColorEffects
+        if canRecord {
+            paintNode(
+                context.node,
+                into: &source,
+                deferredDraws: &subDeferred,
+                parentOrigin: context.parentOrigin,
+                inheritedClip: context.inheritedClip,
+                layerIndex: 0,
+                surfaceSize: surfaceSize,
+                displayScale: displayScale,
+                textSystem: textSystem,
+                previousScene: nil,
+                primitiveOpacity: 1,
+                inheritedColorEffects: [],
+                inheritedBlendMode: context.inheritedBlendMode,
+                usedNativeGlyphs: &subNative,
+                usedPixelGlyphs: &subPixel,
+                replayCount: &subReplay,
+                inheritedTransform: context.inheritedTransform,
+                isInsideDrawingGroup: context.isInsideDrawingGroup,
+                skipCacheUpdates: true,
+                suppressesContentBlurIsolation: context.suppressesContentBlurIsolation,
+                suppressesColorEffectIsolation: true,
+                colorEffectPassDepth: context.colorEffectPassDepth + 1)
+
+            // Deferred rows and scroll indicators are pixels of this subtree
+            // too. Ancestors represented by this pass are excluded; effects
+            // on intermediate descendants still apply inside the source.
+            func descendantAncestorEffects(from node: ViewNode?) -> [RetainedColorEffect] {
+                var result: [RetainedColorEffect] = []
+                var current = node
+                while let ancestor = current, ancestor !== context.node {
+                    result.append(contentsOf: ancestor.colorEffects)
+                    current = ancestor.parent
+                }
+                return result
+            }
+            for claim in claims {
+                switch claim {
+                case .subtree(let payload):
+                    guard let node = payload.node else { continue }
+                    paintNode(
+                        node, into: &source, deferredDraws: &subDeferred,
+                        parentOrigin: payload.parentOrigin, inheritedClip: payload.inheritedClip,
+                        layerIndex: 0, surfaceSize: surfaceSize, displayScale: displayScale,
+                        textSystem: textSystem, previousScene: nil,
+                        primitiveOpacity: context.primitiveOpacity > 0
+                            ? payload.inheritedOpacity / context.primitiveOpacity : payload.inheritedOpacity,
+                        inheritedColorEffects: descendantAncestorEffects(from: node.parent),
+                        inheritedBlendMode: payload.inheritedBlendMode,
+                        usedNativeGlyphs: &subNative, usedPixelGlyphs: &subPixel, replayCount: &subReplay,
+                        inheritedTransform: payload.inheritedTransform, skipCacheUpdates: true,
+                        colorEffectPassDepth: context.colorEffectPassDepth + 1)
+                case .scrollIndicator(let payload, let contentMask):
+                    var command = payload.fillRectCommand(contentMask: contentMask?.rect)
+                    if context.primitiveOpacity > 0 {
+                        command.color = command.color.multipliedAlpha(by: 1 / context.primitiveOpacity)
+                    }
+                    command.color = SceneColorEffects.applying(
+                        descendantAncestorEffects(from: payload.node).map(sceneColorEffect), to: command.color)
+                    appendFillQuad(
+                        quad(
+                            for: command, surfaceSize: surfaceSize, displayScale: displayScale,
+                            clipCornerRadius: contentMask.resolvedCornerRadius(forQuadRect: command.rect)),
+                        gradient: command.gradient, opacity: 1, into: &source, layerIndex: 0)
+                }
+            }
+        }
+        source.finish()
+        if subNative { source.glyphAtlas = NativeGlyphAtlas.shared.currentSnapshot() }
+        if subPixel { source.pixelGlyphAtlas = pixelGlyphAtlasSnapshot() }
+        usedNativeGlyphs = usedNativeGlyphs || subNative
+        usedPixelGlyphs = usedPixelGlyphs || subPixel
+
+        let surfaceBounds = Rect(origin: .zero, size: surfaceSize)
+        let bounds = source.paintedBounds ?? (canRecord ? nil : scaleRect(fallbackFrame, by: displayScale))
+        guard let bounds, let visible = bounds.intersected(with: surfaceBounds), !visible.isEmpty else { return }
+        // Pixel alignment alone is insufficient: moving an odd crop origin
+        // to zero changes the 2x2 pixel pairs used to measure SDF derivatives,
+        // and therefore changes antialiasing. At most one transparent texel
+        // of leading padding preserves the parent's derivative grid.
+        let left = floor(visible.minX / 2) * 2
+        let top = floor(visible.minY / 2) * 2
+        let width = max(1, GPUISceneValue.int(ceil(visible.maxX) - left))
+        let height = max(1, GPUISceneValue.int(ceil(visible.maxY) - top))
+        let size = IntSize(width: Int32(width), height: Int32(height))
+        let textureID = scene.registerImageRenderPass(
+            source.translatedPrimitives(by: Point(x: -left, y: -top)),
+            size: size,
+            colorEffects: effects.map(sceneColorEffect))
+        scene.paintMetrics.colorEffectPasses += 1
+        scene.addImage(
+            ImagePrimitive(
+                screenX: Float(left), screenY: Float(top), screenW: Float(width), screenH: Float(height),
+                opacity: context.primitiveOpacity, textureID: textureID),
+            toLayer: context.layerIndex)
+    }
+
     private struct ContentBlurIsolation {
         let node: ViewNode
         let parentOrigin: Point
@@ -1731,6 +1906,8 @@ public enum ScenePainter {
         let layerIndex: Int
         let isInsideDrawingGroup: Bool
         let skipCacheUpdates: Bool
+        let suppressesColorEffectIsolation: Bool
+        let colorEffectPassDepth: Int
     }
 
     /// SwiftUI's `.blur(radius:)`: render the subtree in isolation, blur
@@ -1812,7 +1989,7 @@ public enum ScenePainter {
         // (see `paintNode`) for the same reason: this claim is the only
         // thing that keeps those entries out of the deferred phase, so every
         // frame that composites the bitmap has to pass through here.
-        let deferredDescendants = claimDeferredDescendants(of: isolation, in: &deferredDraws)
+        let deferredDescendants = claimDeferredDescendants(of: isolation.node, in: &deferredDraws)
 
         let subSize = buffer.size
         let bitmap: BitmapSurface
@@ -1927,7 +2104,9 @@ public enum ScenePainter {
             inheritedTransform: subTransform,
             isInsideDrawingGroup: isolation.isInsideDrawingGroup,
             skipCacheUpdates: true,
-            suppressesContentBlurIsolation: true
+            suppressesContentBlurIsolation: true,
+            suppressesColorEffectIsolation: isolation.suppressesColorEffectIsolation,
+            colorEffectPassDepth: isolation.colorEffectPassDepth
         )
 
         appendDeferredDescendants(
@@ -1984,8 +2163,9 @@ public enum ScenePainter {
     /// the drawing entirely: a reused bitmap already contains these entries,
     /// and the deferred phase must skip them on that frame too.
     private static func claimDeferredDescendants(
-        of isolation: ContentBlurIsolation,
-        in deferredDraws: inout [DeferredDrawState]
+        of root: ViewNode,
+        in deferredDraws: inout [DeferredDrawState],
+        includingOwnIndicator: Bool = false
     ) -> [ClaimedDeferredDraw] {
         guard !deferredDraws.isEmpty else { return [] }
         var claimed: [ClaimedDeferredDraw] = []
@@ -2005,8 +2185,8 @@ public enum ScenePainter {
                 // itself is the one being drained right now, and painting it
                 // here would recurse without end.
                 if let deferredNode = payload.node,
-                    deferredNode !== isolation.node,
-                    isNode(deferredNode, insideSubtreeOf: isolation.node)
+                    deferredNode !== root,
+                    isNode(deferredNode, insideSubtreeOf: root)
                 {
                     claim = .subtree(payload)
                 } else {
@@ -2018,8 +2198,8 @@ public enum ScenePainter {
                 // node's *own* indicator keeps drawing sharp above its
                 // blurred content, matching the subtree exclusion.
                 if let owningNode = payload.node,
-                    owningNode !== isolation.node,
-                    isNode(owningNode, insideSubtreeOf: isolation.node)
+                    owningNode !== root || includingOwnIndicator,
+                    isNode(owningNode, insideSubtreeOf: root)
                 {
                     claim = .scrollIndicator(payload, contentMask: deferredDraws[index].contentMask)
                 } else {
@@ -2082,7 +2262,8 @@ public enum ScenePainter {
                     // its parent handed it; the buffer shift composes last, as it
                     // does for the subtree painted above.
                     inheritedTransform: payload.inheritedTransform.concatenating(bufferShift),
-                    skipCacheUpdates: true
+                    skipCacheUpdates: true,
+                    colorEffectPassDepth: isolation.colorEffectPassDepth
                 )
             case .scrollIndicator(let payload, let contentMask):
                 // The deferred drain's spelling of the indicator quad — same
@@ -2141,11 +2322,16 @@ public enum ScenePainter {
         let owner: ViewNode?
         switch payload {
         case .subtree(let payload): owner = payload.node
-        case .scrollIndicator(let payload): owner = payload.node
+        case .scrollIndicator(let payload):
+            owner = payload.node
+            // Unlike blur, a color effect also includes its own scroll
+            // indicator. A replayed scene-backed pass already contains it.
+            if let owner, !owner.colorEffects.isEmpty { return true }
         }
         var current = owner?.parent
         while let node = current {
             if node.contentBlurRadius > 0, node.lastPaintedViaContentBlurIsolation { return true }
+            if !node.colorEffects.isEmpty { return true }
             current = node.parent
         }
         return false

@@ -426,9 +426,23 @@ limits here as each item is validated.
       usage-sharing toggles persist configuration only; they do not provide
       those integrations. Native keyboard/Narrator and macOS qualification
       remain required by the original template gate.
-- [ ] Correct authored color-effect parameters and preserve sequential effects
+- [x] Correct authored color-effect parameters and preserve sequential effects
       across relevant primitive and compositing paths, with CPU/D3D11 execution
       tests and explicitly recorded remaining limitations.
+      `SceneColorEffectPassTests` passed 16 tests and
+      `D3D11ImageRenderPassTests` passed 12 real WARP/contract tests. The
+      renderer-neutral image source contains the child scene and ordered
+      effects; D3D11 keeps child rendering and filtering on the device.
+      Fractional-DPI isolation preserves the two-pixel derivative grid without
+      loosening alpha tolerances. Shared checks bound each source to 4,194,304
+      pixels, graph/execution source payload to 16,777,216 pixels, depth to 32,
+      count to 1,024, and effect chains to 256. The cumulative limit accounts
+      for 64 MiB of source BGRA8 payload, not total process/driver memory.
+      CPU cache hits do not allocate again; repeated GPU realizations can
+      exhaust execution limits and fail explicitly. Custom shaders, animated
+      effect parameters, complete drawing-group/blend semantics, imported
+      material backdrops, native color-space parity, and hardware pacing
+      remain open under the original rendering and animation gates.
 
 ### Additional text resilience detail
 

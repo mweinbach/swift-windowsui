@@ -136,7 +136,7 @@ struct SwiftWindowsUIGalleryTool {
                 id: "contrast", title: "Contrast 2.0",
                 view: AnyView(
                     Rectangle().fill(.gray)
-                        .frame(width: 100, height: 100).contrast(1.0)
+                        .frame(width: 100, height: 100).contrast(2.0)
                 )),
             GallerySpec(
                 id: "grayscale", title: "Grayscale",

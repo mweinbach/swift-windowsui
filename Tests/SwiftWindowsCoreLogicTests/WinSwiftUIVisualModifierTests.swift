@@ -313,7 +313,7 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
                 Rectangle()
                     .fill(Color(red: 0.75, green: 0.75, blue: 0.75, alpha: 1))
                     .frame(width: 40, height: 40)
-                    .contrast(1.0)
+                    .contrast(2.0)
             )
             let center = colorAt(bitmap, x: 20, y: 20)
             // (0.75 - 0.5) * 2 + 0.5 = 1.0, clamped to white
@@ -342,7 +342,7 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
                 Rectangle()
                     .fill(.red)
                     .frame(width: 40, height: 40)
-                    .saturation(-1.0)
+                    .saturation(0.0)
             )
             let center = colorAt(bitmap, x: 20, y: 20)
             // Full desaturation: R == G == B

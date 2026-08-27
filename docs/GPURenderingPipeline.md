@@ -1884,9 +1884,10 @@ the batch backend again — pass `recoveryPolicy: .disabled`.
 2. Upload incremental glyph-atlas dirty regions if any.
 3. Iterate the scene's layers; for each layer issue per-family draw
    calls in the order encoded by the plan's `RenderStep`s.
-4. Images use a long-lived `imageResources` table keyed by `textureID`;
-   shadows, quads, glyphs, and pixelGlyphs use structured buffers per
-   primitive type.
+4. Authored bitmaps use a long-lived `imageResources` table keyed by
+   `textureID`. Scene-backed image sources render lazily into temporary GPU
+   targets and keep child resource IDs in their own namespace. Shadows,
+   quads, glyphs, and pixelGlyphs use structured buffers per primitive type.
 5. After the layers are drawn, present the frame.
 
 The renderer is `@MainActor`.
@@ -2090,13 +2091,64 @@ the truncated kernel; that policy difference is invisible while the kernel
 is narrower than the region and dominant once it is wider, which is exactly
 `.blur(radius: 80)` on a 2× display.
 
-**Colour effects.** `luminanceToAlpha` writes alpha, so both sides branch
-it out of `applyColorEffect` and apply it *before* the coverage multiply;
-applying it after overwrote the antialiasing and the quad's own alpha. The
-shader `saturate`s the effect result, because the CPU's `RasterColor`
-clamps every channel — without it an over-driven brightness composited
-brighter on the GPU, where the premultiply happens before the render
-target's UNORM clamp.
+**Colour effects.** Public built-in colour modifiers filter an isolated
+composited subtree through `GPUISceneImageRenderPass`, rather than keeping
+only one effect on each quad. The pass carries its child `GPUIScene`,
+device-pixel extent, texture ID, and ordered `[SceneColorEffect]`. An ordinary
+`ImagePrimitive` references it at the position selected by
+`presentationOrder()`. Replay retains these sources and remaps conflicting
+resource IDs; resource storage order never becomes draw order.
+
+`ScenePainter` records glyphs, images, paths, shadows, overflow, and nested
+effects into that child scene without CPU rasterization. Its crop follows
+the clipped painted footprint. Left/top round down to multiples of two
+device pixels, preserving the 2×2 derivative grid used by CPU SDF coverage
+and HLSL `fwidth`. Merely rounding to an integer changes antialiasing at
+fractional DPI. The additional leading padding is at most one texel.
+
+The CPU renderer resolves and caches the filtered bitmap within the current
+scene rasterization. D3D11 renders the child into a same-device BGRA8 target,
+filters it into a second same-size target, and samples the result through
+the ordinary image draw. Filtering precedes image interpolation; this route
+performs no CPU readback or subtree bitmap upload. Temporary targets are
+released after the image run, and enclosing targets, viewports, uniforms,
+resource bindings, and glyph atlases are restored even on failure. Filtered
+GPU targets are not cached between frames.
+
+Effects run in authored order on straight RGBA, clamping after each operation.
+Quantization occurs at the premultiplied BGRA8 source/output surfaces, not
+between individual effects. Contrast and saturation use 1 as identity;
+contrast 0 yields neutral gray and saturation 0 removes chroma. RGB-only
+effects preserve alpha; `colorMultiply` multiplies RGBA. `luminanceToAlpha`
+writes black RGB and multiplies existing alpha by luminance, retaining
+transparent texels and geometric coverage. The legacy single-effect quad
+route uses the same corrected amount and alpha rules. Ancestor opacity is
+applied when the filtered image is composited.
+
+Shared limits bound each source to 4,194,304 pixels, 32 nested passes, and
+256 effects, with traversal/execution limits of 1,024 passes and 16,777,216
+cumulative source pixels. The latter is 64 MiB of BGRA8 source payload, not a
+total-process or driver-memory bound: filter outputs, conversion scratch,
+atlases, main targets, and driver retention are separate. Validation,
+resource prewalk, and execution check those bounds independently. Invalid
+sources remain visible to `GPUIScene.validate()`; the nonthrowing CPU path
+draws an unsupported tile and D3D11 reports an error instead of dropping the
+effect. `SceneColorEffectPassTests` and `D3D11ImageRenderPassTests` exercise
+ordering, alpha, mixed primitives, replay, fractional DPI, real WARP execution,
+malformed graphs, and resource lifetime.
+
+Structural checks charge each declared pass within each nested namespace.
+Execution charges actual source realizations. CPU cache hits allocate no
+new source and do not spend that budget again; noncontiguous GPU references
+currently re-render into temporary targets and can reach the execution limit
+sooner. That condition reports an explicit renderer error. Shared limits do
+not imply identical cache behavior or unrestricted backend parity.
+
+This is the `GPUIScene` route, not new legacy `RenderFrame` filter support.
+Custom shader modifiers, animated effect parameters, full drawing-group
+colour modes and blend semantics, native Apple colour-space conformance,
+and physical-GPU performance qualification remain incomplete. Existing
+CPU drawing-group and content-blur isolation routes are unchanged.
 
 **Blend modes.** The contract is **source-over, and only source-over**.
 `QuadPrimitive.blendMode` used to be honoured by the CPU rasterizer's
@@ -2418,7 +2470,7 @@ and are read by all three places that used to have their own idea of
 | `D3D11BackdropBlurEngine` | takes that target instead of a pair of loose surface ints, and expresses every blur pass's source rectangle as a `SubTextureRegion` |
 | `ScenePainter` offscreen passes | `OffscreenPassBuffer.pass` — an `.offscreen` target with a clear colour, viewport = whole target. Every field is read: the extent sizes the bitmap, `target.clearColor` is what the sub-scene clears to, `isCacheable` decides whether last frame's bitmap may stand in (a compositing group and a content-blur isolation ask for different answers) |
 
-It is a **consolidation, not a capability**. Nothing here made an effect
+That descriptor refactor is a **consolidation, not a capability**. Nothing in it made an effect
 possible that was impossible before: the blur engine was already told the
 same surface size, by two loose ints off the same target, so a material
 blurred inside an offscreen snapshot before this too. What the vocabulary
@@ -2426,23 +2478,27 @@ buys is that the kind travels with the size, that there is one place to
 read it from, and that a pass which clears and a pass which loads are the
 same type saying different things.
 
-### Residual: a Material inside an offscreen pass has no backdrop
+The separate `GPUISceneImageRenderPass` source contract adds a capability:
+backends can resolve an ordinary image primitive from a child scene and an
+ordered filter chain. The colour-effect section above describes that route;
+it does not turn the existing CPU drawing-group cache into a GPU group cache.
 
-An offscreen sub-scene clears to **transparent**, and a Material is a
-backdrop effect — it samples what is already painted under it. Inside one
-that is nothing, so the material composites its tint over emptiness and
-the pass's bitmap then lands over the wallpaper unblurred: the content
-under the panel stays razor sharp where it should have been smeared.
+### Residual: a Material inside a pass cannot sample the enclosing backdrop
 
-This is a property of the *pass*, not of `.drawingGroup()`, so it holds
-for all three offscreen routes — `.drawingGroup()`, `.compositingGroup()`
-and the `.blur(radius:)` isolation pass. The isolation pass clears to
+An offscreen sub-scene clears to **transparent**, and a Material samples
+only pixels painted earlier inside that pass. It cannot see the enclosing
+scene's wallpaper or siblings. Where no earlier child content exists, it
+composites its tint over transparency and the outside backdrop stays sharp.
+
+This holds for `.drawingGroup()`, `.compositingGroup()`, `.blur(radius:)`
+isolation, and the scene-backed colour-effect route. Content blur clears to
 transparent for a reason of its own: that transparent margin is what lets
 a blur fade out to nothing instead of smearing a neighbour into the
 subtree.
 
-Closing it means seeding the sub-scene with the already-painted backdrop
-under the pass's frame, and three separate things stand in the way:
+Importing the already-painted enclosing backdrop requires explicit
+dependency, load, and composite semantics. The older CPU group/blur routes
+also have these constraints:
 
 1. **The pixels do not exist yet.** At that point the outer scene is a
    *scene* — a paint-record stream — not pixels. Turning it into pixels
@@ -2462,9 +2518,9 @@ under the pass's frame, and three separate things stand in the way:
    fully opaque. Getting it right needs a replace/copy blend, which the
    contract does not have.
 
-Running the pass as a real GPU pass — the backend rendering into a real
-offscreen target that the material's backdrop copy can read — sidesteps
-all three, and is the shape a fix would take. Recorded and skipped by
+The colour-effect route already uses a real GPU target, but clearing it to
+transparent does not import the enclosing backdrop or resolve the composite
+semantics. A GPU target alone does not close this gap. Recorded and skipped by
 `RenderPassAbstractionTests.testMaterialInsideADrawingGroupBlursNothing`,
 whose assertions pin what happens today for both the compositing-group
 and the content-blur route.

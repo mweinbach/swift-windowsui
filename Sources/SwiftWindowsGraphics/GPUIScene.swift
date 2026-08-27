@@ -1,8 +1,7 @@
 import Foundation
+import SwiftWindowsCore
 
 // MARK: - GPUILayer
-
-import SwiftWindowsCore
 
 /// A rendering layer containing typed, contiguous primitive arrays.
 /// `paintOperations` is the layer's presentation order — it preserves the
@@ -484,6 +483,9 @@ public struct ScenePaintMetrics: Equatable, Sendable {
     /// when it changes and nothing at all when it does not, so this is the
     /// counter that says whether a `.blur()` is amortized.
     public var contentBlurPassesReused: Int = 0
+    /// Color-effect subtrees recorded as renderer-owned offscreen passes.
+    /// These retain scene primitives rather than baking a CPU bitmap.
+    public var colorEffectPasses: Int = 0
     /// View nodes the paint traversal entered to produce this scene.
     ///
     /// The direct measure of how much of the tree a frame redid, and the one
@@ -536,6 +538,9 @@ public struct GPUIScene: Equatable, Sendable {
     public var glyphAtlas: GlyphAtlasSnapshot?
     public var pixelGlyphAtlas: GlyphAtlasSnapshot?
     public var imageResources: [ImageResourceBinding]
+    /// Lazily rendered image sources, consumed in the same presentation order
+    /// as bitmap-backed images. Each child scene owns its resource namespace.
+    public var imageRenderPasses: [GPUISceneImageRenderPass]
     /// Paint-time observability counters (CPU vs GPU path routing).
     public var paintMetrics: ScenePaintMetrics = ScenePaintMetrics()
     private var isFinished = false
@@ -544,7 +549,8 @@ public struct GPUIScene: Equatable, Sendable {
         clearColor: Color = .black,
         glyphAtlas: GlyphAtlasSnapshot? = nil,
         pixelGlyphAtlas: GlyphAtlasSnapshot? = nil,
-        imageResources: [ImageResourceBinding] = []
+        imageResources: [ImageResourceBinding] = [],
+        imageRenderPasses: [GPUISceneImageRenderPass] = []
     ) {
         self.clearColor = Self.sanitizedClearColor(clearColor)
         self.layers = [GPUILayer()]
@@ -552,6 +558,7 @@ public struct GPUIScene: Equatable, Sendable {
         self.glyphAtlas = glyphAtlas
         self.pixelGlyphAtlas = pixelGlyphAtlas
         self.imageResources = imageResources
+        self.imageRenderPasses = imageRenderPasses
     }
 
     private static func sanitizedClearColor(_ color: Color) -> Color {
@@ -669,15 +676,52 @@ public struct GPUIScene: Equatable, Sendable {
             return existing.textureID
         }
 
-        let nextTextureID = (imageResources.map(\.textureID).max() ?? -1) + 1
+        let nextTextureID = nextImageTextureID
         imageResources.append(ImageResourceBinding(textureID: nextTextureID, bitmap: bitmap))
         return nextTextureID
+    }
+
+    private var nextImageTextureID: Int32 {
+        let highest = max(
+            max(imageResources.map(\.textureID).max() ?? -1, imageRenderPasses.map(\.textureID).max() ?? -1),
+            layers.flatMap { $0.images.map(\.textureID) }.max() ?? -1)
+        // A manually bound Int32.max ID must not turn registration into a
+        // conversion/overflow trap. Find a hole in that exceptional case.
+        if highest < Int32.max { return highest + 1 }
+        let occupied = Set(
+            imageResources.map(\.textureID) + imageRenderPasses.map(\.textureID)
+                + layers.flatMap { $0.images.map(\.textureID) })
+        var candidate: Int32 = 0
+        while occupied.contains(candidate), candidate < Int32.max { candidate += 1 }
+        return candidate
+    }
+
+    @discardableResult
+    public mutating func registerImageRenderPass(
+        _ scene: GPUIScene, size: IntSize, colorEffects: [SceneColorEffect] = []
+    ) -> Int32 {
+        let textureID = nextImageTextureID
+        imageRenderPasses.append(
+            GPUISceneImageRenderPass(textureID: textureID, scene: scene, size: size, colorEffects: colorEffects))
+        return textureID
+    }
+
+    public mutating func bindImageRenderPass(_ pass: GPUISceneImageRenderPass) {
+        guard pass.textureID >= 0 else { return }
+        imageResources.removeAll { $0.textureID == pass.textureID }
+        if let index = imageRenderPasses.firstIndex(where: { $0.textureID == pass.textureID }) {
+            imageRenderPasses[index] = pass
+        } else {
+            imageRenderPasses.append(pass)
+        }
     }
 
     public mutating func bindImageResource(_ bitmap: BitmapSurface, for textureID: Int32) {
         guard textureID >= 0 else {
             return
         }
+
+        imageRenderPasses.removeAll { $0.textureID == textureID }
 
         if let index = imageResources.firstIndex(where: { $0.textureID == textureID }) {
             imageResources[index].bitmap = bitmap
@@ -864,9 +908,11 @@ public struct GPUIScene: Equatable, Sendable {
             )
         }
 
-        for binding in previousScene.imageResources {
-            bindImageResource(binding.bitmap, for: binding.textureID)
-        }
+        // Image IDs are local to a scene. Replaying old bindings wholesale
+        // could overwrite a newly painted sibling which reused an old ID.
+        // Copy only referenced sources, remapping conflicts on the image
+        // primitive as well as its binding. Pass children keep their own IDs.
+        var replayedImageIDs: [Int32: Int32] = [:]
 
         for record in previousScene.paintRecords[range] {
             switch record {
@@ -883,7 +929,29 @@ public struct GPUIScene: Equatable, Sendable {
                     addGlyph(glyph, toLayer: layerIndex)
                 case .pixelGlyph(let glyph):
                     addPixelGlyph(glyph, toLayer: layerIndex)
-                case .image(let image):
+                case .image(var image):
+                    let oldID = image.textureID
+                    if let mapped = replayedImageIDs[oldID] {
+                        image.textureID = mapped
+                    } else {
+                        let occupied =
+                            imageResources.contains { $0.textureID == oldID }
+                            || imageRenderPasses.contains { $0.textureID == oldID }
+                            || layers.contains { $0.images.contains { $0.textureID == oldID } }
+                        if let pass = previousScene.imageRenderPasses.last(where: { $0.textureID == oldID }) {
+                            var rebound = pass
+                            if occupied { rebound.textureID = nextImageTextureID }
+                            bindImageRenderPass(rebound)
+                            image.textureID = rebound.textureID
+                        } else if let binding = previousScene.imageResources.last(where: { $0.textureID == oldID }) {
+                            if occupied {
+                                image.textureID = registerImageResource(binding.bitmap)
+                            } else {
+                                bindImageResource(binding.bitmap, for: oldID)
+                            }
+                        }
+                        replayedImageIDs[oldID] = image.textureID
+                    }
                     addImage(image, toLayer: layerIndex)
                 case .path(let path):
                     addPath(path, toLayer: layerIndex)
@@ -1127,5 +1195,105 @@ extension ShadowPrimitive {
             x: box.x, y: box.y, width: box.width, height: box.height,
             clipX: clipX, clipY: clipY,
             clipWidth: clipWidth, clipHeight: clipHeight, contentMask: contentMask)
+    }
+}
+
+extension GPUIScene {
+    /// The footprint of presented primitives, including shadow falloff and
+    /// overflow outside a view's layout frame. Offscreen effects must crop to
+    /// painted content, not to the layout box, or they cut off that content.
+    public var paintedBounds: Rect? {
+        var result: Rect?
+        func include(_ rect: Rect?) {
+            guard let rect, !rect.isEmpty else { return }
+            guard let previous = result else {
+                result = rect
+                return
+            }
+            let x = min(previous.minX, rect.minX)
+            let y = min(previous.minY, rect.minY)
+            result = Rect(
+                x: x, y: y, width: max(previous.maxX, rect.maxX) - x,
+                height: max(previous.maxY, rect.maxY) - y)
+        }
+        for run in presentationOrder() {
+            for index in run.range {
+                switch primitive(kind: run.kind, inLayer: run.layerIndex, at: index) {
+                case .quad(let primitive): include(primitive.contentMaskedBounds)
+                case .glyph(let primitive), .pixelGlyph(let primitive): include(primitive.contentMaskedBounds)
+                case .image(let primitive): include(primitive.contentMaskedBounds)
+                case .path(let primitive): include(primitive.contentMaskedBounds)
+                case .shadow(let shadow):
+                    let expansion = shadow.blurRadius * 2
+                    let box = rotatedFootprint(
+                        x: shadow.x + shadow.offsetX - expansion,
+                        y: shadow.y + shadow.offsetY - expansion,
+                        width: shadow.width + expansion * 2, height: shadow.height + expansion * 2,
+                        rotationRadians: shadow.rotationRadians)
+                    include(
+                        contentMaskedBounds(
+                            x: box.x, y: box.y, width: box.width, height: box.height,
+                            clipX: shadow.clipX, clipY: shadow.clipY,
+                            clipWidth: shadow.clipWidth, clipHeight: shadow.clipHeight,
+                            contentMask: shadow.contentMask))
+                case nil: break
+                }
+            }
+        }
+        return result
+    }
+
+    /// Re-expresses primitives in a cropped pass's coordinate system without
+    /// rasterizing them. Gradient vectors are local to their primitives;
+    /// nested image sources own separate coordinates and stay unchanged.
+    public func translatedPrimitives(by offset: Point) -> GPUIScene {
+        var result = GPUIScene(
+            clearColor: clearColor, glyphAtlas: glyphAtlas, pixelGlyphAtlas: pixelGlyphAtlas,
+            imageResources: imageResources, imageRenderPasses: imageRenderPasses)
+        result.paintMetrics = paintMetrics
+        let dx = Float(offset.x)
+        let dy = Float(offset.y)
+        func shifted(_ mask: GPUIContentMask) -> GPUIContentMask {
+            guard let bounds = mask.bounds else { return mask }
+            return GPUIContentMask(
+                bounds: Rect(
+                    x: bounds.minX + offset.x, y: bounds.minY + offset.y,
+                    width: bounds.size.width, height: bounds.size.height))
+        }
+        for run in presentationOrder() {
+            for index in run.range {
+                switch primitive(kind: run.kind, inLayer: run.layerIndex, at: index) {
+                case .quad(var value):
+                    value.x += dx
+                    value.y += dy
+                    value.contentMask = shifted(value.contentMask)
+                    result.addQuad(value, toLayer: run.layerIndex)
+                case .glyph(var value):
+                    value.screenX += dx
+                    value.screenY += dy
+                    value.contentMask = shifted(value.contentMask)
+                    result.addGlyph(value, toLayer: run.layerIndex)
+                case .pixelGlyph(var value):
+                    value.screenX += dx
+                    value.screenY += dy
+                    value.contentMask = shifted(value.contentMask)
+                    result.addPixelGlyph(value, toLayer: run.layerIndex)
+                case .image(var value):
+                    value.screenX += dx
+                    value.screenY += dy
+                    value.contentMask = shifted(value.contentMask)
+                    result.addImage(value, toLayer: run.layerIndex)
+                case .shadow(var value):
+                    value.x += dx
+                    value.y += dy
+                    value.contentMask = shifted(value.contentMask)
+                    result.addShadow(value, toLayer: run.layerIndex)
+                case .path(let value): result.addPath(value.translated(by: offset), toLayer: run.layerIndex)
+                case nil: break
+                }
+            }
+        }
+        result.finish()
+        return result
     }
 }

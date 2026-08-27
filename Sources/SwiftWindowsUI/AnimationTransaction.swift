@@ -5,7 +5,10 @@ import SwiftWindowsCore
 /// Holds the duration and easing to apply when a property changes and no
 /// per-property animation state (from `.animation()`) is already present.
 @MainActor
-public var currentAnimationTransaction: (duration: Double, easing: AnimationEasing)?
+public var currentAnimationTransaction: (duration: Double, easing: AnimationEasing)? {
+    get { TransactionContext.animation }
+    set { TransactionContext.animation = newValue }
+}
 
 /// A duration/easing pair a node carries for its own property changes,
 /// independent of any ambient `withAnimation`. See
@@ -80,4 +83,7 @@ final class RetainedAnimationModifierStorage {
 /// `disablesAnimations` from this transaction in addition to the legacy
 /// `currentAnimationTransaction` tuple.
 @MainActor
-public var currentTransaction: Transaction?
+public var currentTransaction: Transaction? {
+    get { TransactionContext.current }
+    set { TransactionContext.current = newValue }
+}

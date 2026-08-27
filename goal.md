@@ -358,9 +358,14 @@ limits here as each item is validated.
 - [ ] Host `Settings` alongside ordinary scenes through public scene composition;
       route `openSettings` to one reusable settings window and preserve normal
       window lifecycle, renderer injection, and focus requests.
-- [ ] Carry binding transactions through writes, projected bindings, state
+- [x] Carry binding transactions through writes, projected bindings, state
       observation, and retained animation; restore ambient context after nested
       writes and explicit animation suppression.
+      `BindingTransactionTests` passed 14 focused tests, including a real
+      state-driven intermediate opacity frame, alongside the existing
+      `SwitchKnobMotionTests`. This verifies synchronous retained propagation;
+      conflicting ambient/binding precedence and deferred-update behavior
+      remain native-reference qualification gaps under gates 1–3.
 - [ ] Dispatch scroll geometry, phase, and visibility callbacks from retained
       presentation, preserving observer history across rebuilds and respecting
       scroll ownership, clipping, and animation.

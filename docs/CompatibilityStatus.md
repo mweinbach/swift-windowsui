@@ -251,7 +251,7 @@ existing environment value untouched.
 | `coordinateSpace` naming | **Shim** | Metadata boundary; simplified frame resolution |
 | `LocalizedStringKey` / resource localization | **Shim** | Resolves to plain string; no table lookup |
 | `EquatableView` / `.equatable()` | **Shim** | Renders content; no Equatable skip-rebuild |
-| Binding `.transaction` / `.animation` | **Shim** | No transaction propagation into animation state |
+| Binding `.transaction` / `.animation` | **Partial** | Transaction-aware setters and writes through dynamic-member, collection, and optional projections carry their configured transaction into synchronous state observation and retained animation. Nested writes restore ambient context; explicit nil animation suppresses motion. Conflicting ambient/binding precedence and deferred updates still need native reference qualification (`BindingTransactionTests`) |
 | `@AppStorage` external observation | **Partial** | Reads/writes UserDefaults; does not observe external process changes |
 | `DynamicProperty.update()` sweep | **Shim** | Marker only |
 

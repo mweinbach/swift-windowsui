@@ -279,11 +279,26 @@ public struct Transaction: Sendable {
 @dynamicMemberLookup
 public struct Binding<Value> {
     private let getValue: @MainActor () -> Value
-    private let setValue: @MainActor (Value) -> Void
+    private let setValue: @MainActor (Value, Transaction) -> Void
+    private var configuredTransaction: Transaction?
+    private var inheritsAmbientTransaction = false
+
+    /// The transaction supplied when writing through this binding. Reading
+    /// an unconfigured binding returns an empty transaction without changing
+    /// whether its writes inherit the surrounding transaction.
+    public var transaction: Transaction {
+        get {
+            configuredTransaction ?? Transaction()
+        }
+        set {
+            configuredTransaction = newValue
+            inheritsAmbientTransaction = false
+        }
+    }
 
     public init(get: @escaping @MainActor () -> Value, set: @escaping @MainActor (Value) -> Void) {
         self.getValue = get
-        self.setValue = set
+        self.setValue = { value, _ in set(value) }
     }
 
     public init(
@@ -291,21 +306,21 @@ public struct Binding<Value> {
         set: @escaping @MainActor (Value, Transaction) -> Void
     ) {
         self.getValue = get
-        self.setValue = { value in
-            set(value, Transaction())
-        }
+        self.setValue = set
     }
 
     public init<Wrapped>(_ base: Binding<Wrapped>) where Value == Wrapped? {
         self.getValue = {
             base.wrappedValue
         }
-        self.setValue = { value in
+        self.setValue = { value, transaction in
             guard let value else {
                 return
             }
-            base.wrappedValue = value
+            base.setValue(value, transaction)
         }
+        self.configuredTransaction = base.configuredTransaction
+        self.inheritsAmbientTransaction = base.inheritsAmbientTransaction
     }
 
     public init?(_ base: Binding<Value?>) {
@@ -316,9 +331,11 @@ public struct Binding<Value> {
         self.getValue = {
             base.wrappedValue ?? initialValue
         }
-        self.setValue = { value in
-            base.wrappedValue = value
+        self.setValue = { value, transaction in
+            base.setValue(value, transaction)
         }
+        self.configuredTransaction = base.configuredTransaction
+        self.inheritsAmbientTransaction = base.inheritsAmbientTransaction
     }
 
     public var wrappedValue: Value {
@@ -326,7 +343,26 @@ public struct Binding<Value> {
             getValue()
         }
         nonmutating set {
-            setValue(newValue)
+            let inherited =
+                TransactionContext.current
+                ?? TransactionContext.animation.map {
+                    Transaction(animation: Animation(duration: $0.duration, easing: $0.easing))
+                }
+            guard var transaction = configuredTransaction else {
+                // Do not create an explicit empty scope for an ordinary
+                // binding. Absence lets controls keep their own motion;
+                // an explicit nil animation intentionally suppresses it.
+                setValue(newValue, inherited ?? Transaction())
+                return
+            }
+            if inheritsAmbientTransaction {
+                let animation = transaction.animation
+                transaction = inherited ?? Transaction()
+                transaction.animation = animation
+            }
+            TransactionContext.withValue(transaction) {
+                setValue(newValue, transaction)
+            }
         }
     }
 
@@ -335,40 +371,54 @@ public struct Binding<Value> {
     }
 
     public subscript<Subject>(dynamicMember keyPath: WritableKeyPath<Value, Subject>) -> Binding<Subject> {
-        Binding<Subject>(
+        var binding = Binding<Subject>(
             get: {
                 wrappedValue[keyPath: keyPath]
             },
-            set: { newValue in
+            set: { newValue, transaction in
                 var value = wrappedValue
                 value[keyPath: keyPath] = newValue
-                wrappedValue = value
+                setValue(value, transaction)
             }
         )
+        binding.configuredTransaction = configuredTransaction
+        binding.inheritsAmbientTransaction = inheritsAmbientTransaction
+        return binding
     }
 
     public subscript<Element>(position: Value.Index) -> Binding<Element>
     where Value: MutableCollection, Value.Element == Element {
-        Binding<Element>(
+        var binding = Binding<Element>(
             get: {
                 wrappedValue[position]
             },
-            set: { newValue in
+            set: { newValue, transaction in
                 var value = wrappedValue
                 value[position] = newValue
-                wrappedValue = value
+                setValue(value, transaction)
             }
         )
+        binding.configuredTransaction = configuredTransaction
+        binding.inheritsAmbientTransaction = inheritsAmbientTransaction
+        return binding
     }
 
     public func transaction(_ transaction: Transaction) -> Binding<Value> {
-        let _ = transaction
-        return self
+        var binding = self
+        binding.transaction = transaction
+        return binding
     }
 
     public func animation(_ animation: Animation? = .default) -> Binding<Value> {
-        let _ = animation
-        return self
+        var binding = self
+        var transaction = self.transaction
+        transaction.animation = animation
+        binding.configuredTransaction = transaction
+        // An animation modifier changes only animation, preserving the
+        // surrounding continuous/disabled/anchor/velocity context. If the
+        // binding already supplied a full transaction, preserve that instead.
+        binding.inheritsAmbientTransaction = configuredTransaction == nil || inheritsAmbientTransaction
+        return binding
     }
 
     public static func constant(_ value: Value) -> Binding<Value> {

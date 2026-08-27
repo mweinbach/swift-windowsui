@@ -1068,7 +1068,20 @@ at the origin.
 Observed object changes are coalesced by the host before rebuilding the retained tree so one logical update does not trigger multiple immediate redraw passes.
 `DynamicProperty` is available as a source-compatibility marker with a default no-op `update()`. WinSwiftUI's built-in SwiftUI-shaped property wrappers conform to it, but the retained runtime does not yet perform SwiftUI's pre-body dynamic property update sweep.
 `@Namespace` creates a stable namespace ID retained by the property wrapper value and exposes it through `$namespace`, which is enough for source-compatible `matchedGeometryEffect` call sites.
-`Binding` supports read/write dynamic-member projections for writable key paths, so shared-source code can pass nested bindings such as `$settings.title` or `$settings.isEnabled` into retained controls. Mutable-collection bindings expose element bindings with subscript syntax, so `$items[index].title`-style call sites can edit array elements in place. It also accepts SwiftUI-shaped optional bridging: `Binding<Value?>($value)` promotes non-optional bindings and `Binding<Value>($optional)` unwraps optional bindings when a value exists. `Binding.transaction(_:)`, `Binding.animation(_:)`, and the transaction-aware setter initializer are accepted as source-compatible no-op transaction shims; the retained runtime does not yet propagate binding transactions into animation state.
+`Binding` supports read/write dynamic-member projections for writable key paths, so shared-source code can pass nested bindings such as `$settings.title` or `$settings.isEnabled` into retained controls. Mutable-collection bindings expose element bindings with subscript syntax, so `$items[index].title`-style call sites can edit array elements in place. It also accepts SwiftUI-shaped optional bridging: `Binding<Value?>($value)` promotes non-optional bindings and `Binding<Value>($optional)` unwraps optional bindings when a value exists.
+
+`Binding.transaction(_:)`, its writable `transaction` property,
+`Binding.animation(_:)`, and transaction-aware setters now carry transactions
+through these projections. Configured writes scope the existing main-actor
+transaction context across synchronous state observation and reconciliation;
+ordinary bindings preserve the absence of an ambient transaction so control
+animations keep their existing defaults. An animation-only binding preserves
+ambient flags while overriding animation, including an explicit nil, and nested
+writes restore both transaction contexts. `BindingTransactionTests` checks
+setter payloads, projection overrides, restoration, suppression, and an actual
+state-driven intermediate opacity frame. Exact precedence when ambient and
+binding transactions conflict, and deferred-update behavior, still require
+native SwiftUI reference qualification.
 `@State` stores values in a retained box captured by the view value and exposes `$state` as a `Binding`, which is enough for common controls such as `Toggle`.
 `@AppStorage` supports common non-optional and optional `Bool`, `Int`, `Double`, `String`, `Data`, and `URL` values backed by `UserDefaults`, plus optional and non-optional `RawRepresentable` values with `String` or `Int` raw values for enum-backed preferences. Wrappers with an explicit `store:` keep using that store, while wrappers without one inherit `EnvironmentValues.defaultAppStorage` through `.defaultAppStorage(_:)` and remember that store for retained control actions. Optional nil writes remove the stored `UserDefaults` value. It exposes `$storage` as a `Binding` and invalidates the retained runtime after writes from the wrapper. It is a source-compatibility shim and does not yet observe external `UserDefaults` changes.
 `@SceneStorage` stores non-optional and optional `Bool`, `Int`, `Double`, `String`, `Data`, and `URL` values in a retained in-memory scene-state table, supports optional and non-optional `RawRepresentable` values with `String` or `Int` raw values for enum-backed scene state, exposes `$storage` as a `Binding`, and invalidates after writes. Optional nil writes remove the retained scene value. The current implementation matches the single-window host scope and does not yet serialize scene restoration data or isolate values per future `WindowGroup` instance.

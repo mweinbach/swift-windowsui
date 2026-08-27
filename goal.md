@@ -401,3 +401,15 @@ limits here as each item is validated.
 - [ ] Correct authored color-effect parameters and preserve sequential effects
       across relevant primitive and compositing paths, with CPU/D3D11 execution
       tests and explicitly recorded remaining limitations.
+
+### Additional text resilience detail
+
+Native text tinting now clamps channels before converting them to integers;
+NaN, infinities, and extreme finite color values cannot trap that conversion.
+The shared tint path protects both GDI and DirectWrite text bitmaps and keeps
+ordinary premultiplied pixels unchanged. Invalid native font dimensions,
+inset coordinates, and unrepresentable UTF-16 lengths decline native rendering
+before unsafe integer conversion. `NativeTextConversionSafetyTests` passed
+10 tests, including normal-channel/coverage preservation and real GDI raster
+checks. This advances sections 2 and 5; it does not close shaping, editing,
+IME, accessibility, or native-machine qualification requirements.

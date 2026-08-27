@@ -1,9 +1,6 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
-
 import WinSDK
 
 /// Weak box for ``NativeTextRenderer/claimDefaultIconDisplayScale(_:owner:)``:
@@ -424,6 +421,12 @@ enum GDIRasterTextRenderer {
         else {
             return nil
         }
+        guard
+            let contentRect = drawRectForInsets(
+                style.insets, width: pixelWidth, height: pixelHeight, scaleFactor: scaleFactor)
+        else {
+            return nil
+        }
         let bytesPerRow = Int32(pixelWidth * 4)
         // `Int`, not `Int32`: the product of two clamped extents still exceeds
         // 2^31 at the ceiling, and a trap here is a crash on ordinary app code.
@@ -482,8 +485,6 @@ enum GDIRasterTextRenderer {
         SetBkMode(dc, TRANSPARENT)
         SetTextColor(dc, colorRef(red: 255, green: 255, blue: 255))
 
-        let contentRect = drawRectForInsets(
-            style.insets, width: pixelWidth, height: pixelHeight, scaleFactor: scaleFactor)
         let resolvedLayout = resolveTextLayout(
             for: text,
             style: style,
@@ -522,10 +523,14 @@ enum GDIRasterTextRenderer {
     /// have been through this must be tagged `.bgra8Premultiplied` so the
     /// GPU and CPU consumers do not re-multiply them.
     static func tint(pixelBytes: inout [UInt8], style: PixelTextStyle) {
-        let red = max(0, min(255, Int(style.color.red * 255)))
-        let green = max(0, min(255, Int(style.color.green * 255)))
-        let blue = max(0, min(255, Int(style.color.blue * 255)))
-        let alphaScale = max(0, min(1, Double(style.color.alpha)))
+        // Clamp before multiplication and integer conversion: a finite Float
+        // can still overflow when multiplied by 255, and Int(NaN) traps.
+        // Keep the existing Float RGB arithmetic and truncation so ordinary
+        // text keeps exactly the same premultiplied pixel values.
+        let red = Int(GPUISceneValue.clamped(style.color.red, lower: 0, upper: 1) * 255)
+        let green = Int(GPUISceneValue.clamped(style.color.green, lower: 0, upper: 1) * 255)
+        let blue = Int(GPUISceneValue.clamped(style.color.blue, lower: 0, upper: 1) * 255)
+        let alphaScale = Double(GPUISceneValue.clamped(style.color.alpha, lower: 0, upper: 1))
 
         var index = 0
         while index + 3 < pixelBytes.count {
@@ -553,10 +558,13 @@ enum GDIRasterTextRenderer {
     }
 
     private static func createFont(for style: PixelTextStyle, scaleFactor: Double) -> HFONT? {
-        withWideString(style.fontFamily) { family in
+        guard let dimensions = fontDimensions(for: style, scaleFactor: scaleFactor) else {
+            return nil
+        }
+        return withWideString(style.fontFamily) { family in
             CreateFontW(
-                -Int32((style.nativeFontPixelSize * scaleFactor).rounded()),
-                style.fontWidth.gdiAverageCharacterWidth(fontSize: style.nativeFontPixelSize, scaleFactor: scaleFactor),
+                -dimensions.height,
+                dimensions.width,
                 0,
                 0,
                 Int32(style.weight.gdiWeight),
@@ -571,6 +579,19 @@ enum GDIRasterTextRenderer {
                 family
             )
         }
+    }
+
+    /// Invalid font sizes decline the native path instead of reaching a
+    /// trapping Int32 conversion (or negating Int32.min for CreateFontW).
+    static func fontDimensions(for style: PixelTextStyle, scaleFactor: Double) -> (height: Int32, width: Int32)? {
+        let fontSize = style.nativeFontPixelSize
+        guard fontSize.isFinite, fontSize > 0, scaleFactor.isFinite, scaleFactor > 0,
+            let height = Int32(exactly: (fontSize * scaleFactor).rounded()),
+            let width = style.fontWidth.gdiAverageCharacterWidth(fontSize: fontSize, scaleFactor: scaleFactor)
+        else {
+            return nil
+        }
+        return (height, width)
     }
 
     private static func baseDrawTextFlags(
@@ -600,7 +621,9 @@ enum GDIRasterTextRenderer {
 
     private static func measureSingleLineWidth(_ text: String, in dc: HDC, scaleFactor: Double) -> Double? {
         var measuredSize = SIZE()
-        let utf16Count = Int32(text.utf16.count)
+        guard let utf16Count = Int32(exactly: text.utf16.count) else {
+            return nil
+        }
         let result = withWideString(text) { wideText in
             GetTextExtentPoint32W(dc, wideText, utf16Count, &measuredSize)
         }
@@ -612,8 +635,8 @@ enum GDIRasterTextRenderer {
         return Double(measuredSize.cx) / max(scaleFactor, 1)
     }
 
-    private static func drawRectForInsets(_ insets: EdgeInsets, width: Int32, height: Int32, scaleFactor: Double)
-        -> RECT
+    static func drawRectForInsets(_ insets: EdgeInsets, width: Int32, height: Int32, scaleFactor: Double)
+        -> RECT?
     {
         let scaledInsets = EdgeInsets(
             top: insets.top * scaleFactor,
@@ -622,12 +645,16 @@ enum GDIRasterTextRenderer {
             trailing: insets.trailing * scaleFactor
         )
 
-        return RECT(
-            left: LONG(Int32(scaledInsets.leading.rounded(.down))),
-            top: LONG(Int32(scaledInsets.top.rounded(.down))),
-            right: LONG(width - Int32(scaledInsets.trailing.rounded(.down))),
-            bottom: LONG(height - Int32(scaledInsets.bottom.rounded(.down)))
-        )
+        // Subtract in Double before checking the final coordinate as well:
+        // a representable negative inset can overflow `width - inset`.
+        guard let left = Int32(exactly: scaledInsets.leading.rounded(.down)),
+            let top = Int32(exactly: scaledInsets.top.rounded(.down)),
+            let right = Int32(exactly: Double(width) - scaledInsets.trailing.rounded(.down)),
+            let bottom = Int32(exactly: Double(height) - scaledInsets.bottom.rounded(.down))
+        else {
+            return nil
+        }
+        return RECT(left: LONG(left), top: LONG(top), right: LONG(right), bottom: LONG(bottom))
     }
 
     private static func colorRef(red: UInt8, green: UInt8, blue: UInt8) -> COLORREF {
@@ -734,7 +761,7 @@ extension TextWeight {
     }
 }
 extension TextFontWidth {
-    fileprivate func gdiAverageCharacterWidth(fontSize: Double, scaleFactor: Double) -> Int32 {
+    fileprivate func gdiAverageCharacterWidth(fontSize: Double, scaleFactor: Double) -> Int32? {
         let multiplier: Double
         switch self {
         case .compressed:
@@ -746,7 +773,7 @@ extension TextFontWidth {
         case .expanded:
             multiplier = 0.66
         }
-        return Int32(max(1, (fontSize * scaleFactor * multiplier).rounded()))
+        return Int32(exactly: max(1, (fontSize * scaleFactor * multiplier).rounded()))
     }
 }
 private func withWideString<Result>(_ string: String, _ body: (UnsafePointer<WCHAR>) -> Result) -> Result {

@@ -2329,10 +2329,9 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// Used by host tests to prove the real WinSwiftUIWindowHost routed converted input.
     var onInputEventRouted: ((WindowHostInputEvent) -> Void)?
 
-    /// Invoked after every frame this host actually presents, with what that
-    /// frame cost and what produced it. This is the seam the live diagnostics
-    /// run measures through: frame timing is a property of the running window,
-    /// and no offscreen snapshot can stand in for it.
+    /// Invoked after a frame returns from the backend, with its CPU cost and
+    /// the work that produced it. This does not acknowledge display completion;
+    /// a backend recovering its device can return without presenting pixels.
     var onFramePresented: ((LiveFrameSample) -> Void)?
 
     /// The runtime this host drives. Exposed so a diagnostics run can read
@@ -2341,19 +2340,14 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         runtime
     }
 
-    /// Wall clock spent rebuilding the view tree since the last presented
-    /// frame drained this, and how many rebuilds that was.
-    ///
-    /// A tree rebuild does not happen inside a frame. It happens in the
-    /// message handler that changed the state — a click on a sidebar row runs
-    /// `reloadContent` synchronously and returns to the wndproc, and only the
-    /// *next* `WM_PAINT` lays the result out and paints it. So the frame
-    /// sample's `sceneBuildSeconds` has never included body evaluation, node
-    /// construction or reconciliation, and a screen switch's most obvious
-    /// cost was the one the frame budget could not see. Charged to the frame
-    /// that ships the rebuild's result, which is where a user experiences it.
+    /// CPU elapsed time spent rebuilding since the last frame sample. A
+    /// rebuild can precede the frame or run inside it when pending observed
+    /// changes are flushed. The frame snapshots this counter before starting
+    /// its own timer so only the earlier work is added to the frame total.
     private var pendingRebuildSeconds: Double = 0
     private var pendingRebuildCount: Int = 0
+    private var isChargingRebuildCost = false
+    private var pendingRebuildPhaseTimingsAvailable = true
     /// The same wall clock split into body evaluation, node construction and
     /// reconciliation, accumulated the same way.
     private var pendingComposeSeconds: Double = 0
@@ -2367,10 +2361,24 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         guard onFramePresented != nil else {
             return body()
         }
+        // Reconciliation callbacks can synchronously reload again. The outer
+        // interval already contains that work; count the invocation without
+        // charging its elapsed time twice. The last phase snapshot can be
+        // overwritten by the nested reload, so exclude it from phase summaries.
+        if isChargingRebuildCost {
+            pendingRebuildPhaseTimingsAvailable = false
+            let result = body()
+            pendingRebuildCount += 1
+            return result
+        }
+        isChargingRebuildCost = true
+        defer { isChargingRebuildCost = false }
         let startedAt = frameClock()
         let result = body()
         pendingRebuildSeconds += frameClock() - startedAt
         pendingRebuildCount += 1
+        pendingRebuildPhaseTimingsAvailable =
+            pendingRebuildPhaseTimingsAvailable && runtime.collectsPhaseTimings
         pendingComposeSeconds += componentHost.lastComposeSeconds
         pendingNodeConstructionSeconds += componentHost.lastNodeConstructionSeconds
         pendingReconcileSeconds += componentHost.lastReconcileSeconds
@@ -2408,12 +2416,10 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     // MARK: - Diagnostics input injection
     //
-    // A live diagnostics run drives these instead of synthesizing Win32
-    // messages. They enter at exactly the point the wndproc enters — the
-    // `WindowDelegate` methods below — but take logical points directly,
-    // because a scripted step reasons in the runtime's coordinate space and
-    // converting to physical only to convert straight back would measure the
-    // conversion twice and hide a scale bug in the process.
+    // A live diagnostics run invokes retained input directly in logical
+    // coordinates, then uses the host's normal frame-request policy. This
+    // bypasses the native message queue, coordinate conversion and input hook;
+    // it is synthetic stress, not native input-to-present measurement.
 
     /// Asks for one frame, so a session has a loop to observe even when the
     /// window is idle and the animation timer is correctly stopped.
@@ -3589,6 +3595,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         // Only paid for when a diagnostics run is listening: `frameClock()` is
         // a QPC round-trip, and this is the frame loop.
         let isSamplingFrames = onFramePresented != nil
+        let outsideFrameRebuildSeconds = pendingRebuildSeconds
         let frameStartedAt = isSamplingFrames ? frameClock() : 0
         // Coalesce @Published changes until a frame is admitted, without
         // invalidating again from inside BeginPaint/EndPaint. A rejected
@@ -3636,6 +3643,10 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                 noteSuccessfulSceneFrame()
             } else {
                 let frame = runtime.renderFrame(at: frameTimestamp)
+                if isSamplingFrames {
+                    sceneBuildEndedAt = frameClock()
+                    bindEndedAt = sceneBuildEndedAt
+                }
                 if shouldSkipIdenticalPresent() {
                     recordSkippedIdenticalPresent(in: window)
                     return false
@@ -3707,8 +3718,10 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             let composeSeconds = pendingComposeSeconds
             let nodeConstructionSeconds = pendingNodeConstructionSeconds
             let reconcileSeconds = pendingReconcileSeconds
+            let rebuildPhaseTimingsAvailable = pendingRebuildPhaseTimingsAvailable && rebuildCount > 0
             pendingRebuildSeconds = 0
             pendingRebuildCount = 0
+            pendingRebuildPhaseTimingsAvailable = true
             pendingComposeSeconds = 0
             pendingNodeConstructionSeconds = 0
             pendingReconcileSeconds = 0
@@ -3718,7 +3731,9 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                     presentedAt: frameEndedAt,
                     totalSeconds: frameEndedAt - frameStartedAt,
                     rebuildSeconds: rebuildSeconds,
+                    outsideFrameRebuildSeconds: outsideFrameRebuildSeconds,
                     rebuildCount: rebuildCount,
+                    rebuildPhaseTimingsAvailable: rebuildPhaseTimingsAvailable,
                     composeSeconds: composeSeconds,
                     nodeConstructionSeconds: nodeConstructionSeconds,
                     reconcileSeconds: reconcileSeconds,
@@ -3728,6 +3743,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                     bindSeconds: bindEndedAt - sceneBuildEndedAt,
                     backendSubmitSeconds: backendDiagnostics?.lastSubmitSeconds ?? 0,
                     backendPresentSeconds: backendDiagnostics?.lastPresentSeconds ?? 0,
+                    backendTimingsAvailable: backendDiagnostics != nil,
                     submitAndPresentSeconds: renderEndedAt - bindEndedAt,
                     didRebuildScene: didRebuildScene,
                     nodeReplayCount: runtime.lastSceneNodeReplayCount,

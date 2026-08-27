@@ -69,25 +69,56 @@ and navigation counts represent attempts. A 30-second request includes the
 warmup and only about 28.2 seconds of scripted interaction; use at least 32
 seconds for approximately 30.2 seconds of this declared stress workload.
 
-`userVisibleCostMs` and the ordering of `costliestUpdates` currently add all
-rebuild time to frame time. Deferred observed-object rebuilds can occur
-inside the measured frame, so that subset is counted twice. Before using
-those totals for acceptance, distinguish rebuilds before the frame from
-rebuilds already included in it and test both, plus mixed intervals, with an
-injected clock. The older explanation below that places all rebuilding in
-the input handler does not cover the current deferred-rebuild path.
+Reports using `swift-windowsui.live-diagnostics/2` separate rebuild time
+before frame entry from rebuilding already inside the frame. `treeRebuildMs`
+still describes all charged rebuild work; `outsideFrameRebuildMs` is the
+subset added to `frameTimeMs` for `userVisibleCostMs` and the ordering of
+`costliestUpdates`. Nested reload intervals are charged once while their
+invocations remain counted. This sum describes CPU work, not input latency:
+it excludes queueing and display completion. The older explanation below
+that places all rebuilding in the input handler describes the historical
+implementation, not the current deferred-rebuild path.
+
+`LiveDiagnosticsAccountingTests` uses an injected clock and real host state
+invalidation to cover a deferred 6 ms rebuild plus 4 ms of remaining frame
+work (10 ms total), a 6 ms rebuild before a 4 ms frame (10 ms), mixed
+intervals, nested reloads, counter reset and failed-frame carryover. These
+are deterministic accounting assertions, not machine performance results.
+
+Schema 2 retains populated statistic names and units, and adds `sampleCount`
+and `hasSamples` to each percentile summary. Empty summaries use JSON `null`
+for p50/p95/p99/max/mean; undefined ratios and missing post-warmup upload
+baselines also use `null`. Consumers must handle those values and the new
+schema version rather than treating missing evidence as zero cost. Samples
+ending at or after 1.5 seconds from the monotonic session start form the
+measured population; no pre-warmup fallback is used. A previous cumulative
+upload sample supplies the baseline, so the first eligible frame's uploads
+are included. `sampling` reports the population size and timestamp span;
+available samples do not establish statistical confidence or qualification.
+
+`frames.bodyEvaluationMs`, `frames.nodeConstructionMs` and
+`frames.reconcileMs` now summarize all eligible post-warmup frames carrying
+rebuilds, not only the eight costly updates. Each value sums the recorded
+phase work charged to that frame, rather than representing one rebuild.
+Frames containing nested reloads are excluded from these phase summaries
+because the last phase snapshot cannot attribute their full work reliably.
+Profiling-disabled snapshots and unavailable backend timing are also
+excluded; the associated summary counts expose the remaining population.
+`LiveDiagnosticsReportTests` covers the JSON schema, warmup boundary,
+missing populations, phase populations, corrected update ordering, and
+explicit measurement limits using synthetic samples.
 
 The report measures CPU phases, `Present` call duration, and callback gaps.
 It does not measure GPU execution, display completion/deadlines, correlated
 input-to-present latency, separate text work, cold-start latency, or first
-interaction latency. Composition/construction/reconciliation details exist
-for selected costly updates, not complete phase percentile summaries. The
-global over-budget counter uses 1.5 refresh intervals, while active/idle
+interaction latency. Resource binding is CPU binding work, not a separate
+upload timer; uploads can occur during submission. The `measurement` and
+`syntheticWorkload` blocks declare these limits and the unchanged script.
+The global over-budget counter uses 1.5 refresh intervals, while active/idle
 blocks use one; neither is a missed-presentation-deadline count. Recovery can
 produce a sample without a completed present, and current reports aggregate
-backends while identifying final backend health. Empty post-warmup sets can
-fall back to pre-warmup samples. Diagnostics also requests idle frames, so it
-does not qualify the normal settled-window scheduler.
+backends while identifying final backend health. Diagnostics also requests
+idle frames, so it does not qualify the normal settled-window scheduler.
 
 For a new capture, record the commit, dirty state, release executable hash,
 command, actual adapter, dimensions/DPI, machine and display information,
@@ -98,6 +129,24 @@ separately from motion capture. Do not delete preferences or change display
 settings to manufacture a result. A unique report path does not isolate the
 demo settings or persisted pacing verdict. A reported 59/60 Hz display does
 not establish physical monitor identity or qualify 120/144 Hz operation.
+
+From the repository root, build and launch the release executable serially
+through the toolchain wrapper (`build.ps1` does not expose configuration,
+and `run-demo.ps1` does not forward diagnostics arguments):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/with-swift.ps1 swift build --package-path . --configuration release --product swift-windowsui
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/with-swift.ps1 .build/x86_64-unknown-windows-msvc/release/swift-windowsui.exe --diagnostics --diagnostics-seconds 32 --diagnostics-output artifacts/perf/<unique-run>/paced.json
+```
+
+Use a unique directory in place of `<unique-run>`. Clear startup-probe exit
+and frame-debug environment overrides before the diagnostics launch, and
+verify the reported backend. An optional separate run with
+`--diagnostics-no-vsync` measures unpaced CPU work, not GPU execution.
+The startup probe remains a separate presenter/initial-render check, not
+a cold-start latency measurement. Existing captures using schema 1 retain
+their original schema and accounting limitations; none are rewritten by
+this correction.
 
 The gates above are counts, on purpose. This section is the other half: what
 the real window actually measured, so the counts can be judged against

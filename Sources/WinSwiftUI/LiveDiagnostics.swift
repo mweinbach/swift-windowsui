@@ -1,31 +1,28 @@
 import Foundation
-
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsPlatform
 
 // MARK: - Frame sample
 
-/// One presented frame, as the host that presented it saw it.
+/// One frame returned by the backend, as timed by the host.
 ///
-/// Timings are wall-clock seconds from the host's frame clock, so they include
-/// everything the main actor did for that frame — scene build, resource bind,
-/// draw submission and present. That is deliberately the user-visible number
-/// and not a GPU timer query: a frame the GPU finished in 2 ms that the UI
-/// thread took 30 ms to hand it is a 30 ms frame to the person looking at the
-/// window.
+/// These are elapsed CPU seconds from the host's monotonic clock, including
+/// scene build, resource binding, submission and the Present call. They do not
+/// measure GPU execution, display completion, or input queueing latency.
 struct LiveFrameSample {
     var presentedAt: Double
     var totalSeconds: Double
-    /// Wall clock spent rebuilding the view tree between the previous
-    /// presented frame and this one, and how many rebuilds that was.
-    ///
-    /// Outside `totalSeconds` by construction — a rebuild runs in the message
-    /// handler that changed the state, not in `WM_PAINT` — and charged here
-    /// because the user pays for it before this frame appears. See
-    /// `WinSwiftUIWindowHost.pendingRebuildSeconds`.
+    /// Rebuild time accumulated since the previous sample. This includes
+    /// deferred rebuilds inside `totalSeconds` as well as earlier rebuilds.
     var rebuildSeconds: Double = 0
+    /// The subset accumulated before this frame started. Only this subset is
+    /// added to `totalSeconds`; nested rebuild intervals are charged once.
+    var outsideFrameRebuildSeconds: Double = 0
     var rebuildCount: Int = 0
+    /// False when profiling was off or a nested reload made the last phase
+    /// snapshots unsuitable for attributing the entire group of rebuilds.
+    var rebuildPhaseTimingsAvailable = false
     /// `rebuildSeconds` split three ways: evaluating `View` bodies into a
     /// `Component` tree, turning that tree into `ViewNode`s, and reconciling
     /// them onto the retained tree.
@@ -38,12 +35,13 @@ struct LiveFrameSample {
     /// where neither happened.
     var layoutSeconds: Double = 0
     var paintSeconds: Double = 0
-    /// `bindResources` — atlas and image uploads.
+    /// CPU resource binding. Upload work can instead occur during submission.
     var bindSeconds: Double
     /// Backend-reported split of `render(scene:)`: work issued vs time spent
     /// waiting in `Present`.
     var backendSubmitSeconds: Double
     var backendPresentSeconds: Double
+    var backendTimingsAvailable = false
     /// `render(scene:)` — draw submission plus `Present`. Split out from the
     /// scene build because "the frame is slow" and "the paint is slow" are
     /// different bugs with different owners, and the whole-frame number alone
@@ -62,6 +60,10 @@ struct LiveFrameSample {
     /// rebuilt: a cache-hit frame ships the scene an earlier frame built and
     /// carries that frame's metrics with it.
     var visitedNodeCount: Int
+
+    /// CPU work charged to this sample without overlapping rebuild intervals.
+    /// The legacy JSON name is retained; this is not input-to-present latency.
+    var userVisibleCostSeconds: Double { outsideFrameRebuildSeconds + totalSeconds }
 }
 
 // MARK: - Configuration
@@ -72,13 +74,13 @@ struct LiveFrameSample {
 /// mode — a diagnostics build that has to be produced specially is a
 /// diagnostics build nobody runs when it matters.
 public struct LiveDiagnosticsConfiguration: Equatable, Sendable {
-    /// Wall-clock seconds the window stays open before it closes itself. A
+    /// Elapsed monotonic seconds the window stays open before it closes itself. A
     /// live run that does not close itself is a run that cannot be scripted.
     public var durationSeconds: Double
     /// Where the JSON report is written.
     public var outputPath: String
-    /// Whether the session drives scripted input (hover sweep, scroll bursts,
-    /// screen switches) through the host's normal input entry points.
+    /// Whether the session drives synthetic retained input (hover sweep,
+    /// scroll bursts and navigation attempts), bypassing native delivery.
     public var exercisesInput: Bool
     /// Whether to unpace presents for the run, so frame times measure the
     /// app's own cost rather than the compositor's vblank wait.
@@ -195,6 +197,7 @@ final class LiveDiagnosticsSession {
     private let configuration: LiveDiagnosticsConfiguration
     private weak var host: WinSwiftUIWindowHost?
     private let clock: () -> Double
+    private let requestClose: @MainActor () -> Void
     private let report: (String) -> Void
 
     private var startedAt: Double?
@@ -204,7 +207,7 @@ final class LiveDiagnosticsSession {
     /// steady-state per-frame cost can be separated from the first-paint
     /// population of an empty atlas.
     private var warmupEndedAt: Double?
-    private var atlasBytesAtWarmupEnd: UInt64 = 0
+    private var atlasBytesAtWarmupEnd: UInt64?
     private var scriptedStepIndex = 0
     private var didExhaustScript = false
     private var didDisableVSync = false
@@ -222,15 +225,19 @@ final class LiveDiagnosticsSession {
     /// would let a slow steady state hide behind a fast start, or the reverse.
     private static let warmupSeconds: Double = 1.5
 
+    /// An injected clock must share the origin of the host's frame timestamps.
+    /// The close callback lets headless report tests avoid posting WM_QUIT.
     init(
         configuration: LiveDiagnosticsConfiguration,
         host: WinSwiftUIWindowHost,
-        clock: @escaping () -> Double = { Date().timeIntervalSince1970 },
+        clock: @escaping () -> Double = { PlatformClock.now() },
+        requestClose: (@MainActor () -> Void)? = nil,
         report: @escaping (String) -> Void = { print("[WinSwiftUI] \($0)") }
     ) {
         self.configuration = configuration
         self.host = host
         self.clock = clock
+        self.requestClose = requestClose ?? { [weak host] in host?.platformWindow.requestClose() }
         self.report = report
     }
 
@@ -277,13 +284,21 @@ final class LiveDiagnosticsSession {
             return
         }
 
+        let previousSample = samples.last
         samples.append(sample)
         host?.requestDiagnosticsFrame()
 
         let elapsed = clock() - startedAt
-        if warmupEndedAt == nil, elapsed >= Self.warmupSeconds {
-            warmupEndedAt = elapsed
-            atlasBytesAtWarmupEnd = sample.atlasUploadedByteCount
+        if warmupEndedAt == nil, sampleElapsed(sample) >= Self.warmupSeconds {
+            warmupEndedAt = sampleElapsed(sample)
+            // The first eligible frame belongs to the measured population,
+            // including its uploads. Its predecessor supplies the baseline;
+            // without one, post-warmup bytes are unknown rather than zero.
+            if let previousSample, previousSample.backendTimingsAvailable,
+                previousSample.backend == sample.backend
+            {
+                atlasBytesAtWarmupEnd = previousSample.atlasUploadedByteCount
+            }
         }
 
         if configuration.capturesMotion {
@@ -412,17 +427,9 @@ final class LiveDiagnosticsSession {
         var action: @MainActor (WinSwiftUIWindowHost) -> Void
     }
 
-    /// A hover sweep, two scroll bursts and two screen switches, on the
-    /// window's real input entry points.
-    ///
-    /// These go through `WinSwiftUIWindowHost`'s `Win32Window` delegate
-    /// methods — the same ones the wndproc calls — rather than through
-    /// `RetainedViewRuntime` directly, so the measurement covers the
-    /// coordinate conversion, the input-rate tracker and the frame-request
-    /// policy, which is where a live session's cost actually lives.
-    /// Interactions per second the sustained phase drives. Well above a human
-    /// hand, deliberately: the point is to keep something animating on every
-    /// frame, not to imitate a user.
+    /// Hover steps per second in synthetic retained input stress. Each third
+    /// step also sends a scroll request; six navigation attempts are added.
+    /// Input is delivered after a sampled frame, not through the native queue.
     private static let sustainedStepsPerSecond: Double = 40
 
     private lazy var script: [ScriptStep] = {
@@ -461,8 +468,8 @@ final class LiveDiagnosticsSession {
                 }
             )
 
-            // Scroll: a notch every third step, alternating direction every
-            // half-second so momentum and the rubber band both stay live.
+            // The retained API takes lines, not raw Win32 wheel detents. This
+            // is an intentionally large 120-line request, not a normal notch.
             if index % 3 == 0 {
                 let goesDown = Int(at * 2.0) % 2 == 0
                 steps.append(
@@ -542,7 +549,7 @@ final class LiveDiagnosticsSession {
             report("Live diagnostics could not write \(configuration.outputPath): \(error)")
         }
 
-        host.platformWindow.requestClose()
+        requestClose()
     }
 
     private func writeReport(_ data: Data) throws {
@@ -564,22 +571,54 @@ final class LiveDiagnosticsSession {
         let refreshRate = max(Int(window.monitorRefreshRate), 1)
         let elapsed = startedAt.map { clock() - $0 } ?? 0
 
-        let steadyStateSamples = samples.filter { sample in
-            guard let startedAt, warmupEndedAt != nil else { return false }
-            return sample.presentedAt > 0 && (clock() - startedAt) > 0
-                && sampleElapsed(sample) >= Self.warmupSeconds
-        }
-        let timedSamples = steadyStateSamples.isEmpty ? samples : steadyStateSamples
+        let timedSamples = samples.filter { sampleElapsed($0) >= Self.warmupSeconds }
 
         var report: [String: Any] = [:]
 
-        report["schema"] = "swift-windowsui.live-diagnostics/1"
+        // Version 2 preserves populated metric names, but unavailable
+        // statistics are null rather than misleading zero measurements.
+        report["schema"] = "swift-windowsui.live-diagnostics/2"
         report["durationSecondsRequested"] = configuration.durationSeconds
         report["durationSecondsActual"] = elapsed
         report["exercisedInput"] = configuration.exercisesInput
         report["vsyncDisabledForRun"] = didDisableVSync
         report["vsyncDisableRequested"] = configuration.disablesVSync
         report["scriptedStepsExecuted"] = executedStepCounts
+        report["sampling"] = [
+            "population": "framesEndingAtOrAfterWarmup",
+            "status": timedSamples.isEmpty ? "noPostWarmupSamples" : "samplesAvailable",
+            "postWarmupSampleCount": timedSamples.count,
+            "warmupExcludedSampleCount": samples.count - timedSamples.count,
+            "postWarmupSampleSpanSeconds": nullable(
+                timedSamples.first.flatMap { first in timedSamples.last.map { $0.presentedAt - first.presentedAt } }),
+            "availableSamplesEstablishQualification": false,
+        ]
+        report["measurement"] = [
+            "inputDelivery": configuration.capturesMotion
+                ? "syntheticMotionScript" : (configuration.exercisesInput ? "syntheticRetainedRuntime" : "none"),
+            "forcedFrameRequests": true,
+            "clock": "monotonic",
+            "frameTimestamp": "hostFrameReturn",
+            "presentTiming": "cpuCallDuration",
+            "resourceBindingTiming": "cpuBindingExcludingSubmissionUploads",
+            "rebuildPhasePopulation": "framesWithCompleteNonNestedRebuildPhaseSnapshots",
+            "userVisibleCostMeaning": "outsideFrameRebuildPlusCPUFrame",
+            "backendHealthScope": "finalSnapshotNotFullRunHistory",
+            "backendReturnCanSkipPresentationDuringRecovery": true,
+            "inputToPresentMeasured": false,
+            "gpuExecutionMeasured": false,
+            "presentationDeadlinesMeasured": false,
+            "coldStartupMeasured": false,
+            "hardwareQualified": false,
+        ]
+        report["syntheticWorkload"] = [
+            "enabled": configuration.exercisesInput && !configuration.capturesMotion,
+            "hoverStepsPerSecond": Self.sustainedStepsPerSecond,
+            "scrollDeltaUnit": "lines",
+            "scrollDeltaMagnitude": 120,
+            "navigationCounts": "attempts",
+            "delivery": "afterFrameWithDueStepsDeliveredTogether",
+        ]
 
         if configuration.capturesMotion {
             var motion: [String: Any] = ["requested": true]
@@ -633,30 +672,40 @@ final class LiveDiagnosticsSession {
                 "dedicatedVideoMemoryBytes": diagnostics.adapterDedicatedVideoMemoryBytes as Any,
                 "featureLevel": diagnostics.featureLevel ?? "<unavailable>",
             ]
-            let warmBytes =
-                diagnostics.atlasUploadedByteCount >= atlasBytesAtWarmupEnd
-                ? diagnostics.atlasUploadedByteCount - atlasBytesAtWarmupEnd : 0
+            var warmBytes: UInt64?
+            var uploadingFrames: Int?
             // Bytes-per-frame divides a handful of large uploads across
             // thousands of frames and reports a steady state that never
             // happened. The frame that pays 1 MB is the frame that hitches, so
             // count the frames that paid anything at all.
-            var uploadingFrames = 0
-            var previousBytes = atlasBytesAtWarmupEnd
-            for sample in timedSamples {
-                if sample.atlasUploadedByteCount > previousBytes {
-                    uploadingFrames += 1
+            if let baseline = atlasBytesAtWarmupEnd, !timedSamples.isEmpty {
+                var previousBytes = baseline
+                var uploadCount = 0
+                var hasContinuousCounters = true
+                for sample in timedSamples {
+                    guard sample.backendTimingsAvailable, sample.atlasUploadedByteCount >= previousBytes else {
+                        hasContinuousCounters = false
+                        break
+                    }
+                    if sample.atlasUploadedByteCount > previousBytes {
+                        uploadCount += 1
+                    }
+                    previousBytes = sample.atlasUploadedByteCount
                 }
-                previousBytes = max(previousBytes, sample.atlasUploadedByteCount)
+                if hasContinuousCounters {
+                    warmBytes = previousBytes - baseline
+                    uploadingFrames = uploadCount
+                }
             }
             report["atlas"] = [
-                "framesThatUploadedAfterWarmup": uploadingFrames,
+                "postWarmupCountersAvailable": warmBytes != nil,
+                "framesThatUploadedAfterWarmup": nullable(uploadingFrames),
                 "fullUploadCount": diagnostics.atlasFullUploadCount,
                 "regionUploadCount": diagnostics.atlasRegionUploadCount,
                 "skippedUploadCount": diagnostics.atlasSkippedUploadCount,
                 "uploadedByteCountTotal": diagnostics.atlasUploadedByteCount,
-                "uploadedByteCountAfterWarmup": warmBytes,
-                "uploadedBytesPerFrameAfterWarmup": timedSamples.isEmpty
-                    ? 0 : Double(warmBytes) / Double(timedSamples.count),
+                "uploadedByteCountAfterWarmup": nullable(warmBytes),
+                "uploadedBytesPerFrameAfterWarmup": ratio(warmBytes.map(Double.init), over: Double(timedSamples.count)),
             ]
         } else {
             report["adapter"] = ["description": "<no batch backend attached>"]
@@ -679,11 +728,13 @@ final class LiveDiagnosticsSession {
         // every frame divides one screen switch by a thousand idle repaints
         // and reports a cost nobody paid.
         let rebuildingSamples = timedSamples.filter { $0.rebuildCount > 0 }
+        let rebuildPhaseSamples = rebuildingSamples.filter(\.rebuildPhaseTimingsAvailable)
+        let backendTimingSamples = timedSamples.filter(\.backendTimingsAvailable)
         let rebuildMs = rebuildingSamples.map { $0.rebuildSeconds * 1000 }.sorted()
         let bindMs = timedSamples.map { $0.bindSeconds * 1000 }.sorted()
         let submitMs = timedSamples.map { $0.submitAndPresentSeconds * 1000 }.sorted()
-        let backendSubmitMs = timedSamples.map { $0.backendSubmitSeconds * 1000 }.sorted()
-        let backendPresentMs = timedSamples.map { $0.backendPresentSeconds * 1000 }.sorted()
+        let backendSubmitMs = backendTimingSamples.map { $0.backendSubmitSeconds * 1000 }.sorted()
+        let backendPresentMs = backendTimingSamples.map { $0.backendPresentSeconds * 1000 }.sorted()
         let refreshIntervalMs = 1000.0 / Double(refreshRate)
         let droppedEstimate = frameTimesMs.filter { $0 > refreshIntervalMs * 1.5 }.count
         // The spacing of presented frames, which the frame-time percentiles
@@ -700,14 +751,22 @@ final class LiveDiagnosticsSession {
             "presentedTotal": samples.count,
             "presentedAfterWarmup": timedSamples.count,
             "warmupSeconds": Self.warmupSeconds,
-            "framesPerSecondOverRun": elapsed > 0 ? Double(samples.count) / elapsed : 0,
+            "framesPerSecondOverRun": ratio(Double(samples.count), over: elapsed),
             "frameTimeMs": percentileSummary(frameTimesMs),
             "sceneBuildMs": percentileSummary(sceneBuildMs),
             // What a screen switch actually costs, in the three parts that
             // have three different fixes: rebuilding the tree, laying it out,
             // painting it.
             "treeRebuildMs": percentileSummary(rebuildMs),
+            "outsideFrameRebuildMs": percentileSummary(
+                rebuildingSamples.map { $0.outsideFrameRebuildSeconds * 1000 }.sorted()),
+            "userVisibleCostMs": percentileSummary(rebuildingSamples.map { $0.userVisibleCostSeconds * 1000 }.sorted()),
+            "bodyEvaluationMs": percentileSummary(rebuildPhaseSamples.map { $0.composeSeconds * 1000 }.sorted()),
+            "nodeConstructionMs": percentileSummary(
+                rebuildPhaseSamples.map { $0.nodeConstructionSeconds * 1000 }.sorted()),
+            "reconcileMs": percentileSummary(rebuildPhaseSamples.map { $0.reconcileSeconds * 1000 }.sorted()),
             "framesCarryingATreeRebuild": rebuildingSamples.count,
+            "framesWithRebuildPhaseTimings": rebuildPhaseSamples.count,
             "treeRebuildsTotal": timedSamples.reduce(0) { $0 + $1.rebuildCount },
             "bindResourcesMs": percentileSummary(bindMs),
             "submitAndPresentMs": percentileSummary(submitMs),
@@ -715,9 +774,9 @@ final class LiveDiagnosticsSession {
             "backendPresentMs": percentileSummary(backendPresentMs),
             "presentGapMs": percentileSummary(presentGapsMs),
             "refreshIntervalMs": refreshIntervalMs,
+            "frameBudgetThresholdRefreshIntervals": 1.5,
             "framesOverRefreshBudget": droppedEstimate,
-            "framesOverRefreshBudgetFraction": frameTimesMs.isEmpty
-                ? 0 : Double(droppedEstimate) / Double(frameTimesMs.count),
+            "framesOverRefreshBudgetFraction": ratio(Double(droppedEstimate), over: Double(frameTimesMs.count)),
             // The whole-run percentiles above average an animating frame
             // together with an idle repaint, and in a session that is mostly
             // idle the animating cost disappears into the tail. Animation
@@ -740,27 +799,20 @@ final class LiveDiagnosticsSession {
             .prefix(8)
             .map(frameDetail)
 
-        // The frame budget is what a frame costs; an update is what a *user
-        // action* costs, and the two differ by exactly the rebuild that
-        // happened outside the frame. Ranked on the sum, so the screen switch
-        // that rebuilds for 6 ms and then paints for 4 sorts above the frame
-        // that merely painted for 5.
+        // Only the rebuild work before frame entry is additional CPU work.
+        // Deferred rebuilds are already included in totalSeconds. This sum
+        // excludes input queueing and is not an end-to-end latency measure.
         let costliestUpdates = rebuildingSamples.sorted {
-            ($0.rebuildSeconds + $0.totalSeconds) > ($1.rebuildSeconds + $1.totalSeconds)
+            $0.userVisibleCostSeconds > $1.userVisibleCostSeconds
         }
         report["costliestUpdates"] = costliestUpdates.prefix(8).map(frameDetail)
 
         let rebuilds = timedSamples.filter(\.didRebuildScene).count
         let animatingSamples = timedSamples.filter(\.hadActiveAnimations)
         let animatingRebuilds = animatingSamples.filter(\.didRebuildScene).count
-        let drawCalls = timedSamples.map { Double($0.drawCallCount) }.sorted()
-        let drawnInstances = timedSamples.reduce(0) { $0 + $1.drawnInstanceCount }
-        let totalDrawCalls = timedSamples.reduce(0) { $0 + $1.drawCallCount }
-        let animatingReplayRate: Double =
-            animatingSamples.isEmpty
-            ? 0 : Double(animatingSamples.count - animatingRebuilds) / Double(animatingSamples.count)
-        let coalescingRatio: Double =
-            totalDrawCalls == 0 ? 0 : Double(drawnInstances) / Double(totalDrawCalls)
+        let drawCalls = backendTimingSamples.map { Double($0.drawCallCount) }.sorted()
+        let drawnInstances = backendTimingSamples.reduce(0) { $0 + $1.drawnInstanceCount }
+        let totalDrawCalls = backendTimingSamples.reduce(0) { $0 + $1.drawCallCount }
         var scene: [String: Any] = [:]
         scene["runtimeSceneRebuildCount"] = host.hostedRuntime.sceneRebuildCount
         scene["runtimeSceneCacheHitCount"] = host.hostedRuntime.sceneCacheHitCount
@@ -776,7 +828,8 @@ final class LiveDiagnosticsSession {
         // 99 % replay rate over an idle session says nothing about it.
         scene["animatingFramesThatRebuiltScene"] = animatingRebuilds
         scene["animatingFramesThatReplayedScene"] = animatingSamples.count - animatingRebuilds
-        scene["animatingReplayRate"] = animatingReplayRate
+        scene["animatingReplayRate"] = ratio(
+            Double(animatingSamples.count - animatingRebuilds), over: Double(animatingSamples.count))
         // Subtree replay, on the frames where it is the only thing standing
         // between an animation and a full-tree repaint. Reported over the
         // rebuild frames alone: a whole-scene cache hit reports zero replayed
@@ -803,7 +856,7 @@ final class LiveDiagnosticsSession {
         scene["lastPrimitiveCount"] = samples.last?.primitiveCount ?? 0
         scene["maxPrimitiveCount"] = samples.map(\.primitiveCount).max() ?? 0
         scene["drawCallsPerFrame"] = percentileSummary(drawCalls)
-        scene["drawCoalescingRatio"] = coalescingRatio
+        scene["drawCoalescingRatio"] = ratio(Double(drawnInstances), over: Double(totalDrawCalls))
         scene["gpuPromotionRate"] = health.lastScenePaintMetrics.gpuPromotionRate
         scene["pathsRasterizedOnCPU"] = health.lastScenePaintMetrics.pathsRasterizedOnCPU
         scene["pathsPromotedToGPU"] = health.lastScenePaintMetrics.pathsPromotedToGPU
@@ -827,19 +880,22 @@ final class LiveDiagnosticsSession {
         [
             "atSeconds": sampleElapsed(sample),
             "frameTimeMs": sample.totalSeconds * 1000,
-            // Outside `frameTimeMs`: the rebuild ran before this frame did.
+            // Total rebuild work can overlap the frame's own CPU interval.
             "treeRebuildMs": sample.rebuildSeconds * 1000,
+            "outsideFrameRebuildMs": sample.outsideFrameRebuildSeconds * 1000,
             "treeRebuildCount": sample.rebuildCount,
-            "bodyEvaluationMs": sample.composeSeconds * 1000,
-            "nodeConstructionMs": sample.nodeConstructionSeconds * 1000,
-            "reconcileMs": sample.reconcileSeconds * 1000,
-            "userVisibleCostMs": (sample.rebuildSeconds + sample.totalSeconds) * 1000,
+            "rebuildPhaseTimingsAvailable": sample.rebuildPhaseTimingsAvailable,
+            "bodyEvaluationMs": nullable(sample.rebuildPhaseTimingsAvailable ? sample.composeSeconds * 1000 : nil),
+            "nodeConstructionMs": nullable(
+                sample.rebuildPhaseTimingsAvailable ? sample.nodeConstructionSeconds * 1000 : nil),
+            "reconcileMs": nullable(sample.rebuildPhaseTimingsAvailable ? sample.reconcileSeconds * 1000 : nil),
+            "userVisibleCostMs": sample.userVisibleCostSeconds * 1000,
             "sceneBuildMs": sample.sceneBuildSeconds * 1000,
             "layoutMs": sample.layoutSeconds * 1000,
             "paintMs": sample.paintSeconds * 1000,
             "bindResourcesMs": sample.bindSeconds * 1000,
-            "backendSubmitMs": sample.backendSubmitSeconds * 1000,
-            "backendPresentMs": sample.backendPresentSeconds * 1000,
+            "backendSubmitMs": nullable(sample.backendTimingsAvailable ? sample.backendSubmitSeconds * 1000 : nil),
+            "backendPresentMs": nullable(sample.backendTimingsAvailable ? sample.backendPresentSeconds * 1000 : nil),
             "didRebuildScene": sample.didRebuildScene,
             "nodeReplayCount": sample.nodeReplayCount,
             "visitedNodeCount": sample.visitedNodeCount,
@@ -856,27 +912,32 @@ final class LiveDiagnosticsSession {
         refreshIntervalMs: Double
     ) -> [String: Any] {
         let totals = population.map { $0.totalSeconds * 1000 }.sorted()
+        let backendTimingSamples = population.filter(\.backendTimingsAvailable)
         let overBudget = totals.filter { $0 > refreshIntervalMs }.count
         return [
             "frameCount": population.count,
             "frameTimeMs": percentileSummary(totals),
             "sceneBuildMs": percentileSummary(population.map { $0.sceneBuildSeconds * 1000 }.sorted()),
-            "backendSubmitMs": percentileSummary(population.map { $0.backendSubmitSeconds * 1000 }.sorted()),
-            "backendPresentMs": percentileSummary(population.map { $0.backendPresentSeconds * 1000 }.sorted()),
+            "backendSubmitMs": percentileSummary(backendTimingSamples.map { $0.backendSubmitSeconds * 1000 }.sorted()),
+            "backendPresentMs": percentileSummary(
+                backendTimingSamples.map { $0.backendPresentSeconds * 1000 }.sorted()),
+            "frameBudgetThresholdRefreshIntervals": 1,
             "framesOverRefreshBudget": overBudget,
-            "framesOverRefreshBudgetFraction": totals.isEmpty
-                ? 0 : Double(overBudget) / Double(totals.count),
+            "framesOverRefreshBudgetFraction": ratio(Double(overBudget), over: Double(totals.count)),
         ]
     }
 
     private func sampleElapsed(_ sample: LiveFrameSample) -> Double {
-        guard let firstSample = samples.first else { return 0 }
-        return sample.presentedAt - firstSample.presentedAt
+        guard let startedAt else { return 0 }
+        return sample.presentedAt - startedAt
     }
 
-    private func percentileSummary(_ sortedValues: [Double]) -> [String: Double] {
+    private func percentileSummary(_ sortedValues: [Double]) -> [String: Any] {
         guard !sortedValues.isEmpty else {
-            return ["p50": 0, "p95": 0, "p99": 0, "max": 0, "mean": 0]
+            return [
+                "sampleCount": 0, "hasSamples": false,
+                "p50": NSNull(), "p95": NSNull(), "p99": NSNull(), "max": NSNull(), "mean": NSNull(),
+            ]
         }
 
         func percentile(_ fraction: Double) -> Double {
@@ -885,11 +946,22 @@ final class LiveDiagnosticsSession {
         }
 
         return [
+            "sampleCount": sortedValues.count,
+            "hasSamples": true,
             "p50": percentile(0.50),
             "p95": percentile(0.95),
             "p99": percentile(0.99),
             "max": sortedValues[sortedValues.count - 1],
             "mean": sortedValues.reduce(0, +) / Double(sortedValues.count),
         ]
+    }
+
+    private func nullable<T>(_ value: T?) -> Any {
+        value.map { $0 as Any } ?? NSNull()
+    }
+
+    private func ratio(_ numerator: Double?, over denominator: Double) -> Any {
+        guard let numerator, denominator > 0 else { return NSNull() }
+        return numerator / denominator
     }
 }

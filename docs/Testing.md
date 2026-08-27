@@ -133,6 +133,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   CPU/WARP affine placement, failure markers, atlas ownership, and PixelFont
   spacing. Primitive layout and renderer buffer tests enforce the 80-byte image
   ABI. These tests do not establish native SwiftUI symbol or full layer parity.
+- `LiveDiagnosticsAccountingTests` and `LiveDiagnosticsReportTests` cover
+  rebuild intervals before/inside a frame, nested reloads, carryover, monotonic
+  warmup, phase populations, and schema-2 nulls for missing evidence. Their
+  injected clocks prove accounting, not hardware timing. Report tests replace
+  window closure with a test callback and never post a process quit message.
 - `ModalPresentationIsolationTests` and `DemoRendererIdentityTests` cover
   topmost modal focus/accessibility/shortcut isolation and renderer identities
   that remain accurate when the app switches between D3D11 and software.

@@ -776,6 +776,15 @@ builder allocation bounds, native symbol sizing/tag behavior, and hardware
 qualification are not established by this implementation; details are in
 `docs/CanvasSymbols.md`.
 
+Diagnostic accounting now separates rebuild work before frame entry from work
+already inside the frame and charges nested reload intervals once. Report
+schema 2 keeps metric units but adds sample counts and uses null for missing
+statistics, with no pre-warmup fallback. It publishes the available body,
+construction, and reconciliation percentiles and labels synthetic input,
+CPU timing, forced frames, and unavailable qualification measurements.
+Fifteen injected-clock/report tests await integrated execution. Historical
+reports are unchanged, and no new machine performance result is implied.
+
 ### Additional state lifetime acceptance detail
 
 A source audit found that the current State and StateObject wrappers follow
@@ -848,3 +857,16 @@ actual installed-font pixels or require the explicit vector fallback. All
 12 tests pass locally; production fallback selection is unchanged. This is
 not a green hosted result for the new candidate. That exact-revision run
 still has to execute after the validated commit batch is pushed.
+
+The first combined push is `4e14693`. Its
+[portable CI run](https://github.com/mweinbach/swift-windowsui/actions/runs/33101129537)
+passed on Ubuntu 24.04 and macOS 15. The
+[Windows CI run](https://github.com/mweinbach/swift-windowsui/actions/runs/33101129485)
+passed contracts and started Full validation; its final result is pending.
+The [pinned SDK candidate run](https://github.com/mweinbach/swift-windowsui/actions/runs/33101129489)
+failed before running the exporter: checkout credential cleanup could not find
+a `.gitmodules` URL for the existing `extern/zed` gitlink. The later upload
+found no evidence directory and the run has zero artifacts. No Xcode, SDK,
+compiler identity, or API inventory was captured. A verified metadata mapping
+and a bounded checkout fixture are being integrated without fetching or
+editing the reference checkout, changing SDK pins, or retaining credentials.

@@ -423,10 +423,12 @@ and frame caches held the old pixels until the overlay disappeared. Removing
 a fill cancels its colour channels, and moving a node to another runtime
 cancels its former runtime's colour tweens. Completion writes exact declared
 endpoints, including zero-duration and submillisecond animations.
+New scalar animations on one reconciled node share a single lazily sampled
+start time, so width and height do not drift apart within the same update.
 
 `RuntimeAnimationGatingTests`, `ContinuousAnimationCrossViewTests` and the
-animation cases in `WinSwiftUITests` exercise these timelines with injected
-clocks and intermediate rendered output.
+animation cases in `WinSwiftUIVisualModifierTests` exercise these timelines with
+injected clocks and intermediate rendered output.
 
 The window host advances that clock for every admitted presentation, including
 `WM_PAINT`, after the frame-pacing gate. Previously only `WM_TIMER` advanced

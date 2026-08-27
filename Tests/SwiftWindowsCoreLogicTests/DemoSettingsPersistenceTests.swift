@@ -271,11 +271,15 @@ final class DemoSettingsPersistenceTests: XCTestCase {
             of: DemoRootView(model: failing), size: IntSize(width: 800, height: 600), colorScheme: .dark)
         var nodes = [failureSnapshot.runtime.root]
         var foundFailure = false
+        var foundSampleDisclosure = false
         while let node = nodes.popLast() {
             foundFailure = foundFailure || node.text?.contains("Could not save settings") == true
+            foundSampleDisclosure =
+                foundSampleDisclosure || node.text == "Sample preference; this demo sends no telemetry"
             nodes.append(contentsOf: node.children)
         }
         XCTAssertTrue(foundFailure, "The error must be in the rendered, accessible view tree")
+        XCTAssertTrue(foundSampleDisclosure, "Saved sample flags must not claim a working telemetry integration")
         XCTAssertTrue(failing.hasUnsavedSettings)
     }
 

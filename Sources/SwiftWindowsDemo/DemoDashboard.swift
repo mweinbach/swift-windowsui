@@ -3729,7 +3729,7 @@ struct DemoSettingsScreen: View {
                         // starts being a document.
                         DemoSettingsRow(
                             title: "Share Usage Data",
-                            description: "Send anonymous frame timings to the render team"
+                            description: "Sample preference; this demo sends no telemetry"
                         ) {
                             Toggle("Share Usage Data", isOn: $model.shareUsageData)
                                 .labelsHidden()

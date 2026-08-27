@@ -562,6 +562,61 @@ preserve edits on cancellation or failure, and close exactly once after an
 approved result. These remain requirements of the original document lifecycle,
 text/input, and template gates; a successful dialog alone closes none of them.
 
+### First integrated validation checkpoint
+
+The first complete local validation checkpoint is revision `e4ec609` on
+2026-08-27. Its production source and tests include the corrected disabled-List
+regression check from `14603fc`; the later commit only adds audit detail.
+
+- The focused implementation run passed 344 XCTest and 16 Swift Testing
+  cases. The separate disabled-List recheck passed all eight cases.
+- All 356 Swift files passed strict lint; the final List test correction also
+  passed an individual format/lint check. Architecture contracts passed before
+  implementation and again in the validation ladder.
+- Quick passed from its first step after the obsolete List expectation was
+  replaced with virtualization, blocked-input, and programmatic-access checks.
+  It reported 994 XCTest cases and nine Swift Testing cases, with no failures.
+- Full passed the portable tests, all 160 Windows test shards, app build,
+  scene/frame screenshots, dark/light gallery screenshots, and all 85 reviewed
+  gallery baselines within their existing thresholds. It reported 3,403
+  XCTest cases and 134 Swift Testing cases, with no failures. These are
+  reported executions, including the portable check followed by the full suite,
+  not a claimed count of distinct product requirements.
+- Both Quick and Full retained one existing skipped case,
+  `testMaterialInsideADrawingGroupBlursNothing`. Materials inside offscreen
+  groups still lack the parent backdrop. This is an unresolved rendering
+  requirement, not a waived acceptance condition or a passing feature test.
+- The real-window startup probes completed their initial render and selected
+  D3D11 scene presentation by default and Direct2D frame presentation under
+  the explicit frame-debug override. They do not qualify long-session pacing,
+  display changes, recovery, IME, or Narrator workflows.
+
+Evidence remains under `artifacts/`: `goal-integrated-validation-v2.log`,
+`goal-list-virtualization-recheck.log`, `goal-all-swift-lint.log`,
+`goal-agent-check-quick-v3.log`, `goal-agent-check-full.log`, both
+`goal-native-*-probe.log` files, and the gallery comparison reports. Dashboard
+and dark/light gallery images were opened and inspected as raw retained
+renders. No baseline was regenerated to hide a mismatch. The gallery still
+has 144 rendered fixtures and 85 reviewed regression entries; those counts
+describe different sets.
+
+The Settings render also exposed misleading existing copy about sending
+telemetry. The pane now identifies that toggle as a sample preference and
+states that the demo sends no telemetry, with a rendered-tree assertion in
+the persistence workflow test. Persisting a flag is not a service integration.
+
+Subsequent review found another concrete state-lifetime issue before push:
+the new gallery observation values are held on the app-wide model, so one
+window can display another window's offset, visibility, or scroll phase.
+Long-press presentation state would have the same problem if stored there.
+The correction must give each managed window its own interaction state while
+preserving shared authored preferences and same-window rebuild continuity.
+Non-data WindowGroup content is currently constructed once and reused, so
+fresh per-window content construction is part of that correction. The general
+nested StateObject lifetime remains a separate audited gap; a demo ownership
+fix must not be presented as full property-wrapper conformance. The checkpoint
+above predates this correction and must be rerun after integration.
+
 ### Hosted validation follow-up
 
 The starting revision's [Windows CI run](https://github.com/mweinbach/swift-windowsui/actions/runs/33081745181)

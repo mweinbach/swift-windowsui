@@ -5379,7 +5379,7 @@ public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View {
     ) -> [AnyView] {
         var views: [AnyView] = []
         for (elementIndex, element) in data.enumerated() {
-            let elementID = String(describing: element[keyPath: id])
+            let elementID = element[keyPath: id]
             let elementViews = content(element)
             for (index, view) in elementViews.enumerated() {
                 views.append(
@@ -20635,9 +20635,11 @@ public struct Canvas: View {
     public typealias Body = Never
 
     private let renderer: @MainActor (inout GraphicsContext, CGSize) -> Void
+    private let symbols: (@MainActor () -> [AnyView])?
 
     public init(renderer: @escaping @MainActor (inout GraphicsContext, CGSize) -> Void) {
         self.renderer = renderer
+        self.symbols = nil
     }
 
     public init<F: View>(
@@ -20645,6 +20647,15 @@ public struct Canvas: View {
         symbols: @escaping () -> F
     ) {
         self.renderer = renderer
+        self.symbols = { [AnyView(symbols())] }
+    }
+
+    public init(
+        renderer: @escaping @MainActor (inout GraphicsContext, CGSize) -> Void,
+        @ViewBuilder symbols: @escaping @MainActor () -> [AnyView]
+    ) {
+        self.renderer = renderer
+        self.symbols = symbols
     }
 
     public var body: Never {
@@ -20652,13 +20663,23 @@ public struct Canvas: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let canvas = SwiftWindowsUI.UI.canvas { runtimeContext, size in
-            var graphicsContext = GraphicsContext()
-            graphicsContext.underlying = runtimeContext
-            self.renderer(&graphicsContext, size)
-            runtimeContext = graphicsContext.underlying
-        }
         return Component { runtime in
+            let canvas = SwiftWindowsUI.UI.canvas { [weak runtime] runtimeContext, size in
+                var graphicsContext = GraphicsContext()
+                graphicsContext.underlying = runtimeContext
+                if let symbols = self.symbols {
+                    var environment = context.environmentValues
+                    environment.displayScale = runtime?.displayScale ?? context.displayScale
+                    let resolver = CanvasSymbolResolver(
+                        symbols: symbols,
+                        context: context.withCanvasSize(size).withEnvironmentValues(environment))
+                    graphicsContext.symbolResolver = { resolver.resolve($0) }
+                }
+                ViewBuildContextScope.withCurrent(context) {
+                    self.renderer(&graphicsContext, size)
+                }
+                runtimeContext = graphicsContext.underlying
+            }
             let node = canvas.makeNode(runtime: runtime)
             node.layoutFillAxes = .both
             return node

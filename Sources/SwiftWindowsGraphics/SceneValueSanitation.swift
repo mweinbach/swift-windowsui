@@ -309,6 +309,7 @@ public enum GPUISceneSanitizer {
         guard image.screenX.isFinite, image.screenY.isFinite, image.screenW.isFinite, image.screenH.isFinite else {
             return nil
         }
+        guard image.hasValidAffineMatrix else { return nil }
         guard clipIsRepresentable(image.clipX, image.clipY, image.clipWidth, image.clipHeight) else {
             return nil
         }
@@ -329,6 +330,7 @@ public enum GPUISceneSanitizer {
         result.uvH = GPUISceneValue.clamped(image.uvH, to: GPUISceneLimits.maxTextureCoordinate)
         result.opacity = GPUISceneValue.clamped(image.opacity, lower: 0, upper: 1)
         result.rotationRadians = image.rotationRadians.isFinite ? image.rotationRadians : 0
+        guard result.affinePlacementDefect == nil else { return nil }
         return result
     }
 
@@ -593,6 +595,8 @@ public struct SceneDefect: Equatable, Sendable, CustomStringConvertible {
         /// overruns) its pixel buffer.
         case glyphAtlasBufferMismatch(width: Int32, height: Int32, byteCount: Int, requiredByteCount: Int)
         case invalidImageRenderPass(textureID: Int32, reason: String)
+        /// A hand-built image bypassed the affine placement admission check.
+        case invalidImagePlacement(layerIndex: Int, imageIndex: Int, reason: String)
     }
 
     public var kind: Kind
@@ -616,6 +620,8 @@ public struct SceneDefect: Equatable, Sendable, CustomStringConvertible {
             return "Glyph atlas is \(width)×\(height) but holds \(byteCount) bytes (needs \(requiredByteCount))."
         case .invalidImageRenderPass(let textureID, let reason):
             return "Scene image render pass \(textureID) is invalid: \(reason)."
+        case .invalidImagePlacement(let layerIndex, let imageIndex, let reason):
+            return "Layer \(layerIndex) image \(imageIndex) has invalid placement: \(reason)."
         }
     }
 }
@@ -657,7 +663,7 @@ extension GlyphAtlasSnapshot {
 extension GPUIScene {
     /// Structural defects a backend would otherwise trap on.
     ///
-    /// Cheap by construction — O(layers + paint operations), no
+    /// Cheap by construction — O(layers + paint operations + images), no
     /// allocation until something is actually wrong — so backends call it
     /// on every frame rather than only in debug builds. A trap cannot be
     /// downgraded by the host's fallback policy; a thrown
@@ -678,6 +684,14 @@ extension GPUIScene {
         }
 
         for (layerIndex, layer) in layers.enumerated() {
+            for (imageIndex, image) in layer.images.enumerated() {
+                if let reason = image.affinePlacementDefect {
+                    defects.append(
+                        SceneDefect(
+                            kind: .invalidImagePlacement(
+                                layerIndex: layerIndex, imageIndex: imageIndex, reason: reason)))
+                }
+            }
             for (operationIndex, operation) in layer.paintOperations.enumerated() {
                 let familyCount: Int
                 switch operation.kind {

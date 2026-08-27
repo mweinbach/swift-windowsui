@@ -475,7 +475,7 @@ public struct GlyphPrimitive: Equatable, Sendable {
 // MARK: - Image Primitive
 
 /// A texture-mapped quad, designed for direct upload to a D3D11 structured
-/// buffer. Total: 16 fields = 64 bytes (divisible by 16).
+/// buffer. Total: 20 fields = 80 bytes (divisible by 16).
 @frozen
 public struct ImagePrimitive: Equatable, Sendable {
     // Screen destination
@@ -505,9 +505,15 @@ public struct ImagePrimitive: Equatable, Sendable {
     // aligned (the historic fast path). This is what lets a composited
     // offscreen pass — a `.drawingGroup()`, or the bitmap a rotated
     // `clipsToBounds` subtree renders into — land turned rather than
-    // squared off into its own bounding box. The slot used to be `_pad1`,
-    // so the stride is unchanged at 64 bytes.
+    // squared off into its own bounding box.
     public var rotationRadians: Float
+    // The affine basis acts on local offsets from the destination centre,
+    // before rotationRadians: x' = A*x + C*y, y' = B*x + D*y. Identity keeps
+    // the historic placement; a negative determinant preserves reflections.
+    public var affineA: Float
+    public var affineB: Float
+    public var affineC: Float
+    public var affineD: Float
 
     public init(
         screenX: Float = 0, screenY: Float = 0, screenW: Float = 0, screenH: Float = 0,
@@ -516,7 +522,8 @@ public struct ImagePrimitive: Equatable, Sendable {
         clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0,
         clipCornerRadius: Float = 0,
         textureID: Int32 = 0,
-        rotationRadians: Float = 0
+        rotationRadians: Float = 0,
+        affineA: Float = 1, affineB: Float = 0, affineC: Float = 0, affineD: Float = 1
     ) {
         self.screenX = screenX
         self.screenY = screenY
@@ -534,6 +541,10 @@ public struct ImagePrimitive: Equatable, Sendable {
         self.textureID = textureID
         self.clipCornerRadius = clipCornerRadius
         self.rotationRadians = rotationRadians
+        self.affineA = affineA
+        self.affineB = affineB
+        self.affineC = affineC
+        self.affineD = affineD
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }
@@ -547,6 +558,129 @@ public struct ImagePrimitive: Equatable, Sendable {
             GPUIClipEncoding.encode(
                 newValue.bounds, into: &clipX, &clipY, &clipWidth, &clipHeight)
         }
+    }
+}
+
+extension ImagePrimitive {
+    var hasIdentityAffineTransform: Bool {
+        affineA == 1 && affineB == 0 && affineC == 0 && affineD == 1
+    }
+
+    /// Invalid bases cannot be repaired by clamping: doing that would paint
+    /// a different parallelogram. Double products exactly represent the
+    /// products of these Float coefficients, including very small scales.
+    var hasValidAffineMatrix: Bool {
+        guard affineA.isFinite, affineB.isFinite, affineC.isFinite, affineD.isFinite else { return false }
+        let determinant = Double(affineA) * Double(affineD) - Double(affineB) * Double(affineC)
+        return determinant.isFinite && determinant != 0
+    }
+
+    var affinePlacementDefect: String? {
+        guard hasValidAffineMatrix else { return "affine matrix is nonfinite or singular" }
+        guard rotationRadians.isFinite else { return "rotation is nonfinite" }
+        guard ImagePlacementGeometry(self) != nil else {
+            return "affine placement is not representable within the scene coordinate limit"
+        }
+        return nil
+    }
+}
+
+/// One renderer-neutral model for affine image bounds and inverse sampling.
+/// The clip stays in world coordinates; only geometry and source UVs move.
+struct ImagePlacementGeometry {
+    let bounds: Rect
+    private let centreX: Double
+    private let centreY: Double
+    private let cosR: Double
+    private let sinR: Double
+    private let inverseA: Double
+    private let inverseB: Double
+    private let inverseC: Double
+    private let inverseD: Double
+    private let includesLeft: Bool
+    private let includesRight: Bool
+    private let includesTop: Bool
+    private let includesBottom: Bool
+
+    init?(_ image: ImagePrimitive) {
+        guard image.hasValidAffineMatrix,
+            image.screenX.isFinite, image.screenY.isFinite,
+            image.screenW.isFinite, image.screenH.isFinite,
+            image.rotationRadians.isFinite,
+            image.screenW >= 0, image.screenH >= 0
+        else { return nil }
+
+        let a = Double(image.affineA)
+        let b = Double(image.affineB)
+        let c = Double(image.affineC)
+        let d = Double(image.affineD)
+        let determinant = a * d - b * c
+        let angle = Double(image.rotationRadians)
+        let cosR = cos(angle)
+        let sinR = sin(angle)
+        let halfW = Double(image.screenW) * 0.5
+        let halfH = Double(image.screenH) * 0.5
+        let centreX = Double(image.screenX) + halfW
+        let centreY = Double(image.screenY) + halfH
+        let basisA = cosR * a - sinR * b
+        let basisB = sinR * a + cosR * b
+        let basisC = cosR * c - sinR * d
+        let basisD = sinR * c + cosR * d
+        let extentX = abs(basisA) * halfW + abs(basisC) * halfH
+        let extentY = abs(basisB) * halfW + abs(basisD) * halfH
+        let bounds = Rect(x: centreX - extentX, y: centreY - extentY, width: extentX * 2, height: extentY * 2)
+
+        // Existing identity-basis scenes keep their established sanitation
+        // and rotation behavior. New affine placements must keep the entire
+        // transformed footprint within the shared coordinate magnitude cap.
+        if !image.hasIdentityAffineTransform {
+            let limit = Double(GPUISceneLimits.maxCoordinate)
+            guard bounds.minX >= -limit, bounds.minY >= -limit,
+                bounds.maxX <= limit, bounds.maxY <= limit,
+                bounds.size.width <= limit, bounds.size.height <= limit
+            else { return nil }
+        }
+
+        self.bounds = bounds
+        self.centreX = centreX
+        self.centreY = centreY
+        self.cosR = cosR
+        self.sinR = sinR
+        inverseA = d / determinant
+        inverseB = -b / determinant
+        inverseC = -c / determinant
+        inverseD = a / determinant
+        // D3D's top/left fill rule applies in world space. A reflection
+        // reverses winding, so source-left can become the excluded right
+        // edge. Testing only the untransformed half-open rect gets pixels
+        // exactly on those reflected edges wrong.
+        let winding: Double = determinant > 0 ? 1 : -1
+        includesLeft = Self.isTopLeftEdge(dx: -winding * basisC, dy: -winding * basisD)
+        includesRight = Self.isTopLeftEdge(dx: winding * basisC, dy: winding * basisD)
+        includesTop = Self.isTopLeftEdge(dx: winding * basisA, dy: winding * basisB)
+        includesBottom = Self.isTopLeftEdge(dx: -winding * basisA, dy: -winding * basisB)
+    }
+
+    func localPoint(worldX: Double, worldY: Double) -> (Double, Double) {
+        let dx = worldX - centreX
+        let dy = worldY - centreY
+        let unrotatedX = cosR * dx + sinR * dy
+        let unrotatedY = -sinR * dx + cosR * dy
+        return (
+            inverseA * unrotatedX + inverseC * unrotatedY + centreX,
+            inverseB * unrotatedX + inverseD * unrotatedY + centreY
+        )
+    }
+
+    func geometryCovers(localX: Double, localY: Double, rect: Rect) -> Bool {
+        (localX > rect.minX || (includesLeft && localX == rect.minX))
+            && (localX < rect.maxX || (includesRight && localX == rect.maxX))
+            && (localY > rect.minY || (includesTop && localY == rect.minY))
+            && (localY < rect.maxY || (includesBottom && localY == rect.maxY))
+    }
+
+    private static func isTopLeftEdge(dx: Double, dy: Double) -> Bool {
+        dy < 0 || (dy == 0 && dx > 0)
     }
 }
 

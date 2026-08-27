@@ -1452,6 +1452,19 @@ public struct GraphicsContext {
     /// it back to the retained ``canvasDraw`` closure.
     internal var underlying: SwiftWindowsUI.CanvasGraphicsContext
 
+    /// The resolver belongs to one Canvas render invocation. Copies of a
+    /// context share its measured sources, but never retain another frame's
+    /// environment or view state.
+    internal var symbolResolver: ((AnyHashable) -> ResolvedSymbol?)?
+
+    @MainActor
+    public struct ResolvedSymbol {
+        internal let source: SwiftWindowsUI.CanvasSymbolSource
+
+        /// The view's measured size in logical points, before draw placement.
+        public var size: CGSize { source.size }
+    }
+
     /// Multiplied into the alpha of subsequent fill/stroke/draw operations,
     /// matching SwiftUI's ``GraphicsContext.opacity``.  Operations recorded
     /// before this property is set keep their original opacity.
@@ -1573,6 +1586,30 @@ public struct GraphicsContext {
 
     // MARK: Image / text
 
+    public func resolveSymbol<ID: Hashable>(id: ID) -> ResolvedSymbol? {
+        symbolResolver?(AnyHashable(id))
+    }
+
+    public mutating func draw(
+        _ symbol: ResolvedSymbol,
+        at point: CGPoint,
+        anchor: UnitPoint = .center
+    ) {
+        draw(
+            symbol,
+            in: CGRect(
+                x: point.x - symbol.size.width * anchor.x,
+                y: point.y - symbol.size.height * anchor.y,
+                width: symbol.size.width,
+                height: symbol.size.height))
+    }
+
+    public mutating func draw(_ symbol: ResolvedSymbol, in rect: CGRect) {
+        underlying.draw(
+            symbol.source, in: rect, transform: transform,
+            opacity: Float(currentOpacityMultiplier))
+    }
+
     public mutating func draw(_ image: BitmapSurface, in rect: CGRect, opacity: Float = 1) {
         // Images can only be drawn into axis-aligned rects today; degenerate
         // transforms collapse to the transformed bounding rect.
@@ -1613,17 +1650,13 @@ public struct GraphicsContext {
     // MARK: Layer scope
 
     /// Run `content` with a sub-context that inherits this context's
-    /// transform and opacity but accumulates its own operations.  When the
-    /// closure returns, the sub-context's operations are appended to this
-    /// context, so transient mutations to transform/opacity inside the
-    /// closure don't leak back out.  Mirrors SwiftUI's
-    /// ``GraphicsContext.drawLayer(content:)``.
+    /// transform, opacity and clip state while drawing to the same destination.
+    /// Transient state mutations inside the closure don't leak back out, and
+    /// operations keep their invocation order. This scopes graphics state;
+    /// separate layer blending and filtering are not implemented here.
     public mutating func drawLayer(content: (inout GraphicsContext) -> Void) {
-        var sub = GraphicsContext()
-        sub.transform = transform
-        sub.opacity = opacity
+        var sub = self
         content(&sub)
-        underlying.append(contentsOf: sub.underlying)
     }
 
     // MARK: Helpers
@@ -5224,6 +5257,7 @@ public protocol ContainerValueKey {
 public struct ContainerValues: @unchecked Sendable {
     private var storage: [ObjectIdentifier: Any]
     private var tags: [ObjectIdentifier: AnyHashable]
+    private(set) var implicitSymbolTag: AnyHashable?
 
     public init() {
         storage = [:]
@@ -5249,6 +5283,16 @@ public struct ContainerValues: @unchecked Sendable {
 
     mutating func setTag<Value: Hashable>(_ value: Value) {
         tags[ObjectIdentifier(Value.self)] = AnyHashable(value)
+    }
+
+    var hasExplicitSymbolTag: Bool { !tags.isEmpty }
+
+    func containsExplicitSymbolTag(_ value: AnyHashable) -> Bool {
+        tags.values.contains(value)
+    }
+
+    mutating func setImplicitSymbolTag<Value: Hashable>(_ value: Value) {
+        implicitSymbolTag = AnyHashable(value)
     }
 }
 public struct Anchor<Value>: @unchecked Sendable {
@@ -29780,12 +29824,20 @@ extension View {
         id(String(describing: identifier))
     }
 
-    func implicitForEachScrollTarget(_ identifier: String, index: Int) -> some View {
+    func implicitForEachScrollTarget<ID: Hashable>(_ identifier: ID, index: Int) -> some View {
         var modified = ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                let key = retainedContainerValuesIdentifier()
+                var values = node.retainedContainerValues[key] as? ContainerValues ?? ContainerValues()
+                values.setImplicitSymbolTag(identifier)
+                node.retainedContainerValues[key] = values
+                return node
+            }
         }
         modified.id = "\(identifier)#\(index)"
-        modified.setImplicitForEachIdentity(identifier)
+        modified.setImplicitForEachIdentity(String(describing: identifier))
         return modified
     }
 

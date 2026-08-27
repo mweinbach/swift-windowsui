@@ -588,12 +588,14 @@ struct ImageInstance
     float clipHeight;
     int textureID;
     // This slot used to be padding; it now carries the clip rounding, so an
-    // image inside a rounded card is cut by the card arc. Stride is unchanged
-    // at 64 bytes. Mirrors ImagePrimitive in SwiftWindowsGraphics.
+    // image inside a rounded card is cut by the card arc.
     float clipCornerRadius;
     // The last padding slot, now the rotation about the destination rect's
     // centre: an offscreen pass composited back through a turned transform.
     float rotationRadians;
+    // Column basis applied about the centre before rotation. Appended to
+    // preserve all earlier offsets; ImagePrimitive now has an 80-byte stride.
+    float affineA, affineB, affineC, affineD;
 };
 
 // Shared with the quad shader's roundedRectDistance for a uniform radius; the
@@ -637,11 +639,12 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     float2 unit = quad[vertexID];
     float2 screenOrigin = float2(inst.screenX, inst.screenY);
     float2 screenSize = float2(inst.screenW, inst.screenH);
-    // Rotation about the destination rect's centre, matching the quad
-    // shader. UVs come from `unit`, so the sampled texture turns with the
-    // vertices without any change to the sampler.
+    // Affine basis followed by rotation about the destination rect's centre.
+    // UVs come from `unit`, preserving the source under shears/reflections.
+    bool identityAffine = inst.affineA == 1.0 && inst.affineB == 0.0
+        && inst.affineC == 0.0 && inst.affineD == 1.0;
     float2 pixelPosition;
-    if (inst.rotationRadians == 0.0)
+    if (inst.rotationRadians == 0.0 && identityAffine)
     {
         pixelPosition = screenOrigin + unit * screenSize;
     }
@@ -649,12 +652,26 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     {
         float2 centre = screenOrigin + screenSize * 0.5;
         float2 fromCentre = unit * screenSize - screenSize * 0.5;
-        float cosR = cos(inst.rotationRadians);
-        float sinR = sin(inst.rotationRadians);
-        pixelPosition = centre + float2(
-            cosR * fromCentre.x - sinR * fromCentre.y,
-            sinR * fromCentre.x + cosR * fromCentre.y
-        );
+        if (!identityAffine)
+        {
+            fromCentre = float2(
+                inst.affineA * fromCentre.x + inst.affineC * fromCentre.y,
+                inst.affineB * fromCentre.x + inst.affineD * fromCentre.y
+            );
+        }
+        if (inst.rotationRadians == 0.0)
+        {
+            pixelPosition = centre + fromCentre;
+        }
+        else
+        {
+            float cosR = cos(inst.rotationRadians);
+            float sinR = sin(inst.rotationRadians);
+            pixelPosition = centre + float2(
+                cosR * fromCentre.x - sinR * fromCentre.y,
+                sinR * fromCentre.x + cosR * fromCentre.y
+            );
+        }
     }
     float2 clipPosition = float2(
         (pixelPosition.x / surfaceSize.x) * 2.0 - 1.0,

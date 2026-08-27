@@ -155,7 +155,8 @@ families:
 - `pixelGlyphs` — fallback bitmap-font glyphs (only used when DirectWrite
   fails for a given character).
 - `shadows` — soft-shadow blur passes.
-- `images` — image draws bound by integer texture ID.
+- `images` — image draws bound by integer texture ID, including resolved child
+  scenes for color effects and Canvas symbols.
 - `paths` — Canvas / Path primitives (currently CPU-rasterized; see §4).
 
 The painter writes its primitives into the `paintOperations` array in
@@ -174,6 +175,14 @@ rule out:
 `GPUIRawSceneRasterizer` draws each run in place. The two therefore emit
 the identical `(layer, family, index)` sequence for any scene
 (`ScenePresentationOrderTests`).
+
+Canvas symbols use the same image-pass contract and final atlas ownership as
+color-effect sources. Their context-authored affine basis is carried by the
+image primitive, not flattened into an axis-aligned destination. The CPU
+inverse and D3D11 vertex placement are covered together, including reflection
+edges, clip bounds, and invalid matrices. The [Canvas symbol contract](CanvasSymbols.md)
+records logical sizing, context-copy behavior, resource limits, the declared
+legacy bitmap fallback, and remaining native/transform/layer qualification.
 
 This used to be three orderings. The CPU rasterizer preferred a second
 walk over the flat `paintRecords` log — global insertion order, with
@@ -3130,8 +3139,9 @@ by every child, so a reference is one word where a value was fifteen.
 shadows and paths inside a rounded container were rect-clipped on *both*
 backends — consistent, and consistently wrong against macOS.
 `GlyphPrimitive` and `ShadowPrimitive` now carry it (64 → 80 bytes each,
-padded to the 16-byte structured-buffer stride), `ImagePrimitive` reuses a
-padding slot (stride unchanged at 64), and `PathPrimitive` carries a
+padded to the 16-byte structured-buffer stride). `ImagePrimitive` initially
+reused a padding slot for rounding; its later Canvas affine basis expands
+the stride to 80 bytes while keeping the rounding slot. `PathPrimitive` carries a
 `Double`. The HLSL glyph, image and shadow pixel shaders run the same
 `roundedRectDistance` + `saturate(0.5 - d/aa)` ramp the quad shader does, and
 the CPU rasterizer multiplies `GPUIClipRegion.alpha` into those families'

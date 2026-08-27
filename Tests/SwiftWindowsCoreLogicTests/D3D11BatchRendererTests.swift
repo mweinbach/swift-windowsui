@@ -1,7 +1,5 @@
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
-
 import XCTest
 
 @testable import SwiftWindowsRendererD3D11
@@ -136,8 +134,8 @@ final class D3D11BatchRendererTests: XCTestCase {
     }
 
     func testImagePrimitiveStride() {
-        // ImagePrimitive should be 64 bytes (16 fields * 4 bytes)
-        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 64)
+        // ImagePrimitive should be 80 bytes (20 fields * 4 bytes).
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 80)
     }
 
     func testMultiLayerScene() {

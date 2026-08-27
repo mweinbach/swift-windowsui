@@ -762,6 +762,20 @@ Twenty-six new tests await integrated execution, including owned hidden native
 windows. This establishes a close decision boundary, not document dirty-state
 ownership or Save/Discard/Cancel behavior.
 
+Canvas tagged symbols now resolve public views in the inherited environment,
+measure in logical coordinates, and record child scenes through the existing
+image-pass contract. Copied contexts share authored draw order but retain
+independent transform, opacity, and clip state. Context-authored symbol affine
+placement uses a shared CPU/GPU contract and an 80-byte image ABI; general
+inherited View affine fallbacks remain separate. Resource and declaration
+traversal limits, a bounded legacy bitmap route, visible rejection markers,
+and shared final atlas ownership are explicit. Scene equality also now
+includes child passes. Fifty-two new regressions and the ABI updates await
+integrated execution. Full layer/filter/blend/material semantics, arbitrary
+builder allocation bounds, native symbol sizing/tag behavior, and hardware
+qualification are not established by this implementation; details are in
+`docs/CanvasSymbols.md`.
+
 ### Additional state lifetime acceptance detail
 
 A source audit found that the current State and StateObject wrappers follow

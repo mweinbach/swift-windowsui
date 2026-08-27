@@ -126,6 +126,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   bounded close messages. Failed startup uses an unconditional cleanup hook;
   ordinary dismissal still follows policy. Document save decisions and native
   conflicting-modifier precedence remain separate requirements.
+- `AffineImagePlacementTests`, `CanvasSymbolRuntimeTests`,
+  `CanvasSymbolSceneTests`, `WinSwiftUICanvasSymbolTests`,
+  `CanvasSymbolAtlasLifetimeTests`, and `CanvasPixelFontScaleTests` cover
+  resolved symbols, copied graphics state and order, logical coordinates,
+  CPU/WARP affine placement, failure markers, atlas ownership, and PixelFont
+  spacing. Primitive layout and renderer buffer tests enforce the 80-byte image
+  ABI. These tests do not establish native SwiftUI symbol or full layer parity.
 - `ModalPresentationIsolationTests` and `DemoRendererIdentityTests` cover
   topmost modal focus/accessibility/shortcut isolation and renderer identities
   that remain accurate when the app switches between D3D11 and software.

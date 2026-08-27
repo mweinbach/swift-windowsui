@@ -238,6 +238,7 @@ public enum ScenePainter {
             var attemptDeferredReplayCount = 0
             var usedNativeGlyphs = false
             var usedPixelGlyphs = false
+            let canvasSymbolState = CanvasSymbolPaintState()
             let replaySource = bypassReplayAfterAtlasRecovery ? nil : previousScene
 
             paintNode(
@@ -255,7 +256,8 @@ public enum ScenePainter {
                 snapshotIdentity: snapshotIdentity,
                 usedNativeGlyphs: &usedNativeGlyphs,
                 usedPixelGlyphs: &usedPixelGlyphs,
-                replayCount: &attemptReplayCount
+                replayCount: &attemptReplayCount,
+                canvasSymbolState: canvasSymbolState
             )
             for overlay in overlays {
                 paintNode(
@@ -273,7 +275,8 @@ public enum ScenePainter {
                     snapshotIdentity: snapshotIdentity,
                     usedNativeGlyphs: &usedNativeGlyphs,
                     usedPixelGlyphs: &usedPixelGlyphs,
-                    replayCount: &attemptReplayCount
+                    replayCount: &attemptReplayCount,
+                    canvasSymbolState: canvasSymbolState
                 )
             }
             appendDeferredDraws(
@@ -287,7 +290,8 @@ public enum ScenePainter {
                 textSystem: textSystem,
                 usedNativeGlyphs: &usedNativeGlyphs,
                 usedPixelGlyphs: &usedPixelGlyphs,
-                replayCount: &attemptDeferredReplayCount
+                replayCount: &attemptDeferredReplayCount,
+                canvasSymbolState: canvasSymbolState
             )
 
             if usedNativeGlyphs, NativeGlyphAtlas.shared.atlasGeneration != atlasGenerationAtStart {
@@ -355,6 +359,33 @@ public enum ScenePainter {
     /// an atlas recovery, and attempt 2 paints with the atlas suspended so the
     /// frame is guaranteed to be free of recycled UVs.
     private static let glyphAtlasPaintAttempts = 3
+
+    /// Shared across recursive paint calls and namespaces in one attempt.
+    /// Reserve the pass before visiting its source, so branching or recursive
+    /// Canvas declarations cannot grow an unbounded scene before validation.
+    private final class CanvasSymbolPaintState {
+        var remainingPasses = GPUISceneLimits.maxImageRenderPassCount
+        var remainingPixels = Int64(GPUISceneLimits.maxImageRenderPassTotalPixels)
+
+        func begin(depth: Int) -> Bool {
+            guard depth < GPUISceneLimits.maxImageRenderPassDepth, remainingPasses > 0 else { return false }
+            remainingPasses -= 1
+            return true
+        }
+
+        func consume(size: IntSize) -> Bool {
+            guard size.width > 0, size.height > 0,
+                Int(size.width) <= GPUISceneLimits.maxSurfaceDimension,
+                Int(size.height) <= GPUISceneLimits.maxSurfaceDimension
+            else { return false }
+            let pixels = Int64(size.width) * Int64(size.height)
+            guard pixels <= Int64(GPUISceneLimits.maxImageRenderPassPixels), pixels <= remainingPixels else {
+                return false
+            }
+            remainingPixels -= pixels
+            return true
+        }
+    }
 
     /// Cached paint ranges the scene refused to replay. Diagnostic only —
     /// every rejection is answered by repainting the subtree — but a
@@ -463,7 +494,8 @@ public enum ScenePainter {
         skipCacheUpdates: Bool = false,
         suppressesContentBlurIsolation: Bool = false,
         suppressesColorEffectIsolation: Bool = false,
-        colorEffectPassDepth: Int = 0
+        colorEffectPassDepth: Int = 0,
+        canvasSymbolState: CanvasSymbolPaintState = CanvasSymbolPaintState()
     ) {
         var traversal: [PaintTraversalStep] = [
             .enter(
@@ -803,7 +835,8 @@ public enum ScenePainter {
                     displayScale: displayScale,
                     textSystem: textSystem,
                     usedNativeGlyphs: &usedNativeGlyphs,
-                    usedPixelGlyphs: &usedPixelGlyphs)
+                    usedPixelGlyphs: &usedPixelGlyphs,
+                    canvasSymbolState: canvasSymbolState)
                 if !skipCacheUpdates {
                     node.cachedSceneKey = cacheKey
                     node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
@@ -838,7 +871,8 @@ public enum ScenePainter {
                         isInsideDrawingGroup: isInsideDrawingGroup,
                         skipCacheUpdates: skipCacheUpdates,
                         suppressesColorEffectIsolation: context.suppressesColorEffectIsolation,
-                        colorEffectPassDepth: context.colorEffectPassDepth
+                        colorEffectPassDepth: context.colorEffectPassDepth,
+                        canvasSymbolState: canvasSymbolState
                     ),
                     into: &scene,
                     deferredDraws: &deferredDraws,
@@ -1319,9 +1353,9 @@ public enum ScenePainter {
                 clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
             {
                 var canvasContext = CanvasGraphicsContext()
-                canvasDraw(&canvasContext, quadFillRect.size)
+                canvasDraw(&canvasContext, quadFillRect.size.scaled(by: 1 / placement.scale))
                 appendCanvasOperations(
-                    canvasContext.operations,
+                    canvasContext.operationsScaled(by: placement.scale),
                     into: &scene,
                     origin: quadFillRect.origin,
                     baseClip: effectiveClip,
@@ -1332,7 +1366,9 @@ public enum ScenePainter {
                     displayScale: displayScale,
                     textSystem: textSystem,
                     usedNativeGlyphs: &usedNativeGlyphs,
-                    usedPixelGlyphs: &usedPixelGlyphs
+                    usedPixelGlyphs: &usedPixelGlyphs,
+                    colorEffectPassDepth: context.colorEffectPassDepth,
+                    canvasSymbolState: canvasSymbolState
                 )
             }
 
@@ -1481,7 +1517,8 @@ public enum ScenePainter {
                             inheritedTransform: subInheritedTransform,
                             isInsideDrawingGroup: true,
                             skipCacheUpdates: true,
-                            colorEffectPassDepth: context.colorEffectPassDepth
+                            colorEffectPassDepth: context.colorEffectPassDepth,
+                            canvasSymbolState: canvasSymbolState
                         )
                     }
 
@@ -1816,7 +1853,8 @@ public enum ScenePainter {
         displayScale: Double,
         textSystem: WindowTextSystem,
         usedNativeGlyphs: inout Bool,
-        usedPixelGlyphs: inout Bool
+        usedPixelGlyphs: inout Bool,
+        canvasSymbolState: CanvasSymbolPaintState
     ) {
         let claims = claimDeferredDescendants(
             of: context.node, in: &deferredDraws, includingOwnIndicator: true)
@@ -1828,6 +1866,7 @@ public enum ScenePainter {
         let canRecord =
             context.colorEffectPassDepth < GPUISceneLimits.maxImageRenderPassDepth
             && effects.count <= GPUISceneLimits.maxColorEffects
+            && canvasSymbolState.begin(depth: context.colorEffectPassDepth)
         if canRecord {
             paintNode(
                 context.node,
@@ -1851,7 +1890,8 @@ public enum ScenePainter {
                 skipCacheUpdates: true,
                 suppressesContentBlurIsolation: context.suppressesContentBlurIsolation,
                 suppressesColorEffectIsolation: true,
-                colorEffectPassDepth: context.colorEffectPassDepth + 1)
+                colorEffectPassDepth: context.colorEffectPassDepth + 1,
+                canvasSymbolState: canvasSymbolState)
 
             // Deferred rows and scroll indicators are pixels of this subtree
             // too. Ancestors represented by this pass are excluded; effects
@@ -1869,9 +1909,11 @@ public enum ScenePainter {
                 switch claim {
                 case .subtree(let payload):
                     guard let node = payload.node else { continue }
+                    let inheritedClip = captureClip(payload.inheritedClip, within: context.inheritedClip)
+                    guard context.inheritedClip == nil || inheritedClip != nil else { continue }
                     paintNode(
                         node, into: &source, deferredDraws: &subDeferred,
-                        parentOrigin: payload.parentOrigin, inheritedClip: payload.inheritedClip,
+                        parentOrigin: payload.parentOrigin, inheritedClip: inheritedClip,
                         layerIndex: 0, surfaceSize: surfaceSize, displayScale: displayScale,
                         textSystem: textSystem, previousScene: nil,
                         primitiveOpacity: context.primitiveOpacity > 0
@@ -1880,8 +1922,11 @@ public enum ScenePainter {
                         inheritedBlendMode: payload.inheritedBlendMode,
                         usedNativeGlyphs: &subNative, usedPixelGlyphs: &subPixel, replayCount: &subReplay,
                         inheritedTransform: payload.inheritedTransform, skipCacheUpdates: true,
-                        colorEffectPassDepth: context.colorEffectPassDepth + 1)
-                case .scrollIndicator(let payload, let contentMask):
+                        colorEffectPassDepth: context.colorEffectPassDepth + 1,
+                        canvasSymbolState: canvasSymbolState)
+                case .scrollIndicator(let payload, let originalMask):
+                    let contentMask = captureClip(originalMask, within: context.inheritedClip)
+                    guard context.inheritedClip == nil || contentMask != nil else { continue }
                     var command = payload.fillRectCommand(contentMask: contentMask?.rect)
                     if context.primitiveOpacity > 0 {
                         command.color = command.color.multipliedAlpha(by: 1 / context.primitiveOpacity)
@@ -1903,7 +1948,12 @@ public enum ScenePainter {
         usedNativeGlyphs = usedNativeGlyphs || subNative
         usedPixelGlyphs = usedPixelGlyphs || subPixel
 
-        let surfaceBounds = Rect(origin: .zero, size: surfaceSize)
+        // Symbol sources may paint outside their natural layout box, including
+        // negative coordinates. Their inherited source clip describes that
+        // capture region; window paints still inherit the ordinary surface.
+        let surfaceBounds =
+            context.inheritedClip.map { scaleRect($0.rect, by: displayScale) }
+            ?? Rect(origin: .zero, size: surfaceSize)
         let bounds = source.paintedBounds ?? (canRecord ? nil : scaleRect(fallbackFrame, by: displayScale))
         guard let bounds, let visible = bounds.intersected(with: surfaceBounds), !visible.isEmpty else { return }
         // Pixel alignment alone is insufficient: moving an odd crop origin
@@ -1915,9 +1965,10 @@ public enum ScenePainter {
         let width = max(1, GPUISceneValue.int(ceil(visible.maxX) - left))
         let height = max(1, GPUISceneValue.int(ceil(visible.maxY) - top))
         let size = IntSize(width: Int32(width), height: Int32(height))
+        let permittedExtent = canRecord && canvasSymbolState.consume(size: size)
         let textureID = scene.registerImageRenderPass(
-            source.translatedPrimitives(by: Point(x: -left, y: -top)),
-            size: size,
+            permittedExtent ? source.translatedPrimitives(by: Point(x: -left, y: -top)) : GPUIScene(clearColor: .clear),
+            size: permittedExtent ? size : .zero,
             colorEffects: effects.map(sceneColorEffect))
         scene.paintMetrics.colorEffectPasses += 1
         scene.addImage(
@@ -1944,6 +1995,7 @@ public enum ScenePainter {
         let skipCacheUpdates: Bool
         let suppressesColorEffectIsolation: Bool
         let colorEffectPassDepth: Int
+        let canvasSymbolState: CanvasSymbolPaintState
     }
 
     /// SwiftUI's `.blur(radius:)`: render the subtree in isolation, blur
@@ -2145,7 +2197,8 @@ public enum ScenePainter {
             skipCacheUpdates: true,
             suppressesContentBlurIsolation: true,
             suppressesColorEffectIsolation: isolation.suppressesColorEffectIsolation,
-            colorEffectPassDepth: isolation.colorEffectPassDepth
+            colorEffectPassDepth: isolation.colorEffectPassDepth,
+            canvasSymbolState: isolation.canvasSymbolState
         )
 
         appendDeferredDescendants(
@@ -2298,7 +2351,8 @@ public enum ScenePainter {
                     // does for the subtree painted above.
                     inheritedTransform: payload.inheritedTransform.concatenating(bufferShift),
                     skipCacheUpdates: true,
-                    colorEffectPassDepth: isolation.colorEffectPassDepth
+                    colorEffectPassDepth: isolation.colorEffectPassDepth,
+                    canvasSymbolState: isolation.canvasSymbolState
                 )
             case .scrollIndicator(let payload, let contentMask):
                 // The deferred drain's spelling of the indicator quad — same
@@ -2838,6 +2892,144 @@ public enum ScenePainter {
     /// the ``CanvasGraphicsContext.appendCommands`` path used by
     /// ``RenderFrame``, so canvas content paints in both the default scene
     /// pipeline and the legacy frame fallback.
+    /// Only the legacy frame bridge owns a standalone atlas scope. The scene
+    /// route calls `recordCanvasSymbol` directly inside its existing attempt,
+    /// so a nested symbol can never reset or age the outer Canvas's atlas.
+    internal static func canvasSymbolSnapshot(_ symbol: CanvasSymbolSource) -> CanvasSymbolSceneSnapshot? {
+        NativeGlyphAtlas.shared.beginFrame()
+        defer { NativeGlyphAtlas.shared.setSuspended(false) }
+        for attempt in 0..<glyphAtlasPaintAttempts {
+            let finalAttempt = attempt == glyphAtlasPaintAttempts - 1
+            NativeGlyphAtlas.shared.setSuspended(finalAttempt)
+            NativeGlyphAtlas.shared.beginPass()
+            let generation = NativeGlyphAtlas.shared.atlasGeneration
+            let recycleGeneration = NativeGlyphAtlas.shared.atlasRecycleGeneration
+            var usedNative = false
+            var usedPixel = false
+            let snapshot = recordCanvasSymbol(
+                symbol, depth: 0, state: CanvasSymbolPaintState(),
+                usedNativeGlyphs: &usedNative, usedPixelGlyphs: &usedPixel)
+            if !finalAttempt, usedNative, NativeGlyphAtlas.shared.atlasGeneration != generation {
+                NativeGlyphAtlas.shared.noteReclaimedSpaceReused()
+                if NativeGlyphAtlas.shared.atlasRecycleGeneration != recycleGeneration
+                    || NativeGlyphAtlas.shared.didFreeCellUsedThisFrame
+                {
+                    continue
+                }
+            }
+            guard let snapshot else { return nil }
+            var source = snapshot.scene
+            attachCachedGlyphAtlases(to: &source)
+            return CanvasSymbolSceneSnapshot(
+                scene: source, pixelBounds: snapshot.pixelBounds, pixelSize: snapshot.pixelSize,
+                rejectionReason: snapshot.rejectionReason)
+        }
+        return nil
+    }
+
+    private static func rejectedCanvasSymbolSnapshot(
+        _ symbol: CanvasSymbolSource, reason: String
+    ) -> CanvasSymbolSceneSnapshot {
+        CanvasSymbolSource.reportRejection(reason)
+        // A zero declared extent is an explicit invalid image source. The CPU
+        // renderer shows its checker and the GPU reports its capability error;
+        // neither allocates the rejected source or silently paints nothing.
+        return CanvasSymbolSceneSnapshot(
+            scene: GPUIScene(clearColor: .clear),
+            pixelBounds: Rect(origin: .zero, size: symbol.size.scaled(by: symbol.displayScale)),
+            pixelSize: .zero,
+            rejectionReason: reason)
+    }
+
+    private static func recordCanvasSymbol(
+        _ symbol: CanvasSymbolSource,
+        depth: Int,
+        state: CanvasSymbolPaintState,
+        usedNativeGlyphs: inout Bool,
+        usedPixelGlyphs: inout Bool
+    ) -> CanvasSymbolSceneSnapshot? {
+        guard symbol.size.width > 0, symbol.size.height > 0 else { return nil }
+        guard state.begin(depth: depth) else {
+            return rejectedCanvasSymbolSnapshot(
+                symbol, reason: "the symbol scene count or nesting budget was exhausted")
+        }
+        let scale = symbol.displayScale
+        // A recording surface is only a coordinate domain, never a texture.
+        // A symmetric clip keeps overflow/shadow pixels at negative positions
+        // until their actual crop is known, without a large translation that
+        // would lose fractional-DPI precision in Float primitive coordinates.
+        let extent = Double(GPUISceneLimits.maxCoordinate)
+        let sourceClip = RuntimeClipShape(
+            rect: Rect(
+                x: -extent / (2 * scale), y: -extent / (2 * scale),
+                width: extent / scale, height: extent / scale), space: .painted)
+        let surfaceSize = Size(width: extent / 2, height: extent / 2)
+        var source = GPUIScene(clearColor: .clear)
+        var deferred = symbol.runtime.currentPrepaintState.deferredDraws
+        var native = false
+        var pixel = false
+        var replay = 0
+        let identity = PaintSnapshotIdentity()
+        paintNode(
+            symbol.runtime.root, into: &source, deferredDraws: &deferred,
+            parentOrigin: .zero, inheritedClip: sourceClip, layerIndex: 0,
+            surfaceSize: surfaceSize, displayScale: scale, textSystem: symbol.runtime.textSystem,
+            previousScene: nil, snapshotIdentity: identity,
+            usedNativeGlyphs: &native, usedPixelGlyphs: &pixel, replayCount: &replay,
+            skipCacheUpdates: true, colorEffectPassDepth: depth + 1, canvasSymbolState: state)
+        appendDeferredDraws(
+            &deferred, into: &source, previousScene: nil, previousSceneIdentity: nil,
+            snapshotIdentity: identity, surfaceSize: surfaceSize, displayScale: scale,
+            textSystem: symbol.runtime.textSystem, usedNativeGlyphs: &native,
+            usedPixelGlyphs: &pixel, replayCount: &replay,
+            canvasSymbolState: state, colorEffectPassDepth: depth + 1,
+            skipCacheUpdates: true, sourceCaptureClip: sourceClip)
+        // The enclosing completed attempt attaches one atlas snapshot to the
+        // whole source graph. Retaining a snapshot here would make the next
+        // symbol's glyph insertion copy the entire native atlas.
+        usedNativeGlyphs = usedNativeGlyphs || native
+        usedPixelGlyphs = usedPixelGlyphs || pixel
+        source.finish()
+        guard let bounds = source.paintedBounds, !bounds.isEmpty else { return nil }
+        let left = floor(bounds.minX / 2) * 2
+        let top = floor(bounds.minY / 2) * 2
+        let width = ceil(bounds.maxX) - left
+        let height = ceil(bounds.maxY) - top
+        guard left.isFinite, top.isFinite, width.isFinite, height.isFinite,
+            width > 0, height > 0,
+            width <= Double(GPUISceneLimits.maxSurfaceDimension),
+            height <= Double(GPUISceneLimits.maxSurfaceDimension)
+        else {
+            return rejectedCanvasSymbolSnapshot(symbol, reason: "the painted symbol exceeds the supported image extent")
+        }
+        let size = IntSize(width: Int32(width), height: Int32(height))
+        guard state.consume(size: size) else {
+            return rejectedCanvasSymbolSnapshot(
+                symbol, reason: "the cumulative symbol source-pixel budget was exhausted")
+        }
+        return CanvasSymbolSceneSnapshot(
+            scene: source.translatedPrimitives(by: Point(x: -left, y: -top)),
+            pixelBounds: Rect(x: left, y: top, width: width, height: height), pixelSize: size)
+    }
+
+    private static func appendRejectedCanvasSymbol(
+        rect: Rect, opacity: Float, clip: Rect?, into scene: inout GPUIScene,
+        layerIndex: Int, surfaceSize: Size, displayScale: Double
+    ) {
+        let validRect =
+            rect.minX.isFinite && rect.minY.isFinite && rect.maxX.isFinite && rect.maxY.isFinite
+            && !rect.isEmpty
+        let fallback = validRect ? rect : Rect(origin: clip?.origin ?? .zero, size: Size(width: 16, height: 16))
+        let textureID = scene.registerImageRenderPass(GPUIScene(clearColor: .clear), size: .zero)
+        let clipR = clipRectFloats(clip, surfaceSize: surfaceSize, displayScale: displayScale)
+        scene.addImage(
+            ImagePrimitive(
+                screenX: Float(fallback.minX * displayScale), screenY: Float(fallback.minY * displayScale),
+                screenW: Float(fallback.size.width * displayScale), screenH: Float(fallback.size.height * displayScale),
+                opacity: opacity, clipX: clipR.0, clipY: clipR.1, clipWidth: clipR.2, clipHeight: clipR.3,
+                textureID: textureID), toLayer: layerIndex)
+    }
+
     private static func appendCanvasOperations(
         _ operations: [CanvasGraphicsContext.Operation],
         into scene: inout GPUIScene,
@@ -2850,7 +3042,9 @@ public enum ScenePainter {
         displayScale: Double,
         textSystem: WindowTextSystem,
         usedNativeGlyphs: inout Bool,
-        usedPixelGlyphs: inout Bool
+        usedPixelGlyphs: inout Bool,
+        colorEffectPassDepth: Int,
+        canvasSymbolState: CanvasSymbolPaintState
     ) {
         // The canvas keeps its own square push/pop clip stack; the enclosing
         // node's rounding still applies to whatever the canvas draws, resolved
@@ -2868,6 +3062,8 @@ public enum ScenePainter {
         var clipStack: [(emit: Rect?, cull: Rect?)] = []
         var currentClip = baseClip?.rect
         var currentCullClip = baseClip.map { placement.unplacedFootprint(of: $0.rect) }
+        var symbolResources: [ObjectIdentifier: (Int32, CanvasSymbolSceneSnapshot)] = [:]
+        var emptySymbols: Set<ObjectIdentifier> = []
         func clipRadius(_ quadRect: Rect) -> Double {
             baseClip.ancestorCornerRadius(
                 forQuadRect: placement.footprint(of: quadRect), rejectingOutside: currentClip)
@@ -3062,13 +3258,9 @@ public enum ScenePainter {
                     placement: placement)
 
             case .drawText(let text, let rect, let style):
-                // E6-TEXT residual. A `Canvas` closure is handed the *placed*
-                // size and draws in that space, so its text rect is already
-                // scaled and there is no untransformed box to lay out in: the
-                // run keeps the placed rect and `rotating`, not `placingRun`.
-                // Putting the canvas in local space is a change to what the
-                // closure is handed, which is a `Canvas` semantics question,
-                // not a text one — see `docs/GPURenderingPipeline.md`.
+                // Canvas coordinates and text metrics receive the inherited
+                // uniform scale together before lowering. The remaining
+                // placement here applies the node's rotation exactly once.
                 let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
                 let effectiveStyle = style.multipliedOpacity(by: opacity)
                 guard clipAllowsDrawing(clip: currentCullClip, rect: effectiveRect) else { continue }
@@ -3085,6 +3277,7 @@ public enum ScenePainter {
                     clipCornerRadius: clipRadius(effectiveRect),
                     surfaceSize: surfaceSize,
                     displayScale: displayScale,
+                    pixelFontCoordinateScale: placement.scale,
                     textSystem: textSystem,
                     into: &nativeGlyphs,
                     pixelGlyphs: &pixelGlyphs,
@@ -3126,6 +3319,96 @@ public enum ScenePainter {
                             textureID: textureID
                         ), displayScale: displayScale), toLayer: layerIndex)
 
+            case .drawSymbol(let symbol, let rect, let transform, let symbolOpacity):
+                let effectiveOpacity = opacity * symbolOpacity
+                guard effectiveOpacity.isFinite, effectiveOpacity > 0,
+                    rect.size.width > 0, rect.size.height > 0,
+                    symbol.size.width > 0, symbol.size.height > 0,
+                    currentClip?.isEmpty != true
+                else { continue }
+                let determinant = transform.a * transform.d - transform.b * transform.c
+                guard rect.minX.isFinite, rect.minY.isFinite, rect.maxX.isFinite, rect.maxY.isFinite,
+                    transform.a.isFinite, transform.b.isFinite, transform.c.isFinite, transform.d.isFinite,
+                    transform.tx.isFinite, transform.ty.isFinite, determinant.isFinite, determinant != 0
+                else {
+                    CanvasSymbolSource.reportRejection("the scene symbol affine placement is not finite or invertible")
+                    appendRejectedCanvasSymbol(
+                        rect: rect.offsetBy(dx: origin.x, dy: origin.y), opacity: effectiveOpacity,
+                        clip: currentClip, into: &scene, layerIndex: layerIndex,
+                        surfaceSize: surfaceSize, displayScale: displayScale)
+                    continue
+                }
+                let key = ObjectIdentifier(symbol)
+                guard !emptySymbols.contains(key) else { continue }
+                let resource: (Int32, CanvasSymbolSceneSnapshot)
+                if let cached = symbolResources[key] {
+                    resource = cached
+                } else {
+                    guard
+                        let snapshot = recordCanvasSymbol(
+                            symbol, depth: colorEffectPassDepth, state: canvasSymbolState,
+                            usedNativeGlyphs: &usedNativeGlyphs, usedPixelGlyphs: &usedPixelGlyphs)
+                    else {
+                        emptySymbols.insert(key)
+                        continue
+                    }
+                    resource = (
+                        scene.registerImageRenderPass(snapshot.scene, size: snapshot.pixelSize), snapshot
+                    )
+                    symbolResources[key] = resource
+                }
+                let sourceBounds = resource.1.pixelBounds
+                let sx = rect.size.width / symbol.size.width
+                let sy = rect.size.height / symbol.size.height
+                let crop = Rect(
+                    x: rect.minX + sourceBounds.minX / symbol.displayScale * sx,
+                    y: rect.minY + sourceBounds.minY / symbol.displayScale * sy,
+                    width: sourceBounds.size.width / symbol.displayScale * sx,
+                    height: sourceBounds.size.height / symbol.displayScale * sy)
+                let center = transform.apply(Point(x: crop.midX, y: crop.midY))
+                guard center.x.isFinite, center.y.isFinite,
+                    crop.minX.isFinite, crop.minY.isFinite, crop.maxX.isFinite, crop.maxY.isFinite
+                else {
+                    CanvasSymbolSource.reportRejection("the transformed symbol exceeds representable coordinates")
+                    appendRejectedCanvasSymbol(
+                        rect: rect.offsetBy(dx: origin.x, dy: origin.y), opacity: effectiveOpacity,
+                        clip: currentClip, into: &scene, layerIndex: layerIndex,
+                        surfaceSize: surfaceSize, displayScale: displayScale)
+                    continue
+                }
+                let corners = [
+                    Point(x: crop.minX, y: crop.minY), Point(x: crop.maxX, y: crop.minY),
+                    Point(x: crop.maxX, y: crop.maxY), Point(x: crop.minX, y: crop.maxY),
+                ].map { transform.apply($0) }
+                let left = corners.map(\.x).min() ?? 0
+                let top = corners.map(\.y).min() ?? 0
+                let footprint = Rect(
+                    x: left + origin.x, y: top + origin.y,
+                    width: (corners.map(\.x).max() ?? left) - left,
+                    height: (corners.map(\.y).max() ?? top) - top)
+                let clipR = clipRectFloats(currentClip, surfaceSize: surfaceSize, displayScale: displayScale)
+                let width = crop.size.width * displayScale
+                let height = crop.size.height * displayScale
+                let image = placement.rotating(
+                    ImagePrimitive(
+                        screenX: Float((center.x + origin.x) * displayScale - width / 2),
+                        screenY: Float((center.y + origin.y) * displayScale - height / 2),
+                        screenW: Float(width), screenH: Float(height), opacity: effectiveOpacity,
+                        clipX: clipR.0, clipY: clipR.1, clipWidth: clipR.2, clipHeight: clipR.3,
+                        clipCornerRadius: Float(clipRadius(footprint) * displayScale), textureID: resource.0,
+                        affineA: Float(transform.a), affineB: Float(transform.b),
+                        affineC: Float(transform.c), affineD: Float(transform.d)),
+                    displayScale: displayScale)
+                guard let image = GPUISceneSanitizer.sanitized(image) else {
+                    CanvasSymbolSource.reportRejection("the scene symbol affine placement is not finite or invertible")
+                    appendRejectedCanvasSymbol(
+                        rect: rect.offsetBy(dx: origin.x, dy: origin.y), opacity: effectiveOpacity,
+                        clip: currentClip, into: &scene, layerIndex: layerIndex,
+                        surfaceSize: surfaceSize, displayScale: displayScale)
+                    continue
+                }
+                scene.addImage(image, toLayer: layerIndex)
+
             case .pushClip(let rect):
                 let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
                 clipStack.append((currentClip, currentCullClip))
@@ -3133,8 +3416,8 @@ public enum ScenePainter {
                 // narrows the cull clip directly and the screen-space clip
                 // through its turned footprint.
                 let screenRect = placement.footprint(of: effectiveRect)
-                currentClip = currentClip.map { $0.intersected(with: screenRect) } ?? screenRect
-                currentCullClip = currentCullClip.map { $0.intersected(with: effectiveRect) } ?? effectiveRect
+                currentClip = currentClip.map { $0.intersected(with: screenRect) ?? .zero } ?? screenRect
+                currentCullClip = currentCullClip.map { $0.intersected(with: effectiveRect) ?? .zero } ?? effectiveRect
 
             case .popClip:
                 let restored = clipStack.popLast()
@@ -3253,7 +3536,11 @@ public enum ScenePainter {
         textSystem: WindowTextSystem,
         usedNativeGlyphs: inout Bool,
         usedPixelGlyphs: inout Bool,
-        replayCount: inout Int
+        replayCount: inout Int,
+        canvasSymbolState: CanvasSymbolPaintState,
+        colorEffectPassDepth: Int = 0,
+        skipCacheUpdates: Bool = false,
+        sourceCaptureClip: RuntimeClipShape? = nil
     ) {
         for deferredDrawIndex in deferredDraws.indices.sorted(by: { lhs, rhs in
             let left = deferredDraws[lhs]
@@ -3308,7 +3595,8 @@ public enum ScenePainter {
 
             switch deferredDraws[deferredDrawIndex].payload {
             case .scrollIndicator:
-                let contentMask = deferredDraws[deferredDrawIndex].contentMask
+                let contentMask = captureClip(deferredDraws[deferredDrawIndex].contentMask, within: sourceCaptureClip)
+                guard sourceCaptureClip == nil || contentMask != nil else { continue }
                 let fillRect = deferredDraws[deferredDrawIndex].payload.fillRectCommand(
                     contentMask: contentMask?.rect
                 )
@@ -3325,12 +3613,14 @@ public enum ScenePainter {
                     deferredDraws[deferredDrawIndex].cachedSceneSnapshotIdentity = snapshotIdentity
                     continue
                 }
+                let inheritedClip = captureClip(payload.inheritedClip, within: sourceCaptureClip)
+                guard sourceCaptureClip == nil || inheritedClip != nil else { continue }
                 paintNode(
                     node,
                     into: &scene,
                     deferredDraws: &deferredDraws,
                     parentOrigin: payload.parentOrigin,
-                    inheritedClip: payload.inheritedClip,
+                    inheritedClip: inheritedClip,
                     layerIndex: 0,
                     surfaceSize: surfaceSize,
                     displayScale: displayScale,
@@ -3344,13 +3634,26 @@ public enum ScenePainter {
                     usedNativeGlyphs: &usedNativeGlyphs,
                     usedPixelGlyphs: &usedPixelGlyphs,
                     replayCount: &replayCount,
-                    inheritedTransform: payload.inheritedTransform
+                    inheritedTransform: payload.inheritedTransform,
+                    skipCacheUpdates: skipCacheUpdates,
+                    colorEffectPassDepth: colorEffectPassDepth,
+                    canvasSymbolState: canvasSymbolState
                 )
             }
 
             deferredDraws[deferredDrawIndex].cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
             deferredDraws[deferredDrawIndex].cachedSceneSnapshotIdentity = snapshotIdentity
         }
+    }
+
+    /// Preserve an existing rounded clip while restricting a detached source's
+    /// otherwise unbounded deferred records to its recording coordinate domain.
+    private static func captureClip(
+        _ clip: RuntimeClipShape?, within sourceClip: RuntimeClipShape?
+    ) -> RuntimeClipShape? {
+        guard let sourceClip else { return clip }
+        return clip.narrowed(
+            to: sourceClip.rect, radii: nil, uniformRadius: 0, space: .painted)
     }
 
     private static func quad(
@@ -3434,6 +3737,7 @@ public enum ScenePainter {
         surfaceSize: Size,
         displayScale: Double,
         contentScale: Double = 1,
+        pixelFontCoordinateScale: Double = 1,
         textSystem: WindowTextSystem,
         into glyphs: inout [GlyphPrimitive],
         pixelGlyphs: inout [GlyphPrimitive],
@@ -3471,11 +3775,13 @@ public enum ScenePainter {
         // to "?". That is a severe, silent quality cliff; count it.
         TextRenderDiagnosticsCounters.pixelFontFallbacks += 1
 
-        let effectiveStyle = style.resolvingMinimumScaleFactor(
+        let fallbackStyle = style.canvasPixelFontFallback(coordinateScale: pixelFontCoordinateScale)
+        let effectiveStyle = fallbackStyle.resolvingMinimumScaleFactor(
             for: text,
             maxContentWidth: max(0, contentRect.size.width),
             measureLine: { line in
-                PixelFont.rawLineWidth(line, letterSpacing: style.letterSpacing) * max(style.scale, 0.01)
+                PixelFont.rawLineWidth(line, letterSpacing: fallbackStyle.letterSpacing)
+                    * max(fallbackStyle.scale, 0.01)
             }
         )
         let scale = max(effectiveStyle.scale, 0.01)

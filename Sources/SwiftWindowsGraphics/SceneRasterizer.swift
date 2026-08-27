@@ -820,13 +820,15 @@ private struct RasterTarget {
         let clip = GPUIClipRegion(
             x: image.clipX, y: image.clipY, width: image.clipWidth, height: image.clipHeight,
             cornerRadius: image.clipCornerRadius)
-        // A composited offscreen pass under a rotated transform carries the
-        // angle; UVs are taken in unrotated destination coordinates, exactly
-        // as the shader takes them from the turned vertices' `unit`.
-        guard let scan = rotatedScan(rect, rotation: Double(image.rotationRadians), clip: clip.rect) else {
+        // UVs are evaluated in the original destination coordinates after
+        // undoing rotation and the affine basis. A shear or reflection must
+        // not stretch the image into its axis-aligned bounding rectangle.
+        guard let scan = imageScan(image, rect: rect, clip: clip.rect) else {
             return
         }
         let bounds = scan.bounds
+        let sampleWidth = image.hasIdentityAffineTransform ? max(rect.size.width, 1) : rect.size.width
+        let sampleHeight = image.hasIdentityAffineTransform ? max(rect.size.height, 1) : rect.size.height
 
         let sourceWidth = max(1, Int(bitmap.width))
         let sourceHeight = max(1, Int(bitmap.height))
@@ -841,10 +843,9 @@ private struct RasterTarget {
                 let (pixelCenterX, pixelCenterY) = scan.localOf(Double(x) + 0.5, Double(y) + 0.5)
                 let clipAlpha = clip.alpha(atPixelX: x, y: y)
                 guard clipAlpha > 0 else { continue }
-                guard GPUIQuadCoverage.geometryCovers(localX: pixelCenterX, localY: pixelCenterY, rect: rect)
-                else { continue }
-                let tx = clamp((pixelCenterX - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1)
-                let ty = clamp((pixelCenterY - rect.minY) / max(rect.size.height, 1), lower: 0, upper: 1)
+                guard scan.covers(pixelCenterX, pixelCenterY) else { continue }
+                let tx = clamp((pixelCenterX - rect.minX) / sampleWidth, lower: 0, upper: 1)
+                let ty = clamp((pixelCenterY - rect.minY) / sampleHeight, lower: 0, upper: 1)
                 let tapX = BilinearAxisTap(
                     normalized: Double(image.uvX) + Double(image.uvW) * tx, size: sourceWidth)
                 let tapY = BilinearAxisTap(
@@ -1065,6 +1066,27 @@ private struct RasterTarget {
             return (lx, ly)
         }
         return (bounds, localOf)
+    }
+
+    private func imageScan(_ image: ImagePrimitive, rect: Rect, clip: Rect?)
+        -> (
+            bounds: PixelBounds, localOf: (Double, Double) -> (Double, Double),
+            covers: (Double, Double) -> Bool
+        )?
+    {
+        guard let geometry = ImagePlacementGeometry(image), !rect.isEmpty else { return nil }
+        if image.hasIdentityAffineTransform {
+            guard let scan = rotatedScan(rect, rotation: Double(image.rotationRadians), clip: clip) else { return nil }
+            return (
+                scan.bounds, scan.localOf,
+                { GPUIQuadCoverage.geometryCovers(localX: $0, localY: $1, rect: rect) }
+            )
+        }
+        guard let bounds = clippedPixelBounds(geometry.bounds, clip: clip) else { return nil }
+        return (
+            bounds, { geometry.localPoint(worldX: $0, worldY: $1) },
+            { geometry.geometryCovers(localX: $0, localY: $1, rect: rect) }
+        )
     }
 
     private func clippedPixelBounds(_ rect: Rect, clip: Rect?) -> PixelBounds? {

@@ -6340,7 +6340,9 @@ public final class ViewNode {
                 effectiveClipRect: effectiveClipRect,
                 effectiveOpacity: effectiveOpacity,
                 effectiveBlendMode: effectiveBlendMode,
-                displayScale: displayScale
+                displayScale: displayScale,
+                canvasCoordinateScale: node.canvasDraw == nil
+                    ? 1 : PaintPlacement.lowering(absoluteFrame, through: effectiveTransform).scale
             )
 
             traversal.append(
@@ -6461,7 +6463,8 @@ public final class ViewNode {
         effectiveClipRect: Rect?,
         effectiveOpacity: Float,
         effectiveBlendMode: BlendMode,
-        displayScale: Double
+        displayScale: Double,
+        canvasCoordinateScale: Double
     ) {
         let directCommandStartIndex = commands.count
 
@@ -6726,19 +6729,16 @@ public final class ViewNode {
             baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect)
         {
             var context = CanvasGraphicsContext()
-            canvasDraw(&context, fillRect.size)
+            canvasDraw(&context, fillRect.size.scaled(by: 1 / canvasCoordinateScale))
             context.appendCommands(
                 into: &commands,
-                // The canvas closure draws in a space `fillRect.size` wide, so
-                // its origin is `fillRect`'s — the painted origin, inset by
-                // the border. `absoluteOrigin` is the *layout* origin and
-                // carries neither the accumulated transform nor the border
-                // inset, so a bordered or transformed canvas drew offset from
-                // where the scene path put it.
+                // Draw in logical Canvas coordinates, then apply the inherited
+                // uniform scale before its placed origin and border inset.
                 origin: fillRect.origin,
                 clipRect: effectiveClipRect,
                 opacity: effectiveOpacity,
-                displayScale: displayScale
+                displayScale: displayScale,
+                coordinateScale: canvasCoordinateScale
             )
         }
 
@@ -9450,6 +9450,23 @@ public final class RetainedViewRuntime {
         if root.frame.size != nextSize {
             root.frame.size = nextSize
         }
+    }
+
+    /// Layout-only preparation for an isolated Canvas symbol. In particular,
+    /// this must not call renderScene/ScenePainter or begin a glyph-atlas frame:
+    /// symbols can be resolved while their owning Canvas is already painting.
+    internal func prepareCanvasSymbolLayout(content: ViewNode) -> Size? {
+        if content !== root { root.setChildren([content]) }
+        // Declaration lookup may remove tagged siblings carrying transitions.
+        // Those discarded declarations are not a part of the resolved symbol.
+        transitionOverlays.removeAll()
+        let size = content.intrinsicContentSize()
+        guard CanvasSymbolSource.pixelSize(for: size, displayScale: displayScale) != nil else { return nil }
+        root.frame = Rect(origin: .zero, size: size)
+        content.frame = Rect(origin: .zero, size: size)
+        updateResolvedLayout()
+        transitionOverlays.removeAll()
+        return size
     }
 
     public func renderFrame(at timestamp: Double = 0) -> RenderFrame {

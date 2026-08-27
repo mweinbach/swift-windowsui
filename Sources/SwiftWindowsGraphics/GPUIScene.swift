@@ -1066,6 +1066,7 @@ public struct GPUIScene: Equatable, Sendable {
         lhs.clearColor == rhs.clearColor && lhs.layers == rhs.layers && lhs.paintRecords == rhs.paintRecords
             && lhs.glyphAtlas == rhs.glyphAtlas && lhs.pixelGlyphAtlas == rhs.pixelGlyphAtlas
             && lhs.imageResources == rhs.imageResources
+            && lhs.imageRenderPasses == rhs.imageRenderPasses
     }
 }
 /// The single acceptance rule every primitive family shares: a primitive
@@ -1168,8 +1169,16 @@ extension GlyphPrimitive {
 }
 extension ImagePrimitive {
     fileprivate var contentMaskedBounds: Rect? {
-        let box = rotatedFootprint(
-            x: screenX, y: screenY, width: screenW, height: screenH, rotationRadians: rotationRadians)
+        guard let geometry = ImagePlacementGeometry(self) else { return nil }
+        // Preserve the original Float footprint for identity-basis scenes.
+        let box =
+            hasIdentityAffineTransform
+            ? rotatedFootprint(
+                x: screenX, y: screenY, width: screenW, height: screenH, rotationRadians: rotationRadians)
+            : (
+                x: Float(geometry.bounds.minX), y: Float(geometry.bounds.minY),
+                width: Float(geometry.bounds.size.width), height: Float(geometry.bounds.size.height)
+            )
         return SwiftWindowsGraphics.contentMaskedBounds(
             x: box.x, y: box.y, width: box.width, height: box.height,
             clipX: clipX, clipY: clipY,

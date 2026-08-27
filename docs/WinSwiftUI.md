@@ -617,7 +617,11 @@ Compatibility helpers:
 - `TextAttribute`
 - `TextProxy`
 - `GraphicsContext` (SwiftUI-shape Canvas drawing context: `Shading.color(_:)` and `Shading.linearGradient(_:startPoint:endPoint:)` with `CGPoint` endpoints; `fill`/`stroke` for `Path` and `CGRect`; `draw` for `BitmapSurface`, `Text`, `String`; mutable `opacity`; mutable `transform` with `translateBy`/`scaleBy`/`rotate`/`concatenate` (CG-style pre-multiply); `clip(to:)`/`popClip()`; `drawLayer { sub in ... }` for parent-transform-inheriting sub-contexts)
-- `Canvas { ctx, size in ... }` paints through the default GPUIScene path
+- `Canvas { ctx, size in ... }` paints through the default GPUIScene path;
+  tagged `symbols:` resolve and draw as renderer-neutral scene sources.
+  Context copies share operation order while retaining independent transform,
+  opacity, and clip state. [Canvas symbols](CanvasSymbols.md) documents logical
+  sizing, affine placement, resource bounds, fallback, and remaining limits.
   - multistop linear-gradient path fills and strokes preserve authored inset/diagonal endpoint vectors and context transforms on CPU and D3D11 scene paths; rectangular and rounded-rectangular fills promote complete diagonal/inset/transformed gradients directly to instanced GPU quads, complex fills/strokes retain bounded cached CPU rasters, and legacy `RenderFrame` path shading falls back to the first stop
 - `Path.contains(_:eoFill:)` (ray-cast hit testing, non-zero and even-odd fill rules)
 - `Gradient.init(stops: [Gradient.Stop])` preserves custom `Double` `location`

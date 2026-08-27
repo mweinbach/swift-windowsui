@@ -118,7 +118,7 @@ final class GPUIPrimitiveLayoutCoherenceTests: XCTestCase {
         XCTAssertEqual(MemoryLayout<ShadowPrimitive>.stride % 16, 0)
     }
 
-    // MARK: - ImagePrimitive ↔ ImageInstance (64 bytes; textureID is Int32 ↔ HLSL int)
+    // MARK: - ImagePrimitive ↔ ImageInstance (80 bytes; textureID is Int32 ↔ HLSL int)
 
     func testImagePrimitiveFieldOffsetsMatchImageInstance() async {
         XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.screenX), 0)
@@ -137,7 +137,11 @@ final class GPUIPrimitiveLayoutCoherenceTests: XCTestCase {
         XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.textureID), 52)
         XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.clipCornerRadius), 56)
         XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.rotationRadians), 60)
-        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 64)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.affineA), 64)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.affineB), 68)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.affineC), 72)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.affineD), 76)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 80)
         XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride % 16, 0)
     }
 

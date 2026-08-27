@@ -27,17 +27,31 @@ if (-not (Test-Path -LiteralPath $swiftFormatConfig)) {
     exit 1
 }
 
-if ($Path.Count -gt 0) {
-    $swiftFiles = @($Path) |
-        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-        ForEach-Object {
-            if ([System.IO.Path]::IsPathRooted($_)) {
-                $_
+if ($PSBoundParameters.ContainsKey("Path")) {
+    if ($null -eq $Path -or $Path.Count -eq 0) {
+        throw "Explicit -Path requires at least one existing file."
+    }
+    $swiftFiles = @(foreach ($requestedPath in $Path) {
+        if ([string]::IsNullOrWhiteSpace($requestedPath)) {
+            throw "Explicit -Path entries must not be null, empty, or whitespace."
+        }
+        try {
+            $candidate = if ([System.IO.Path]::IsPathRooted($requestedPath)) {
+                $requestedPath
             } else {
-                Join-Path $repoRoot $_
+                Join-Path $repoRoot $requestedPath
             }
-        } |
-        Where-Object { Test-Path -LiteralPath $_ }
+            $item = Get-Item -LiteralPath $candidate -Force -ErrorAction Stop
+        } catch {
+            throw "Invalid -Path entry '$requestedPath': expected an existing file. $($_.Exception.Message)"
+        }
+        if ($item -isnot [System.IO.FileInfo]) {
+            throw "Invalid -Path entry '$requestedPath': expected a file, not a directory or another provider item."
+        }
+        # Preserve literal commas/wildcards and use the exact filesystem path
+        # that was validated, including drive-relative inputs.
+        $item.FullName
+    })
 } elseif ($AllSwift) {
     $swiftFiles = @("Package.swift")
     $swiftFiles += Get-ChildItem -LiteralPath (Join-Path $repoRoot "Sources"), (Join-Path $repoRoot "Tests") -Recurse -Filter "*.swift" -File |

@@ -52,6 +52,52 @@ budget test blocks release sign-off.
 
 ## Live measurements
 
+### Current diagnostic interpretation limits
+
+The 2026-08-27 source audit found that the current diagnostics harness is
+synthetic stress evidence, not the hardware qualification required by
+`goal.md`. Historical measurements below retain their original conditions;
+they do not establish performance for a later commit.
+
+The scripted workload calls retained input methods after recorded frames,
+bypassing native message delivery and input timestamps. Its wheel value of
+120 means 120 lines in that API, not the raw Win32 detent value that the host
+normally converts to the configured line count. At a 16-point step it requests
+1,920 logical points. Work due during a stall may be delivered in a burst,
+and navigation counts represent attempts. A 30-second request includes the
+warmup and only about 28.2 seconds of scripted interaction; use at least 32
+seconds for approximately 30.2 seconds of this declared stress workload.
+
+`userVisibleCostMs` and the ordering of `costliestUpdates` currently add all
+rebuild time to frame time. Deferred observed-object rebuilds can occur
+inside the measured frame, so that subset is counted twice. Before using
+those totals for acceptance, distinguish rebuilds before the frame from
+rebuilds already included in it and test both, plus mixed intervals, with an
+injected clock. The older explanation below that places all rebuilding in
+the input handler does not cover the current deferred-rebuild path.
+
+The report measures CPU phases, `Present` call duration, and callback gaps.
+It does not measure GPU execution, display completion/deadlines, correlated
+input-to-present latency, separate text work, cold-start latency, or first
+interaction latency. Composition/construction/reconciliation details exist
+for selected costly updates, not complete phase percentile summaries. The
+global over-budget counter uses 1.5 refresh intervals, while active/idle
+blocks use one; neither is a missed-presentation-deadline count. Recovery can
+produce a sample without a completed present, and current reports aggregate
+backends while identifying final backend health. Empty post-warmup sets can
+fall back to pre-warmup samples. Diagnostics also requests idle frames, so it
+does not qualify the normal settled-window scheduler.
+
+For a new capture, record the commit, dirty state, release executable hash,
+command, actual adapter, dimensions/DPI, machine and display information,
+relevant demo preferences, and pacing-cache state. Use a unique output
+directory, verify a fresh report with sufficient samples and duration, and
+finish builds/tests before measuring. Keep the app visible and run timing
+separately from motion capture. Do not delete preferences or change display
+settings to manufacture a result. A unique report path does not isolate the
+demo settings or persisted pacing verdict. A reported 59/60 Hz display does
+not establish physical monitor identity or qualify 120/144 Hz operation.
+
 The gates above are counts, on purpose. This section is the other half: what
 the real window actually measured, so the counts can be judged against
 something. These are wall-clock numbers from a real session and are therefore

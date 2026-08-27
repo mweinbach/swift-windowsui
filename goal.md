@@ -617,6 +617,28 @@ nested StateObject lifetime remains a separate audited gap; a demo ownership
 fix must not be presented as full property-wrapper conformance. The checkpoint
 above predates this correction and must be rerun after integration.
 
+### Additional performance evidence detail
+
+The current diagnostic harness was audited against the unchanged section 4
+targets. It is useful synthetic stress evidence, not hardware qualification:
+it injects retained events instead of native input, has no input-to-present
+correlation or GPU execution timing, and uses callback gaps and CPU thresholds
+instead of measured presentation deadlines. Its wheel value of 120 means
+120 logical lines, not one native wheel detent. A 30-second request contains
+only about 28.2 seconds of scripted interaction after warmup; a 32-second
+request provides approximately 30.2 seconds of that stated stress workload.
+
+Deferred rebuilds can already be inside measured frame time, but the current
+combined user-visible cost adds them again. Correct the overlap using
+separate before-frame and in-frame intervals with injected-clock tests before
+using that total for acceptance. Phase percentile coverage, cold start,
+first interaction, sample eligibility, native input timestamps, GPU timing,
+and actual presentation deadlines still need qualification instrumentation.
+The detailed limitations and reproduction conditions are retained in
+`docs/PerformanceBudgets.md`; prior timing tables are historical evidence,
+not current results for this batch. No hardware target or tolerance is
+changed by discovering these measurement gaps.
+
 ### Hosted validation follow-up
 
 The starting revision's [Windows CI run](https://github.com/mweinbach/swift-windowsui/actions/runs/33081745181)

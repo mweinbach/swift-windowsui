@@ -71,6 +71,46 @@ Any populated identity pin is checked even without that switch. The switch
 also rejects pending identity review. Neither mode edits the manifest,
 approves new SDK versions, or marks conformance complete.
 
+## Candidate capture in GitHub Actions
+
+The [SwiftUI baseline candidate capture workflow](../.github/workflows/swiftui-baseline-capture.yml)
+can be dispatched manually. It also runs on pushes to `main` that change its
+workflow file, `scripts/export-swiftui-baseline.ps1`,
+`scripts/swiftui-baseline-common.ps1`, or `docs/swiftui-baseline.json`.
+General Swift source changes do not trigger this capture.
+
+One `macos-26-intel` job uses PowerShell and explicitly selects
+`/Applications/Xcode_26.6.app/Contents/Developer` through `DEVELOPER_DIR`.
+The [published Intel runner inventory](https://github.com/actions/runner-images/blob/b9af839509d3aedd01d80a5ebcb46e1b7896e0e3/images/macos/macos-26-Readme.md)
+lists this installation, the macOS 26.5 SDK, and PowerShell 7. That inventory
+establishes availability, not an actual capture or reviewed build identity.
+The job has a 90-minute limit and runs the existing exporter's four
+module/architecture combinations serially. It does not install another
+toolchain, invoke SwiftPM, or change the separate macOS reference-render
+workflow.
+
+Download the run's
+`swiftui-macos-26.5-xcode-26.6-candidate-<run-id>-<attempt>` artifact before
+its 30-day retention expires. Its `ci-context.json` records the actual
+checked-out commit, requested manifest hash, workflow/run/attempt, runner
+image and architecture, selected developer directory, and capture outcome.
+The `capture/` directory contains the exporter's evidence described below.
+The upload step runs even after failure and excludes only the disposable
+`capture/module-cache/`; it never converts a failed capture into success.
+A missing installation or wrong version fails the job without substituting
+another SDK. Early failures can leave only the CI context, while interrupted
+or failed captures are not complete evidence.
+
+The workflow deliberately creates an **unreviewed candidate** and does not
+pass `-RequireReviewedIdentity` while initial identity review is pending.
+Any populated identity pins are still enforced by the exporter. It never
+edits `reviewedIdentity`, fills build identifiers from a runner inventory,
+or promotes conformance status. Review the actual capture identifiers,
+hashes, raw graph partitions, public interfaces, and overlay definitions
+before recording reviewed identity; then require that identity on subsequent
+verification runs. Candidate export does not prove API audit completeness,
+native behavior, visual parity, or release qualification.
+
 ## Evidence and preservation rules
 
 Each run defaults to a new timestamped directory under

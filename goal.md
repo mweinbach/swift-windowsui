@@ -363,6 +363,15 @@ declarations. The upstream exporter can skip unloadable overlay modules, so
 even a successful capture explicitly leaves overlay completeness unverified
 until reconciled with the public SDK interfaces.
 
+The candidate-capture workflow now selects the pinned Xcode installation on
+`macos-26-intel`, records the exact source revision and runner provenance,
+and retains exporter output or failure diagnostics. It runs on demand or when
+the baseline capture inputs change on `main`; ordinary source edits do not
+trigger another SDK extraction. Local YAML/PowerShell and simulated-outcome
+checks passed, and the exporter fixtures again passed 75 assertions. These
+are tooling checks only. The workflow never fills reviewed identity or marks
+conformance complete; the actual capture must still run and be reviewed.
+
 | Gate | Acceptance detail and evidence to retain |
 | --- | --- |
 | 1. Full desktop API and behavior | Pin SDK, toolchain, and OS reference versions; inventory public desktop declarations with stable identifiers; map each to implementation, behavioral fixtures, and any justified platform-service exception. A missing audit entry is a gap, not an implicit exception. |

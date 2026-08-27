@@ -1,0 +1,116 @@
+name: SwiftUI baseline candidate capture
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/swiftui-baseline-capture.yml"
+      - "scripts/export-swiftui-baseline.ps1"
+      - "scripts/swiftui-baseline-common.ps1"
+      - "docs/swiftui-baseline.json"
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    name: Capture unreviewed SwiftUI SDK inventory
+    runs-on: macos-26-intel
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Export pinned SDK candidate with CI provenance
+        run: |
+          $ErrorActionPreference = "Stop"
+          $evidenceRoot = Join-Path $env:GITHUB_WORKSPACE "artifacts/swiftui-baseline/github-actions"
+          [void](New-Item -ItemType Directory -Path $evidenceRoot -Force)
+          $contextPath = Join-Path $evidenceRoot "ci-context.json"
+          $captureRoot = Join-Path $evidenceRoot "capture"
+          $context = [ordered]@{
+              schemaVersion = 1
+              evidenceKind = "compiler-exported-api-inventory-candidate"
+              status = "in-progress"
+              repository = $env:GITHUB_REPOSITORY
+              checkedOutCommit = $null
+              eventCommit = $env:GITHUB_SHA
+              eventName = $env:GITHUB_EVENT_NAME
+              ref = $env:GITHUB_REF
+              workflowRef = $env:GITHUB_WORKFLOW_REF
+              workflowCommit = $env:GITHUB_WORKFLOW_SHA
+              runId = $env:GITHUB_RUN_ID
+              runAttempt = $env:GITHUB_RUN_ATTEMPT
+              runUrl = "{0}/{1}/actions/runs/{2}" -f $env:GITHUB_SERVER_URL, $env:GITHUB_REPOSITORY, $env:GITHUB_RUN_ID
+              job = $env:GITHUB_JOB
+              runner = [ordered]@{
+                  requestedLabel = "macos-26-intel"
+                  operatingSystem = $env:RUNNER_OS
+                  architecture = $env:RUNNER_ARCH
+                  imageOS = $env:ImageOS
+                  imageVersion = $env:ImageVersion
+              }
+              developerDirectoryOverride = $env:DEVELOPER_DIR
+              powerShellVersion = $PSVersionTable.PSVersion.ToString()
+              baselineManifestPath = "docs/swiftui-baseline.json"
+              baselineManifestSha256 = $null
+              exportDirectory = "capture"
+              identityReviewPerformed = $false
+              behaviorConformance = "not-verified"
+              releaseQualified = $false
+              startedAtUtc = [DateTime]::UtcNow.ToString("o")
+              finishedAtUtc = $null
+              error = $null
+          }
+          [System.IO.File]::WriteAllText($contextPath, ($context | ConvertTo-Json -Depth 8) + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+          try {
+              $checkedOutCommit = & git rev-parse HEAD
+              if ($LASTEXITCODE -ne 0 -or $checkedOutCommit -notmatch '^[0-9a-f]{40}$') {
+                  throw "Cannot identify the checked-out commit for candidate provenance."
+              }
+              $context.checkedOutCommit = $checkedOutCommit.Trim()
+              $manifestPath = Join-Path $env:GITHUB_WORKSPACE $context.baselineManifestPath
+              $context.baselineManifestSha256 = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+              if (-not (Test-Path -LiteralPath $env:DEVELOPER_DIR -PathType Container)) {
+                  throw "Pinned Xcode 26.6 is not installed at DEVELOPER_DIR. No other Xcode or SDK may be substituted."
+              }
+              [System.IO.File]::WriteAllText($contextPath, ($context | ConvertTo-Json -Depth 8) + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+
+              # Initial capture is a candidate, not an identity review. The exporter
+              # enforces release versions and any already populated identity pins.
+              & ./scripts/export-swiftui-baseline.ps1 -OutputPath $captureRoot
+              $captureStatus = Get-Content -LiteralPath (Join-Path $captureRoot "capture-status.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+              if ($captureStatus.status -cne "exported-awaiting-review") {
+                  throw "The exporter did not produce a complete candidate capture."
+              }
+              $context.status = "exported-awaiting-review"
+          } catch {
+              $context.status = "failed"
+              $context.error = $_.Exception.Message
+              throw
+          } finally {
+              $context.finishedAtUtc = [DateTime]::UtcNow.ToString("o")
+              [System.IO.File]::WriteAllText($contextPath, ($context | ConvertTo-Json -Depth 8) + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+          }
+
+      - name: Upload candidate evidence and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swiftui-macos-26.5-xcode-26.6-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/swiftui-baseline/github-actions/
+            !artifacts/swiftui-baseline/github-actions/capture/module-cache/**
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30

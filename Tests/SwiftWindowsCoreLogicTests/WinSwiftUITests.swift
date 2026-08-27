@@ -19342,11 +19342,11 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
-    func testOnLongPressGestureEnablesHitTestingAndRunsActionOnReleaseInside() async {
+    func testOnLongPressGestureEnablesHitTestingAndRunsActionAtItsDeadline() async {
         await MainActor.run {
             var longPressCount = 0
             var pressingStates: [Bool] = []
-            let node = makeNode(
+            let (runtime, node) = makeRuntimeNode(
                 Text("HOLD")
                     .onLongPressGesture(
                         minimumDuration: 0.25,
@@ -19359,39 +19359,51 @@ final class WinSwiftUITests: XCTestCase {
                         }
                     )
             )
+            var now = 10.0
+            runtime.clock = { now }
+            let point = Point(x: node.resolvedFrame.midX, y: node.resolvedFrame.midY)
 
             XCTAssertTrue(node.isHitTestVisible)
+            XCTAssertEqual(node.longPressGesture?.minimumDuration, 0.25)
+            XCTAssertEqual(node.longPressGesture?.maximumDistance, 12)
 
-            node.onPointerDown?()
+            runtime.pointerDown(at: point)
             XCTAssertEqual(longPressCount, 0)
             XCTAssertEqual(pressingStates, [true])
 
-            node.onPointerUpInside?()
+            now = 10.25
+            _ = runtime.tickAnimations(at: now)
             XCTAssertEqual(longPressCount, 1)
             XCTAssertEqual(pressingStates, [true, false])
+            runtime.pointerUp(at: point)
+            XCTAssertEqual(longPressCount, 1)
         }
     }
 
-    func testOnLongPressGestureCancelsPressingOnReleaseOutsideAndExit() async {
+    func testOnLongPressGestureCancelsPressingOnEarlyReleaseAndExcessMovement() async {
         await MainActor.run {
             var longPressCount = 0
             var pressingStates: [Bool] = []
-            let node = makeNode(
+            let (runtime, node) = makeRuntimeNode(
                 Text("HOLD")
                     .onLongPressGesture(
                         minimumDuration: 0.25,
                         pressing: { isPressing in
                             pressingStates.append(isPressing)
-                        }
-                    ) {
-                        longPressCount += 1
-                    }
+                        },
+                        perform: { longPressCount += 1 }
+                    )
             )
+            var now = 10.0
+            runtime.clock = { now }
+            let point = Point(x: node.resolvedFrame.midX, y: node.resolvedFrame.midY)
 
-            node.onPointerDown?()
-            node.onPointerUpOutside?()
-            node.onPointerDown?()
-            node.onPointerExit?()
+            runtime.pointerDown(at: point)
+            runtime.pointerUp(at: point)
+            runtime.pointerDown(at: point)
+            runtime.pointerMoved(to: Point(x: point.x + 20, y: point.y))
+            now = 11
+            _ = runtime.tickAnimations(at: now)
 
             XCTAssertEqual(longPressCount, 0)
             XCTAssertEqual(pressingStates, [true, false, true, false])
@@ -19406,7 +19418,7 @@ final class WinSwiftUITests: XCTestCase {
             var exitCount = 0
             var longPressCount = 0
             var pressingStates: [Bool] = []
-            let node = makeNode(
+            let (runtime, node) = makeRuntimeNode(
                 PointerHandlerProbe(
                     onExit: {
                         exitCount += 1
@@ -19432,12 +19444,16 @@ final class WinSwiftUITests: XCTestCase {
                     }
                 )
             )
+            var now = 10.0
+            runtime.clock = { now }
+            let point = Point(x: node.resolvedFrame.midX, y: node.resolvedFrame.midY)
 
-            node.onPointerDown?()
-            node.onPointerUpInside?()
-            node.onPointerDown?()
-            node.onPointerUpOutside?()
-            node.onPointerExit?()
+            runtime.pointerDown(at: point)
+            now = 10.2
+            _ = runtime.tickAnimations(at: now)
+            runtime.pointerUp(at: point)
+            runtime.pointerDown(at: point)
+            runtime.pointerUp(at: Point(x: point.x + 1000, y: point.y + 1000))
 
             XCTAssertEqual(downCount, 2)
             XCTAssertEqual(insideCount, 1)
@@ -19769,7 +19785,7 @@ final class WinSwiftUITests: XCTestCase {
             var endings: [Bool] = []
             var changes: [Bool] = []
             var simultaneousTapCount = 0
-            let highPriorityNode = makeNode(
+            let (runtime, highPriorityNode) = makeRuntimeNode(
                 Text("HOLD")
                     .highPriorityGesture(
                         LongPressGesture(minimumDuration: 0.2, maximumDistance: 8)
@@ -19781,6 +19797,9 @@ final class WinSwiftUITests: XCTestCase {
                             }
                     )
             )
+            var now = 10.0
+            runtime.clock = { now }
+            let point = Point(x: highPriorityNode.resolvedFrame.midX, y: highPriorityNode.resolvedFrame.midY)
             let simultaneousNode = makeNode(
                 Text("TAP")
                     .simultaneousGesture(
@@ -19790,11 +19809,13 @@ final class WinSwiftUITests: XCTestCase {
                     )
             )
 
-            highPriorityNode.onPointerDown?()
-            highPriorityNode.onPointerUpInside?()
+            runtime.pointerDown(at: point)
+            now = 10.2
+            _ = runtime.tickAnimations(at: now)
+            runtime.pointerUp(at: point)
             simultaneousNode.onPointerUpInside?()
 
-            XCTAssertEqual(changes, [true, false])
+            XCTAssertEqual(changes, [true])
             XCTAssertEqual(endings, [true])
             XCTAssertEqual(simultaneousTapCount, 1)
         }

@@ -707,6 +707,18 @@ explicit labels, and unchanged extended components. This resolves an overload
 boundary; it does not establish full native color-space conformance. Integrated
 SwiftPM results are pending.
 
+Retained long presses now have runtime-owned attempts with original duration
+and logical movement thresholds. Reconciliation refreshes callbacks without
+restarting a hold; recognition, cancellation, removal, modal changes, and
+reentrant callbacks retire an attempt once. GestureState cleanup is tied to
+its update revision and preserves the transaction supplied by its updater.
+The shared-source gallery has independent window-owned hold readouts and a
+Confirm once button alternative for keyboard and accessibility invocation.
+There are 33 dedicated retained tests, three gallery workflow tests, and four
+migrated legacy expectations awaiting integrated execution. Native callback
+ordering, arbitration, mounted GestureState lifetime, and Narrator remain
+separate acceptance work.
+
 ### Additional state lifetime acceptance detail
 
 A source audit found that the current State and StateObject wrappers follow

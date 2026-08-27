@@ -10,4 +10,5 @@
 @MainActor
 final class DemoWindowState: ObservableObject {
     let observation = DemoObservationState()
+    let longPress = DemoLongPressState()
 }

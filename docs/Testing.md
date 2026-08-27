@@ -107,6 +107,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   immutable previously returned scenes, nested replay after atlas recycling,
   safe observer reentry, CPU isolation cache retries, and actual WARP upload
   sharing and restoration when a child has a different atlas.
+- `RetainedLongPressGestureTests` checks timed recognition, logical movement,
+  cancellation, reconciliation, modal scope, and callback reentry using an
+  injected clock. `DemoLongPressWindowStateTests` exercises independent window
+  attempts and tab remounts, plus a button alternative through keyboard and
+  retained accessibility invocation. These do not replace native gesture or
+  Narrator qualification.
 - `ModalPresentationIsolationTests` and `DemoRendererIdentityTests` cover
   topmost modal focus/accessibility/shortcut isolation and renderer identities
   that remain accurate when the app switches between D3D11 and software.

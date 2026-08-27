@@ -106,6 +106,7 @@ enum DemoGalleryCategory: String, CaseIterable, Hashable {
                 "input", "field", "form", "binding", "state", "checkbox", "switch", "button",
                 "segmented", "stepper", "picker", "slider", "progress", "validation", "text",
                 "scroll", "geometry", "phase", "visibility", "observation", "animation",
+                "long press", "hold", "gesture", "touch",
             ]
         case .visuals:
             return [
@@ -168,6 +169,7 @@ struct DemoGalleryScreen: View {
                             if visibleCategories.contains(.controls) {
                                 DemoComponentShowcase(model: model, compact: compact)
                                 DemoObservationShowcase(model: model, state: windowState.observation)
+                                DemoLongPressShowcase(state: windowState.longPress)
                             }
 
                             if visibleCategories.contains(.presentations) {

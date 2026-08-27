@@ -1187,6 +1187,65 @@ private struct ButtonRepeatState {
     var nextActivationTime: Double?
     var didRepeat: Bool
 }
+
+/// Configuration for one retained long-press recognizer. Its pending attempt
+/// belongs to the runtime, so replacing a view's callbacks does not restart
+/// the duration or move the gesture's original logical position.
+@MainActor
+public struct RetainedLongPressGesture {
+    public typealias Cleanup = @MainActor () -> Void
+    public typealias IsActive = @MainActor () -> Bool
+
+    public var minimumDuration: Double
+    public var maximumDistance: Double
+    public var isEnabled: Bool
+    public var onBegin: (@MainActor (IsActive) -> Cleanup?)?
+    public var onPressingChanged: (@MainActor (Bool) -> Void)?
+    public var onRecognized: @MainActor () -> Void
+
+    public init(
+        minimumDuration: Double = 0.5,
+        maximumDistance: Double = 10,
+        isEnabled: Bool = true,
+        onBegin: (@MainActor (IsActive) -> Cleanup?)? = nil,
+        onPressingChanged: (@MainActor (Bool) -> Void)? = nil,
+        onRecognized: @escaping @MainActor () -> Void
+    ) {
+        self.minimumDuration = minimumDuration
+        self.maximumDistance = maximumDistance
+        self.isEnabled = isEnabled
+        self.onBegin = onBegin
+        self.onPressingChanged = onPressingChanged
+        self.onRecognized = onRecognized
+    }
+
+    fileprivate var canRecognize: Bool {
+        isEnabled && minimumDuration.isFinite && minimumDuration >= 0
+            && maximumDistance.isFinite && maximumDistance >= 0
+    }
+}
+
+@MainActor
+private final class LongPressAttempt {
+    weak var node: ViewNode?
+    let startPoint: Point
+    let deadline: Double
+    let maximumDistance: Double
+    var configuration: RetainedLongPressGesture
+    var cleanup: RetainedLongPressGesture.Cleanup?
+    var didNotifyPressing = false
+    var didFinish = false
+    var isCheckingDeadline = false
+
+    init(node: ViewNode, point: Point, timestamp: Double, configuration: RetainedLongPressGesture) {
+        self.node = node
+        self.startPoint = point
+        self.deadline = timestamp + configuration.minimumDuration
+        self.maximumDistance = configuration.maximumDistance
+        self.configuration = configuration
+    }
+}
+
 @MainActor
 struct DeferredSubtreeState {
     var priority: Int
@@ -1622,6 +1681,7 @@ private final class ViewNodeInteractionHandlers {
     var keyUp: ((KeyboardEvent) -> Void)?
     var activate: (() -> Void)?
     var repeatActivate: (() -> Void)?
+    var longPressGesture: RetainedLongPressGesture?
 }
 
 /// Drag, drop, and dynamic-list editing are another independently optional
@@ -2424,7 +2484,12 @@ public final class ViewNode {
     }
 
     public var isHitTestVisible: Bool {
-        didSet { invalidateRuntime(.paint) }
+        didSet {
+            if !isHitTestVisible {
+                runtime?.cancelLongPress(in: self)
+            }
+            invalidateRuntime(.paint)
+        }
     }
 
     public var allowsAutomaticWindowDecorations: Bool {
@@ -3277,6 +3342,13 @@ public final class ViewNode {
     public var onRepeatActivate: (() -> Void)? {
         get { interactionHandlers?.repeatActivate }
         set { setInteractionHandler(newValue, at: \.repeatActivate) }
+    }
+    public var longPressGesture: RetainedLongPressGesture? {
+        get { interactionHandlers?.longPressGesture }
+        set {
+            setInteractionHandler(newValue, at: \.longPressGesture)
+            runtime?.longPressConfigurationDidChange(on: self)
+        }
     }
     public var onDeleteRows: ((IndexSet) -> Void)? {
         get { dropHandlers?.deleteRows }
@@ -4178,6 +4250,14 @@ public final class ViewNode {
     }
 
     public func addChild(_ child: ViewNode) {
+        let interactionRuntime = runtime
+        let sourceRuntime = child.runtime
+        interactionRuntime?.beginLongPressReconciliation()
+        if sourceRuntime !== interactionRuntime { sourceRuntime?.beginLongPressReconciliation() }
+        defer {
+            if sourceRuntime !== interactionRuntime { sourceRuntime?.endLongPressReconciliation() }
+            interactionRuntime?.endLongPressReconciliation()
+        }
         child.removeFromParent()
         child.parent = self
         child.setRuntime(runtime)
@@ -4197,6 +4277,9 @@ public final class ViewNode {
     }
 
     public func removeAllChildren() {
+        let interactionRuntime = runtime
+        interactionRuntime?.beginLongPressReconciliation()
+        defer { interactionRuntime?.endLongPressReconciliation() }
         for child in children {
             if child.transition.removal.kind != .identity, child.applyRemovalTransition() {
                 child.isRemovalOverlay = true
@@ -4226,6 +4309,15 @@ public final class ViewNode {
             return
         }
 
+        let interactionRuntime = runtime
+        let sourceRuntime = newChild.runtime
+        interactionRuntime?.beginLongPressReconciliation()
+        if sourceRuntime !== interactionRuntime { sourceRuntime?.beginLongPressReconciliation() }
+        defer {
+            if sourceRuntime !== interactionRuntime { sourceRuntime?.endLongPressReconciliation() }
+            interactionRuntime?.endLongPressReconciliation()
+        }
+
         let old = children[index]
         detachRemovedChild(old)
 
@@ -4241,6 +4333,10 @@ public final class ViewNode {
         guard index >= 0, index < children.count else {
             return
         }
+
+        let interactionRuntime = runtime
+        interactionRuntime?.beginLongPressReconciliation()
+        defer { interactionRuntime?.endLongPressReconciliation() }
 
         let removed = children.remove(at: index)
         detachRemovedChild(removed)
@@ -4292,6 +4388,22 @@ public final class ViewNode {
         // touched.
         if isChildListUnchanged(nextChildren) {
             return
+        }
+
+        let interactionRuntime = runtime
+        interactionRuntime?.beginLongPressReconciliation()
+        var sourceRuntimes: [RetainedViewRuntime] = []
+        for child in nextChildren {
+            if let sourceRuntime = child.runtime, sourceRuntime !== interactionRuntime,
+                !sourceRuntimes.contains(where: { $0 === sourceRuntime })
+            {
+                sourceRuntime.beginLongPressReconciliation()
+                sourceRuntimes.append(sourceRuntime)
+            }
+        }
+        defer {
+            for sourceRuntime in sourceRuntimes { sourceRuntime.endLongPressReconciliation() }
+            interactionRuntime?.endLongPressReconciliation()
         }
 
         let surviving = Set(nextChildren.map(ObjectIdentifier.init))
@@ -8692,7 +8804,7 @@ public final class RetainedViewRuntime {
     /// `PhaseAnimator` between two phases has nothing tweening, and if the
     /// timer stopped there the next phase would never start.
     public var hasActiveAnimations: Bool {
-        !colorAnimations.isEmpty || buttonRepeatState != nil || !scrollMomenta.isEmpty
+        !colorAnimations.isEmpty || buttonRepeatState != nil || longPressAttempt != nil || !scrollMomenta.isEmpty
             || !scrollPresentedTweens.isEmpty || !transitionOverlays.isEmpty
             || !scrollIndicatorReveals.isEmpty
             || !deferredRebuilds.isEmpty
@@ -8977,6 +9089,12 @@ public final class RetainedViewRuntime {
     private weak var activeScrollIndicatorNode: ViewNode?
     private var colorAnimations: [ColorAnimationKey: ViewColorAnimation] = [:]
     private var buttonRepeatState: ButtonRepeatState?
+    private var longPressAttempt: LongPressAttempt?
+    private var longPressReconciliationDepth = 0
+    private var pendingLongPressCallbacks: [@MainActor () -> Void] = []
+    /// Callback code may synchronously begin another pointer sequence. Older
+    /// release/cancellation work must not clear that new sequence's state.
+    private var pointerSequence: UInt64 = 0
     private var scrollDragState: ScrollDragState?
     private var nodeDragState: NodeDragState?
 
@@ -9540,6 +9658,10 @@ public final class RetainedViewRuntime {
     }
 
     public func pointerMoved(to point: Point) {
+        let sequence = pointerSequence
+        updateLongPressPosition(point, at: clock())
+        guard pointerSequence == sequence else { return }
+
         if var dragState = scrollDragState {
             guard let node = dragState.node else {
                 scrollDragState = nil
@@ -9592,6 +9714,8 @@ public final class RetainedViewRuntime {
     /// controls leave their pressed state, repeat stops, and a dragged slider
     /// receives its editing-ended callback without activating any control.
     public func pointerCancelled() {
+        pointerSequence &+= 1
+        let sequence = pointerSequence
         let cancelledPressedNode = pressedNode
         let cancelledNodeDrag = nodeDragState
         let cancelledDragNode = cancelledNodeDrag?.node
@@ -9603,6 +9727,11 @@ public final class RetainedViewRuntime {
         scrollDragState = nil
         activeScrollIndicatorNode = nil
 
+        if let attempt = longPressAttempt {
+            finishLongPress(attempt, recognized: false)
+        }
+        guard pointerSequence == sequence else { return }
+
         if let cancelledNodeDrag, let cancelledDragNode {
             let delta = Point(
                 x: cancelledNodeDrag.lastPoint.x - cancelledNodeDrag.startPoint.x,
@@ -9611,7 +9740,10 @@ public final class RetainedViewRuntime {
             cancelledDragNode.onDragEnd?(cancelledNodeDrag.lastPoint, delta)
         }
 
+        guard pointerSequence == sequence else { return }
+
         updateHoverTarget(to: nil)
+        guard pointerSequence == sequence else { return }
         updateScrollIndicatorHover(to: nil)
 
         if let cancelledScrollIndicatorNode {
@@ -9626,6 +9758,7 @@ public final class RetainedViewRuntime {
         }
 
         cancelledPressedNode?.onPointerUpOutside?()
+        guard pointerSequence == sequence else { return }
         applyInteractionChrome(to: cancelledPressedNode)
     }
 
@@ -9741,6 +9874,18 @@ public final class RetainedViewRuntime {
     }
 
     public func pointerDown(at point: Point) {
+        pointerSequence &+= 1
+        let sequence = pointerSequence
+        let timestamp = clock()
+        let previousPressedNode = pressedNode
+        pressedNode = nil
+        buttonRepeatState = nil
+        applyInteractionChrome(to: previousPressedNode)
+        if let attempt = longPressAttempt {
+            finishLongPress(attempt, recognized: false)
+        }
+        guard pointerSequence == sequence else { return }
+
         if let scrollIndicatorHit = scrollIndicatorHit(at: point) {
             cancelScrollMomentum(for: scrollIndicatorHit.node)
             cancelScrollPresentedTween(for: scrollIndicatorHit.node, preservingPresentation: true)
@@ -9771,14 +9916,32 @@ public final class RetainedViewRuntime {
         let hoverNode = pointerInteractionTarget(from: hitNode, at: point)
         let interactionNode = pointerInteractionTarget(from: hitNode, at: point, routing: .activation)
         updateFocusTarget(to: nearestFocusableNode(from: hitNode))
+        guard pointerSequence == sequence else { return }
         updateHoverTarget(to: hoverNode)
+        guard pointerSequence == sequence else { return }
         pressedNode = interactionNode
         interactionNode?.onPointerDown?()
+        guard pointerSequence == sequence, pressedNode === interactionNode else { return }
         applyInteractionChrome(to: interactionNode)
         beginButtonRepeatIfNeeded(for: interactionNode)
+        beginLongPressIfNeeded(for: interactionNode, at: point, timestamp: timestamp)
     }
 
     public func pointerUp(at point: Point) {
+        let sequence = pointerSequence
+        if let attempt = longPressAttempt {
+            // A release can be the first event after the deadline. Validate
+            // its final displacement even if no intervening move was sent.
+            let timestamp = clock()
+            updateLongPressPosition(point, at: timestamp)
+            if longPressAttempt === attempt,
+                !attempt.isCheckingDeadline || !timestamp.isFinite || timestamp < attempt.deadline
+            {
+                finishLongPress(attempt, recognized: false)
+            }
+        }
+        guard pointerSequence == sequence else { return }
+
         if let dragState = scrollDragState {
             scrollDragState = nil
             activeScrollIndicatorNode = nil
@@ -9825,7 +9988,9 @@ public final class RetainedViewRuntime {
             applyInteractionChrome(to: pressedNode)
             if pressedNode === interactionNode {
                 pressedNode.onPointerUpInside?()
+                guard pointerSequence == sequence, pressedNode.runtime === self else { return }
                 pressedNode.onPointerUpInsideAt?(point)
+                guard pointerSequence == sequence, pressedNode.runtime === self else { return }
                 if !didRepeat {
                     pressedNode.onActivate?()
                 }
@@ -9834,7 +9999,7 @@ public final class RetainedViewRuntime {
             }
         }
 
-        self.pressedNode = nil
+        guard pointerSequence == sequence else { return }
         updateHoverTarget(to: hoverNode)
     }
 
@@ -9988,7 +10153,12 @@ public final class RetainedViewRuntime {
     }
 
     public func keyboardFocusDidLeaveWindow() {
+        let sequence = pointerSequence
         buttonRepeatState = nil
+        if let attempt = longPressAttempt {
+            finishLongPress(attempt, recognized: false)
+        }
+        guard pointerSequence == sequence else { return }
         updateFocusTarget(to: nil)
     }
 
@@ -10455,6 +10625,7 @@ public final class RetainedViewRuntime {
         cancelScrollAnimations(in: subtree)
         let ownsPointerInteraction =
             Self.isInteractionTarget(pressedNode, within: subtree)
+            || Self.isInteractionTarget(longPressAttempt?.node, within: subtree)
             || Self.isInteractionTarget(nodeDragState?.node, within: subtree)
             || Self.isInteractionTarget(scrollDragState?.node, within: subtree)
             || Self.isInteractionTarget(activeScrollIndicatorNode, within: subtree)
@@ -10495,6 +10666,149 @@ public final class RetainedViewRuntime {
             current = candidate.parent
         }
         return false
+    }
+
+    fileprivate func longPressConfigurationDidChange(on node: ViewNode) {
+        guard let attempt = longPressAttempt, attempt.node === node else { return }
+        guard let configuration = node.longPressGesture, configuration.canRecognize, node.isHitTestVisible else {
+            finishLongPress(attempt, recognized: false)
+            return
+        }
+        // Keep the original thresholds for this attempt, but deliver its
+        // remaining callbacks to the current retained view configuration.
+        attempt.configuration = configuration
+    }
+
+    /// Property adoption can cancel a held recognizer. Deliver its terminal
+    /// callbacks only after the enclosing reconciliation has installed its
+    /// children, so a callback's new rebuild cannot be overwritten by it.
+    func beginLongPressReconciliation() {
+        longPressReconciliationDepth += 1
+    }
+
+    func endLongPressReconciliation() {
+        longPressReconciliationDepth -= 1
+        guard longPressReconciliationDepth == 0, !pendingLongPressCallbacks.isEmpty else { return }
+        let callbacks = pendingLongPressCallbacks
+        pendingLongPressCallbacks.removeAll(keepingCapacity: true)
+        for callback in callbacks {
+            callback()
+        }
+    }
+
+    private func performLongPressCallback(_ callback: @escaping @MainActor () -> Void) {
+        if longPressReconciliationDepth > 0 {
+            pendingLongPressCallbacks.append(callback)
+        } else {
+            callback()
+        }
+    }
+
+    fileprivate func cancelLongPress(in subtree: ViewNode) {
+        guard let attempt = longPressAttempt, Self.isInteractionTarget(attempt.node, within: subtree) else {
+            return
+        }
+        finishLongPress(attempt, recognized: false)
+    }
+
+    private func beginLongPressIfNeeded(for node: ViewNode?, at point: Point, timestamp: Double) {
+        guard let node, node.runtime === self, pressedNode === node, node.isHitTestVisible,
+            !Self.hasHiddenAncestor(node),
+            let configuration = node.longPressGesture, configuration.canRecognize,
+            point.x.isFinite, point.y.isFinite, timestamp.isFinite,
+            (timestamp + configuration.minimumDuration).isFinite
+        else { return }
+
+        let attempt = LongPressAttempt(node: node, point: point, timestamp: timestamp, configuration: configuration)
+        longPressAttempt = attempt
+        // A pending hold needs the host's frame timer even when no pixels
+        // animate. No registration or traversal is needed on ordinary nodes.
+        invalidate(.paint)
+
+        let cleanup = configuration.onBegin? { !attempt.didFinish && self.longPressAttempt === attempt }
+        if attempt.didFinish {
+            // An updating callback can remove/cancel the node before its
+            // cleanup closure is returned. Still retire that update once.
+            if let cleanup {
+                performLongPressCallback(cleanup)
+            }
+            return
+        }
+        attempt.cleanup = cleanup
+        guard longPressAttempt === attempt else { return }
+        attempt.didNotifyPressing = true
+        attempt.configuration.onPressingChanged?(true)
+        if longPressAttempt === attempt {
+            _ = advanceLongPress(at: clock())
+        }
+    }
+
+    private func updateLongPressPosition(_ point: Point, at timestamp: Double) {
+        guard let attempt = longPressAttempt else { return }
+        let distance = hypot(point.x - attempt.startPoint.x, point.y - attempt.startPoint.y)
+        guard point.x.isFinite, point.y.isFinite, distance <= attempt.maximumDistance else {
+            finishLongPress(attempt, recognized: false)
+            return
+        }
+        _ = advanceLongPress(at: timestamp)
+    }
+
+    @discardableResult
+    private func advanceLongPress(at timestamp: Double) -> Bool {
+        guard let attempt = longPressAttempt else { return false }
+        guard !attempt.isCheckingDeadline else { return false }
+        guard let node = attempt.node, node.runtime === self, pressedNode === node,
+            node.isHitTestVisible, !Self.hasHiddenAncestor(node),
+            node.longPressGesture?.canRecognize == true, timestamp.isFinite
+        else {
+            finishLongPress(attempt, recognized: false)
+            return true
+        }
+        guard timestamp >= attempt.deadline else {
+            return false
+        }
+        attempt.isCheckingDeadline = true
+        defer { attempt.isCheckingDeadline = false }
+        // Honor the same modal scope as keyboard and wheel routing. Resolve
+        // inserted presentations and paint-only ordering changes before
+        // recognition, once at the deadline rather than every pending frame.
+        if !dirtyFlags.intersection([.layout, .children]).isEmpty {
+            updateResolvedLayout()
+        } else if dirtyFlags.contains(.paint) {
+            updatePrepaintState()
+        }
+        guard longPressAttempt === attempt else { return true }
+        if let modal = activeModalPresentationNode, !Self.isInteractionTarget(node, within: modal) {
+            finishLongPress(attempt, recognized: false)
+            return true
+        }
+        finishLongPress(attempt, recognized: true)
+        return true
+    }
+
+    private func finishLongPress(_ attempt: LongPressAttempt, recognized: Bool) {
+        guard !attempt.didFinish else { return }
+        attempt.didFinish = true
+        if longPressAttempt === attempt {
+            longPressAttempt = nil
+        }
+        let configuration = attempt.configuration
+        let cleanup = attempt.cleanup
+        attempt.cleanup = nil
+        invalidate(.paint)
+
+        // Commit termination before invoking app code. Rebuilds, removal,
+        // cancellation, and a new press from a callback cannot finish this
+        // attempt twice. The cleanup owns only its original state update.
+        performLongPressCallback {
+            if attempt.didNotifyPressing {
+                configuration.onPressingChanged?(false)
+            }
+            cleanup?()
+            if recognized {
+                configuration.onRecognized()
+            }
+        }
     }
 
     private func beginButtonRepeatIfNeeded(for node: ViewNode?) {
@@ -10683,6 +10997,7 @@ public final class RetainedViewRuntime {
         // advances — a phase boundary that landed this frame should be animated
         // from this frame, not from the next one.
         let didRunDeferredRebuild = tickDeferredRebuilds(at: timestamp)
+        let didAdvanceLongPress = advanceLongPress(at: timestamp)
         sweepAnimatingNodes()
         let didAdvanceButtonRepeat = advanceButtonRepeat(at: timestamp)
         let didAdvanceScrollMomenta = tickScrollMomenta(at: timestamp)
@@ -10718,7 +11033,7 @@ public final class RetainedViewRuntime {
         }
 
         guard !colorAnimations.isEmpty else {
-            return didRunDeferredRebuild || didAdvanceButtonRepeat || didAdvanceScrollMomenta
+            return didRunDeferredRebuild || didAdvanceLongPress || didAdvanceButtonRepeat || didAdvanceScrollMomenta
                 || didAdvanceScrollPresentedTweens || didStartScrollIndicatorTween || didBlinkCaret
                 || didAdvancePropertyAnimations || didAdvanceOverlayAnimations || !completedOverlays.isEmpty
         }
@@ -10751,7 +11066,7 @@ public final class RetainedViewRuntime {
             }
         }
 
-        return didUpdateAnyAnimation || didRunDeferredRebuild || didAdvanceButtonRepeat
+        return didUpdateAnyAnimation || didRunDeferredRebuild || didAdvanceLongPress || didAdvanceButtonRepeat
             || didAdvanceScrollMomenta || didAdvanceScrollPresentedTweens || didStartScrollIndicatorTween
             || didBlinkCaret || didAdvancePropertyAnimations || didAdvanceOverlayAnimations
             || !completedOverlays.isEmpty
@@ -11565,7 +11880,7 @@ public final class RetainedViewRuntime {
             let dispatchState = prepaintState.dispatchNodes[currentIndex]
             let ancestor = dispatchState.node
 
-            if ancestor.onActivate != nil {
+            if ancestor.onActivate != nil || ancestor.longPressGesture?.canRecognize == true {
                 guard ancestor.isHitTestVisible,
                     let interaction = prepaintState.interactions.last(where: {
                         $0.dispatchIndex == currentIndex
@@ -11588,6 +11903,7 @@ public final class RetainedViewRuntime {
 
     private static func isPassivePointerContent(_ node: ViewNode, routing: PointerInteractionRouting) -> Bool {
         guard node.onActivate == nil,
+            node.longPressGesture == nil,
             node.onPointerDown == nil,
             node.onPointerUpInside == nil,
             node.onPointerUpInsideAt == nil,
@@ -12067,7 +12383,7 @@ public final class RetainedViewRuntime {
 
         var didRebuild = false
         for reference in pendingGeometryReaderNodes {
-            guard let node = reference.node, let build = node.geometryReaderBuild else {
+            guard let node = reference.node, node.runtime === self, let build = node.geometryReaderBuild else {
                 continue
             }
 
@@ -12090,6 +12406,7 @@ public final class RetainedViewRuntime {
                 continue
             }
 
+            beginLongPressReconciliation()
             ComponentHost.adopt(source: rebuilt, into: node)
             // Belt and braces: `adopt` copies the rebuilt node's own record
             // of what it was built from, and this is the same value. Setting
@@ -12098,6 +12415,7 @@ public final class RetainedViewRuntime {
             node.geometryReaderBuiltSize = slot
             geometryReaderResolveCount &+= 1
             didRebuild = true
+            endLongPressReconciliation()
         }
 
         return didRebuild

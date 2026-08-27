@@ -57,6 +57,9 @@ public final class ComponentHost {
             return
         }
 
+        runtime.beginLongPressReconciliation()
+        defer { runtime.endLongPressReconciliation() }
+
         guard let buildComponents else {
             runtime.root.removeAllChildren()
             return
@@ -1269,6 +1272,9 @@ public final class ComponentHost {
             if target.onActivate != nil || source.onActivate != nil { target.onActivate = source.onActivate }
             if target.onRepeatActivate != nil || source.onRepeatActivate != nil {
                 target.onRepeatActivate = source.onRepeatActivate
+            }
+            if target.longPressGesture != nil || source.longPressGesture != nil {
+                target.longPressGesture = source.longPressGesture
             }
         }
 

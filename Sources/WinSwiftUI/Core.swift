@@ -8187,6 +8187,7 @@ public struct GestureState<Value>: DynamicProperty {
         let initialValue: Value
         var value: Value
         var invalidate: (@MainActor () -> Void)?
+        var revision: UInt64 = 0
 
         init(value: Value) {
             self.initialValue = value
@@ -8217,19 +8218,42 @@ public struct GestureState<Value>: DynamicProperty {
         self
     }
 
+    @discardableResult
     fileprivate func update(
         with updateBody: @MainActor (inout Value, inout Transaction) -> Void
-    ) {
+    ) -> UInt64 {
+        storage.revision &+= 1
+        let revision = storage.revision
         var value = storage.value
-        var transaction = Transaction()
+        var transaction: Transaction
+        // A full transaction owns the context even when its animation is nil.
+        if let currentTransaction {
+            transaction = currentTransaction
+        } else if let animation = currentAnimationTransaction {
+            transaction = Transaction(animation: Animation(duration: animation.duration, easing: animation.easing))
+        } else {
+            transaction = Transaction()
+        }
         updateBody(&value, &transaction)
-        storage.value = value
-        storage.invalidate?()
+        // A callback may synchronously begin another gesture. Do not commit
+        // this older local copy over its newer update.
+        guard storage.revision == revision else { return revision }
+        withTransaction(transaction) {
+            storage.value = value
+            storage.invalidate?()
+        }
+        return revision
     }
 
     fileprivate func reset() {
+        storage.revision &+= 1
         storage.value = storage.initialValue
         storage.invalidate?()
+    }
+
+    fileprivate func reset(afterUpdate revision: UInt64) {
+        guard storage.revision == revision else { return }
+        reset()
     }
 }
 @MainActor
@@ -12974,16 +12998,14 @@ public struct LongPressGesture: Gesture {
     public var maximumDistance: CGFloat
     private let changedAction: (@MainActor (Bool) -> Void)?
     private let endedAction: (@MainActor (Bool) -> Void)?
-    private let updatingActions: [@MainActor (Bool) -> Void]
-    private let resetActions: [@MainActor () -> Void]
+    private let beginActions: [@MainActor () -> RetainedLongPressGesture.Cleanup]
 
     public init(minimumDuration: Double = 0.5, maximumDistance: CGFloat = 10) {
         self.minimumDuration = minimumDuration
         self.maximumDistance = maximumDistance
         self.changedAction = nil
         self.endedAction = nil
-        self.updatingActions = []
-        self.resetActions = []
+        self.beginActions = []
     }
 
     private init(
@@ -12991,15 +13013,13 @@ public struct LongPressGesture: Gesture {
         maximumDistance: CGFloat,
         changedAction: (@MainActor (Bool) -> Void)?,
         endedAction: (@MainActor (Bool) -> Void)?,
-        updatingActions: [@MainActor (Bool) -> Void],
-        resetActions: [@MainActor () -> Void]
+        beginActions: [@MainActor () -> RetainedLongPressGesture.Cleanup]
     ) {
         self.minimumDuration = minimumDuration
         self.maximumDistance = maximumDistance
         self.changedAction = changedAction
         self.endedAction = endedAction
-        self.updatingActions = updatingActions
-        self.resetActions = resetActions
+        self.beginActions = beginActions
     }
 
     public func onChanged(_ action: @escaping @MainActor (Value) -> Void) -> LongPressGesture {
@@ -13008,8 +13028,7 @@ public struct LongPressGesture: Gesture {
             maximumDistance: maximumDistance,
             changedAction: action,
             endedAction: endedAction,
-            updatingActions: updatingActions,
-            resetActions: resetActions
+            beginActions: beginActions
         )
     }
 
@@ -13019,8 +13038,7 @@ public struct LongPressGesture: Gesture {
             maximumDistance: maximumDistance,
             changedAction: changedAction,
             endedAction: action,
-            updatingActions: updatingActions,
-            resetActions: resetActions
+            beginActions: beginActions
         )
     }
 
@@ -13028,15 +13046,14 @@ public struct LongPressGesture: Gesture {
         _ state: GestureState<State>,
         body: @escaping @MainActor (Value, inout State, inout Transaction) -> Void
     ) -> LongPressGesture {
-        var updatingActions = self.updatingActions
-        var resetActions = self.resetActions
-        updatingActions.append { value in
-            state.update { stateValue, transaction in
-                body(value, &stateValue, &transaction)
+        var beginActions = self.beginActions
+        beginActions.append {
+            let revision = state.update { stateValue, transaction in
+                body(true, &stateValue, &transaction)
             }
-        }
-        resetActions.append {
-            state.reset()
+            return {
+                state.reset(afterUpdate: revision)
+            }
         }
 
         return LongPressGesture(
@@ -13044,8 +13061,7 @@ public struct LongPressGesture: Gesture {
             maximumDistance: maximumDistance,
             changedAction: changedAction,
             endedAction: endedAction,
-            updatingActions: updatingActions,
-            resetActions: resetActions
+            beginActions: beginActions
         )
     }
 
@@ -13055,23 +13071,26 @@ public struct LongPressGesture: Gesture {
         }
 
         return AnyView(
-            view.onLongPressGesture(
+            view.onLongPressGestureModifier(
                 minimumDuration: minimumDuration,
                 maximumDistance: maximumDistance,
-                perform: {
+                action: {
                     endedAction?(true)
-                    for resetAction in resetActions {
-                        resetAction()
+                },
+                pressingChanged: { isPressing in
+                    if isPressing {
+                        changedAction?(true)
                     }
                 },
-                onPressingChanged: { isPressing in
-                    for updatingAction in updatingActions {
-                        updatingAction(isPressing)
+                begin: { isActive in
+                    var cleanups: [RetainedLongPressGesture.Cleanup] = []
+                    for beginAction in beginActions {
+                        guard isActive() else { break }
+                        cleanups.append(beginAction())
                     }
-                    changedAction?(isPressing)
-                    if !isPressing {
-                        for resetAction in resetActions {
-                            resetAction()
+                    return {
+                        for cleanup in cleanups {
+                            cleanup()
                         }
                     }
                 }
@@ -29584,61 +29603,26 @@ extension View {
         )
     }
 
-    private func onLongPressGestureModifier(
+    fileprivate func onLongPressGestureModifier(
         minimumDuration: Double,
         maximumDistance: CGFloat,
         action: @escaping () -> Void,
-        pressingChanged: ((Bool) -> Void)?
+        pressingChanged: ((Bool) -> Void)?,
+        begin: (@MainActor (RetainedLongPressGesture.IsActive) -> RetainedLongPressGesture.Cleanup?)? = nil
     ) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
-            let _ = minimumDuration
-            let _ = maximumDistance
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.isHitTestVisible = true
-                var isPressing = false
-
-                let existingOnPointerDown = childNode.onPointerDown
-                childNode.onPointerDown = {
-                    existingOnPointerDown?()
-                    guard !isPressing else {
-                        return
-                    }
-                    isPressing = true
-                    pressingChanged?(true)
-                }
-
-                let existingOnPointerUpInside = childNode.onPointerUpInside
-                childNode.onPointerUpInside = {
-                    existingOnPointerUpInside?()
-                    guard isPressing else {
-                        return
-                    }
-                    action()
-                    isPressing = false
-                    pressingChanged?(false)
-                }
-
-                let existingOnPointerUpOutside = childNode.onPointerUpOutside
-                childNode.onPointerUpOutside = {
-                    existingOnPointerUpOutside?()
-                    guard isPressing else {
-                        return
-                    }
-                    isPressing = false
-                    pressingChanged?(false)
-                }
-
-                let existingOnPointerExit = childNode.onPointerExit
-                childNode.onPointerExit = {
-                    existingOnPointerExit?()
-                    guard isPressing else {
-                        return
-                    }
-                    isPressing = false
-                    pressingChanged?(false)
-                }
+                childNode.longPressGesture = RetainedLongPressGesture(
+                    minimumDuration: minimumDuration,
+                    maximumDistance: Double(maximumDistance),
+                    isEnabled: context.isEnabled,
+                    onBegin: begin,
+                    onPressingChanged: pressingChanged,
+                    onRecognized: action
+                )
 
                 return childNode
             }

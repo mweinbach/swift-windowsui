@@ -474,3 +474,15 @@ gesture arbitration remain reference-qualification work, not assumed parity.
 The original goal text and nine gates in sections 1–9 were compared against
 starting revision `38e855d` during this batch and remain unchanged. All new
 execution detail is recorded in this section.
+
+### Hosted validation follow-up
+
+The starting revision's [Windows CI run](https://github.com/mweinbach/swift-windowsui/actions/runs/33081745181)
+passed setup and contracts but stopped in `SymbolIconRenderingTests`: two
+assertions assumed Segoe Fluent Icons was installed on Windows Server 2022,
+although the supported Segoe MDL2 Assets fallback was selected. The tests now
+inject availability when checking preference order and separately compare
+actual installed-font pixels or require the explicit vector fallback. All
+12 tests pass locally; production fallback selection is unchanged. This is
+not a green hosted result for the new candidate. That exact-revision run
+still has to execute after the validated commit batch is pushed.

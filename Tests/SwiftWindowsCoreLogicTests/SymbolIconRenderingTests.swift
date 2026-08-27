@@ -121,32 +121,92 @@ final class SymbolIconRenderingTests: XCTestCase {
 
     // MARK: - Font fallback chain
 
-    func testFontAvailabilityProbeDetectsInstalledIconFonts() async {
-        await MainActor.run {
-            // This machine has both icon fonts installed (verified via the
-            // registry font table).
-            XCTAssertTrue(NativeFontAvailability.hasGlyph("\u{E721}", fontFamily: "Segoe Fluent Icons"))
-            XCTAssertTrue(NativeFontAvailability.hasGlyph("\u{E721}", fontFamily: "Segoe MDL2 Assets"))
-            XCTAssertFalse(NativeFontAvailability.hasGlyph("\u{E721}", fontFamily: "Definitely Not A Font XYZ"))
+    func testFontAvailabilityProbeUsesInstalledFallbackOrVectorRendering() async throws {
+        try await MainActor.run {
+            NativeFontAvailability.resetTestingOverrides()
+            NativeFontAvailability.resetProbeCacheForTesting()
+            defer {
+                NativeFontAvailability.resetTestingOverrides()
+                NativeFontAvailability.resetProbeCacheForTesting()
+            }
+
+            // Server 2022 can provide MDL2 Assets without Fluent Icons. Probe
+            // this host rather than requiring the developer's installed fonts.
+            let symbol: SymbolIcon = .search
+            let families = SymbolIcon.fontFamilyFallbacks
+            let installedFamilies = families.filter {
+                NativeFontAvailability.hasGlyph(symbol.character, fontFamily: $0)
+            }
+            let selectedFamily = NativeFontAvailability.resolvedFontFamily(
+                for: symbol.character, preferred: families)
+            XCTAssertEqual(selectedFamily, installedFamilies.first)
+            XCTAssertFalse(
+                NativeFontAvailability.hasGlyph(symbol.character, fontFamily: "Definitely Not A Font XYZ"))
+
+            let node = Controls.icon(
+                symbol, frame: Rect(x: 8, y: 8, width: 24, height: 24),
+                preferredSize: Size(width: 24, height: 24), displayScale: 1)
+            if let selectedFamily {
+                let bitmap = try XCTUnwrap(node.bitmapSurface, "The selected installed font must render the icon")
+                XCTAssertNil(node.canvasDraw)
+                XCTAssertTrue(bitmap.pixels.contains { $0 != 0 })
+
+                var rasterStyle = node.textStyle
+                rasterStyle.fontFamily = selectedFamily
+                rasterStyle.insets = .zero
+                rasterStyle.lineBreakMode = .clip
+                let expected = try XCTUnwrap(
+                    NativeTextRenderer.rasterize(symbol.rawValue, style: rasterStyle, scaleFactor: 1))
+                XCTAssertEqual(bitmap.width, expected.width)
+                XCTAssertEqual(bitmap.height, expected.height)
+                XCTAssertTrue(bitmap.pixels == expected.pixels, "The icon must use the selected fallback font")
+            } else {
+                XCTAssertNil(node.bitmapSurface)
+                XCTAssertNotNil(node.canvasDraw, "No installed icon glyph must select the drawn vector fallback")
+            }
+
+            let root = Controls.panel(frame: Rect(x: 0, y: 0, width: 40, height: 40), children: [node])
+            let scene = ScenePainter.paint(
+                root: root, clearColor: .black, surfaceSize: Size(width: 40, height: 40))
+            XCTAssertTrue(scene.layers.flatMap(\.pixelGlyphs).isEmpty)
+            if selectedFamily != nil {
+                XCTAssertEqual(scene.layers.flatMap(\.images).count, 1)
+            } else {
+                XCTAssertFalse(scene.layers.flatMap(\.paths).isEmpty && scene.layers.flatMap(\.quads).isEmpty)
+            }
         }
     }
 
     func testFontFallbackChainPreservesPreferenceOrder() async {
         await MainActor.run {
-            XCTAssertEqual(
-                NativeFontAvailability.resolvedFontFamily(
-                    for: "\u{E721}",
-                    preferred: ["Segoe Fluent Icons", "Segoe MDL2 Assets"]),
-                "Segoe Fluent Icons")
-            XCTAssertEqual(
-                NativeFontAvailability.resolvedFontFamily(
-                    for: "\u{E721}",
-                    preferred: ["Definitely Not A Font XYZ", "Segoe MDL2 Assets"]),
-                "Segoe MDL2 Assets")
+            defer { NativeFontAvailability.resetTestingOverrides() }
+            let fluent = "Segoe Fluent Icons"
+            let mdl2 = "Segoe MDL2 Assets"
+            let missing = "Definitely Not A Font XYZ"
+            let scenarios: [(available: [String], preferred: [String], expected: String?)] = [
+                ([fluent, mdl2], [fluent, mdl2], fluent),
+                ([fluent, mdl2], [mdl2, fluent], mdl2),
+                ([mdl2], [fluent, mdl2], mdl2),
+                ([fluent], [mdl2, fluent], fluent),
+                ([mdl2], [missing, mdl2], mdl2),
+                ([], [fluent, mdl2], nil),
+                ([fluent, mdl2], [missing, "Another Missing Font"], nil),
+                ([fluent, mdl2], [], nil),
+            ]
+            for scenario in scenarios {
+                NativeFontAvailability.testingOverrides.hasGlyph = { character, family in
+                    character == "\u{E721}" && scenario.available.contains(family)
+                }
+                XCTAssertEqual(
+                    NativeFontAvailability.resolvedFontFamily(for: "\u{E721}", preferred: scenario.preferred),
+                    scenario.expected,
+                    "Available families: \(scenario.available); requested order: \(scenario.preferred)")
+            }
+
+            // Installed-family availability does not imply glyph coverage.
             XCTAssertNil(
                 NativeFontAvailability.resolvedFontFamily(
-                    for: "\u{E721}",
-                    preferred: ["Definitely Not A Font XYZ", "Another Missing Font"]))
+                    for: "\u{E000}", preferred: [fluent, mdl2]))
         }
     }
 

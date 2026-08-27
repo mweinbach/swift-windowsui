@@ -5382,14 +5382,26 @@ public struct EnvironmentObjectValues: @unchecked Sendable {
 }
 @MainActor
 public final class UndoManager: @unchecked Sendable {
-    private struct UndoAction {
+    private final class UndoAction {
+        weak var target: AnyObject?
+        let targetIdentifier: ObjectIdentifier
         var name: String
-        let handler: @MainActor () -> Void
+        let handler: @MainActor (AnyObject) -> Void
+
+        init(target: AnyObject, name: String, handler: @escaping @MainActor (AnyObject) -> Void) {
+            self.target = target
+            targetIdentifier = ObjectIdentifier(target)
+            self.name = name
+            self.handler = handler
+        }
     }
 
     private var undoStack: [UndoAction] = []
     private var redoStack: [UndoAction] = []
     private var pendingActionName = ""
+    private var registrationDisableCount = 0
+    private weak var replayAction: UndoAction?
+    private var isProcessingReplay = false
 
     public private(set) var isUndoing = false
     public private(set) var isRedoing = false
@@ -5397,26 +5409,53 @@ public final class UndoManager: @unchecked Sendable {
     public init() {}
 
     public var canUndo: Bool {
-        !undoStack.isEmpty
+        pruneDeadTargets()
+        return !undoStack.isEmpty
     }
 
     public var canRedo: Bool {
-        !redoStack.isEmpty
+        pruneDeadTargets()
+        return !redoStack.isEmpty
     }
 
     public var undoActionName: String {
-        undoStack.last?.name ?? ""
+        pruneDeadTargets()
+        return undoStack.last?.name ?? ""
     }
 
     public var redoActionName: String {
-        redoStack.last?.name ?? ""
+        pruneDeadTargets()
+        return redoStack.last?.name ?? ""
+    }
+
+    public var isUndoRegistrationEnabled: Bool {
+        registrationDisableCount == 0
+    }
+
+    public func disableUndoRegistration() {
+        registrationDisableCount += 1
+    }
+
+    public func enableUndoRegistration() {
+        // Foundation raises NSInternalInconsistencyException for an
+        // unmatched enable. The Windows compatibility layer uses a
+        // precondition because Objective-C exceptions are unavailable.
+        precondition(
+            registrationDisableCount > 0,
+            "enableUndoRegistration() requires a matching disableUndoRegistration()."
+        )
+        registrationDisableCount -= 1
     }
 
     public func registerUndo<TargetType: AnyObject>(
         withTarget target: TargetType,
         handler: @escaping @MainActor (TargetType) -> Void
     ) {
-        let action = UndoAction(name: pendingActionName) { [target] in
+        guard isUndoRegistrationEnabled else { return }
+        pruneDeadTargets()
+        guard isUndoRegistrationEnabled else { return }
+        let action = UndoAction(target: target, name: pendingActionName) { target in
+            guard let target = target as? TargetType else { return }
             handler(target)
         }
         pendingActionName = ""
@@ -5426,47 +5465,95 @@ public final class UndoManager: @unchecked Sendable {
         } else {
             undoStack.append(action)
             if !isRedoing {
-                redoStack.removeAll()
+                let previousRedoStack = redoStack
+                withExtendedLifetime(previousRedoStack) {
+                    redoStack = []
+                }
             }
+        }
+        if isUndoing || isRedoing {
+            replayAction = action
         }
     }
 
     public func setActionName(_ actionName: String) {
-        if isUndoing, !redoStack.isEmpty {
-            redoStack[redoStack.count - 1].name = actionName
-        } else if isRedoing, !undoStack.isEmpty {
-            undoStack[undoStack.count - 1].name = actionName
-        } else if !undoStack.isEmpty {
-            undoStack[undoStack.count - 1].name = actionName
+        pruneDeadTargets()
+        if isUndoing || isRedoing {
+            if let replayAction {
+                replayAction.name = actionName
+            } else {
+                pendingActionName = actionName
+            }
+        } else if let action = undoStack.last {
+            action.name = actionName
         } else {
             pendingActionName = actionName
         }
     }
 
     public func undo() {
-        guard let action = undoStack.popLast() else {
-            return
-        }
-
-        isUndoing = true
-        action.handler()
-        isUndoing = false
+        guard !isProcessingReplay else { return }
+        isProcessingReplay = true
+        defer { isProcessingReplay = false }
+        performReplay(undoing: true)
     }
 
     public func redo() {
-        guard let action = redoStack.popLast() else {
-            return
-        }
+        guard !isProcessingReplay else { return }
+        isProcessingReplay = true
+        defer { isProcessingReplay = false }
+        performReplay(undoing: false)
+    }
 
-        isRedoing = true
-        action.handler()
-        isRedoing = false
+    private func performReplay(undoing: Bool) {
+        // Keep the request guard active while pruning or releasing an
+        // executed action. Captured payloads can deinitialize and attempt
+        // another replay even outside the handler's public replay phase.
+        pruneDeadTargets()
+        let action = undoing ? undoStack.popLast() : redoStack.popLast()
+        guard let action, let target = action.target else { return }
+        isUndoing = undoing
+        isRedoing = !undoing
+        pendingActionName = ""
+        defer {
+            isUndoing = false
+            isRedoing = false
+            replayAction = nil
+            pendingActionName = ""
+        }
+        action.handler(target)
     }
 
     public func removeAllActions() {
-        undoStack.removeAll()
-        redoStack.removeAll()
         pendingActionName = ""
+        registrationDisableCount = 0
+        removeActions { _ in true }
+    }
+
+    public func removeAllActions(withTarget target: Any) {
+        let identifier = ObjectIdentifier(target as AnyObject)
+        removeActions { action in
+            action.targetIdentifier == identifier || action.target == nil
+        }
+    }
+
+    private func pruneDeadTargets() {
+        guard undoStack.contains(where: { $0.target == nil }) || redoStack.contains(where: { $0.target == nil }) else {
+            return
+        }
+        removeActions { $0.target == nil }
+    }
+
+    private func removeActions(where shouldRemove: (UndoAction) -> Bool) {
+        let previousUndoStack = undoStack
+        let previousRedoStack = redoStack
+        // Release captured action payloads only after both stored stacks
+        // have been replaced. Their deinitializers can call back into this
+        // manager without overlapping an array mutation or seeing half a clear.
+        withExtendedLifetime((previousUndoStack, previousRedoStack)) {
+            undoStack = previousUndoStack.filter { !shouldRemove($0) }
+            redoStack = previousRedoStack.filter { !shouldRemove($0) }
+        }
     }
 }
 public struct OpenURLAction: @unchecked Sendable {

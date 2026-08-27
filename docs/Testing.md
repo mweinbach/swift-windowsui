@@ -73,8 +73,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   selection handling after the bound text changes. `WinSwiftUIBitmapStretchTests` covers ordinary bitmap
   stretch through layout, CPU scene/frame output, and D3D11. Full includes them all.
 - Quick and Full run the material diagnostic classifier's synthetic self-tests through `macos-reference-renderer`. These do not render native material on Windows or replace macOS capture, reviewed comparisons, or the unresolved material-backdrop regression.
-- Quick and Full also run the API audit intake, ledger, and default bounded
-  memory fixtures. The pinned macOS capture workflow runs the same three
+- Quick and Full also run the API audit intake, ledger, default bounded
+  memory, and workflow handoff fixtures. The pinned macOS capture workflow runs the same four
   scripts before export. These synthetic tests preserve full record scope,
   hashes, rejected inputs, and publication boundaries; they do not establish
   a successful native capture or any API conformance. The opt-in large fixture

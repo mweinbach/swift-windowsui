@@ -5,6 +5,8 @@ Exports the pinned Apple desktop SwiftUI API as auditable inventory evidence.
 Run with PowerShell 7 (pwsh) on a Mac with the pinned Xcode installed. This
 does not run SwiftPM, change xcode-select, edit the baseline manifest, or
 claim API/behavior conformance. Set DEVELOPER_DIR to select an installation.
+On success, returns one compact descriptor with the exact capture paths,
+status and hashes. Failure returns no success descriptor.
 .PARAMETER RequireReviewedIdentity
 Reject an initial candidate capture until exact build identifiers have been
 captured, reviewed, and explicitly recorded in docs/swiftui-baseline.json.
@@ -281,4 +283,20 @@ try {
         behaviorConformance = "not-verified"
     })
     throw
+}
+
+# Emit only after the complete inventory and capture seals were written. A CI
+# caller must use this result, not discover an older or newer directory.
+[pscustomobject][ordered]@{
+    schemaVersion = 1
+    path = $captureRoot
+    status = "exported-awaiting-review"
+    manifestPath = $capturePath
+    manifestSha256 = $captureHash
+    statusPath = $statusPath
+    statusSha256 = (Get-FileHash -LiteralPath $statusPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    inventoryPath = $inventoryPath
+    inventorySha256 = $capture.inventory.sha256
+    baselineManifestSha256 = $capture.baselineManifest.sha256
+    counts = [pscustomobject]$inventory.counts
 }

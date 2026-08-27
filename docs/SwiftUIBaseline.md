@@ -74,13 +74,14 @@ approves new SDK versions, or marks conformance complete.
 ## Candidate capture in GitHub Actions
 
 The [SwiftUI baseline candidate capture workflow](../.github/workflows/swiftui-baseline-capture.yml)
-can be dispatched manually. It also runs on pushes to `main` that change its
-workflow file, `.gitmodules`, `scripts/export-swiftui-baseline.ps1`,
-`scripts/swiftui-baseline-common.ps1`, `scripts/swiftui-baseline-streaming.ps1`,
-their baseline fixture tests and fixture data, `scripts/test-checkout-metadata.ps1`,
-or `docs/swiftui-baseline.json`. The job runs the checkout and inventory fixtures
-before exporting; changes to ordinary Swift source do not trigger this capture.
-General Swift source changes do not trigger this capture.
+can be dispatched manually. It also runs on pushes to `main` that match its
+path filter: the workflow or `.gitmodules`, `Package.swift`,
+`Sources/macos-reference-renderer/**`, the SDK export/inventory scripts and
+benchmark, audit builder/candidate/helper scripts and tests, material capture
+scripts and tests, baseline fixture data, `scripts/test-checkout-metadata.ps1`,
+or `docs/swiftui-baseline.json`. Checkout and synthetic provenance/inventory/
+audit fixtures run before the SDK export. Swift source changes outside the
+listed macOS reference target do not trigger this workflow by themselves.
 
 Checkout keeps `persist-credentials: false` and `submodules: false`. The
 read-only `extern/zed` gitlink has its verified upstream mapping in
@@ -95,22 +96,50 @@ One `macos-26-intel` job uses PowerShell and explicitly selects
 The [published Intel runner inventory](https://github.com/actions/runner-images/blob/b9af839509d3aedd01d80a5ebcb46e1b7896e0e3/images/macos/macos-26-Readme.md)
 lists this installation, the macOS 26.5 SDK, and PowerShell 7. That inventory
 establishes availability, not an actual capture or reviewed build identity.
-The job has a 90-minute limit and runs the existing exporter's four
-module/architecture combinations serially. It does not install another
-toolchain, invoke SwiftPM, or change the separate macOS reference-render
-workflow.
+The job has a 90-minute limit and runs the exporter's four module/architecture
+combinations serially. The SDK export and API ledger do not invoke SwiftPM.
+The following material-candidate step does: it builds and runs
+`macos-reference-renderer` with the exported compiler and SDK, using its own
+temporary SwiftPM scratch directory and a 15-minute step limit. The workflow
+does not install another toolchain or change the separate macOS
+reference-render workflow.
+
+Before native export, the workflow rejects artifact/evidence/capture paths
+redirected through filesystem aliases and refuses an existing evidence
+directory. On success, the `sdk-export` step writes the exporter's compact
+result to `export-result.json` under `artifacts/swiftui-baseline/github-actions/` and
+publishes explicit absolute result/capture paths and the
+`exported-awaiting-review` status for downstream steps. The helper's outer
+`-ExportResultPath` argument must be absolute; paths stored inside the result
+file remain portable relative paths from the evidence root. After the
+material-candidate step, a separate
+20-minute step calls `build-swiftui-api-audit-candidate.ps1` with that result
+path and the evidence root. It writes the complete, unreviewed stage-1 ledger
+to sibling `audit/` and a small `audit-context.json` with status, hashes, and
+counts; the source `capture/` is unchanged.
+
+The ledger requires a successful SDK export with `exported-awaiting-review`
+and a job that has not been cancelled. It can still run when the independent
+material-candidate step fails. Material or ledger failure is not converted
+into success, and neither step promotes SDK identity or compatibility review.
+The existing 90-minute job limit still applies to the complete sequence.
 
 Download the run's
 `swiftui-macos-26.5-xcode-26.6-candidate-<run-id>-<attempt>` artifact before
 its 30-day retention expires. Its `ci-context.json` records the actual
 checked-out commit, requested manifest hash, workflow/run/attempt, runner
 image and architecture, selected developer directory, and capture outcome.
-The `capture/` directory contains the exporter's evidence described below.
-The upload step runs even after failure and excludes only the disposable
-`capture/module-cache/`; it never converts a failed capture into success.
-A missing installation or wrong version fails the job without substituting
-another SDK. Early failures can leave only the CI context, while interrupted
-or failed captures are not complete evidence.
+The upload retains the whole evidence root: the complete `capture/` raw graphs,
+inventory, interfaces and metadata; `export-result.json`; material evidence
+when produced; and the complete `audit/` NDJSON records, copied source metadata,
+sealed manifest and `audit-context.json` when produced. The small context and
+manifest files do not replace the full capture and ledger. The upload step
+uses `always()` and excludes only the disposable `capture/module-cache/`;
+it never converts a failed capture into success. A missing installation or
+wrong version fails the job without substituting another SDK. Early failures
+can leave only context files, while interrupted or failed captures are not
+complete evidence. See [SwiftUIAPIAudit.md](SwiftUIAPIAudit.md#candidate-ledger-in-github-actions)
+for the explicit handoff and ledger boundaries.
 
 The workflow deliberately creates an **unreviewed candidate** and does not
 pass `-RequireReviewedIdentity` while initial identity review is pending.
@@ -119,8 +148,10 @@ edits `reviewedIdentity`, fills build identifiers from a runner inventory,
 or promotes conformance status. Review the actual capture identifiers,
 hashes, raw graph partitions, public interfaces, and overlay definitions
 before recording reviewed identity; then require that identity on subsequent
-verification runs. Candidate export does not prove API audit completeness,
-native behavior, visual parity, or release qualification.
+verification runs. Candidate export or ledger generation does not prove API
+audit completeness, native behavior, visual parity, or release qualification.
+A fresh successful native capture and its review remain pending; synthetic
+workflow tests do not provide that evidence.
 
 ## Evidence and preservation rules
 

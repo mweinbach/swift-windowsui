@@ -21,6 +21,7 @@ on:
       - "scripts/test-swiftui-baseline-memory.ps1"
       - "scripts/measure-swiftui-baseline-inventory.ps1"
       - "scripts/build-swiftui-api-audit.ps1"
+      - "scripts/build-swiftui-api-audit-candidate.ps1"
       - "scripts/swiftui-api-audit-*.ps1"
       - "scripts/test-swiftui-api-audit*.ps1"
       - "scripts/fixtures/swiftui-baseline/**"
@@ -63,16 +64,38 @@ jobs:
       - name: Verify API audit bounded-memory fixtures
         run: ./scripts/test-swiftui-api-audit-memory.ps1
 
+      - name: Verify API audit workflow handoff fixtures
+        run: ./scripts/test-swiftui-api-audit-workflow.ps1
+
       - name: Verify material capture provenance fixtures
         run: ./scripts/test-swiftui-material-reference.ps1
 
       - name: Export pinned SDK candidate with CI provenance
+        id: sdk-export
         run: |
           $ErrorActionPreference = "Stop"
-          $evidenceRoot = Join-Path $env:GITHUB_WORKSPACE "artifacts/swiftui-baseline/github-actions"
-          [void](New-Item -ItemType Directory -Path $evidenceRoot -Force)
-          $contextPath = Join-Path $evidenceRoot "ci-context.json"
+          . ./scripts/swiftui-api-audit-common.ps1
+          # Candidate path preflight.
+          $repositoryRoot = Resolve-SwiftUIBaselineFileSystemPath -Path $env:GITHUB_WORKSPACE
+          $artifactRoot = Join-Path $repositoryRoot "artifacts"
+          $baselineEvidenceRoot = Join-Path $artifactRoot "swiftui-baseline"
+          $evidenceRoot = Join-Path $baselineEvidenceRoot "github-actions"
           $captureRoot = Join-Path $evidenceRoot "capture"
+          foreach ($candidatePath in @($artifactRoot, $baselineEvidenceRoot, $evidenceRoot, $captureRoot)) {
+              $expectedPath = [System.IO.Path]::GetFullPath($candidatePath)
+              $resolvedPath = Resolve-SwiftUIBaselineFileSystemPath -Path $candidatePath
+              [void](Get-SwiftUIBaselineRelativePath -Root $repositoryRoot -Path $resolvedPath)
+              if ($resolvedPath -cne $expectedPath) {
+                  throw "Candidate artifact directories must not redirect through filesystem aliases."
+              }
+          }
+          if (Test-Path -LiteralPath $evidenceRoot) {
+              throw "Candidate evidence directory already exists; this workflow never overwrites previous evidence."
+          }
+          # End candidate path preflight.
+          [void](New-Item -ItemType Directory -Path $evidenceRoot)
+          $contextPath = Join-Path $evidenceRoot "ci-context.json"
+          $exportResultPath = Join-Path $evidenceRoot "export-result.json"
           $context = [ordered]@{
               schemaVersion = 1
               evidenceKind = "compiler-exported-api-inventory-candidate"
@@ -123,11 +146,61 @@ jobs:
 
               # Initial capture is a candidate, not an identity review. The exporter
               # enforces release versions and any already populated identity pins.
-              & ./scripts/export-swiftui-baseline.ps1 -OutputPath $captureRoot
-              $captureStatus = Get-Content -LiteralPath (Join-Path $captureRoot "capture-status.json") -Raw -Encoding UTF8 | ConvertFrom-Json
-              if ($captureStatus.status -cne "exported-awaiting-review") {
-                  throw "The exporter did not produce a complete candidate capture."
+              $exportResult = & ./scripts/export-swiftui-baseline.ps1 -OutputPath $captureRoot
+              # Candidate result handoff.
+              Assert-SwiftUIAuditFields $exportResult @{
+                  schemaVersion = 'integer'; path = 'string'; status = 'string'; counts = 'object'
+                  manifestPath = 'string'; manifestSha256 = 'string'; statusPath = 'string'; statusSha256 = 'string'
+                  inventoryPath = 'string'; inventorySha256 = 'string'; baselineManifestSha256 = 'string'
+              } 'Exporter result'
+              if ($exportResult.schemaVersion -ne 1 -or $exportResult.status -cne "exported-awaiting-review" -or
+                  (Resolve-SwiftUIBaselineFileSystemPath -Path $exportResult.path) -cne $captureRoot) {
+                  throw "The exporter did not return the requested complete candidate capture."
               }
+              $verifiedExport = Read-SwiftUIAuditCapture -CaptureRoot $exportResult.path -ManifestPath $manifestPath
+              $expectedResultPaths = @{
+                  manifestPath = Join-Path $verifiedExport.captureRoot "capture.json"
+                  statusPath = Join-Path $verifiedExport.captureRoot "capture-status.json"
+                  inventoryPath = $verifiedExport.inventoryPath
+              }
+              foreach ($field in $expectedResultPaths.Keys) {
+                  if ((Resolve-SwiftUIBaselineFileSystemPath -Path $exportResult.$field) -cne
+                      (Resolve-SwiftUIBaselineFileSystemPath -Path $expectedResultPaths[$field])) {
+                      throw "The exporter returned a different $field than the selected capture."
+                  }
+              }
+              if ($exportResult.manifestSha256 -cne $verifiedExport.captureSha256 -or
+                  $exportResult.statusSha256 -cne $verifiedExport.statusSha256 -or
+                  $exportResult.inventorySha256 -cne $verifiedExport.inventorySha256 -or
+                  $exportResult.baselineManifestSha256 -cne $verifiedExport.baselineManifestSha256) {
+                  throw "The returned exporter hashes do not match the successful capture."
+              }
+              # Only normalize the compact count summary, never inventory data.
+              $returnedCounts = ConvertFrom-Json -InputObject (ConvertTo-Json -InputObject $exportResult.counts -Depth 8 -Compress -WarningAction Stop) -ErrorAction Stop
+              Assert-SwiftUIAuditJsonEqual -Expected $verifiedExport.capture.inventory.counts -Actual $returnedCounts -Context "Exporter result counts"
+              # Preserve the exact result using portable artifact-relative paths.
+              # No source capture bytes or statuses are rewritten by this handoff.
+              $portableResult = [ordered]@{}
+              foreach ($property in $exportResult.PSObject.Properties) { $portableResult[$property.Name] = $property.Value }
+              foreach ($field in @("path", "manifestPath", "statusPath", "inventoryPath")) {
+                  $returnedPath = Resolve-SwiftUIBaselineFileSystemPath -Path $exportResult.$field
+                  $portableResult[$field] = Get-SwiftUIBaselineRelativePath -Root $evidenceRoot -Path $returnedPath
+              }
+              if (Test-Path -LiteralPath $exportResultPath) { throw "An export result handoff already exists." }
+              Write-SwiftUIBaselineJson -Value $portableResult -Path $exportResultPath
+              $stepOutputs = [ordered]@{
+                  'export-result-path' = $exportResultPath
+                  'capture-root' = $verifiedExport.captureRoot
+                  'capture-status' = $exportResult.status
+              }
+              foreach ($name in $stepOutputs.Keys) {
+                  $value = [string]$stepOutputs[$name]
+                  if ([string]::IsNullOrWhiteSpace($value) -or $value -match '[\x00-\x1f\x7f]') {
+                      throw "A candidate step output contains an invalid path or status."
+                  }
+                  [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, ($name + "=" + $value + [Environment]::NewLine), [System.Text.UTF8Encoding]::new($false))
+              }
+              # End candidate result handoff.
               $context.status = "exported-awaiting-review"
           } catch {
               $context.status = "failed"
@@ -140,7 +213,17 @@ jobs:
 
       - name: Capture material candidates with the exported compiler and SDK
         timeout-minutes: 15
-        run: ./scripts/capture-swiftui-material-reference.ps1
+        env:
+          SWIFTUI_CAPTURE_ROOT: ${{ steps.sdk-export.outputs.capture-root }}
+        run: ./scripts/capture-swiftui-material-reference.ps1 -CaptureRoot $env:SWIFTUI_CAPTURE_ROOT
+
+      - name: Build complete unreviewed API audit ledger
+        if: ${{ !cancelled() && steps.sdk-export.outcome == 'success' && steps.sdk-export.outputs.capture-status == 'exported-awaiting-review' }}
+        timeout-minutes: 20
+        env:
+          SWIFTUI_EXPORT_RESULT_PATH: ${{ steps.sdk-export.outputs.export-result-path }}
+        run: |
+          ./scripts/build-swiftui-api-audit-candidate.ps1 -ExportResultPath $env:SWIFTUI_EXPORT_RESULT_PATH -EvidenceRoot (Join-Path $env:GITHUB_WORKSPACE "artifacts/swiftui-baseline/github-actions")
 
       - name: Upload candidate evidence and failure diagnostics
         if: always()

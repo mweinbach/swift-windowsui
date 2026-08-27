@@ -1760,3 +1760,56 @@ teardown, reentry, and selection-safety cases also passed. The run is
 `artifacts/goal-fourth-working-swift-lint-v4.log`; earlier lint covered the
 already committed State and selection changes. Full and hosted validation
 of the combined revision remain required.
+
+### Successful SDK export to unreviewed audit ledger
+
+The pinned SDK workflow now passes explicit verified export paths, status,
+counts, and hashes to `build-swiftui-api-audit-candidate.ps1`. It never selects
+a newest directory after failure. Preflight rejects redirected artifact paths
+and existing evidence directories; strict capture intake checks the compact
+handoff against the actual source capture before ledger publication. Capture
+bytes, seals, status, and SDK pins remain unchanged.
+
+The workflow retains the complete raw capture, original inventory, complete
+ledger, and small outcome records together. A material-capture failure does
+not suppress an otherwise valid SDK ledger, but the job still reports that
+failure. Cancellation skips the ledger. Every produced record remains
+unreviewed, and a failed or merely reindexed capture remains ineligible.
+
+Root passed 350 synthetic workflow assertions on each of PowerShell 5.1 and
+7, with YAML parsing, four changed-script parser checks, and contracts also
+passing. Logs are `artifacts/goal-api-audit-workflow-root-ps51.log` and
+`artifacts/goal-api-audit-workflow-root-ps7.log`. Quick, Full, and the pinned
+workflow now run all four default API-audit fixture scripts. Native export,
+ledger creation from that successful export, and declaration/behavior review
+remain pending; the synthetic result does not satisfy those requirements.
+
+### Document/editor template implementation boundaries
+
+The existing DocumentGroup constructors eagerly capture one document in a
+binding that discards writes. Viewing/editing also attempt to construct from
+an empty wrapper and can trap on a read failure. FileDocumentConfiguration
+stores a Binding as its document value instead of providing the expected
+value/projected-binding shape. The coordinator does not yet host document
+sessions, and document environment actions remain no-ops. A selected file URL
+or a successful standalone export is not a working document application.
+
+The next document layer must reuse the existing coordinator and retained
+controls, with a session per document and an owner-aware file service. A
+first regular-file UTF-8 implementation is an incremental slice, not a cap
+on the original document API or template requirements. Its acceptance must
+include actual read/decode/write results, independent windows, recoverable
+open/save failures, and correct saved-content checkpoints across undo/redo.
+Save must not erase history or duplicate the editor's existing undo entries.
+
+Dirty close needs one Save/Discard/Cancel decision per intent. Cancel, Escape,
+cancelled Save As, or a write failure must keep the same editor and history
+alive; Discard must not write. Only successful saving of the still-current
+session/revision can approve a later close. Dialog results must recheck owner
+and session validity before writing and again before applying completion.
+The presentation binding alone cannot distinguish exporter cancellation from
+success or failure. Vertical caret navigation, keyboard selection by visual
+line, and caret-revealing editor scrolling are also still required for a
+complete multiline template. These are implementation gaps, not exceptions
+to sections 5, 6, or 7. The catalog now distinguishes implemented editor undo
+from the remaining document workflow.

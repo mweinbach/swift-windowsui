@@ -97,6 +97,10 @@ Invoke-Step "SwiftUI API audit bounded-memory fixtures (synthetic only)" {
     & (Join-Path $PSScriptRoot "test-swiftui-api-audit-memory.ps1")
 }
 
+Invoke-Step "SwiftUI API audit workflow handoff fixtures (synthetic only)" {
+    & (Join-Path $PSScriptRoot "test-swiftui-api-audit-workflow.ps1")
+}
+
 Invoke-Step "pinned material capture provenance fixtures (synthetic only)" {
     & (Join-Path $PSScriptRoot "test-swiftui-material-reference.ps1")
 }

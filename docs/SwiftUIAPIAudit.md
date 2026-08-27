@@ -54,6 +54,66 @@ Selecting fewer queues changes only the queue records. This example still
 retains and verifies the complete graph, identity, occurrence, relationship,
 interface, and overlay evidence.
 
+## Candidate ledger in GitHub Actions
+
+The [pinned candidate workflow](../.github/workflows/swiftui-baseline-capture.yml)
+builds this ledger from the SDK export in the same job, after the existing
+material-candidate capture and before the unconditional artifact upload. The
+`sdk-export` step writes the exporter's successful compact descriptor to
+`artifacts/swiftui-baseline/github-actions/export-result.json` and publishes
+explicit result/capture paths and status. The ledger does not discover a
+"latest" directory or accept a different capture after failure.
+
+Before native export, the workflow rejects artifact/evidence/capture paths
+redirected through filesystem aliases and refuses an existing evidence
+directory. It checks the exporter's returned paths and hashes against strict
+capture intake before publishing the handoff and step outputs.
+
+The candidate helper requires an absolute `-ExportResultPath`, matching the
+path emitted through `GITHUB_OUTPUT`. Paths stored inside `export-result.json`
+remain portable relative paths from `-EvidenceRoot`. The equivalent invocation
+within a PowerShell session resolves the outer argument explicitly:
+
+```powershell
+$candidateEvidence = (Resolve-Path ./artifacts/swiftui-baseline/github-actions).Path
+& ./scripts/build-swiftui-api-audit-candidate.ps1 `
+    -ExportResultPath (Join-Path $candidateEvidence 'export-result.json') `
+    -EvidenceRoot $candidateEvidence
+```
+
+The helper validates the successful descriptor and its contained capture,
+then delegates complete evidence verification to `build-swiftui-api-audit.ps1`.
+It publishes the ledger to `audit/` beside `capture/`, with a small
+`audit-context.json` recording outcome, hashes, and counts. Successful creation
+sets its status to `created-unreviewed-ledger`, with `reviewStatus` still
+`unreviewed`. The source capture is not modified. Existing output is not
+overwritten, and failure does not substitute a reindexed or synthetic
+inventory for the native candidate.
+
+The step requires that the job is not cancelled, that `sdk-export` succeeded,
+and that its emitted status is `exported-awaiting-review`. It does not require
+the material-candidate step to succeed, so a material failure can leave useful
+SDK audit evidence while the job still reports failure. The ledger has a
+20-minute step timeout within the existing 90-minute job limit. SDK export
+and ledger generation invoke no SwiftPM or native reference application;
+the separate material step builds and runs `macos-reference-renderer` with
+the exported compiler/SDK in its own SwiftPM scratch directory.
+
+The existing artifact upload uses `always()` and includes the entire
+`artifacts/swiftui-baseline/github-actions/` tree. Its only exclusion is
+`capture/module-cache/**`. Keep the complete raw capture and original
+inventory, all ledger NDJSON files and source metadata copies, and the sealed
+`audit.json`/`audit.sha256` alongside `ci-context.json`, `export-result.json`,
+and `audit-context.json`; material evidence is also retained when produced.
+The small summaries and hashes are not a substitute for the full evidence.
+Failure can leave only the contexts or earlier completed stages. An upload
+does not establish that a capture or ledger completed successfully.
+
+This workflow still produces only unreviewed candidates. Exact native capture
+success, declaration/interface/overlay review, Windows matching, and behavior
+conformance remain separate evidence requirements. A fresh successful native
+capture is still pending; this workflow integration does not claim one.
+
 ## Input verification
 
 The input must have the exporter's successful candidate statuses:
@@ -248,6 +308,17 @@ path containment, and metadata bounds. Ledger tests exercise complete raw
 record preservation and reconciliation, queues, source-line facts, rejection,
 and publication. Memory tests exercise streamed graphs, inventories, and long
 occurrence groups using generated fixtures; the large case is opt-in.
+
+The workflow integration has a separate synthetic/static test:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-swiftui-api-audit-workflow.ps1
+```
+
+It checks the explicit export-result handoff and workflow wiring using owned
+synthetic evidence; it does not trigger GitHub Actions, invoke the native SDK
+exporter, run SwiftPM, or capture native reference behavior. It can also run
+with `pwsh -NoProfile -File`.
 
 Fixtures created by `swiftui-api-audit-test-fixtures.ps1` are explicitly
 synthetic and remain unreviewed. Its hash-resealing helper is only for owned

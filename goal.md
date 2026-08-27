@@ -401,6 +401,14 @@ limits here as each item is validated.
       `SwitchKnobMotionTests`. This verifies synchronous retained propagation;
       conflicting ambient/binding precedence and deferred-update behavior
       remain native-reference qualification gaps under gates 1–3.
+      A further 9 `BindingHostTransactionTests` now pass through the real
+      window host and public Toggle input. They cover animation start/midpoint/
+      completion, explicit nil inside a restored ambient animation, unrelated
+      queued notifications, newer state writes, and coalesced reloads. State
+      mutation and a control's follow-up invalidation carry distinct inherited
+      context handlers, so an immediate redraw cannot discard the binding's
+      captured transaction. These are Windows semantics tests, not native
+      SwiftUI reference evidence.
 - [ ] Dispatch scroll geometry, phase, and visibility callbacks from retained
       presentation, preserving observer history across rebuilds and respecting
       scroll ownership, clipping, and animation.
@@ -433,3 +441,22 @@ before unsafe integer conversion. `NativeTextConversionSafetyTests` passed
 10 tests, including normal-channel/coverage preservation and real GDI raster
 checks. This advances sections 2 and 5; it does not close shaping, editing,
 IME, accessibility, or native-machine qualification requirements.
+
+### Audited follow-up within the existing gesture requirements
+
+Long-press recognition is a concrete remaining gap under sections 3–5, not
+a new completion condition. The current modifier discards minimum duration
+and maximum distance and recognizes on release inside; build-local closure
+state can also be lost during reconciliation. A complete correction must
+retain the attempt in the runtime, measure logical-point movement against
+the injected monotonic clock, recognize once at the deadline, and cancel
+cleanly on early release, excess movement, removal, disabling, or lost capture.
+Gesture state must reset on termination without fabricating a terminal
+`updating` event. Tests must include callback-triggered rebuilds/removal,
+late release between ticks, mouse/primary-touch routing, and a visible
+retained-render interaction fixture. Exact native callback ordering and
+gesture arbitration remain reference-qualification work, not assumed parity.
+
+The original goal text and nine gates in sections 1–9 were compared against
+starting revision `38e855d` during this batch and remain unchanged. All new
+execution detail is recorded in this section.

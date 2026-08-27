@@ -3089,7 +3089,10 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                     )
             },
             invalidateHandler: { [weak self] in
-                self?.reloadContent()
+                self?.reloadContentFromView()
+            },
+            stateMutationInvalidationHandler: { [weak self] in
+                self?.reloadContentFromView(isStateMutation: true)
             },
             observedObjectHandler: { [weak self] object in
                 self?.observeObject(object)
@@ -3154,6 +3157,24 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     private func buildRootComponent() -> Component {
         composeComponent(from: configuration.content, context: buildContext)
+    }
+
+    private func reloadContentFromView(isStateMutation: Bool = false) {
+        // Controls request an immediate rebuild after writing their binding.
+        // An observed-object binding may have queued its transaction during
+        // that write, but its scope has ended by the time this invalidation
+        // arrives. Consume that batch before an unscoped reload can snap the
+        // model to its destination. State invalidation marks a newer mutation
+        // whose current scope wins, including a plain unanimated write. A
+        // control invalidation instead keeps the binding's captured scope,
+        // even if it has already restored an outer withAnimation context.
+        if !flushObservedObjectReload(
+            in: window, requestsFrame: true, preservingCurrentTransaction: isStateMutation)
+        {
+            // A plain binding still needs this rebuild when no relevant
+            // observed object changed, including a filtered unrelated batch.
+            reloadContent()
+        }
     }
 
     private func reloadContent(requestsFrame: Bool = true) {
@@ -3357,8 +3378,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     /// Either a native frame or the Task consumes a pending batch, never both.
-    private func flushObservedObjectReload(in window: Win32Window, requestsFrame: Bool) {
-        guard reloadScheduled else { return }
+    @discardableResult
+    private func flushObservedObjectReload(
+        in window: Win32Window, requestsFrame: Bool, preservingCurrentTransaction: Bool = false
+    ) -> Bool {
+        guard reloadScheduled else { return false }
         reloadScheduled = false
 
         let changedObjects = pendingChangedObjects
@@ -3375,15 +3399,17 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             completedObservedObjectReloadTaskCount += 1
             onObservedObjectReloadTaskCompleted?(false)
             syncAnimationDriver(for: window)
-            return
+            return false
         }
 
         // The latest relevant mutation controls this coalesced rebuild.
         // An unrelated object's later notification must not erase its context.
         let previousAnimation = currentAnimationTransaction
         let previousTransaction = currentTransaction
-        currentAnimationTransaction = context.animation
-        currentTransaction = context.transaction
+        if !preservingCurrentTransaction {
+            currentAnimationTransaction = context.animation
+            currentTransaction = context.transaction
+        }
         defer {
             currentAnimationTransaction = previousAnimation
             currentTransaction = previousTransaction
@@ -3391,6 +3417,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         reloadContent(requestsFrame: requestsFrame)
         completedObservedObjectReloadTaskCount += 1
         onObservedObjectReloadTaskCompleted?(true)
+        return true
     }
 
     private func commitRuntimeState(in window: Win32Window, interactive: Bool = false) {

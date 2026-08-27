@@ -3391,7 +3391,7 @@ public struct Query<T>: DynamicProperty {
     public var wrappedValue: [T] {
         get {
             if let context = ViewBuildContextScope.current {
-                storage.invalidate = { context.invalidate() }
+                storage.invalidate = { context.invalidateStateMutation() }
             }
             return storage.value
         }
@@ -3435,7 +3435,7 @@ public struct FetchRequest<T>: DynamicProperty {
     public var wrappedValue: FetchedResults<T> {
         get {
             if let context = ViewBuildContextScope.current {
-                storage.invalidate = { context.invalidate() }
+                storage.invalidate = { context.invalidateStateMutation() }
             }
             return storage.value
         }
@@ -3515,7 +3515,7 @@ public struct SectionedFetchRequest<SectionIdentifier: Hashable & Sendable, Resu
     public var wrappedValue: SectionedFetchResults<SectionIdentifier, Result> {
         get {
             if let context = ViewBuildContextScope.current {
-                storage.invalidate = { context.invalidate() }
+                storage.invalidate = { context.invalidateStateMutation() }
             }
             return storage.value
         }
@@ -7100,7 +7100,7 @@ public struct State<Value>: DynamicProperty {
         get {
             if let context = ViewBuildContextScope.current {
                 storage.invalidate = {
-                    context.invalidate()
+                    context.invalidateStateMutation()
                 }
             }
             return storage.value
@@ -7146,7 +7146,7 @@ public struct Bindable<Value>: DynamicProperty {
         get {
             if let context = ViewBuildContextScope.current {
                 storage.invalidate = {
-                    context.invalidate()
+                    context.invalidateStateMutation()
                 }
             }
             return storage.value
@@ -7686,7 +7686,7 @@ public struct AppStorage<Value>: DynamicProperty {
         get {
             if let context = ViewBuildContextScope.current {
                 storage.invalidate = {
-                    context.invalidate()
+                    context.invalidateStateMutation()
                 }
             }
             return storage.value
@@ -8056,7 +8056,7 @@ public struct SceneStorage<Value>: DynamicProperty {
         get {
             if let context = ViewBuildContextScope.current {
                 storage.invalidate = {
-                    context.invalidate()
+                    context.invalidateStateMutation()
                 }
                 storage.scope = context.environmentValues.sceneStorageScope
             }
@@ -8137,7 +8137,7 @@ public struct FocusState<Value>: DynamicProperty {
         get {
             if let context = ViewBuildContextScope.current {
                 storage.invalidate = {
-                    context.invalidate()
+                    context.invalidateStateMutation()
                 }
             }
             return storage.value
@@ -8207,7 +8207,7 @@ public struct GestureState<Value>: DynamicProperty {
     public var wrappedValue: Value {
         if let context = ViewBuildContextScope.current {
             storage.invalidate = {
-                context.invalidate()
+                context.invalidateStateMutation()
             }
         }
         return storage.value
@@ -8239,6 +8239,7 @@ public struct ViewBuildContext {
 
     private let canvasSizeProvider: () -> Size
     private let invalidateHandler: () -> Void
+    private let stateMutationInvalidationHandler: () -> Void
     private let observedObjectHandler: (any ObservableObject) -> Void
     private let isEnabledProvider: () -> Bool
     private let foregroundColorProvider: () -> Color
@@ -8927,6 +8928,7 @@ public struct ViewBuildContext {
     init(
         canvasSizeProvider: @escaping () -> Size,
         invalidateHandler: @escaping () -> Void,
+        stateMutationInvalidationHandler: (() -> Void)? = nil,
         observedObjectHandler: @escaping (any ObservableObject) -> Void = { _ in },
         isEnabledProvider: @escaping () -> Bool = { true },
         // `.primary`, not `.white`. The ambient foreground is the semantic
@@ -8957,6 +8959,7 @@ public struct ViewBuildContext {
     ) {
         self.canvasSizeProvider = canvasSizeProvider
         self.invalidateHandler = invalidateHandler
+        self.stateMutationInvalidationHandler = stateMutationInvalidationHandler ?? invalidateHandler
         self.observedObjectHandler = observedObjectHandler
         self.isEnabledProvider = isEnabledProvider
         self.foregroundColorProvider = foregroundColorProvider
@@ -8988,6 +8991,14 @@ public struct ViewBuildContext {
 
     func invalidate() {
         invalidateHandler()
+    }
+
+    /// A state write is a new mutation, whereas a control's explicit
+    /// invalidation can follow a binding write whose scope has already ended.
+    /// Hosts use this distinction to preserve the right transaction without
+    /// storing invalidation provenance in process-global UI state.
+    func invalidateStateMutation() {
+        stateMutationInvalidationHandler()
     }
 
     func observe(_ object: any ObservableObject) {
@@ -9027,6 +9038,7 @@ public struct ViewBuildContext {
         return ViewBuildContext(
             canvasSizeProvider: { clamped },
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9056,6 +9068,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: {
                 self.isEnabled && isEnabled
@@ -9087,6 +9100,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: { color },
@@ -9121,6 +9135,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9155,6 +9170,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9188,6 +9204,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9217,6 +9234,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9250,6 +9268,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9279,6 +9298,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9316,6 +9336,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9351,6 +9372,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9384,6 +9406,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9417,6 +9440,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9450,6 +9474,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9479,6 +9504,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9512,6 +9538,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9541,6 +9568,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9574,6 +9602,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9609,6 +9638,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9643,6 +9673,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9675,6 +9706,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9728,6 +9760,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9757,6 +9790,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9786,6 +9820,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
@@ -9817,6 +9852,7 @@ public struct ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,

@@ -8964,31 +8964,30 @@ public struct ZStack: View {
         Component { runtime in
             let childNodes = content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
             let root = Controls.panel(layoutMode: .absolute, isHitTestVisible: false, children: childNodes)
-            root.onLayout = { bounds in
-                for child in childNodes {
-                    let intrinsic = child.intrinsicContentSize()
-                    // A ZStack pins each child's size so it has something to
-                    // align, but a child that *declares* it fills its
-                    // proposal must be handed the stack's extent instead of
-                    // its own intrinsic one — pinning the intrinsic size is
-                    // what makes a greedy child (a ScrollView, a List, a
-                    // GeometryReader) refuse the proposal the ZStack is
-                    // supposed to pass across.
-                    let fill = child.layoutFillAxes
-                    let childSize = Size(
-                        width: fill.horizontal ? bounds.size.width : intrinsic.width,
-                        height: fill.vertical ? bounds.size.height : intrinsic.height
-                    )
-                    let origin = alignment.frameOrigin(
-                        for: childSize,
-                        in: bounds.size,
-                        layoutDirection: context.layoutDirection
-                    )
-                    let frame = Rect(origin: origin, size: childSize)
-                    if child.frame != frame {
-                        child.frame = frame
-                    }
-                }
+            // A ZStack containing flexible content must accept its parent's
+            // proposal too. Otherwise a framed Color background stops at the
+            // tallest fixed overlay rather than filling the frame.
+            root.layoutFillAxes = LayoutFillAxes(
+                horizontal: childNodes.contains { !$0.isHidden && $0.layoutFillAxes.horizontal },
+                vertical: childNodes.contains { !$0.isHidden && $0.layoutFillAxes.vertical }
+            )
+            root.absoluteChildFrame = { child, bounds in
+                let intrinsic = child.intrinsicContentSize()
+                // Flexible children accept the stack's proposal; fixed ones
+                // keep their intrinsic size. Placement must not write the
+                // authored frame, or an allocated width becomes the next
+                // measurement's intrinsic width and columns never settle.
+                let fill = child.layoutFillAxes
+                let childSize = Size(
+                    width: fill.horizontal ? bounds.size.width : intrinsic.width,
+                    height: fill.vertical ? bounds.size.height : intrinsic.height
+                )
+                let origin = alignment.frameOrigin(
+                    for: childSize,
+                    in: bounds.size,
+                    layoutDirection: context.layoutDirection
+                )
+                return Rect(origin: origin, size: childSize)
             }
             return root
         }
@@ -11219,7 +11218,7 @@ public struct GroupBox: View {
             // that could only ever be right in one appearance, and was not the
             // same box the settings pane beside it drew.
             let palette = context.controlPalette
-            return Controls.panel(
+            let node = Controls.panel(
                 backgroundColor: palette.raisedSurface,
                 backgroundGradient: palette.raisedSurfaceFill,
                 borderColor: palette.raisedSurfaceHighlight,
@@ -11233,6 +11232,10 @@ public struct GroupBox: View {
                 isHitTestVisible: false,
                 children: views.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
             )
+            // Preserve the retained container contract: an explicit frame
+            // sizes the chrome, while ordinary layout keeps it content-sized.
+            node.explicitFrameFillAxes = .both
+            return node
         }
     }
 }
@@ -16490,11 +16493,13 @@ public struct Picker<SelectionValue: Hashable>: View {
                 guard !context.isInsideGroupedForm else {
                     return groupedFormRowNode(label: labelNode, content: pickerNode)
                 }
-                return Controls.stackPanel(
+                let node = Controls.stackPanel(
                     stackLayout: .vertical(spacing: 8, alignment: .stretch),
                     isHitTestVisible: false,
                     children: [labelNode, pickerNode]
                 )
+                node.explicitFrameFillAxes = pickerNode.explicitFrameFillAxes
+                return node
             }
 
             var headerChildren: [ViewNode] = []
@@ -16509,11 +16514,13 @@ public struct Picker<SelectionValue: Hashable>: View {
                 isHitTestVisible: false,
                 children: headerChildren
             )
-            return Controls.stackPanel(
+            let node = Controls.stackPanel(
                 stackLayout: .vertical(spacing: 8, alignment: .stretch),
                 isHitTestVisible: false,
                 children: [headerNode, pickerNode]
             )
+            node.explicitFrameFillAxes = pickerNode.explicitFrameFillAxes
+            return node
         }
     }
 
@@ -16724,6 +16731,7 @@ public struct Picker<SelectionValue: Hashable>: View {
         // picker came to be 1215pt wide in a settings pane. The equal-width
         // pass above is what keeps the segments equal at intrinsic size;
         // `.fillEqually` keeps them equal when a container does stretch it.
+        track.explicitFrameFillAxes = .horizontalOnly
         return track
     }
 
@@ -18351,6 +18359,7 @@ public struct ProgressView: View {
                     trackColor: context.controlPalette.controlTrack,
                     filledColor: context.tint
                 )
+                progressNode.explicitFrameFillAxes = .horizontalOnly
             }
             guard !context.labelsHidden else {
                 return progressNode
@@ -18380,11 +18389,13 @@ public struct ProgressView: View {
                     }
                     return groupedFormRowNode(label: labelNode, content: progressNode)
                 }
-                return Controls.stackPanel(
+                let node = Controls.stackPanel(
                     stackLayout: .vertical(spacing: 8, alignment: .stretch),
                     isHitTestVisible: false,
                     children: [labelNode, progressNode]
                 )
+                node.explicitFrameFillAxes = progressNode.explicitFrameFillAxes
+                return node
             }
 
             var headerChildren: [ViewNode] = []
@@ -18401,11 +18412,13 @@ public struct ProgressView: View {
                 children: headerChildren
             )
 
-            return Controls.stackPanel(
+            let node = Controls.stackPanel(
                 stackLayout: .vertical(spacing: 8, alignment: .stretch),
                 isHitTestVisible: false,
                 children: [headerNode, progressNode]
             )
+            node.explicitFrameFillAxes = progressNode.explicitFrameFillAxes
+            return node
         }
     }
 
@@ -18654,6 +18667,7 @@ public struct Gauge: View {
                     trackColor: context.controlPalette.controlTrack,
                     filledColor: context.tint
                 )
+                gaugeNode.explicitFrameFillAxes = .horizontalOnly
             }
             guard !context.labelsHidden else {
                 return gaugeNode
@@ -18736,11 +18750,13 @@ public struct Gauge: View {
                 )
             }
 
-            return Controls.stackPanel(
+            let node = Controls.stackPanel(
                 stackLayout: .vertical(spacing: 8, alignment: .stretch),
                 isHitTestVisible: false,
                 children: children
             )
+            node.explicitFrameFillAxes = gaugeNode.explicitFrameFillAxes
+            return node
         }
     }
 
@@ -20512,11 +20528,16 @@ public struct Canvas: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        SwiftWindowsUI.UI.canvas { runtimeContext, size in
+        let canvas = SwiftWindowsUI.UI.canvas { runtimeContext, size in
             var graphicsContext = GraphicsContext()
             graphicsContext.underlying = runtimeContext
             self.renderer(&graphicsContext, size)
             runtimeContext = graphicsContext.underlying
+        }
+        return Component { runtime in
+            let node = canvas.makeNode(runtime: runtime)
+            node.layoutFillAxes = .both
+            return node
         }
     }
 }

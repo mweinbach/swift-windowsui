@@ -87,7 +87,17 @@ final class SpacerFillSemanticsTests: XCTestCase {
             accuracy: 0.51,
             "A row holding a Spacer is as wide as its proposal, not as wide as its text"
         )
-        XCTAssertEqual(row.resolvedFrame.height, 44, accuracy: 0.51, "…and the height-only frame still pins the height")
+        guard let frame = row.parent else {
+            return XCTFail("the HStack should have its fixed-height frame wrapper")
+        }
+        XCTAssertEqual(frame.resolvedFrame.height, 44, accuracy: 0.51, "The frame owns the requested height")
+        XCTAssertEqual(frame.resolvedFrame.width, width, accuracy: 0.51)
+        XCTAssertEqual(
+            row.resolvedFrame.height, row.intrinsicContentSize().height, accuracy: 0.51,
+            "A horizontal Spacer does not stretch the row's intrinsic height")
+        XCTAssertEqual(
+            row.resolvedFrame.midY, frame.resolvedFrame.height * 0.5, accuracy: 0.51,
+            "The intrinsic row stays centered inside its fixed-height frame")
     }
 
     /// The dashboard's own shape: the row is buried under padding and

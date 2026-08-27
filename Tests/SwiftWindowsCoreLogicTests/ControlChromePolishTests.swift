@@ -115,6 +115,69 @@ final class ControlChromePolishTests: XCTestCase {
 
     // MARK: - Segmented picker equal widths
 
+    func testSegmentedPickerAcceptsExplicitWidthAndItsTrailingSegmentReceivesHover() async {
+        await MainActor.run {
+            for colorScheme in [ColorScheme.light, .dark] {
+                for width in [180.0, 240.0] {
+                    let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
+                        of: Picker("Mode", selection: .constant(0)) {
+                            Text("One").tag(0)
+                            Text("Two").tag(1)
+                            Text("Three").tag(2)
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .frame(width: width, height: 30),
+                        size: IntSize(width: Int32(width + 40), height: 60),
+                        colorScheme: colorScheme)
+                    let track = tryUnwrap(
+                        firstNode(in: snapshot.runtime.root) {
+                            $0.cornerRadius == MacOSControlMetrics.Button.regularCornerRadius && $0.clipsToBounds
+                                && $0.children.count == 3
+                        },
+                        message: "segmented track not found")
+                    XCTAssertEqual(track.resolvedFrame.width, width, accuracy: 0.001)
+                    XCTAssertEqual(
+                        track.resolvedFrame.height, MacOSControlMetrics.PopUpButton.regularHeight, accuracy: 0.001,
+                        "A fixed width must not stretch the control's intrinsic height.")
+
+                    let idle = GPUIRawSceneRasterizer.rasterize(snapshot.scene, size: snapshot.size)
+                    snapshot.runtime.clock = { 5_000 }
+                    // The gallery's existing point is within the trailing
+                    // segment when the explicit width proposal is honored.
+                    snapshot.runtime.pointerMoved(to: Point(x: width - 30, y: 15))
+                    snapshot.runtime.tickAnimations(at: 5_001)
+                    let hovered = GPUIRawSceneRasterizer.rasterize(
+                        snapshot.runtime.renderScene(at: 5_001), size: snapshot.size)
+                    XCTAssertNotEqual(idle.pixels, hovered.pixels, "The trailing segment must render its hover state.")
+                }
+            }
+        }
+    }
+
+    func testFixedSizeSegmentedPickerKeepsIntrinsicWidthInsideAFrame() async {
+        await MainActor.run {
+            let node = makeChromeRuntimeNode(
+                Picker("Mode", selection: .constant(0)) {
+                    Text("One").tag(0)
+                    Text("Two").tag(1)
+                    Text("Three").tag(2)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(width: 240, height: 30))
+            let track = tryUnwrap(
+                firstNode(in: node) {
+                    $0.cornerRadius == MacOSControlMetrics.Button.regularCornerRadius && $0.clipsToBounds
+                        && $0.children.count == 3
+                },
+                message: "segmented track not found")
+            XCTAssertGreaterThan(track.resolvedFrame.width, 0)
+            XCTAssertLessThan(track.resolvedFrame.width, 240, "fixedSize explicitly declines the frame's proposal.")
+        }
+    }
+
     func testSegmentedPickerSegmentsEqualWidthWithVariedLabels() async {
         await MainActor.run {
             for width in [200.0, 320.0] {

@@ -18,6 +18,7 @@ final class ControlGeometryTests: XCTestCase {
 
     func testButtonLabelStaysWithinBoundsAtAllWidths() async {
         await MainActor.run {
+            let intrinsicButtonWidth = makeRuntimeNode(Button("Tap Me") {}).resolvedFrame.width
             for width in [100.0, 200.0, 320.0] {
                 let node = makeRuntimeNode(
                     Button("Tap Me") {}
@@ -25,16 +26,16 @@ final class ControlGeometryTests: XCTestCase {
                 )
                 let button = tryUnwrap(node.children.first)
                 assertDescendantFramesWithinBounds(node)
-                let label = tryUnwrap(firstTextNode(in: node))
-                // The button stretches its centered label across the pinned
-                // width minus the macOS push-bezel content insets
-                // (MacOSControlMetrics.Button, regular: 12pt per side), so
-                // glyph ink stays inside the pill instead of spilling out of
-                // its own chrome.
+                let label = tryUnwrap(firstTextNode(in: button))
+                // The outer frame aligns an intrinsic button. Its label
+                // occupies the actual bezel's interior, not the outer slot.
                 let bezel = retainedButtonContentMetrics(style: .automatic, controlSize: .regular)
+                XCTAssertEqual(node.resolvedFrame.width, width, accuracy: 0.51)
+                XCTAssertEqual(button.resolvedFrame.width, intrinsicButtonWidth, accuracy: 0.51)
+                XCTAssertEqual(button.resolvedFrame.midX, width * 0.5, accuracy: 0.51)
                 XCTAssertEqual(
                     label.resolvedFrame.width,
-                    width - bezel.padding.leading - bezel.padding.trailing,
+                    button.resolvedFrame.width - bezel.padding.leading - bezel.padding.trailing,
                     accuracy: 0.51
                 )
                 // The focus/press/activate lifecycle hooks must stay intact.
@@ -188,6 +189,26 @@ final class ControlGeometryTests: XCTestCase {
 
     // MARK: - ProgressView
 
+    func testLinearIndicatorsKeepIntrinsicWidthOutsideExplicitFrames() async {
+        await MainActor.run {
+            let indicators: [AnyView] = [
+                AnyView(ProgressView(value: 0.6)),
+                AnyView(ProgressView("Loading", value: 0.6)),
+                AnyView(Gauge("CPU", value: 0.5, in: 0...1)),
+            ]
+            for indicator in indicators {
+                let intrinsic = makeRuntimeNode(indicator)
+                XCTAssertEqual(intrinsic.resolvedFrame.width, 200, accuracy: 0.51)
+                let fixed = makeRuntimeNode(
+                    indicator.fixedSize(horizontal: true, vertical: false)
+                        .frame(width: 320, height: 80)
+                )
+                XCTAssertEqual(fixed.children[0].resolvedFrame.width, 200, accuracy: 0.51)
+                assertDescendantFramesWithinBounds(fixed)
+            }
+        }
+    }
+
     func testProgressViewUnlabeledTrackReResolvesToPinnedWidth() async {
         await MainActor.run {
             for width in [140.0, 200.0, 320.0] {
@@ -214,19 +235,28 @@ final class ControlGeometryTests: XCTestCase {
 
     func testProgressViewLabeledBarConsumesFullWidth() async {
         await MainActor.run {
-            for width in [160.0, 240.0, 320.0] {
-                let node = makeRuntimeNode(
-                    ProgressView("Loading", value: 0.4)
-                        .frame(width: width, height: 50)
-                )
-                assertDescendantFramesWithinBounds(node)
-                let stack = tryUnwrap(node.children.first)
-                let bar = tryUnwrap(stack.children.last)
-                XCTAssertEqual(bar.resolvedFrame.width, width, accuracy: 0.51)
-                let track = tryUnwrap(bar.children.first)
-                let fill = tryUnwrap(bar.children.last)
-                XCTAssertEqual(track.resolvedFrame.width, width, accuracy: 0.51)
-                XCTAssertEqual(fill.resolvedFrame.width, width * 0.4, accuracy: 0.6)
+            let indicators: [AnyView] = [
+                AnyView(ProgressView("Loading", value: 0.4)),
+                AnyView(
+                    ProgressView(value: 0.4) {
+                        Text("Loading")
+                    } currentValueLabel: {
+                        Text("40%")
+                    }
+                ),
+            ]
+            for indicator in indicators {
+                for width in [160.0, 240.0, 320.0] {
+                    let node = makeRuntimeNode(indicator.frame(width: width, height: 50))
+                    assertDescendantFramesWithinBounds(node)
+                    let stack = tryUnwrap(node.children.first)
+                    let bar = tryUnwrap(stack.children.last)
+                    XCTAssertEqual(bar.resolvedFrame.width, width, accuracy: 0.51)
+                    let track = tryUnwrap(bar.children.first)
+                    let fill = tryUnwrap(bar.children.last)
+                    XCTAssertEqual(track.resolvedFrame.width, width, accuracy: 0.51)
+                    XCTAssertEqual(fill.resolvedFrame.width, width * 0.4, accuracy: 0.6)
+                }
             }
         }
     }
@@ -295,41 +325,58 @@ final class ControlGeometryTests: XCTestCase {
 
     func testPickerSegmentedOptionsConsumeRemainingWidth() async {
         await MainActor.run {
-            for width in [160.0, 240.0, 320.0] {
-                let node = makeRuntimeNode(
+            let pickers: [AnyView] = [
+                AnyView(
                     Picker("Color", selection: .constant(1)) {
                         Text("Red").tag(0)
                         Text("Green").tag(1)
                         Text("Blue").tag(2)
                     }
-                    .pickerStyle(SegmentedPickerStyle())
-                    .frame(width: width, height: 40)
-                )
-                assertDescendantFramesWithinBounds(node)
-                let stack = tryUnwrap(node.children.first)
-                let shell = tryUnwrap(stack.children.last)
-                XCTAssertEqual(shell.resolvedFrame.width, width, accuracy: 0.51)
-                XCTAssertEqual(shell.children.count, 3)
-                let optionWidths = shell.children.map { $0.resolvedFrame.width }
-                for optionWidth in optionWidths {
-                    XCTAssertGreaterThan(optionWidth, 0)
+                ),
+                AnyView(
+                    Picker(selection: .constant(1)) {
+                        Text("Red").tag(0)
+                        Text("Green").tag(1)
+                        Text("Blue").tag(2)
+                    } label: {
+                        Text("Color")
+                    } currentValueLabel: {
+                        Text("Green")
+                    }
+                ),
+            ]
+            for picker in pickers {
+                for width in [160.0, 240.0, 320.0] {
+                    let node = makeRuntimeNode(
+                        picker.pickerStyle(SegmentedPickerStyle())
+                            .frame(width: width, height: 40)
+                    )
+                    assertDescendantFramesWithinBounds(node)
+                    let stack = tryUnwrap(node.children.first)
+                    let shell = tryUnwrap(stack.children.last)
+                    XCTAssertEqual(shell.resolvedFrame.width, width, accuracy: 0.51)
+                    XCTAssertEqual(shell.children.count, 3)
+                    let optionWidths = shell.children.map { $0.resolvedFrame.width }
+                    for optionWidth in optionWidths {
+                        XCTAssertGreaterThan(optionWidth, 0)
+                    }
+                    // macOS segmented controls give every segment the same width.
+                    XCTAssertEqual(
+                        optionWidths[0], optionWidths[1], accuracy: 0.51,
+                        "segments should be equal width at \(width)pt")
+                    XCTAssertEqual(
+                        optionWidths[1], optionWidths[2], accuracy: 0.51,
+                        "segments should be equal width at \(width)pt")
+                    // Options consume the full shell interior (4pt padding, 4pt spacing).
+                    let consumed = optionWidths.reduce(0, +) + (2 * 4) + (2 * 4)
+                    XCTAssertEqual(consumed, width, accuracy: 0.51)
+                    XCTAssertEqual(shell.children[0].resolvedFrame.minX, 4, accuracy: 0.51)
+                    XCTAssertEqual(
+                        shell.children[2].resolvedFrame.maxX,
+                        width - 4,
+                        accuracy: 0.51
+                    )
                 }
-                // macOS segmented controls give every segment the same width.
-                XCTAssertEqual(
-                    optionWidths[0], optionWidths[1], accuracy: 0.51,
-                    "segments should be equal width at \(width)pt")
-                XCTAssertEqual(
-                    optionWidths[1], optionWidths[2], accuracy: 0.51,
-                    "segments should be equal width at \(width)pt")
-                // Options consume the full shell interior (4pt padding, 4pt spacing).
-                let consumed = optionWidths.reduce(0, +) + (2 * 4) + (2 * 4)
-                XCTAssertEqual(consumed, width, accuracy: 0.51)
-                XCTAssertEqual(shell.children[0].resolvedFrame.minX, 4, accuracy: 0.51)
-                XCTAssertEqual(
-                    shell.children[2].resolvedFrame.maxX,
-                    width - 4,
-                    accuracy: 0.51
-                )
             }
         }
     }

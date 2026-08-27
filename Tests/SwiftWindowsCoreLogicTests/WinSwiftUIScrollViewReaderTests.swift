@@ -209,7 +209,9 @@ final class WinSwiftUIScrollViewReaderTests: XCTestCase {
                 didRequestScroll = true
                 proxy?.scrollTo("five", anchor: .bottom)
             }
-            node.frame = Rect(origin: .zero, size: Size(width: 120, height: 100))
+            // Replaying the same frame is a no-op; change the width to drive
+            // the later layout pass while preserving the scroll viewport height.
+            node.frame.size.width += 1
 
             _ = runtime.renderScene()
 

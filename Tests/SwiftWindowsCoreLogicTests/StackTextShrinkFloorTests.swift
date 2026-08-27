@@ -33,15 +33,16 @@ private func makeWrappingSubtitleNode() -> ViewNode {
 }
 
 @MainActor
-private func makeNativeWrappingSubtitleNode() -> ViewNode {
+private func makeNativeWrappingSubtitleNode(content: String? = nil) -> ViewNode {
     let node = makeWrappingSubtitleNode()
+    if let content { node.text = content }
     node.textStyle.nativeFontSize = 13
     return node
 }
 
 @MainActor
-private func wrappedSubtitleHeight(width: Double = 120, displayScale: Double = 1) -> Double {
-    let text = makeNativeWrappingSubtitleNode()
+private func wrappedSubtitleHeight(width: Double = 120, displayScale: Double = 1, content: String? = nil) -> Double {
+    let text = makeNativeWrappingSubtitleNode(content: content)
     let root = ViewNode(
         frame: Rect(x: 0, y: 0, width: width, height: 500),
         layoutMode: .stack(.vertical(alignment: .leading)),
@@ -145,30 +146,39 @@ final class StackTextShrinkFloorTests: XCTestCase {
 
     func testWrappingLabelsKeepTheirAllocatedWidthsAndHeightUnderVerticalPressure() async {
         await MainActor.run {
-            let wrappedHeight = wrappedSubtitleHeight()
-            let first = makeNativeWrappingSubtitleNode()
-            let second = makeNativeWrappingSubtitleNode()
-            let row = ViewNode(
-                layoutMode: .stack(.horizontal(spacing: 8, alignment: .leading)), children: [first, second])
-            let flexibleSibling = ViewNode(
-                backgroundColor: .white, preferredSize: Size(width: 100, height: 300))
-            let root = ViewNode(
-                frame: Rect(x: 0, y: 0, width: 248, height: wrappedHeight + 20),
-                layoutMode: .stack(.vertical(spacing: 8, alignment: .leading)),
-                children: [row, flexibleSibling]
-            )
-            renderStackFloorProbe(root)
+            for content in [
+                "RESPONSIVE COMPOSITION AND PANEL STRUCTURE",
+                String(repeating: "界面布局应该保留完整文字", count: 4),
+                String(repeating: "ภาษาไทย", count: 8),
+            ] {
+                for scale in [1.0, 1.25, 1.5] {
+                    let wrappedHeight = wrappedSubtitleHeight(displayScale: scale, content: content)
+                    let first = makeNativeWrappingSubtitleNode(content: content)
+                    let second = makeNativeWrappingSubtitleNode(content: content)
+                    let row = ViewNode(
+                        layoutMode: .stack(.horizontal(spacing: 8, alignment: .leading)), children: [first, second])
+                    let flexibleSibling = ViewNode(
+                        backgroundColor: .white, preferredSize: Size(width: 100, height: 300))
+                    let root = ViewNode(
+                        frame: Rect(x: 0, y: 0, width: 248, height: wrappedHeight + 20),
+                        layoutMode: .stack(.vertical(spacing: 8, alignment: .leading)),
+                        children: [row, flexibleSibling]
+                    )
+                    renderStackFloorProbe(root, displayScale: scale)
 
-            XCTAssertGreaterThan(wrappedHeight, 30)
-            XCTAssertEqual(first.resolvedFrame.width, 120, accuracy: 0.001)
-            XCTAssertEqual(second.resolvedFrame.width, 120, accuracy: 0.001)
-            XCTAssertEqual(second.resolvedFrame.maxX, 248, accuracy: 0.001)
-            XCTAssertEqual(first.resolvedFrame.height, wrappedHeight, accuracy: 0.001)
-            XCTAssertEqual(second.resolvedFrame.height, wrappedHeight, accuracy: 0.001)
-            XCTAssertEqual(
-                row.resolvedFrame.height, wrappedHeight, accuracy: 0.001,
-                "A row's vertical floor must use its allocated widths, not the unwrapped ideal widths")
-            XCTAssertEqual(flexibleSibling.resolvedFrame.height, 12, accuracy: 0.001)
+                    XCTAssertGreaterThan(wrappedHeight, 30)
+                    XCTAssertEqual(first.resolvedFrame.width, 120, accuracy: 0.001)
+                    XCTAssertEqual(second.resolvedFrame.width, 120, accuracy: 0.001)
+                    XCTAssertEqual(second.resolvedFrame.maxX, 248, accuracy: 0.001)
+                    XCTAssertEqual(first.resolvedFrame.height, wrappedHeight, accuracy: 0.001)
+                    XCTAssertEqual(second.resolvedFrame.height, wrappedHeight, accuracy: 0.001)
+                    XCTAssertEqual(
+                        row.resolvedFrame.height, wrappedHeight, accuracy: 0.001,
+                        "A row's vertical floor must use its allocated widths, not the unwrapped ideal widths")
+                    XCTAssertEqual(flexibleSibling.resolvedFrame.minY, wrappedHeight + 8, accuracy: 0.001)
+                    XCTAssertEqual(flexibleSibling.resolvedFrame.height, 12, accuracy: 0.001)
+                }
+            }
         }
     }
 
@@ -246,6 +256,53 @@ final class StackTextShrinkFloorTests: XCTestCase {
             XCTAssertEqual(
                 text.resolvedFrame.height, expectedHeight, accuracy: 0.001,
                 "A greedy node's preferred width is an ideal; content measures at its accepted wider proposal")
+        }
+    }
+
+    func testCompactWrappingRowDoesNotBreakSingleWordLabelsUnderSiblingPressure() async {
+        await MainActor.run {
+            let style = PixelTextStyle(color: .white, nativeFontSize: 13, lineBreakMode: .wrap)
+            let label = ViewNode(text: "Compute", textStyle: style)
+            let value = ViewNode(text: "68%", textStyle: style)
+            let labelSize = label.intrinsicContentSize()
+            let valueSize = value.intrinsicContentSize()
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: labelSize.width + valueSize.width + 5, height: 94),
+                layoutMode: .stack(.horizontal(spacing: 8, alignment: .leading)),
+                children: [label, value])
+            renderStackFloorProbe(root)
+
+            XCTAssertEqual(label.resolvedFrame.size, labelSize)
+            XCTAssertEqual(value.resolvedFrame.size, valueSize)
+            XCTAssertEqual(value.resolvedFrame.minX, labelSize.width + 8, accuracy: 0.001)
+            XCTAssertEqual(
+                value.resolvedFrame.maxX - root.resolvedFrame.width, 3, accuracy: 0.001,
+                "A small row deficit may overflow, but must not split Compute or 68% into isolated characters")
+        }
+    }
+
+    func testSingleWordWithAnExplicitNarrowFrameStillWrapsAtThatWidth() async {
+        await MainActor.run {
+            let style = PixelTextStyle(color: .white, nativeFontSize: 13, lineBreakMode: .wrap)
+            let reference = ViewNode(text: "Compute", textStyle: style)
+            let referenceRoot = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 24, height: 200),
+                layoutMode: .stack(.vertical(alignment: .leading)), children: [reference])
+            renderStackFloorProbe(referenceRoot)
+
+            let label = ViewNode(
+                text: "Compute", textStyle: style, preferredSize: Size(width: 24, height: 0))
+            let flexible = ViewNode(preferredSize: Size(width: 200, height: 20))
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 200),
+                layoutMode: .stack(.horizontal(spacing: 8, alignment: .leading)),
+                children: [label, flexible])
+            renderStackFloorProbe(root)
+
+            XCTAssertGreaterThan(reference.resolvedFrame.height, 30, "The explicit narrow word must wrap")
+            XCTAssertEqual(label.resolvedFrame.width, 24, accuracy: 0.001)
+            XCTAssertEqual(label.resolvedFrame.height, reference.resolvedFrame.height, accuracy: 0.001)
+            XCTAssertEqual(flexible.resolvedFrame.maxX, 80, accuracy: 0.001)
         }
     }
 

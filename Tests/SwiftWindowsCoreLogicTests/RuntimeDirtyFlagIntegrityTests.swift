@@ -74,6 +74,55 @@ final class RuntimeDirtyFlagIntegrityTests: XCTestCase {
         }
     }
 
+    func testUnchangedFrameAssignmentsDoNotInvalidateSettledGeometry() async {
+        await MainActor.run {
+            let child = ViewNode(frame: Rect(x: 0, y: 0, width: 40, height: 40), backgroundColor: .white)
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 200, height: 200),
+                isHitTestVisible: false, children: [child])
+            let runtime = RetainedViewRuntime(root: root)
+            _ = runtime.renderScene()
+
+            let unchangedFrame = child.frame
+            child.frame = unchangedFrame
+            child.frame.size.width = unchangedFrame.width
+            XCTAssertFalse(runtime.isDirty, "No-op geometry writes must not schedule another frame")
+            XCTAssertFalse(runtime.hasPendingLayout)
+
+            child.frame.origin.x = 20
+            XCTAssertTrue(runtime.hasPendingLayout, "A changed frame must still invalidate layout immediately")
+            _ = runtime.renderScene()
+            XCTAssertEqual(child.resolvedFrame.minX, 20, accuracy: 0.001)
+            XCTAssertFalse(runtime.hasPendingLayout)
+        }
+    }
+
+    func testRepeatedBorderWidthFromLayoutSettlesAndRealChangesStillInvalidate() async {
+        await MainActor.run {
+            var borderWidth = 1.0
+            let child = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 40, height: 40),
+                backgroundColor: .white, borderColor: .black, borderWidth: borderWidth)
+            child.onLayout = { _ in child.borderWidth = borderWidth }
+            let runtime = RetainedViewRuntime(
+                root: ViewNode(
+                    frame: Rect(x: 0, y: 0, width: 100, height: 100),
+                    isHitTestVisible: false, children: [child]))
+
+            _ = runtime.renderScene()
+            XCTAssertFalse(runtime.hasPendingLayout)
+            XCTAssertFalse(runtime.isDirty, "A shape reapplying its border during layout must settle")
+
+            borderWidth = 2
+            child.borderWidth = borderWidth
+            XCTAssertTrue(runtime.hasPendingLayout, "A different border width must still invalidate layout")
+            _ = runtime.renderScene()
+            XCTAssertEqual(child.borderWidth, 2)
+            XCTAssertFalse(runtime.hasPendingLayout)
+            XCTAssertFalse(runtime.isDirty)
+        }
+    }
+
     /// Invalidations raised outside a render pass keep their historic
     /// immediate behaviour.
     func testInvalidationOutsideRenderPassAppliesImmediately() async {

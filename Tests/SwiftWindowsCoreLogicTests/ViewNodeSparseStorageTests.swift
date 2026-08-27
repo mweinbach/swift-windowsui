@@ -25,6 +25,7 @@ final class ViewNodeSparseStorageTests: XCTestCase {
         XCTAssertNil(node.onDeleteRows)
         XCTAssertNil(node.onMakeDragPayload)
         XCTAssertNil(node.onLayout)
+        XCTAssertNil(node.absoluteChildFrame)
         XCTAssertNil(node.geometryReaderBuild)
         XCTAssertNil(node.chartXAxis)
         XCTAssertNil(node.chartScrollPositionY)
@@ -32,6 +33,7 @@ final class ViewNodeSparseStorageTests: XCTestCase {
         node.onActivate = nil
         node.onDropRows = nil
         node.onAppear = nil
+        node.absoluteChildFrame = nil
         node.chartLegend = nil
 
         XCTAssertFalse(node.hasAllocatedInteractionHandlers)
@@ -51,7 +53,7 @@ final class ViewNodeSparseStorageTests: XCTestCase {
 
         for removedInlineField in [
             "onPointerEnter", "onKeyDown", "onIMEComposition", "textInputCaretRectProvider",
-            "onDeleteRows", "onDropRows", "onMakeDragPayload", "onLayout", "onAppear",
+            "onDeleteRows", "onDropRows", "onMakeDragPayload", "onLayout", "absoluteChildFrame", "onAppear",
             "geometryReaderBuild", "chartXAxis", "chartLegend", "chartScrollPositionY",
         ] {
             XCTAssertFalse(

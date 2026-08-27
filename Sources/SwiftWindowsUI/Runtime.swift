@@ -1628,6 +1628,7 @@ private final class ViewNodeDropHandlers {
 @MainActor
 private final class ViewNodeLifecycleHandlers {
     var layout: ((Rect) -> Void)?
+    var absoluteChildFrame: ((ViewNode, Rect) -> Rect)?
     var appearWithNode: ((ViewNode) -> Void)?
     var disappearWithNode: ((ViewNode) -> Void)?
     var appear: (() -> Void)?
@@ -1742,7 +1743,13 @@ public final class ViewNode {
     }
 
     public var frame: Rect {
-        didSet { invalidateRuntime(.layout) }
+        didSet {
+            // Controls recompute child geometry from onLayout. Reassigning
+            // that same frame must not queue another layout forever or keep
+            // programmatic scrolling waiting for geometry that is settled.
+            guard frame != oldValue else { return }
+            invalidateRuntime(.layout)
+        }
     }
 
     public var backgroundColor: Color? {
@@ -1774,7 +1781,10 @@ public final class ViewNode {
     }
 
     public var borderWidth: Double {
-        didSet { invalidateRuntime(.layout) }
+        didSet {
+            guard borderWidth != oldValue else { return }
+            invalidateRuntime(.layout)
+        }
     }
 
     public var borderStrokeStyle: StrokeStyle? {
@@ -1854,6 +1864,32 @@ public final class ViewNode {
     /// its intrinsic size (SwiftUI's greedy views). See `LayoutFillAxes`.
     public var layoutFillAxes: LayoutFillAxes = LayoutFillAxes() {
         didSet { invalidateRuntime(.layout) }
+    }
+
+    /// A single-child frame offers both dimensions to its content. Ordinary
+    /// stacks leave their main axis unbounded while measuring children.
+    /// The forwarded size is a proposal; intrinsic content need not fill it.
+    public var forwardsStackMainAxisProposal = false {
+        didSet {
+            guard forwardsStackMainAxisProposal != oldValue else { return }
+            invalidateRuntime(.layout)
+        }
+    }
+
+    /// Intrinsically sized controls may opt into a directly enclosing fixed
+    /// frame's proposal without becoming greedy in ordinary stacks or Forms.
+    /// Keep this uncommon capability in one byte rather than an allocation.
+    private var explicitFrameFillMask: UInt8 = 0
+    public var explicitFrameFillAxes: LayoutFillAxes {
+        get {
+            LayoutFillAxes(horizontal: explicitFrameFillMask & 1 != 0, vertical: explicitFrameFillMask & 2 != 0)
+        }
+        set {
+            let mask: UInt8 = (newValue.horizontal ? 1 : 0) | (newValue.vertical ? 2 : 0)
+            guard mask != explicitFrameFillMask else { return }
+            explicitFrameFillMask = mask
+            invalidateRuntime(.layout)
+        }
     }
 
     public var ignoresSafeAreaInsets: EdgeInsets {
@@ -3252,6 +3288,18 @@ public final class ViewNode {
         get { lifecycleHandlers?.layout }
         set { setLifecycleHandler(newValue, at: \.layout) }
     }
+    /// Places each live child of an absolute container in the container's
+    /// resolved bounds. The returned frame is layout output, not an authored
+    /// sizing input: it never replaces the child's intrinsic frame or queues
+    /// another layout pass. Kept in sparse storage for custom containers.
+    public var absoluteChildFrame: ((ViewNode, Rect) -> Rect)? {
+        get { lifecycleHandlers?.absoluteChildFrame }
+        set {
+            guard newValue != nil || lifecycleHandlers?.absoluteChildFrame != nil else { return }
+            setLifecycleHandler(newValue, at: \.absoluteChildFrame)
+            invalidateRuntime(.layout)
+        }
+    }
     public var onAppearWithNode: ((ViewNode) -> Void)? {
         get { lifecycleHandlers?.appearWithNode }
         set { setLifecycleHandler(newValue, at: \.appearWithNode) }
@@ -4580,6 +4628,11 @@ public final class ViewNode {
     @inline(never)
     private func layoutAbsoluteChildren(descendants: inout [ViewNode]) {
         for child in children {
+            if let absoluteChildFrame {
+                child.resolvedFrame = absoluteChildFrame(child, resolvedFrame)
+                descendants.append(child)
+                continue
+            }
             let childConstraints = LayoutConstraints(
                 maxWidth: remainingConstraintExtent(resolvedFrame.size.width, offset: child.frame.origin.x),
                 maxHeight: remainingConstraintExtent(resolvedFrame.size.height, offset: child.frame.origin.y)
@@ -6942,6 +6995,24 @@ public final class ViewNode {
         return nil
     }
 
+    private func stackChildConstraints(for size: Size, axis: StackAxis) -> LayoutConstraints {
+        stackChildConstraints(
+            for: LayoutConstraints(maxWidth: max(0, size.width), maxHeight: max(0, size.height)),
+            axis: axis)
+    }
+
+    private func stackChildConstraints(for constraints: LayoutConstraints, axis: StackAxis) -> LayoutConstraints {
+        if forwardsStackMainAxisProposal, children.count == 1 {
+            return LayoutConstraints(maxWidth: constraints.maxWidth, maxHeight: constraints.maxHeight)
+        }
+        switch axis {
+        case .vertical:
+            return LayoutConstraints(maxWidth: constraints.maxWidth)
+        case .horizontal:
+            return LayoutConstraints(maxHeight: constraints.maxHeight)
+        }
+    }
+
     @inline(never)
     private func absoluteChildConstraints(
         for child: ViewNode,
@@ -7445,8 +7516,8 @@ public final class ViewNode {
     /// preserves the previous shrink behavior for them. Two escape
     /// hatches keep pinned control chrome contained: a `clipsToBounds`
     /// container absorbs squeeze instead of propagating a floor, and
-    /// text that can wrap or explicitly truncate takes no width floor. Its
-    /// measured height still protects every line after width allocation.
+    /// paragraphs that can reflow or explicitly truncate take no
+    /// width floor. Their measured height still protects every allocated line.
     fileprivate func stackShrinkFloorMainExtent(
         along axis: StackAxis,
         constraints: LayoutConstraints
@@ -7480,14 +7551,20 @@ public final class ViewNode {
         }
 
         if let text, !text.isEmpty {
-            // Wrapping text accepts a narrower width and asks for more
-            // height; explicit single-line text can truncate. Neither should
-            // force a row past its trailing edge just to retain an ideal
-            // width. Their vertical floors still preserve the measured lines.
-            if axis == .horizontal,
-                textStyle.maximumNumberOfLines == 1 || textStyle.lineBreakMode == .wrap
-            {
-                return declaredMinimum
+            // Paragraphs can reflow and ask for more height; explicit
+            // single-line text can truncate. Preserve compact ASCII tokens
+            // such as Compute or 68% under sibling pressure, but do not
+            // infer word boundaries from missing spaces in other scripts.
+            // A token's own narrower frame still participates below, so an
+            // explicitly narrow word can wrap.
+            if axis == .horizontal {
+                let preservesSingleASCIIToken =
+                    text.utf8.allSatisfy { $0 < 0x80 }
+                    && text.split(maxSplits: 1, whereSeparator: \.isWhitespace).count == 1
+                let canReflow = textStyle.lineBreakMode == .wrap && !preservesSingleASCIIToken
+                if textStyle.maximumNumberOfLines == 1 || canReflow {
+                    return declaredMinimum
+                }
             }
             let measured = sizeThatFits(in: constraints)
             return max(declaredMinimum, axis == .vertical ? measured.height : measured.width)
@@ -8250,22 +8327,6 @@ private func insetConstraints(_ constraints: LayoutConstraints, by padding: Edge
         minHeight: max(0, constraints.minHeight - padding.top - padding.bottom),
         maxHeight: remainingConstraintExtent(constraints.maxHeight, offset: padding.top + padding.bottom)
     )
-}
-private func stackChildConstraints(for size: Size, axis: StackAxis) -> LayoutConstraints {
-    switch axis {
-    case .vertical:
-        return LayoutConstraints(maxWidth: max(0, size.width))
-    case .horizontal:
-        return LayoutConstraints(maxHeight: max(0, size.height))
-    }
-}
-private func stackChildConstraints(for constraints: LayoutConstraints, axis: StackAxis) -> LayoutConstraints {
-    switch axis {
-    case .vertical:
-        return LayoutConstraints(maxWidth: constraints.maxWidth)
-    case .horizontal:
-        return LayoutConstraints(maxHeight: constraints.maxHeight)
-    }
 }
 private func stackLayoutSpacingTotal(count: Int, spacing: Double) -> Double {
     guard count > 1 else {

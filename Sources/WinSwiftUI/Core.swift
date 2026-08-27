@@ -20544,7 +20544,16 @@ extension View {
                 // The frame owns its dimensions and aligns the child's measured
                 // content inside them. Overwriting the child would stretch text
                 // and replace the dimensions of an earlier frame modifier.
-                return Controls.stackPanel(
+                // Intrinsic controls can separately opt into an explicit
+                // proposal, without greedily filling every ordinary container.
+                let acceptedAxes = childNode.explicitFrameFillAxes
+                let fillAxes = LayoutFillAxes(
+                    horizontal: childNode.layoutFillAxes.horizontal
+                        || (width != nil && acceptedAxes.horizontal && childNode.fixedSizeAxes?.horizontal != true),
+                    vertical: childNode.layoutFillAxes.vertical
+                        || (height != nil && acceptedAxes.vertical && childNode.fixedSizeAxes?.vertical != true))
+                if childNode.layoutFillAxes != fillAxes { childNode.layoutFillAxes = fillAxes }
+                let root = Controls.stackPanel(
                     preferredSize: Size(width: width ?? 0, height: height ?? 0),
                     stackLayout: .vertical(
                         padding: .zero,
@@ -20554,6 +20563,8 @@ extension View {
                     isHitTestVisible: false,
                     children: [childNode]
                 )
+                root.forwardsStackMainAxisProposal = true
+                return root
             }
         }
     }
@@ -20700,7 +20711,7 @@ extension View {
 
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
-                return Controls.stackPanel(
+                let root = Controls.stackPanel(
                     preferredSize: Size(width: width ?? 0, height: height ?? 0),
                     stackLayout: .vertical(
                         padding: .zero,
@@ -20710,6 +20721,8 @@ extension View {
                     isHitTestVisible: false,
                     children: [childNode]
                 )
+                root.forwardsStackMainAxisProposal = true
+                return root
             }
         }
     }

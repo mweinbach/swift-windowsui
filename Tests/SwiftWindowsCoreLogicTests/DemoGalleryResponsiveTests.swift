@@ -15,12 +15,13 @@ final class DemoGalleryResponsiveTests: XCTestCase {
     private func snapshot(
         model: DemoDashboardModel,
         size: IntSize = IntSize(width: 1280, height: 720),
-        colorScheme: ColorScheme = .dark
+        colorScheme: ColorScheme = .dark,
+        displayScale: Double = 1
     ) -> WinSwiftUIRenderSnapshot {
         WinSwiftUIRendererSnapshotter.snapshot(
             of: DemoRootView(model: model),
             size: size,
-            displayScale: 1,
+            displayScale: displayScale,
             colorScheme: colorScheme
         )
     }
@@ -82,6 +83,80 @@ final class DemoGalleryResponsiveTests: XCTestCase {
             current = ancestor.parent
         }
         return position
+    }
+
+    private func scrollReadiness(
+        in runtime: RetainedViewRuntime, scroller: ViewNode
+    ) -> String {
+        return "layoutComplete=\(runtime.hasCompletedLayout) pending=\(runtime.hasPendingLayout)"
+            + " inProgress=\(runtime.isLayoutInProgress) scrollerCached=\(scroller.cachedLayoutKey != nil)"
+            + " scrollerPending=\(scroller.pendingLayoutKey != nil) content=\(scroller.resolvedContentSize)"
+    }
+
+    /// Layout callbacks may legitimately publish geometry that needs another
+    /// pass after the snapshot's scene/frame pair. Bound convergence so a
+    /// repeating invalidation still fails rather than hiding behind retries.
+    private func settlePendingLayout(
+        in runtime: RetainedViewRuntime,
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        for _ in 0..<3 where runtime.hasPendingLayout {
+            _ = runtime.renderScene(at: 0)
+        }
+        XCTAssertFalse(
+            runtime.hasPendingLayout,
+            "\(context): layout did not settle within three extra passes",
+            file: file, line: line)
+    }
+
+    /// Inspect the actual native glyph cells emitted for a text leaf, after
+    /// scrolling and clipping. Layout frames alone cannot detect text painted
+    /// over an adjacent label. These gallery labels have no rotation or
+    /// compositing group, so their cached ranges refer directly to this scene.
+    private func paintedTextBounds(
+        of node: ViewNode,
+        in scene: GPUIScene,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> Rect {
+        let range = try XCTUnwrap(node.cachedScenePaintRange, file: file, line: line)
+        XCTAssertGreaterThanOrEqual(range.lowerBound, 0, file: file, line: line)
+        XCTAssertLessThanOrEqual(range.upperBound, scene.paintRecords.count, file: file, line: line)
+        guard range.lowerBound >= 0, range.upperBound <= scene.paintRecords.count else {
+            return .zero
+        }
+
+        var bounds: Rect?
+        for record in scene.paintRecords[range] {
+            guard case .primitive(let layerIndex, let kind, let index) = record,
+                case .glyph(let glyph)? = scene.primitive(kind: kind, inLayer: layerIndex, at: index)
+            else { continue }
+
+            XCTAssertEqual(glyph.rotationRadians, 0, file: file, line: line)
+            let cell = Rect(
+                x: Double(glyph.screenX), y: Double(glyph.screenY),
+                width: Double(glyph.screenW), height: Double(glyph.screenH))
+            let clip = Rect(
+                x: Double(glyph.clipX), y: Double(glyph.clipY),
+                width: Double(glyph.clipWidth), height: Double(glyph.clipHeight))
+            guard glyph.colorA > 0, let visible = cell.intersected(with: clip) else { continue }
+
+            if let previous = bounds {
+                let left = min(previous.minX, visible.minX)
+                let top = min(previous.minY, visible.minY)
+                bounds = Rect(
+                    x: left, y: top,
+                    width: max(previous.maxX, visible.maxX) - left,
+                    height: max(previous.maxY, visible.maxY) - top)
+            } else {
+                bounds = visible
+            }
+        }
+
+        return try XCTUnwrap(
+            bounds, "\(node.text ?? "text") must emit visible native glyphs", file: file, line: line)
     }
 
     private func activatingNode(in root: ViewNode, label: String) -> ViewNode? {
@@ -381,5 +456,84 @@ final class DemoGalleryResponsiveTests: XCTestCase {
             baselineSize,
             "gallery type should follow the same global accessibility preference as every other screen"
         )
+    }
+
+    func testScrolledTypographyKeepsAdjacentLargeTextRunsSeparateAtFractionalScales() async throws {
+        for scale in [1.25, 1.5] {
+            let model = galleryModel()
+            model.fontScale = 1.4
+            model.animationsEnabled = false
+            let result = snapshot(
+                model: model, size: IntSize(width: 640, height: 480), displayScale: scale)
+            settlePendingLayout(in: result.runtime, context: "typography \(scale)x")
+            let root = result.runtime.root
+            let title = try XCTUnwrap(textNode(in: root, "Type & color"))
+            let subtitle = try XCTUnwrap(textNode(in: root, "Optical text sizes and semantic accents"))
+            let sampleTitle = try XCTUnwrap(textNode(in: root, "Variable UI"))
+            let sampleCaption = try XCTUnwrap(textNode(in: root, "13pt regular · 14pt semibold"))
+            let scroller = try XCTUnwrap(firstNode(in: root) { $0.scrollAxis == .vertical })
+
+            XCTAssertTrue(
+                result.runtime.scrollToDescendant(title, anchorY: 0),
+                scrollReadiness(in: result.runtime, scroller: scroller))
+            let scene = result.runtime.renderScene(at: 0)
+            XCTAssertGreaterThan(scroller.scrollOffset, 0, "the typography example must be reached by scrolling")
+
+            let titleBounds = try paintedTextBounds(of: title, in: scene)
+            let subtitleBounds = try paintedTextBounds(of: subtitle, in: scene)
+            let sampleTitleBounds = try paintedTextBounds(of: sampleTitle, in: scene)
+            let sampleCaptionBounds = try paintedTextBounds(of: sampleCaption, in: scene)
+
+            XCTAssertLessThanOrEqual(
+                titleBounds.maxY, subtitleBounds.minY,
+                "\(scale)x: the enlarged card heading must not paint over its subtitle")
+            XCTAssertLessThanOrEqual(
+                subtitleBounds.maxY, sampleTitleBounds.minY,
+                "\(scale)x: the type sample must remain below the card header")
+            XCTAssertLessThanOrEqual(
+                sampleTitleBounds.maxY, sampleCaptionBounds.minY,
+                "\(scale)x: the sample's body and caption must remain separate painted lines")
+        }
+    }
+
+    func testScrolledInvalidInputKeepsLargeValidationTextSeparateAtTheColumnBreakpoint() async throws {
+        for width in [640, 780] {
+            let model = galleryModel()
+            model.fontScale = 1.4
+            model.animationsEnabled = false
+            model.galleryState.draftName = ""
+            let result = snapshot(
+                model: model, size: IntSize(width: Int32(width), height: 480), displayScale: 1.25)
+            settlePendingLayout(in: result.runtime, context: "input \(width)pt")
+            let root = result.runtime.root
+            let section = try XCTUnwrap(
+                firstNode(in: root) { $0.accessibilityIdentifier == "gallery.section.input" })
+            let title = try XCTUnwrap(textNode(in: section, "Text entry & validation"))
+            let detail = try XCTUnwrap(textNode(in: section, "Focusable input, submit handling, and live validation"))
+            let validation = try XCTUnwrap(textNode(in: section, "Enter 1–36 nonblank characters"))
+            let count = try XCTUnwrap(textNode(in: section, "0/36"))
+            let scroller = try XCTUnwrap(firstNode(in: root) { $0.scrollAxis == .vertical })
+
+            XCTAssertTrue(
+                result.runtime.scrollToDescendant(title, anchorY: 0),
+                scrollReadiness(in: result.runtime, scroller: scroller))
+            let scene = result.runtime.renderScene(at: 0)
+            XCTAssertGreaterThan(scroller.scrollOffset, 0, "the input example must be reached by scrolling")
+
+            let titleBounds = try paintedTextBounds(of: title, in: scene)
+            let detailBounds = try paintedTextBounds(of: detail, in: scene)
+            let validationBounds = try paintedTextBounds(of: validation, in: scene)
+            let countBounds = try paintedTextBounds(of: count, in: scene)
+
+            XCTAssertLessThanOrEqual(
+                titleBounds.maxY, detailBounds.minY,
+                "\(width)pt: the card title must not paint over its explanatory text")
+            XCTAssertLessThanOrEqual(
+                detailBounds.maxY, validationBounds.minY,
+                "\(width)pt: the validation message must remain below the input card header")
+            XCTAssertLessThanOrEqual(
+                validationBounds.maxX, countBounds.minX,
+                "\(width)pt: the invalid-name message must not paint over its character count")
+        }
     }
 }

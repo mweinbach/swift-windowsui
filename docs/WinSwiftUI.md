@@ -784,12 +784,19 @@ colour.
   *ideal*: a greedy node with one (a slider, a scroll panel) reports it when
   nothing proposes an extent, and fills when something does.
 
-Greedy today: `Color` and shapes (both axes), `ScrollView` (both axes), `List`, `Form` (horizontal, capped at
+Greedy today: `Color`, shapes, and `Canvas` (both axes), `ScrollView` (both axes), `List`, `Form` (horizontal, capped at
 `MacOSControlMetrics.Form.contentMaxWidth` and centred in the leftover),
 `NavigationStack`/`NavigationView` containers, the `TabView` container and its
 tab band, `GeometryReader`, `Divider` (cross axis), `Slider` (horizontal), a
 grouped-form row's value column, and any node given an infinite `frame`
 maximum.
+
+A `ZStack` adopts the fill axes declared by its children, so a `Color` or
+gradient background fills the stack's frame while fixed overlays keep their own
+sizes. A stack containing only intrinsic text does not become flexible.
+Its placement callback addresses the retained children after a rebuild without
+rewriting their authored frames. This preserves alignment and prevents a
+flexible background's previous size from feeding back into measurement.
 
 The segmented picker track is **not** greedy: an `NSSegmentedControl` is
 intrinsically sized (equal segments as wide as the widest label) and stretches
@@ -828,7 +835,15 @@ at the origin.
 - `frame(width:height:alignment:)` sizes an alignment wrapper without rewriting
   the child's preferred size. Text retains its intrinsic size inside a larger
   frame, nested frames retain their own dimensions, and flexible shapes accept
-  the wrapper's proposal. Text measurement receives the frame's width before
+  the wrapper's proposal. Segmented pickers, linear progress views and linear
+  gauges opt into an explicit width via `ViewNode.explicitFrameFillAxes`, while
+  remaining intrinsic in ordinary containers or with horizontal `fixedSize`.
+  The retained `GroupBox` contract
+  likewise accepts explicitly framed axes so its card chrome keeps the authored
+  dimensions; unframed boxes and axes protected by `fixedSize` remain intrinsic.
+  Fixed-frame wrappers also pass their bounded size proposal to flexible stack
+  content, without stretching intrinsic text to that size.
+  Text measurement receives the frame's width before
   wrapping, so a narrow paragraph reserves its full height before the next row
   is placed.
 - `frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:alignment:)` maps finite constraints into retained `LayoutConstraints`; an *infinite* maximum is not a constraint at all but SwiftUI's "be greedy on this axis", and maps to `ViewNode.layoutFillAxes` (see "Size proposals and greedy views" below), so `.frame(maxWidth: .infinity)` takes the width its parent proposes.

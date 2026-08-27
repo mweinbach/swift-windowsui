@@ -370,6 +370,25 @@ final class RuntimeProgrammaticScrollTests: XCTestCase {
         XCTAssertEqual(result.container.scrollOffset, 240, accuracy: 0.0001)
     }
 
+    func testProgressControlLayoutSettlesBeforeProgrammaticScrolling() async {
+        let result = fixture(render: false)
+        let progress = Controls.progressBar(
+            value: 0.5, preferredSize: Size(width: 90, height: 8))
+        result.rows[0].addChild(progress)
+
+        // The snapshot path renders both representations. The progress
+        // callback writes its track/fill geometry on every layout, including
+        // when those frames are already equal to the resolved bounds.
+        _ = result.runtime.renderScene()
+        _ = result.runtime.renderFrame()
+
+        XCTAssertFalse(
+            result.runtime.hasPendingLayout,
+            "An unchanged progress layout must not keep the whole scroll tree waiting for another layout")
+        XCTAssertTrue(result.runtime.scrollToDescendant(result.rows[5], anchorY: 0))
+        XCTAssertEqual(result.container.scrollOffset, 150, accuracy: 0.0001)
+    }
+
     func testAfterLayoutCallbacksAlsoRunBeforeFirstFramePathPaint() async {
         let result = fixture(render: false)
         result.runtime.scheduleAfterLayout(key: "frame-scroll") { [weak runtime = result.runtime] in

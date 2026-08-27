@@ -169,7 +169,11 @@ final class StackCrossAxisParityTests: XCTestCase {
             let stack = unwrap(innerStackNode(under: node))
             let bar = unwrap(stack.children.first)
             XCTAssertEqual(bar.resolvedFrame.width, 40, accuracy: 0.51)
-            XCTAssertEqual(bar.resolvedFrame.midX, 100, accuracy: 0.51)
+            XCTAssertEqual(node.resolvedFrame.width, 200, accuracy: 0.51)
+            XCTAssertEqual(bar.resolvedFrame.midX, stack.resolvedFrame.width * 0.5, accuracy: 0.51)
+            XCTAssertEqual(
+                stack.resolvedFrame.minX + bar.resolvedFrame.midX, 100, accuracy: 0.51,
+                "The intrinsic stack and its fixed-width bar remain centered inside the outer frame")
         }
     }
 

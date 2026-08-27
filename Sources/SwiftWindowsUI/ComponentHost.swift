@@ -600,6 +600,13 @@ public final class ComponentHost {
         }
         if target.layoutConstraints != source.layoutConstraints { target.layoutConstraints = source.layoutConstraints }
         if target.fixedSizeAxes != source.fixedSizeAxes { target.fixedSizeAxes = source.fixedSizeAxes }
+        if target.layoutFillAxes != source.layoutFillAxes { target.layoutFillAxes = source.layoutFillAxes }
+        if target.explicitFrameFillAxes != source.explicitFrameFillAxes {
+            target.explicitFrameFillAxes = source.explicitFrameFillAxes
+        }
+        if target.forwardsStackMainAxisProposal != source.forwardsStackMainAxisProposal {
+            target.forwardsStackMainAxisProposal = source.forwardsStackMainAxisProposal
+        }
         if target.layoutPriority != source.layoutPriority { target.layoutPriority = source.layoutPriority }
         if target.spatialCompressionResistance != source.spatialCompressionResistance {
             target.spatialCompressionResistance = source.spatialCompressionResistance
@@ -1302,6 +1309,9 @@ public final class ComponentHost {
 
         if target.hasAllocatedLifecycleHandlers || source.hasAllocatedLifecycleHandlers {
             if target.onLayout != nil || source.onLayout != nil { target.onLayout = source.onLayout }
+            if target.absoluteChildFrame != nil || source.absoluteChildFrame != nil {
+                target.absoluteChildFrame = source.absoluteChildFrame
+            }
             if target.onAppear != nil || source.onAppear != nil { target.onAppear = source.onAppear }
             if target.onDisappear != nil || source.onDisappear != nil { target.onDisappear = source.onDisappear }
             if target.onAppearWithNode != nil || source.onAppearWithNode != nil {

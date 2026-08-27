@@ -73,6 +73,10 @@ if ($ContractsOnly) {
     exit 0
 }
 
+Invoke-Step "pinned SwiftUI baseline tooling fixtures" {
+    & (Join-Path $PSScriptRoot "test-swiftui-baseline.ps1")
+}
+
 # All SwiftPM steps below run strictly serially (shared .build/build.db).
 Invoke-Step "portable core, graphics, layout, and CPU backend tests" {
     & $portableTestScript
@@ -119,6 +123,9 @@ if ($Full) {
     }
     Invoke-Step "SceneRasterizerTests" {
         & $testScript -Filter "SceneRasterizerTests"
+    }
+    Invoke-Step "color-effect passes and native text safety" {
+        & $testScript -Sharded -Filter "SceneColorEffectPassTests|D3D11ImageRenderPassTests|NativeTextConversionSafetyTests"
     }
     Invoke-Step "ScenePrimitiveScaleInvarianceTests" {
         & $testScript -Filter "ScenePrimitiveScaleInvarianceTests"
@@ -231,6 +238,9 @@ if ($Full) {
     Invoke-Step "WindowCoordinatorTests" {
         & $testScript -Filter "WindowCoordinatorTests"
     }
+    Invoke-Step "binding transactions and Settings workflows" {
+        & $testScript -Sharded -Filter "BindingTransactionTests|BindingHostTransactionTests|SettingsSceneHostingTests|DemoSettingsPersistenceTests|DemoObservationShowcaseTests"
+    }
     # Optional retained capabilities must stay genuinely sparse; rebuilding
     # controls must preserve their IME composition and caret callbacks.
     Invoke-Step "ViewNodeSparseStorageTests" {
@@ -272,6 +282,9 @@ if ($Full) {
     }
     Invoke-Step "WinSwiftUIScrollViewReaderTests" {
         & $testScript -Filter "WinSwiftUIScrollViewReaderTests"
+    }
+    Invoke-Step "scroll observations, animated requests, and prepaint replay" {
+        & $testScript -Sharded -Filter "ScrollObservationTests|WinSwiftUIScrollObservationTests|RuntimeProgrammaticScrollAnimationTests|WinSwiftUIProgrammaticScrollAnimationTests|WinSwiftUIKeyboardProgrammaticScrollTests|PrepaintSnapshotReplayTests"
     }
     Invoke-Step "DemoCommandPaletteAndTableWorkflowTests" {
         & $testScript -Filter "DemoCommandPaletteAndTableWorkflowTests"

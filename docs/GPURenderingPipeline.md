@@ -61,14 +61,14 @@ either their projected action or the native provider fallback.
 
 ## 1a. Runtime frame contract: animation gating, dirty flags, geometry
 
-Three properties of `RetainedViewRuntime` are load-bearing for anything
-above it, and each was a silent-failure class before it was pinned.
+These properties of `RetainedViewRuntime` protect the layout, input, and
+paint state consumed by everything above it.
 
 **Animation gating.** The host drives frames from
 `runtime.hasActiveAnimations || runtime.isDirty || …`, so that property
 has to report *every* mechanism that needs a tick: the runtime-level
-ones (colour tweens, button repeat, scroll momentum, keyboard-scroll
-tweens), the per-node `animationStates` written by `.animation()`,
+ones (colour tweens, button repeat, scroll momentum, keyboard and programmatic
+scroll tweens), the per-node `animationStates` written by `.animation()`,
 insertion transitions, button presses and matched geometry, **and** the
 `transitionOverlays` a removal transition creates. Per-node state is
 tracked by a weak registry maintained from `ViewNode.animationStates`'
@@ -94,6 +94,20 @@ into `dirtyFlags`, which the outer pass then wiped — a permanently clean
 runtime the host stops requesting frames for. Nested passes are counted
 in `RetainedViewRuntime.reentrantRenderPassCount` and reported once on
 stderr.
+
+**Snapshot ownership.** A cached range belongs to the exact output that
+contains its records. Prepaint ranges carry one immutable identity; frame
+and scene paint snapshots carry independent identities because their culling
+differs. In particular, zero-opacity ancestors can suppress paint while
+prepaint continues recording interactions. Replay requires matching ownership,
+and ancestor replay rebases only descendant ranges that belonged to the copied
+output. Hidden or clipped branches can retain older ranges without traversing
+every descendant merely to clear them; when a descendant returns, it rebuilds
+instead of indexing a newer, shorter or unrelated array. Deferred paint ranges
+follow the same rule, and atlas retries get distinct output identities.
+`PrepaintSnapshotReplayTests` covers clipping, hidden content, zero-opacity
+restoration, unrelated records at still-valid indices, and continued reuse of
+unaffected subtrees on both paint paths.
 
 **Geometry sanitation and boundedness.** `layoutSubtree` clamps
 `resolvedFrame` and `resolvedContentSize` to finite, non-negative values

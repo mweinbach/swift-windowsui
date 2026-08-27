@@ -35,7 +35,10 @@ toward that goal; its initial supported subset does not limit the end state.
 - `WinSwiftUIWindowCoordinator` hosts multiple windows (own host/runtime/
   renderer each); default `openWindow` / `dismissWindow` routing is live and
   `supportsMultipleWindows` is true for coordinator-managed hosts.
-  `openSettings` / `Settings` scenes remain **unsupported**.
+  Static scene composition now registers `Settings` alongside ordinary windows;
+  `openSettings` and `SettingsLink` open/reactivate one on-demand Settings window.
+  Settings-only startup, native menu generation, and persistent restoration
+  remain unsupported.
 - Local validation scripts are strong. `.github/workflows/windows-ci.yml` now
   runs contracts on every change, Quick on pull requests / branch pushes, and
   Full plus screenshot upload on main, schedule, and manual dispatch. Hosted
@@ -199,8 +202,8 @@ speculative API cloning.
   `WindowGroup`, stacks, lists, navigation, sheets, many modifiers).
 - Many APIs are **source-compatible shims** (metadata only, no-op, or
   partial retained behavior). Examples already documented in
-  `docs/WinSwiftUI.md`: scroll observation callbacks, SF Symbol effects,
-  `matchedGeometryEffect` interpolation, Settings scene, full grid semantics,
+  `docs/WinSwiftUI.md`: scroll target visibility/transition callbacks, SF Symbol effects,
+  `matchedGeometryEffect` interpolation, DocumentGroup lifecycle, full grid semantics,
   native menus, asset catalogs, Canvas symbols / `withCGContext`.
 - Shared-demo subset in `Sources/SwiftWindowsDemo/` is the practical
   compatibility bar for same-source macOS builds.
@@ -466,13 +469,16 @@ with per-window retained runtimes and honest `supportsMultipleWindows`.
 
 ### Current state
 
-- Single live `WindowGroup` boot path in `WinSwiftUIWindowHost`.
-- `supportsMultipleWindows` defaults **false**.
-- `openWindow` / `dismissWindow` / `openSettings` are SwiftUI-shaped **no-ops**
-  unless handlers are injected.
-- `@SceneStorage` is in-memory and scoped to the current single-window model.
-- Scene phase and presentation environment values exist for in-tree sheets /
-  covers, not multiple top-level windows.
+- `SceneBuilder` collects static ordinary and Settings scene declarations;
+  startup opens the first ordinary window configuration.
+- `WinSwiftUIWindowCoordinator` hosts independent windows and installs default
+  `openWindow`, `dismissWindow`, and `openSettings` routing. Its managed hosts
+  report `supportsMultipleWindows = true`; standalone hosts default to false.
+- Settings opens on demand, reuses its live window, and requests native
+  restore/activation. Native menu generation and Settings-only launch remain
+  unsupported. Scene registrations are fixed at application startup.
+- `@SceneStorage` has distinct in-memory scopes per managed window; persistent
+  restoration and full document lifecycle remain open.
 
 ### Work items
 

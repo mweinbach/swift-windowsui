@@ -65,6 +65,12 @@ settings-style apps on the Supported tier are the intended audience.
   `dismissWindow` routing for id- and value-based `WindowGroup`s;
   `supportsMultipleWindows` reports true for coordinator-managed hosts
   (`WindowCoordinatorTests`).
+- Static `SceneBuilder` composition and on-demand singleton `Settings`
+  hosting, including environment propagation, activation requests, and
+  close/reopen handling (`SettingsSceneHostingTests`). The shared settings
+  template now saves validated preferences to an injectable per-user store,
+  preserves dirty edits on failure, and supports restart and retry
+  (`DemoSettingsPersistenceTests`, `docs/TemplateCatalog.md`).
 - Software presentation fallback for machines with no usable GPU: a startup
   availability probe that reports D3D11 `.unavailable` substitutes
   `SoftwareWindowRenderBackendFactory`, which CPU-rasterizes each frame and
@@ -95,6 +101,15 @@ settings-style apps on the Supported tier are the intended audience.
   (`PathToQuadTessellatorTests`, `RotatedQuadRasterTests`).
 - System icons rendered as real Segoe Fluent/MDL2 glyphs with a
   drawn-vector fallback for ~40 mapped SF Symbol names.
+- Retained scroll geometry, phase, and visibility callbacks, with presentation
+  offsets, reconciliation history, and lifecycle checks. The interactive
+  gallery exposes their readouts and reset behavior
+  (`ScrollObservationTests`, `WinSwiftUIScrollObservationTests`,
+  `DemoObservationShowcaseTests`).
+- Ordered built-in colour effects on composited subtrees through a shared
+  scene image-pass contract. D3D11 renders and filters these child scenes on
+  the GPU; the CPU reference uses the same effect rules and explicit bounds
+  (`SceneColorEffectPassTests`, `D3D11ImageRenderPassTests`).
 
 **Text and input**
 
@@ -142,7 +157,7 @@ settings-style apps on the Supported tier are the intended audience.
 - Serial validation ladder (`scripts/agent-check.ps1` `-ContractsOnly` /
   `-Quick` / `-Full`) with machine-checked architecture contracts
   (`scripts/check-contracts.ps1`).
-- Gallery visual regression gate: 25 Supported-tier baselines compared with
+- Gallery visual regression gate: 85 reviewed baselines compared with
   bounded per-entry diffs (`scripts/gallery-compare.ps1`, runs in `-Full`
   and Windows CI).
 - Raw offscreen screenshot tooling for scene and frame paths
@@ -153,6 +168,10 @@ settings-style apps on the Supported tier are the intended audience.
 - Machine-checkable macOS design and animation parity constants
   (`docs/MacOSDesignParity.md`, `docs/AnimationParity.md` and their parity
   tests).
+- A fixed full-desktop SwiftUI audit baseline and native export tooling,
+  separate from the supported subset. Synthetic fixture tests validate the
+  tooling; actual SDK capture and native conformance remain unverified
+  (`docs/SwiftUIBaseline.md`).
 
 ### Changed
 
@@ -170,11 +189,33 @@ Relative to the untagged prototype checkouts earlier on `main`:
   being an override-only value.
 - Default control chrome moved to macOS-pinned design constants (dimensions,
   colors, materials) locked by the parity test suites.
+- `contrast` and `saturation` now interpret 1 as identity rather than adding
+  1 to the authored amount. Code written for the old Windows-only increment
+  behavior must supply the intended factor directly. Built-in colour effects
+  now affect the whole composited subtree; `luminanceToAlpha` produces black
+  RGB while preserving source alpha and coverage in the mask.
 
 ### Fixed
 
 Relative to the untagged prototype checkouts earlier on `main`:
 
+- Binding transactions propagate through writes and projections. Real control
+  invalidations preserve captured observed-object transactions, including
+  explicit animation suppression (`BindingTransactionTests`,
+  `BindingHostTransactionTests`).
+- Disabled scrolling preserves the presented content position while rejecting
+  input, and native text rejects unsafe colour/geometry integer conversions
+  (`WinSwiftUIScrollObservationTests`, `NativeTextConversionSafetyTests`).
+- Animated `ScrollViewReader` requests retain their transaction through
+  deferred layout, use authored timing, retarget from the presented position,
+  and keep lazy target refinement within the original animation deadline.
+- Prepaint and paint cache ranges identify their owning snapshots, preventing
+  stale interaction or drawing replay when clipped, hidden, or zero-opacity
+  descendants return (`PrepaintSnapshotReplayTests`).
+- Font fallback tests no longer assume Windows Server installs Segoe Fluent
+  Icons. They verify preference order under injected availability and compare
+  real installed-font pixels or require an explicit vector fallback
+  (`SymbolIconRenderingTests`).
 - Tessellator rejects non-finite path coordinates instead of producing
   corrupt GPU output.
 - Glyph atlas LRU exhaustion always recovers without dropping inserts.
@@ -204,16 +245,18 @@ Relative to the untagged prototype checkouts earlier on `main`:
   of it is Partial or source-compatibility shims; the
   [`docs/CompatibilityStatus.md`](docs/CompatibilityStatus.md) matrix is
   the authority on what is safe.
-- **Windows-only package.** Runtime, host, and renderer depend on Win32 and
-  D3D11. The same-source story is shared app *source* (`import WinSwiftUI`
-  vs `import SwiftUI`), not a cross-platform package.
-- **UI Automation level:** fragment tree, properties, InvokePattern, and
-  focus/structure events only. No Value/Text/Selection/Toggle patterns, no
-  live regions, coarse structure-changed events, `IsOffscreen` not
-  provided.
+- **Windows-only retained app runtime.** Core/Graphics/Layout/Scene products
+  and CPU rendering are portable; the retained UI runtime, native host,
+  accessibility bridge, and D3D11 presenter remain Windows-only. Shared demo
+  source uses native SwiftUI on macOS rather than a second retained host.
+- **UI Automation level:** fragment tree, properties, Invoke/Value/Toggle/
+  Selection/SelectionItem/VirtualizedItem patterns, bounds and focus/structure
+  events are implemented. Rich TextPattern/ranges, automatic live-region
+  observation, and full native Narrator qualification remain incomplete.
 - **Multi-window level:** coordinator-hosted independent windows for
-  `WindowGroup` scenes. `Settings` / `openSettings` and `DocumentGroup`
-  remain unsupported shims; per-window `@SceneStorage` is in-memory.
+  `WindowGroup` scenes and static singleton Settings hosting. Dynamic scene
+  registration, full restoration, and `DocumentGroup` remain incomplete;
+  per-window `@SceneStorage` is in-memory.
 - **Text/IME level:** DirectWrite glyph runs and WM_IME composition are in,
   but there is no full shaped-run text engine, no rich `AttributedString`
   editing, no localization table lookup (`LocalizedStringKey` resolves to

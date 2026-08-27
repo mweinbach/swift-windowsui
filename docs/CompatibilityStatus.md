@@ -42,6 +42,9 @@ accessibility bridge, and D3D11 presenter remain Windows-only. See
 Detailed API notes live in [`docs/WinSwiftUI.md`](WinSwiftUI.md). Design and
 animation numeric parity tables live in [`docs/MacOSDesignParity.md`](MacOSDesignParity.md)
 and [`docs/AnimationParity.md`](AnimationParity.md).
+The complete desktop SDK audit target is pinned separately in
+[`SwiftUIBaseline.md`](SwiftUIBaseline.md); the implemented subset below does
+not reduce that target or establish conformance to it.
 
 ## Status legend
 
@@ -61,15 +64,16 @@ public symbols.
 
 ## Safe today (dashboard-style apps)
 
-These categories are the intended production subset: settings-style and
-dashboard composition on a single custom-rendered window.
+These categories describe the current subset for settings-style and dashboard
+composition in coordinator-managed, custom-rendered windows. Their stated
+limits still apply; this is not the completed product in `goal.md`.
 
 ### App hosting — Implemented (multi-window via coordinator)
 
 | API | Status | Notes |
 | --- | --- | --- |
-| `App`, `Scene`, `WindowGroup` | **Implemented** | Primary host path; boots one live window |
-| `Window`, `WindowScene` | **Partial** | Accept content and produce a window configuration; multi-window lifecycle is not hosted |
+| `App`, `Scene`, `SceneBuilder`, `WindowGroup` | **Implemented** | Primary host path; static multi-scene declarations and availability checks preserve scene order and modifiers, and startup opens the first ordinary window scene. Scene registration is not dynamically reconciled |
+| `Window`, `WindowScene` | **Partial** | Configurations participate in coordinator hosting; full native scene-specific uniqueness and restoration semantics remain incomplete |
 | Host loop / invalidation coalescing | **Implemented** | Coalesced rebuilds; high-rate pumping only when input dirties presentation |
 
 ### Layout containers — Implemented / Partial
@@ -82,7 +86,7 @@ dashboard composition on a single custom-rendered window.
 | `Grid`, `GridRow` | **Partial** | Stack-based; simple `gridCellColumns` growth; full column sizing / cell anchors are incomplete |
 | `Spacer`, `Divider`, `Group`, `EmptyView` | **Implemented** | |
 | `ScrollView` | **Partial** | One primary axis; `.all` resolves to vertical. Indicators are macOS **overlay scrollers**: hidden at rest, revealed by a scroll or a flash, faded out after a beat — so a static screenshot shows no scrollbar, as a real macOS app does. `.scrollIndicators(.visible)` opts into the legacy always-on bar; `.scrollIndicatorsFlash(onAppear:)` / `(trigger:)` ride the same lifecycle pass `onAppear` does |
-| `ScrollViewReader` / `ScrollViewProxy.scrollTo(_:anchor:)` | **Implemented** | Scrolls explicit `.id(...)` and implicit `ForEach` targets on either retained axis, including off-screen virtualized lazy-stack rows; preserves minimal-reveal behavior, explicit anchors, content-bound clamping, nested-reader isolation, and requests queued before the first or a later scene/frame layout. Internal chrome tags do not become scroll targets. Each scroll container supports one primary axis; reusing the same reader value in multiple runtimes safely disables its ambiguous proxy |
+| `ScrollViewReader` / `ScrollViewProxy.scrollTo(_:anchor:)` | **Implemented** | Scrolls explicit `.id(...)` and implicit `ForEach` targets on either retained axis, including off-screen virtualized lazy-stack rows; preserves minimal-reveal behavior, explicit anchors, content-bound clamping, nested-reader isolation, and requests queued before the first or a later scene/frame layout. Captured transactions preserve authored animation timing and explicit suppression through deferred requests; retargeting starts from the presented offset, input interrupts motion, and lazy target refinement keeps the original deadline. `.scrollDisabled` suppresses input without blocking these programmatic requests. Internal chrome tags do not become scroll targets. Each scroll container supports one primary axis; reusing the same reader value in multiple runtimes safely disables its ambiguous proxy. Native animation and timing comparison remains unqualified |
 | `List` | **Partial** | Vertical scroll panel, stable row metrics, hover/selection chrome, arrow-key selection with scroll-into-view, and limited edit chrome. Scroll-enabled lists with more than 64 direct rows virtualize **layout** through the existing retained lazy-stack window; keyboard navigation and `ScrollViewReader` reveal offscreen rows through their already-placed geometry, and deferred rows project as realizable UIA placeholders. Small or non-scrollable lists preserve their existing eager behavior. Like `LazyVStack`, row construction is still eager and scales with the data count |
 | `Form`, `Section` | **Partial** | Grouped-form layout is macOS-shaped: a 640pt content column centred in the window, rows as a two-column grid (one trailing-aligned label column shared across every section of the form, leading value column), section headers outside and above near-flat group boxes. Styles map to retained spacing/shells; the grid is `Form`-scoped and does not span arbitrary containers |
 | `LabeledContent` | **Partial** | Label/value row; inside a `Form` it is the grouped-form row with the form-wide shared label column |
@@ -160,7 +164,7 @@ Use these when you accept retained approximations.
 | --- | --- | --- |
 | **Text system** | Readable labels, scaling, line limits, minimum scale factor; nested dynamic-type bounds agree across retained text, `@Environment`, and `@ScaledMetric` | Full font shaping, rich attributed runs, true localization catalogs, live `Text` timers |
 | **SF Symbols** | Named glyph path + limited variants / rendering modes | Multi-layer multicolor symbols, variable values, animated symbol effects |
-| **Scrolling** | Vertical/horizontal native-wheel and drag offset, indicators, rendered keyboard glides and edge bounce, and scoped `ScrollViewReader.scrollTo` for explicit/`ForEach` IDs and virtualized lazy-stack rows. Native wheel streams do not receive duplicate synthetic inertia; runtime-owned momentum uses elapsed-time integration | True two-axis scroll, paging / view-aligned deceleration, scroll observation callbacks, binding-driven `scrollPosition` updates |
+| **Scrolling** | Vertical/horizontal native-wheel and drag offset, indicators, rendered keyboard glides and edge bounce, scoped `ScrollViewReader.scrollTo`, and geometry/phase/visibility callbacks sampled from retained presentation. Native wheel streams do not receive duplicate synthetic inertia; runtime-owned momentum uses elapsed-time integration | True two-axis scroll, paging / view-aligned deceleration, target-visibility collection callbacks, binding-driven `scrollPosition`, and native-reference qualification of observation timing/thresholds |
 | **Gestures** | Tap, long-press (release-inside), primary-touch and mouse drag mapped to the same pointer lifecycle; interrupted capture cancels cleanly | Duration thresholds, multitouch gesture arbitration, full gesture composition, simultaneous value streaming |
 | **Focus** | Focus rings, `@FocusState`, activation | Dynamic `@FocusedValue` retargeting as focus moves; environment `isFocused` live transitions |
 | **Drag and drop** | API + metadata on nodes; OS file drops (WM_DROPFILES) delivered to `onDrop` destinations as file URLs | Full delete/reorder/drop affordances, drag-over highlighting, OLE drag sessions |
@@ -169,7 +173,7 @@ Use these when you accept retained approximations.
 | **Blend / drawing groups** | Authored blend-mode metadata only — ordinary primitives composite source-over, gated by `CPUGPUBlendModeContractTests`. Backdrop materials separately replace covered destination pixels to preserve translucent alpha | Separable blend modes on the GPU (batch split + blend-state swap); scene-path offscreen group compositing as full SwiftUI drawing groups |
 | **2D transforms** | Translation, uniform scale and rotation lower onto the scene contract; a `rotationEffect` card draws rotated on both backends, and so does everything in it — shadows, text, images, `Shape` backgrounds and `Canvas` content all turn, and a rotated `.clipped()` clips to the turned shape (an offscreen pass composited back rotated) for both the eye and the pointer; ancestors compose before descendants, and the pointer inverse follows; a mirror (`scaleEffect(x: -1)`, `flipsForRightToLeftLayoutDirection`) survives composition as a reflection, so a mirrored subtree's descendants and its pointer inverse mirror with it | Shears, mirrors and non-uniform scales degrade to the axis-aligned bounding box, so a mirrored subtree's *content* is placed mirrored but not itself mirrored (text stays readable, an image is not flipped); the fallback frame renderer has no rotation encoding at all, so under it a rotated subtree draws — and clips — as its bounding box; a rotated clip whose buffer is past the offscreen budget falls back to the same box |
 | **3D transforms** | Z-axis rotation maps to 2D; metadata stored | Full 3D projection pipeline |
-| **Color effects / shaders** | Metadata for invalidation / source shape | No compiled Metal/HLSL filter application yet |
+| **Color effects / shaders** | Ordered brightness, contrast, inversion, multiply, saturation, grayscale, hue, and luminance-to-alpha effects on isolated subtrees. CPU and D3D11 execute the same scene image-pass contract; the D3D11 effect path keeps the child scene and filter on the GPU | Custom shader compilation, effect-parameter animation, complete color-space qualification, and full SwiftUI drawing-group/blend semantics |
 | **Navigation deep stacks** | Push/pop for common link patterns | Full path binding, deep-link multi-window routing |
 | **Preferences / anchors** | Preference keys and some propagation | Full SwiftUI preference/anchor geometry system |
 | **Observation** | Invalidation tuned for retained rebuilds | Full Observation / Combine feature set |
@@ -187,9 +191,10 @@ behavior** unless a note says otherwise.
 | API | Status | Behavior today |
 | --- | --- | --- |
 | `openWindow` / `dismissWindow` | **Implemented** (default routing) | Coordinator opens independent windows (own host/runtime/renderer) for id- and value-based WindowGroups; dismiss closes the calling scene's window or matches by id/value |
-| `openSettings` | **Shim / no-op** (default) | `SettingsLink` button calls it; no Settings scene lifecycle |
+| `openSettings`, `SettingsLink` | **Implemented** for coordinator hosts | Opens the first declared Settings scene on demand, reuses its existing window, and requests restore/foreground activation. Closing permits reopening. Windows can decline foreground activation; no duplicate is created. No declared Settings scene or standalone host means no default routing |
 | `requestReview` | **Shim / no-op** (default) | No StoreKit / Microsoft Store review prompt |
-| `Settings`, `DocumentGroup`, `MenuBarExtra` | **Shim / Partial** | Types and configs exist; not first-class hosted scene products |
+| `Settings` | **Partial** | Real on-demand singleton alongside ordinary window scenes, with per-window runtime, renderer, environment, and scene-storage scope. Automatic native Settings menus, Settings-only startup, dynamic scene changes, and full scene restoration remain unsupported |
+| `DocumentGroup`, `MenuBarExtra` | **Shim / Partial** | Types and configs exist; not first-class hosted scene products |
 | `ImmersiveSpace`, `Volume`, Widget configs | **Shim** | Source shapes only; no visionOS / widget runtime |
 | `supportsMultipleWindows` | **Implemented** | True for coordinator-managed hosts; false otherwise |
 
@@ -240,11 +245,12 @@ existing environment value untouched.
 | `visualEffect` / `visualEffect3D` | **Shim** | Stores identity-effect metadata |
 | `scrollTransition` | **Shim** | No phase-driven scroll effects |
 | `scrollIndicatorsFlash` | **Partial** | Reveals the retained overlay scroller and lets the runtime fade it back out; on-appear behavior follows the retained view lifecycle |
-| `onScrollGeometryChange` / phase / visibility observers | **Shim** | Closures stored; not dispatched |
+| `onScrollGeometryChange` / `onScrollPhaseChange` / `onScrollVisibilityChange` | **Partial** | Real callbacks after retained paint, derived-value deduplication, presented offsets, nested scroll ownership, transformed rectangular clipping, and history across rebuilds. Native initial-delivery timing, precise phase cadence, and threshold semantics still require reference comparison; visibility is geometric, not sibling-occlusion testing |
+| `onScrollTargetVisibilityChange` / `onScroll` | **Shim** | Metadata only; callbacks are not dispatched |
 | `scrollTargetBehavior` (paging / viewAligned) | **Shim** | Metadata; no deceleration behavior |
 | `PhaseAnimator` continuous cycling | **Partial** | Initial phase renders; continuous/trigger advancement limited |
 | `KeyframeAnimator` | **Partial** / **Shim** | API shape; not full keyframe timeline engine |
-| Color effects (`brightness`, `contrast`, `colorInvert`, …) | **Shim** | Metadata; not applied by GPU path yet |
+| Color effects (`brightness`, `contrast`, `colorInvert`, …) | **Partial** | Ordered effects apply to the composited subtree, including glyphs, images, paths, shadows, and nested effect passes. Contrast and saturation use 1 as identity. Native color-space conformance, animated parameters, and surrounding group/blend semantics remain incomplete |
 | `colorEffect` / `distortionEffect` / `layerEffect` / `Shader*` | **Shim** | Metadata only |
 | Style enums that only change chrome profiles | **Partial** | e.g. many `listStyle`, `formStyle`, `menuStyle`, `groupBoxStyle` values map to retained shells or metadata, not protocol-based custom styles |
 | `ignoresSafeArea` / `edgesIgnoringSafeArea` | **Shim** | Pass-through on client-area surface |
@@ -359,7 +365,8 @@ Rules of thumb for shared sources:
 | Custom drawing | Safe with limits: `Canvas`, shapes, gradients on scene path |
 | Maps, video, web, charts, IAP UI | Not safe: placeholders only |
 | Secondary windows via `openWindow` / `dismissWindow` | Safe within limits: coordinator-hosted independent windows for id/value-based `WindowGroup`s (`WindowCoordinatorTests`) |
-| Settings scene / document architecture | Not safe as hosted products (`openSettings` and `DocumentGroup` remain shims) |
+| Settings scene | Hosted alongside ordinary windows; use `SettingsLink` or `openSettings`, with the lifecycle and menu limits above |
+| Document architecture | Not a complete hosted product; `DocumentGroup` remains a shim |
 | Pixel-perfect macOS SwiftUI | Not the goal; use design/animation parity docs for constants only |
 | Accessibility for AT | UIA tree, focus/offscreen state, secure-aware Value, Toggle, Selection/SelectionItem, virtualized-row realization, and explicit live-region events; rich TextPattern and automatic announcements remain unsupported |
 | Production Windows product shell | Safe within retained subset; keep host/renderer validation in the loop |

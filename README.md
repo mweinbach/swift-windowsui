@@ -137,11 +137,11 @@ The current `WinSwiftUI` surface is intentionally a subset. It is designed to co
 Included today:
 
 - App hosting: `App`, `Scene`, `WindowGroup`
-- Multi-window: default `openWindow` / `dismissWindow` routing through `WinSwiftUIWindowCoordinator` — each window gets its own host, retained runtime, and renderer; `supportsMultipleWindows` is true for coordinator-managed hosts. `openSettings` / `Settings` scenes remain unsupported
+- Multi-window: default `openWindow` / `dismissWindow` routing through `WinSwiftUIWindowCoordinator` — each window gets its own host, retained runtime, and renderer; `supportsMultipleWindows` is true for coordinator-managed hosts. Static `SceneBuilder` composition registers multiple scenes, and `openSettings` / `SettingsLink` open or reactivate one declared Settings window. The demo uses shared Settings content and an injectable persistent store; see [TemplateCatalog](docs/TemplateCatalog.md) for scope and remaining workflow limits
 - Accessibility: retained accessibility metadata is projected to Windows UI Automation (fragment tree, trait-derived control types, transform-aware/offscreen bounds, disabled-state-safe InvokePattern, editable non-password ValuePattern, TogglePattern, List/Table SelectionPattern and SelectionItemPattern, virtualized-row realization, focus/structure events, and an explicit live-region event bridge); rich TextPattern, automatic live-region observation, and fine-grained structure notifications remain unsupported
 - Text input: keyboard-layout-aware `WM_CHAR` Unicode entry, supplementary-plane characters, caret and highlighted selection, Unicode/grapheme-aware Ctrl+Left/Right word navigation and Ctrl+Shift word selection, mouse-drag selection, clipboard shortcuts (Ctrl+C/X/V/A), and IME composition (marked text, candidate window positioned at the caret)
 - Environment consistency: `.environment(\.isEnabled, ...)`, `.disabled(...)`, button/picker styles, foreground colors, accent colors, and nested dynamic-type limits propagate coherently into controls, `@Environment` readers, and `@ScaledMetric`; sliders support pointer focus and keyboard adjustment
-- Programmatic scrolling: `ScrollViewReader` / `ScrollViewProxy.scrollTo(_:anchor:)` resolve retained identifiers against the nearest scroll container, including deferred lazy-stack rows, with axis-aware anchor positioning and clamped offsets
+- Programmatic scrolling: `ScrollViewReader` / `ScrollViewProxy.scrollTo(_:anchor:)` resolve retained identifiers against the nearest scroll container, including deferred lazy-stack rows, with axis-aware anchors, captured animation transactions, and interruption handling. Geometry, phase, and visibility callbacks report retained presentation; the gallery demonstrates their readouts alongside an animated binding
 - Platform integrations: real Win32 open/save dialogs behind `fileImporter` / `fileExporter`, Unicode text and validated file-list (`CF_HDROP`) clipboard with fail-closed, type-aware `PasteButton` delivery, OS file drops (`WM_DROPFILES`) delivered to `onDrop`, an opt-in native `ChooseColorW` dialog for `ColorPicker`, and `Link` / `openURL` via `ShellExecuteW`
 - System appearance: light/dark and high contrast sampled at startup and re-sampled on `WM_SETTINGCHANGE` / `WM_SYSCOLORCHANGE`; actual Windows contrast-theme window, text, control, selection, disabled, and link colors propagate through the inherited environment and semantic control/text palette; app overrides (`preferredColorScheme`, explicit environment sets) take precedence
 - Core views: `Text`, including `Text(verbatim:)`, `StringProtocol`, and `LocalizedStringKey` inputs, `Image(systemName:)`, `Label`, `Link`, `Rectangle`, `RoundedRectangle`, `UnevenRoundedRectangle`, `Capsule`, `Circle`, `Ellipse`, `ContainerRelativeShape`, `AnyShape`, `Shape`, `Spacer`, `Divider`, `Group`, `GeometryReader`, `NavigationLink`
@@ -257,6 +257,10 @@ The GUI demo was also launched with a short `swift run swift-windowsui` startup 
 ## Documentation
 
 Additional framework notes live in [`docs/WinSwiftUI.md`](docs/WinSwiftUI.md).
+The fixed desktop SDK audit baseline and capture procedure live in
+[`docs/SwiftUIBaseline.md`](docs/SwiftUIBaseline.md). The current application
+templates, persistence adapters, and remaining catalog requirements are in
+[`docs/TemplateCatalog.md`](docs/TemplateCatalog.md).
 Testing and visual-check commands live in [`docs/Testing.md`](docs/Testing.md).
 Release history and the versioning policy live in [`CHANGELOG.md`](CHANGELOG.md); the release smoke procedure lives in [`docs/ReleaseChecklist.md`](docs/ReleaseChecklist.md). Enforced performance budgets are listed in [`docs/PerformanceBudgets.md`](docs/PerformanceBudgets.md).
 Agent handoff and architecture guardrails live in [`AGENTS.md`](AGENTS.md), which `CLAUDE.md` imports.

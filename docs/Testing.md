@@ -40,6 +40,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
 - Product/runtime behavior also gates Quick: `GradientRenderingFidelityTests`, `PathGradientRenderingTests`, and `CanvasPathGradientIntegrationTests` check directional GPU-quad promotion, CPU/D3D11 gradient parity, authored stops/endpoints, retained lowering, and frame degradation; `ViewNodeSparseStorageTests` pins genuinely lazy optional capabilities and IME/caret callback reconciliation; `ListVirtualizationTests` pins viewport-bounded large-list layout, exact pixels, far-row keyboard navigation, programmatic scrolling, and accessibility placeholders; `UIAAdvancedPatternTests` drives secure Value, Toggle, Selection/SelectionItem, and VirtualizedItem patterns through real COM vtables; `HighContrastSystemPaletteTests` pins exact native contrast-theme role propagation; `TextInputSelectionTests` covers Unicode/grapheme-aware word navigation and bound selection; `DemoCommandPaletteAndTableWorkflowTests` covers global command shortcuts, responsive product chrome, sorting, pagination, and validated settings; `RuntimeProgrammaticScrollTests` plus `WinSwiftUIScrollViewReaderTests` pin anchored scrolling, first-render replay, deferred lazy rows, and reader ownership; and `ClipboardFileFormatTests` plus `DropFilesPayloadHardeningTests` keep typed paste and hostile cross-process file-list validation fail-closed.
 - `agent-check.ps1 -Full` runs full tests, builds the demo, regenerates scene plus frame fallback screenshots, and runs the gallery regression gate. Small XCTest classes share bounded alternation-filter shards (up to eight targets and 3,000 estimated expanded identifier characters by default), substantially reducing repeated SwiftPM startup while keeping all `.build` access strictly serial; oversized classes retain their existing method-level safety sharding.
 - Do not run multiple SwiftPM test/build commands against this checkout in parallel; they share `.build/build.db`.
+- Quick and Full run `test-swiftui-baseline.ps1` against synthetic exporter
+  fixtures. These checks protect pinned-version rejection, inventory parsing,
+  and provenance handling; they are not a native SDK capture or API conformance
+  result. See [SwiftUIBaseline.md](SwiftUIBaseline.md) for the actual Mac audit.
 - Full-repository formatting automatically batches normalized Swift paths to
   stay below Windows command-line limits. The shared Swift/Visual Studio
   bootstrap initializes once per PowerShell process, preventing repeated test
@@ -62,6 +66,37 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   real app composition uses independently injectable platform and renderer
   factories, offscreen-only backends cannot masquerade as window presenters,
   and software fallback actually blits its offscreen CPU output.
+- `BindingTransactionTests` covers binding write scopes, projection propagation,
+  explicit animation suppression, and state-driven intermediate animation.
+  `BindingHostTransactionTests` checks that real controls preserve captured
+  transactions through immediate host invalidation and coalesced observation.
+  `SettingsSceneHostingTests` covers static/availability scene composition,
+  environment propagation, singleton Settings lifecycle, and startup rollback.
+  `DemoSettingsPersistenceTests` exercises file/memory stores, restart, dirty
+  state, malformed data, validation, keyboard save, failed writes, and retry.
+  These suites also gate Quick.
+- `DemoObservationShowcaseTests` drives the live gallery's observer readouts,
+  reset action, and animated binding through the retained host. Its shared
+  view source remains ordinary SwiftUI-shaped application code.
+- `ScrollObservationTests` and `WinSwiftUIScrollObservationTests` cover actual
+  geometry, phase, and visibility callbacks, presented offsets, reconciliation,
+  nested ownership, bounded delivery, clipping, and lifecycle safety. They gate
+  Quick; native SwiftUI timing and threshold qualification remains separate.
+- `RuntimeProgrammaticScrollAnimationTests` and
+  `WinSwiftUIProgrammaticScrollAnimationTests` check captured scroll transactions,
+  authored timing, continuous retargeting, input interruption, disabled input,
+  range changes, and precise alignment after lazy realization.
+  `WinSwiftUIKeyboardProgrammaticScrollTests` verifies that activating a button
+  or pressing an unrelated key does not cancel its programmatic scroll.
+  `PrepaintSnapshotReplayTests`
+  protects cached interaction and paint ranges when clipped subtrees return.
+  These suites also gate Quick; synthetic clocks do not qualify native pacing.
+- `NativeTextConversionSafetyTests` checks color and geometry sanitation before
+  native integer conversion, unchanged normal pixels, and real GDI rasterization.
+  DirectWrite text bitmaps use the same corrected tint helper. It gates Quick
+  alongside `SceneColorEffectPassTests` and `D3D11ImageRenderPassTests`, which
+  cover ordered subtree effects, fractional-DPI coverage, real WARP execution,
+  replay/resource isolation, bounded malformed passes, and resource reuse.
 - `ModalPresentationIsolationTests` and `DemoRendererIdentityTests` cover
   topmost modal focus/accessibility/shortcut isolation and renderer identities
   that remain accurate when the app switches between D3D11 and software.

@@ -12423,7 +12423,7 @@ public struct KeyEquivalent: Sendable, Equatable, Hashable, ExpressibleByExtende
     }
 
     public init(unicodeScalarLiteral value: UnicodeScalar) {
-        self.retainedKeyCode = value.value
+        self.init(Character(String(value)))
     }
 
     private init(retainedKeyCode: UInt32) {
@@ -12449,6 +12449,12 @@ public struct KeyEquivalent: Sendable, Equatable, Hashable, ExpressibleByExtende
             return KeyboardKey.tab.rawValue
         case "\n", "\r":
             return KeyboardKey.enter.rawValue
+        case ",":
+            // Windows keyboard events use virtual keys, not punctuation's
+            // Unicode value (0x2C is Print Screen, not the comma key).
+            return 0xBC
+        case ".":
+            return 0xBE
         default:
             let uppercased = String(character).uppercased()
             return uppercased.unicodeScalars.first?.value ?? 0

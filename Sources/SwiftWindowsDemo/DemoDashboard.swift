@@ -4,6 +4,8 @@
 // type-checker. A scoped import still surfaces the member extensions
 // (`.number` on `IntegerFormatStyle`) the settings form needs.
 import struct Foundation.IntegerFormatStyle
+import class Foundation.JSONDecoder
+import class Foundation.JSONEncoder
 import struct Foundation.URL
 
 #if canImport(SwiftUI)
@@ -115,14 +117,20 @@ public final class DemoDashboardModel: ObservableObject {
     @Published private(set) var isSidebarCollapsed = false
     @Published private(set) var isInspectorCollapsed = false
     @Published private(set) var hasSavedSettings = false
+    @Published private(set) var settingsPersistenceError: String?
 
     // Integration surface state (color picker, file importer, drop target)
     @Published var accentColor: Color = DemoSignature.accentFill
 
     private var savedSettings = DemoSettingsSnapshot.defaults
+    private let settingsStore: DemoSettingsStore
 
-    public init(rendererIdentity: DemoRendererIdentity = .direct3D11) {
+    public init(
+        rendererIdentity: DemoRendererIdentity = .direct3D11,
+        settingsStore: DemoSettingsStore = .inMemory()
+    ) {
         self.rendererIdentity = rendererIdentity
+        self.settingsStore = settingsStore
         recentEvents = [
             "System ready",
             rendererIdentity.readyEvent,
@@ -130,6 +138,7 @@ public final class DemoDashboardModel: ObservableObject {
         ]
         components = DemoComponent.defaults(for: rendererIdentity)
         selectedComponentID = components.first?.id
+        restoreSettings()
     }
 
     /// Currently selected component on the data screen, if any.
@@ -227,13 +236,28 @@ public final class DemoDashboardModel: ObservableObject {
     }
 
     var isDisplayNameValid: Bool {
-        displayName.contains { !$0.isWhitespace }
+        displayName.contains { !$0.isWhitespace } && displayName.count <= 200
     }
 
-    var settingsStatusMessage: String {
+    var settingsValidationMessage: String? {
+        if displayName.count > 200 {
+            return "Display name must be at most 200 characters"
+        }
         if !isDisplayNameValid {
             return "Enter a display name before saving"
         }
+        if !(1...100).contains(itemsPerPage) {
+            return "Items per page must be between 1 and 100"
+        }
+        if !fontScale.isFinite || !(0.8...1.4).contains(fontScale) {
+            return "Font scale must be between 80% and 140%"
+        }
+        return nil
+    }
+
+    var settingsStatusMessage: String {
+        if let settingsValidationMessage { return settingsValidationMessage }
+        if let settingsPersistenceError { return settingsPersistenceError }
         if hasUnsavedSettings {
             return "Unsaved changes"
         }
@@ -352,13 +376,47 @@ public final class DemoDashboardModel: ObservableObject {
     }
 
     func saveSettings() {
-        guard isDisplayNameValid else {
-            performAction("Enter a display name before saving")
+        if let settingsValidationMessage {
+            performAction(settingsValidationMessage)
             return
         }
-        savedSettings = settingsSnapshot
-        hasSavedSettings = true
-        performAction("Saved settings for \(displayName)")
+        do {
+            let record = settingsRecord
+            try record.validate()
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
+            try settingsStore.save(encoder.encode(record))
+            savedSettings = settingsSnapshot
+            hasSavedSettings = true
+            settingsPersistenceError = nil
+            performAction("Saved settings for \(displayName)")
+        } catch {
+            settingsPersistenceError = "Could not save settings. Check the settings folder and try Save again."
+            performAction("Settings save failed")
+        }
+    }
+
+    private func restoreSettings() {
+        do {
+            guard let data = try settingsStore.load() else { return }
+            let record = try JSONDecoder().decode(DemoSettingsRecord.self, from: data)
+            try record.validate()
+            displayName = record.displayName
+            theme = DemoThemeOption(rawValue: record.theme) ?? .system
+            itemsPerPage = record.itemsPerPage
+            animationsEnabled = record.animationsEnabled
+            soundEffectsEnabled = record.soundEffectsEnabled
+            shareUsageData = record.shareUsageData
+            fontScale = record.fontScale
+            accentColor = Color(
+                Color.Resolved(
+                    red: record.accent.red, green: record.accent.green,
+                    blue: record.accent.blue, opacity: record.accent.opacity))
+            savedSettings = settingsSnapshot
+            hasSavedSettings = true
+        } catch {
+            settingsPersistenceError = "Could not load settings. Defaults are shown; Save will replace the saved file."
+        }
     }
 
     func resetSettings() {
@@ -588,6 +646,20 @@ public final class DemoDashboardModel: ObservableObject {
             shareUsageData: shareUsageData,
             fontScale: fontScale,
             accentColor: accentColor
+        )
+    }
+
+    private var settingsRecord: DemoSettingsRecord {
+        let accent = accentColor.resolve(in: EnvironmentValues())
+        return DemoSettingsRecord(
+            displayName: displayName,
+            theme: theme.rawValue,
+            itemsPerPage: itemsPerPage,
+            animationsEnabled: animationsEnabled,
+            soundEffectsEnabled: soundEffectsEnabled,
+            shareUsageData: shareUsageData,
+            fontScale: fontScale,
+            accent: .init(red: accent.red, green: accent.green, blue: accent.blue, opacity: accent.opacity)
         )
     }
 
@@ -1359,6 +1431,19 @@ public struct DemoRootView: View {
         .preferredColorScheme(model.theme.colorScheme)
         .tint(model.accentColor)
         .dynamicTypeSize(model.dynamicTypeSize)
+        // The standard Settings shortcut uses the retained command path, so
+        // modal isolation applies just as it does to other view shortcuts.
+        .background(alignment: .topLeading) {
+            SettingsLink {
+                Color.clear
+            }
+            .keyboardShortcut(",", modifiers: .command)
+            .focusable(false)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .frame(width: 1, height: 1)
+            .opacity(0)
+        }
         // Keep the shortcut mounted outside every tab and every responsive
         // toolbar branch. A transparent one-point command target contributes
         // neither chrome nor a stray accessibility/focus stop.
@@ -3570,7 +3655,7 @@ struct DemoSettingsScreen: View {
                         Text(model.settingsStatusMessage)
                             .font(DemoType.titleSub)
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                            .lineLimit(2)
                     }
 
                     Spacer(minLength: DemoMetrics.s4)
@@ -3581,8 +3666,8 @@ struct DemoSettingsScreen: View {
                         model.saveSettings()
                     }
                     .keyboardShortcut("s", modifiers: .command)
-                    .disabled(!model.isDisplayNameValid)
-                    .opacity(model.isDisplayNameValid ? 1 : 0.55)
+                    .disabled(model.settingsValidationMessage != nil)
+                    .opacity(model.settingsValidationMessage == nil ? 1 : 0.55)
                 }
                 .padding(.top, DemoMetrics.s6)
                 .frame(maxWidth: .infinity, alignment: .leading)

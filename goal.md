@@ -404,9 +404,20 @@ limits here as each item is validated.
 - [ ] Dispatch scroll geometry, phase, and visibility callbacks from retained
       presentation, preserving observer history across rebuilds and respecting
       scroll ownership, clipping, and animation.
-- [ ] Persist the settings template through an injectable local store; restore
+- [x] Persist the settings template through an injectable local store; restore
       it on launch, validate saved data, preserve unsaved edits on write failure,
       and keep snapshots/tests isolated from user settings.
+      `DemoSettingsPersistenceTests` passed 13 tests, including real file
+      round trips, bounded and invalid input, atomic replacement, failed
+      writes, retry/reset, keyboard Save and Settings routing, and isolated
+      snapshot defaults. The live executable opts into per-user storage;
+      tests and snapshots default to independent memory stores. The shared
+      `DemoSettingsTemplate` and `docs/TemplateCatalog.md` expose the model,
+      storage adapter, schema, and remaining template workflows. The store is
+      synchronous and does not resolve concurrent-process edits. Audio and
+      usage-sharing toggles persist configuration only; they do not provide
+      those integrations. Native keyboard/Narrator and macOS qualification
+      remain required by the original template gate.
 - [ ] Correct authored color-effect parameters and preserve sequential effects
       across relevant primitive and compositing paths, with CPU/D3D11 execution
       tests and explicitly recorded remaining limitations.

@@ -14,7 +14,7 @@ struct SwiftWindowsUIDemoApp: App {
 
     init() {
         #if canImport(SwiftUI)
-            model = DemoDashboardModel(rendererIdentity: .nativeSwiftUI)
+            model = DemoDashboardModel(rendererIdentity: .nativeSwiftUI, settingsStore: .application)
         #else
             let requestedIdentity: DemoRendererIdentity =
                 Self.requestsSoftwareBackend ? .software : .direct3D11
@@ -32,7 +32,7 @@ struct SwiftWindowsUIDemoApp: App {
                 resolvedIdentity = requestedIdentity
             }
 
-            model = DemoDashboardModel(rendererIdentity: resolvedIdentity)
+            model = DemoDashboardModel(rendererIdentity: resolvedIdentity, settingsStore: .application)
         #endif
     }
 
@@ -82,5 +82,9 @@ struct SwiftWindowsUIDemoApp: App {
         #if !canImport(SwiftUI)
             .windowMinSize(Self.minimumWindowSize)
         #endif
+
+        Settings {
+            DemoSettingsTemplate(model: model)
+        }
     }
 }

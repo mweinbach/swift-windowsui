@@ -294,6 +294,93 @@ final class WinSwiftUITextTests: XCTestCase {
             XCTAssertEqual(afterIntervalNode.text, "0:00")
         }
     }
+
+    func testTextFontWeightPreservesInheritedFontAndDynamicType() async {
+        await MainActor.run {
+            let inheritedFont = Font.system(.largeTitle, design: .serif)
+                .width(.condensed)
+                .leading(.loose)
+            let node = makeNode(
+                VStack {
+                    Text("BOLD").bold()
+                    Text("SEMIBOLD").fontWeight(.semibold)
+                    Text("REGULAR").bold(false)
+                    Text("RESTORED").bold().fontWeight(nil)
+                }
+                .font(inheritedFont)
+                .fontWeight(.semibold)
+                .dynamicTypeSize(.xxLarge)
+            )
+            let expectedSize = Font.largeTitle.size * DynamicTypeSize.xxLarge.retainedFontScale
+
+            XCTAssertEqual(node.children[0].textStyle.weight, .bold)
+            XCTAssertEqual(node.children[1].textStyle.weight, .semibold)
+            XCTAssertEqual(node.children[2].textStyle.weight, .regular)
+            XCTAssertEqual(node.children[3].textStyle.weight, .semibold)
+            for child in node.children {
+                XCTAssertEqual(child.textStyle.nativeFontSize, expectedSize)
+                XCTAssertEqual(child.textStyle.fontFamily, "Georgia")
+                XCTAssertEqual(child.textStyle.fontWidth, .condensed)
+                XCTAssertEqual(child.textStyle.lineSpacing, expectedSize * 0.40, accuracy: 0.001)
+            }
+        }
+    }
+
+    func testTextFontWeightModifiersPreserveExplicitFontRegardlessOfOrder() async {
+        await MainActor.run {
+            let explicitFont = Font.custom("Aptos", fixedSize: 24)
+                .weight(.semibold)
+                .width(.expanded)
+                .leading(.loose)
+                .italic()
+                .monospacedDigit()
+                .smallCaps()
+            let node = makeNode(
+                VStack {
+                    Text("BEFORE").bold().font(explicitFont)
+                    Text("AFTER").font(explicitFont).bold()
+                    Text("REGULAR").bold(false).font(explicitFont)
+                    Text("RESTORED").font(explicitFont).bold().fontWeight(nil)
+                }
+                .dynamicTypeSize(.accessibility1)
+            )
+
+            XCTAssertEqual(node.children[0].textStyle.weight, .bold)
+            XCTAssertEqual(node.children[1].textStyle.weight, .bold)
+            XCTAssertEqual(node.children[2].textStyle.weight, .regular)
+            XCTAssertEqual(node.children[3].textStyle.weight, .semibold)
+            for child in node.children {
+                XCTAssertEqual(child.textStyle.nativeFontSize, 24)
+                XCTAssertEqual(child.textStyle.fontFamily, "Aptos")
+                XCTAssertEqual(child.textStyle.fontWidth, .expanded)
+                XCTAssertEqual(child.textStyle.lineSpacing, 24 * 0.40, accuracy: 0.001)
+                XCTAssertTrue(child.textStyle.isItalic)
+                XCTAssertTrue(child.textStyle.monospacedDigits)
+                XCTAssertTrue(child.textStyle.lowercaseSmallCaps)
+                XCTAssertTrue(child.textStyle.uppercaseSmallCaps)
+            }
+        }
+    }
+
+    func testConcatenatedTextPreservesFontWeightOverride() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    (Text("LEFT").bold() + Text("RIGHT")).font(.title)
+                    (Text("LEFT") + Text("RIGHT").fontWeight(.semibold)).font(.title)
+                    (Text("LEFT").bold(false) + Text("RIGHT").bold()).font(.title)
+                }
+            )
+
+            XCTAssertEqual(node.children[0].textStyle.weight, .bold)
+            XCTAssertEqual(node.children[1].textStyle.weight, .semibold)
+            XCTAssertEqual(node.children[2].textStyle.weight, .regular)
+            for child in node.children {
+                XCTAssertEqual(child.text, "LEFTRIGHT")
+                XCTAssertEqual(child.textStyle.nativeFontSize, Font.title.size)
+            }
+        }
+    }
 }
 @MainActor
 private func makeNode<V: View>(_ view: V) -> ViewNode {

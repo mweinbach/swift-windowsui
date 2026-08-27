@@ -316,6 +316,96 @@ final class WinSwiftUICompositeTests: XCTestCase {
         }
     }
 
+    nonisolated func testGroupBoxExpandsOnlyAlongExplicitFrameAxes() async {
+        await MainActor.run {
+            let box = GroupBox("TITLE") {
+                Text("BODY")
+            }
+            let intrinsicSize = makeNode(box).intrinsicContentSize()
+            let intrinsicNode = renderedNode(box)
+            let titleHeight = intrinsicNode.children[0].resolvedFrame.height
+            let bodyHeight = intrinsicNode.children[1].resolvedFrame.height
+            let cases: [(name: String, view: AnyView, expectedSize: Size)] = [
+                ("intrinsic", AnyView(box), intrinsicSize),
+                ("width", AnyView(box.frame(width: 284)), Size(width: 284, height: intrinsicSize.height)),
+                ("height", AnyView(box.frame(height: 192)), Size(width: intrinsicSize.width, height: 192)),
+                ("both", AnyView(box.frame(width: 284, height: 192)), Size(width: 284, height: 192)),
+                ("fixed", AnyView(box.fixedSize().frame(width: 284, height: 192)), intrinsicSize),
+                (
+                    "fixed-horizontal",
+                    AnyView(box.fixedSize(horizontal: true, vertical: false).frame(width: 284, height: 192)),
+                    Size(width: intrinsicSize.width, height: 192)
+                ),
+                (
+                    "fixed-vertical",
+                    AnyView(box.fixedSize(horizontal: false, vertical: true).frame(width: 284, height: 192)),
+                    Size(width: 284, height: intrinsicSize.height)
+                ),
+            ]
+
+            for testCase in cases {
+                let node = renderedNode(testCase.view, size: Size(width: 400, height: 240))
+                let panel = testCase.name == "intrinsic" ? node : node.children[0]
+                XCTAssertEqual(panel.resolvedFrame.width, testCase.expectedSize.width, accuracy: 0.001, testCase.name)
+                XCTAssertEqual(panel.resolvedFrame.height, testCase.expectedSize.height, accuracy: 0.001, testCase.name)
+                XCTAssertNil(panel.preferredSize, "the frame must not rewrite its content's preferred size")
+                XCTAssertEqual(panel.children[0].resolvedFrame.height, titleHeight, accuracy: 0.001, testCase.name)
+                XCTAssertEqual(panel.children[1].resolvedFrame.height, bodyHeight, accuracy: 0.001, testCase.name)
+            }
+
+            let nested = renderedNode(
+                box.frame(width: 132, height: 78)
+                    .frame(width: 284, height: 192)
+            )
+            XCTAssertEqual(nested.children[0].resolvedFrame.size, Size(width: 132, height: 78))
+            XCTAssertEqual(nested.children[0].children[0].resolvedFrame.size, Size(width: 132, height: 78))
+        }
+    }
+
+    nonisolated func testFramedGroupBoxesPaintEqualGridCardBounds() async {
+        await MainActor.run {
+            let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
+                of: Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 10) {
+                    GridRow {
+                        GroupBox("Projects") {
+                            Text("12")
+                        }
+                        .frame(width: 132, height: 78)
+                        GroupBox("Members") {
+                            Text("48")
+                        }
+                        .frame(width: 132, height: 78)
+                    }
+                },
+                size: IntSize(width: 320, height: 100),
+                clearColor: .clear
+            )
+            let row = snapshot.runtime.root.children[0].children[0]
+            XCTAssertEqual(row.children.count, 2)
+            for cell in row.children {
+                let panel = cell.children[0]
+                XCTAssertEqual(panel.resolvedFrame.size, Size(width: 132, height: 78))
+            }
+            // A container paints an inset fill and a separate border ring.
+            // Verify the composed coverage rather than requiring a single
+            // quad with the outer frame's dimensions.
+            let surface = GPUIRawSceneRasterizer.rasterize(snapshot.scene, size: snapshot.size)
+            func alpha(x: Int, y: Int) -> UInt8 {
+                surface.pixels[y * Int(surface.bytesPerRow) + x * 4 + 3]
+            }
+            for x in [0, 142] {
+                XCTAssertGreaterThan(alpha(x: x + 66, y: 0), 0, "top border")
+                XCTAssertGreaterThan(alpha(x: x + 66, y: 77), 0, "bottom border")
+                XCTAssertGreaterThan(alpha(x: x, y: 39), 0, "leading border")
+                XCTAssertGreaterThan(alpha(x: x + 131, y: 39), 0, "trailing border")
+                XCTAssertEqual(alpha(x: x + 66, y: 65), 255, "the interior must fill the lower part of the card")
+                XCTAssertEqual(alpha(x: x, y: 0), 0, "the card must retain its rounded corner")
+                XCTAssertEqual(alpha(x: x + 132, y: 39), 0, "the card must stop at its authored width")
+                XCTAssertEqual(alpha(x: x + 66, y: 78), 0, "the card must stop at its authored height")
+            }
+        }
+    }
+
     func testDragGestureAndDropDestinationRenders() async {
         await MainActor.run {
             let bitmap = render(
@@ -411,4 +501,30 @@ final class WinSwiftUICompositeTests: XCTestCase {
             XCTAssertGreaterThan(bitmap.pixels.count, 0)
         }
     }
+}
+
+@MainActor
+private func makeNode<V: View>(
+    _ view: V,
+    size: Size = Size(width: 800, height: 600),
+    onInvalidate: @escaping () -> Void = {}
+) -> ViewNode {
+    let runtime = RetainedViewRuntime(root: ViewNode())
+    let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: onInvalidate)
+    return view.makeComponent(context: context).makeNode(runtime: runtime)
+}
+
+@MainActor
+private func renderedNode<V: View>(
+    _ view: V,
+    size: Size = Size(width: 800, height: 600),
+    onInvalidate: @escaping () -> Void = {}
+) -> ViewNode {
+    let runtime = RetainedViewRuntime(root: ViewNode())
+    let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: onInvalidate)
+    let node = view.makeComponent(context: context).makeNode(runtime: runtime)
+    runtime.root.addChild(node)
+    runtime.setRootSize(IntSize(width: Int32(size.width), height: Int32(size.height)))
+    _ = runtime.renderFrame()
+    return node
 }

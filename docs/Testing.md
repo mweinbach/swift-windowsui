@@ -123,6 +123,12 @@ stack-frame regression, not a flake.
 
 On Swift for Windows, filtering the very large `WinSwiftUITests` XCTest class can fail in the runner with Windows error 206 (`NSCocoaErrorDomain Code=258`). Use full `swift test` for that coverage, or filter narrower XCTest classes such as `WindowGroupInitTests`, `CommandsAndSceneTests`, or `ClipboardButtonTests`.
 
+Place new text, geometry, composite-control and animation regressions in the
+existing `WinSwiftUITextTests`, `WinSwiftUIGeometryAndFocusTests`,
+`WinSwiftUICompositeTests` and `WinSwiftUIVisualModifierTests` suites. Adding
+more methods to `WinSwiftUITests` can also exceed the Swift compiler's type
+checking budget for its generated test-discovery array.
+
 ## GPU Tests (WARP)
 
 Every test that touches real D3D11 goes through the one harness in
@@ -596,6 +602,19 @@ Render the ladder by hand with
 `swift-windowsui-snapshot --logical-size 640x720 --screen dashboard` (and
 900x600, 1000x700, 1280x720, 1720x980) when changing the shell; 1280x720 and
 1720x980 should stay byte-identical unless the wide layout is what changed.
+
+`StackTextShrinkFloorTests` also checks wrapped paragraph heights after explicit
+widths, padding and horizontal stack allocation, including CJK and Thai text
+without spaces. `DemoGalleryResponsiveTests`
+checks visible native glyph bounds after scrolling to typography and validation
+examples with enlarged type at fractional display scales. These tests catch
+adjacent labels painting over one another even when their layout frames pass
+the minimum-height checks. `RetainedViewRuntimeTests` checks rendered scroll
+positions during keyboard glides and edge bounce, rather than only inspecting
+the animation's numeric offsets.
+`RuntimeDirtyFlagIntegrityTests` and `RuntimeProgrammaticScrollTests` verify
+that repeated control layout with unchanged frames and borders settles, so
+current scroll geometry remains usable without another layout pass.
 
 ## Gallery Regression Gate
 

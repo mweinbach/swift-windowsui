@@ -90,7 +90,7 @@ function Get-DiscoveredTestTargets {
                 continue
             }
 
-            if ($current.Kind -eq "XCTest" -and $line -match '^\s*func\s+(test\w+)\s*\(') {
+            if ($current.Kind -eq "XCTest" -and $line -match '^\s*(?:nonisolated\s+)?func\s+(test\w+)\s*\(') {
                 [void]$current.Methods.Add($Matches[1])
             }
         }

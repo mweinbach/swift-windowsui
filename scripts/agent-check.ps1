@@ -81,6 +81,10 @@ Invoke-Step "pinned SwiftUI baseline tooling fixtures" {
     & (Join-Path $PSScriptRoot "test-swiftui-baseline.ps1")
 }
 
+Invoke-Step "gallery font provenance fixtures (synthetic only)" {
+    & (Join-Path $PSScriptRoot "test-gallery-font-provenance.ps1")
+}
+
 # All SwiftPM steps below run strictly serially (shared .build/build.db).
 Invoke-Step "material diagnostic classifier (synthetic only)" {
     & (Join-Path $PSScriptRoot "with-swift.ps1") swift run --package-path $repoRoot macos-reference-renderer --self-test-material-diagnostics

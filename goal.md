@@ -1328,3 +1328,34 @@ Reports are under `artifacts/goal-sdk-root-actual-ps51/` and
 Reindexing does not manufacture a successful native capture, review the pinned
 identity, reconcile public interfaces and overlays, or prove API behavior.
 The fixed hosted capture must still complete before those audits proceed.
+
+The CI gallery investigation reproduced all 85 canonical baselines locally
+(84 exact, one within the unchanged noise tolerance). Forcing the existing
+classic-font diagnostic mode reproduced 68 hosted images exactly and passed
+69 comparisons. Every remaining difference was confined to mapped icon
+regions; ordinary text, chart geometry, and chrome outside those regions were
+identical. Microsoft's documented MDL2 folder design matches the narrow folder
+seen in CI, so this evidence does not justify changing the production renderer.
+The original failed CI run did not record its actual icon face or font files.
+
+Gallery tooling now records six allowlisted DirectWrite family-availability
+queries, relevant registered font-file hashes and embedded versions, OS and
+DirectWrite context, and separate executable/source observations. Initial
+evidence survives build or render failure, and CI uploads it even when a later
+step fails. Existing images, skipped builds, and failed builds are explicitly
+distinguished from fresh successful invocations. The gallery JSON report gains
+schema 2 provenance without changing its pixel comparison, thresholds, or
+baseline selection. Actual glyph-face ownership and accepted font profiles
+remain unqualified; a passing pixel comparison does not fill those gaps.
+
+Root tooling tests passed all 44 assertions on PowerShell 5.1 and 7.6.4. The
+native collector observed all six local families and embedded versions for
+15 relevant files. Two raw retained-runtime smoke fixtures passed with default
+fonts and correctly failed with forced classic fonts against the original
+baselines. Both reports retain unqualified font-profile status. Evidence is
+`artifacts/goal-font-root-native.json`, `artifacts/goal-font-root-default-smoke/`,
+and `artifacts/goal-font-root-classic-smoke/`. No fonts were installed or copied,
+and no baseline, pixel threshold, or runner was changed. A newer Server runner
+label alone does not establish the required fonts. The next hosted artifact
+must supply actual environment evidence before choosing a matching runner or
+reviewing a separate supported font profile.

@@ -41,6 +41,23 @@ the fallback path is unreachable — and therefore uninspectable — on any
 machine that has the variable face, which is every Windows 11 machine this
 stack is developed on.
 
+Gallery comparisons record this choice as a **policy projection**, alongside
+independent DirectWrite `FindFamilyName` results for the three Variable cuts,
+classic Segoe UI, Segoe Fluent Icons, and Segoe MDL2 Assets. The diagnostic in
+`scripts/gallery-font-provenance.ps1` reads only these families and their known
+font registrations. It records file hashes and embedded font versions when
+those registrations resolve under the system or user font directory; it never
+copies font binaries. Unresolvable registrations and probe failures stay
+explicitly unknown.
+
+Family presence is not proof that the face supplied a rendered glyph. Icons
+have their own per-glyph fallback probe, and DirectWrite can substitute during
+layout. The diagnostic therefore leaves actual glyph faces, per-glyph probe
+results, and any accepted baseline profile unobserved or unqualified. Forcing
+classic UI text does not force an icon family. A Windows runner label is not
+a font inventory, and a passing pixel comparison does not qualify missing
+Variable-font weight, italic, or optical-size tests.
+
 ### Optical size
 
 Segoe UI Variable is one variable font with an `opsz` axis, which Windows

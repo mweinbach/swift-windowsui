@@ -112,6 +112,16 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Record initial gallery font environment
+        shell: pwsh
+        run: |
+          # Does not require Swift, install/copy fonts, or accept a baseline
+          # profile. Retain evidence even if later setup, build, or tests fail.
+          powershell -NoProfile -ExecutionPolicy Bypass `
+            -File scripts/gallery-font-provenance.ps1 `
+            -OutputPath artifacts/gallery-compare/provenance-ci-initial.json `
+            -Stage ci-before-toolchain
+
       - name: Install Swift for Windows
         uses: compnerd/gha-setup-swift@v0.4.0
         with:
@@ -168,6 +178,7 @@ jobs:
             artifacts/gallery-compare/report.txt
             artifacts/gallery-compare/report.json
             artifacts/gallery-compare/report.html
+            artifacts/gallery-compare/provenance*.json
             artifacts/gallery-compare/current/*.png
             artifacts/gallery-compare/diffs/*.png
           if-no-files-found: warn

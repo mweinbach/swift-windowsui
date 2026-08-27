@@ -781,6 +781,23 @@ verification: nothing rendered it.
   machine-readable `report.json`, and a self-contained visual `report.html`.
   Failures additionally write red-overlay diff images to
   `artifacts/gallery-compare/diffs/`; the script exits non-zero.
+- `report.json` schema 2 adds `fontProvenance` without changing pixel statuses
+  or thresholds. The same diagnostic is written to `provenance.json`, with an
+  initial `provenance-initial.json` retained before build/render setup. It
+  records six allowlisted DirectWrite family probes, resolvable relevant font
+  file versions/hashes, the classic-font override, OS/DirectWrite and runner
+  image identifiers, executable hashes, and checkout revision/dirty paths.
+  Checkout metadata does **not** attest an executable's build revision. Failed
+  builds label any executable preexisting or partial; `-SkipRender` cannot
+  attribute existing images to the environment being probed now.
+- This is diagnostic evidence, **not an accepted font profile**. Unknown
+  probes and actual glyph-face ownership remain explicit. No family mismatch
+  relaxes the comparison gate or selects a different baseline set. Windows CI
+  captures `provenance-ci-initial.json` before toolchain setup and always uploads
+  `provenance*.json`, even if a later build, test, or gallery step fails. No font
+  binary is copied or uploaded. Quick/Full run the bounded synthetic fixtures in
+  `scripts/test-gallery-font-provenance.ps1`; these do not qualify native glyph
+  appearance or replace the Variable-font raster tests.
 - The gate runs as part of `agent-check.ps1 -Full` (and therefore in the Full stage of Windows CI, with the compare output uploaded as the `windows-gallery-compare` artifact). It is opt-in for Quick runs via `agent-check.ps1 -Quick -GalleryCompare`.
 
 ```powershell

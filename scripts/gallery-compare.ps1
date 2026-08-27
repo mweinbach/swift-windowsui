@@ -299,6 +299,20 @@ if ($List) {
 
 $selectedEntryIds = @($selectedGalleryEntries | ForEach-Object { $_.Id })
 
+# Capture before build/image-processing setup, and keep this initial record
+# separate from later phases. A failed build must not label an old executable
+# as the product of the current checkout. -List still performs no collection.
+. (Join-Path $PSScriptRoot "gallery-font-provenance.ps1") -GalleryExe $GalleryExe
+$galleryProvenancePath = Join-Path $WorkDir "provenance.json"
+$galleryInitialProvenancePath = Join-Path $WorkDir "provenance-initial.json"
+$galleryFontProvenance = New-GalleryFontProvenance -Executable $GalleryExe -Root (Split-Path -Parent $PSScriptRoot) -CaptureStage "before-build"
+$galleryFontProvenance.build.status = if ($SkipBuild) { "skipped" } else { "pending" }
+$galleryFontProvenance.render.status = if ($SkipRender) { "skipped" } else { "pending" }
+$galleryFontProvenance.render.requestedEntries = $selectedEntryIds
+$galleryFontProvenance.render.outputDirectory = Resolve-GalleryProvenancePath (Join-Path $WorkDir "current")
+Write-GalleryFontProvenance $galleryFontProvenance $galleryInitialProvenancePath
+Write-GalleryFontProvenance $galleryFontProvenance $galleryProvenancePath
+
 function Ensure-Dir {
     param([string] $Path)
     if (-not (Test-Path $Path)) {
@@ -695,22 +709,58 @@ if ($selectedEntryIds.Count -ne $GalleryBaselineEntries.Count) {
 
 # ── Build ──────────────────────────────────────────────────────────────────
 
-if (-not $SkipBuild) {
-    Write-Step "Building gallery executable..."
-    swift build --product swift-windowsui-gallery
-    if ($LASTEXITCODE -ne 0) {
-        throw "Build failed."
+try {
+    if (-not $SkipBuild) {
+        Write-Step "Building gallery executable..."
+        $galleryFontProvenance.build.status = "running"
+        swift build --product swift-windowsui-gallery
+        $galleryFontProvenance.build.exitCode = $LASTEXITCODE
+        if ($LASTEXITCODE -ne 0) { throw "Build failed." }
+        $galleryFontProvenance.build.status = "succeeded"
+        $galleryFontProvenance.build.executableAfter = Get-GalleryFileFingerprint $GalleryExe
     }
-}
 
-# ── Render ─────────────────────────────────────────────────────────────────
+    # ── Render ─────────────────────────────────────────────────────────────
 
-if (-not $SkipRender) {
-    Write-Step "Rendering $($selectedEntryIds.Count) baseline entries..."
-    & $GalleryExe --entries ($selectedEntryIds -join ",") --output-dir $currentDir
-    if ($LASTEXITCODE -ne 0) {
-        throw "Gallery render failed."
+    if (-not $SkipRender) {
+        $galleryPreviousProvenance = $galleryFontProvenance
+        $galleryFontProvenance = New-GalleryFontProvenance -Executable $GalleryExe -Root (Split-Path -Parent $PSScriptRoot) -CaptureStage "before-render"
+        $galleryFontProvenance.invocationID = $galleryPreviousProvenance.invocationID
+        $galleryFontProvenance.build = $galleryPreviousProvenance.build
+        $galleryFontProvenance.render.requestedEntries = $selectedEntryIds
+        $galleryFontProvenance.render.outputDirectory = Resolve-GalleryProvenancePath $currentDir
+        $galleryFontProvenance.render.status = "running"
+        $galleryFontProvenance.executableAssociation = if ($SkipBuild) { "preexisting-file-invoked-without-build" } else { "observed-after-successful-build; build-revision-not-embedded" }
+        Write-GalleryFontProvenance $galleryFontProvenance $galleryProvenancePath
+        Write-Step "Rendering $($selectedEntryIds.Count) baseline entries..."
+        & $GalleryExe --entries ($selectedEntryIds -join ",") --output-dir $currentDir
+        $galleryFontProvenance.render.exitCode = $LASTEXITCODE
+        $galleryFontProvenance.render.executableAfter = Get-GalleryFileFingerprint $GalleryExe
+        if ($null -ne $galleryFontProvenance.executable.sha256 -and $null -ne $galleryFontProvenance.render.executableAfter.sha256) {
+            $galleryFontProvenance.render.executableUnchanged = $galleryFontProvenance.executable.sha256 -ceq $galleryFontProvenance.render.executableAfter.sha256
+        }
+        if ($galleryFontProvenance.render.exitCode -ne 0) { throw "Gallery render failed." }
+        $galleryFontProvenance.stage = "render-completed"
+        $galleryFontProvenance.render.status = "succeeded"
+        $galleryFontProvenance.render.imageAssociation = if ($galleryFontProvenance.render.executableUnchanged -eq $true) { "invocation-completed; environment-probed-before-render; glyph-faces-not-observed" } else { "unverified-executable-changed-or-unreadable" }
+    } else {
+        $galleryFontProvenance.stage = "render-skipped"
+        $galleryFontProvenance.render.imageAssociation = "unknown-existing-images; current-environment-is-not-their-provenance"
     }
+    Write-GalleryFontProvenance $galleryFontProvenance $galleryProvenancePath
+} catch {
+    if ($galleryFontProvenance.build.status -eq "running") {
+        $galleryFontProvenance.stage = "build-failed"
+        $galleryFontProvenance.build.status = "failed"
+        $galleryFontProvenance.build.executableAfter = Get-GalleryFileFingerprint $GalleryExe
+        $galleryFontProvenance.executableAssociation = "preexisting-or-partial-file-after-failed-build; not-a-current-build"
+    } elseif ($galleryFontProvenance.render.status -eq "running") {
+        $galleryFontProvenance.stage = "render-failed"
+        $galleryFontProvenance.render.status = "failed"
+        $galleryFontProvenance.render.imageAssociation = "unverified-partial-or-preexisting-images"
+    }
+    Write-GalleryFontProvenance $galleryFontProvenance $galleryProvenancePath
+    throw
 }
 
 # ── Update or compare ──────────────────────────────────────────────────────
@@ -763,6 +813,8 @@ $lines = @(
     "current:   $currentDir",
     "selection: $($results.Count) / $($GalleryBaselineEntries.Count) entries; appearance=$Appearance tier=$Tier pattern=$Pattern",
     "thresholds: maxChangedPercent=$MaxChangedPercent maxChannelDelta=$MaxChannelDelta channelTolerance=$ChannelTolerance",
+    "font provenance: $galleryProvenancePath (unqualified; no accepted baseline font profile)",
+    "image provenance: $($galleryFontProvenance.render.imageAssociation)",
     ""
 )
 foreach ($entry in $results) {
@@ -800,9 +852,10 @@ $jsonEntries = @(
 )
 
 $jsonReport = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     generatedAt   = [DateTimeOffset]::UtcNow.ToString("o")
     status        = if ($failCount -eq 0) { "pass" } else { "fail" }
+    fontProvenance = $galleryFontProvenance
     selection     = [ordered]@{
         selectedCount = $results.Count
         catalogCount  = $GalleryBaselineEntries.Count
@@ -823,7 +876,7 @@ $jsonReport = [ordered]@{
     }
     entries       = $jsonEntries
 }
-$jsonReport | ConvertTo-Json -Depth 8 | Out-File -FilePath $jsonReportPath -Encoding utf8
+$jsonReport | ConvertTo-Json -Depth 14 | Out-File -FilePath $jsonReportPath -Encoding utf8
 Write-Step "Machine-readable report written to $jsonReportPath"
 
 $htmlReportPath = Join-Path $WorkDir "report.html"

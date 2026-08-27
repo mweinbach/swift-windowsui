@@ -1678,6 +1678,7 @@ private final class ViewNodeInteractionHandlers {
     var keyDown: ((KeyboardEvent) -> Void)?
     var imeComposition: ((IMECompositionEvent) -> Void)?
     var textInputCaretRectProvider: (() -> Rect?)?
+    var textInputController: (any RetainedTextInputController)?
     var keyUp: ((KeyboardEvent) -> Void)?
     var activate: (() -> Void)?
     var repeatActivate: (() -> Void)?
@@ -3327,6 +3328,12 @@ public final class ViewNode {
         get { interactionHandlers?.textInputCaretRectProvider }
         set { setInteractionHandler(newValue, at: \.textInputCaretRectProvider) }
     }
+
+    /// Optional editor-only state; ordinary nodes do not allocate a controller.
+    public var textInputController: (any RetainedTextInputController)? {
+        get { interactionHandlers?.textInputController }
+        set { setInteractionHandler(newValue, at: \.textInputController) }
+    }
     /// When true, unmodified up/down arrow keys are delivered to this node's
     /// `onKeyDown` before the runtime's scroll-key handling, so a focused node
     /// (e.g. a selectable list row) can claim vertical arrows for navigation.
@@ -4448,6 +4455,9 @@ public final class ViewNode {
             scrollObserverStorage?.reset()
             self.runtime?.releaseInteractionTargets(in: self)
             self.runtime?.cancelColorAnimations(of: self)
+            if runtime == nil {
+                textInputController?.detach(from: self)
+            }
         }
 
         // Animation registration follows the node across runtimes: a node
@@ -4459,6 +4469,9 @@ public final class ViewNode {
             runtime?.registerAnimatingNode(self)
         }
         self.runtime = runtime
+        if runtime != nil {
+            textInputController?.attach(to: self)
+        }
         if scrollObserverStorage != nil {
             runtime?.registerScrollObservationNode(self)
         }

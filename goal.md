@@ -719,6 +719,15 @@ migrated legacy expectations awaiting integrated execution. Native callback
 ordering, arbitration, mounted GestureState lifetime, and Narrator remain
 separate acceptance work.
 
+Text inputs now retain their editing state through an optional controller on
+the surviving node. Fresh configuration adopts caret, selection, IME text,
+and drag anchors while replacing application bindings and callbacks. Explicit
+bound selection wins, shrinking text clamps offsets, and an in-flight setter
+resolves the latest surviving control after a synchronous rebuild or removal.
+Thirteen new hosted regressions await integrated execution. This does not
+implement undo registration, vertical caret navigation, editor scrolling, or
+document sessions; those original requirements remain open.
+
 ### Additional state lifetime acceptance detail
 
 A source audit found that the current State and StateObject wrappers follow

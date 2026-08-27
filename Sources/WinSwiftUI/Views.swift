@@ -13653,6 +13653,86 @@ extension ControlSize {
         }
     }
 }
+/// One build's editing configuration, rebound to the retained node on adoption.
+/// In-flight callbacks resolve `current` after calling application code, so a
+/// synchronous rebuild can replace bindings and a removal can end the operation.
+@MainActor
+private final class TextInputInteractionController: RetainedTextInputController {
+    private(set) weak var node: ViewNode?
+    let characterCount: Int
+    let authoredCaret: Int
+    let authoredSelection: RetainedTextSelection?
+    let hasSelectionBinding: Bool
+    let isSecure: Bool
+    let allowsNewlines: Bool
+    var pointerDragAnchor = 0
+    var readText: (() -> String)?
+    var readSelection: (() -> TextSelection?)?
+    var applySelection: ((Int, Int) -> Void)?
+    var refreshChrome: (() -> Void)?
+    var textOffset: ((Point) -> Int)?
+    var invalidate: (() -> Void)?
+
+    init(
+        node: ViewNode, characterCount: Int, hasSelectionBinding: Bool,
+        isSecure: Bool, allowsNewlines: Bool
+    ) {
+        self.node = node
+        self.characterCount = characterCount
+        authoredCaret = node.textInputCaretOffset
+        authoredSelection = node.textInputSelection
+        self.hasSelectionBinding = hasSelectionBinding
+        self.isSecure = isSecure
+        self.allowsNewlines = allowsNewlines
+    }
+
+    var current: TextInputInteractionController? {
+        guard let node, let current = node.textInputController as? TextInputInteractionController,
+            current.node === node
+        else { return nil }
+        return current
+    }
+
+    func attach(to node: ViewNode) {
+        self.node = node
+    }
+
+    func detach(from node: ViewNode) {
+        if self.node === node { self.node = nil }
+    }
+
+    func reconcile(from previous: (any RetainedTextInputController)?, onto node: ViewNode) {
+        self.node = node
+        let previous = previous as? TextInputInteractionController
+        let preservesEditing = previous?.isSecure == isSecure && previous?.allowsNewlines == allowsNewlines
+        if preservesEditing {
+            pointerDragAnchor = min(max(0, previous?.pointerDragAnchor ?? 0), characterCount)
+        } else {
+            node.textInputMarkedText = nil
+        }
+
+        if preservesEditing, !hasSelectionBinding || authoredSelection == node.textInputSelection {
+            node.textInputCaretOffset = min(max(0, node.textInputCaretOffset), characterCount)
+            node.textInputSelection = node.textInputSelection.map { selection in
+                func clamp(_ offset: Int) -> Int { min(max(0, offset), characterCount) }
+                var result = selection
+                switch selection.indices {
+                case .insertionPoint(let offset):
+                    result.indices = .insertionPoint(clamp(offset))
+                case .range(let range):
+                    result.indices = .range(clamp(range.lowerBound)..<clamp(range.upperBound))
+                case .ranges(let ranges):
+                    result.indices = .ranges(ranges.map { clamp($0.lowerBound)..<clamp($0.upperBound) })
+                }
+                return result
+            }
+        } else {
+            node.textInputCaretOffset = authoredCaret
+            node.textInputSelection = authoredSelection
+        }
+    }
+}
+
 @MainActor
 private func textInputComponent(
     title: String?,
@@ -13754,6 +13834,13 @@ private func textInputComponent(
         node.textInputCaretOffset = selectionValue?.caretOffset(in: currentText) ?? currentText.count
         node.textSelectionAffinity = context.textSelectionAffinity.retainedAffinity
         node.textInputSelection = selectionValue?.retainedSelection(in: currentText)
+        let controller = TextInputInteractionController(
+            node: node, characterCount: currentText.count, hasSelectionBinding: selection != nil,
+            isSecure: isSecure, allowsNewlines: allowsNewlines)
+        node.textInputController = controller
+        controller.readText = { binding.wrappedValue }
+        controller.readSelection = { selection?.wrappedValue }
+        controller.invalidate = { context.invalidate() }
         node.textContentType = context.textContentType?.retainedContentType
         node.textInputKeyboardType = context.keyboardType.retainedKeyboardType
         node.textInputSuggestions = retainedTextInputSuggestions(
@@ -13774,16 +13861,24 @@ private func textInputComponent(
 
         let caretLineHeight = resolvedFont.resolvedNativeTextSize
         let chromeState = TextInputEditingChromeState()
-        // Display-ready marked (IME composition) text: secure fields mask it
-        // like their committed text, matching macOS secure-field behavior of
-        // allowing IME input but never echoing composition characters.
-        @MainActor func displayMarkedText() -> String? {
-            guard let marked = node.textInputMarkedText, !marked.isEmpty else {
-                return nil
-            }
-            return isSecure ? String(repeating: secureFieldMaskCharacter, count: marked.count) : marked
-        }
         @MainActor func refreshChrome() {
+            controller.current?.refreshChrome?()
+        }
+        controller.refreshChrome = { [weak controller] in
+            guard let controller, let node = controller.node,
+                node.textInputController === controller, let labelNode = node.children.first
+            else { return }
+            let currentText = binding.wrappedValue
+            let isShowingPlaceholder = currentText.isEmpty
+            let contentText =
+                isShowingPlaceholder
+                ? (resolvedPlaceholder ?? "")
+                : isSecure ? String(repeating: secureFieldMaskCharacter, count: currentText.count) : currentText
+            if labelNode.text != contentText { labelNode.text = contentText }
+            let marked = node.textInputMarkedText.flatMap { text -> String? in
+                guard !text.isEmpty else { return nil }
+                return isSecure ? String(repeating: secureFieldMaskCharacter, count: text.count) : text
+            }
             updateTextInputEditingChrome(
                 node: node,
                 labelNode: labelNode,
@@ -13792,7 +13887,7 @@ private func textInputComponent(
                 caretColor: textColor,
                 selectionColor: context.tint.opacity(0.35),
                 caretSize: Size(width: 1.5, height: caretLineHeight),
-                markedText: displayMarkedText(),
+                markedText: marked,
                 state: chromeState,
                 makeSegmentLabel: { makeTextLabel($0) },
                 makeMarkedSegmentLabel: { makeTextLabel($0, underlined: true) }
@@ -13806,10 +13901,13 @@ private func textInputComponent(
         // window (ImmSetCompositionWindow via the window host). Follows the
         // composition display state so the candidate window tracks the end of
         // the marked text while composing.
-        node.textInputCaretRectProvider = { [weak node, weak labelNode] in
-            guard let node, let labelNode else {
+        node.textInputCaretRectProvider = { [weak controller, weak runtime] in
+            guard let controller, let node = controller.node,
+                node.textInputController === controller, let labelNode = node.children.first
+            else {
                 return nil
             }
+            let currentText = binding.wrappedValue
             let sourceText =
                 isSecure && !currentText.isEmpty
                 ? String(repeating: secureFieldMaskCharacter, count: currentText.count) : currentText
@@ -13819,7 +13917,9 @@ private func textInputComponent(
                 contentText: sourceText,
                 caret: caret,
                 selection: selection,
-                markedText: displayMarkedText()
+                markedText: node.textInputMarkedText.map {
+                    isSecure ? String(repeating: secureFieldMaskCharacter, count: $0.count) : $0
+                }
             )
             let lineRanges = textInputHardLineRanges(in: display.text)
             let caretLineIndex = lineRanges.lastIndex(where: { $0.lowerBound <= display.caret }) ?? 0
@@ -13832,7 +13932,7 @@ private func textInputComponent(
                     RetainedTextMetrics.size(
                         of: line.isEmpty ? " " : line,
                         style: labelNode.textStyle,
-                        displayScale: runtime.displayScale
+                        displayScale: runtime?.displayScale ?? 1
                     ).height
                 )
                 if index == caretLineIndex {
@@ -13846,7 +13946,7 @@ private func textInputComponent(
                 atOffset: display.caret - lineRanges[caretLineIndex].lowerBound,
                 in: caretLine,
                 style: labelNode.textStyle,
-                displayScale: runtime.displayScale
+                displayScale: runtime?.displayScale ?? 1
             )
             let rootPoint = textInputRootPoint(
                 labelNode: labelNode,
@@ -13873,14 +13973,17 @@ private func textInputComponent(
         )
         node.outlineWidth = 0
         node.onFocusEnter = {
+            guard controller.current === controller else { return }
             onEditingChanged?(true)
             refreshChrome()
         }
         node.onFocusExit = {
+            guard controller.current === controller else { return }
             onEditingChanged?(false)
             refreshChrome()
         }
         @MainActor func currentSelectionState() -> (caret: Int, range: Range<Int>?, anchor: Int) {
+            guard let node = controller.current?.node else { return (0, nil, 0) }
             let text = binding.wrappedValue
             let caret = clampedTextOffset(node.textInputCaretOffset, in: text)
             guard let range = node.textInputSelection?.editableCharacterRange(in: text) else {
@@ -13890,6 +13993,10 @@ private func textInputComponent(
             return (caret, range, anchor)
         }
         @MainActor func applySelection(anchor: Int, extent: Int) {
+            controller.current?.applySelection?(anchor, extent)
+        }
+        controller.applySelection = { [weak controller] anchor, extent in
+            guard let controller, let node = controller.node, node.textInputController === controller else { return }
             let text = binding.wrappedValue
             let clampedAnchor = clampedTextOffset(anchor, in: text)
             let clampedExtent = clampedTextOffset(extent, in: text)
@@ -13903,8 +14010,8 @@ private func textInputComponent(
                         in: text,
                         affinity: context.textSelectionAffinity
                     )
-                    selection.wrappedValue = nextSelection
                     node.textInputSelection = nextSelection.retainedSelection(in: text)
+                    selection.wrappedValue = nextSelection
                 } else {
                     node.textInputSelection = nil
                 }
@@ -13923,17 +14030,39 @@ private func textInputComponent(
                     )
                 }
             }
-            refreshChrome()
+            controller.current?.refreshChrome?()
+        }
+        @MainActor func invalidate() {
+            controller.current?.invalidate?()
         }
         @MainActor func setCaretOffset(_ offset: Int) {
             applySelection(anchor: offset, extent: offset)
         }
+        @MainActor func replaceText(in range: Range<Int>, with inserted: String) {
+            guard controller.current === controller, let node = controller.node else { return }
+            let updatedText = binding.wrappedValue.replacingText(in: range, with: inserted)
+            let caret = range.lowerBound + inserted.count
+            let previousSelection = controller.readSelection?()
+            // Stage the live selection before a Binding setter can synchronously
+            // rebuild. Continue only while this editor still presents the edit;
+            // a callback may instead remove it or install another document.
+            node.textInputCaretOffset = caret
+            node.textInputSelection = nil
+            binding.wrappedValue = updatedText
+            guard let current = controller.current, current.node === node else { return }
+            // An explicit selection changed by the setter belongs to newer
+            // application state, even when it kept the text we just wrote.
+            let selectionWasReplaced = current.hasSelectionBinding && current.readSelection?() != previousSelection
+            if current.readText?() == updatedText, !selectionWasReplaced {
+                current.applySelection?(caret, caret)
+            }
+            controller.current?.invalidate?()
+        }
         @MainActor func deleteSelection(_ range: Range<Int>) {
-            binding.wrappedValue = binding.wrappedValue.removingText(in: range)
-            setCaretOffset(range.lowerBound)
-            context.invalidate()
+            replaceText(in: range, with: "")
         }
         node.onKeyDown = { event in
+            guard controller.current === controller, let node = controller.node else { return }
 
             // Escape discards an in-progress IME composition without
             // committing. Real IMEs normally consume Escape themselves and
@@ -13948,7 +14077,7 @@ private func textInputComponent(
             if event.key == .enter, !allowsNewlines {
                 if let onCommit {
                     onCommit()
-                    context.invalidate()
+                    invalidate()
                 }
                 return
             }
@@ -13970,7 +14099,7 @@ private func textInputComponent(
                     applySelection(anchor: state.anchor, extent: destination)
                 } else {
                     setCaretOffset(destination)
-                    context.invalidate()
+                    invalidate()
                 }
                 return
             }
@@ -13994,11 +14123,13 @@ private func textInputComponent(
                         return
                     }
                     clipboard.copyString(binding.wrappedValue.textSubstring(in: range))
+                    guard controller.current === controller else { return }
                     deleteSelection(range)
                 case 0x56:  // Ctrl+V — paste over the selection or at the caret
                     guard let pasted = clipboard.pasteString() else {
                         return
                     }
+                    guard controller.current === controller else { return }
                     let pastedText =
                         allowsNewlines
                         ? pasted
@@ -14010,9 +14141,7 @@ private func textInputComponent(
                     }
                     let state = currentSelectionState()
                     let replacementRange = state.range ?? (state.caret..<state.caret)
-                    binding.wrappedValue = binding.wrappedValue.replacingText(in: replacementRange, with: pastedText)
-                    setCaretOffset(replacementRange.lowerBound + pastedText.count)
-                    context.invalidate()
+                    replaceText(in: replacementRange, with: pastedText)
                 default:
                     return
                 }
@@ -14030,12 +14159,7 @@ private func textInputComponent(
                     return
                 }
 
-                let updatedText = binding.wrappedValue.removingText(
-                    in: (clampedCaret - 1)..<clampedCaret
-                )
-                binding.wrappedValue = updatedText
-                setCaretOffset(clampedCaret - 1)
-                context.invalidate()
+                replaceText(in: (clampedCaret - 1)..<clampedCaret, with: "")
                 return
             }
 
@@ -14050,11 +14174,7 @@ private func textInputComponent(
                     return
                 }
 
-                binding.wrappedValue = binding.wrappedValue.removingText(
-                    in: clampedCaret..<(clampedCaret + 1)
-                )
-                setCaretOffset(clampedCaret)
-                context.invalidate()
+                replaceText(in: clampedCaret..<(clampedCaret + 1), with: "")
                 return
             }
 
@@ -14065,10 +14185,10 @@ private func textInputComponent(
                     applySelection(anchor: state.anchor, extent: state.caret - 1)
                 } else if let range = state.range {
                     setCaretOffset(range.lowerBound)
-                    context.invalidate()
+                    invalidate()
                 } else {
                     setCaretOffset(state.caret - 1)
-                    context.invalidate()
+                    invalidate()
                 }
                 return
             case .rightArrow:
@@ -14077,10 +14197,10 @@ private func textInputComponent(
                     applySelection(anchor: state.anchor, extent: state.caret + 1)
                 } else if let range = state.range {
                     setCaretOffset(range.upperBound)
-                    context.invalidate()
+                    invalidate()
                 } else {
                     setCaretOffset(state.caret + 1)
-                    context.invalidate()
+                    invalidate()
                 }
                 return
             case .home:
@@ -14089,7 +14209,7 @@ private func textInputComponent(
                     applySelection(anchor: state.anchor, extent: 0)
                 } else {
                     setCaretOffset(0)
-                    context.invalidate()
+                    invalidate()
                 }
                 return
             case .end:
@@ -14098,7 +14218,7 @@ private func textInputComponent(
                     applySelection(anchor: state.anchor, extent: binding.wrappedValue.count)
                 } else {
                     setCaretOffset(binding.wrappedValue.count)
-                    context.invalidate()
+                    invalidate()
                 }
                 return
             case .backspace, .deleteForward:
@@ -14121,9 +14241,7 @@ private func textInputComponent(
                 return
             }
 
-            binding.wrappedValue = binding.wrappedValue.replacingText(in: replacementRange, with: character)
-            setCaretOffset(replacementRange.lowerBound + character.count)
-            context.invalidate()
+            replaceText(in: replacementRange, with: character)
         }
 
         // IME composition flow: updates track the marked (underlined)
@@ -14132,6 +14250,7 @@ private func textInputComponent(
         // current selection exactly like typed input; ending the session
         // discards any uncommitted marked text.
         node.onIMEComposition = { event in
+            guard controller.current === controller, let node = controller.node else { return }
             switch event.phase {
             case .started:
                 break
@@ -14162,9 +14281,7 @@ private func textInputComponent(
                         textInputAutocapitalization: context.textInputAutocapitalization
                     )
                     : committed
-                binding.wrappedValue = binding.wrappedValue.replacingText(in: replacementRange, with: inserted)
-                setCaretOffset(replacementRange.lowerBound + inserted.count)
-                context.invalidate()
+                replaceText(in: replacementRange, with: inserted)
             case .ended:
                 node.textInputMarkedText = nil
                 refreshChrome()
@@ -14174,25 +14291,31 @@ private func textInputComponent(
         // Pointer-down places the caret at the hit offset; dragging extends
         // the selection from the down anchor. The runtime's drag branch in
         // pointerDown skips focus updates, so focus is requested explicitly.
-        let pointerDragAnchor = TextInputPointerDragAnchor()
-        @MainActor func textOffset(atRootPoint point: Point) -> Int {
-            textInputOffset(
+        controller.textOffset = { [weak controller, weak runtime] point in
+            guard let controller, let node = controller.node,
+                node.textInputController === controller, let labelNode = node.children.first
+            else { return 0 }
+            return textInputOffset(
                 atRootPoint: point,
                 labelNode: labelNode,
                 text: binding.wrappedValue,
                 isSecure: isSecure,
                 allowsNewlines: allowsNewlines,
-                displayScale: runtime.displayScale
+                displayScale: runtime?.displayScale ?? 1
             )
         }
-        node.onDragStart = { point in
+        node.onDragStart = { [weak runtime] point in
+            guard controller.current === controller, let node = controller.node, let runtime else { return }
             runtime.requestFocus(node)
-            let offset = textOffset(atRootPoint: point)
-            pointerDragAnchor.value = offset
-            applySelection(anchor: offset, extent: offset)
+            guard let current = controller.current, current.node === node,
+                let offset = current.textOffset?(point)
+            else { return }
+            current.pointerDragAnchor = offset
+            current.applySelection?(offset, offset)
         }
         node.onDragChange = { point, _ in
-            applySelection(anchor: pointerDragAnchor.value, extent: textOffset(atRootPoint: point))
+            guard let current = controller.current, let offset = current.textOffset?(point) else { return }
+            current.applySelection?(current.pointerDragAnchor, offset)
         }
 
         return node
@@ -14203,6 +14326,8 @@ private func textInputComponent(
 /// state actually changed (guards against layout/invalidate feedback loops).
 private final class TextInputEditingChromeState {
     struct Signature: Equatable {
+        var contentText: String
+        var isShowingPlaceholder: Bool
         var isFocused: Bool
         var caret: Int
         var selectionLower: Int
@@ -14271,6 +14396,8 @@ private func updateTextInputEditingChrome(
     let showsCaret = node.isFocused && selection == nil
     let isActive = showsCaret || showsHighlight || markedRange != nil
     let signature = TextInputEditingChromeState.Signature(
+        contentText: contentText,
+        isShowingPlaceholder: isShowingPlaceholder,
         isFocused: node.isFocused,
         caret: caret,
         selectionLower: selection?.lowerBound ?? caret,
@@ -14422,12 +14549,6 @@ private func updateTextInputEditingChrome(
     node.removeAllChildren()
     node.addChild(labelNode)
     node.addChild(contentNode)
-}
-/// Sticky down-anchor for a pointer drag inside a text input. The anchor must
-/// survive the selection collapsing back to an insertion point mid-drag, so
-/// it cannot be re-derived from the live selection state.
-private final class TextInputPointerDragAnchor {
-    var value = 0
 }
 /// Maps a root-space pointer point to a character offset in a retained text
 /// input. Offsets stay in real-character space; secure fields measure their

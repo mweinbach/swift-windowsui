@@ -969,15 +969,23 @@ public final class ComponentHost {
         if target.textInputSubmitLabel != source.textInputSubmitLabel {
             target.textInputSubmitLabel = source.textInputSubmitLabel
         }
-        if target.textInputCaretOffset != source.textInputCaretOffset {
-            target.textInputCaretOffset = source.textInputCaretOffset
+        if let controller = source.textInputController {
+            let previous = target.textInputController
+            target.textInputController = controller
+            controller.reconcile(from: previous, onto: target)
+        } else {
+            target.textInputController?.detach(from: target)
+            target.textInputController = nil
+            if target.textInputCaretOffset != source.textInputCaretOffset {
+                target.textInputCaretOffset = source.textInputCaretOffset
+            }
+            if target.textInputSelection != source.textInputSelection {
+                target.textInputSelection = source.textInputSelection
+            }
         }
         if target.textSelectability != source.textSelectability { target.textSelectability = source.textSelectability }
         if target.textSelectionAffinity != source.textSelectionAffinity {
             target.textSelectionAffinity = source.textSelectionAffinity
-        }
-        if target.textInputSelection != source.textInputSelection {
-            target.textInputSelection = source.textInputSelection
         }
         if target.textContentType != source.textContentType { target.textContentType = source.textContentType }
         if target.textInputKeyboardType != source.textInputKeyboardType {

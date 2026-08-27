@@ -113,6 +113,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   attempts and tab remounts, plus a button alternative through keyboard and
   retained accessibility invocation. These do not replace native gesture or
   Narrator qualification.
+- `TextEditorReconciliationTests` exercises live hosted rebuilds during editing:
+  mid-string insertion, selection replacement, Unicode graphemes, external
+  shrinkage, explicit selection overrides, new bindings, IME caret geometry,
+  drag anchors, callback-triggered rebuild/removal, and release on host close.
+  Related selection, IME, drag, native-input, and sparse-storage suites must
+  also pass; these tests do not establish undo or vertical caret behavior.
 - `ModalPresentationIsolationTests` and `DemoRendererIdentityTests` cover
   topmost modal focus/accessibility/shortcut isolation and renderer identities
   that remain accurate when the app switches between D3D11 and software.

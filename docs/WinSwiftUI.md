@@ -1039,6 +1039,15 @@ at the origin.
 - Standard text on the frame fallback path still goes through native bitmap rasterization; the default scene path now captures DirectWrite glyph IDs/font faces for atlas-backed glyphs, while icon/private-use glyphs still fall back to the pixel atlas.
 - `D3D11BatchRenderer` now renders finished ordered batch ranges directly from scene storage instead of replaying per-layer paint operations or allocating temporary arrays per operation, and batch shadows now honor the same content-mask clipping as quads and glyphs.
 
+Text input reconciliation keeps unbound caret/selection, marked IME text, and
+the original drag anchor on the surviving control. The new configuration binds
+callbacks to that node and reads the latest application bindings. An explicit
+selection binding takes precedence; offsets clamp when text shrinks. A setter
+that rebuilds or removes the editor cannot make the old callback restore stale
+selection, focus, or chrome. `TextEditorReconciliationTests` covers this host
+lifecycle. Undo registration, vertical caret navigation, internal scrolling,
+multi-range editing, and complete document workflows remain incomplete.
+
 ## Observation Model
 
 `WinSwiftUI` now supports a minimal SwiftUI-style observation path for shared source:

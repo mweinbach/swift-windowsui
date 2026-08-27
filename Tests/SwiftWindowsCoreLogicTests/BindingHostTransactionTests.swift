@@ -18,6 +18,11 @@ private final class BindingHostPlainValue {
 }
 
 @MainActor
+private final class BindingHostStateCapture {
+    var binding: Binding<Bool>?
+}
+
+@MainActor
 private struct PlainBindingHostContent: View {
     @ObservedObject var model: BindingHostModel
     let value: BindingHostPlainValue
@@ -46,9 +51,12 @@ private struct BindingHostContent: View {
     @ObservedObject var model: BindingHostModel
     @State var stateIsOn = false
     let bindingAnimation: Animation?
+    var stateCapture: BindingHostStateCapture? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let stateBinding = $stateIsOn
+        stateCapture?.binding = stateBinding
+        return VStack(alignment: .leading, spacing: 8) {
             Toggle("Observed binding", isOn: $model.isOn.animation(bindingAnimation))
                 .labelsHidden()
                 .accessibilityIdentifier("observed-toggle")
@@ -57,7 +65,7 @@ private struct BindingHostContent: View {
                 .frame(width: 80, height: 24)
                 .opacity(model.isOn ? 0.2 : 1)
                 .accessibilityIdentifier("observed-opacity")
-            Toggle("State binding", isOn: $stateIsOn)
+            Toggle("State binding", isOn: stateBinding)
                 .labelsHidden()
                 .accessibilityIdentifier("state-toggle")
             Rectangle()
@@ -309,8 +317,10 @@ final class BindingHostTransactionTests: XCTestCase {
 
     func testNewerStateAnimationOverridesAnOlderQueuedObserverAndIsNotRestarted() async throws {
         let model = BindingHostModel()
-        let content = BindingHostContent(model: model, bindingAnimation: .linear(duration: 1))
+        let capture = BindingHostStateCapture()
+        let content = BindingHostContent(model: model, bindingAnimation: .linear(duration: 1), stateCapture: capture)
         let harness = makeHost(content)
+        let stateBinding = try XCTUnwrap(capture.binding)
         let observedTarget = try node("observed-opacity", in: harness)
         let stateTarget = try node("state-opacity", in: harness)
         let startedAt = harness.clock.now
@@ -319,9 +329,9 @@ final class BindingHostTransactionTests: XCTestCase {
 
         withAnimation(.linear(duration: 4)) { model.isOn = true }
         XCTAssertEqual(harness.host.executedReloadCount, 0)
-        withAnimation(.linear(duration: 1)) { content.$stateIsOn.wrappedValue = true }
+        withAnimation(.linear(duration: 1)) { stateBinding.wrappedValue = true }
 
-        XCTAssertTrue(content.stateIsOn)
+        XCTAssertTrue(stateBinding.wrappedValue)
         XCTAssertEqual(rebuildDurations, [1])
         XCTAssertEqual(harness.host.executedReloadCount, 1)
         XCTAssertEqual(harness.host.completedObservedObjectReloadTaskCount, 1)
@@ -346,15 +356,17 @@ final class BindingHostTransactionTests: XCTestCase {
 
     func testNewerExplicitNilStateTransactionSuppressesAnOlderQueuedAnimation() async throws {
         let model = BindingHostModel()
-        let content = BindingHostContent(model: model, bindingAnimation: .linear(duration: 1))
+        let capture = BindingHostStateCapture()
+        let content = BindingHostContent(model: model, bindingAnimation: .linear(duration: 1), stateCapture: capture)
         let harness = makeHost(content)
+        let stateBinding = try XCTUnwrap(capture.binding)
         let observedTarget = try node("observed-opacity", in: harness)
         let stateTarget = try node("state-opacity", in: harness)
         var rebuiltTransaction: Transaction?
         harness.host.onReloadContentCompleted = { rebuiltTransaction = currentTransaction }
 
         withAnimation(.linear(duration: 4)) { model.isOn = true }
-        content.$stateIsOn.animation(nil).wrappedValue = true
+        stateBinding.animation(nil).wrappedValue = true
 
         XCTAssertNotNil(rebuiltTransaction)
         XCTAssertNil(rebuiltTransaction?.animation)
@@ -373,8 +385,10 @@ final class BindingHostTransactionTests: XCTestCase {
 
     func testNewerPlainStateMutationDoesNotInheritAnOlderQueuedAnimation() async throws {
         let model = BindingHostModel()
-        let content = BindingHostContent(model: model, bindingAnimation: .linear(duration: 1))
+        let capture = BindingHostStateCapture()
+        let content = BindingHostContent(model: model, bindingAnimation: .linear(duration: 1), stateCapture: capture)
         let harness = makeHost(content)
+        let stateBinding = try XCTUnwrap(capture.binding)
         let observedTarget = try node("observed-opacity", in: harness)
         let stateTarget = try node("state-opacity", in: harness)
         var rebuildDurations: [Double?] = []
@@ -382,7 +396,7 @@ final class BindingHostTransactionTests: XCTestCase {
 
         withAnimation(.linear(duration: 4)) { model.isOn = true }
         XCTAssertNil(currentTransaction)
-        content.$stateIsOn.wrappedValue = true
+        stateBinding.wrappedValue = true
 
         XCTAssertEqual(rebuildDurations.count, 1)
         XCTAssertNil(rebuildDurations.first ?? nil)

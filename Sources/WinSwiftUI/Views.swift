@@ -745,25 +745,45 @@ public struct ViewThatFits: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let axes = axes
-        let components = viewIdentityOccurrences(content).map { $0.makeComponent(context: context) }
+        let views = viewIdentityOccurrences(content)
+        // Distinct flattened fragments can have prefix-related paths. Make
+        // each complete relative identity one key before building it, so a
+        // rejected candidate's scope can never include the selected sibling.
+        let candidateContexts = views.map { view in
+            let key = RetainedViewIdentity.Key(RetainedViewIdentity(segments: view.structuralIdentity))
+            return context.withViewIdentityRole(.content).withViewIdentityPrefix([.keyed(key)])
+        }
+        let declarations =
+            context.stateMountCoordinator == nil
+            ? [] : views.indices.map { views[$0].declaredStateMountScopes(context: candidateContexts[$0]) }
 
         return Component { runtime in
-            guard !components.isEmpty else {
+            guard !views.isEmpty else {
                 return Controls.panel(preferredSize: .zero, isHitTestVisible: false)
             }
 
             let availableSize = context.canvasSize
-            var fallbackNode: ViewNode?
-            for component in components {
-                let candidateNode = component.makeNode(runtime: runtime)
-                fallbackNode = candidateNode
+            for (index, view) in views.enumerated() {
+                let candidateNode = view.makeComponent(context: candidateContexts[index]).makeNode(runtime: runtime)
                 let candidateSize = candidateNode.intrinsicContentSize()
-                if Self.fits(candidateSize, in: availableSize, axes: axes) {
+                if Self.fits(candidateSize, in: availableSize, axes: axes) || index == views.count - 1 {
+                    if let coordinator = context.stateMountCoordinator {
+                        for otherIndex in views.indices where otherIndex != index {
+                            coordinator.discardUnadoptedSubtree(
+                                at: candidateContexts[otherIndex].retainedViewIdentity, preserveCommitted: false)
+                            coordinator.preserveDeclaredScopes(declarations[otherIndex])
+                        }
+                    }
                     return candidateNode
+                }
+                if let coordinator = context.stateMountCoordinator {
+                    coordinator.discardUnadoptedSubtree(
+                        at: candidateContexts[index].retainedViewIdentity, preserveCommitted: false)
+                    coordinator.preserveDeclaredScopes(declarations[index])
                 }
             }
 
-            return fallbackNode ?? Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+            return Controls.panel(preferredSize: .zero, isHitTestVisible: false)
         }
     }
 
@@ -808,7 +828,7 @@ public struct TimelineView<Schedule: TimelineSchedule, Content: View>: View {
             return .live
         }()
         let timelineContext = TimelineViewContext(date: currentDate, cadence: cadence)
-        let childComponent = content(timelineContext).makeComponent(context: context)
+        let childComponent = makeViewComponent(content(timelineContext), context: context)
         let invalidate = context.invalidate
         return Component { runtime in
             let childNode = childComponent.makeNode(runtime: runtime)
@@ -855,7 +875,7 @@ public struct AnimationTimelineView<Schedule: TimelineSchedule, Content: View>: 
         let entries = Array(schedule.entries(from: Date(), mode: .normal))
         let currentDate = entries.first ?? Date()
         let timelineContext = TimelineViewContext(date: currentDate, cadence: .live)
-        let childComponent = content(timelineContext).makeComponent(context: context)
+        let childComponent = makeViewComponent(content(timelineContext), context: context)
         let invalidate = context.invalidate
         return Component { runtime in
             let childNode = childComponent.makeNode(runtime: runtime)
@@ -2632,9 +2652,7 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
 
     public init<S: Shape>(_ shape: S) {
         self.buildComponent = { context in
-            ViewBuildContextScope.withCurrent(context) {
-                shape.makeComponent(context: context)
-            }
+            makeViewComponent(shape, context: context)
         }
         self.buildPath = { rect in shape.path(in: rect) }
         self.clipShapeStyle = (shape as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
@@ -2865,9 +2883,7 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
     public init(_ content: Content, amount: CGFloat) {
         self.content = content
         self.buildComponent = { context in
-            ViewBuildContextScope.withCurrent(context) {
-                content.makeComponent(context: context)
-            }
+            makeViewComponent(content, context: context)
         }
         self.amount = amount
         self.clipShapeStyle = (content as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
@@ -3396,7 +3412,7 @@ public struct RotatedShape<Content: Shape>: Shape {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let child = shape.makeComponent(context: context)
+        let child = makeViewComponent(shape, context: context)
         return Component { runtime in
             let childNode = child.makeNode(runtime: runtime)
             childNode.transform = childNode.transform.concatenating(Transform2D(rotation: angle.radians))
@@ -3427,7 +3443,7 @@ public struct ScaledShape<Content: Shape>: Shape {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let child = shape.makeComponent(context: context)
+        let child = makeViewComponent(shape, context: context)
         return Component { runtime in
             let childNode = child.makeNode(runtime: runtime)
             childNode.transform = childNode.transform.concatenating(.scale(x: scale.width, y: scale.height))
@@ -3456,7 +3472,7 @@ public struct OffsetShape<Content: Shape>: Shape {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let child = shape.makeComponent(context: context)
+        let child = makeViewComponent(shape, context: context)
         return Component { runtime in
             let childNode = child.makeNode(runtime: runtime)
             childNode.transform = childNode.transform.concatenating(.translation(x: offset.width, y: offset.height))
@@ -3485,7 +3501,7 @@ public struct TransformedShape<Content: Shape>: Shape {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let child = shape.makeComponent(context: context)
+        let child = makeViewComponent(shape, context: context)
         return Component { runtime in
             let childNode = child.makeNode(runtime: runtime)
             childNode.transform = childNode.transform.concatenating(transform)
@@ -3509,7 +3525,7 @@ public struct StrokeBorder<Content: Shape>: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        shape.makeComponent(context: context)
+        makeViewComponent(shape, context: context)
     }
 }
 public struct UnionShape<Content: Shape, Other: Shape>: Shape {
@@ -3747,7 +3763,7 @@ private func resolvedFill(from style: ForegroundStyle) -> (color: Color, gradien
     }
 }
 @MainActor
-public struct Group: View {
+public struct Group: View, StateMountDeclarationView {
     public typealias Body = Never
 
     private let content: [AnyView]
@@ -3764,6 +3780,13 @@ public struct Group: View {
         let context = context.withViewIdentityType(Self.self)
         return preservingViewIdentity(
             of: composeComponent(from: content, context: context.withViewIdentityRole(.content)), context: context)
+    }
+
+    func declaredStateMountScopes(context: ViewBuildContext) -> [StateMountDeclarationScope] {
+        let context = context.withViewIdentityType(Self.self)
+        let contentContext = context.withViewIdentityRole(.content)
+        return [StateMountDeclarationScope(prefix: context.retainedViewIdentity, excluding: .modifierContent)]
+            + viewIdentityOccurrences(content).flatMap { $0.declaredStateMountScopes(context: contentContext) }
     }
 }
 @MainActor
@@ -4911,7 +4934,13 @@ public struct TabView: View {
         }
 
         let selectedIndex = selectedPageIndex()
-        let selectedPage = content[selectedIndex]
+        let pages = viewIdentityOccurrences(content)
+        let selectedPage = pages[selectedIndex]
+        let pageIdentityContext = context.withViewIdentityRole(.page)
+        for (index, page) in pages.enumerated() where index != selectedIndex {
+            context.stateMountCoordinator?.preserveDeclaredScopes(
+                page.declaredStateMountScopes(context: pageIdentityContext))
+        }
         let tabBar = tabBarComponent(selectedIndex: selectedIndex, context: context)
 
         let chrome = Self.retainedTabChrome(
@@ -4946,18 +4975,13 @@ public struct TabView: View {
             // chrome-height too tall and runs off the bottom edge.
             let bandHeight = tabBarNode.intrinsicContentSize().height + Self.retainedTabPageSpacing
             let canvasSize = context.canvasSize
-            let pageContext = context.withCanvasSize(
+            let pageContext = pageIdentityContext.withCanvasSize(
                 Size(
                     width: canvasSize.width,
                     height: max(0, canvasSize.height - bandHeight)
                 )
             )
-            let pageNode = composeComponent(
-                from: [selectedPage],
-                context: pageContext,
-                fallbackLayout: .stack(.vertical(alignment: .stretch))
-            )
-            .makeNode(runtime: runtime)
+            let pageNode = selectedPage.makeComponent(context: pageContext).makeNode(runtime: runtime)
             // Selecting a different tab replaces the page rather than editing
             // it. Without an identity that moves with the selection the
             // reconciler matched the outgoing page to the incoming one by
@@ -5039,9 +5063,11 @@ public struct TabView: View {
         Component { runtime in
             let palette = context.controlPalette
             let chrome = Self.retainedTabChrome(for: context.tabViewStyle, palette: palette)
-            let tabNodes = content.enumerated().map { index, view in
+            let tabNodes = viewIdentityOccurrences(content).enumerated().map { index, view in
                 let isSelected = index == selectedIndex
                 let labelViews = view.tabItem ?? [AnyView(Text("TAB \(index + 1)"))]
+                let itemContext = context.withViewIdentityPrefix(view.structuralIdentity)
+                let labelIdentityContext = itemContext.withViewIdentityRole(.label)
                 // The selection is carried by the label's own rung and weight
                 // plus the bar under it — there is no pill for a label colour
                 // to have to survive. Selected is the primary rung at the
@@ -5049,10 +5075,10 @@ public struct TabView: View {
                 // which is what an unselected tab is.
                 let labelContext =
                     isSelected
-                    ? context
+                    ? labelIdentityContext
                         .withForegroundColor(palette.label)
                         .withFontWeight(chrome.selectedLabelWeight)
-                    : context.withForegroundColor(palette.secondaryLabel)
+                    : labelIdentityContext.withForegroundColor(palette.secondaryLabel)
                 let labelNode = composeComponent(
                     from: labelViews,
                     context: labelContext,
@@ -5066,7 +5092,8 @@ public struct TabView: View {
                         isHitTestVisible: false,
                         children: [
                             labelNode,
-                            context.makeRetainedBadgeNode(from: badgeViews, runtime: runtime),
+                            itemContext.withViewIdentityRole(.value)
+                                .makeRetainedBadgeNode(from: badgeViews, runtime: runtime),
                         ]
                     )
                 } else {
@@ -5364,7 +5391,7 @@ public protocol DynamicViewContent<Data>: View {
     var data: Data { get }
 }
 @MainActor
-public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View {
+public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View, StateMountDeclarationView {
     public typealias Body = Never
 
     public let data: Data
@@ -5388,6 +5415,13 @@ public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View {
         let context = context.withViewIdentityType(Self.self)
         return preservingViewIdentity(
             of: composeComponent(from: contentViews, context: context.withViewIdentityRole(.content)), context: context)
+    }
+
+    func declaredStateMountScopes(context: ViewBuildContext) -> [StateMountDeclarationScope] {
+        let context = context.withViewIdentityType(Self.self)
+        let contentContext = context.withViewIdentityRole(.content)
+        return [StateMountDeclarationScope(prefix: context.retainedViewIdentity, excluding: .modifierContent)]
+            + viewIdentityOccurrences(contentViews).flatMap { $0.declaredStateMountScopes(context: contentContext) }
     }
 
     private static func buildContentViews(
@@ -5514,7 +5548,7 @@ extension ForEach {
     }
 }
 @MainActor
-private struct DynamicListEditMetadataView: View, TaggedViewMetadata {
+private struct DynamicListEditMetadataView: View, TaggedViewMetadata, StateMountDeclarationView {
     typealias Body = Never
 
     let content: AnyView
@@ -5525,6 +5559,12 @@ private struct DynamicListEditMetadataView: View, TaggedViewMetadata {
     var insertAction: ((Int, [NSItemProvider]) -> Void)? = nil
     var dropPayloadType: String? = nil
     var dropAction: (([Any], Int) -> Void)? = nil
+
+    func declaredStateMountScopes(context: ViewBuildContext) -> [StateMountDeclarationScope] {
+        let context = context.withViewIdentityType(Self.self)
+        return [StateMountDeclarationScope(prefix: context.retainedViewIdentity, excluding: .typedContent)]
+            + content.declaredStateMountScopes(context: context)
+    }
 
     var anySelectionTag: AnyHashable? {
         content.selectionTag
@@ -9071,12 +9111,26 @@ public struct GeometryReader: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let context = context.withViewIdentityType(Self.self)
+        withInstalledViewValue(self, context: context, isInstalledDelegate: true) { reader, scopedContext in
+            reader.makeReaderComponent(context: scopedContext)
+        }
+    }
+
+    private func makeReaderComponent(context: ViewBuildContext) -> Component {
         let seedSize = context.canvasSize
         let content = self.content
+        let contentContext = context.withViewIdentityRole(.geometryContent)
+        let contentPrefix = contentContext.retainedViewIdentity
+        let lease =
+            context.viewIdentity.installedOwner.map { owner in
+                context.stateMountCoordinator?.subtreeLease(owner: owner, contentPrefix: contentPrefix)
+            } ?? nil
+        let views = ViewBuildContextScope.withCurrent(contentContext) {
+            content(GeometryProxy(size: seedSize))
+        }
         let composed = composeComponent(
-            from: content(GeometryProxy(size: seedSize)),
-            context: context.withViewIdentityRole(.geometryContent),
+            from: views,
+            context: contentContext,
             fallbackLayout: .absolute
         )
         return Component { runtime in
@@ -9108,18 +9162,28 @@ public struct GeometryReader: View {
             // is known and adopts the result onto the node it already has
             // (see `RetainedViewRuntime.resolveGeometryReaderSlots`).
             node.geometryReaderBuiltSize = seedSize
+            node.retainedSubtreeBuildLease = lease
             node.geometryReaderBuild = { runtime, size in
+                if let coordinator = context.stateMountCoordinator {
+                    guard lease?.canBuild == true,
+                        coordinator.canEvaluateDeferredSubtree(at: contentPrefix)
+                    else { return [] }
+                }
                 // Rebuilt as a whole reader, not just as its body, so the
                 // node the runtime adopts carries the next round's build
                 // closure and its own record of the size it was built from.
                 // The narrowed context also re-seeds any reader nested in
                 // this body, so nesting converges in rounds rather than in
                 // one round per level.
-                [
-                    GeometryReader(content: content)
-                        .makeComponent(context: context.withCanvasSize(size))
-                        .makeNode(runtime: runtime)
-                ]
+                let rebuilt = GeometryReader(content: content)
+                    .makeReaderComponent(context: context.withCanvasSize(size))
+                    .makeNode(runtime: runtime)
+                if let coordinator = context.stateMountCoordinator {
+                    guard lease?.canBuild == true,
+                        coordinator.canEvaluateDeferredSubtree(at: contentPrefix)
+                    else { return [] }
+                }
+                return [rebuilt]
             }
             return node
         }
@@ -10570,7 +10634,7 @@ public struct TableRow<Content: View>: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        content.makeComponent(context: context)
+        makeViewComponent(content, context: context)
     }
 }
 @MainActor
@@ -11493,6 +11557,7 @@ public struct OutlineGroup<Element, ID: Hashable, Content: View>: View {
     public typealias Body = Never
 
     private let items: [Element]
+    private let idKeyPath: KeyPath<Element, ID>
     private let childrenKeyPath: KeyPath<Element, [Element]?>
     private let content: (Element) -> Content
 
@@ -11502,6 +11567,7 @@ public struct OutlineGroup<Element, ID: Hashable, Content: View>: View {
         @ViewBuilder content: @escaping (Data.Element) -> Content
     ) where Data.Element == Element, Element: Identifiable, Element.ID == ID {
         self.items = Array(data)
+        self.idKeyPath = \.id
         self.childrenKeyPath = children
         self.content = content
     }
@@ -11512,6 +11578,7 @@ public struct OutlineGroup<Element, ID: Hashable, Content: View>: View {
         @ViewBuilder content: @escaping (Element) -> Content
     ) where Element: Identifiable, Element.ID == ID {
         self.items = [root]
+        self.idKeyPath = \.id
         self.childrenKeyPath = children
         self.content = content
     }
@@ -11523,6 +11590,7 @@ public struct OutlineGroup<Element, ID: Hashable, Content: View>: View {
         @ViewBuilder content: @escaping (Data.Element) -> Content
     ) where Data.Element == Element {
         self.items = Array(data)
+        self.idKeyPath = id
         self.childrenKeyPath = children
         self.content = content
     }
@@ -11534,6 +11602,7 @@ public struct OutlineGroup<Element, ID: Hashable, Content: View>: View {
         @ViewBuilder content: @escaping (Element) -> Content
     ) {
         self.items = [root]
+        self.idKeyPath = id
         self.childrenKeyPath = children
         self.content = content
     }
@@ -11545,6 +11614,7 @@ public struct OutlineGroup<Element, ID: Hashable, Content: View>: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         Self.makeOutlineComponent(
             items: items,
+            idKeyPath: idKeyPath,
             childrenKeyPath: childrenKeyPath,
             content: content,
             context: context,
@@ -11554,13 +11624,20 @@ public struct OutlineGroup<Element, ID: Hashable, Content: View>: View {
 
     private static func makeOutlineComponent(
         items: [Element],
+        idKeyPath: KeyPath<Element, ID>,
         childrenKeyPath: KeyPath<Element, [Element]?>,
         content: @escaping (Element) -> Content,
         context: ViewBuildContext,
         indentLevel: Int
     ) -> Component {
+        var occurrences: [RetainedViewIdentity.Key: Int] = [:]
         let childComponents: [Component] = items.map { item in
-            let itemContent = content(item).makeComponent(context: context)
+            let key = RetainedViewIdentity.Key(item[keyPath: idKeyPath])
+            let occurrence = occurrences[key, default: 0]
+            occurrences[key] = occurrence + 1
+            let rowContext = context.withViewIdentityRole(.row)
+                .withViewIdentityPrefix([.keyed(key), .occurrence(occurrence)])
+            let itemContent = makeViewComponent(content(item), context: rowContext.withViewIdentityRole(.content))
             let childData = item[keyPath: childrenKeyPath]
 
             if let childData = childData, !childData.isEmpty {
@@ -11568,9 +11645,10 @@ public struct OutlineGroup<Element, ID: Hashable, Content: View>: View {
                 let labelComponent = itemContent
                 let nestedComponent = Self.makeOutlineComponent(
                     items: childData,
+                    idKeyPath: idKeyPath,
                     childrenKeyPath: childrenKeyPath,
                     content: content,
-                    context: context,
+                    context: rowContext,
                     indentLevel: indentLevel + 1
                 )
 
@@ -11623,11 +11701,13 @@ public struct OutlineGroup<Element, ID: Hashable, Content: View>: View {
                         childrenNodes.append(insetContent)
                     }
 
-                    return Controls.stackPanel(
+                    let rowNode = Controls.stackPanel(
                         stackLayout: .vertical(spacing: 4, alignment: .stretch),
                         isHitTestVisible: false,
                         children: childrenNodes
                     )
+                    rowNode.retainedViewIdentity = rowContext.retainedViewIdentity
+                    return rowNode
                 }
             } else {
                 return itemContent
@@ -21085,7 +21165,7 @@ public struct MapReader<Content: View>: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let proxy = MapProxy()
-        return content(proxy).makeComponent(context: context)
+        return makeViewComponent(content(proxy), context: context)
     }
 }
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
@@ -21159,7 +21239,7 @@ public struct Annotation<Content: View>: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        content.makeComponent(context: context)
+        makeViewComponent(content, context: context)
     }
 }
 public struct PhotosPicker: View {
@@ -21589,7 +21669,7 @@ public struct Ornament<Content: View>: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let _ = attachmentAnchor
         let _ = contentAnchor
-        return content.makeComponent(context: context)
+        return makeViewComponent(content, context: context)
     }
 }
 public struct AppStoreOverlay: View {
@@ -21656,7 +21736,7 @@ public struct AnyChart: ChartContent {
 
     public init<C: ChartContent>(_ chart: C) {
         self.buildComponent = { context in
-            chart.makeComponent(context: context)
+            makeViewComponent(chart, context: context)
         }
     }
 

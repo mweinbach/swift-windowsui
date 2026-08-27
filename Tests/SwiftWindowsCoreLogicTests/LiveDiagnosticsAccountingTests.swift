@@ -18,6 +18,7 @@ private final class DiagnosticsAccountingClock {
     var frameSeconds: Double = 0
     var samples: [LiveFrameSample] = []
     var onNextBodyEvaluation: (() -> Void)?
+    var installedStateRevision: Binding<Int>?
 
     func evaluate(_ revision: Int) -> Int {
         now += rebuildSeconds
@@ -35,6 +36,7 @@ private struct DiagnosticsAccountingContent: View {
     let clock: DiagnosticsAccountingClock
 
     var body: some View {
+        clock.installedStateRevision = $stateRevision
         let revision = clock.evaluate(stateRevision + model.revision)
         return Rectangle()
             .fill(WinSwiftUI.Color.blue)
@@ -166,7 +168,8 @@ final class LiveDiagnosticsAccountingTests: XCTestCase {
 
     func testSynchronousStateRebuildIsAddedOutsideTheFollowingFrameTime() async throws {
         let harness = makeHost()
-        harness.content.$stateRevision.wrappedValue = 1
+        let stateRevision = try XCTUnwrap(harness.clock.installedStateRevision)
+        stateRevision.wrappedValue = 1
         XCTAssertEqual(harness.host.executedReloadCount, 1)
         XCTAssertTrue(harness.clock.samples.isEmpty)
 
@@ -178,7 +181,8 @@ final class LiveDiagnosticsAccountingTests: XCTestCase {
 
     func testMixedRebuildsAddOnlyTheOutsidePortionToTotalFrameTime() async throws {
         let harness = makeHost()
-        harness.content.$stateRevision.wrappedValue = 1
+        let stateRevision = try XCTUnwrap(harness.clock.installedStateRevision)
+        stateRevision.wrappedValue = 1
         harness.model.revision = 1
         XCTAssertEqual(harness.host.executedReloadCount, 1)
 
@@ -191,7 +195,8 @@ final class LiveDiagnosticsAccountingTests: XCTestCase {
 
     func testPresentedFrameDrainsAllRebuildCountersBeforeTheNextSample() async throws {
         let harness = makeHost()
-        harness.content.$stateRevision.wrappedValue = 1
+        let stateRevision = try XCTUnwrap(harness.clock.installedStateRevision)
+        stateRevision.wrappedValue = 1
         harness.model.revision = 1
         harness.present()
         XCTAssertEqual(harness.clock.samples.count, 1)
@@ -235,23 +240,31 @@ final class LiveDiagnosticsAccountingTests: XCTestCase {
 
     func testNestedStateRebuildCountsItsInclusiveWallIntervalOnlyOnce() async throws {
         let harness = makeHost()
+        let stateRevision = try XCTUnwrap(harness.clock.installedStateRevision)
+        var completedRevisions: [Int] = []
+        harness.host.onReloadContentCompleted = {
+            completedRevisions.append(stateRevision.wrappedValue)
+        }
         harness.clock.rebuildSeconds = 0.002
         harness.clock.onNextBodyEvaluation = {
-            // The outer body spends 2ms before this callback, the nested
-            // rebuild spends 2ms, then the outer body spends its final 2ms.
-            // The one-shot callback is cleared before invocation.
-            harness.content.$stateRevision.wrappedValue = 2
+            // A spends 2ms before this callback and 2ms after requesting B.
+            // B's 2ms body runs once A is abandoned. Both attempts are charged;
+            // only B adopts. The one-shot callback is cleared before invocation.
+            stateRevision.wrappedValue = 2
             harness.clock.now += 0.002
         }
 
-        harness.content.$stateRevision.wrappedValue = 1
+        stateRevision.wrappedValue = 1
 
         XCTAssertEqual(harness.host.executedReloadCount, 2)
+        XCTAssertEqual(completedRevisions, [2])
         XCTAssertTrue(harness.clock.samples.isEmpty)
         harness.present()
 
         let sample = try XCTUnwrap(harness.clock.samples.last)
         assertTiming(sample, rebuild: 0.006, total: 0.004, outsideFrame: 0.006, userVisible: 0.010, rebuildCount: 2)
-        XCTAssertFalse(sample.rebuildPhaseTimingsAvailable, "Nested reload snapshots cannot attribute all phase work.")
+        XCTAssertTrue(
+            sample.rebuildPhaseTimingsAvailable,
+            "A's partial composition and B's full build have separately collected phase snapshots.")
     }
 }

@@ -2006,6 +2006,20 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private let batchRenderer: (any BatchRenderBackend)?
     private let runtime: RetainedViewRuntime
     private let componentHost: ComponentHost
+    private lazy var stateMountCoordinator = StateMountCoordinator(
+        invalidate: { [weak self] in
+            self?.reloadContentFromView(isStateMutation: true)
+        },
+        observeObject: { [weak self] object in
+            self?.observeObject(object)
+        },
+        updateObservedObjects: { [weak self] committed, retained, replacesRoot in
+            self?.updateObservedObjects(committed: committed, retained: retained, replacesRoot: replacesRoot)
+        },
+        reportInstallationError: { [weak self] message in
+            self?.reportRepeating(message, signature: "state-installation:\(message)")
+        }
+    )
     private let surfaceDescriptorProvider: @MainActor (Win32Window) -> SurfaceDescriptor?
     private let sceneRenderer: @MainActor (RetainedViewRuntime, Double) -> GPUIScene
     private let startupPresentationMode: StartupPresentationMode
@@ -2018,6 +2032,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private let undoManager = UndoManager()
     private var isPrimaryTouchActive = false
     private var hasTornDownWindow = false
+    private var isPerformingInitialContentBuild = true
     private var isEvaluatingWindowClosePolicy = false
 
     /// Where a pacing verdict outlives the process, or `nil` for hosts that
@@ -2240,7 +2255,15 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// Set of ObjectIdentifiers for which we currently hold observation tokens.
     /// Tracked so we can match incoming change notifications to the
     /// ComponentHost's dependency set and skip rebuilds for unrelated objects.
-    private var observedObjectTokens: [ObjectIdentifier: ObservationToken] = [:]
+    private struct ObservedObjectSubscription {
+        let generation: UInt64
+        let token: ObservationToken
+    }
+    private var observedObjectTokens: [ObjectIdentifier: ObservedObjectSubscription] = [:]
+    private var observedObjectSubscriptionGeneration: UInt64 = 0
+    /// Test registrations hold subscriptions without declaring a view dependency.
+    /// Like historical registrations, they expire at the next committed root build.
+    private var manuallyObservedObjectIDs: Set<ObjectIdentifier> = []
 
     /// Accumulates the identifiers of observable objects that triggered change
     /// notifications during the current batched window.  When the deferred
@@ -2256,6 +2279,16 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
     private var pendingObservedObjectContexts: [ObjectIdentifier: ObservedObjectReloadContext] = [:]
     private var observedObjectChangeSequence: UInt64 = 0
+    private struct ControlInvalidationContext {
+        var generation: UInt64
+        var animation: (duration: Double, easing: AnimationEasing)?
+        var transaction: Transaction?
+    }
+    private var viewInvalidationGeneration: UInt64 = 0
+    /// A control can invalidate during construction after its binding scope
+    /// has ended. Keep its plain-binding fallback until observation filtering
+    /// is safe, including when the pending objects turn out to be unrelated.
+    private var pendingControlInvalidationContext: ControlInvalidationContext?
 
     /// Counter for reload tasks actually scheduled (not coalesced).
     /// Used for testing same-turn coalescing behavior.
@@ -2321,8 +2354,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     var onReloadContentCompleted: (() -> Void)?
 
     /// Optional callback invoked when a deferred observed-object reload task
-    /// finishes dependency evaluation.
-    /// Used for testing whether the task reloaded or was rejected.
+    /// finishes dependency evaluation. True means its rebuild was accepted or
+    /// queued; `onReloadContentCompleted` separately reports adopted content.
     var onObservedObjectReloadTaskCompleted: ((_ didReload: Bool) -> Void)?
 
     /// Optional callback for recording timer state changes, used for testing.
@@ -2387,6 +2420,21 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         pendingNodeConstructionSeconds += componentHost.lastNodeConstructionSeconds
         pendingReconcileSeconds += componentHost.lastReconcileSeconds
         return result
+    }
+
+    /// A deferred epoch can release its outgoing ownership after construction
+    /// has returned. Charge that work without counting another build or
+    /// replaying the construction's phase measurements.
+    private func chargingRebuildCleanupCost(_ cleanup: () -> Void) {
+        guard onFramePresented != nil, !isChargingRebuildCost else {
+            cleanup()
+            return
+        }
+        isChargingRebuildCost = true
+        defer { isChargingRebuildCost = false }
+        let startedAt = frameClock()
+        cleanup()
+        pendingRebuildSeconds += frameClock() - startedAt
     }
 
     /// What the active batch backend reports about its device, or `nil` when
@@ -2539,6 +2587,24 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         self.currentBatchRecoveryInterval = recoveryPolicy.initialRetryInterval
 
         runtime.setRootSize(WinSwiftUIWindowHost.initialClientSize(for: configuration))
+        componentHost.buildLifecycle = stateMountCoordinator
+        componentHost.measureBuild = { [weak self] build in
+            guard let self else {
+                build()
+                return
+            }
+            if !self.isPerformingInitialContentBuild {
+                self.executedReloadCount += 1
+            }
+            self.chargingRebuildCost(build)
+        }
+        componentHost.measureBuildCleanup = { [weak self] cleanup in
+            guard let self else {
+                cleanup()
+                return
+            }
+            self.chargingRebuildCleanupCost(cleanup)
+        }
         componentHost.setComponents { [weak self] in
             guard let self else {
                 return []
@@ -2546,6 +2612,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
             return [self.buildRootComponent()]
         }
+        isPerformingInitialContentBuild = false
         window.delegate = self
         syncWindowDismissBehavior()
 
@@ -2873,7 +2940,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             surfaceDescriptor?.pixelSize = size
             surfaceDescriptor?.scaleFactor = scaleFactor
             runtime.setRootSize(logicalSize(for: size, scaleFactor: scaleFactor))
-            chargingRebuildCost { componentHost.reload() }
+            componentHost.reload()
             syncWindowDismissBehavior()
             executedResizeRebuildCount += 1
 
@@ -3174,9 +3241,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     func windowWillClose(_ window: Win32Window) {
         guard !hasTornDownWindow else { return }
         hasTornDownWindow = true
+        stateMountCoordinator.close()
         reloadScheduled = false
         pendingChangedObjects.removeAll()
         pendingObservedObjectContexts.removeAll()
+        pendingControlInvalidationContext = nil
         pendingLiveResizeSize = nil
         pendingPresentation = false
         nextPresenterAttachAttemptAt = nil
@@ -3206,6 +3275,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     private var buildContext: ViewBuildContext {
         ViewBuildContext(
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: { [weak self] in
                 self?.runtime.root.frame.size
                     ?? Size(
@@ -3285,6 +3355,18 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     private func reloadContentFromView(isStateMutation: Bool = false) {
+        guard !hasTornDownWindow else { return }
+        viewInvalidationGeneration &+= 1
+        let generation = viewInvalidationGeneration
+        if isStateMutation {
+            pendingControlInvalidationContext = nil
+        } else if componentHost.isBuilding, reloadScheduled {
+            pendingControlInvalidationContext = ControlInvalidationContext(
+                generation: generation,
+                animation: currentAnimationTransaction,
+                transaction: currentTransaction)
+            return
+        }
         // Controls request an immediate rebuild after writing their binding.
         // An observed-object binding may have queued its transaction during
         // that write, but its scope has ended by the time this invalidation
@@ -3298,19 +3380,21 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         {
             // A plain binding still needs this rebuild when no relevant
             // observed object changed, including a filtered unrelated batch.
+            // A dependency hook can itself issue a newer invalidation.
+            guard generation == viewInvalidationGeneration else { return }
             reloadContent()
         }
     }
 
     private func reloadContent(requestsFrame: Bool = true) {
         guard !hasTornDownWindow else { return }
-        executedReloadCount += 1
 
-        // Record the objects the ComponentHost accesses during this rebuild
-        // so future notifications can be dependency-checked.
-        componentHost.observedObjects.removeAll()
-        resetObservedObjects()
-        chargingRebuildCost { componentHost.reload() }
+        componentHost.reload(onCompleted: { [weak self] in
+            self?.completeContentReload(requestsFrame: requestsFrame)
+        })
+    }
+
+    private func completeContentReload(requestsFrame: Bool) {
         guard !hasTornDownWindow else { return }
         syncWindowDismissBehavior()
         uiaBridge?.raiseStructureChanged()
@@ -3319,11 +3403,6 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         // isPresented binding has been set to true.
         componentHost.processPendingFileDialogs()
         guard !hasTornDownWindow else { return }
-
-        // After rebuild, snapshot which objects were observed.
-        for identifier in observedObjectTokens.keys {
-            componentHost.observedObjects.insert(identifier)
-        }
 
         onReloadContentCompleted?()
         if requestsFrame {
@@ -3334,6 +3413,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// Manually observe an object for testing purposes.
     /// This allows tests to register observed objects without needing a view hierarchy.
     func observe(_ object: any ObservableObject) {
+        guard !hasTornDownWindow else { return }
+        manuallyObservedObjectIDs.insert(ObjectIdentifier(object))
         observeObject(object)
     }
 
@@ -3344,17 +3425,49 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             return
         }
 
+        observedObjectSubscriptionGeneration &+= 1
+        let generation = observedObjectSubscriptionGeneration
+        let token = ObservableObjectCenter.shared.addObserver(for: object) { [weak self] in
+            guard let self, self.observedObjectTokens[identifier]?.generation == generation else { return }
+            self.scheduleObservedObjectReload(for: identifier)
+        }
+        observedObjectTokens[identifier] = ObservedObjectSubscription(generation: generation, token: token)
+        // The hook may close the window or observe this object again. Publish
+        // the token first so either action sees the live registration.
         observedObjectRegistrationCount += 1
         onObservedObjectRegistered?(identifier)
+    }
 
-        observedObjectTokens[identifier] = ObservableObjectCenter.shared.addObserver(for: object) { [weak self] in
-            self?.scheduleObservedObjectReload(for: identifier)
+    /// Reconcile subscriptions only after an epoch resolves. Until then the
+    /// committed tree and the candidate both keep their dependencies alive.
+    /// Subtree epochs publish the coordinator's union, preserving sibling reads.
+    private func updateObservedObjects(
+        committed: Set<ObjectIdentifier>, retained: Set<ObjectIdentifier>, replacesRoot: Bool
+    ) {
+        guard !hasTornDownWindow else { return }
+        if replacesRoot {
+            manuallyObservedObjectIDs.removeAll()
+        }
+        let retainedSubscriptions = retained.union(manuallyObservedObjectIDs)
+        let removedIdentifiers = Set(observedObjectTokens.keys).subtracting(retainedSubscriptions)
+        let removedTokens = removedIdentifiers.compactMap { observedObjectTokens.removeValue(forKey: $0)?.token }
+        componentHost.observedObjects = committed
+
+        // A discarded dependency may already have sent a notification. Its
+        // queued transaction must not trigger a later rebuild, including when
+        // the committed dependency set is empty and manual observation is used.
+        pendingChangedObjects.formIntersection(retainedSubscriptions)
+        pendingObservedObjectContexts = pendingObservedObjectContexts.filter { retainedSubscriptions.contains($0.key) }
+        for token in removedTokens {
+            token.cancel()
         }
     }
 
     private func resetObservedObjects() {
-        let tokens = Array(observedObjectTokens.values)
+        let tokens = observedObjectTokens.values.map(\.token)
         observedObjectTokens.removeAll()
+        manuallyObservedObjectIDs.removeAll()
+        componentHost.observedObjects.removeAll()
         for token in tokens {
             token.cancel()
         }
@@ -3471,7 +3584,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// none of the changed objects are in the host's dependency set, the
     /// rebuild is skipped entirely.
     private func scheduleObservedObjectReload(for changedObjectID: ObjectIdentifier) {
-        guard !hasTornDownWindow else { return }
+        guard !hasTornDownWindow, observedObjectTokens[changedObjectID] != nil else { return }
         pendingChangedObjects.insert(changedObjectID)
         observedObjectChangeSequence &+= 1
         pendingObservedObjectContexts[changedObjectID] = ObservedObjectReloadContext(
@@ -3490,16 +3603,18 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         reloadScheduled = true
         scheduledReloadCount += 1
         onObservedObjectReloadScheduled?(changedObjectID, false)
+        guard !hasTornDownWindow else { return }
 
         // The native GetMessage/DispatchMessage loop does not yield to Swift's
         // main-actor executor. Give the batch a native wake as well as the
         // Task fallback used by hosts running under a cooperative executor.
         syncAnimationDriver(for: window)
+        guard !hasTornDownWindow else { return }
         window.invalidate()
 
         // A live HWND has the wake above. Do not accumulate unserviceable
         // Swift Tasks behind its blocking native message loop.
-        guard window.nativeHandle == nil else { return }
+        guard !hasTornDownWindow, window.nativeHandle == nil else { return }
         Task { @MainActor [weak self] in
             guard let self else {
                 return
@@ -3514,12 +3629,19 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         in window: Win32Window, requestsFrame: Bool, preservingCurrentTransaction: Bool = false
     ) -> Bool {
         guard !hasTornDownWindow, reloadScheduled else { return false }
+        // During construction the committed dependencies still describe the
+        // previous tree. A newer State mutation is the exception: its caller
+        // always queues a full root rebuild, covering the consumed older batch
+        // under that mutation's transaction even if dependency filtering fails.
+        guard !componentHost.isBuilding || preservingCurrentTransaction else { return false }
         reloadScheduled = false
 
         let changedObjects = pendingChangedObjects
         let contexts = pendingObservedObjectContexts
+        let controlInvalidation = pendingControlInvalidationContext
         pendingChangedObjects.removeAll()
         pendingObservedObjectContexts.removeAll()
+        pendingControlInvalidationContext = nil
 
         let observedObjects = componentHost.observedObjects
         let relevantObjects =
@@ -3530,6 +3652,21 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             completedObservedObjectReloadTaskCount += 1
             onObservedObjectReloadTaskCompleted?(false)
             syncAnimationDriver(for: window)
+            if let controlInvalidation,
+                !hasTornDownWindow,
+                controlInvalidation.generation == viewInvalidationGeneration
+            {
+                let previousAnimation = currentAnimationTransaction
+                let previousTransaction = currentTransaction
+                currentAnimationTransaction = controlInvalidation.animation
+                currentTransaction = controlInvalidation.transaction
+                defer {
+                    currentAnimationTransaction = previousAnimation
+                    currentTransaction = previousTransaction
+                }
+                reloadContent(requestsFrame: requestsFrame)
+                return true
+            }
             return false
         }
 

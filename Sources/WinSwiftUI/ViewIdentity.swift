@@ -1,11 +1,12 @@
 import SwiftWindowsCore
 import SwiftWindowsUI
 
-/// Identity carried by one concrete build occurrence. This contains no state
-/// cells or lifetime registry; a later installation stage can use the same path.
+/// Identity and the local installation receipt of one concrete occurrence.
 struct ViewIdentityContext {
     var path = RetainedViewIdentity()
     var currentType: ObjectIdentifier?
+    var installedOwner: StateMountOwner?
+    var installedEpoch: StateMountEpoch?
 }
 
 extension ViewBuildContext {
@@ -18,6 +19,8 @@ extension ViewBuildContext {
         var context = self
         context.viewIdentity.path = viewIdentity.path.appending(.view(identifier))
         context.viewIdentity.currentType = identifier
+        context.viewIdentity.installedOwner = nil
+        context.viewIdentity.installedEpoch = nil
         return context
     }
 
@@ -30,18 +33,122 @@ extension ViewBuildContext {
         var context = self
         context.viewIdentity.path = viewIdentity.path.appending(contentsOf: prefix)
         context.viewIdentity.currentType = nil
+        context.viewIdentity.installedOwner = nil
+        context.viewIdentity.installedEpoch = nil
         return context
     }
 }
 
+/// Known structural containers delegate to concrete occurrences. In particular,
+/// an Optional enum is not itself an independently installed custom view.
+protocol TransparentStateMountView {}
+extension AnyView: TransparentStateMountView {}
+extension Array: TransparentStateMountView where Element == AnyView {}
+extension Optional: TransparentStateMountView where Wrapped: View {}
+
+/// A declared, unevaluated alternative can preserve a previous mount without
+/// running its body. Known modifier chains include their explicit identity.
+@MainActor
+protocol StateMountDeclarationView {
+    func declaredStateMountScopes(context: ViewBuildContext) -> [StateMountDeclarationScope]
+}
+
+extension AnyView: StateMountDeclarationView {}
+
+extension ModifiedView: StateMountDeclarationView {
+    func declaredStateMountScopes(context: ViewBuildContext) -> [StateMountDeclarationScope] {
+        var scopedContext = context.withViewIdentityType(Self.self)
+        var scopes = [
+            StateMountDeclarationScope(prefix: scopedContext.retainedViewIdentity, excluding: .modifierContent)
+        ]
+        if let explicitViewIdentity {
+            scopedContext = scopedContext.withViewIdentityPrefix([.explicit(explicitViewIdentity)])
+            scopes.append(
+                StateMountDeclarationScope(prefix: scopedContext.retainedViewIdentity, excluding: .modifierContent))
+        }
+        return scopes
+            + resolveDeclaredStateMountScopes(
+                of: content, context: scopedContext.withViewIdentityRole(.content))
+    }
+}
+
+extension Optional: StateMountDeclarationView where Wrapped: View {
+    func declaredStateMountScopes(context: ViewBuildContext) -> [StateMountDeclarationScope] {
+        let context = context.withViewIdentityType(Self.self)
+        let scope = StateMountDeclarationScope(prefix: context.retainedViewIdentity, excluding: .conditionalBranches)
+        switch self {
+        case .some(let wrapped):
+            return [scope]
+                + resolveDeclaredStateMountScopes(
+                    of: wrapped, context: context.withViewIdentityPrefix([.branch(true)]))
+        case .none:
+            return [scope]
+        }
+    }
+}
+
+extension _ConditionalContent: StateMountDeclarationView {
+    func declaredStateMountScopes(context: ViewBuildContext) -> [StateMountDeclarationScope] {
+        let context = context.withViewIdentityType(Self.self)
+        let scope = StateMountDeclarationScope(prefix: context.retainedViewIdentity, excluding: .conditionalBranches)
+        switch storage {
+        case .trueContent(let content):
+            return [scope]
+                + resolveDeclaredStateMountScopes(
+                    of: content, context: context.withViewIdentityPrefix([.branch(true)]))
+        case .falseContent(let content):
+            return [scope]
+                + resolveDeclaredStateMountScopes(
+                    of: content, context: context.withViewIdentityPrefix([.branch(false)]))
+        }
+    }
+}
+
+extension Array: StateMountDeclarationView where Element == AnyView {
+    func declaredStateMountScopes(context: ViewBuildContext) -> [StateMountDeclarationScope] {
+        let context = context.withViewIdentityType(Self.self)
+        return [StateMountDeclarationScope(prefix: context.retainedViewIdentity, excluding: .arrayOccurrences)]
+            + viewIdentityOccurrences(self).flatMap { $0.declaredStateMountScopes(context: context) }
+    }
+}
+
+@MainActor
+func resolveDeclaredStateMountScopes<Value: View>(
+    of view: Value, context: ViewBuildContext
+) -> [StateMountDeclarationScope] {
+    let scopedContext = context.withViewIdentityType(Value.self)
+    if Value.self is any StateMountDeclarationView.Type, let declaration = view as? any StateMountDeclarationView {
+        return declaration.declaredStateMountScopes(context: scopedContext)
+    }
+    return [StateMountDeclarationScope(prefix: scopedContext.retainedViewIdentity)]
+}
+
 /// The common typed dispatch point for erased views and ordinary body traversal.
-/// Installation is deliberately not enabled here yet.
 @MainActor
 func makeViewComponent<Value: View>(_ view: Value, context: ViewBuildContext) -> Component {
-    let scopedContext = context.withViewIdentityType(Value.self)
-    let component = ViewBuildContextScope.withCurrent(scopedContext) {
-        view.makeComponent(context: scopedContext)
+    withInstalledViewValue(view, context: context) { installed, scopedContext in
+        installed.makeComponent(context: scopedContext)
     }
+}
+
+@MainActor
+func withInstalledViewValue<Value>(
+    _ source: Value, context: ViewBuildContext,
+    isInstalledDelegate: Bool = false,
+    build: (Value, ViewBuildContext) -> Component
+) -> Component {
+    var scopedContext = context.withViewIdentityType(Value.self)
+    let installed: Value
+    if !(Value.self is any TransparentStateMountView.Type), let coordinator = context.stateMountCoordinator {
+        guard let copy = coordinator.install(source, context: &scopedContext, isInstalledDelegate: isInstalledDelegate)
+        else {
+            return Component { _ in Controls.panel(preferredSize: .zero, isHitTestVisible: false) }
+        }
+        installed = copy
+    } else {
+        installed = source
+    }
+    let component = ViewBuildContextScope.withCurrent(scopedContext) { build(installed, scopedContext) }
     return preservingViewIdentity(of: component, context: scopedContext)
 }
 
@@ -50,7 +157,7 @@ func makeViewComponent<Value: View>(_ view: Value, context: ViewBuildContext) ->
 @MainActor
 func preservingViewIdentity(of component: Component, context: ViewBuildContext) -> Component {
     Component { runtime in
-        let node = component.makeNode(runtime: runtime)
+        let node = ViewBuildContextScope.withCurrent(context) { component.makeNode(runtime: runtime) }
         if node.retainedViewIdentity == nil {
             node.retainedViewIdentity = context.retainedViewIdentity
         }
@@ -78,6 +185,22 @@ extension AnyView {
         content.structuralIdentity = []
         return transform(content).prefixedViewIdentity(structuralIdentity)
     }
+}
+
+extension AnyView: TaggedViewMetadata {
+    var anySelectionTag: AnyHashable? { selectionTag }
+    var anyTabItem: [AnyView]? { tabItem }
+    var anyBadge: [AnyView]? { badge }
+    var anyNavigationTitle: [AnyView]? { navigationTitle }
+    var anyNavigationSubtitle: [AnyView]? { navigationSubtitle }
+    var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? { navigationTitleDisplayMode }
+    var anyNavigationBarBackButtonHidden: Bool? { navigationBarBackButtonHidden }
+    var anyNavigationBarHidden: Bool? { navigationBarHidden }
+    var anyToolbarItemPlacement: ToolbarItemPlacement? { toolbarItemPlacement }
+    var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] {
+        navigationDestinationRegistrations
+    }
+    var anyNavigationPresentedDestinations: [NavigationPresentedDestination] { navigationPresentedDestinations }
 }
 
 /// Distinguish repeated prebuilt fragments without adding a flattened row index

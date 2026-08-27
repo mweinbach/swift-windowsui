@@ -280,6 +280,7 @@ public struct Transaction: Sendable {
 public struct Binding<Value> {
     private let getValue: @MainActor () -> Value
     private let setValue: @MainActor (Value, Transaction) -> Void
+    private var isValidForWrite: @MainActor () -> Bool = { true }
     private var configuredTransaction: Transaction?
     private var inheritsAmbientTransaction = false
 
@@ -309,6 +310,18 @@ public struct Binding<Value> {
         self.setValue = set
     }
 
+    /// A framework-owned location can revoke writes without changing ordinary
+    /// Binding behavior or exposing mounted ownership in application APIs.
+    package init(
+        get: @escaping @MainActor () -> Value,
+        set: @escaping @MainActor (Value) -> Void,
+        isValidForWrite: @escaping @MainActor () -> Bool
+    ) {
+        self.getValue = get
+        self.setValue = { value, _ in set(value) }
+        self.isValidForWrite = isValidForWrite
+    }
+
     public init<Wrapped>(_ base: Binding<Wrapped>) where Value == Wrapped? {
         self.getValue = {
             base.wrappedValue
@@ -321,6 +334,7 @@ public struct Binding<Value> {
         }
         self.configuredTransaction = base.configuredTransaction
         self.inheritsAmbientTransaction = base.inheritsAmbientTransaction
+        self.isValidForWrite = base.isValidForWrite
     }
 
     public init?(_ base: Binding<Value?>) {
@@ -336,6 +350,7 @@ public struct Binding<Value> {
         }
         self.configuredTransaction = base.configuredTransaction
         self.inheritsAmbientTransaction = base.inheritsAmbientTransaction
+        self.isValidForWrite = base.isValidForWrite
     }
 
     public var wrappedValue: Value {
@@ -343,6 +358,7 @@ public struct Binding<Value> {
             getValue()
         }
         nonmutating set {
+            guard isValidForWrite() else { return }
             let inherited =
                 TransactionContext.current
                 ?? TransactionContext.animation.map {
@@ -383,6 +399,7 @@ public struct Binding<Value> {
         )
         binding.configuredTransaction = configuredTransaction
         binding.inheritsAmbientTransaction = inheritsAmbientTransaction
+        binding.isValidForWrite = isValidForWrite
         return binding
     }
 
@@ -400,6 +417,7 @@ public struct Binding<Value> {
         )
         binding.configuredTransaction = configuredTransaction
         binding.inheritsAmbientTransaction = inheritsAmbientTransaction
+        binding.isValidForWrite = isValidForWrite
         return binding
     }
 

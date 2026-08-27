@@ -9,6 +9,34 @@ public final class ComponentHost {
     private var buildComponents: (() -> [Component])?
     private var isProcessingFileDialog = false
     private var needsFileDialogProcessing = false
+    private struct ReloadRequest {
+        let transaction: RetainedBuildTransaction
+        let validity: (any RetainedBuildRequest)?
+        let onCompleted: (() -> Void)?
+    }
+
+    /// Optional state ownership supplied by the composition layer. Raw
+    /// ComponentHost clients keep their existing path when this is absent.
+    public var buildLifecycle: (any RetainedBuildLifecycle)?
+
+    /// True while an installed lifecycle builds a root or deferred subtree,
+    /// including terminal callbacks and request completion. Reentry queues.
+    public var isBuilding: Bool { runtime.hasActiveRetainedBuild }
+
+    /// Invoked only after a root was adopted and its terminal callbacks have
+    /// drained. A rejected or obsolete request does not complete.
+    public var onReloadCompleted: (() -> Void)?
+
+    /// Measures one synchronous construction/adoption attempt. Waiting for
+    /// an enclosing callback scope, deferred epoch cleanup, and completion
+    /// callbacks are outside this boundary and must not become extra builds.
+    /// The hook must invoke its supplied body exactly once, synchronously.
+    public var measureBuild: ((() -> Void) -> Void)?
+
+    /// Measures deferred epoch cleanup without adding another build attempt
+    /// or changing the completed attempt's compose/node/reconcile timings.
+    /// The hook must invoke its supplied body exactly once, synchronously.
+    public var measureBuildCleanup: ((() -> Void) -> Void)?
 
     /// False until this host has produced a tree. The first tree is the
     /// window's initial state, not an insertion into it, so nothing in it
@@ -55,33 +83,149 @@ public final class ComponentHost {
     }
 
     public func reload() {
+        reload(onCompleted: nil)
+    }
+
+    /// A completion belongs to this request and its captured transaction,
+    /// including when a callback queues it behind a root or geometry build.
+    /// Requests whose captured revision becomes obsolete are skipped. Other
+    /// requests keep their order, even when a fallback rebuild is unchanged.
+    public func reload(onCompleted: (() -> Void)?) {
+        if buildLifecycle == nil, !runtime.hasActiveRetainedBuild {
+            performUnmanagedReload(onCompleted: onCompleted)
+            return
+        }
+        let request = ReloadRequest(
+            transaction: RetainedBuildTransaction(), validity: buildLifecycle?.captureBuildRequest(),
+            onCompleted: onCompleted)
+        runtime.retainedBuildCoordinator.scheduleReload { [weak self] in
+            self?.performReload(request)
+        }
+    }
+
+    private func performUnmanagedReload(onCompleted: (() -> Void)?) {
         if let shouldUpdate, !shouldUpdate() {
             return
         }
-
+        let transaction = RetainedBuildTransaction()
         runtime.beginLongPressReconciliation()
-        defer { runtime.endLongPressReconciliation() }
+        measureBuildAttempt {
+            _ = buildAndAdopt(epoch: nil, sequence: nil, validity: nil)
+            runtime.endLongPressReconciliation()
+        }
+        guard onReloadCompleted != nil || onCompleted != nil else { return }
+        runtime.afterRetainedCallbacks { [self] in
+            transaction.perform {
+                onReloadCompleted?()
+                onCompleted?()
+            }
+        }
+    }
 
-        guard let buildComponents else {
-            runtime.root.removeAllChildren()
+    private func performReload(_ request: ReloadRequest) {
+        guard request.validity?.isCurrent != false else {
+            resetBuildTimings()
             return
         }
+        request.transaction.perform {
+            let coordinator = runtime.retainedBuildCoordinator
+            guard let sequence = coordinator.beginBuild() else { return }
+            if let shouldUpdate, !shouldUpdate() {
+                coordinator.finishBuild()
+                return
+            }
+            guard request.validity?.isCurrent != false else {
+                resetBuildTimings()
+                coordinator.finishBuild()
+                return
+            }
+            let lifecycle = buildLifecycle
+            var epoch: (any RetainedBuildEpoch)?
+            var didAdopt = false
+            measureBuildAttempt {
+                epoch = lifecycle?.beginBuild()
+                coordinator.install(epoch, startedAt: sequence)
+                runtime.beginLongPressReconciliation()
+                didAdopt =
+                    (lifecycle == nil || epoch != nil)
+                    && buildAndAdopt(epoch: epoch, sequence: sequence, validity: request.validity)
+                if didAdopt {
+                    epoch?.commit()
+                } else {
+                    epoch?.abandon()
+                }
+                runtime.endLongPressReconciliation()
+            }
+            runtime.afterRetainedCallbacks { [self] in
+                request.transaction.perform {
+                    if let epoch {
+                        if let measureBuildCleanup {
+                            measureBuildCleanup { epoch.finishAfterCallbacks() }
+                        } else {
+                            epoch.finishAfterCallbacks()
+                        }
+                    }
+                    if didAdopt, epoch?.canComplete != false {
+                        onReloadCompleted?()
+                        if epoch?.canComplete != false { request.onCompleted?() }
+                    }
+                }
+                coordinator.finishBuild()
+            }
+        }
+    }
 
+    private func measureBuildAttempt(_ build: () -> Void) {
+        resetBuildTimings()
+        if let measureBuild {
+            measureBuild(build)
+        } else {
+            build()
+        }
+    }
+
+    private func resetBuildTimings() {
+        lastComposeSeconds = 0
+        lastNodeConstructionSeconds = 0
+        lastReconcileSeconds = 0
+    }
+
+    private func candidateCanAdopt(
+        epoch: (any RetainedBuildEpoch)?, sequence: UInt64?, validity: (any RetainedBuildRequest)?
+    ) -> Bool {
+        guard epoch?.canAdopt != false, validity?.isCurrent != false else { return false }
+        if let sequence, runtime.retainedBuildCoordinator.wasSuperseded(since: sequence) { return false }
+        return true
+    }
+
+    private func buildAndAdopt(
+        epoch: (any RetainedBuildEpoch)?, sequence: UInt64?, validity: (any RetainedBuildRequest)?
+    ) -> Bool {
+        if buildComponents == nil, epoch == nil, sequence == nil {
+            runtime.root.removeAllChildren()
+            return true
+        }
+        guard candidateCanAdopt(epoch: epoch, sequence: sequence, validity: validity) else { return false }
         runtime.recordMatchedGeometryFrames()
 
         let isProfiling = runtime.collectsPhaseTimings
         let reloadStartedAt = isProfiling ? PlatformClock.now() : 0
 
         let oldChildren = runtime.root.children
-        let components = buildComponents()
+        let components = buildComponents?() ?? []
         let composeEndedAt = isProfiling ? PlatformClock.now() : 0
+        if isProfiling { lastComposeSeconds = composeEndedAt - reloadStartedAt }
+        guard candidateCanAdopt(epoch: epoch, sequence: sequence, validity: validity) else { return false }
         let newNodes = components.map { $0.makeNode(runtime: runtime) }
         let nodesEndedAt = isProfiling ? PlatformClock.now() : 0
+        if isProfiling { lastNodeConstructionSeconds = nodesEndedAt - composeEndedAt }
+
+        guard candidateCanAdopt(epoch: epoch, sequence: sequence, validity: validity) else { return false }
+        guard epoch?.willAdopt() != false else { return false }
+        guard validity?.isCurrent != false else { return false }
 
         Self.reconcileChildren(of: runtime.root, oldChildren: oldChildren, newNodes: newNodes)
         if isProfiling {
-            lastComposeSeconds = composeEndedAt - reloadStartedAt
-            lastNodeConstructionSeconds = nodesEndedAt - composeEndedAt
             lastReconcileSeconds = PlatformClock.now() - nodesEndedAt
         }
         if hasPerformedInitialBuild {
@@ -103,6 +247,7 @@ public final class ComponentHost {
         // pointer leaves and comes back.
         runtime.restoreInteractionChrome()
         runtime.pendingMatchedGeometryCheck = true
+        return true
     }
 
     /// Scans the view tree for active file-dialog configurations and presents
@@ -1257,6 +1402,9 @@ public final class ComponentHost {
         if target.nodeTag != source.nodeTag { target.nodeTag = source.nodeTag }
         if target.retainedViewIdentity != source.retainedViewIdentity {
             target.retainedViewIdentity = source.retainedViewIdentity
+        }
+        if target.retainedSubtreeBuildLease != nil || source.retainedSubtreeBuildLease != nil {
+            target.retainedSubtreeBuildLease = source.retainedSubtreeBuildLease
         }
         let targetLayoutTag = layoutModeTag(target.layoutMode)
         let sourceLayoutTag = layoutModeTag(source.layoutMode)

@@ -1726,6 +1726,7 @@ private final class ViewNodeLifecycleHandlers {
     var disappear: (() -> Void)?
     var sizeChange: ((Rect) -> Void)?
     var geometryReaderBuild: ((RetainedViewRuntime, Size) -> [ViewNode])?
+    var retainedSubtreeBuildLease: (any RetainedSubtreeBuildLease)?
 }
 
 /// Chart compatibility modifiers are rare on retained nodes, but their
@@ -3504,6 +3505,13 @@ public final class ViewNode {
     public var geometryReaderBuild: ((RetainedViewRuntime, Size) -> [ViewNode])? {
         get { lifecycleHandlers?.geometryReaderBuild }
         set { setLifecycleHandler(newValue, at: \.geometryReaderBuild) }
+    }
+
+    /// Ownership of this deferred subtree's captured generation. Adoption
+    /// copies this metadata without retiring an owner that survives the build.
+    public var retainedSubtreeBuildLease: (any RetainedSubtreeBuildLease)? {
+        get { lifecycleHandlers?.retainedSubtreeBuildLease }
+        set { setLifecycleHandler(newValue, at: \.retainedSubtreeBuildLease) }
     }
 
     /// The slot size `children` were last built against. `nil` on a node that
@@ -9122,6 +9130,18 @@ public final class RetainedViewRuntime {
     private var longPressAttempt: LongPressAttempt?
     private var longPressReconciliationDepth = 0
     private var pendingLongPressCallbacks: [@MainActor () -> Void] = []
+    private var isDrainingReconciliationCallbacks = false
+    private var pendingRetainedBuildCompletions: [@MainActor () -> Void] = []
+    private var retainedBuildCoordinatorStorage: RetainedBuildCoordinator?
+
+    var hasActiveRetainedBuild: Bool { retainedBuildCoordinatorStorage?.isBuilding == true }
+
+    var retainedBuildCoordinator: RetainedBuildCoordinator {
+        if let retainedBuildCoordinatorStorage { return retainedBuildCoordinatorStorage }
+        let coordinator = RetainedBuildCoordinator()
+        retainedBuildCoordinatorStorage = coordinator
+        return coordinator
+    }
     /// Callback code may synchronously begin another pointer sequence. Older
     /// release/cancellation work must not clear that new sequence's state.
     private var pointerSequence: UInt64 = 0
@@ -10781,20 +10801,37 @@ public final class RetainedViewRuntime {
 
     func endLongPressReconciliation() {
         longPressReconciliationDepth -= 1
-        guard longPressReconciliationDepth == 0, !pendingLongPressCallbacks.isEmpty else { return }
-        let callbacks = pendingLongPressCallbacks
-        pendingLongPressCallbacks.removeAll(keepingCapacity: true)
-        for callback in callbacks {
-            callback()
+        drainReconciliationCallbacks()
+    }
+
+    /// Finishing a build is distinct from ending one nested gesture scope.
+    /// In particular, a terminal callback can enqueue another reconciliation
+    /// without allowing it to finish the still-running outer callback batch.
+    func afterRetainedCallbacks(_ completion: @escaping @MainActor () -> Void) {
+        pendingRetainedBuildCompletions.append(completion)
+        drainReconciliationCallbacks()
+    }
+
+    private func drainReconciliationCallbacks() {
+        guard longPressReconciliationDepth == 0, !isDrainingReconciliationCallbacks else { return }
+        isDrainingReconciliationCallbacks = true
+        defer { isDrainingReconciliationCallbacks = false }
+        while longPressReconciliationDepth == 0 {
+            if !pendingLongPressCallbacks.isEmpty {
+                let callbacks = pendingLongPressCallbacks
+                pendingLongPressCallbacks.removeAll(keepingCapacity: true)
+                for callback in callbacks { callback() }
+                continue
+            }
+            guard !pendingRetainedBuildCompletions.isEmpty else { return }
+            let completion = pendingRetainedBuildCompletions.removeFirst()
+            completion()
         }
     }
 
     private func performLongPressCallback(_ callback: @escaping @MainActor () -> Void) {
-        if longPressReconciliationDepth > 0 {
-            pendingLongPressCallbacks.append(callback)
-        } else {
-            callback()
-        }
+        pendingLongPressCallbacks.append(callback)
+        drainReconciliationCallbacks()
     }
 
     fileprivate func cancelLongPress(in subtree: ViewNode) {
@@ -12495,23 +12532,70 @@ public final class RetainedViewRuntime {
                 continue
             }
 
-            guard let rebuilt = build(self, slot).first else {
-                continue
+            if let lease = node.retainedSubtreeBuildLease {
+                if rebuildManagedGeometryReader(node, slot: slot, build: build, lease: lease) {
+                    didRebuild = true
+                }
+            } else {
+                guard let rebuilt = build(self, slot).first else { continue }
+                beginLongPressReconciliation()
+                adoptGeometryReader(rebuilt, into: node, slot: slot)
+                didRebuild = true
+                endLongPressReconciliation()
             }
-
-            beginLongPressReconciliation()
-            ComponentHost.adopt(source: rebuilt, into: node)
-            // Belt and braces: `adopt` copies the rebuilt node's own record
-            // of what it was built from, and this is the same value. Setting
-            // it explicitly means a reader whose rebuild path ever stops
-            // carrying that record still terminates.
-            node.geometryReaderBuiltSize = slot
-            geometryReaderResolveCount &+= 1
-            didRebuild = true
-            endLongPressReconciliation()
         }
 
         return didRebuild
+    }
+
+    private func rebuildManagedGeometryReader(
+        _ node: ViewNode, slot: Size, build: (RetainedViewRuntime, Size) -> [ViewNode],
+        lease: any RetainedSubtreeBuildLease
+    ) -> Bool {
+        guard lease.canBuild else { return false }
+        let coordinator = retainedBuildCoordinator
+        let parent = node.parent
+        guard let sequence = coordinator.beginBuild() else {
+            coordinator.scheduleWhenIdle(for: node) { [weak self, weak node, weak parent] in
+                guard let self, let node, node.runtime === self, node.parent === parent,
+                    node.retainedSubtreeBuildLease === lease, lease.canBuild
+                else { return }
+                node.markDirty(.layout)
+                self.invalidate(.layout, from: node)
+            }
+            return false
+        }
+        let transaction = RetainedBuildTransaction()
+        let epoch = lease.beginBuild()
+        coordinator.install(epoch, startedAt: sequence)
+        beginLongPressReconciliation()
+
+        var didAdopt = false
+        if let epoch, epoch.canAdopt, let rebuilt = build(self, slot).first,
+            node.runtime === self, node.parent === parent, node.retainedSubtreeBuildLease === lease,
+            lease.canBuild, epoch.canAdopt, !coordinator.wasSuperseded(since: sequence), epoch.willAdopt()
+        {
+            adoptGeometryReader(rebuilt, into: node, slot: slot)
+            didAdopt = true
+            epoch.commit()
+        } else {
+            epoch?.abandon()
+        }
+
+        endLongPressReconciliation()
+        afterRetainedCallbacks {
+            transaction.perform { epoch?.finishAfterCallbacks() }
+            coordinator.finishBuild()
+        }
+        return didAdopt
+    }
+
+    private func adoptGeometryReader(_ rebuilt: ViewNode, into node: ViewNode, slot: Size) {
+        ComponentHost.adopt(source: rebuilt, into: node)
+        // The builder and its resolved size travel together during adoption.
+        // This explicit assignment also bounds convergence for custom readers.
+        node.geometryReaderBuiltSize = slot
+        geometryReaderResolveCount &+= 1
     }
 
     private func updatePrepaintState() {

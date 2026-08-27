@@ -7255,33 +7255,47 @@ public struct State<Value>: DynamicProperty {
         }
     }
 
-    private let storage: Storage
+    private let seed: Storage
+    private var mountedCell: MountedStateCell<Value>?
 
     public init(wrappedValue: Value) {
-        self.storage = Storage(value: wrappedValue)
+        self.seed = Storage(value: wrappedValue)
     }
 
     public init(initialValue: Value) {
-        self.storage = Storage(value: initialValue)
+        self.seed = Storage(value: initialValue)
     }
 
     public var wrappedValue: Value {
         get {
-            if let context = ViewBuildContextScope.current {
-                storage.invalidate = {
+            if let mountedCell { return mountedCell.readValue() }
+            if let context = ViewBuildContextScope.current, context.stateMountCoordinator == nil {
+                seed.invalidate = {
                     context.invalidateStateMutation()
                 }
             }
-            return storage.value
+            return seed.value
         }
         nonmutating set {
-            storage.value = newValue
-            storage.invalidate?()
+            if let mountedCell {
+                mountedCell.write(newValue)
+            } else {
+                seed.value = newValue
+                seed.invalidate?()
+            }
         }
     }
 
     public var projectedValue: Binding<Value> {
-        Binding(
+        if let mountedCell {
+            // A projection captures only its installed location, not the
+            // source seed or a mutable lookup into a replacement generation.
+            return Binding(
+                get: { mountedCell.readValue() },
+                set: { mountedCell.write($0) },
+                isValidForWrite: { mountedCell.isWritable })
+        }
+        return Binding(
             get: {
                 wrappedValue
             },
@@ -7289,6 +7303,16 @@ public struct State<Value>: DynamicProperty {
                 wrappedValue = newValue
             }
         )
+    }
+}
+extension State: MountedDynamicProperty {
+    mutating func install(in owner: StateMountOwner, at slot: StatePropertySlot) {
+        mountedCell = owner.resolve(at: slot, seed: { seed.value })
+    }
+
+    func isInstalled(in owner: StateMountOwner, at slot: StatePropertySlot) -> Bool {
+        guard let mountedCell else { return false }
+        return owner.isInstalled(cell: mountedCell, at: slot)
     }
 }
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
@@ -8431,6 +8455,7 @@ public struct ViewBuildContext {
     typealias NavigationDestinationPushHandler = @MainActor ([AnyView], NavigationDestinationDismissHandler?) -> Void
 
     var viewIdentity: ViewIdentityContext
+    let stateMountCoordinator: StateMountCoordinator?
 
     private let canvasSizeProvider: () -> Size
     private let invalidateHandler: () -> Void
@@ -9122,6 +9147,7 @@ public struct ViewBuildContext {
 
     init(
         viewIdentity: ViewIdentityContext = ViewIdentityContext(),
+        stateMountCoordinator: StateMountCoordinator? = nil,
         canvasSizeProvider: @escaping () -> Size,
         invalidateHandler: @escaping () -> Void,
         stateMutationInvalidationHandler: (() -> Void)? = nil,
@@ -9179,6 +9205,7 @@ public struct ViewBuildContext {
         self.navigationDestinationRegistrationsProvider = navigationDestinationRegistrationsProvider
         self.navigationPresentedDestinationsProvider = navigationPresentedDestinationsProvider
         self.viewIdentity = viewIdentity
+        self.stateMountCoordinator = stateMountCoordinator
     }
 
     /// The ambient tint every control resolves its accent from. Tracks
@@ -9199,7 +9226,11 @@ public struct ViewBuildContext {
     }
 
     func observe(_ object: any ObservableObject) {
-        observedObjectHandler(object)
+        if let stateMountCoordinator {
+            stateMountCoordinator.observe(object, at: viewIdentity.installedOwner?.identity ?? retainedViewIdentity)
+        } else {
+            observedObjectHandler(object)
+        }
     }
 
     func pushNavigationDestination(
@@ -9234,6 +9265,7 @@ public struct ViewBuildContext {
         let clamped = Size(width: max(0, size.width), height: max(0, size.height))
         return ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: { clamped },
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9265,6 +9297,7 @@ public struct ViewBuildContext {
     func withEnabled(_ isEnabled: Bool) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9298,6 +9331,7 @@ public struct ViewBuildContext {
     func withForegroundColor(_ color: Color) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9334,6 +9368,7 @@ public struct ViewBuildContext {
     func withTint(_ tint: Color) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9370,6 +9405,7 @@ public struct ViewBuildContext {
     func withFont(_ font: Font?) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9405,6 +9441,7 @@ public struct ViewBuildContext {
     func withFontDesign(_ design: Font.Design?) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9436,6 +9473,7 @@ public struct ViewBuildContext {
     func withFontWidth(_ width: Font.Width?) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9471,6 +9509,7 @@ public struct ViewBuildContext {
     func withFontWeight(_ weight: Font.Weight?) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9502,6 +9541,7 @@ public struct ViewBuildContext {
     func withTextAlignment(_ alignment: TextAlignment) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9541,6 +9581,7 @@ public struct ViewBuildContext {
     ) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9578,6 +9619,7 @@ public struct ViewBuildContext {
     func withTruncationMode(_ mode: Text.TruncationMode?) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9613,6 +9655,7 @@ public struct ViewBuildContext {
     func withAllowsTightening(_ allowsTightening: Bool) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9648,6 +9691,7 @@ public struct ViewBuildContext {
     func withTextCase(_ textCase: Text.Case?) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9683,6 +9727,7 @@ public struct ViewBuildContext {
     func withLabelsHidden(_ labelsHidden: Bool) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9714,6 +9759,7 @@ public struct ViewBuildContext {
     func withControlSize(_ controlSize: ControlSize) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9749,6 +9795,7 @@ public struct ViewBuildContext {
     func withStackAxis(_ axis: StackAxis?) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9780,6 +9827,7 @@ public struct ViewBuildContext {
     func withButtonStyle(_ buttonStyle: ButtonStyle) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9815,6 +9863,7 @@ public struct ViewBuildContext {
     func withPickerStyle(_ pickerStyle: PickerStyle) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9852,6 +9901,7 @@ public struct ViewBuildContext {
     {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9888,6 +9938,7 @@ public struct ViewBuildContext {
     func withEnvironmentValues(_ values: EnvironmentValues) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9922,6 +9973,7 @@ public struct ViewBuildContext {
     ) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9977,6 +10029,7 @@ public struct ViewBuildContext {
     func withNavigationDestinationHandler(_ handler: @escaping NavigationDestinationPushHandler) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -10008,6 +10061,7 @@ public struct ViewBuildContext {
     func withNavigationValueHandler(_ handler: @escaping (AnyHashable) -> Bool) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -10039,6 +10093,7 @@ public struct ViewBuildContext {
     func withNavigationDestinationRegistration(_ registration: NavigationDestinationRegistration) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -10072,6 +10127,7 @@ public struct ViewBuildContext {
     func withNavigationPresentedDestination(_ destination: NavigationPresentedDestination) -> ViewBuildContext {
         ViewBuildContext(
             viewIdentity: viewIdentity,
+            stateMountCoordinator: stateMountCoordinator,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -10112,9 +10168,8 @@ public protocol View {
 }
 extension View {
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let scopedContext = context.withViewIdentityType(Self.self)
-        return ViewBuildContextScope.withCurrent(scopedContext) {
-            makeViewComponent(body, context: scopedContext.withViewIdentityRole(.body))
+        withInstalledViewValue(self, context: context, isInstalledDelegate: true) { installed, scopedContext in
+            makeViewComponent(installed.body, context: scopedContext.withViewIdentityRole(.body))
         }
     }
 
@@ -10189,7 +10244,7 @@ public struct ViewModifierContent: View, TaggedViewMetadata {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        content.makeComponent(context: context)
+        makeViewComponent(content, context: context)
     }
 }
 @MainActor
@@ -10251,7 +10306,7 @@ public struct PlaceholderContentView<Content: View>: View, TaggedViewMetadata {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        content.makeComponent(context: context)
+        makeViewComponent(content, context: context)
     }
 }
 @MainActor
@@ -10317,10 +10372,10 @@ public struct ModifiedContent<Content: View, Modifier: ViewModifier>: View, Tagg
     public func makeComponent(context: ViewBuildContext) -> Component {
         let modifierContext = context.withViewIdentityType(Self.self)
             .withViewIdentityRole(.modifier).withViewIdentityType(Modifier.self)
-        return ViewBuildContextScope.withCurrent(modifierContext) {
+        return withInstalledViewValue(modifier, context: modifierContext) { installed, scopedContext in
             makeViewComponent(
-                modifier.body(content: ViewModifierContent(content)),
-                context: modifierContext.withViewIdentityRole(.modifierBody)
+                installed.body(content: ViewModifierContent(content)),
+                context: scopedContext.withViewIdentityRole(.modifierBody)
             )
         }
     }
@@ -10384,7 +10439,7 @@ public struct EquatableView<Content: View & Equatable>: View, TaggedViewMetadata
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        content.makeComponent(context: context)
+        makeViewComponent(content, context: context)
     }
 }
 @MainActor
@@ -10688,6 +10743,7 @@ public struct AnyView: View {
     public typealias Body = Never
 
     private let buildComponent: (ViewBuildContext) -> Component
+    private let stateMountDeclarations: (ViewBuildContext) -> [StateMountDeclarationScope]
     var structuralIdentity: [RetainedViewIdentity.Segment] = []
     let selectionTag: AnyHashable?
     let tabItem: [AnyView]?
@@ -10703,7 +10759,7 @@ public struct AnyView: View {
     let swipeActions: [RetainedSwipeAction]
 
     public init<V: View>(_ view: V) {
-        if let erased = view as? AnyView {
+        if V.self == AnyView.self, let erased = view as? AnyView {
             self = erased
             return
         }
@@ -10724,6 +10780,9 @@ public struct AnyView: View {
         self.buildComponent = { context in
             makeViewComponent(view, context: context)
         }
+        self.stateMountDeclarations = { context in
+            resolveDeclaredStateMountScopes(of: view, context: context)
+        }
     }
 
     public var body: Never {
@@ -10732,6 +10791,10 @@ public struct AnyView: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         buildComponent(context.withViewIdentityPrefix(structuralIdentity))
+    }
+
+    func declaredStateMountScopes(context: ViewBuildContext) -> [StateMountDeclarationScope] {
+        stateMountDeclarations(context.withViewIdentityPrefix(structuralIdentity))
     }
 }
 extension Array: View where Element == AnyView {
@@ -17667,7 +17730,9 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
     typealias Body = Never
 
     let content: Content
-    let transform: (Content, ViewBuildContext) -> Component
+    // Keep the authored Content type in structural identity, but dispatch its
+    // local installation only after a modifier has transformed the context.
+    let transform: (AnyView, ViewBuildContext) -> Component
 
     /// Optional stable identity for the modified view, propagated to the
     /// resulting ViewNode so the diffing algorithm can match nodes across
@@ -17742,7 +17807,7 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
             scopedContext = scopedContext.withViewIdentityPrefix([.explicit(explicitViewIdentity)])
         }
         let contentContext = scopedContext.withViewIdentityRole(.content).withViewIdentityType(Content.self)
-        let inner = preservingViewIdentity(of: transform(content, contentContext), context: scopedContext)
+        let inner = preservingViewIdentity(of: transform(AnyView(content), contentContext), context: scopedContext)
         guard let id else {
             return inner
         }
@@ -17869,7 +17934,7 @@ struct TaggedView<Content: View, Tag: Hashable>: View, TaggedViewMetadata {
     }
 
     func makeComponent(context: ViewBuildContext) -> Component {
-        content.makeComponent(context: context)
+        makeViewComponent(content, context: context)
     }
 }
 @MainActor
@@ -27839,7 +27904,7 @@ extension View {
     public func accessibilityRepresentation<V: View>(@ViewBuilder _ representation: () -> V) -> some View {
         let view = representation()
         return ModifiedView(content: self) { content, context in
-            let repComponents = view.makeComponent(context: context)
+            let repComponents = makeViewComponent(view, context: context.withViewIdentityRole(.label))
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
@@ -28912,7 +28977,7 @@ extension View {
             }
 
             let base = content.makeComponent(context: context)
-            let background = view.makeComponent(context: context)
+            let background = makeViewComponent(view, context: context.withViewIdentityRole(.background))
             return Component { runtime in
                 let backgroundNode = background.makeNode(runtime: runtime)
                 let baseNode = base.makeNode(runtime: runtime)

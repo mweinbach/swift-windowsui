@@ -439,7 +439,8 @@ public final class ComponentHost {
     /// destination starts from the value that is currently on screen.
     private static func reconciledAnimatedValue(
         _ property: AnimatableProperty, current: Double, proposed: Double,
-        target: ViewNode, source: ViewNode, transaction: AnimationTransaction?, animationsDisabled: Bool
+        target: ViewNode, source: ViewNode, transaction: AnimationTransaction?,
+        startTime: inout Double?, animationsDisabled: Bool
     ) -> Double {
         let existing = target.animationStates[property]
         if animationsDisabled {
@@ -469,8 +470,10 @@ public final class ComponentHost {
             if existing != nil { target.animationStates.removeValue(forKey: property) }
             return proposed
         }
+        let timestamp = startTime ?? target.animationClockNow
+        startTime = timestamp
         target.animationStates[property] = AnimationState(
-            startValue: current, endValue: proposed, startTime: target.animationClockNow,
+            startValue: current, endValue: proposed, startTime: timestamp,
             duration: animation.duration, easing: animation.easing)
         return current
     }
@@ -482,6 +485,9 @@ public final class ComponentHost {
         let oldOpacity = target.opacity
         let oldBackgroundColor = target.backgroundColor
         let oldBackgroundGradient = target.backgroundGradient
+        // One change must not start width, height or transforms on slightly
+        // different clocks. Sample lazily so static nodes incur no clock read.
+        var animationStartTime: Double? = nil
         // Assignments below are guarded on *emptiness* rather than equality
         // wherever the property is heap-backed, carries a `didSet`, or both.
         //
@@ -521,18 +527,22 @@ public final class ComponentHost {
                 x: reconciledAnimatedValue(
                     .frameOriginX, current: oldFrame.origin.x, proposed: source.frame.origin.x,
                     target: target, source: source, transaction: reconcileTransaction,
+                    startTime: &animationStartTime,
                     animationsDisabled: animationsDisabled),
                 y: reconciledAnimatedValue(
                     .frameOriginY, current: oldFrame.origin.y, proposed: source.frame.origin.y,
                     target: target, source: source, transaction: reconcileTransaction,
+                    startTime: &animationStartTime,
                     animationsDisabled: animationsDisabled),
                 width: reconciledAnimatedValue(
                     .frameWidth, current: oldFrame.size.width, proposed: source.frame.size.width,
                     target: target, source: source, transaction: reconcileTransaction,
+                    startTime: &animationStartTime,
                     animationsDisabled: animationsDisabled),
                 height: reconciledAnimatedValue(
                     .frameHeight, current: oldFrame.size.height, proposed: source.frame.size.height,
                     target: target, source: source, transaction: reconcileTransaction,
+                    startTime: &animationStartTime,
                     animationsDisabled: animationsDisabled)
             )
             if target.frame != nextFrame { target.frame = nextFrame }
@@ -572,11 +582,13 @@ public final class ComponentHost {
                 width: reconciledAnimatedValue(
                     .preferredWidth, current: oldSize.width, proposed: proposedSize.width,
                     target: target, source: source, transaction: reconcileTransaction,
+                    startTime: &animationStartTime,
                     animationsDisabled: animationsDisabled || oldSize.width <= 0 || proposedSize.width <= 0
                         || !oldSize.width.isFinite || !proposedSize.width.isFinite),
                 height: reconciledAnimatedValue(
                     .preferredHeight, current: oldSize.height, proposed: proposedSize.height,
                     target: target, source: source, transaction: reconcileTransaction,
+                    startTime: &animationStartTime,
                     animationsDisabled: animationsDisabled || oldSize.height <= 0 || proposedSize.height <= 0
                         || !oldSize.height.isFinite || !proposedSize.height.isFinite)
             )
@@ -611,6 +623,7 @@ public final class ComponentHost {
             let nextOpacity = reconciledAnimatedValue(
                 .opacity, current: oldOpacity, proposed: source.opacity,
                 target: target, source: source, transaction: reconcileTransaction,
+                startTime: &animationStartTime,
                 animationsDisabled: animationsDisabled)
             if target.opacity != nextOpacity { target.opacity = nextOpacity }
         }
@@ -783,22 +796,27 @@ public final class ComponentHost {
                 translationX: reconciledAnimatedValue(
                     .transformTranslationX, current: oldTransform.translationX, proposed: source.transform.translationX,
                     target: target, source: source, transaction: reconcileTransaction,
+                    startTime: &animationStartTime,
                     animationsDisabled: animationsDisabled),
                 translationY: reconciledAnimatedValue(
                     .transformTranslationY, current: oldTransform.translationY, proposed: source.transform.translationY,
                     target: target, source: source, transaction: reconcileTransaction,
+                    startTime: &animationStartTime,
                     animationsDisabled: animationsDisabled),
                 scaleX: reconciledAnimatedValue(
                     .transformScaleX, current: oldTransform.scaleX, proposed: source.transform.scaleX,
                     target: target, source: source, transaction: reconcileTransaction,
+                    startTime: &animationStartTime,
                     animationsDisabled: animationsDisabled),
                 scaleY: reconciledAnimatedValue(
                     .transformScaleY, current: oldTransform.scaleY, proposed: source.transform.scaleY,
                     target: target, source: source, transaction: reconcileTransaction,
+                    startTime: &animationStartTime,
                     animationsDisabled: animationsDisabled),
                 rotation: reconciledAnimatedValue(
                     .transformRotation, current: oldTransform.rotation, proposed: source.transform.rotation,
                     target: target, source: source, transaction: reconcileTransaction,
+                    startTime: &animationStartTime,
                     animationsDisabled: animationsDisabled),
                 skewX: source.transform.skewX,
                 skewY: source.transform.skewY

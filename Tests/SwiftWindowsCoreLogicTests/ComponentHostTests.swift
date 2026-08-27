@@ -803,6 +803,13 @@ final class ComponentHostTests: XCTestCase {
     func testReloadAnimatesFrameChangesWhenAnimationStateIsPresent() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())
+            let clock = RuntimeTestClock()
+            clock.now = 10
+            runtime.clock = {
+                let timestamp = clock.now
+                clock.now += 0.01
+                return timestamp
+            }
             let host = ComponentHost(runtime: runtime)
             var frame = Rect(origin: .zero, size: Size(width: 20, height: 20))
 
@@ -841,6 +848,9 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.animationStates[.frameHeight]?.startValue, 20)
 
             let startTime = reusedNode?.animationStates[.frameWidth]?.startTime ?? 0
+            XCTAssertEqual(
+                reusedNode?.animationStates[.frameHeight]?.startTime, startTime,
+                "One frame change must keep both dimensions on the same timeline even when clock reads advance")
             _ = runtime.tickAnimations(at: startTime + 0.5)
 
             XCTAssertEqual(reusedNode?.frame.size, Size(width: 30, height: 30))

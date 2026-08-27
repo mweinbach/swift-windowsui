@@ -200,6 +200,9 @@ public struct RetainedFileExporterConfiguration {
     public var isPresented: Binding<Bool>
     public var document: Any?
     public var documents: [Any]?
+    /// Supplies regular-file bytes for the accepted destination without exposing
+    /// a facade document or file-wrapper type to the retained runtime.
+    public var dataProvider: (@MainActor (URL) throws -> Data)?
     public var contentType: UTType
     public var defaultFilename: String?
     public var onCompletion: (Result<URL, Error>) -> Void
@@ -208,6 +211,7 @@ public struct RetainedFileExporterConfiguration {
         isPresented: Binding<Bool>,
         document: Any? = nil,
         documents: [Any]? = nil,
+        dataProvider: (@MainActor (URL) throws -> Data)? = nil,
         contentType: UTType,
         defaultFilename: String? = nil,
         onCompletion: @escaping (Result<URL, Error>) -> Void
@@ -215,6 +219,7 @@ public struct RetainedFileExporterConfiguration {
         self.isPresented = isPresented
         self.document = document
         self.documents = documents
+        self.dataProvider = dataProvider
         self.contentType = contentType
         self.defaultFilename = defaultFilename
         self.onCompletion = onCompletion

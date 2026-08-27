@@ -207,8 +207,12 @@ public protocol FileDocument {
     associatedtype ReadConfiguration = FileDocumentReadConfiguration
     associatedtype WriteConfiguration = FileDocumentWriteConfiguration
     static var readableContentTypes: [UTType] { get }
+    static var writableContentTypes: [UTType] { get }
     init(configuration: ReadConfiguration) throws
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper
+}
+extension FileDocument {
+    public static var writableContentTypes: [UTType] { readableContentTypes }
 }
 public protocol ReferenceFileDocument: ObservableObject {
     associatedtype Snapshot
@@ -22030,6 +22034,7 @@ extension View {
         }
     }
 
+    @_disfavoredOverload
     public func fileExporter(
         isPresented: Binding<Bool>,
         document: Any,

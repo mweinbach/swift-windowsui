@@ -7,6 +7,8 @@ public final class ComponentHost {
     public let runtime: RetainedViewRuntime
 
     private var buildComponents: (() -> [Component])?
+    private var isProcessingFileDialog = false
+    private var needsFileDialogProcessing = false
 
     /// False until this host has produced a tree. The first tree is the
     /// window's initial state, not an insertion into it, so nothing in it
@@ -104,12 +106,20 @@ public final class ComponentHost {
     }
 
     /// Scans the view tree for active file-dialog configurations and presents
-    /// the corresponding Win32 modal dialog.  Only one dialog is shown per
-    /// call; the presentation flag is reset when the dialog completes.
+    /// the corresponding Win32 modal dialog. Reentrant requests wait until the
+    /// active operation, presentation reset, and completion callback finish.
     public func processPendingFileDialogs() {
-        if let (config, node) = findActiveFileDialogConfiguration(in: runtime.root) {
-            presentFileDialog(config, node: node)
+        guard !isProcessingFileDialog else {
+            needsFileDialogProcessing = true
+            return
         }
+        isProcessingFileDialog = true
+        defer { isProcessingFileDialog = false }
+        repeat {
+            needsFileDialogProcessing = false
+            guard let (config, node) = findActiveFileDialogConfiguration(in: runtime.root) else { return }
+            presentFileDialog(config, node: node)
+        } while needsFileDialogProcessing
     }
 
     private func findActiveFileDialogConfiguration(in node: ViewNode) -> (FileDialogConfig, ViewNode)? {
@@ -151,12 +161,19 @@ public final class ComponentHost {
                 defaultDirectory: defaultDirectory,
                 title: title
             )
-            exporter.isPresented.wrappedValue = false
-            if let url {
-                exporter.onCompletion(.success(url))
-            } else {
-                exporter.onCompletion(.failure(fileDialogCancellationError()))
+            guard let url else {
+                // SwiftUI dismisses a canceled exporter without calling completion.
+                exporter.isPresented.wrappedValue = false
+                return
             }
+            let result: Result<URL, Error> = Result {
+                try exporter.write(to: url)
+                return url
+            }
+            // Keep this operation's document and completion through any rebuild
+            // caused by resetting presentation. Success already means saved bytes.
+            exporter.isPresented.wrappedValue = false
+            exporter.onCompletion(result)
 
         case .importer(let importer):
             let urls = FileDialogManager.showOpenFileDialog(

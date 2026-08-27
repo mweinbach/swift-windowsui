@@ -179,10 +179,14 @@ final class FileDialogIntegrationTests: XCTestCase {
         }
     }
 
-    func testFileExporterPassesContentTypeFilterAndDeliversURL() async {
-        await MainActor.run {
+    func testFileExporterPassesContentTypeFilterAndDeliversURL() async throws {
+        try await MainActor.run {
+            let temporaryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "swift-windowsui-file-export-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: false)
+            defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
             let fake = FakeFileDialogProvider()
-            let destination = URL(fileURLWithPath: "C:\\out.pdf")
+            let destination = temporaryDirectory.appendingPathComponent("out.pdf")
             fake.saveResult = destination
             let original = FileDialogManager.provider
             FileDialogManager.provider = fake
@@ -193,7 +197,7 @@ final class FileDialogIntegrationTests: XCTestCase {
             let binding = Binding(get: { presented }, set: { presented = $0 })
             let view = Text("host").fileExporter(
                 isPresented: binding,
-                document: "payload" as Any,
+                document: FileDialogExportDocument(contents: Data("payload".utf8)),
                 contentType: .pdf,
                 defaultFilename: "out.pdf"
             ) { result in
@@ -212,6 +216,7 @@ final class FileDialogIntegrationTests: XCTestCase {
                 return
             }
             XCTAssertEqual(url, destination)
+            XCTAssertEqual(try Data(contentsOf: destination), Data("payload".utf8))
             XCTAssertFalse(presented)
             XCTAssertEqual(fake.saveRequests.count, 1)
             XCTAssertEqual(fake.saveRequests.first?.allowedExtensions, ["pdf"])
@@ -219,7 +224,7 @@ final class FileDialogIntegrationTests: XCTestCase {
         }
     }
 
-    func testFileExporterCancellationDeliversFailure() async {
+    func testFileExporterCancellationDoesNotCallCompletion() async {
         await MainActor.run {
             let fake = FakeFileDialogProvider()
             fake.saveResult = nil
@@ -232,7 +237,7 @@ final class FileDialogIntegrationTests: XCTestCase {
             let binding = Binding(get: { presented }, set: { presented = $0 })
             let view = Text("host").fileExporter(
                 isPresented: binding,
-                document: "payload" as Any,
+                document: FileDialogExportDocument(contents: Data("payload".utf8)),
                 contentType: .plainText
             ) { result in
                 received = result
@@ -245,10 +250,7 @@ final class FileDialogIntegrationTests: XCTestCase {
             presented = true
             host.processPendingFileDialogs()
 
-            guard case .failure = received else {
-                XCTFail("expected cancellation to deliver a failure, got \(String(describing: received))")
-                return
-            }
+            XCTAssertNil(received, "canceling export must not invoke its completion")
             XCTAssertFalse(presented)
         }
     }
@@ -280,5 +282,25 @@ final class FileDialogIntegrationTests: XCTestCase {
             XCTAssertNil(FileDialogManager.fileExtensions(forContentTypes: [.url, .fileURL]))
             XCTAssertNil(FileDialogManager.fileExtensions(forContentTypes: []))
         }
+    }
+}
+
+private struct FileDialogExportDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.plainText, .pdf] }
+    let contents: Data
+
+    init(contents: Data) {
+        self.contents = contents
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let contents = configuration.file.regularFileContents else {
+            throw RetainedFileExportError.unsupportedFileWrapper
+        }
+        self.contents = contents
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: contents)
     }
 }

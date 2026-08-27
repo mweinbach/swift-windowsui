@@ -728,6 +728,19 @@ Thirteen new hosted regressions await integrated execution. This does not
 implement undo registration, vertical caret navigation, editor scrolling, or
 document sessions; those original requirements remain open.
 
+Single regular-file FileDocument export now serializes through a neutral Data
+provider and uses Foundation's atomic writing option before reporting success.
+Cancellation writes nothing and does not call export completion; encoding or
+write failures propagate without reporting the chosen URL as a saved file.
+Current configuration is captured per operation, and reentrant requests wait
+for that operation's completion. Nineteen new tests and the migrated dialog
+tests use only uniquely owned temporary destinations for real filesystem
+writes; integrated execution is pending. This standalone path has no existing
+document-session wrapper and encodes synchronously on the main actor.
+Directory/package, multiple-document, ReferenceFileDocument/Transferable,
+background-encoding, document ownership, and native workflow parity remain
+requirements, not exceptions granted by this slice.
+
 ### Additional state lifetime acceptance detail
 
 A source audit found that the current State and StateObject wrappers follow

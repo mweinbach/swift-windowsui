@@ -162,6 +162,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter D3D
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter D3D11ImageBindingLifetimeTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Win32PointerMessageRoutingTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Win32NativeFileDialogSafetyTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter FileDocumentExportTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter FileDialogIntegrationTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUITouchInputRoutingTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter RetainedInteractionLifecyclePolishTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter AccessibilityProjectionRuntimePolishTests
@@ -169,6 +171,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Win
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIDynamicTypeRangeTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIControlUsabilityTests
 ```
+
+`FileDocumentExportTests` performs real filesystem writes in unique test-owned
+temporary directories. It checks document round trips, atomic replacement,
+preservation on encoding and write failures, cancellation without completion,
+latest-document reconciliation, reentrant/chained presentation, and explicit
+unsupported-representation errors. The read-only destination fixture restores
+its original attributes before cleanup. Exporter mocks must never return
+hardcoded user or example save destinations; migrate them before enabling a
+new write path. See [FileDocument export](FileDocumentExport.md) for the
+implemented boundary and remaining parity work.
 
 `TraversalStackHeadroomTests` is the one suite whose failure mode is not a
 failed assertion: it renders a tree at `ViewNode.maximumTraversalDepth` (256),

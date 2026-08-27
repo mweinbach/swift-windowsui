@@ -1,9 +1,6 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
-
 import WinSDK
 
 @MainActor
@@ -132,6 +129,11 @@ enum DirectWriteTextRenderer {
 /// logical points before scaling; this is the last line of defence for the
 /// scaled result.
 let maximumRasterPixels: UInt32 = 8192
+
+private struct DirectWriteParagraphLineMetrics {
+    var height: Double
+    var baseline: Double
+}
 
 struct CapturedGlyphRasterMetrics: Equatable, Sendable {
     var renderScale: Double
@@ -386,7 +388,7 @@ private final class DirectWriteSystem {
         // Uniform DirectWrite line metrics already include positive leading.
         // The painter adds this field between line boxes, so repeating that
         // leading here would double every paragraph's baseline spacing.
-        let interLineSpacing = style.lineSpacing >= 0 ? 0 : style.lineSpacing
+        var interLineSpacing = style.lineSpacing >= 0 ? 0 : style.lineSpacing
         guard !text.isEmpty else {
             let emptySize = snapLogicalTextSize(
                 Size(
@@ -406,12 +408,12 @@ private final class DirectWriteSystem {
         }
 
         let maxContentWidth = contentWidthLimit(for: maxWidth, style: style)
-        let measureLine = makeLineMeasurer(style: style, format: measurementFormat)
+        let source = textFragment(for: text, style: style)
+        let measureFragment = makeLineMeasurer(style: style, sourceText: text, format: measurementFormat)
         if resolvesMinimumScaleFactor {
-            let effectiveStyle = style.resolvingMinimumScaleFactor(
-                for: text,
-                maxContentWidth: maxContentWidth,
-                measureLine: measureLine
+            let effectiveStyle = style.scaledForMinimumScaleFactor(
+                minimumTextScaleFactor(
+                    for: source, style: style, maxContentWidth: maxContentWidth, measureFragment: measureFragment)
             )
             if effectiveStyle != style {
                 return layout(
@@ -425,25 +427,31 @@ private final class DirectWriteSystem {
         }
 
         let resolvedLayout = resolveTextLayout(
-            for: text,
+            for: source,
             style: style,
             maxContentWidth: maxContentWidth,
-            measureLine: measureLine
+            measureFragment: measureFragment
         )
+        let paragraphMetrics = expandedSpanLineMetrics(for: text, style: style)
+        if paragraphMetrics != nil {
+            interLineSpacing = 0
+        }
 
         var lines: [NativeTextLineLayout] = []
-        lines.reserveCapacity(resolvedLayout.lines.count)
+        lines.reserveCapacity(resolvedLayout.fragments.count)
         var contentWidth = 0.0
         var contentHeight = 0.0
 
-        for (index, line) in resolvedLayout.lines.enumerated() {
-            guard let lineLayout = layoutLine(line, style: style) else {
+        for (index, fragment) in resolvedLayout.fragments.enumerated() {
+            let lineStyle = fragment.rebasedStyle(style, sourceText: text)
+            guard let lineLayout = layoutLine(fragment.text, style: lineStyle, paragraphMetrics: paragraphMetrics)
+            else {
                 return nil
             }
             lines.append(lineLayout)
             contentWidth = max(contentWidth, lineLayout.width)
             contentHeight += lineLayout.height
-            if index < resolvedLayout.lines.count - 1 {
+            if index < resolvedLayout.fragments.count - 1 {
                 contentHeight += interLineSpacing
             }
         }
@@ -621,12 +629,13 @@ private final class DirectWriteSystem {
             releaseDirectWriteCOM(&releasableFormat)
         }
 
-        let measureLine = makeLineMeasurer(style: style, format: measurementFormat)
+        let source = textFragment(for: text, style: style)
+        let measureFragment = makeLineMeasurer(style: style, sourceText: text, format: measurementFormat)
         if resolvesMinimumScaleFactor {
-            let effectiveStyle = style.resolvingMinimumScaleFactor(
-                for: text,
-                maxContentWidth: max(0, contentSize.width),
-                measureLine: measureLine
+            let effectiveStyle = style.scaledForMinimumScaleFactor(
+                minimumTextScaleFactor(
+                    for: source, style: style, maxContentWidth: max(0, contentSize.width),
+                    measureFragment: measureFragment)
             )
             if effectiveStyle != style {
                 return rasterize(
@@ -640,10 +649,10 @@ private final class DirectWriteSystem {
         }
 
         let resolvedLayout = resolveTextLayout(
-            for: text,
+            for: source,
             style: style,
             maxContentWidth: max(0, contentSize.width),
-            measureLine: measureLine
+            measureFragment: measureFragment
         )
         if style.nativeLetterSpacing ?? 0 != 0 {
             // The bitmap raster draws through `IDWriteTextLayout`, which has no
@@ -658,9 +667,11 @@ private final class DirectWriteSystem {
         // twice and pushes bottom-aligned text beyond the bitmap.
         var rasterStyle = style
         rasterStyle.verticalAlignment = .top
+        let paragraphMetrics = expandedSpanLineMetrics(for: text, style: style)
         guard
             let format = createTextFormat(
-                style: rasterStyle, wrapping: wrappingMode(for: resolvedLayout, style: style))
+                style: rasterStyle, wrapping: wrappingMode(for: resolvedLayout, style: style),
+                paragraphMetrics: paragraphMetrics)
         else {
             return nil
         }
@@ -669,7 +680,11 @@ private final class DirectWriteSystem {
             releaseDirectWriteCOM(&releasableFormat)
         }
 
-        guard let layout = createTextLayout(text: resolvedLayout.text, format: format, size: contentSize, style: style)
+        let resolvedFragment = resolvedLayout.fragment
+        let resolvedStyle = resolvedFragment.rebasedStyle(style, sourceText: text)
+        guard
+            let layout = createTextLayout(
+                text: resolvedFragment.text, format: format, size: contentSize, style: resolvedStyle)
         else {
             return nil
         }
@@ -712,7 +727,7 @@ private final class DirectWriteSystem {
         let bounds =
             textBounds(for: layout)
             ?? TextBounds(width: contentSize.width, height: contentSize.height, overhangLeft: 0, overhangTop: 0)
-        let origin = textOrigin(size: size, style: style, bounds: bounds)
+        let origin = textOrigin(size: size, style: style, bounds: bounds, paragraphMetrics: paragraphMetrics)
 
         var drawingContext = DirectWriteDrawingContext(
             bitmapRenderTarget: bitmapTarget,
@@ -754,7 +769,9 @@ private final class DirectWriteSystem {
         return surface
     }
 
-    private func layoutLine(_ text: String, style: PixelTextStyle) -> NativeTextLineLayout? {
+    private func layoutLine(
+        _ text: String, style: PixelTextStyle, paragraphMetrics: DirectWriteParagraphLineMetrics? = nil
+    ) -> NativeTextLineLayout? {
         var lineStyle = style
         lineStyle.verticalAlignment = .top
         // Force leading alignment so glyph origins come back relative to the
@@ -767,8 +784,9 @@ private final class DirectWriteSystem {
         lineStyle.alignment = .leading
 
         guard !text.isEmpty else {
-            let lineHeight = max(lineStyle.nativeFontPixelSize + max(lineStyle.lineSpacing, 0), 1)
-            let ascent = lineStyle.nativeFontPixelSize * 0.8
+            let lineHeight =
+                paragraphMetrics?.height ?? max(lineStyle.nativeFontPixelSize + max(lineStyle.lineSpacing, 0), 1)
+            let ascent = paragraphMetrics?.baseline ?? lineStyle.nativeFontPixelSize * 0.8
             return NativeTextLineLayout(
                 text: text,
                 width: 0,
@@ -779,7 +797,9 @@ private final class DirectWriteSystem {
             )
         }
 
-        guard let format = createTextFormat(style: lineStyle, wrapping: dwriteWordWrappingNoWrap),
+        guard
+            let format = createTextFormat(
+                style: lineStyle, wrapping: dwriteWordWrappingNoWrap, paragraphMetrics: paragraphMetrics),
             let layout = createTextLayout(
                 text: text, format: format, size: Size(width: 4096, height: 4096), style: lineStyle),
             let bounds = textBounds(for: layout)
@@ -819,11 +839,12 @@ private final class DirectWriteSystem {
             lineWidth = applyLetterSpacing(tracking, to: &resolvedGlyphs, lineWidth: lineWidth)
         }
 
-        let lineHeight = max(bounds.height, lineStyle.nativeFontPixelSize)
+        let lineHeight = max(bounds.height, paragraphMetrics?.height ?? lineStyle.nativeFontPixelSize)
         let ascent =
-            lineStyle.lineSpacing >= 0
-            ? lineStyle.nativeFontPixelSize * 0.8
-            : max(lineStyle.nativeFontPixelSize * 0.8, lineHeight * 0.7)
+            paragraphMetrics?.baseline
+            ?? (lineStyle.lineSpacing >= 0
+                ? lineStyle.nativeFontPixelSize * 0.8
+                : max(lineStyle.nativeFontPixelSize * 0.8, lineHeight * 0.7))
         let descent = max(0, lineHeight - ascent)
         return NativeTextLineLayout(
             text: text,
@@ -1063,7 +1084,10 @@ private final class DirectWriteSystem {
 
     private static let fallbackFontFamilies = ["Segoe UI", "Arial", "sans-serif"]
 
-    private func createTextFormat(style: PixelTextStyle, wrapping: DWriteWordWrapping) -> UnsafeMutablePointer<
+    private func createTextFormat(
+        style: PixelTextStyle, wrapping: DWriteWordWrapping,
+        paragraphMetrics: DirectWriteParagraphLineMetrics? = nil, usesNaturalLineMetrics: Bool = false
+    ) -> UnsafeMutablePointer<
         IDWriteTextFormat
     >? {
         let format = createTextFormatWithFallback(style: style)
@@ -1077,7 +1101,11 @@ private final class DirectWriteSystem {
             UnsafeMutableRawPointer(format), style.verticalAlignment.dwriteParagraphAlignment)
         _ = format.pointee.lpVtbl!.pointee.SetWordWrapping(UnsafeMutableRawPointer(format), wrapping)
 
-        if style.lineSpacing >= 0 {
+        if let paragraphMetrics {
+            _ = format.pointee.lpVtbl!.pointee.SetLineSpacing(
+                UnsafeMutableRawPointer(format), dwriteLineSpacingMethodUniform,
+                FLOAT(paragraphMetrics.height), FLOAT(paragraphMetrics.baseline))
+        } else if !usesNaturalLineMetrics && style.lineSpacing >= 0 {
             _ = format.pointee.lpVtbl!.pointee.SetLineSpacing(
                 UnsafeMutableRawPointer(format),
                 dwriteLineSpacingMethodUniform,
@@ -1087,6 +1115,62 @@ private final class DirectWriteSystem {
         }
 
         return format
+    }
+
+    /// Larger spans need a line box derived from the fonts DirectWrite actually
+    /// resolved. Preserve the existing parity grid for plain/same-size text.
+    /// One full-source grid is shared by every line and by the bitmap path;
+    /// truncating a large span can conservatively leave extra leading.
+    private func expandedSpanLineMetrics(for text: String, style: PixelTextStyle) -> DirectWriteParagraphLineMetrics? {
+        guard
+            style.spans?.contains(where: { $0.range != nil && $0.style.nativeFontPixelSize > style.nativeFontPixelSize }
+            ) == true
+        else {
+            return nil
+        }
+        var probeStyle = TextLayoutFragment(source: text).rebasedStyle(style, sourceText: text)
+        guard probeStyle.spans?.contains(where: { $0.style.nativeFontPixelSize > style.nativeFontPixelSize }) == true
+        else {
+            return nil
+        }
+        probeStyle.alignment = .leading
+        probeStyle.verticalAlignment = .top
+        guard
+            let format = createTextFormat(
+                style: probeStyle, wrapping: dwriteWordWrappingNoWrap, usesNaturalLineMetrics: true)
+        else { return nil }
+        defer {
+            var releasableFormat: UnsafeMutablePointer<IDWriteTextFormat>? = format
+            releaseDirectWriteCOM(&releasableFormat)
+        }
+        guard
+            let layout = createTextLayout(
+                text: text, format: format, size: Size(width: 4096, height: 4096), style: probeStyle)
+        else { return nil }
+        defer {
+            var releasableLayout: UnsafeMutablePointer<IDWriteTextLayout>? = layout
+            releaseDirectWriteCOM(&releasableLayout)
+        }
+        guard let rawGetLineMetrics = layout.pointee.lpVtbl!.pointee.GetLineMetrics else { return nil }
+        let getLineMetrics = unsafeBitCast(rawGetLineMetrics, to: DWGetLineMetricsProc.self)
+        var lineCount: UINT32 = 0
+        let countHR = getLineMetrics(UnsafeMutableRawPointer(layout), nil, 0, &lineCount)
+        guard isSuccess(countHR) || countHR == HRESULT(bitPattern: 0x8007_007A), lineCount > 0 else { return nil }
+        var metrics = [DWRITE_LINE_METRICS](repeating: DWRITE_LINE_METRICS(), count: Int(lineCount))
+        let capacity = lineCount
+        let metricsHR = metrics.withUnsafeMutableBytes {
+            getLineMetrics(UnsafeMutableRawPointer(layout), $0.baseAddress, capacity, &lineCount)
+        }
+        guard isSuccess(metricsHR), lineCount > 0, lineCount <= capacity else { return nil }
+        var ascent = 0.0
+        var descent = 0.0
+        for line in metrics.prefix(Int(lineCount)) {
+            guard line.height.isFinite, line.baseline.isFinite, line.height > 0, line.baseline >= 0 else { return nil }
+            ascent = max(ascent, Double(line.baseline))
+            descent = max(descent, Double(line.height - line.baseline))
+        }
+        let leading = style.lineSpacing.isFinite ? max(0, style.lineSpacing) : 0
+        return DirectWriteParagraphLineMetrics(height: max(1, ascent + descent + leading), baseline: ascent)
     }
 
     private func createTextFormatWithFallback(style: PixelTextStyle) -> UnsafeMutablePointer<IDWriteTextFormat>? {
@@ -1376,10 +1460,15 @@ private final class DirectWriteSystem {
         )
     }
 
-    private func textOrigin(size: Size, style: PixelTextStyle, bounds: TextBounds) -> Point {
+    private func textOrigin(
+        size: Size, style: PixelTextStyle, bounds: TextBounds,
+        paragraphMetrics: DirectWriteParagraphLineMetrics? = nil
+    ) -> Point {
         let contentHeight = max(0, size.height - style.insets.top - style.insets.bottom)
         let reservedHeight: Double
-        if let reservedLineCount = reservedTextLineCount(for: style) {
+        if let reservedLineCount = reservedTextLineCount(for: style), let paragraphMetrics {
+            reservedHeight = Double(reservedLineCount) * paragraphMetrics.height
+        } else if let reservedLineCount = reservedTextLineCount(for: style) {
             reservedHeight =
                 Double(reservedLineCount) * style.nativeFontPixelSize + Double(max(reservedLineCount - 1, 0))
                 * style.lineSpacing
@@ -1621,24 +1710,31 @@ private final class DirectWriteSystem {
     /// on the DirectWrite path builds and destroys a full `IDWriteTextLayout`.
     /// The memo also folds in `nativeLetterSpacing` so wrapping decisions and
     /// painted advances are computed from the same widths.
-    private func makeLineMeasurer(style: PixelTextStyle, format: UnsafeMutablePointer<IDWriteTextFormat>) -> (String)
-        -> Double
-    {
+    private func textFragment(for text: String, style: PixelTextStyle) -> TextLayoutFragment {
+        style.spans?.isEmpty == false ? TextLayoutFragment(source: text) : TextLayoutFragment(synthetic: text)
+    }
+
+    private func makeLineMeasurer(
+        style: PixelTextStyle, sourceText: String, format: UnsafeMutablePointer<IDWriteTextFormat>
+    ) -> (TextLayoutFragment) -> Double {
         let tracking = style.nativeLetterSpacing ?? 0
-        var memo: [String: Double] = [:]
-        return { [weak self] line in
-            if let cached = memo[line] {
+        var memo: [TextLayoutFragment: Double] = [:]
+        return { [weak self] fragment in
+            let key = style.spans?.isEmpty == false ? fragment : TextLayoutFragment(synthetic: fragment.text)
+            if let cached = memo[key] {
                 return cached
             }
-            let base = self?.measureSingleLine(line, format: format, style: style) ?? 0
+            let candidateStyle = fragment.rebasedStyle(style, sourceText: sourceText)
+            let base = self?.measureSingleLine(fragment.text, format: format, style: candidateStyle) ?? 0
             let spaced: Double
             if tracking == 0 {
                 spaced = base
             } else {
-                let gaps = self?.trackedGapCount(for: line, style: style) ?? max(line.count - 1, 0)
+                let gaps =
+                    self?.trackedGapCount(for: fragment.text, style: candidateStyle) ?? max(fragment.text.count - 1, 0)
                 spaced = max(0, base + Double(gaps) * tracking)
             }
-            memo[line] = spaced
+            memo[key] = spaced
             return spaced
         }
     }
@@ -1673,9 +1769,8 @@ private final class DirectWriteSystem {
         }
 
         guard let cacheKey = ShapedGlyphCountKey(line: line, style: style) else {
-            // Spanned text has per-range fonts, and a span's `Range<String.Index>`
-            // indexes the *paragraph*, not this candidate prefix - there is no
-            // honest key for it. Spans are rare and tracking rarer; pay the shape.
+            // This compact memo has no span-style identity. Do not share a
+            // count between ranges with different fonts or typography.
             return uncachedShapedGlyphCount(for: line, style: style)
         }
         if let cached = shapedGlyphCounts[cacheKey] {
@@ -1738,7 +1833,7 @@ private final class DirectWriteSystem {
             var releasableFormat: UnsafeMutablePointer<IDWriteTextFormat>? = format
             releaseDirectWriteCOM(&releasableFormat)
         }
-        return makeLineMeasurer(style: style, format: format)(text)
+        return makeLineMeasurer(style: style, sourceText: text, format: format)(textFragment(for: text, style: style))
     }
 
     private func measureSingleLine(
@@ -1759,11 +1854,22 @@ private final class DirectWriteSystem {
             releaseDirectWriteCOM(&releasableLayout)
         }
 
+        // Measure in the same natural coordinate space as layoutLine. A
+        // centered 4096-point probe loses precision when DirectWrite derives
+        // its width from positioned glyphs: a 15.2-point icon reports
+        // 15.200073 instead of 15.199999. At 125% DPI its own raster is 15.2
+        // points wide, so that error can truncate the icon to a missing-glyph
+        // period. Override only this temporary layout, never the paint format.
+        _ = layout.pointee.lpVtbl!.pointee.SetTextAlignment(
+            UnsafeMutableRawPointer(layout), dwriteTextAlignmentLeading)
+        _ = layout.pointee.lpVtbl!.pointee.SetParagraphAlignment(
+            UnsafeMutableRawPointer(layout), dwriteParagraphAlignmentNear)
+
         return textBounds(for: layout)?.width
     }
 
     private func wrappingMode(for layout: ResolvedTextLayout, style: PixelTextStyle) -> DWriteWordWrapping {
-        if layout.lines.count > 1 || style.lineBreakMode == .wrap {
+        if layout.fragments.count > 1 || style.lineBreakMode == .wrap {
             return dwriteWordWrappingWrap
         }
 

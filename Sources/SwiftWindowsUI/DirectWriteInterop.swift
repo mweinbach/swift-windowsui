@@ -115,6 +115,15 @@ struct DWRITE_STRIKETHROUGH {
     var localeName: UnsafePointer<WCHAR>?
     var measuringMode: DWriteMeasuringMode = dwriteMeasuringModeNatural
 }
+/// Six 32-bit fields: 24-byte stride and 4-byte alignment, including on x64.
+struct DWRITE_LINE_METRICS {
+    var length: UINT32 = 0
+    var trailingWhitespaceLength: UINT32 = 0
+    var newlineLength: UINT32 = 0
+    var height: FLOAT = 0
+    var baseline: FLOAT = 0
+    var isTrimmed: WindowsBool = WindowsBool(false)
+}
 struct DWRITE_TEXT_METRICS {
     var left: FLOAT = 0
     var top: FLOAT = 0
@@ -204,6 +213,8 @@ typealias DWDrawTextLayoutProc =
     @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, FLOAT, FLOAT) ->
     HRESULT
 typealias DWGetMetricsProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> HRESULT
+typealias DWGetLineMetricsProc =
+    @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UINT32, UnsafeMutablePointer<UINT32>?) -> HRESULT
 typealias DWGetOverhangMetricsProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> HRESULT
 typealias DWHitTestTextPositionProc =
     @convention(c) (

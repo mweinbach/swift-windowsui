@@ -140,6 +140,14 @@ half-size labels draw full-size letters on half-size spacing.
 `ScaledTextLayoutTests.testShrinkingLabelShrinksItsGlyphCellsAcrossDisplayScales`
 checks both cell dimensions at 100%, 125%, 150%, and 200% display scale.
 
+Whole-symbol bitmaps measure their natural width in leading/top coordinates,
+then paint with the requested alignment. Centering a measurement probe inside
+a large layout box introduced enough floating-point error to make a 15.2pt
+icon exceed its own raster width at 125% DPI. Text fitting then replaced the
+icon with a period, whose glyph is missing from the icon font. The measurement
+and raster now agree; `SymbolIconRenderingTests` checks the intended symbols
+at 100%, 125%, 150%, 175%, and 200% without changing their font mappings.
+
 ### Line spacing
 
 DirectWrite's uniform line height already contains `fontSize + lineSpacing`.
@@ -148,6 +156,15 @@ gap between those boxes. Empty lines and reserved line limits use the same
 height, and the baseline remains the baseline supplied to DirectWrite.
 `TextShapingPipelineTests.testNativeParagraphLeadingIsAppliedOnce` checks
 measurement and painted baseline spacing together.
+
+If a styled span uses a larger font than the paragraph, the line grid expands
+to DirectWrite's largest natural ascent and descent in the source paragraph,
+plus nonnegative authored leading. Every shaped line and the whole-string
+bitmap use that same baseline and height, including empty and reserved lines.
+The grid conservatively retains the larger font's space if truncation hides
+that span. Plain text and spans at the base size keep the existing type-ramp
+metrics. The span regression in `TextShapingPipelineTests` checks glyph ink
+against line bounds and requires separate bitmap ink bands across newlines.
 
 ### Hairline rules: the device-pixel pin
 

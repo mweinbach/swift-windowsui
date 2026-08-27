@@ -83,6 +83,42 @@ final class SymbolIconRenderingTests: XCTestCase {
         }
     }
 
+    /// The icon bitmap is sized from the glyph's own measurement, so it
+    /// must preserve that glyph rather than substituting a text ellipsis.
+    /// Fractional DPI makes a measurement/raster rounding disagreement
+    /// visible at the native size used by a 12-point SwiftUI symbol.
+    func testFractionalScaleIconsPreserveTheirNativeGlyphRaster() async throws {
+        try await MainActor.run {
+            for symbol: SymbolIcon in [.layout, .search, .settings, .split] {
+                for displayScale in [1.0, 1.25, 1.5, 1.75, 2.0] {
+                    let node = Controls.icon(
+                        symbol, preferredSize: Size(width: 14.4, height: 14.4),
+                        scale: 1.2, displayScale: displayScale)
+                    let actual = try XCTUnwrap(node.bitmapSurface)
+                    var rasterStyle = node.textStyle
+                    rasterStyle.insets = .zero
+                    rasterStyle.fontFamily = try XCTUnwrap(
+                        NativeFontAvailability.resolvedFontFamily(
+                            for: symbol.character, preferred: SymbolIcon.fontFamilyFallbacks))
+                    let measured = try XCTUnwrap(
+                        NativeTextRenderer.measure(symbol.rawValue, style: rasterStyle, scaleFactor: displayScale))
+                    let roundTrip = NativeTextRenderer.layout(
+                        symbol.rawValue, style: rasterStyle, scaleFactor: displayScale, maxWidth: measured.width)
+
+                    rasterStyle.lineBreakMode = .clip
+                    let untrimmed = try XCTUnwrap(
+                        NativeTextRenderer.rasterize(symbol.rawValue, style: rasterStyle, scaleFactor: displayScale))
+                    XCTAssertEqual(actual.width, untrimmed.width)
+                    XCTAssertEqual(actual.height, untrimmed.height)
+                    XCTAssertTrue(
+                        actual.pixels == untrimmed.pixels,
+                        "\(symbol) at \(displayScale)x changed its glyph while rasterizing its measured size "
+                            + "\(measured); constrained lines: \(roundTrip?.lines.map(\.text) ?? [])")
+                }
+            }
+        }
+    }
+
     // MARK: - Font fallback chain
 
     func testFontAvailabilityProbeDetectsInstalledIconFonts() async {

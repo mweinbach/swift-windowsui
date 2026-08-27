@@ -1,7 +1,5 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
 
 public enum TextHorizontalAlignment: Sendable {
@@ -981,11 +979,29 @@ func minimumTextScaleFactor(
 
     return min(1, max(style.minimumScaleFactor, maxContentWidth / widestLine))
 }
+
 struct ResolvedTextLayout: Equatable, Sendable {
-    var lines: [String]
+    var fragments: [TextLayoutFragment]
+
+    var lines: [String] {
+        get { fragments.map(\.text) }
+        set { fragments = newValue.map { TextLayoutFragment(synthetic: $0) } }
+    }
+
+    init(lines: [String]) {
+        self.fragments = lines.map { TextLayoutFragment(synthetic: $0) }
+    }
+
+    init(fragments: [TextLayoutFragment]) {
+        self.fragments = fragments
+    }
 
     var text: String {
         lines.joined(separator: "\n")
+    }
+
+    var fragment: TextLayoutFragment {
+        TextLayoutFragment.joined(fragments, separator: TextLayoutFragment(synthetic: "\n"))
     }
 }
 func resolveTextLayout(
@@ -994,8 +1010,21 @@ func resolveTextLayout(
     maxContentWidth: Double?,
     measureLine: (String) -> Double
 ) -> ResolvedTextLayout {
-    let sourceLines = normalizedTextLines(from: text)
-    let fittedLines: [String]
+    resolveTextLayout(
+        for: TextLayoutFragment(synthetic: text),
+        style: style,
+        maxContentWidth: maxContentWidth,
+        measureFragment: { measureLine($0.text) }
+    )
+}
+func resolveTextLayout(
+    for text: TextLayoutFragment,
+    style: PixelTextStyle,
+    maxContentWidth: Double?,
+    measureFragment: (TextLayoutFragment) -> Double
+) -> ResolvedTextLayout {
+    let sourceLines = text.normalizedLines()
+    let fittedLines: [TextLayoutFragment]
 
     switch style.lineBreakMode {
     case .clip:
@@ -1005,33 +1034,35 @@ func resolveTextLayout(
             fittedLines = sourceLines
             break
         }
-        fittedLines = sourceLines.map { truncateLine($0, toFit: maxContentWidth, measureLine: measureLine) }
+        fittedLines = sourceLines.map { truncateLine($0, toFit: maxContentWidth, measureFragment: measureFragment) }
     case .truncateHead:
         guard let maxContentWidth, maxContentWidth.isFinite else {
             fittedLines = sourceLines
             break
         }
-        fittedLines = sourceLines.map { truncateLineHead($0, toFit: maxContentWidth, measureLine: measureLine) }
+        fittedLines = sourceLines.map { truncateLineHead($0, toFit: maxContentWidth, measureFragment: measureFragment) }
     case .truncateMiddle:
         guard let maxContentWidth, maxContentWidth.isFinite else {
             fittedLines = sourceLines
             break
         }
-        fittedLines = sourceLines.map { truncateLineMiddle($0, toFit: maxContentWidth, measureLine: measureLine) }
+        fittedLines = sourceLines.map {
+            truncateLineMiddle($0, toFit: maxContentWidth, measureFragment: measureFragment)
+        }
     case .wrap:
         guard let maxContentWidth, maxContentWidth.isFinite else {
             fittedLines = sourceLines
             break
         }
-        fittedLines = sourceLines.flatMap { wrapLine($0, maxWidth: maxContentWidth, measureLine: measureLine) }
+        fittedLines = sourceLines.flatMap { wrapLine($0, maxWidth: maxContentWidth, measureFragment: measureFragment) }
     }
 
     return ResolvedTextLayout(
-        lines: applyLineLimit(
+        fragments: applyLineLimit(
             to: fittedLines,
             style: style,
             maxContentWidth: maxContentWidth,
-            measureLine: measureLine
+            measureFragment: measureFragment
         )
     )
 }
@@ -1039,18 +1070,39 @@ func normalizedTextLines(from text: String) -> [String] {
     let normalized = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
     return normalized.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
 }
-private func applyLineLimit(
-    to lines: [String],
+func minimumTextScaleFactor(
+    for text: TextLayoutFragment,
     style: PixelTextStyle,
     maxContentWidth: Double?,
-    measureLine: (String) -> Double
-) -> [String] {
+    measureFragment: (TextLayoutFragment) -> Double
+) -> Double {
+    guard
+        style.minimumScaleFactor < 1,
+        let maxContentWidth,
+        maxContentWidth.isFinite,
+        maxContentWidth > 0
+    else {
+        return 1
+    }
+
+    let widestLine = text.normalizedLines().map(measureFragment).filter(\.isFinite).max() ?? 0
+    guard widestLine > maxContentWidth, widestLine > 0 else {
+        return 1
+    }
+    return min(1, max(style.minimumScaleFactor, maxContentWidth / widestLine))
+}
+private func applyLineLimit(
+    to lines: [TextLayoutFragment],
+    style: PixelTextStyle,
+    maxContentWidth: Double?,
+    measureFragment: (TextLayoutFragment) -> Double
+) -> [TextLayoutFragment] {
     guard let maximumNumberOfLines = style.maximumNumberOfLines, maximumNumberOfLines > 0 else {
-        return lines.isEmpty ? [""] : lines
+        return lines.isEmpty ? [TextLayoutFragment(synthetic: "")] : lines
     }
 
     guard lines.count > maximumNumberOfLines else {
-        return lines.isEmpty ? [""] : lines
+        return lines.isEmpty ? [TextLayoutFragment(synthetic: "")] : lines
     }
 
     var visibleLines = Array(lines.prefix(maximumNumberOfLines))
@@ -1059,156 +1111,169 @@ private func applyLineLimit(
     }
 
     let lastLine = visibleLines.removeLast()
-    visibleLines.append(appendingEllipsis(to: lastLine, maxWidth: maxContentWidth, measureLine: measureLine))
+    visibleLines.append(appendingEllipsis(to: lastLine, maxWidth: maxContentWidth, measureFragment: measureFragment))
     return visibleLines
 }
-private func wrapLine(_ line: String, maxWidth: Double, measureLine: (String) -> Double) -> [String] {
-    guard !line.isEmpty else {
-        return [""]
+private func wrapLine(
+    _ line: TextLayoutFragment, maxWidth: Double, measureFragment: (TextLayoutFragment) -> Double
+) -> [TextLayoutFragment] {
+    guard !line.text.isEmpty else {
+        return [line]
     }
 
-    let trimmedLine = line.trimmingCharacters(in: .whitespaces)
-    guard !trimmedLine.isEmpty else {
-        return [""]
+    let trimmedLine = line.trimmingWhitespace()
+    guard !trimmedLine.text.isEmpty else {
+        return [trimmedLine]
     }
 
-    let words = trimmedLine.split(whereSeparator: \.isWhitespace).map(String.init)
-    var wrappedLines: [String] = []
-    var currentLine = ""
+    let words = trimmedLine.words()
+    var wrappedLines: [TextLayoutFragment] = []
+    var currentLine = TextLayoutFragment(synthetic: "")
 
     for word in words {
-        let candidate = currentLine.isEmpty ? word : "\(currentLine) \(word)"
-        if measureLine(candidate) <= maxWidth {
+        let candidate =
+            currentLine.text.isEmpty
+            ? word
+            : currentLine.appending(.wordSeparator(after: currentLine, before: word)).appending(word)
+        if measureFragment(candidate) <= maxWidth {
             currentLine = candidate
             continue
         }
 
-        if !currentLine.isEmpty {
+        if !currentLine.text.isEmpty {
             wrappedLines.append(currentLine)
         }
 
-        let wordLines = splitLongToken(word, maxWidth: maxWidth, measureLine: measureLine)
+        let wordLines = splitLongToken(word, maxWidth: maxWidth, measureFragment: measureFragment)
         if wordLines.count > 1 {
             wrappedLines.append(contentsOf: wordLines.dropLast())
         }
-        currentLine = wordLines.last ?? ""
+        currentLine = wordLines.last ?? TextLayoutFragment(synthetic: "")
     }
 
-    if !currentLine.isEmpty || wrappedLines.isEmpty {
+    if !currentLine.text.isEmpty || wrappedLines.isEmpty {
         wrappedLines.append(currentLine)
     }
 
     return wrappedLines
 }
-private func splitLongToken(_ token: String, maxWidth: Double, measureLine: (String) -> Double) -> [String] {
-    guard !token.isEmpty else {
-        return [""]
-    }
-
-    if measureLine(token) <= maxWidth {
+private func splitLongToken(
+    _ token: TextLayoutFragment, maxWidth: Double, measureFragment: (TextLayoutFragment) -> Double
+) -> [TextLayoutFragment] {
+    guard !token.text.isEmpty else {
         return [token]
     }
 
-    let characters = Array(token)
-    var slices: [String] = []
+    if measureFragment(token) <= maxWidth {
+        return [token]
+    }
+
+    let characterCount = token.text.count
+    var slices: [TextLayoutFragment] = []
     var startIndex = 0
 
-    while startIndex < characters.count {
-        let remaining = String(characters[startIndex...])
-        let nextCount = max(1, longestFittingPrefixLength(for: remaining, maxWidth: maxWidth, measureLine: measureLine))
-        let endIndex = min(characters.count, startIndex + nextCount)
-        slices.append(String(characters[startIndex..<endIndex]))
+    while startIndex < characterCount {
+        let remaining = token.droppingFirst(startIndex)
+        let nextCount = max(
+            1, longestFittingPrefixLength(for: remaining, maxWidth: maxWidth, measureFragment: measureFragment))
+        let endIndex = min(characterCount, startIndex + nextCount)
+        slices.append(remaining.prefix(endIndex - startIndex))
         startIndex = endIndex
     }
 
     return slices
 }
-private func truncateLine(_ line: String, toFit maxWidth: Double, measureLine: (String) -> Double) -> String {
-    guard measureLine(line) > maxWidth else {
+private func truncateLine(
+    _ line: TextLayoutFragment, toFit maxWidth: Double, measureFragment: (TextLayoutFragment) -> Double
+) -> TextLayoutFragment {
+    guard measureFragment(line) > maxWidth else {
         return line
     }
 
-    return appendingEllipsis(to: line, maxWidth: maxWidth, measureLine: measureLine)
+    return appendingEllipsis(to: line, maxWidth: maxWidth, measureFragment: measureFragment)
 }
-private func truncateLineHead(_ line: String, toFit maxWidth: Double, measureLine: (String) -> Double) -> String {
-    guard measureLine(line) > maxWidth else {
+private func truncateLineHead(
+    _ line: TextLayoutFragment, toFit maxWidth: Double, measureFragment: (TextLayoutFragment) -> Double
+) -> TextLayoutFragment {
+    guard measureFragment(line) > maxWidth else {
         return line
     }
 
-    return prependingEllipsis(to: line, maxWidth: maxWidth, measureLine: measureLine)
+    return prependingEllipsis(to: line, maxWidth: maxWidth, measureFragment: measureFragment)
 }
-private func truncateLineMiddle(_ line: String, toFit maxWidth: Double, measureLine: (String) -> Double) -> String {
-    guard measureLine(line) > maxWidth else {
+private func truncateLineMiddle(
+    _ line: TextLayoutFragment, toFit maxWidth: Double, measureFragment: (TextLayoutFragment) -> Double
+) -> TextLayoutFragment {
+    guard measureFragment(line) > maxWidth else {
         return line
     }
 
-    let ellipsis = fittingEllipsis(maxWidth: maxWidth, measureLine: measureLine)
-    guard !ellipsis.isEmpty else {
-        return ""
+    let ellipsis = fittingEllipsis(maxWidth: maxWidth, measureFragment: measureFragment)
+    guard !ellipsis.text.isEmpty else {
+        return TextLayoutFragment(synthetic: "")
     }
 
-    let ellipsisWidth = measureLine(ellipsis)
+    let ellipsisWidth = measureFragment(ellipsis)
     let availableWidth = max(0, maxWidth - ellipsisWidth)
     let halfWidth = availableWidth * 0.5
 
-    let characters = Array(line)
-    let headLength = longestFittingPrefixLength(for: line, maxWidth: halfWidth, measureLine: measureLine)
+    let headLength = longestFittingPrefixLength(for: line, maxWidth: halfWidth, measureFragment: measureFragment)
+    let headWidth = headLength > 0 ? measureFragment(line.prefix(headLength)) : 0
     let tailLength = longestFittingSuffixLength(
-        for: line, maxWidth: availableWidth - (headLength > 0 ? measureLine(String(characters.prefix(headLength))) : 0),
-        measureLine: measureLine)
+        for: line, maxWidth: availableWidth - headWidth, measureFragment: measureFragment)
 
     if headLength <= 0 && tailLength <= 0 {
         return ellipsis
     }
 
-    let head = String(characters.prefix(headLength)).trimmingCharacters(in: .whitespaces)
-    let tail = String(characters.suffix(tailLength)).trimmingCharacters(in: .whitespaces)
-    return head + ellipsis + tail
+    let head = line.prefix(headLength).trimmingWhitespace()
+    let tail = line.suffix(tailLength).trimmingWhitespace()
+    return head.appending(ellipsis).appending(tail)
 }
-private func prependingEllipsis(to line: String, maxWidth: Double?, measureLine: (String) -> Double) -> String {
-    let ellipsis = fittingEllipsis(maxWidth: maxWidth, measureLine: measureLine)
-    guard !ellipsis.isEmpty else {
-        return ""
+private func prependingEllipsis(
+    to line: TextLayoutFragment, maxWidth: Double?, measureFragment: (TextLayoutFragment) -> Double
+) -> TextLayoutFragment {
+    let ellipsis = fittingEllipsis(maxWidth: maxWidth, measureFragment: measureFragment)
+    guard !ellipsis.text.isEmpty else {
+        return TextLayoutFragment(synthetic: "")
     }
 
     guard let maxWidth, maxWidth.isFinite else {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        return trimmed.hasPrefix(ellipsis) ? trimmed : ellipsis + trimmed
+        let trimmed = line.trimmingWhitespace()
+        return trimmed.text.hasPrefix(ellipsis.text) ? trimmed : ellipsis.appending(trimmed)
     }
 
-    let trimmed = line.trimmingCharacters(in: .whitespaces)
-    guard measureLine(trimmed) + measureLine(ellipsis) > maxWidth else {
-        return ellipsis + trimmed
+    let trimmed = line.trimmingWhitespace()
+    guard measureFragment(trimmed) + measureFragment(ellipsis) > maxWidth else {
+        return ellipsis.appending(trimmed)
     }
 
     let suffixLength = longestFittingSuffixLength(
         for: trimmed,
-        maxWidth: max(0, maxWidth - measureLine(ellipsis)),
-        measureLine: measureLine
+        maxWidth: max(0, maxWidth - measureFragment(ellipsis)),
+        measureFragment: measureFragment
     )
 
     if suffixLength <= 0 {
         return ellipsis
     }
 
-    let characters = Array(trimmed)
-    let suffix = String(characters.suffix(suffixLength)).trimmingCharacters(in: .whitespaces)
-    return suffix.isEmpty ? ellipsis : ellipsis + suffix
+    let suffix = trimmed.suffix(suffixLength).trimmingWhitespace()
+    return suffix.text.isEmpty ? ellipsis : ellipsis.appending(suffix)
 }
 private func longestFittingSuffixLength(
-    for text: String,
+    for text: TextLayoutFragment,
     maxWidth: Double,
-    measureLine: (String) -> Double
+    measureFragment: (TextLayoutFragment) -> Double
 ) -> Int {
-    let characters = Array(text)
     var lowerBound = 0
-    var upperBound = characters.count
+    var upperBound = text.text.count
     var best = 0
 
     while lowerBound <= upperBound {
-        let midpoint = (lowerBound + upperBound) / 2
-        let candidate = String(characters.suffix(midpoint))
-        if measureLine(candidate) <= maxWidth {
+        let midpoint = lowerBound + (upperBound - lowerBound) / 2
+        let candidate = text.suffix(midpoint)
+        if measureFragment(candidate) <= maxWidth {
             best = midpoint
             lowerBound = midpoint + 1
         } else {
@@ -1218,83 +1283,79 @@ private func longestFittingSuffixLength(
 
     return best
 }
-private func appendingEllipsis(to line: String, maxWidth: Double?, measureLine: (String) -> Double) -> String {
-    let ellipsis = fittingEllipsis(maxWidth: maxWidth, measureLine: measureLine)
-    guard !ellipsis.isEmpty else {
-        return ""
+private func appendingEllipsis(
+    to line: TextLayoutFragment, maxWidth: Double?, measureFragment: (TextLayoutFragment) -> Double
+) -> TextLayoutFragment {
+    let ellipsis = fittingEllipsis(maxWidth: maxWidth, measureFragment: measureFragment)
+    guard !ellipsis.text.isEmpty else {
+        return TextLayoutFragment(synthetic: "")
     }
 
     guard let maxWidth, maxWidth.isFinite else {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        return trimmed.hasSuffix(ellipsis) ? trimmed : trimmed + ellipsis
+        let trimmed = line.trimmingWhitespace()
+        return trimmed.text.hasSuffix(ellipsis.text) ? trimmed : trimmed.appending(ellipsis)
     }
 
-    let trimmed = line.trimmingCharacters(in: .whitespaces)
-    guard measureLine(trimmed) + measureLine(ellipsis) > maxWidth else {
-        return trimmed + ellipsis
+    let trimmed = line.trimmingWhitespace()
+    guard measureFragment(trimmed) + measureFragment(ellipsis) > maxWidth else {
+        return trimmed.appending(ellipsis)
     }
 
     let prefixLength = longestFittingPrefixLength(
         for: trimmed,
         maxWidth: maxWidth,
-        reservedWidth: measureLine(ellipsis),
-        measureLine: measureLine
+        reservedWidth: measureFragment(ellipsis),
+        measureFragment: measureFragment
     )
 
     if prefixLength <= 0 {
         return ellipsis
     }
 
-    let characters = Array(trimmed)
-    let prefix = String(characters.prefix(prefixLength)).trimmingCharacters(in: .whitespaces)
-    return prefix.isEmpty ? ellipsis : prefix + ellipsis
+    let prefix = trimmed.prefix(prefixLength).trimmingWhitespace()
+    return prefix.text.isEmpty ? ellipsis : prefix.appending(ellipsis)
 }
-private func fittingEllipsis(maxWidth: Double?, measureLine: (String) -> Double) -> String {
-    let candidates = ["...", "..", "."]
+private func fittingEllipsis(
+    maxWidth: Double?, measureFragment: (TextLayoutFragment) -> Double
+) -> TextLayoutFragment {
+    let candidates = ["...", "..", "."].map { TextLayoutFragment(synthetic: $0) }
 
     guard let maxWidth, maxWidth.isFinite else {
         return candidates[0]
     }
 
     for candidate in candidates {
-        if measureLine(candidate) <= maxWidth {
+        if measureFragment(candidate) <= maxWidth {
             return candidate
         }
     }
 
-    return ""
+    return TextLayoutFragment(synthetic: "")
 }
-/// Longest prefix of `text` that fits, found by galloping *up* from a short
-/// prefix before binary-searching.
-///
-/// A plain binary search over the whole remaining token probes at n/2 first,
-/// and on the DirectWrite path every probe builds and shapes a full
-/// `IDWriteTextLayout`. Space-less scripts have no other break opportunity, so
-/// a 20,000-character CJK paragraph is one token and each of its ~n/m slices
-/// re-shaped most of the paragraph — O(n² log n) character shaping on the main
-/// actor before the first frame. A wrapped line holds tens of characters, so
-/// galloping bounds every probe at ~2× the answer and the whole wrap costs
-/// O(n log m). Results are identical; only the probe sequence changes.
+/// Longest prefix of `text` that fits, found by galloping up from a short
+/// prefix before binary-searching. Keeping each shaping probe bounded by
+/// roughly twice the fitted line length avoids quadratic DirectWrite work
+/// for long tokens and scripts without spaces.
 private func longestFittingPrefixLength(
-    for text: String,
+    for text: TextLayoutFragment,
     maxWidth: Double,
     reservedWidth: Double = 0,
-    measureLine: (String) -> Double
+    measureFragment: (TextLayoutFragment) -> Double
 ) -> Int {
-    let characters = Array(text)
-    guard !characters.isEmpty else {
+    let characterCount = text.text.count
+    guard characterCount > 0 else {
         return 0
     }
 
     let remainingWidth = max(0, maxWidth - reservedWidth)
     func fits(_ count: Int) -> Bool {
-        measureLine(String(characters.prefix(count))) <= remainingWidth
+        measureFragment(text.prefix(count)) <= remainingWidth
     }
 
     var best = 0
-    var firstMisfit = characters.count + 1
+    var firstMisfit = characterCount + 1
     var probe = 1
-    while probe <= characters.count {
+    while probe <= characterCount {
         guard fits(probe) else {
             firstMisfit = probe
             break
@@ -1307,7 +1368,7 @@ private func longestFittingPrefixLength(
     }
 
     var lowerBound = best + 1
-    var upperBound = min(firstMisfit - 1, characters.count)
+    var upperBound = min(firstMisfit - 1, characterCount)
     while lowerBound <= upperBound {
         let midpoint = lowerBound + (upperBound - lowerBound) / 2
         if fits(midpoint) {

@@ -6,6 +6,221 @@ import SwiftWindowsGraphics
 
 import WinSDK
 
+/// Text retained by wrapping or truncation, with exact offsets into the source.
+/// A source range stays compact until an edit splits it; generated ellipses and
+/// separators have no mapping and therefore cannot inherit an unrelated span.
+struct TextLayoutFragment: Hashable, Sendable {
+    struct Mapping: Hashable, Sendable {
+        var outputUTF16Range: Range<Int>
+        var sourceUTF16Range: Range<Int>
+    }
+
+    let text: String
+    private(set) var mappings: [Mapping]
+
+    init(source: String) {
+        self.text = source
+        let length = source.utf16.count
+        self.mappings =
+            length > 0
+            ? [Mapping(outputUTF16Range: 0..<length, sourceUTF16Range: 0..<length)]
+            : []
+    }
+
+    init(synthetic: String) {
+        self.text = synthetic
+        self.mappings = []
+    }
+
+    private init(text: String, mappings: [Mapping]) {
+        self.text = text
+        self.mappings = mappings
+    }
+
+    func slice(_ range: Range<String.Index>) -> Self {
+        if range.lowerBound == text.startIndex, range.upperBound == text.endIndex {
+            return self
+        }
+        // Scalar slicing also preserves Foundation's whitespace-trimming
+        // behavior when a whitespace scalar shares a grapheme with a mark.
+        let slicedText = String(text.unicodeScalars[range])
+        guard !mappings.isEmpty, !slicedText.isEmpty else {
+            return Self(synthetic: slicedText)
+        }
+
+        let lower = range.lowerBound.utf16Offset(in: text)
+        let upper = range.upperBound.utf16Offset(in: text)
+        let clipped = mappings.compactMap { mapping -> Mapping? in
+            let start = max(lower, mapping.outputUTF16Range.lowerBound)
+            let end = min(upper, mapping.outputUTF16Range.upperBound)
+            guard start < end else { return nil }
+            let sourceStart = mapping.sourceUTF16Range.lowerBound + start - mapping.outputUTF16Range.lowerBound
+            return Mapping(
+                outputUTF16Range: (start - lower)..<(end - lower),
+                sourceUTF16Range: sourceStart..<(sourceStart + end - start))
+        }
+        return Self(text: slicedText, mappings: clipped)
+    }
+
+    func prefix(_ count: Int) -> Self {
+        let end = text.index(text.startIndex, offsetBy: max(0, count), limitedBy: text.endIndex) ?? text.endIndex
+        return slice(text.startIndex..<end)
+    }
+
+    func suffix(_ count: Int) -> Self {
+        let start = text.index(text.endIndex, offsetBy: -max(0, count), limitedBy: text.startIndex) ?? text.startIndex
+        return slice(start..<text.endIndex)
+    }
+
+    func droppingFirst(_ count: Int) -> Self {
+        let start = text.index(text.startIndex, offsetBy: max(0, count), limitedBy: text.endIndex) ?? text.endIndex
+        return slice(start..<text.endIndex)
+    }
+
+    func trimmingWhitespace() -> Self {
+        let scalars = text.unicodeScalars
+        let whitespace = CharacterSet.whitespaces
+        var start = scalars.startIndex
+        var end = scalars.endIndex
+        while start < end, whitespace.contains(scalars[start]) {
+            scalars.formIndex(after: &start)
+        }
+        while start < end {
+            let previous = scalars.index(before: end)
+            guard whitespace.contains(scalars[previous]) else { break }
+            end = previous
+        }
+        return slice(start..<end)
+    }
+
+    func words() -> [Self] {
+        text.split(whereSeparator: \.isWhitespace).map { slice($0.startIndex..<$0.endIndex) }
+    }
+
+    /// LF, CR, and CRLF each end one line. Slicing the original string keeps
+    /// CRLF's two source code units from shifting every later span by one.
+    func normalizedLines() -> [Self] {
+        let scalars = text.unicodeScalars
+        var lineStart = scalars.startIndex
+        var cursor = lineStart
+        var lines: [Self] = []
+        while cursor < scalars.endIndex {
+            let scalar = scalars[cursor]
+            var next = scalars.index(after: cursor)
+            if scalar == "\n" || scalar == "\r" {
+                lines.append(slice(lineStart..<cursor))
+                if scalar == "\r", next < scalars.endIndex, scalars[next] == "\n" {
+                    scalars.formIndex(after: &next)
+                }
+                lineStart = next
+            }
+            cursor = next
+        }
+        lines.append(slice(lineStart..<scalars.endIndex))
+        return lines
+    }
+
+    func appending(_ other: Self) -> Self {
+        if text.isEmpty { return other }
+        if other.text.isEmpty { return self }
+        return Self.joined([self, other], separator: Self(synthetic: ""))
+    }
+
+    static func joined(_ parts: [Self], separator: Self) -> Self {
+        guard !parts.isEmpty else { return Self(synthetic: "") }
+        if parts.count == 1 { return parts[0] }
+
+        let tracksSource = !separator.mappings.isEmpty || parts.contains { !$0.mappings.isEmpty }
+        var combinedText = ""
+        var combinedMappings: [Mapping] = []
+        var outputOffset = 0
+
+        func append(_ part: Self) {
+            combinedText.append(contentsOf: part.text)
+            guard tracksSource else { return }
+            for mapping in part.mappings {
+                let outputStart = mapping.outputUTF16Range.lowerBound + outputOffset
+                let outputEnd = mapping.outputUTF16Range.upperBound + outputOffset
+                let outputRange = outputStart..<outputEnd
+                if let last = combinedMappings.last,
+                    last.outputUTF16Range.upperBound == outputRange.lowerBound,
+                    last.sourceUTF16Range.upperBound == mapping.sourceUTF16Range.lowerBound
+                {
+                    combinedMappings[combinedMappings.count - 1] = Mapping(
+                        outputUTF16Range: last.outputUTF16Range.lowerBound..<outputRange.upperBound,
+                        sourceUTF16Range: last.sourceUTF16Range.lowerBound..<mapping.sourceUTF16Range.upperBound)
+                } else {
+                    combinedMappings.append(
+                        Mapping(outputUTF16Range: outputRange, sourceUTF16Range: mapping.sourceUTF16Range))
+                }
+            }
+            outputOffset += part.text.utf16.count
+        }
+
+        for index in parts.indices {
+            if index != parts.startIndex { append(separator) }
+            append(parts[index])
+        }
+        return Self(text: combinedText, mappings: combinedMappings)
+    }
+
+    /// Called only for adjacent words from one normalized source line. Their
+    /// source gap begins at the first original whitespace scalar (one UTF-16
+    /// unit), which supplies the provenance of the normalized normal space.
+    static func wordSeparator(after: Self, before: Self) -> Self {
+        guard let previous = after.mappings.last, let next = before.mappings.first,
+            previous.outputUTF16Range.upperBound == after.text.utf16.count,
+            next.outputUTF16Range.lowerBound == 0,
+            previous.sourceUTF16Range.upperBound < next.sourceUTF16Range.lowerBound
+        else {
+            return Self(synthetic: " ")
+        }
+        let sourceStart = previous.sourceUTF16Range.upperBound
+        return Self(
+            text: " ",
+            mappings: [Mapping(outputUTF16Range: 0..<1, sourceUTF16Range: sourceStart..<(sourceStart + 1))])
+    }
+
+    /// Intersect each source span with the retained ranges. In particular,
+    /// identical words at different source offsets retain different styles;
+    /// generated ellipses are left in the paragraph's base style.
+    func rebasedStyle(_ style: PixelTextStyle, sourceText: String) -> PixelTextStyle {
+        guard let spans = style.spans, !spans.isEmpty else { return style }
+        var rebased = style
+        guard !mappings.isEmpty else {
+            rebased.spans = nil
+            return rebased
+        }
+
+        let sourceUTF16 = sourceText.utf16
+        var outputSpans: [TextSpan] = []
+        for span in spans {
+            guard let range = span.range else { continue }
+            let lowerBound = max(sourceText.startIndex, range.lowerBound)
+            let upperBound = min(sourceText.endIndex, range.upperBound)
+            guard lowerBound < upperBound,
+                let start = lowerBound.samePosition(in: sourceUTF16),
+                let end = upperBound.samePosition(in: sourceUTF16)
+            else { continue }
+            let sourceStart = sourceUTF16.distance(from: sourceUTF16.startIndex, to: start)
+            let sourceEnd = sourceUTF16.distance(from: sourceUTF16.startIndex, to: end)
+            for mapping in mappings {
+                let lower = max(sourceStart, mapping.sourceUTF16Range.lowerBound)
+                let upper = min(sourceEnd, mapping.sourceUTF16Range.upperBound)
+                guard lower < upper else { continue }
+                let outputStart = mapping.outputUTF16Range.lowerBound + lower - mapping.sourceUTF16Range.lowerBound
+                let outputEnd = outputStart + upper - lower
+                let outputRange =
+                    String.Index(utf16Offset: outputStart, in: text)..<String.Index(utf16Offset: outputEnd, in: text)
+                outputSpans.append(
+                    TextSpan(text: String(text.unicodeScalars[outputRange]), style: span.style, range: outputRange))
+            }
+        }
+        rebased.spans = outputSpans.isEmpty ? nil : outputSpans
+        return rebased
+    }
+}
+
 /// Vertical frame a glyph's `origin.y` / `bearingY` is measured in.
 ///
 /// The two rasterizers disagree by one ascent: `rasterizeCapturedGlyph` draws a

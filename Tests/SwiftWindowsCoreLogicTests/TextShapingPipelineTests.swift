@@ -89,6 +89,151 @@ final class TextShapingPipelineTests: XCTestCase {
         }
         let fittingWidth = try XCTUnwrap(DirectWriteTextRenderer.measuredLineWidthForTesting(text, style: style))
         XCTAssertEqual(fittingWidth, line.width, accuracy: 0.001, "fitting must measure the styled glyphs it paints")
+
+        let plainSource = "HH"
+        let outsideSource = "HHHHHH"
+        let plain = try XCTUnwrap(NativeTextRenderer.layout(plainSource, style: bodyStyle(), scaleFactor: 1))
+        let inactiveRanges = [
+            plainSource.startIndex..<plainSource.startIndex,
+            outsideSource.index(outsideSource.startIndex, offsetBy: 4)..<outsideSource.endIndex,
+        ]
+        for inactiveRange in inactiveRanges {
+            var inactiveStyle = bodyStyle()
+            inactiveStyle.spans = [TextSpan(text: "", style: spanStyle, range: inactiveRange)]
+            let inactive = try XCTUnwrap(
+                NativeTextRenderer.layout(plainSource, style: inactiveStyle, scaleFactor: 1))
+            XCTAssertEqual(
+                inactive.contentSize, plain.contentSize, "a span covering no source text must not change the line grid")
+            XCTAssertEqual(inactive.lines.first?.ascent, plain.lines.first?.ascent)
+        }
+
+        func largeLastWordStyle(_ source: String) -> PixelTextStyle {
+            var result = bodyStyle()
+            var large = result
+            large.nativeFontSize = 32
+            result.spans = [
+                TextSpan(
+                    text: "HH", style: large,
+                    range: source.index(source.endIndex, offsetBy: -2)..<source.endIndex)
+            ]
+            return result
+        }
+        func inkBands(_ bitmap: BitmapSurface) -> [Range<Int>] {
+            let bytes = [UInt8](bitmap.pixels)
+            var bands: [Range<Int>] = []
+            var start: Int?
+            for y in 0..<Int(bitmap.height) {
+                let hasInk = (0..<Int(bitmap.width)).contains {
+                    bytes[y * Int(bitmap.bytesPerRow) + $0 * 4 + 3] > 0
+                }
+                if hasInk, start == nil {
+                    start = y
+                } else if !hasInk, let first = start {
+                    bands.append(first..<y)
+                    start = nil
+                }
+            }
+            if let start { bands.append(start..<Int(bitmap.height)) }
+            return bands
+        }
+
+        var normalizedPixels: Data?
+        for source in ["HH\nHH", "HH\r\nHH", "HH\rHH"] {
+            let paragraphStyle = largeLastWordStyle(source)
+            let paragraph = try XCTUnwrap(NativeTextRenderer.layout(source, style: paragraphStyle, scaleFactor: 1))
+            XCTAssertEqual(paragraph.lines.map(\.text), ["HH", "HH"])
+            let smallLine = try XCTUnwrap(paragraph.lines.first)
+            let largeLine = try XCTUnwrap(paragraph.lines.last)
+            XCTAssertTrue(smallLine.glyphs.allSatisfy { $0.fontSize == 16 })
+            XCTAssertTrue(largeLine.glyphs.allSatisfy { $0.fontSize == 32 }, "later lines must rebase source ranges")
+
+            var largeGlyphHeight = 0
+            for capturedLine in paragraph.lines {
+                for glyph in capturedLine.glyphs {
+                    let raster = try XCTUnwrap(
+                        NativeTextRenderer.rasterizeGlyph(glyph, style: paragraphStyle, scaleFactor: 1))
+                    XCTAssertEqual(raster.verticalFrame, .baseline)
+                    let inkTop = glyph.origin.y + Double(raster.bearingY)
+                    XCTAssertGreaterThanOrEqual(inkTop, -1, "span ink must not start above its clipped line box")
+                    XCTAssertLessThanOrEqual(inkTop + Double(raster.height), capturedLine.height + 1)
+                    if glyph.fontSize == 32 { largeGlyphHeight = Int(raster.height) }
+                }
+            }
+            let bitmap = try XCTUnwrap(DirectWriteTextRenderer.rasterize(source, style: paragraphStyle, scaleFactor: 1))
+            let bands = inkBands(bitmap)
+            XCTAssertEqual(bands.count, 2, "mixed font sizes must paint two separated lines, not overlapping ink")
+            if let lastBand = bands.last {
+                XCTAssertGreaterThanOrEqual(lastBand.count, largeGlyphHeight - 1, "the larger line must not be clipped")
+            }
+            if let normalizedPixels {
+                XCTAssertEqual(bitmap.pixels, normalizedPixels, "newline normalization must preserve span placement")
+            } else {
+                normalizedPixels = bitmap.pixels
+            }
+        }
+
+        let unicodeSource = "\u{1F600}\r\nHH"
+        let unicodeLine = try XCTUnwrap(
+            NativeTextRenderer.layout(unicodeSource, style: largeLastWordStyle(unicodeSource), scaleFactor: 1)?.lines
+                .last)
+        XCTAssertEqual(unicodeLine.text, "HH")
+        XCTAssertTrue(
+            unicodeLine.glyphs.allSatisfy { $0.fontSize == 32 }, "UTF-16 offsets must survive surrogate pairs")
+
+        let repeated = "HH HH"
+        var wrapStyle = largeLastWordStyle(repeated)
+        wrapStyle.lineBreakMode = .wrap
+        let smallWidth = try XCTUnwrap(
+            NativeTextRenderer.layout("HH", style: bodyStyle(), scaleFactor: 1)?.contentSize.width)
+        let wrappingWidth = smallWidth + 0.25
+        let wrapped = try XCTUnwrap(
+            NativeTextRenderer.layout(repeated, style: wrapStyle, scaleFactor: 1, maxWidth: wrappingWidth))
+        XCTAssertEqual(
+            wrapped.lines.map(\.text), ["HH", "H", "H"],
+            "equal strings with different spans need separate fitting probes")
+        for (index, wrappedLine) in wrapped.lines.enumerated() {
+            XCTAssertTrue(wrappedLine.glyphs.allSatisfy { $0.fontSize == (index == 0 ? 16 : 32) })
+            XCTAssertLessThanOrEqual(wrappedLine.width, wrappingWidth + 0.001)
+        }
+
+        let shrinkingSource = "HH\nHH"
+        var shrinkingStyle = largeLastWordStyle(shrinkingSource)
+        shrinkingStyle.minimumScaleFactor = 0.5
+        let shrunk = try XCTUnwrap(
+            NativeTextRenderer.layout(shrinkingSource, style: shrinkingStyle, scaleFactor: 1, maxWidth: wrappingWidth))
+        let shrunkLast = try XCTUnwrap(shrunk.lines.last)
+        XCTAssertTrue(shrunkLast.glyphs.allSatisfy { $0.fontSize < 32 && $0.fontSize >= 16 })
+        XCTAssertLessThanOrEqual(
+            shrunkLast.width, wrappingWidth + 0.01, "minimum scale must measure later styled lines")
+
+        let truncatedSource = "AAAA BBBB"
+        var truncatingStyle = bodyStyle()
+        var firstStyle = truncatingStyle
+        firstStyle.nativeFontSize = 32
+        var lastStyle = truncatingStyle
+        lastStyle.nativeFontSize = 24
+        truncatingStyle.spans = [
+            TextSpan(
+                text: "AAAA", style: firstStyle,
+                range: truncatedSource.startIndex..<truncatedSource.index(truncatedSource.startIndex, offsetBy: 4)),
+            TextSpan(
+                text: "BBBB", style: lastStyle,
+                range: truncatedSource.index(truncatedSource.endIndex, offsetBy: -4)..<truncatedSource.endIndex),
+        ]
+        for mode in [TextLineBreakMode.truncateTail, .truncateHead, .truncateMiddle] {
+            truncatingStyle.lineBreakMode = mode
+            let truncated = try XCTUnwrap(
+                NativeTextRenderer.layout(truncatedSource, style: truncatingStyle, scaleFactor: 1, maxWidth: 90)?.lines
+                    .first)
+            XCTAssertTrue(truncated.text.contains("."), "the regression must actually truncate")
+            XCTAssertLessThanOrEqual(truncated.width, 91)
+            for glyph in truncated.glyphs {
+                let expectedSize = glyph.character == "A" ? 32.0 : (glyph.character == "B" ? 24.0 : 16.0)
+                XCTAssertEqual(
+                    glyph.fontSize, expectedSize, accuracy: 0.001,
+                    "retained suffixes keep their source style and synthetic ellipses use the base style")
+            }
+        }
     }
 
     @MainActor

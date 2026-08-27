@@ -790,6 +790,13 @@ features did not reach DirectWrite. Fitting measurements now apply the same
 span styles and typography features as shaped layout and rasterization;
 `testSpanFontSizeReachesShapingAndFittingMeasurement` checks both paths.
 
+`TextLayoutFragment` preserves compact source-to-output UTF-16 ranges through
+newline normalization, wrapping, and truncation. Fitting probes, final shaped
+lines, and the bitmap layout rebase span styles from those same ranges. Equal
+strings at different styled source positions are separate probe-cache keys;
+ordinary text still caches by string. Inserted ellipses have no source range
+and use the paragraph's base style instead of inheriting a removed span.
+
 The capture renderer is a COM object DirectWrite calls *back* into, and
 before it reports a run's baseline it asks that object two questions:
 `IsPixelSnappingDisabled` and `GetPixelsPerDip`. The capture answers

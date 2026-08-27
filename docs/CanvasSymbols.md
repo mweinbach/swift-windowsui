@@ -30,6 +30,13 @@ The completed parent graph shares one final atlas snapshot, as described in
 [the rendering pipeline](GPURenderingPipeline.md). Old returned scenes remain
 immutable and can retain their own buffers.
 
+Sources record at the display scale captured from their environment.
+Magnification filters the source's existing antialiasing; it does not increase
+source raster density to match the destination. `CanvasSymbolSamplingTests`
+pins the retained square-quad coverage and its bilinear magnification on the
+CPU scene, frame fallback, and D3D11 WARP paths. Native SwiftUI Canvas capture
+density still needs reference qualification.
+
 Symbol placement preserves context-authored translation, scale, shear,
 reflection, and rotation. ImagePrimitive now has an 80-byte structured-buffer
 stride, adding four Float basis entries at offsets 64, 68, 72, and 76. The
@@ -64,6 +71,13 @@ do not bound arbitrary application code or tree allocation performed by the
 symbol builder before traversal. They also do not establish a total CPU RAM,
 driver-memory, or identical CPU/GPU cache bound.
 
+Ordinary retained traversal uses an ordered work list. Primitive preparation
+and cache completion run outside nested source recording so large debug stack
+frames do not accumulate at each accepted symbol depth. The source recorder
+retains only small coordination frames; mixed symbol/color-effect, drawing
+group, and blur tests exercise the same unchanged limits. This does not bound
+arbitrary recursion inside application callbacks.
+
 Complete blend modes, filter chains, path clips, layer composition,
 `withCGContext`, material access to enclosing offscreen backdrops, and general
 inherited affine transforms remain open. Native SwiftUI reference comparisons
@@ -71,8 +85,9 @@ must distinguish the symbol API mapping from the independently tested scene
 contract. No gallery or hardware timing qualification is implied.
 
 `AffineImagePlacementTests`, `CanvasSymbolRuntimeTests`, `CanvasSymbolSceneTests`,
+`CanvasSymbolMixedDepthTests`, `CanvasSymbolSamplingTests`,
 `WinSwiftUICanvasSymbolTests`, `CanvasSymbolAtlasLifetimeTests`, and
-`CanvasPixelFontScaleTests` contain 52 regressions. The primitive layout and
+`CanvasPixelFontScaleTests` cover the public and retained contracts. The primitive layout and
 D3D11 buffer-size tests also cover the ABI change. Integration must run these
 alongside existing Canvas, image-pass, atlas, replay, CPU/WARP parity, and
 fallback suites.

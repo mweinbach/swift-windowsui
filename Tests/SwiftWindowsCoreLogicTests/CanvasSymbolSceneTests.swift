@@ -146,6 +146,67 @@ final class CanvasSymbolSceneTests: XCTestCase {
         assertPixel(pixels, x: 8, y: 8, color: Color(red: 1, green: 0, blue: 1, alpha: 1))
     }
 
+    func testEveryAcceptedSymbolDepthRemainsDrawableWithoutRetainingPainterFrames() async throws {
+        var sourcePaints = 0
+        func source(level: Int) -> CanvasSymbolSource? {
+            CanvasSymbolSource(displayScale: 1) { runtime in
+                UI.canvas(frame: Rect(x: 0, y: 0, width: 2, height: 2)) { context, _ in
+                    sourcePaints += 1
+                    if level == 0 {
+                        context.fill(Rect(x: 0, y: 0, width: 2, height: 2), with: .color(self.blue))
+                    } else if let child = source(level: level - 1) {
+                        context.draw(child, in: Rect(x: 0, y: 0, width: 2, height: 2))
+                    }
+                }.makeNode(runtime: runtime)
+            }
+        }
+        let first = try XCTUnwrap(source(level: GPUISceneLimits.maxImageRenderPassDepth - 1))
+        let scene = paintCanvas { context, _ in
+            context.draw(first, in: Rect(x: 8, y: 8, width: 2, height: 2))
+        }
+        XCTAssertEqual(sourcePaints, GPUISceneLimits.maxImageRenderPassDepth)
+        XCTAssertEqual(passes(in: scene).count, GPUISceneLimits.maxImageRenderPassDepth)
+        XCTAssertTrue(scene.validate().isEmpty, "The advertised maximum depth must remain accepted")
+        assertPixel(
+            GPUIRawSceneRasterizer.rasterize(scene, size: IntSize(width: 64, height: 64)),
+            x: 8, y: 8, color: blue)
+    }
+
+    func testQueuedCanvasContentStaysBeforeChildrenAndCompositingGroups() async throws {
+        for isolatesChildren in [false, true] {
+            var events: [String] = []
+            let symbol = try XCTUnwrap(
+                CanvasSymbolSource(displayScale: 1) { _ in
+                    ViewNode(
+                        frame: Rect(x: 0, y: 0, width: 8, height: 8), backgroundColor: blue,
+                        canvasDraw: { _, _ in events.append("symbol") })
+                })
+            let node = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 40, height: 24), backgroundColor: .black,
+                canvasDraw: { context, _ in
+                    events.append("canvas")
+                    context.draw(symbol, in: Rect(x: 8, y: 8, width: 8, height: 8))
+                    context.fill(Rect(x: 12, y: 8, width: 8, height: 8), with: .color(self.yellow))
+                },
+                drawingGroup: isolatesChildren ? RetainedDrawingGroup() : nil,
+                children: [
+                    ViewNode(
+                        frame: Rect(x: 16, y: 8, width: 8, height: 8),
+                        backgroundColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
+                        canvasDraw: { _, _ in events.append("child") })
+                ])
+            let scene = ScenePainter.paint(
+                root: node, clearColor: .clear, surfaceSize: Size(width: 40, height: 24))
+            XCTAssertEqual(events, ["canvas", "symbol", "child"])
+            XCTAssertTrue(scene.validate().isEmpty)
+            let pixels = GPUIRawSceneRasterizer.rasterize(scene, size: IntSize(width: 40, height: 24))
+            assertPixel(pixels, x: 2, y: 2, color: .black)
+            assertPixel(pixels, x: 10, y: 10, color: blue)
+            assertPixel(pixels, x: 14, y: 10, color: yellow)
+            assertPixel(pixels, x: 20, y: 10, color: Color(red: 1, green: 0, blue: 0, alpha: 1))
+        }
+    }
+
     func testBranchingSymbolsShareTheCountBudgetBeforeExpandingTheirSources() async throws {
         var sourcePaints = 0
         func source(level: Int) -> CanvasSymbolSource? {

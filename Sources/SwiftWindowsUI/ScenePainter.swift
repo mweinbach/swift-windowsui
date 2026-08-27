@@ -363,6 +363,7 @@ public enum ScenePainter {
     /// Shared across recursive paint calls and namespaces in one attempt.
     /// Reserve the pass before visiting its source, so branching or recursive
     /// Canvas declarations cannot grow an unbounded scene before validation.
+    @MainActor
     private final class CanvasSymbolPaintState {
         var remainingPasses = GPUISceneLimits.maxImageRenderPassCount
         var remainingPixels = Int64(GPUISceneLimits.maxImageRenderPassTotalPixels)
@@ -465,9 +466,16 @@ public enum ScenePainter {
         let skipCacheUpdates: Bool
     }
 
+    private typealias PaintTraversalWork =
+        @MainActor (
+            inout GPUIScene, inout [DeferredDrawState], inout Bool, inout Bool,
+            inout Int, inout [PaintTraversalStep]
+        ) -> Void
+
     private enum PaintTraversalStep {
         case enter(PaintTraversalContext)
         case finish(PaintNodeFinishState)
+        case paint(PaintTraversalWork)
     }
 
     private static func paintNode(
@@ -518,385 +526,365 @@ public enum ScenePainter {
         ]
 
         while let traversalStep = traversal.popLast() {
-            let context: PaintTraversalContext
             switch traversalStep {
             case .finish(let state):
                 finishPaintNode(
-                    state,
-                    into: &scene,
-                    surfaceSize: surfaceSize,
-                    displayScale: displayScale,
-                    snapshotIdentity: snapshotIdentity
+                    state, into: &scene, surfaceSize: surfaceSize,
+                    displayScale: displayScale, snapshotIdentity: snapshotIdentity)
+            case .paint(let work):
+                work(&scene, &deferredDraws, &usedNativeGlyphs, &usedPixelGlyphs, &replayCount, &traversal)
+            case .enter(let context):
+                schedulePaintNode(
+                    context, into: &scene, deferredDraws: &deferredDraws,
+                    surfaceSize: surfaceSize, displayScale: displayScale, textSystem: textSystem,
+                    previousScene: previousScene, previousSceneIdentity: previousSceneIdentity,
+                    snapshotIdentity: snapshotIdentity, usedNativeGlyphs: &usedNativeGlyphs,
+                    usedPixelGlyphs: &usedPixelGlyphs, replayCount: &replayCount,
+                    canvasSymbolState: canvasSymbolState, traversal: &traversal)
+            }
+        }
+    }
+
+    /// Finish primitive emission before a queued operation descends into a
+    /// scene source. Debug Swift frames are large enough that retaining this
+    /// preparation frame per source exhausted the Windows stack at depth 12.
+    /// The work list owns continuations; draw order and cache completion still
+    /// follow the existing enter/content/children/finish sequence.
+    @inline(never)
+    private static func schedulePaintNode(
+        _ context: PaintTraversalContext,
+        into scene: inout GPUIScene,
+        deferredDraws: inout [DeferredDrawState],
+        surfaceSize: Size,
+        displayScale: Double,
+        textSystem: WindowTextSystem,
+        previousScene: GPUIScene?,
+        previousSceneIdentity: PaintSnapshotIdentity?,
+        snapshotIdentity: PaintSnapshotIdentity,
+        usedNativeGlyphs: inout Bool,
+        usedPixelGlyphs: inout Bool,
+        replayCount: inout Int,
+        canvasSymbolState: CanvasSymbolPaintState,
+        traversal: inout [PaintTraversalStep]
+    ) {
+        // Counted on entry, before any of the reasons this node might not
+        // paint: entering it is the work replay avoids, and a node that
+        // enters and then culls has already cost the traversal.
+        scene.paintMetrics.nodesVisited += 1
+
+        let node = context.node
+        let parentOrigin = context.parentOrigin
+        let inheritedClip = context.inheritedClip
+        let layerIndex = context.layerIndex
+        let primitiveOpacity = context.primitiveOpacity
+        let inheritedColorEffects = context.inheritedColorEffects
+        let inheritedBlendMode = context.inheritedBlendMode
+        let inheritedTransform = context.inheritedTransform
+        let isInsideDrawingGroup = context.isInsideDrawingGroup
+        let skipCacheUpdates = context.skipCacheUpdates
+
+        let startPaintRecord = scene.paintRecordCount
+
+        // "Did this node's last visit paint via the isolation pass?" —
+        // cleared here so that every way of *not* isolating (a buffer that
+        // could not be sized, a culled or hidden subtree, a zero radius)
+        // leaves it false and the deferred phase draws the headers itself.
+        // Only the composite below sets it. The suppressed re-entry is the
+        // isolation pass painting this very node into its own buffer, and
+        // must not clear the answer it is in the middle of producing.
+        if node.contentBlurRadius > 0, !context.suppressesContentBlurIsolation {
+            node.lastPaintedViaContentBlurIsolation = false
+        }
+
+        // Inside a compositing group nothing this node paints reaches the
+        // scene the caches are measured against, so the cache it is
+        // carrying from before the group existed has to go. Skipping the
+        // *write* is not enough: a range measured against a real earlier
+        // frame stays in bounds of the next one, so removing the group
+        // replayed whatever primitives happen to live at those indices
+        // now. `.invalidRange` only catches the out-of-bounds half of
+        // that. Clearing on entry also covers the reverse toggle, since
+        // the frame a group appears on walks its whole subtree.
+        if skipCacheUpdates {
+            node.cachedSceneKey = nil
+            node.cachedScenePaintRange = nil
+            node.cachedSceneSnapshotIdentity = nil
+        }
+
+        guard !node.isHidden else {
+            if !skipCacheUpdates {
+                node.cachedSceneKey = nil
+                node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+                node.cachedSceneSnapshotIdentity = snapshotIdentity
+            }
+            node.markSubtreeRendered()
+            return
+        }
+
+        let effectiveBlendMode: BlendMode = node.blendMode == .normal ? inheritedBlendMode : node.blendMode
+        // Needed before the border is emitted: a container's border is a
+        // ring drawn after children, so the pre-children fill has to know
+        // whether it would be redrawn.
+        let hasChildren = !node.children.isEmpty
+
+        // The node's frame in its parent's local coordinate space.
+        let nodeLocalFrame = Rect(
+            x: parentOrigin.x + node.resolvedFrame.origin.x,
+            y: parentOrigin.y + node.resolvedFrame.origin.y,
+            width: node.resolvedFrame.size.width,
+            height: node.resolvedFrame.size.height
+        )
+
+        // Map the local frame into screen space using the inherited ancestor
+        // transform, then apply the node's own transform centered around the
+        // screen-space center so that scaleEffect/rotationEffect affect both
+        // the node and all descendants consistently.
+        let effectiveTransform: Transform2D
+        if node.transform.isIdentity {
+            effectiveTransform = inheritedTransform
+        } else {
+            let nodeScreenFrame = nodeLocalFrame.applying(transform: inheritedTransform)
+            let center = Point(x: nodeScreenFrame.midX, y: nodeScreenFrame.midY)
+            let centeredTransform = Transform2D.translation(x: -center.x, y: -center.y)
+                .concatenating(node.transform)
+                .concatenating(.translation(x: center.x, y: center.y))
+            // WS-19. Ancestors first, then this node. `concatenating` is
+            // self-first (`a.concatenating(b)` maps a point through `a`
+            // then through `b`), and `centeredTransform` is built around
+            // the node's *screen-space* centre — it is a screen-space
+            // operator, so it has to be applied after the map that
+            // produced that screen space. The other order composed
+            // node-before-ancestors, which left the node's own frame and
+            // the frames its descendants inherited in different spaces:
+            // an ancestor `.offset(100, 0)` under a `.scaleEffect(2)`
+            // child moved the child by 100 and its grandchildren by 200.
+            // `concatenating` round-trips through the decomposition,
+            // which is not a fixed point for shears, so an identity
+            // ancestor short-circuits rather than paying a lossy compose.
+            effectiveTransform =
+                inheritedTransform.isIdentity
+                ? centeredTransform : inheritedTransform.concatenating(centeredTransform)
+        }
+        // WS-19. `boundingBox` is what every predicate and every family
+        // without a rotation field uses (it is the value the whole painter
+        // used before rotation was lowered); `frame` plus the placement's
+        // rotation is what the quad families carry. The two are the same
+        // rect for any node that is not rotated.
+        let placement = PaintPlacement.lowering(nodeLocalFrame, through: effectiveTransform)
+        // L7-FONTS. A hairline rule is pinned to the device pixel grid
+        // before anything else reads its frame — see
+        // `devicePixelSnappedRule` for why a rule that is not pinned
+        // renders at half weight at 125% and 150%.
+        let pinsRule = snapsRuleToDevicePixels(node, placement: placement)
+        let paintFrame =
+            pinsRule
+            ? devicePixelSnappedRule(placement.boundingBox, displayScale: displayScale)
+            : placement.boundingBox
+        let quadFrame =
+            pinsRule
+            ? devicePixelSnappedRule(placement.frame, displayScale: displayScale)
+            : placement.frame
+
+        // A degenerate frame paints none of the node's own decoration, but
+        // it is not a reason to drop the subtree: macOS SwiftUI does not
+        // clip at a frame boundary, so `.frame(height: 0)` without
+        // `.clipped()` overflows and the children still render. Own
+        // decoration is gated on this flag; children are visited unless the
+        // cull below prunes them (a `clipsToBounds` node collapses its clip
+        // to nothing, which prunes them for the right reason).
+        let hasPaintableExtent = paintFrame.size.width > 0 && paintFrame.size.height > 0
+
+        // Occlusion culling against the inherited clip, for every node —
+        // a degenerate frame parked outside the clip has to prune its
+        // subtree like any other. The footprint is the node's frame unioned
+        // with the decoration that reaches outside it — a shadow or
+        // focus/outline ring on a card scrolled one pixel past the clip edge
+        // is still visible, and culling on `paintFrame` alone made it pop.
+        // The offset is turned by the node's rotation, exactly as the
+        // emission below turns it (`placement.turning`). A shadow's
+        // offset is authored in the shadowed view's own space, so a card
+        // turned 90° with `.shadow(y: 40)` casts 40pt to its *side*; a
+        // footprint that still assumed 40pt down could miss the clip the
+        // halo actually falls in and prune a visibly-shadowed subtree.
+        var ownShadowRect: Rect?
+        if node.shadowColor.alpha > 0 {
+            let placedOffset = placement.turning(node.shadowOffset)
+            ownShadowRect =
+                paintFrame
+                .outset(by: max(0, node.shadowSpread))
+                .offsetBy(dx: placedOffset.x, dy: placedOffset.y)
+        }
+        let ownOutlineRect: Rect? =
+            node.outlineColor.alpha > 0 && node.outlineWidth > 0
+            ? paintFrame.outset(by: node.outlineWidth)
+            : nil
+        let cullBounds = union(paintFrame, ownShadowRect, ownOutlineRect)
+        if !inheritedClip.allowsSubtreeTraversal(bounds: cullBounds) {
+            if !skipCacheUpdates {
+                node.cachedSceneKey = nil
+                node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+                node.cachedSceneSnapshotIdentity = snapshotIdentity
+            }
+            node.markSubtreeRendered()
+            return
+        }
+
+        // One narrowing rule, shared with prepaint, hit testing and the
+        // frame path (`RuntimeClipShape.intersecting`): the rejection rect
+        // is intersected, the rounding stays anchored to the frame of the
+        // node that established it.
+        let effectiveClip: RuntimeClipShape?
+        if node.clipsToBounds {
+            guard
+                let clipped = inheritedClip.narrowed(
+                    to: paintFrame,
+                    shape: quadFrame,
+                    radii: node.cornerRadii,
+                    uniformRadius: node.cornerRadius,
+                    rotation: placement.rotation,
+                    space: .painted
                 )
-                continue
-
-            case .enter(let entryContext):
-                context = entryContext
+            else {
+                if !skipCacheUpdates {
+                    node.cachedSceneKey = nil
+                    node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+                    node.cachedSceneSnapshotIdentity = snapshotIdentity
+                }
+                node.markSubtreeRendered()
+                return
             }
+            effectiveClip = clipped
+        } else {
+            effectiveClip = inheritedClip
+        }
+        let effectiveClipRect = effectiveClip?.rect
 
-            // Counted on entry, before any of the reasons this node might not
-            // paint: entering it is the work replay avoids, and a node that
-            // enters and then culls has already cost the traversal.
-            scene.paintMetrics.nodesVisited += 1
+        // Clip rounding for the node's OWN quads (border, background,
+        // overlay): a view's own decoration is shaped by its own corner
+        // radii and is not re-rounded by its own clip — only children
+        // are. The clip RECT still applies (own text/content is clipped
+        // to the node's bounds); only the corner rounding reverts to
+        // what ancestors imposed.
+        let ownClipCornerRadius: (Rect) -> Double = { quadRect in
+            inheritedClip.ancestorCornerRadius(forQuadRect: quadRect, rejectingOutside: effectiveClipRect)
+        }
 
-            let node = context.node
-            let parentOrigin = context.parentOrigin
-            let inheritedClip = context.inheritedClip
-            let layerIndex = context.layerIndex
-            let primitiveOpacity = context.primitiveOpacity
-            let inheritedColorEffects = context.inheritedColorEffects
-            let inheritedBlendMode = context.inheritedBlendMode
-            let inheritedTransform = context.inheritedTransform
-            let isInsideDrawingGroup = context.isInsideDrawingGroup
-            let skipCacheUpdates = context.skipCacheUpdates
-
-            let startPaintRecord = scene.paintRecordCount
-
-            // "Did this node's last visit paint via the isolation pass?" —
-            // cleared here so that every way of *not* isolating (a buffer that
-            // could not be sized, a culled or hidden subtree, a zero radius)
-            // leaves it false and the deferred phase draws the headers itself.
-            // Only the composite below sets it. The suppressed re-entry is the
-            // isolation pass painting this very node into its own buffer, and
-            // must not clear the answer it is in the middle of producing.
-            if node.contentBlurRadius > 0, !context.suppressesContentBlurIsolation {
-                node.lastPaintedViaContentBlurIsolation = false
+        // GPUI/Zed carries opacity as an inherited paint scalar.
+        let opacity = primitiveOpacity * Float(node.opacity)
+        let colorEffects = context.suppressesColorEffectIsolation ? [] : node.colorEffects + inheritedColorEffects
+        // The node's own backdrop blur (Material). A subtree-wide
+        // `.blur()` is `contentBlurRadius` and is emitted as one pass in
+        // `finishPaintNode`, after everything below has painted.
+        let blurRadius = node.blurRadius
+        let blurOpaque = node.blurOpaque
+        let resolvedHoverEffect = node.resolvedActiveHoverEffect
+        let cacheKey = ViewPaintCacheKey(
+            bounds: paintFrame,
+            transform: effectiveTransform.matrix,
+            contentMask: effectiveClip,
+            opacity: opacity,
+            blurRadius: blurRadius,
+            blurOpaque: blurOpaque,
+            contentBlurRadius: node.contentBlurRadius,
+            contentBlurOpaque: node.contentBlurOpaque,
+            blendMode: effectiveBlendMode,
+            isCompositingGroup: node.isCompositingGroup,
+            drawingGroup: node.drawingGroup,
+            colorEffects: colorEffects,
+            visualEffects: node.visualEffects,
+            viewMask: node.viewMask,
+            displayScale: displayScale,
+            isHovered: node.isHovered,
+            hoverEffect: resolvedHoverEffect,
+            isFocused: node.isFocused,
+            isFocusEffectDisabled: node.isFocusEffectDisabled
+        )
+        guard opacity > 0 else {
+            if !skipCacheUpdates {
+                node.cachedSceneKey = cacheKey
+                node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+                node.cachedSceneSnapshotIdentity = snapshotIdentity
             }
+            node.markSubtreeRendered()
+            return
+        }
 
-            // Inside a compositing group nothing this node paints reaches the
-            // scene the caches are measured against, so the cache it is
-            // carrying from before the group existed has to go. Skipping the
-            // *write* is not enough: a range measured against a real earlier
-            // frame stays in bounds of the next one, so removing the group
-            // replayed whatever primitives happen to live at those indices
-            // now. `.invalidRange` only catches the out-of-bounds half of
-            // that. Clearing on entry also covers the reverse toggle, since
-            // the frame a group appears on walks its whole subtree.
-            if skipCacheUpdates {
+        // A node `.blur(radius:)` isolates never replays its outer range.
+        // The isolation branch below is the only caller of
+        // `claimDeferredDescendants`, and a replayed range carries the
+        // composited bitmap forward while leaving the node's deferred
+        // descendants unclaimed — the deferred phase would then put a
+        // second, sharp copy of every pinned header on top of the bitmap
+        // that already contains it. The bitmap cache still carries the
+        // savings: a clean subtree re-composites its cached bitmap rather
+        // than re-rasterizing or re-blurring anything.
+        let refusesReplayForContentBlur =
+            node.contentBlurRadius > 0 && !context.suppressesContentBlurIsolation
+
+        if !skipCacheUpdates,
+            !refusesReplayForContentBlur,
+            let previousScene,
+            let previousSceneIdentity,
+            !node.hasDirtySubtree,
+            node.cachedSceneKey == cacheKey,
+            node.cachedSceneSnapshotIdentity == previousSceneIdentity,
+            let cachedScenePaintRange = node.cachedScenePaintRange
+        {
+            // Replay validates before it appends anything, so a
+            // rejected range leaves the scene untouched and the node
+            // falls through to a full repaint below. Discarding the
+            // result — which is what this call site did — turned a
+            // rejection into a permanently blank subtree: the empty
+            // replay range was written straight back into the cache.
+            switch scene.replay(cachedScenePaintRange, from: previousScene) {
+            case .success:
+                let delta = startPaintRecord - cachedScenePaintRange.lowerBound
+                node.shiftCachedSceneRangesRecursively(
+                    by: delta, from: previousSceneIdentity, to: snapshotIdentity)
+                node.cachedSceneKey = cacheKey
+                node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
+                node.cachedSceneSnapshotIdentity = snapshotIdentity
+                node.markSubtreeRendered()
+                replayCount += 1
+                return
+            case .invalidRange, .unbalanced:
+                reportRejectedReplay()
                 node.cachedSceneKey = nil
                 node.cachedScenePaintRange = nil
                 node.cachedSceneSnapshotIdentity = nil
             }
+        }
 
-            guard !node.isHidden else {
-                if !skipCacheUpdates {
-                    node.cachedSceneKey = nil
-                    node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
-                    node.cachedSceneSnapshotIdentity = snapshotIdentity
-                }
-                node.markSubtreeRendered()
-                continue
-            }
-
-            let effectiveBlendMode: BlendMode = node.blendMode == .normal ? inheritedBlendMode : node.blendMode
-            // Needed before the border is emitted: a container's border is a
-            // ring drawn after children, so the pre-children fill has to know
-            // whether it would be redrawn.
-            let hasChildren = !node.children.isEmpty
-
-            // The node's frame in its parent's local coordinate space.
-            let nodeLocalFrame = Rect(
-                x: parentOrigin.x + node.resolvedFrame.origin.x,
-                y: parentOrigin.y + node.resolvedFrame.origin.y,
-                width: node.resolvedFrame.size.width,
-                height: node.resolvedFrame.size.height
-            )
-
-            // Map the local frame into screen space using the inherited ancestor
-            // transform, then apply the node's own transform centered around the
-            // screen-space center so that scaleEffect/rotationEffect affect both
-            // the node and all descendants consistently.
-            let effectiveTransform: Transform2D
-            if node.transform.isIdentity {
-                effectiveTransform = inheritedTransform
-            } else {
-                let nodeScreenFrame = nodeLocalFrame.applying(transform: inheritedTransform)
-                let center = Point(x: nodeScreenFrame.midX, y: nodeScreenFrame.midY)
-                let centeredTransform = Transform2D.translation(x: -center.x, y: -center.y)
-                    .concatenating(node.transform)
-                    .concatenating(.translation(x: center.x, y: center.y))
-                // WS-19. Ancestors first, then this node. `concatenating` is
-                // self-first (`a.concatenating(b)` maps a point through `a`
-                // then through `b`), and `centeredTransform` is built around
-                // the node's *screen-space* centre — it is a screen-space
-                // operator, so it has to be applied after the map that
-                // produced that screen space. The other order composed
-                // node-before-ancestors, which left the node's own frame and
-                // the frames its descendants inherited in different spaces:
-                // an ancestor `.offset(100, 0)` under a `.scaleEffect(2)`
-                // child moved the child by 100 and its grandchildren by 200.
-                // `concatenating` round-trips through the decomposition,
-                // which is not a fixed point for shears, so an identity
-                // ancestor short-circuits rather than paying a lossy compose.
-                effectiveTransform =
-                    inheritedTransform.isIdentity
-                    ? centeredTransform : inheritedTransform.concatenating(centeredTransform)
-            }
-            // WS-19. `boundingBox` is what every predicate and every family
-            // without a rotation field uses (it is the value the whole painter
-            // used before rotation was lowered); `frame` plus the placement's
-            // rotation is what the quad families carry. The two are the same
-            // rect for any node that is not rotated.
-            let placement = PaintPlacement.lowering(nodeLocalFrame, through: effectiveTransform)
-            // L7-FONTS. A hairline rule is pinned to the device pixel grid
-            // before anything else reads its frame — see
-            // `devicePixelSnappedRule` for why a rule that is not pinned
-            // renders at half weight at 125% and 150%.
-            let pinsRule = snapsRuleToDevicePixels(node, placement: placement)
-            let paintFrame =
-                pinsRule
-                ? devicePixelSnappedRule(placement.boundingBox, displayScale: displayScale)
-                : placement.boundingBox
-            let quadFrame =
-                pinsRule
-                ? devicePixelSnappedRule(placement.frame, displayScale: displayScale)
-                : placement.frame
-
-            // A degenerate frame paints none of the node's own decoration, but
-            // it is not a reason to drop the subtree: macOS SwiftUI does not
-            // clip at a frame boundary, so `.frame(height: 0)` without
-            // `.clipped()` overflows and the children still render. Own
-            // decoration is gated on this flag; children are visited unless the
-            // cull below prunes them (a `clipsToBounds` node collapses its clip
-            // to nothing, which prunes them for the right reason).
-            let hasPaintableExtent = paintFrame.size.width > 0 && paintFrame.size.height > 0
-
-            // Occlusion culling against the inherited clip, for every node —
-            // a degenerate frame parked outside the clip has to prune its
-            // subtree like any other. The footprint is the node's frame unioned
-            // with the decoration that reaches outside it — a shadow or
-            // focus/outline ring on a card scrolled one pixel past the clip edge
-            // is still visible, and culling on `paintFrame` alone made it pop.
-            // The offset is turned by the node's rotation, exactly as the
-            // emission below turns it (`placement.turning`). A shadow's
-            // offset is authored in the shadowed view's own space, so a card
-            // turned 90° with `.shadow(y: 40)` casts 40pt to its *side*; a
-            // footprint that still assumed 40pt down could miss the clip the
-            // halo actually falls in and prune a visibly-shadowed subtree.
-            var ownShadowRect: Rect?
-            if node.shadowColor.alpha > 0 {
-                let placedOffset = placement.turning(node.shadowOffset)
-                ownShadowRect =
-                    paintFrame
-                    .outset(by: max(0, node.shadowSpread))
-                    .offsetBy(dx: placedOffset.x, dy: placedOffset.y)
-            }
-            let ownOutlineRect: Rect? =
-                node.outlineColor.alpha > 0 && node.outlineWidth > 0
-                ? paintFrame.outset(by: node.outlineWidth)
-                : nil
-            let cullBounds = union(paintFrame, ownShadowRect, ownOutlineRect)
-            if !inheritedClip.allowsSubtreeTraversal(bounds: cullBounds) {
-                if !skipCacheUpdates {
-                    node.cachedSceneKey = nil
-                    node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
-                    node.cachedSceneSnapshotIdentity = snapshotIdentity
-                }
-                node.markSubtreeRendered()
-                continue
-            }
-
-            // One narrowing rule, shared with prepaint, hit testing and the
-            // frame path (`RuntimeClipShape.intersecting`): the rejection rect
-            // is intersected, the rounding stays anchored to the frame of the
-            // node that established it.
-            var effectiveClip = inheritedClip
-            if node.clipsToBounds {
-                guard
-                    let clipped = inheritedClip.narrowed(
-                        to: paintFrame,
-                        shape: quadFrame,
-                        radii: node.cornerRadii,
-                        uniformRadius: node.cornerRadius,
-                        rotation: placement.rotation,
-                        space: .painted
-                    )
-                else {
+        // A color modifier filters the composed subtree, including its
+        // own decoration, text, images and paths. Record that subtree as
+        // a scene-backed image; the selected backend owns its offscreen
+        // rendering and executes every authored color operation in order.
+        if !colorEffects.isEmpty, !context.suppressesColorEffectIsolation {
+            traversal.append(
+                .paint { @MainActor scene, deferredDraws, usedNativeGlyphs, usedPixelGlyphs, _, _ in
+                    appendIsolatedColorEffects(
+                        context,
+                        effects: colorEffects,
+                        fallbackFrame: paintFrame,
+                        into: &scene,
+                        deferredDraws: &deferredDraws,
+                        surfaceSize: surfaceSize,
+                        displayScale: displayScale,
+                        textSystem: textSystem,
+                        usedNativeGlyphs: &usedNativeGlyphs,
+                        usedPixelGlyphs: &usedPixelGlyphs,
+                        canvasSymbolState: canvasSymbolState)
                     if !skipCacheUpdates {
-                        node.cachedSceneKey = nil
-                        node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+                        node.cachedSceneKey = cacheKey
+                        node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
                         node.cachedSceneSnapshotIdentity = snapshotIdentity
                     }
                     node.markSubtreeRendered()
-                    continue
-                }
-                effectiveClip = clipped
-            }
-            let effectiveClipRect = effectiveClip?.rect
+                })
+            return
+        }
 
-            // Clip rounding for the node's OWN quads (border, background,
-            // overlay): a view's own decoration is shaped by its own corner
-            // radii and is not re-rounded by its own clip — only children
-            // are. The clip RECT still applies (own text/content is clipped
-            // to the node's bounds); only the corner rounding reverts to
-            // what ancestors imposed.
-            let ownClipCornerRadius: (Rect) -> Double = { quadRect in
-                inheritedClip.ancestorCornerRadius(forQuadRect: quadRect, rejectingOutside: effectiveClipRect)
-            }
-
-            // GPUI/Zed carries opacity as an inherited paint scalar.
-            let opacity = primitiveOpacity * Float(node.opacity)
-            let colorEffects = context.suppressesColorEffectIsolation ? [] : node.colorEffects + inheritedColorEffects
-            // The node's own backdrop blur (Material). A subtree-wide
-            // `.blur()` is `contentBlurRadius` and is emitted as one pass in
-            // `finishPaintNode`, after everything below has painted.
-            let blurRadius = node.blurRadius
-            let blurOpaque = node.blurOpaque
-            let resolvedHoverEffect = node.resolvedActiveHoverEffect
-            let cacheKey = ViewPaintCacheKey(
-                bounds: paintFrame,
-                transform: effectiveTransform.matrix,
-                contentMask: effectiveClip,
-                opacity: opacity,
-                blurRadius: blurRadius,
-                blurOpaque: blurOpaque,
-                contentBlurRadius: node.contentBlurRadius,
-                contentBlurOpaque: node.contentBlurOpaque,
-                blendMode: effectiveBlendMode,
-                isCompositingGroup: node.isCompositingGroup,
-                drawingGroup: node.drawingGroup,
-                colorEffects: colorEffects,
-                visualEffects: node.visualEffects,
-                viewMask: node.viewMask,
-                displayScale: displayScale,
-                isHovered: node.isHovered,
-                hoverEffect: resolvedHoverEffect,
-                isFocused: node.isFocused,
-                isFocusEffectDisabled: node.isFocusEffectDisabled
-            )
-            guard opacity > 0 else {
-                if !skipCacheUpdates {
-                    node.cachedSceneKey = cacheKey
-                    node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
-                    node.cachedSceneSnapshotIdentity = snapshotIdentity
-                }
-                node.markSubtreeRendered()
-                continue
-            }
-
-            // A node `.blur(radius:)` isolates never replays its outer range.
-            // The isolation branch below is the only caller of
-            // `claimDeferredDescendants`, and a replayed range carries the
-            // composited bitmap forward while leaving the node's deferred
-            // descendants unclaimed — the deferred phase would then put a
-            // second, sharp copy of every pinned header on top of the bitmap
-            // that already contains it. The bitmap cache still carries the
-            // savings: a clean subtree re-composites its cached bitmap rather
-            // than re-rasterizing or re-blurring anything.
-            let refusesReplayForContentBlur =
-                node.contentBlurRadius > 0 && !context.suppressesContentBlurIsolation
-
-            if !skipCacheUpdates,
-                !refusesReplayForContentBlur,
-                let previousScene,
-                let previousSceneIdentity,
-                !node.hasDirtySubtree,
-                node.cachedSceneKey == cacheKey,
-                node.cachedSceneSnapshotIdentity == previousSceneIdentity,
-                let cachedScenePaintRange = node.cachedScenePaintRange
-            {
-                // Replay validates before it appends anything, so a
-                // rejected range leaves the scene untouched and the node
-                // falls through to a full repaint below. Discarding the
-                // result — which is what this call site did — turned a
-                // rejection into a permanently blank subtree: the empty
-                // replay range was written straight back into the cache.
-                switch scene.replay(cachedScenePaintRange, from: previousScene) {
-                case .success:
-                    let delta = startPaintRecord - cachedScenePaintRange.lowerBound
-                    node.shiftCachedSceneRangesRecursively(
-                        by: delta, from: previousSceneIdentity, to: snapshotIdentity)
-                    node.cachedSceneKey = cacheKey
-                    node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
-                    node.cachedSceneSnapshotIdentity = snapshotIdentity
-                    node.markSubtreeRendered()
-                    replayCount += 1
-                    continue
-                case .invalidRange, .unbalanced:
-                    reportRejectedReplay()
-                    node.cachedSceneKey = nil
-                    node.cachedScenePaintRange = nil
-                    node.cachedSceneSnapshotIdentity = nil
-                }
-            }
-
-            // A color modifier filters the composed subtree, including its
-            // own decoration, text, images and paths. Record that subtree as
-            // a scene-backed image; the selected backend owns its offscreen
-            // rendering and executes every authored color operation in order.
-            if !colorEffects.isEmpty, !context.suppressesColorEffectIsolation {
-                appendIsolatedColorEffects(
-                    context,
-                    effects: colorEffects,
-                    fallbackFrame: paintFrame,
-                    into: &scene,
-                    deferredDraws: &deferredDraws,
-                    surfaceSize: surfaceSize,
-                    displayScale: displayScale,
-                    textSystem: textSystem,
-                    usedNativeGlyphs: &usedNativeGlyphs,
-                    usedPixelGlyphs: &usedPixelGlyphs,
-                    canvasSymbolState: canvasSymbolState)
-                if !skipCacheUpdates {
-                    node.cachedSceneKey = cacheKey
-                    node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
-                    node.cachedSceneSnapshotIdentity = snapshotIdentity
-                }
-                node.markSubtreeRendered()
-                continue
-            }
-
-            // `.blur(radius:)` blurs *this subtree*, and nothing else. The
-            // subtree renders into its own offscreen buffer, is blurred
-            // there, and is composited back — so a sibling one pixel outside
-            // the frame is untouched, while the blur still fades out past the
-            // frame rather than ending at a hard edge.
-            //
-            // This runs before any of the node's own decoration is emitted,
-            // because the node's background and border are part of what a
-            // `.blur()` on it blurs.
-            if node.contentBlurRadius > 0, !context.suppressesContentBlurIsolation, hasPaintableExtent,
-                appendIsolatedContentBlur(
-                    ContentBlurIsolation(
-                        node: node,
-                        parentOrigin: parentOrigin,
-                        inheritedTransform: inheritedTransform,
-                        inheritedColorEffects: inheritedColorEffects,
-                        inheritedBlendMode: inheritedBlendMode,
-                        paintFrame: paintFrame,
-                        effectiveClip: effectiveClip,
-                        cacheKey: cacheKey,
-                        primitiveOpacity: primitiveOpacity,
-                        layerIndex: layerIndex,
-                        isInsideDrawingGroup: isInsideDrawingGroup,
-                        skipCacheUpdates: skipCacheUpdates,
-                        suppressesColorEffectIsolation: context.suppressesColorEffectIsolation,
-                        colorEffectPassDepth: context.colorEffectPassDepth,
-                        canvasSymbolState: canvasSymbolState
-                    ),
-                    into: &scene,
-                    deferredDraws: &deferredDraws,
-                    surfaceSize: surfaceSize,
-                    displayScale: displayScale,
-                    textSystem: textSystem,
-                    usedNativeGlyphs: &usedNativeGlyphs,
-                    usedPixelGlyphs: &usedPixelGlyphs
-                )
-            {
-                // The subtree's deferred descendants are inside the bitmap this
-                // just composited. Recorded on the node because the frame that
-                // *replays* this range from a clean ancestor never comes back
-                // here, and the deferred phase still has to know.
-                node.lastPaintedViaContentBlurIsolation = true
-                if !skipCacheUpdates {
-                    node.cachedSceneKey = cacheKey
-                    node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
-                    node.cachedSceneSnapshotIdentity = snapshotIdentity
-                }
-                node.markSubtreeRendered()
-                continue
-            }
-
+        let paintInline: PaintTraversalWork = { @MainActor scene, _, usedNativeGlyphs, usedPixelGlyphs, _, traversal in
             if hasPaintableExtent,
                 let hoverShadow = node.hoverEffectShadowCommand(
                     for: paintFrame,
@@ -1345,6 +1333,192 @@ public enum ScenePainter {
                 usedPixelGlyphs = usedPixelGlyphs || !pixelGlyphs.isEmpty
             }
 
+            traversal.append(
+                .paint { @MainActor scene, deferredDraws, usedNativeGlyphs, usedPixelGlyphs, replayCount, traversal in
+                    // Children -- sort by zIndex (stable) and rely on scene draw orders
+                    // rather than allocating paint-order layers.  parentOrigin is kept in
+                    // untransformed local space; the accumulated screen-space transform is
+                    // passed separately so that both child origin and size are affected.
+                    let scrollX = node.scrollAxis == .horizontal ? node.resolvedScrollOffset : 0
+                    let scrollY = node.scrollAxis == .vertical ? node.resolvedScrollOffset : 0
+                    let childOrigin = Point(
+                        x: nodeLocalFrame.origin.x - scrollX,
+                        y: nodeLocalFrame.origin.y - scrollY
+                    )
+
+                    let sortedChildren: [ViewNode]
+                    if node.children.contains(where: { $0.zIndex != 0 }) {
+                        sortedChildren = node.children.enumerated()
+                            .sorted { a, b in
+                                if a.element.zIndex != b.element.zIndex {
+                                    return a.element.zIndex < b.element.zIndex
+                                }
+                                return a.offset < b.offset
+                            }
+                            .map(\.element)
+                    } else {
+                        sortedChildren = node.children
+                    }
+
+                    let isCompositingGroup = node.drawingGroup != nil || node.isCompositingGroup
+                    // R-ROT / CLF-9. A `clipsToBounds` node whose accumulated transform
+                    // has a rotation cannot express its clip in the scene contract: the
+                    // primitive clip is four floats naming an axis-aligned rect, and the
+                    // turned rect's box is √2 too large at 45°. So the subtree takes
+                    // the offscreen route — the same `RenderPassDescriptor` machinery a
+                    // `.drawingGroup()` uses — painted *un*-turned into a buffer whose
+                    // edges are the clip, and composited back through an
+                    // `ImagePrimitive.rotationRadians`. The bitmap's own extent is then
+                    // the clip shape, exactly, on both backends.
+                    //
+                    // The buffer is sized from the node's unrotated frame and clamped
+                    // to the ancestors' clip pulled back into that space; when it
+                    // cannot be sized (non-finite frame, or past the offscreen budget)
+                    // the node falls through to inline painting with the bounding-box
+                    // clip, which is what the whole stack did before this route existed.
+                    let routesRotatedClip = node.clipsToBounds && placement.isRotated
+                    let offscreenFrame = routesRotatedClip ? quadFrame : paintFrame
+                    let offscreenClip =
+                        routesRotatedClip
+                        ? inheritedClip.map { placement.unplacedFootprint(of: $0.rect) } : effectiveClipRect
+                    if isCompositingGroup || routesRotatedClip, !isInsideDrawingGroup, hasPaintableExtent,
+                        !sortedChildren.isEmpty,
+                        let buffer = offscreenPassBuffer(
+                            label: routesRotatedClip ? "rotatedClip" : "compositingGroup",
+                            paintFrame: offscreenFrame, clip: offscreenClip,
+                            displayScale: displayScale, isCacheable: true)
+                    {
+                        // Compositing group: render children into an offscreen buffer so
+                        // overlapping content is blended together before ancestor opacity
+                        // or blend modes are applied. `buffer.frame` is the group's frame
+                        // clamped to the effective clip — pixels outside it could not
+                        // survive the clip anyway, and sizing from the raw frame turned
+                        // `.drawingGroup()` on tall scroll content into a hundreds-of-MB
+                        // allocation per frame. When the buffer cannot be sized at all
+                        // (non-finite frame, or past the area budget) `compositingGroupBuffer`
+                        // returns nil and the group falls back to inline painting.
+                        let subShift = Transform2D.translation(x: -buffer.frame.origin.x, y: -buffer.frame.origin.y)
+                        // WS-19. The children map layout space through this node's
+                        // *effective* transform into screen space, and only then get
+                        // shifted into the buffer's own origin — the shift is a
+                        // screen-space translation, so it composes last. Shifting
+                        // first (and dropping the node's own transform entirely) put
+                        // a `.drawingGroup()` under any transformed ancestor at the
+                        // wrong offset inside its own bitmap.
+                        //
+                        // R-ROT. On the rotated-clip route the node's own rotation is
+                        // taken *out* first, because the bitmap holds the subtree
+                        // upright and the composite puts the angle back. Everything
+                        // else about the transform — ancestors, scale, translation —
+                        // still applies, so a rotated clip nested under a scaled
+                        // ancestor lands at the right size.
+                        let subInheritedTransform =
+                            routesRotatedClip
+                            ? Self.unrotating(effectiveTransform, by: placement).concatenating(subShift)
+                            : effectiveTransform.concatenating(subShift)
+                        // The buffer's edges are the clip on the rotated route, and the
+                        // node's own rounding rides along anchored to its unrotated
+                        // frame — both expressed in the sub-scene's own space.
+                        let subClip: RuntimeClipShape? =
+                            routesRotatedClip
+                            ? RuntimeClipShape(
+                                rect: Rect(origin: .zero, size: buffer.frame.size),
+                                shapeRect: Rect(
+                                    x: quadFrame.origin.x - buffer.frame.origin.x,
+                                    y: quadFrame.origin.y - buffer.frame.origin.y,
+                                    width: quadFrame.size.width, height: quadFrame.size.height),
+                                radii: node.cornerRadii, uniformRadius: node.cornerRadius, space: .painted)
+                            : nil
+                        let group = CompositingGroupPaintContext(
+                            finishState: PaintNodeFinishState(
+                                node: node,
+                                startPaintRecord: startPaintRecord,
+                                cacheKey: cacheKey,
+                                hasChildren: hasChildren,
+                                borderColor: borderColor,
+                                paintFrame: paintFrame,
+                                placement: placement,
+                                effectiveClip: effectiveClip,
+                                inheritedClip: inheritedClip,
+                                opacity: opacity,
+                                colorEffects: colorEffects,
+                                effectiveBlendMode: effectiveBlendMode,
+                                layerIndex: layerIndex,
+                                skipCacheUpdates: skipCacheUpdates
+                            ),
+                            buffer: buffer, children: sortedChildren, childOrigin: childOrigin,
+                            subClip: subClip, subInheritedTransform: subInheritedTransform,
+                            routesRotatedClip: routesRotatedClip, primitiveOpacity: primitiveOpacity,
+                            surfaceSize: surfaceSize, displayScale: displayScale, textSystem: textSystem,
+                            colorEffectPassDepth: context.colorEffectPassDepth,
+                            canvasSymbolState: canvasSymbolState)
+                        traversal.append(.finish(group.finishState))
+                        traversal.append(
+                            .paint { @MainActor scene, _, usedNativeGlyphs, usedPixelGlyphs, _, _ in
+                                let bitmap = rasterizeCompositingGroup(
+                                    group, into: &scene,
+                                    usedNativeGlyphs: &usedNativeGlyphs, usedPixelGlyphs: &usedPixelGlyphs)
+                                appendCompositingGroupBitmap(bitmap, group: group, into: &scene)
+                            })
+                        return
+                    } else {
+                        // This node painted inline, so whatever buffer it composited
+                        // into on an earlier frame is dead weight now.
+                        node.releaseCompositingGroupCache()
+                        traversal.append(
+                            .finish(
+                                PaintNodeFinishState(
+                                    node: node,
+                                    startPaintRecord: startPaintRecord,
+                                    cacheKey: cacheKey,
+                                    hasChildren: hasChildren,
+                                    borderColor: borderColor,
+                                    paintFrame: paintFrame,
+                                    placement: placement,
+                                    effectiveClip: effectiveClip,
+                                    inheritedClip: inheritedClip,
+                                    opacity: opacity,
+                                    colorEffects: colorEffects,
+                                    effectiveBlendMode: effectiveBlendMode,
+                                    layerIndex: layerIndex,
+                                    skipCacheUpdates: skipCacheUpdates
+                                )
+                            )
+                        )
+                        for child in sortedChildren.reversed() where !child.paintsInDeferredPhase {
+                            traversal.append(
+                                .enter(
+                                    PaintTraversalContext(
+                                        node: child,
+                                        parentOrigin: childOrigin,
+                                        inheritedClip: effectiveClip,
+                                        layerIndex: layerIndex,
+                                        primitiveOpacity: opacity,
+                                        inheritedColorEffects: colorEffects,
+                                        inheritedBlendMode: effectiveBlendMode,
+                                        inheritedTransform: effectiveTransform,
+                                        // Both flags are inherited, not reset. Hard-coding
+                                        // them to false made every grandchild of a
+                                        // `.drawingGroup()` write a `cachedScenePaintRange`
+                                        // measured against the group's *sub-scene* — indices
+                                        // into a scene that is discarded as soon as it is
+                                        // rasterized. Replaying such a range against the real
+                                        // `previousScene` reads someone else's primitives, or
+                                        // walks past the end of the record log.
+                                        isInsideDrawingGroup: isInsideDrawingGroup,
+                                        skipCacheUpdates: skipCacheUpdates,
+                                        suppressesContentBlurIsolation: false,
+                                        suppressesColorEffectIsolation: false,
+                                        colorEffectPassDepth: context.colorEffectPassDepth
+                                    )
+                                )
+                            )
+                        }
+                        return
+                    }
+
+                })
+
             // Canvas custom drawing -- mirror the RenderFrame canvasDraw path
             // (see Runtime.swift) so `Canvas { ctx, size in ... }` content renders
             // through the default GPUIScene/D3D11 path, not only the frame fallback.
@@ -1352,314 +1526,299 @@ public enum ScenePainter {
                 fillRect.size.width > 0, fillRect.size.height > 0,
                 clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
             {
-                var canvasContext = CanvasGraphicsContext()
-                canvasDraw(&canvasContext, quadFillRect.size.scaled(by: 1 / placement.scale))
-                appendCanvasOperations(
-                    canvasContext.operationsScaled(by: placement.scale),
-                    into: &scene,
-                    origin: quadFillRect.origin,
-                    baseClip: effectiveClip,
-                    placement: placement,
-                    opacity: opacity,
-                    layerIndex: layerIndex,
-                    surfaceSize: surfaceSize,
-                    displayScale: displayScale,
-                    textSystem: textSystem,
-                    usedNativeGlyphs: &usedNativeGlyphs,
-                    usedPixelGlyphs: &usedPixelGlyphs,
-                    colorEffectPassDepth: context.colorEffectPassDepth,
-                    canvasSymbolState: canvasSymbolState
-                )
-            }
-
-            // Children -- sort by zIndex (stable) and rely on scene draw orders
-            // rather than allocating paint-order layers.  parentOrigin is kept in
-            // untransformed local space; the accumulated screen-space transform is
-            // passed separately so that both child origin and size are affected.
-            let scrollX = node.scrollAxis == .horizontal ? node.resolvedScrollOffset : 0
-            let scrollY = node.scrollAxis == .vertical ? node.resolvedScrollOffset : 0
-            let childOrigin = Point(
-                x: nodeLocalFrame.origin.x - scrollX,
-                y: nodeLocalFrame.origin.y - scrollY
-            )
-
-            let sortedChildren: [ViewNode]
-            if node.children.contains(where: { $0.zIndex != 0 }) {
-                sortedChildren = node.children.enumerated()
-                    .sorted { a, b in
-                        if a.element.zIndex != b.element.zIndex {
-                            return a.element.zIndex < b.element.zIndex
-                        }
-                        return a.offset < b.offset
-                    }
-                    .map(\.element)
-            } else {
-                sortedChildren = node.children
-            }
-
-            let isCompositingGroup = node.drawingGroup != nil || node.isCompositingGroup
-            // R-ROT / CLF-9. A `clipsToBounds` node whose accumulated transform
-            // has a rotation cannot express its clip in the scene contract: the
-            // primitive clip is four floats naming an axis-aligned rect, and the
-            // turned rect's box is √2 too large at 45°. So the subtree takes
-            // the offscreen route — the same `RenderPassDescriptor` machinery a
-            // `.drawingGroup()` uses — painted *un*-turned into a buffer whose
-            // edges are the clip, and composited back through an
-            // `ImagePrimitive.rotationRadians`. The bitmap's own extent is then
-            // the clip shape, exactly, on both backends.
-            //
-            // The buffer is sized from the node's unrotated frame and clamped
-            // to the ancestors' clip pulled back into that space; when it
-            // cannot be sized (non-finite frame, or past the offscreen budget)
-            // the node falls through to inline painting with the bounding-box
-            // clip, which is what the whole stack did before this route existed.
-            let routesRotatedClip = node.clipsToBounds && placement.isRotated
-            let offscreenFrame = routesRotatedClip ? quadFrame : paintFrame
-            let offscreenClip =
-                routesRotatedClip
-                ? inheritedClip.map { placement.unplacedFootprint(of: $0.rect) } : effectiveClipRect
-            if isCompositingGroup || routesRotatedClip, !isInsideDrawingGroup, hasPaintableExtent,
-                !sortedChildren.isEmpty,
-                let buffer = offscreenPassBuffer(
-                    label: routesRotatedClip ? "rotatedClip" : "compositingGroup",
-                    paintFrame: offscreenFrame, clip: offscreenClip,
-                    displayScale: displayScale, isCacheable: true)
-            {
-                // Compositing group: render children into an offscreen buffer so
-                // overlapping content is blended together before ancestor opacity
-                // or blend modes are applied. `buffer.frame` is the group's frame
-                // clamped to the effective clip — pixels outside it could not
-                // survive the clip anyway, and sizing from the raw frame turned
-                // `.drawingGroup()` on tall scroll content into a hundreds-of-MB
-                // allocation per frame. When the buffer cannot be sized at all
-                // (non-finite frame, or past the area budget) `compositingGroupBuffer`
-                // returns nil and the group falls back to inline painting.
-                let subShift = Transform2D.translation(x: -buffer.frame.origin.x, y: -buffer.frame.origin.y)
-                // WS-19. The children map layout space through this node's
-                // *effective* transform into screen space, and only then get
-                // shifted into the buffer's own origin — the shift is a
-                // screen-space translation, so it composes last. Shifting
-                // first (and dropping the node's own transform entirely) put
-                // a `.drawingGroup()` under any transformed ancestor at the
-                // wrong offset inside its own bitmap.
-                //
-                // R-ROT. On the rotated-clip route the node's own rotation is
-                // taken *out* first, because the bitmap holds the subtree
-                // upright and the composite puts the angle back. Everything
-                // else about the transform — ancestors, scale, translation —
-                // still applies, so a rotated clip nested under a scaled
-                // ancestor lands at the right size.
-                let subInheritedTransform =
-                    routesRotatedClip
-                    ? Self.unrotating(effectiveTransform, by: placement).concatenating(subShift)
-                    : effectiveTransform.concatenating(subShift)
-                // The buffer's edges are the clip on the rotated route, and the
-                // node's own rounding rides along anchored to its unrotated
-                // frame — both expressed in the sub-scene's own space.
-                let subClip: RuntimeClipShape? =
-                    routesRotatedClip
-                    ? RuntimeClipShape(
-                        rect: Rect(origin: .zero, size: buffer.frame.size),
-                        shapeRect: Rect(
-                            x: quadFrame.origin.x - buffer.frame.origin.x,
-                            y: quadFrame.origin.y - buffer.frame.origin.y,
-                            width: quadFrame.size.width, height: quadFrame.size.height),
-                        radii: node.cornerRadii, uniformRadius: node.cornerRadius, space: .painted)
-                    : nil
-                let subSize = buffer.size
-
-                // Rasterizing the group means walking and CPU-rasterizing its
-                // whole subtree on the main actor, so an unchanged group reuses
-                // the bitmap it produced last time. The condition is the one the
-                // paint-record replay above uses — same key, clean subtree —
-                // because the key covers everything about the group itself and
-                // `subtreeDirtyFlags` covers everything about its descendants.
-                let bitmap: BitmapSurface
-                if buffer.pass.isCacheable, !skipCacheUpdates, !node.hasDirtySubtree,
-                    node.cachedCompositingGroupKey == cacheKey,
-                    let cached = node.cachedCompositingGroupBitmap,
-                    cached.width == subSize.width, cached.height == subSize.height,
-                    node.cachedCompositingGroupAtlasGeneration.map({
-                        $0 == NativeGlyphAtlas.shared.atlasGeneration
-                    }) ?? true
-                {
-                    bitmap = cached
-                    scene.paintMetrics.compositingGroupsReused += 1
-                } else {
-                    let sourceAtlasGeneration = NativeGlyphAtlas.shared.atlasGeneration
-                    var subScene = GPUIScene(clearColor: buffer.clearColor)
-                    var subDeferred: [DeferredDrawState] = []
-                    var subNative = false
-                    var subPixel = false
-                    var subReplay = 0
-
-                    for child in sortedChildren {
-                        if child.paintsInDeferredPhase {
-                            continue
-                        }
-                        paintNode(
-                            child,
-                            into: &subScene,
-                            deferredDraws: &subDeferred,
-                            parentOrigin: childOrigin,
-                            inheritedClip: subClip,
-                            layerIndex: 0,
+                traversal.append(
+                    .paint { @MainActor scene, _, usedNativeGlyphs, usedPixelGlyphs, _, _ in
+                        var canvasContext = CanvasGraphicsContext()
+                        canvasDraw(&canvasContext, quadFillRect.size.scaled(by: 1 / placement.scale))
+                        appendCanvasOperations(
+                            canvasContext.operationsScaled(by: placement.scale),
+                            into: &scene,
+                            origin: quadFillRect.origin,
+                            baseClip: effectiveClip,
+                            placement: placement,
+                            opacity: opacity,
+                            layerIndex: layerIndex,
                             surfaceSize: surfaceSize,
                             displayScale: displayScale,
                             textSystem: textSystem,
-                            previousScene: nil,
-                            primitiveOpacity: 1.0,
-                            inheritedColorEffects: [],
-                            inheritedBlendMode: .normal,
-                            usedNativeGlyphs: &subNative,
-                            usedPixelGlyphs: &subPixel,
-                            replayCount: &subReplay,
-                            inheritedTransform: subInheritedTransform,
-                            isInsideDrawingGroup: true,
-                            skipCacheUpdates: true,
+                            usedNativeGlyphs: &usedNativeGlyphs,
+                            usedPixelGlyphs: &usedPixelGlyphs,
                             colorEffectPassDepth: context.colorEffectPassDepth,
                             canvasSymbolState: canvasSymbolState
                         )
-                    }
-
-                    subScene.finish()
-                    // The sub-scene is rasterized on the CPU right here, and
-                    // `RasterTarget.drawGlyph` returns immediately when its atlas is
-                    // nil — which is why every piece of text inside `.drawingGroup()`
-                    // used to vanish. The peek below deliberately does *not* consume
-                    // the atlas dirty region: the frame has a single consumer at the
-                    // end of `paint`, and letting the sub-scene call
-                    // `snapshotIfUsedInCurrentFrame()` would hand the outer scene an
-                    // empty dirty region for glyphs it still has to upload.
-                    attachCachedGlyphAtlases(to: &subScene)
-                    // Glyph usage inside the group is glyph usage for the frame: the
-                    // atlas-recovery retry and the outer snapshot both key off it.
-                    // A reused bitmap has its glyphs baked in and needs neither.
-                    usedNativeGlyphs = usedNativeGlyphs || subNative
-                    usedPixelGlyphs = usedPixelGlyphs || subPixel
-
-                    bitmap = GPUIRawSceneRasterizer.rasterize(subScene, size: subSize)
-                    scene.paintMetrics.compositingGroupsRasterized += 1
-                    if subNative, NativeGlyphAtlas.shared.atlasGeneration != sourceAtlasGeneration {
-                        // The outer attempt must retry. Do not let stale UVs
-                        // baked into this image become a post-recycle cache.
-                        node.releaseCompositingGroupCache()
-                    } else if buffer.pass.isCacheable, !skipCacheUpdates {
-                        node.cachedCompositingGroupKey = cacheKey
-                        node.cachedCompositingGroupBitmap = bitmap
-                        // Only text ties the bitmap to the atlas; a group without
-                        // glyphs stays valid across every recycle.
-                        node.cachedCompositingGroupAtlasGeneration =
-                            subNative ? NativeGlyphAtlas.shared.atlasGeneration : nil
-                    }
-                }
-
-                let textureID = scene.registerImageResource(bitmap)
-                let scaledFrame = scaleRect(buffer.frame, by: displayScale)
-                // On the rotated route the node's own clip is the bitmap, so
-                // the composite carries only what its ancestors imposed;
-                // re-applying `effectiveClip` would square the result off
-                // against the very bounding box the route exists to escape.
-                let compositeClip = routesRotatedClip ? inheritedClip : effectiveClip
-                let clipR = clipRectFloats(compositeClip, surfaceSize: surfaceSize, displayScale: displayScale)
-                let imageOpacity = primitiveOpacity * Float(node.opacity)
-                let composite = ImagePrimitive(
-                    screenX: Float(scaledFrame.origin.x),
-                    screenY: Float(scaledFrame.origin.y),
-                    screenW: Float(scaledFrame.size.width),
-                    screenH: Float(scaledFrame.size.height),
-                    opacity: imageOpacity,
-                    clipX: clipR.0,
-                    clipY: clipR.1,
-                    clipWidth: clipR.2,
-                    clipHeight: clipR.3,
-                    clipCornerRadius: Float(
-                        compositeClip.resolvedCornerRadius(forQuadRect: buffer.frame) * displayScale),
-                    textureID: textureID
-                )
-                scene.addImage(
-                    routesRotatedClip
-                        ? placement.rotating(composite, displayScale: displayScale) : composite,
-                    toLayer: layerIndex)
-            } else {
-                // This node painted inline, so whatever buffer it composited
-                // into on an earlier frame is dead weight now.
-                node.releaseCompositingGroupCache()
-                traversal.append(
-                    .finish(
-                        PaintNodeFinishState(
-                            node: node,
-                            startPaintRecord: startPaintRecord,
-                            cacheKey: cacheKey,
-                            hasChildren: hasChildren,
-                            borderColor: borderColor,
-                            paintFrame: paintFrame,
-                            placement: placement,
-                            effectiveClip: effectiveClip,
-                            inheritedClip: inheritedClip,
-                            opacity: opacity,
-                            colorEffects: colorEffects,
-                            effectiveBlendMode: effectiveBlendMode,
-                            layerIndex: layerIndex,
-                            skipCacheUpdates: skipCacheUpdates
-                        )
-                    )
-                )
-                for child in sortedChildren.reversed() where !child.paintsInDeferredPhase {
-                    traversal.append(
-                        .enter(
-                            PaintTraversalContext(
-                                node: child,
-                                parentOrigin: childOrigin,
-                                inheritedClip: effectiveClip,
-                                layerIndex: layerIndex,
-                                primitiveOpacity: opacity,
-                                inheritedColorEffects: colorEffects,
-                                inheritedBlendMode: effectiveBlendMode,
-                                inheritedTransform: effectiveTransform,
-                                // Both flags are inherited, not reset. Hard-coding
-                                // them to false made every grandchild of a
-                                // `.drawingGroup()` write a `cachedScenePaintRange`
-                                // measured against the group's *sub-scene* — indices
-                                // into a scene that is discarded as soon as it is
-                                // rasterized. Replaying such a range against the real
-                                // `previousScene` reads someone else's primitives, or
-                                // walks past the end of the record log.
-                                isInsideDrawingGroup: isInsideDrawingGroup,
-                                skipCacheUpdates: skipCacheUpdates,
-                                suppressesContentBlurIsolation: false,
-                                suppressesColorEffectIsolation: false,
-                                colorEffectPassDepth: context.colorEffectPassDepth
-                            )
-                        )
-                    )
-                }
-                continue
+                    })
             }
 
-            finishPaintNode(
-                PaintNodeFinishState(
-                    node: node,
-                    startPaintRecord: startPaintRecord,
-                    cacheKey: cacheKey,
-                    hasChildren: hasChildren,
-                    borderColor: borderColor,
-                    paintFrame: paintFrame,
-                    placement: placement,
-                    effectiveClip: effectiveClip,
-                    inheritedClip: inheritedClip,
-                    opacity: opacity,
-                    colorEffects: colorEffects,
-                    effectiveBlendMode: effectiveBlendMode,
-                    layerIndex: layerIndex,
-                    skipCacheUpdates: skipCacheUpdates
-                ),
-                into: &scene,
-                surfaceSize: surfaceSize,
-                displayScale: displayScale,
-                snapshotIdentity: snapshotIdentity
-            )
         }
+
+        // `.blur(radius:)` blurs *this subtree*, and nothing else. The
+        // subtree renders into its own offscreen buffer, is blurred
+        // there, and is composited back — so a sibling one pixel outside
+        // the frame is untouched, while the blur still fades out past the
+        // frame rather than ending at a hard edge.
+        //
+        // This runs before any of the node's own decoration is emitted,
+        // because the node's background and border are part of what a
+        // `.blur()` on it blurs.
+        if node.contentBlurRadius > 0, !context.suppressesContentBlurIsolation, hasPaintableExtent {
+            let isolation = ContentBlurIsolation(
+                node: node,
+                parentOrigin: parentOrigin,
+                inheritedTransform: inheritedTransform,
+                inheritedColorEffects: inheritedColorEffects,
+                inheritedBlendMode: inheritedBlendMode,
+                paintFrame: paintFrame,
+                effectiveClip: effectiveClip,
+                cacheKey: cacheKey,
+                primitiveOpacity: primitiveOpacity,
+                layerIndex: layerIndex,
+                isInsideDrawingGroup: isInsideDrawingGroup,
+                skipCacheUpdates: skipCacheUpdates,
+                suppressesColorEffectIsolation: context.suppressesColorEffectIsolation,
+                colorEffectPassDepth: context.colorEffectPassDepth,
+                canvasSymbolState: canvasSymbolState)
+            traversal.append(
+                .paint { @MainActor scene, deferredDraws, usedNativeGlyphs, usedPixelGlyphs, _, traversal in
+                    if appendIsolatedContentBlur(
+                        isolation,
+                        into: &scene,
+                        deferredDraws: &deferredDraws,
+                        surfaceSize: surfaceSize,
+                        displayScale: displayScale,
+                        textSystem: textSystem,
+                        usedNativeGlyphs: &usedNativeGlyphs,
+                        usedPixelGlyphs: &usedPixelGlyphs
+                    ) {
+                        finishIsolatedContentBlur(
+                            isolation, startPaintRecord: startPaintRecord,
+                            endPaintRecord: scene.paintRecordCount, snapshotIdentity: snapshotIdentity)
+                    } else {
+                        traversal.append(.paint(paintInline))
+                    }
+                })
+        } else {
+            traversal.append(.paint(paintInline))
+        }
+    }
+
+    @inline(never)
+    private static func finishIsolatedContentBlur(
+        _ isolation: ContentBlurIsolation,
+        startPaintRecord: Int,
+        endPaintRecord: Int,
+        snapshotIdentity: PaintSnapshotIdentity
+    ) {
+        // The subtree's deferred descendants are inside the bitmap this
+        // just composited. Recorded on the node because the frame that
+        // *replays* this range from a clean ancestor never comes back
+        // here, and the deferred phase still has to know.
+        let node = isolation.node
+        node.lastPaintedViaContentBlurIsolation = true
+        if !isolation.skipCacheUpdates {
+            node.cachedSceneKey = isolation.cacheKey
+            node.cachedScenePaintRange = startPaintRecord..<endPaintRecord
+            node.cachedSceneSnapshotIdentity = snapshotIdentity
+        }
+        node.markSubtreeRendered()
+    }
+
+    /// The group's wide placement/cache state lives on the work list while
+    /// its children record. The preparation and composite-emission frames do
+    /// not remain on the stack when a child resolves another Canvas source.
+    @MainActor
+    private final class CompositingGroupPaintContext {
+        let finishState: PaintNodeFinishState
+        let buffer: OffscreenPassBuffer
+        let children: [ViewNode]
+        let childOrigin: Point
+        let subClip: RuntimeClipShape?
+        let subInheritedTransform: Transform2D
+        let routesRotatedClip: Bool
+        let primitiveOpacity: Float
+        let surfaceSize: Size
+        let displayScale: Double
+        let textSystem: WindowTextSystem
+        let colorEffectPassDepth: Int
+        let canvasSymbolState: CanvasSymbolPaintState
+
+        init(
+            finishState: PaintNodeFinishState, buffer: OffscreenPassBuffer,
+            children: [ViewNode], childOrigin: Point, subClip: RuntimeClipShape?,
+            subInheritedTransform: Transform2D, routesRotatedClip: Bool,
+            primitiveOpacity: Float, surfaceSize: Size, displayScale: Double,
+            textSystem: WindowTextSystem, colorEffectPassDepth: Int,
+            canvasSymbolState: CanvasSymbolPaintState
+        ) {
+            self.finishState = finishState
+            self.buffer = buffer
+            self.children = children
+            self.childOrigin = childOrigin
+            self.subClip = subClip
+            self.subInheritedTransform = subInheritedTransform
+            self.routesRotatedClip = routesRotatedClip
+            self.primitiveOpacity = primitiveOpacity
+            self.surfaceSize = surfaceSize
+            self.displayScale = displayScale
+            self.textSystem = textSystem
+            self.colorEffectPassDepth = colorEffectPassDepth
+            self.canvasSymbolState = canvasSymbolState
+        }
+    }
+
+    @MainActor
+    private final class CompositingGroupRecording {
+        let sourceAtlasGeneration = NativeGlyphAtlas.shared.atlasGeneration
+        var scene: GPUIScene
+        var deferred: [DeferredDrawState] = []
+        var usedNativeGlyphs = false
+        var usedPixelGlyphs = false
+        var replayCount = 0
+
+        init(clearColor: Color) {
+            scene = GPUIScene(clearColor: clearColor)
+        }
+    }
+
+    @inline(never)
+    private static func cachedCompositingGroupBitmap(_ group: CompositingGroupPaintContext) -> BitmapSurface? {
+        // Rasterizing the group means walking and CPU-rasterizing its
+        // whole subtree on the main actor, so an unchanged group reuses
+        // the bitmap it produced last time. The condition is the one the
+        // paint-record replay above uses — same key, clean subtree —
+        // because the key covers everything about the group itself and
+        // `subtreeDirtyFlags` covers everything about its descendants.
+        let node = group.finishState.node
+        let subSize = group.buffer.size
+        guard group.buffer.pass.isCacheable, !group.finishState.skipCacheUpdates, !node.hasDirtySubtree,
+            node.cachedCompositingGroupKey == group.finishState.cacheKey,
+            let cached = node.cachedCompositingGroupBitmap,
+            cached.width == subSize.width, cached.height == subSize.height,
+            node.cachedCompositingGroupAtlasGeneration.map({
+                $0 == NativeGlyphAtlas.shared.atlasGeneration
+            }) ?? true
+        else { return nil }
+        return cached
+    }
+
+    @inline(never)
+    private static func rasterizeCompositingGroup(
+        _ group: CompositingGroupPaintContext,
+        into scene: inout GPUIScene,
+        usedNativeGlyphs: inout Bool,
+        usedPixelGlyphs: inout Bool
+    ) -> BitmapSurface {
+        if let bitmap = cachedCompositingGroupBitmap(group) {
+            scene.paintMetrics.compositingGroupsReused += 1
+            return bitmap
+        }
+        let recording = CompositingGroupRecording(clearColor: group.buffer.clearColor)
+        for child in group.children {
+            if child.paintsInDeferredPhase {
+                continue
+            }
+            paintNode(
+                child, into: &recording.scene, deferredDraws: &recording.deferred,
+                parentOrigin: group.childOrigin, inheritedClip: group.subClip,
+                layerIndex: 0, surfaceSize: group.surfaceSize, displayScale: group.displayScale,
+                textSystem: group.textSystem, previousScene: nil,
+                primitiveOpacity: 1.0, inheritedColorEffects: [], inheritedBlendMode: .normal,
+                usedNativeGlyphs: &recording.usedNativeGlyphs,
+                usedPixelGlyphs: &recording.usedPixelGlyphs, replayCount: &recording.replayCount,
+                inheritedTransform: group.subInheritedTransform,
+                isInsideDrawingGroup: true, skipCacheUpdates: true,
+                colorEffectPassDepth: group.colorEffectPassDepth,
+                canvasSymbolState: group.canvasSymbolState)
+        }
+        return finishCompositingGroup(
+            recording, group: group, into: &scene,
+            usedNativeGlyphs: &usedNativeGlyphs, usedPixelGlyphs: &usedPixelGlyphs)
+    }
+
+    @inline(never)
+    private static func finishCompositingGroup(
+        _ recording: CompositingGroupRecording,
+        group: CompositingGroupPaintContext,
+        into scene: inout GPUIScene,
+        usedNativeGlyphs: inout Bool,
+        usedPixelGlyphs: inout Bool
+    ) -> BitmapSurface {
+        recording.scene.finish()
+        // The sub-scene is rasterized on the CPU right here, and
+        // `RasterTarget.drawGlyph` returns immediately when its atlas is
+        // nil — which is why every piece of text inside `.drawingGroup()`
+        // used to vanish. The peek below deliberately does *not* consume
+        // the atlas dirty region: the frame has a single consumer at the
+        // end of `paint`, and letting the sub-scene call
+        // `snapshotIfUsedInCurrentFrame()` would hand the outer scene an
+        // empty dirty region for glyphs it still has to upload.
+        attachCachedGlyphAtlases(to: &recording.scene)
+        // Glyph usage inside the group is glyph usage for the frame: the
+        // atlas-recovery retry and the outer snapshot both key off it.
+        // A reused bitmap has its glyphs baked in and needs neither.
+        usedNativeGlyphs = usedNativeGlyphs || recording.usedNativeGlyphs
+        usedPixelGlyphs = usedPixelGlyphs || recording.usedPixelGlyphs
+
+        let bitmap = GPUIRawSceneRasterizer.rasterize(recording.scene, size: group.buffer.size)
+        scene.paintMetrics.compositingGroupsRasterized += 1
+        let node = group.finishState.node
+        if recording.usedNativeGlyphs, NativeGlyphAtlas.shared.atlasGeneration != recording.sourceAtlasGeneration {
+            // The outer attempt must retry. Do not let stale UVs
+            // baked into this image become a post-recycle cache.
+            node.releaseCompositingGroupCache()
+        } else if group.buffer.pass.isCacheable, !group.finishState.skipCacheUpdates {
+            node.cachedCompositingGroupKey = group.finishState.cacheKey
+            node.cachedCompositingGroupBitmap = bitmap
+            // Only text ties the bitmap to the atlas; a group without
+            // glyphs stays valid across every recycle.
+            node.cachedCompositingGroupAtlasGeneration =
+                recording.usedNativeGlyphs ? NativeGlyphAtlas.shared.atlasGeneration : nil
+        }
+        return bitmap
+    }
+
+    @inline(never)
+    private static func appendCompositingGroupBitmap(
+        _ bitmap: BitmapSurface,
+        group: CompositingGroupPaintContext,
+        into scene: inout GPUIScene
+    ) {
+        let node = group.finishState.node
+        let buffer = group.buffer
+        let displayScale = group.displayScale
+        let surfaceSize = group.surfaceSize
+        let routesRotatedClip = group.routesRotatedClip
+        let inheritedClip = group.finishState.inheritedClip
+        let effectiveClip = group.finishState.effectiveClip
+        let primitiveOpacity = group.primitiveOpacity
+        let placement = group.finishState.placement
+        let layerIndex = group.finishState.layerIndex
+        let textureID = scene.registerImageResource(bitmap)
+        let scaledFrame = scaleRect(buffer.frame, by: displayScale)
+        // On the rotated route the node's own clip is the bitmap, so
+        // the composite carries only what its ancestors imposed;
+        // re-applying `effectiveClip` would square the result off
+        // against the very bounding box the route exists to escape.
+        let compositeClip = routesRotatedClip ? inheritedClip : effectiveClip
+        let clipR = clipRectFloats(compositeClip, surfaceSize: surfaceSize, displayScale: displayScale)
+        let imageOpacity = primitiveOpacity * Float(node.opacity)
+        let composite = ImagePrimitive(
+            screenX: Float(scaledFrame.origin.x),
+            screenY: Float(scaledFrame.origin.y),
+            screenW: Float(scaledFrame.size.width),
+            screenH: Float(scaledFrame.size.height),
+            opacity: imageOpacity,
+            clipX: clipR.0,
+            clipY: clipR.1,
+            clipWidth: clipR.2,
+            clipHeight: clipR.3,
+            clipCornerRadius: Float(
+                compositeClip.resolvedCornerRadius(forQuadRect: buffer.frame) * displayScale),
+            textureID: textureID
+        )
+        scene.addImage(
+            routesRotatedClip
+                ? placement.rotating(composite, displayScale: displayScale) : composite,
+            toLayer: layerIndex)
     }
 
     private static func finishPaintNode(
@@ -1978,7 +2137,8 @@ public enum ScenePainter {
             toLayer: context.layerIndex)
     }
 
-    private struct ContentBlurIsolation {
+    @MainActor
+    private final class ContentBlurIsolation {
         let node: ViewNode
         let parentOrigin: Point
         let inheritedTransform: Transform2D
@@ -1996,6 +2156,31 @@ public enum ScenePainter {
         let suppressesColorEffectIsolation: Bool
         let colorEffectPassDepth: Int
         let canvasSymbolState: CanvasSymbolPaintState
+
+        init(
+            node: ViewNode, parentOrigin: Point, inheritedTransform: Transform2D,
+            inheritedColorEffects: [RetainedColorEffect], inheritedBlendMode: BlendMode,
+            paintFrame: Rect, effectiveClip: RuntimeClipShape?, cacheKey: ViewPaintCacheKey,
+            primitiveOpacity: Float, layerIndex: Int, isInsideDrawingGroup: Bool,
+            skipCacheUpdates: Bool, suppressesColorEffectIsolation: Bool,
+            colorEffectPassDepth: Int, canvasSymbolState: CanvasSymbolPaintState
+        ) {
+            self.node = node
+            self.parentOrigin = parentOrigin
+            self.inheritedTransform = inheritedTransform
+            self.inheritedColorEffects = inheritedColorEffects
+            self.inheritedBlendMode = inheritedBlendMode
+            self.paintFrame = paintFrame
+            self.effectiveClip = effectiveClip
+            self.cacheKey = cacheKey
+            self.primitiveOpacity = primitiveOpacity
+            self.layerIndex = layerIndex
+            self.isInsideDrawingGroup = isInsideDrawingGroup
+            self.skipCacheUpdates = skipCacheUpdates
+            self.suppressesColorEffectIsolation = suppressesColorEffectIsolation
+            self.colorEffectPassDepth = colorEffectPassDepth
+            self.canvasSymbolState = canvasSymbolState
+        }
     }
 
     /// SwiftUI's `.blur(radius:)`: render the subtree in isolation, blur
@@ -2079,16 +2264,8 @@ public enum ScenePainter {
         // frame that composites the bitmap has to pass through here.
         let deferredDescendants = claimDeferredDescendants(of: isolation.node, in: &deferredDraws)
 
-        let subSize = buffer.size
         let bitmap: BitmapSurface
-        if buffer.pass.isCacheable, !node.hasDirtySubtree,
-            node.cachedCompositingGroupKey == isolation.cacheKey,
-            let cached = node.cachedCompositingGroupBitmap,
-            cached.width == subSize.width, cached.height == subSize.height,
-            node.cachedCompositingGroupAtlasGeneration.map({
-                $0 == NativeGlyphAtlas.shared.atlasGeneration
-            }) ?? true
-        {
+        if let cached = cachedContentBlurBitmap(isolation, buffer: buffer) {
             bitmap = cached
             scene.paintMetrics.contentBlurPassesReused += 1
         } else {
@@ -2110,20 +2287,70 @@ public enum ScenePainter {
             usedNativeGlyphs = usedNativeGlyphs || subNative
             usedPixelGlyphs = usedPixelGlyphs || subPixel
 
-            bitmap = PremultipliedImageBlur.blurred(rasterized, radius: deviceRadius)
-            if subNative, NativeGlyphAtlas.shared.atlasGeneration != sourceAtlasGeneration {
-                node.releaseCompositingGroupCache()
-            } else if buffer.pass.isCacheable {
-                node.cachedCompositingGroupKey = isolation.cacheKey
-                node.cachedCompositingGroupBitmap = bitmap
-                // Only text ties the bitmap to the atlas; a pass without
-                // glyphs stays valid across every recycle.
-                node.cachedCompositingGroupAtlasGeneration =
-                    subNative ? NativeGlyphAtlas.shared.atlasGeneration : nil
-            }
+            bitmap = finishContentBlurBitmap(
+                rasterized, isolation: isolation, buffer: buffer, deviceRadius: deviceRadius,
+                usedNativeGlyphs: subNative, sourceAtlasGeneration: sourceAtlasGeneration)
         }
         scene.paintMetrics.contentBlurPasses += 1
 
+        appendContentBlurBitmap(
+            bitmap, isolation: isolation, buffer: buffer, into: &scene,
+            surfaceSize: surfaceSize, displayScale: displayScale)
+        return true
+    }
+
+    /// Cache comparison, blur output and composite construction finish outside
+    /// the recursive subtree recorder so their temporaries do not accumulate.
+    @inline(never)
+    private static func cachedContentBlurBitmap(
+        _ isolation: ContentBlurIsolation, buffer: OffscreenPassBuffer
+    ) -> BitmapSurface? {
+        let node = isolation.node
+        let subSize = buffer.size
+        guard buffer.pass.isCacheable, !node.hasDirtySubtree,
+            node.cachedCompositingGroupKey == isolation.cacheKey,
+            let cached = node.cachedCompositingGroupBitmap,
+            cached.width == subSize.width, cached.height == subSize.height,
+            node.cachedCompositingGroupAtlasGeneration.map({
+                $0 == NativeGlyphAtlas.shared.atlasGeneration
+            }) ?? true
+        else { return nil }
+        return cached
+    }
+
+    @inline(never)
+    private static func finishContentBlurBitmap(
+        _ rasterized: BitmapSurface,
+        isolation: ContentBlurIsolation,
+        buffer: OffscreenPassBuffer,
+        deviceRadius: Int,
+        usedNativeGlyphs subNative: Bool,
+        sourceAtlasGeneration: UInt64
+    ) -> BitmapSurface {
+        let node = isolation.node
+        let bitmap = PremultipliedImageBlur.blurred(rasterized, radius: deviceRadius)
+        if subNative, NativeGlyphAtlas.shared.atlasGeneration != sourceAtlasGeneration {
+            node.releaseCompositingGroupCache()
+        } else if buffer.pass.isCacheable {
+            node.cachedCompositingGroupKey = isolation.cacheKey
+            node.cachedCompositingGroupBitmap = bitmap
+            // Only text ties the bitmap to the atlas; a pass without
+            // glyphs stays valid across every recycle.
+            node.cachedCompositingGroupAtlasGeneration =
+                subNative ? NativeGlyphAtlas.shared.atlasGeneration : nil
+        }
+        return bitmap
+    }
+
+    @inline(never)
+    private static func appendContentBlurBitmap(
+        _ bitmap: BitmapSurface,
+        isolation: ContentBlurIsolation,
+        buffer: OffscreenPassBuffer,
+        into scene: inout GPUIScene,
+        surfaceSize: Size,
+        displayScale: Double
+    ) {
         let textureID = scene.registerImageResource(bitmap)
         let scaledFrame = scaleRect(buffer.frame, by: displayScale)
         let clipR = clipRectFloats(isolation.effectiveClip, surfaceSize: surfaceSize, displayScale: displayScale)
@@ -2142,7 +2369,6 @@ public enum ScenePainter {
                     isolation.effectiveClip.resolvedCornerRadius(forQuadRect: buffer.frame) * displayScale),
                 textureID: textureID
             ), toLayer: isolation.layerIndex)
-        return true
     }
 
     /// Paints the blurred subtree into its own scene and rasterizes it.
@@ -2941,6 +3167,7 @@ public enum ScenePainter {
             rejectionReason: reason)
     }
 
+    @inline(never)
     private static func recordCanvasSymbol(
         _ symbol: CanvasSymbolSource,
         depth: Int,
@@ -2953,42 +3180,74 @@ public enum ScenePainter {
             return rejectedCanvasSymbolSnapshot(
                 symbol, reason: "the symbol scene count or nesting budget was exhausted")
         }
-        let scale = symbol.displayScale
-        // A recording surface is only a coordinate domain, never a texture.
-        // A symmetric clip keeps overflow/shadow pixels at negative positions
-        // until their actual crop is known, without a large translation that
-        // would lose fractional-DPI precision in Float primitive coordinates.
-        let extent = Double(GPUISceneLimits.maxCoordinate)
-        let sourceClip = RuntimeClipShape(
-            rect: Rect(
-                x: -extent / (2 * scale), y: -extent / (2 * scale),
-                width: extent / scale, height: extent / scale), space: .painted)
-        let surfaceSize = Size(width: extent / 2, height: extent / 2)
-        var source = GPUIScene(clearColor: .clear)
-        var deferred = symbol.runtime.currentPrepaintState.deferredDraws
-        var native = false
-        var pixel = false
-        var replay = 0
-        let identity = PaintSnapshotIdentity()
+
+        // The scene and its mutable recording state outlive nested sources,
+        // but their value storage must not occupy one stack frame per level.
+        let recording = CanvasSymbolRecordingState(symbol)
         paintNode(
-            symbol.runtime.root, into: &source, deferredDraws: &deferred,
-            parentOrigin: .zero, inheritedClip: sourceClip, layerIndex: 0,
-            surfaceSize: surfaceSize, displayScale: scale, textSystem: symbol.runtime.textSystem,
-            previousScene: nil, snapshotIdentity: identity,
-            usedNativeGlyphs: &native, usedPixelGlyphs: &pixel, replayCount: &replay,
+            symbol.runtime.root, into: &recording.source, deferredDraws: &recording.deferred,
+            parentOrigin: .zero, inheritedClip: recording.sourceClip, layerIndex: 0,
+            surfaceSize: recording.surfaceSize, displayScale: recording.scale, textSystem: symbol.runtime.textSystem,
+            previousScene: nil, snapshotIdentity: recording.identity,
+            usedNativeGlyphs: &recording.native, usedPixelGlyphs: &recording.pixel, replayCount: &recording.replay,
             skipCacheUpdates: true, colorEffectPassDepth: depth + 1, canvasSymbolState: state)
         appendDeferredDraws(
-            &deferred, into: &source, previousScene: nil, previousSceneIdentity: nil,
-            snapshotIdentity: identity, surfaceSize: surfaceSize, displayScale: scale,
-            textSystem: symbol.runtime.textSystem, usedNativeGlyphs: &native,
-            usedPixelGlyphs: &pixel, replayCount: &replay,
+            &recording.deferred, into: &recording.source, previousScene: nil, previousSceneIdentity: nil,
+            snapshotIdentity: recording.identity, surfaceSize: recording.surfaceSize, displayScale: recording.scale,
+            textSystem: symbol.runtime.textSystem, usedNativeGlyphs: &recording.native,
+            usedPixelGlyphs: &recording.pixel, replayCount: &recording.replay,
             canvasSymbolState: state, colorEffectPassDepth: depth + 1,
-            skipCacheUpdates: true, sourceCaptureClip: sourceClip)
+            skipCacheUpdates: true, sourceCaptureClip: recording.sourceClip)
         // The enclosing completed attempt attaches one atlas snapshot to the
         // whole source graph. Retaining a snapshot here would make the next
         // symbol's glyph insertion copy the entire native atlas.
-        usedNativeGlyphs = usedNativeGlyphs || native
-        usedPixelGlyphs = usedPixelGlyphs || pixel
+        usedNativeGlyphs = usedNativeGlyphs || recording.native
+        usedPixelGlyphs = usedPixelGlyphs || recording.pixel
+        return finishCanvasSymbolRecording(&recording.source, symbol: symbol, state: state)
+    }
+
+    @MainActor
+    private final class CanvasSymbolRecordingState {
+        let scale: Double
+        let sourceClip: RuntimeClipShape
+        let surfaceSize: Size
+        var source: GPUIScene
+        var deferred: [DeferredDrawState]
+        var native: Bool
+        var pixel: Bool
+        var replay: Int
+        let identity: PaintSnapshotIdentity
+
+        init(_ symbol: CanvasSymbolSource) {
+            let scale = symbol.displayScale
+            self.scale = scale
+            // A recording surface is only a coordinate domain, never a texture.
+            // A symmetric clip keeps overflow/shadow pixels at negative positions
+            // until their actual crop is known, without a large translation that
+            // would lose fractional-DPI precision in Float primitive coordinates.
+            let extent = Double(GPUISceneLimits.maxCoordinate)
+            sourceClip = RuntimeClipShape(
+                rect: Rect(
+                    x: -extent / (2 * scale), y: -extent / (2 * scale),
+                    width: extent / scale, height: extent / scale), space: .painted)
+            surfaceSize = Size(width: extent / 2, height: extent / 2)
+            source = GPUIScene(clearColor: .clear)
+            deferred = symbol.runtime.currentPrepaintState.deferredDraws
+            native = false
+            pixel = false
+            replay = 0
+            identity = PaintSnapshotIdentity()
+        }
+    }
+
+    /// Bounds, pixel accounting and translation happen only after recording
+    /// returns, so their temporary scenes never remain live across descent.
+    @inline(never)
+    private static func finishCanvasSymbolRecording(
+        _ source: inout GPUIScene,
+        symbol: CanvasSymbolSource,
+        state: CanvasSymbolPaintState
+    ) -> CanvasSymbolSceneSnapshot? {
         source.finish()
         guard let bounds = source.paintedBounds, !bounds.isEmpty else { return nil }
         let left = floor(bounds.minX / 2) * 2
@@ -3046,6 +3305,11 @@ public enum ScenePainter {
         colorEffectPassDepth: Int,
         canvasSymbolState: CanvasSymbolPaintState
     ) {
+        let context = CanvasOperationPaintContext(
+            origin: origin, baseClip: baseClip, placement: placement, opacity: opacity,
+            layerIndex: layerIndex, surfaceSize: surfaceSize, displayScale: displayScale,
+            textSystem: textSystem, colorEffectPassDepth: colorEffectPassDepth,
+            canvasSymbolState: canvasSymbolState)
         // The canvas keeps its own square push/pop clip stack; the enclosing
         // node's rounding still applies to whatever the canvas draws, resolved
         // by the same corner-survival rule every other emitter uses — so a
@@ -3064,367 +3328,571 @@ public enum ScenePainter {
         var currentCullClip = baseClip.map { placement.unplacedFootprint(of: $0.rect) }
         var symbolResources: [ObjectIdentifier: (Int32, CanvasSymbolSceneSnapshot)] = [:]
         var emptySymbols: Set<ObjectIdentifier> = []
+
+        // The large ordinary-operation switch must return before a symbol
+        // enters another retained source. Only this small coordinator and its
+        // clip/source state stay live across that descent.
+        for operation in operations {
+            if case .drawSymbol = operation {
+                appendCanvasSymbolOperation(
+                    operation, into: &scene, context: context, currentClip: currentClip,
+                    symbolResources: &symbolResources, emptySymbols: &emptySymbols,
+                    usedNativeGlyphs: &usedNativeGlyphs, usedPixelGlyphs: &usedPixelGlyphs)
+            } else {
+                appendCanvasNonSymbolOperation(
+                    operation, into: &scene, context: context, clipStack: &clipStack,
+                    currentClip: &currentClip, currentCullClip: &currentCullClip,
+                    usedNativeGlyphs: &usedNativeGlyphs, usedPixelGlyphs: &usedPixelGlyphs)
+            }
+        }
+    }
+
+    /// Placement inputs shared by the operation helpers. Keeping these on
+    /// the heap avoids copying a wide argument bundle at each symbol level;
+    /// the coordinator still owns each Canvas's live clips and source cache.
+    @MainActor
+    private final class CanvasOperationPaintContext {
+        let origin: Point
+        let baseClip: RuntimeClipShape?
+        let placement: PaintPlacement
+        let opacity: Float
+        let layerIndex: Int
+        let surfaceSize: Size
+        let displayScale: Double
+        let textSystem: WindowTextSystem
+        let colorEffectPassDepth: Int
+        let canvasSymbolState: CanvasSymbolPaintState
+
+        init(
+            origin: Point, baseClip: RuntimeClipShape?, placement: PaintPlacement,
+            opacity: Float, layerIndex: Int, surfaceSize: Size, displayScale: Double,
+            textSystem: WindowTextSystem, colorEffectPassDepth: Int,
+            canvasSymbolState: CanvasSymbolPaintState
+        ) {
+            self.origin = origin
+            self.baseClip = baseClip
+            self.placement = placement
+            self.opacity = opacity
+            self.layerIndex = layerIndex
+            self.surfaceSize = surfaceSize
+            self.displayScale = displayScale
+            self.textSystem = textSystem
+            self.colorEffectPassDepth = colorEffectPassDepth
+            self.canvasSymbolState = canvasSymbolState
+        }
+    }
+
+    /// This frame contains path, gradient, text and image temporaries, but
+    /// never recursively records a symbol. Keep the call boundary in every
+    /// optimization mode so those temporaries cannot rejoin the coordinator.
+    @inline(never)
+    private static func appendCanvasNonSymbolOperation(
+        _ operation: CanvasGraphicsContext.Operation,
+        into scene: inout GPUIScene,
+        context: CanvasOperationPaintContext,
+        clipStack: inout [(emit: Rect?, cull: Rect?)],
+        currentClip: inout Rect?,
+        currentCullClip: inout Rect?,
+        usedNativeGlyphs: inout Bool,
+        usedPixelGlyphs: inout Bool
+    ) {
+        let origin = context.origin
+        let baseClip = context.baseClip
+        let placement = context.placement
+        let opacity = context.opacity
+        let layerIndex = context.layerIndex
+        let surfaceSize = context.surfaceSize
+        let displayScale = context.displayScale
+        let textSystem = context.textSystem
+        // A paint operation never changes the clip; push/pop cases change it
+        // but do not ask for a radius. Capture its entry value rather than
+        // closing over the inout clip access.
+        let clipBeforeOperation = currentClip
         func clipRadius(_ quadRect: Rect) -> Double {
             baseClip.ancestorCornerRadius(
-                forQuadRect: placement.footprint(of: quadRect), rejectingOutside: currentClip)
+                forQuadRect: placement.footprint(of: quadRect), rejectingOutside: clipBeforeOperation)
         }
 
-        for operation in operations {
-            switch operation {
-            case .fillPath(let path, let color):
-                let effectiveColor = color.multipliedAlpha(by: opacity)
-                guard effectiveColor.alpha > 0 else { continue }
-                let translated = path.translated(by: origin)
-                guard let bounds = translated.segments.boundingRect, !bounds.isEmpty else { continue }
-                guard clipAllowsDrawing(clip: currentCullClip, rect: bounds) else { continue }
-                Self.emit(
-                    path: PathPrimitive(
-                        elements: pathElements(from: translated.segments),
-                        bounds: bounds,
-                        fillColor: effectiveColor,
-                        clipBounds: currentClip,
-                        clipCornerRadius: clipRadius(bounds)
-                    ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
-                    placement: placement)
-
-            case .fillPathGradient(let path, let gradient, let startPoint, let endPoint):
-                guard opacity > 0, gradient.stops.contains(where: { $0.color.alpha > 0 }) else {
-                    continue
-                }
-                let translated = path.translated(by: origin)
-                guard let bounds = translated.segments.boundingRect, !bounds.isEmpty else { continue }
-                guard clipAllowsDrawing(clip: currentCullClip, rect: bounds) else { continue }
-                let effectiveGradient = canvasGradient(gradient, multipliedBy: opacity)
-                var primitive = PathPrimitive(
+        switch operation {
+        case .fillPath(let path, let color):
+            let effectiveColor = color.multipliedAlpha(by: opacity)
+            guard effectiveColor.alpha > 0 else { return }
+            let translated = path.translated(by: origin)
+            guard let bounds = translated.segments.boundingRect, !bounds.isEmpty else { return }
+            guard clipAllowsDrawing(clip: currentCullClip, rect: bounds) else { return }
+            Self.emit(
+                path: PathPrimitive(
                     elements: pathElements(from: translated.segments),
                     bounds: bounds,
-                    fillColor: effectiveGradient.startColor,
-                    fillGradient: effectiveGradient,
+                    fillColor: effectiveColor,
                     clipBounds: currentClip,
                     clipCornerRadius: clipRadius(bounds)
+                ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
+                placement: placement)
+
+        case .fillPathGradient(let path, let gradient, let startPoint, let endPoint):
+            guard opacity > 0, gradient.stops.contains(where: { $0.color.alpha > 0 }) else {
+                return
+            }
+            let translated = path.translated(by: origin)
+            guard let bounds = translated.segments.boundingRect, !bounds.isEmpty else { return }
+            guard clipAllowsDrawing(clip: currentCullClip, rect: bounds) else { return }
+            let effectiveGradient = canvasGradient(gradient, multipliedBy: opacity)
+            var primitive = PathPrimitive(
+                elements: pathElements(from: translated.segments),
+                bounds: bounds,
+                fillColor: effectiveGradient.startColor,
+                fillGradient: effectiveGradient,
+                clipBounds: currentClip,
+                clipCornerRadius: clipRadius(bounds)
+            )
+            if let startPoint, let endPoint {
+                primitive.setGradientEndpoints(
+                    start: Point(x: startPoint.x + origin.x, y: startPoint.y + origin.y),
+                    end: Point(x: endPoint.x + origin.x, y: endPoint.y + origin.y)
                 )
-                if let startPoint, let endPoint {
-                    primitive.setGradientEndpoints(
-                        start: Point(x: startPoint.x + origin.x, y: startPoint.y + origin.y),
-                        end: Point(x: endPoint.x + origin.x, y: endPoint.y + origin.y)
-                    )
-                }
-                Self.emit(
-                    path: primitive, into: &scene, layerIndex: layerIndex, displayScale: displayScale,
-                    placement: placement)
+            }
+            Self.emit(
+                path: primitive, into: &scene, layerIndex: layerIndex, displayScale: displayScale,
+                placement: placement)
 
-            case .strokePath(let path, let color, let style):
-                let effectiveColor = color.multipliedAlpha(by: opacity)
-                guard effectiveColor.alpha > 0, style.lineWidth > 0 else { continue }
-                let translated = path.translated(by: origin)
-                // Strokes can have a zero-thickness path bounds (e.g. a
-                // single horizontal line), so outset before the empty check
-                // and use the inflated rect for clip/visibility tests.
-                guard let pathBounds = translated.segments.boundingRect else { continue }
-                let solidElements = pathElements(from: translated.segments)
-                // `context.stroke(path, with: .color(c), style: .init(dash:
-                // [4, 4]))` used to draw solid: the dash pattern had nowhere
-                // to go, because the path contract carries no dashes and the
-                // only dash resolver walked a rect perimeter. Resolve it into
-                // geometry here, where the outline is still a `Path`.
-                let strokeElements =
-                    PathDashing.dashed(
-                        solidElements, pattern: style.dashPattern, offset: style.dashOffset)
-                    ?? solidElements
-                let strokeBounds = pathBounds.outset(
-                    by: StrokeOutlineGeometry.boundsOutset(
-                        forElements: strokeElements, lineWidth: style.lineWidth, lineCap: style.lineCap,
-                        lineJoin: style.lineJoin, miterLimit: style.miterLimit))
-                guard !strokeBounds.isEmpty else { continue }
-                guard clipAllowsDrawing(clip: currentCullClip, rect: strokeBounds) else { continue }
-                Self.emit(
-                    path: PathPrimitive(
-                        elements: strokeElements,
-                        bounds: strokeBounds,
-                        strokeColor: effectiveColor,
-                        lineWidth: style.lineWidth,
-                        lineCap: style.lineCap,
-                        lineJoin: style.lineJoin,
-                        miterLimit: style.miterLimit,
-                        clipBounds: currentClip,
-                        clipCornerRadius: clipRadius(strokeBounds)
-                    ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
-                    placement: placement)
-
-            case .strokePathGradient(let path, let gradient, let style, let startPoint, let endPoint):
-                guard opacity > 0, style.lineWidth > 0,
-                    gradient.stops.contains(where: { $0.color.alpha > 0 })
-                else {
-                    continue
-                }
-                let translated = path.translated(by: origin)
-                guard let pathBounds = translated.segments.boundingRect else { continue }
-                let solidElements = pathElements(from: translated.segments)
-                let strokeElements =
-                    PathDashing.dashed(
-                        solidElements, pattern: style.dashPattern, offset: style.dashOffset)
-                    ?? solidElements
-                let strokeBounds = pathBounds.outset(
-                    by: StrokeOutlineGeometry.boundsOutset(
-                        forElements: strokeElements, lineWidth: style.lineWidth, lineCap: style.lineCap,
-                        lineJoin: style.lineJoin, miterLimit: style.miterLimit))
-                guard !strokeBounds.isEmpty else { continue }
-                guard clipAllowsDrawing(clip: currentCullClip, rect: strokeBounds) else { continue }
-                let effectiveGradient = canvasGradient(gradient, multipliedBy: opacity)
-                var primitive = PathPrimitive(
+        case .strokePath(let path, let color, let style):
+            let effectiveColor = color.multipliedAlpha(by: opacity)
+            guard effectiveColor.alpha > 0, style.lineWidth > 0 else { return }
+            let translated = path.translated(by: origin)
+            // Strokes can have a zero-thickness path bounds (e.g. a
+            // single horizontal line), so outset before the empty check
+            // and use the inflated rect for clip/visibility tests.
+            guard let pathBounds = translated.segments.boundingRect else { return }
+            let solidElements = pathElements(from: translated.segments)
+            // `context.stroke(path, with: .color(c), style: .init(dash:
+            // [4, 4]))` used to draw solid: the dash pattern had nowhere
+            // to go, because the path contract carries no dashes and the
+            // only dash resolver walked a rect perimeter. Resolve it into
+            // geometry here, where the outline is still a `Path`.
+            let strokeElements =
+                PathDashing.dashed(
+                    solidElements, pattern: style.dashPattern, offset: style.dashOffset)
+                ?? solidElements
+            let strokeBounds = pathBounds.outset(
+                by: StrokeOutlineGeometry.boundsOutset(
+                    forElements: strokeElements, lineWidth: style.lineWidth, lineCap: style.lineCap,
+                    lineJoin: style.lineJoin, miterLimit: style.miterLimit))
+            guard !strokeBounds.isEmpty else { return }
+            guard clipAllowsDrawing(clip: currentCullClip, rect: strokeBounds) else { return }
+            Self.emit(
+                path: PathPrimitive(
                     elements: strokeElements,
                     bounds: strokeBounds,
-                    strokeColor: effectiveGradient.startColor,
-                    strokeGradient: effectiveGradient,
+                    strokeColor: effectiveColor,
                     lineWidth: style.lineWidth,
                     lineCap: style.lineCap,
                     lineJoin: style.lineJoin,
                     miterLimit: style.miterLimit,
                     clipBounds: currentClip,
                     clipCornerRadius: clipRadius(strokeBounds)
+                ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
+                placement: placement)
+
+        case .strokePathGradient(let path, let gradient, let style, let startPoint, let endPoint):
+            guard opacity > 0, style.lineWidth > 0,
+                gradient.stops.contains(where: { $0.color.alpha > 0 })
+            else {
+                return
+            }
+            let translated = path.translated(by: origin)
+            guard let pathBounds = translated.segments.boundingRect else { return }
+            let solidElements = pathElements(from: translated.segments)
+            let strokeElements =
+                PathDashing.dashed(
+                    solidElements, pattern: style.dashPattern, offset: style.dashOffset)
+                ?? solidElements
+            let strokeBounds = pathBounds.outset(
+                by: StrokeOutlineGeometry.boundsOutset(
+                    forElements: strokeElements, lineWidth: style.lineWidth, lineCap: style.lineCap,
+                    lineJoin: style.lineJoin, miterLimit: style.miterLimit))
+            guard !strokeBounds.isEmpty else { return }
+            guard clipAllowsDrawing(clip: currentCullClip, rect: strokeBounds) else { return }
+            let effectiveGradient = canvasGradient(gradient, multipliedBy: opacity)
+            var primitive = PathPrimitive(
+                elements: strokeElements,
+                bounds: strokeBounds,
+                strokeColor: effectiveGradient.startColor,
+                strokeGradient: effectiveGradient,
+                lineWidth: style.lineWidth,
+                lineCap: style.lineCap,
+                lineJoin: style.lineJoin,
+                miterLimit: style.miterLimit,
+                clipBounds: currentClip,
+                clipCornerRadius: clipRadius(strokeBounds)
+            )
+            if let startPoint, let endPoint {
+                primitive.setGradientEndpoints(
+                    start: Point(x: startPoint.x + origin.x, y: startPoint.y + origin.y),
+                    end: Point(x: endPoint.x + origin.x, y: endPoint.y + origin.y)
                 )
-                if let startPoint, let endPoint {
-                    primitive.setGradientEndpoints(
-                        start: Point(x: startPoint.x + origin.x, y: startPoint.y + origin.y),
-                        end: Point(x: endPoint.x + origin.x, y: endPoint.y + origin.y)
-                    )
-                }
-                Self.emit(
-                    path: primitive, into: &scene, layerIndex: layerIndex, displayScale: displayScale,
-                    placement: placement)
+            }
+            Self.emit(
+                path: primitive, into: &scene, layerIndex: layerIndex, displayScale: displayScale,
+                placement: placement)
 
-            case .fillRect(let rect, let color):
-                let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
-                let effectiveColor = color.multipliedAlpha(by: opacity)
-                guard effectiveColor.alpha > 0 else { continue }
-                guard clipAllowsDrawing(clip: currentCullClip, rect: effectiveRect) else { continue }
-                scene.addQuad(
-                    placement.rotating(
-                        solidQuad(
-                            rect: effectiveRect,
-                            cornerRadius: 0,
-                            color: effectiveColor,
-                            opacity: 1,
-                            clip: currentClip,
-                            surfaceSize: surfaceSize,
-                            displayScale: displayScale,
-                            clipCornerRadius: clipRadius(effectiveRect)
-                        ), displayScale: displayScale), toLayer: layerIndex)
+        case .fillRect(let rect, let color):
+            let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
+            let effectiveColor = color.multipliedAlpha(by: opacity)
+            guard effectiveColor.alpha > 0 else { return }
+            guard clipAllowsDrawing(clip: currentCullClip, rect: effectiveRect) else { return }
+            scene.addQuad(
+                placement.rotating(
+                    solidQuad(
+                        rect: effectiveRect,
+                        cornerRadius: 0,
+                        color: effectiveColor,
+                        opacity: 1,
+                        clip: currentClip,
+                        surfaceSize: surfaceSize,
+                        displayScale: displayScale,
+                        clipCornerRadius: clipRadius(effectiveRect)
+                    ), displayScale: displayScale), toLayer: layerIndex)
 
-            case .fillRectGradient(let rect, let gradient):
-                let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
-                guard clipAllowsDrawing(clip: currentCullClip, rect: effectiveRect) else { continue }
-                appendFillQuad(
-                    placement.rotating(
-                        fillQuad(
-                            rect: effectiveRect,
-                            cornerRadius: 0,
-                            color: gradient.startColor,
-                            gradient: .linear(gradient),
-                            opacity: opacity,
-                            clip: currentClip,
-                            surfaceSize: surfaceSize,
-                            displayScale: displayScale,
-                            clipCornerRadius: clipRadius(effectiveRect)
-                        ), displayScale: displayScale),
-                    gradient: .linear(gradient), opacity: opacity,
-                    into: &scene, layerIndex: layerIndex)
+        case .fillRectGradient(let rect, let gradient):
+            let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
+            guard clipAllowsDrawing(clip: currentCullClip, rect: effectiveRect) else { return }
+            appendFillQuad(
+                placement.rotating(
+                    fillQuad(
+                        rect: effectiveRect,
+                        cornerRadius: 0,
+                        color: gradient.startColor,
+                        gradient: .linear(gradient),
+                        opacity: opacity,
+                        clip: currentClip,
+                        surfaceSize: surfaceSize,
+                        displayScale: displayScale,
+                        clipCornerRadius: clipRadius(effectiveRect)
+                    ), displayScale: displayScale),
+                gradient: .linear(gradient), opacity: opacity,
+                into: &scene, layerIndex: layerIndex)
 
-            case .strokeRect(let rect, let color, let lineWidth):
-                let effectiveColor = color.multipliedAlpha(by: opacity)
-                guard effectiveColor.alpha > 0, lineWidth > 0 else { continue }
-                let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
-                // A closed rect outline's miters reach exactly half a line
-                // width past each corner on each axis, which is what the
-                // outset already is.
-                let strokeBounds = effectiveRect.outset(by: lineWidth / 2)
-                guard clipAllowsDrawing(clip: currentCullClip, rect: strokeBounds) else { continue }
-                let outline: [RenderPath.Segment] = [
-                    .moveTo(Point(x: effectiveRect.minX, y: effectiveRect.minY)),
-                    .lineTo(Point(x: effectiveRect.maxX, y: effectiveRect.minY)),
-                    .lineTo(Point(x: effectiveRect.maxX, y: effectiveRect.maxY)),
-                    .lineTo(Point(x: effectiveRect.minX, y: effectiveRect.maxY)),
-                    .close,
-                ]
-                Self.emit(
-                    path: PathPrimitive(
-                        elements: pathElements(from: outline),
-                        bounds: strokeBounds,
-                        strokeColor: effectiveColor,
-                        lineWidth: lineWidth,
-                        clipBounds: currentClip,
-                        clipCornerRadius: clipRadius(strokeBounds)
-                    ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
-                    placement: placement)
+        case .strokeRect(let rect, let color, let lineWidth):
+            let effectiveColor = color.multipliedAlpha(by: opacity)
+            guard effectiveColor.alpha > 0, lineWidth > 0 else { return }
+            let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
+            // A closed rect outline's miters reach exactly half a line
+            // width past each corner on each axis, which is what the
+            // outset already is.
+            let strokeBounds = effectiveRect.outset(by: lineWidth / 2)
+            guard clipAllowsDrawing(clip: currentCullClip, rect: strokeBounds) else { return }
+            let outline: [RenderPath.Segment] = [
+                .moveTo(Point(x: effectiveRect.minX, y: effectiveRect.minY)),
+                .lineTo(Point(x: effectiveRect.maxX, y: effectiveRect.minY)),
+                .lineTo(Point(x: effectiveRect.maxX, y: effectiveRect.maxY)),
+                .lineTo(Point(x: effectiveRect.minX, y: effectiveRect.maxY)),
+                .close,
+            ]
+            Self.emit(
+                path: PathPrimitive(
+                    elements: pathElements(from: outline),
+                    bounds: strokeBounds,
+                    strokeColor: effectiveColor,
+                    lineWidth: lineWidth,
+                    clipBounds: currentClip,
+                    clipCornerRadius: clipRadius(strokeBounds)
+                ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
+                placement: placement)
 
-            case .drawText(let text, let rect, let style):
-                // Canvas coordinates and text metrics receive the inherited
-                // uniform scale together before lowering. The remaining
-                // placement here applies the node's rotation exactly once.
-                let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
-                let effectiveStyle = style.multipliedOpacity(by: opacity)
-                guard clipAllowsDrawing(clip: currentCullClip, rect: effectiveRect) else { continue }
-                var nativeGlyphs: [GlyphPrimitive] = []
-                var pixelGlyphs: [GlyphPrimitive] = []
-                var decorationQuads: [QuadPrimitive] = []
-                appendTextGlyphs(
-                    for: text,
-                    style: effectiveStyle,
-                    in: effectiveRect,
-                    opacity: 1,
-                    clip: currentClip,
-                    cullClip: currentCullClip,
-                    clipCornerRadius: clipRadius(effectiveRect),
-                    surfaceSize: surfaceSize,
-                    displayScale: displayScale,
-                    pixelFontCoordinateScale: placement.scale,
-                    textSystem: textSystem,
-                    into: &nativeGlyphs,
-                    pixelGlyphs: &pixelGlyphs,
-                    decorationQuads: &decorationQuads
-                )
-                for glyph in nativeGlyphs {
-                    scene.addGlyph(placement.rotating(glyph, displayScale: displayScale), toLayer: layerIndex)
-                }
-                for glyph in pixelGlyphs {
-                    scene.addPixelGlyph(placement.rotating(glyph, displayScale: displayScale), toLayer: layerIndex)
-                }
-                for quad in decorationQuads {
-                    scene.addQuad(placement.rotating(quad, displayScale: displayScale), toLayer: layerIndex)
-                }
-                usedNativeGlyphs = usedNativeGlyphs || !nativeGlyphs.isEmpty
-                usedPixelGlyphs = usedPixelGlyphs || !pixelGlyphs.isEmpty
+        case .drawText(let text, let rect, let style):
+            // Canvas coordinates and text metrics receive the inherited
+            // uniform scale together before lowering. The remaining
+            // placement here applies the node's rotation exactly once.
+            let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
+            let effectiveStyle = style.multipliedOpacity(by: opacity)
+            guard clipAllowsDrawing(clip: currentCullClip, rect: effectiveRect) else { return }
+            var nativeGlyphs: [GlyphPrimitive] = []
+            var pixelGlyphs: [GlyphPrimitive] = []
+            var decorationQuads: [QuadPrimitive] = []
+            appendTextGlyphs(
+                for: text,
+                style: effectiveStyle,
+                in: effectiveRect,
+                opacity: 1,
+                clip: currentClip,
+                cullClip: currentCullClip,
+                clipCornerRadius: clipRadius(effectiveRect),
+                surfaceSize: surfaceSize,
+                displayScale: displayScale,
+                pixelFontCoordinateScale: placement.scale,
+                textSystem: textSystem,
+                into: &nativeGlyphs,
+                pixelGlyphs: &pixelGlyphs,
+                decorationQuads: &decorationQuads
+            )
+            for glyph in nativeGlyphs {
+                scene.addGlyph(placement.rotating(glyph, displayScale: displayScale), toLayer: layerIndex)
+            }
+            for glyph in pixelGlyphs {
+                scene.addPixelGlyph(placement.rotating(glyph, displayScale: displayScale), toLayer: layerIndex)
+            }
+            for quad in decorationQuads {
+                scene.addQuad(placement.rotating(quad, displayScale: displayScale), toLayer: layerIndex)
+            }
+            usedNativeGlyphs = usedNativeGlyphs || !nativeGlyphs.isEmpty
+            usedPixelGlyphs = usedPixelGlyphs || !pixelGlyphs.isEmpty
 
-            case .drawImage(let bitmap, let rect, let imageOpacity):
-                let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
-                let effectiveOpacity = opacity * imageOpacity
-                guard effectiveOpacity > 0 else { continue }
-                guard clipAllowsDrawing(clip: currentCullClip, rect: effectiveRect) else { continue }
-                let scaledRect = scaleRect(effectiveRect, by: displayScale)
-                let clipR = clipRectFloats(currentClip, surfaceSize: surfaceSize, displayScale: displayScale)
-                let textureID = scene.registerImageResource(bitmap)
-                scene.addImage(
-                    placement.rotating(
-                        ImagePrimitive(
-                            screenX: Float(scaledRect.origin.x),
-                            screenY: Float(scaledRect.origin.y),
-                            screenW: Float(scaledRect.size.width),
-                            screenH: Float(scaledRect.size.height),
-                            opacity: effectiveOpacity,
-                            clipX: clipR.0,
-                            clipY: clipR.1,
-                            clipWidth: clipR.2,
-                            clipHeight: clipR.3,
-                            clipCornerRadius: Float(clipRadius(effectiveRect) * displayScale),
-                            textureID: textureID
-                        ), displayScale: displayScale), toLayer: layerIndex)
-
-            case .drawSymbol(let symbol, let rect, let transform, let symbolOpacity):
-                let effectiveOpacity = opacity * symbolOpacity
-                guard effectiveOpacity.isFinite, effectiveOpacity > 0,
-                    rect.size.width > 0, rect.size.height > 0,
-                    symbol.size.width > 0, symbol.size.height > 0,
-                    currentClip?.isEmpty != true
-                else { continue }
-                let determinant = transform.a * transform.d - transform.b * transform.c
-                guard rect.minX.isFinite, rect.minY.isFinite, rect.maxX.isFinite, rect.maxY.isFinite,
-                    transform.a.isFinite, transform.b.isFinite, transform.c.isFinite, transform.d.isFinite,
-                    transform.tx.isFinite, transform.ty.isFinite, determinant.isFinite, determinant != 0
-                else {
-                    CanvasSymbolSource.reportRejection("the scene symbol affine placement is not finite or invertible")
-                    appendRejectedCanvasSymbol(
-                        rect: rect.offsetBy(dx: origin.x, dy: origin.y), opacity: effectiveOpacity,
-                        clip: currentClip, into: &scene, layerIndex: layerIndex,
-                        surfaceSize: surfaceSize, displayScale: displayScale)
-                    continue
-                }
-                let key = ObjectIdentifier(symbol)
-                guard !emptySymbols.contains(key) else { continue }
-                let resource: (Int32, CanvasSymbolSceneSnapshot)
-                if let cached = symbolResources[key] {
-                    resource = cached
-                } else {
-                    guard
-                        let snapshot = recordCanvasSymbol(
-                            symbol, depth: colorEffectPassDepth, state: canvasSymbolState,
-                            usedNativeGlyphs: &usedNativeGlyphs, usedPixelGlyphs: &usedPixelGlyphs)
-                    else {
-                        emptySymbols.insert(key)
-                        continue
-                    }
-                    resource = (
-                        scene.registerImageRenderPass(snapshot.scene, size: snapshot.pixelSize), snapshot
-                    )
-                    symbolResources[key] = resource
-                }
-                let sourceBounds = resource.1.pixelBounds
-                let sx = rect.size.width / symbol.size.width
-                let sy = rect.size.height / symbol.size.height
-                let crop = Rect(
-                    x: rect.minX + sourceBounds.minX / symbol.displayScale * sx,
-                    y: rect.minY + sourceBounds.minY / symbol.displayScale * sy,
-                    width: sourceBounds.size.width / symbol.displayScale * sx,
-                    height: sourceBounds.size.height / symbol.displayScale * sy)
-                let center = transform.apply(Point(x: crop.midX, y: crop.midY))
-                guard center.x.isFinite, center.y.isFinite,
-                    crop.minX.isFinite, crop.minY.isFinite, crop.maxX.isFinite, crop.maxY.isFinite
-                else {
-                    CanvasSymbolSource.reportRejection("the transformed symbol exceeds representable coordinates")
-                    appendRejectedCanvasSymbol(
-                        rect: rect.offsetBy(dx: origin.x, dy: origin.y), opacity: effectiveOpacity,
-                        clip: currentClip, into: &scene, layerIndex: layerIndex,
-                        surfaceSize: surfaceSize, displayScale: displayScale)
-                    continue
-                }
-                let corners = [
-                    Point(x: crop.minX, y: crop.minY), Point(x: crop.maxX, y: crop.minY),
-                    Point(x: crop.maxX, y: crop.maxY), Point(x: crop.minX, y: crop.maxY),
-                ].map { transform.apply($0) }
-                let left = corners.map(\.x).min() ?? 0
-                let top = corners.map(\.y).min() ?? 0
-                let footprint = Rect(
-                    x: left + origin.x, y: top + origin.y,
-                    width: (corners.map(\.x).max() ?? left) - left,
-                    height: (corners.map(\.y).max() ?? top) - top)
-                let clipR = clipRectFloats(currentClip, surfaceSize: surfaceSize, displayScale: displayScale)
-                let width = crop.size.width * displayScale
-                let height = crop.size.height * displayScale
-                let image = placement.rotating(
+        case .drawImage(let bitmap, let rect, let imageOpacity):
+            let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
+            let effectiveOpacity = opacity * imageOpacity
+            guard effectiveOpacity > 0 else { return }
+            guard clipAllowsDrawing(clip: currentCullClip, rect: effectiveRect) else { return }
+            let scaledRect = scaleRect(effectiveRect, by: displayScale)
+            let clipR = clipRectFloats(currentClip, surfaceSize: surfaceSize, displayScale: displayScale)
+            let textureID = scene.registerImageResource(bitmap)
+            scene.addImage(
+                placement.rotating(
                     ImagePrimitive(
-                        screenX: Float((center.x + origin.x) * displayScale - width / 2),
-                        screenY: Float((center.y + origin.y) * displayScale - height / 2),
-                        screenW: Float(width), screenH: Float(height), opacity: effectiveOpacity,
-                        clipX: clipR.0, clipY: clipR.1, clipWidth: clipR.2, clipHeight: clipR.3,
-                        clipCornerRadius: Float(clipRadius(footprint) * displayScale), textureID: resource.0,
-                        affineA: Float(transform.a), affineB: Float(transform.b),
-                        affineC: Float(transform.c), affineD: Float(transform.d)),
-                    displayScale: displayScale)
-                guard let image = GPUISceneSanitizer.sanitized(image) else {
-                    CanvasSymbolSource.reportRejection("the scene symbol affine placement is not finite or invertible")
-                    appendRejectedCanvasSymbol(
-                        rect: rect.offsetBy(dx: origin.x, dy: origin.y), opacity: effectiveOpacity,
-                        clip: currentClip, into: &scene, layerIndex: layerIndex,
-                        surfaceSize: surfaceSize, displayScale: displayScale)
-                    continue
-                }
-                scene.addImage(image, toLayer: layerIndex)
+                        screenX: Float(scaledRect.origin.x),
+                        screenY: Float(scaledRect.origin.y),
+                        screenW: Float(scaledRect.size.width),
+                        screenH: Float(scaledRect.size.height),
+                        opacity: effectiveOpacity,
+                        clipX: clipR.0,
+                        clipY: clipR.1,
+                        clipWidth: clipR.2,
+                        clipHeight: clipR.3,
+                        clipCornerRadius: Float(clipRadius(effectiveRect) * displayScale),
+                        textureID: textureID
+                    ), displayScale: displayScale), toLayer: layerIndex)
 
-            case .pushClip(let rect):
-                let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
-                clipStack.append((currentClip, currentCullClip))
-                // The pushed rect is in the canvas's drawing space, so it
-                // narrows the cull clip directly and the screen-space clip
-                // through its turned footprint.
-                let screenRect = placement.footprint(of: effectiveRect)
-                currentClip = currentClip.map { $0.intersected(with: screenRect) ?? .zero } ?? screenRect
-                currentCullClip = currentCullClip.map { $0.intersected(with: effectiveRect) ?? .zero } ?? effectiveRect
+        case .drawSymbol:
+            return
 
-            case .popClip:
-                let restored = clipStack.popLast()
-                currentClip = restored?.emit ?? baseClip?.rect
-                currentCullClip = restored?.cull ?? baseClip.map { placement.unplacedFootprint(of: $0.rect) }
+        case .pushClip(let rect):
+            let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
+            clipStack.append((currentClip, currentCullClip))
+            // The pushed rect is in the canvas's drawing space, so it
+            // narrows the cull clip directly and the screen-space clip
+            // through its turned footprint.
+            let screenRect = placement.footprint(of: effectiveRect)
+            currentClip = currentClip.map { $0.intersected(with: screenRect) ?? .zero } ?? screenRect
+            currentCullClip = currentCullClip.map { $0.intersected(with: effectiveRect) ?? .zero } ?? effectiveRect
+
+        case .popClip:
+            let restored = clipStack.popLast()
+            currentClip = restored?.emit ?? baseClip?.rect
+            currentCullClip = restored?.cull ?? baseClip.map { placement.unplacedFootprint(of: $0.rect) }
+        }
+    }
+
+    /// The only operation helper allowed to enter another symbol source.
+    /// Preparation and emission return without keeping their large temporary
+    /// value frames alive while another retained source records.
+    @inline(never)
+    private static func appendCanvasSymbolOperation(
+        _ operation: CanvasGraphicsContext.Operation,
+        into scene: inout GPUIScene,
+        context: CanvasOperationPaintContext,
+        currentClip: Rect?,
+        symbolResources: inout [ObjectIdentifier: (Int32, CanvasSymbolSceneSnapshot)],
+        emptySymbols: inout Set<ObjectIdentifier>,
+        usedNativeGlyphs: inout Bool,
+        usedPixelGlyphs: inout Bool
+    ) {
+        guard
+            let painting = prepareCanvasSymbolOperation(
+                operation, into: &scene, context: context, currentClip: currentClip,
+                symbolResources: symbolResources, emptySymbols: emptySymbols)
+        else { return }
+
+        if painting.needsSource {
+            // Store the returned value in heap-owned state instead of keeping
+            // an optional scene and cache tuple in this recursive call frame.
+            painting.snapshot = recordCanvasSymbol(
+                painting.symbol, depth: context.colorEffectPassDepth, state: context.canvasSymbolState,
+                usedNativeGlyphs: &usedNativeGlyphs, usedPixelGlyphs: &usedPixelGlyphs)
+            guard
+                registerCanvasSymbolOperationResource(
+                    painting, into: &scene, symbolResources: &symbolResources)
+            else {
+                emptySymbols.insert(painting.key)
+                return
             }
         }
+        appendCanvasSymbolImage(painting, into: &scene)
+    }
+
+    @MainActor
+    private final class CanvasSymbolOperationPaintState {
+        let context: CanvasOperationPaintContext
+        let currentClip: Rect?
+        let symbol: CanvasSymbolSource
+        let rect: Rect
+        let transform: CGAffineTransform
+        let effectiveOpacity: Float
+        let key: ObjectIdentifier
+        let needsSource: Bool
+        var snapshot: CanvasSymbolSceneSnapshot?
+        var textureID: Int32
+
+        init(
+            context: CanvasOperationPaintContext, currentClip: Rect?,
+            symbol: CanvasSymbolSource, rect: Rect, transform: CGAffineTransform,
+            effectiveOpacity: Float, key: ObjectIdentifier,
+            cachedResource: (Int32, CanvasSymbolSceneSnapshot)?
+        ) {
+            self.context = context
+            self.currentClip = currentClip
+            self.symbol = symbol
+            self.rect = rect
+            self.transform = transform
+            self.effectiveOpacity = effectiveOpacity
+            self.key = key
+            if let cachedResource {
+                needsSource = false
+                snapshot = cachedResource.1
+                textureID = cachedResource.0
+            } else {
+                needsSource = true
+                snapshot = nil
+                textureID = 0
+            }
+        }
+    }
+
+    /// Invalid placement is rejected before a source lookup or budget charge,
+    /// exactly as it is in the operation stream's original control flow.
+    @inline(never)
+    private static func prepareCanvasSymbolOperation(
+        _ operation: CanvasGraphicsContext.Operation,
+        into scene: inout GPUIScene,
+        context: CanvasOperationPaintContext,
+        currentClip: Rect?,
+        symbolResources: [ObjectIdentifier: (Int32, CanvasSymbolSceneSnapshot)],
+        emptySymbols: Set<ObjectIdentifier>
+    ) -> CanvasSymbolOperationPaintState? {
+        let origin = context.origin
+        let opacity = context.opacity
+        let layerIndex = context.layerIndex
+        let surfaceSize = context.surfaceSize
+        let displayScale = context.displayScale
+        guard case .drawSymbol(let symbol, let rect, let transform, let symbolOpacity) = operation else { return nil }
+        let effectiveOpacity = opacity * symbolOpacity
+        guard effectiveOpacity.isFinite, effectiveOpacity > 0,
+            rect.size.width > 0, rect.size.height > 0,
+            symbol.size.width > 0, symbol.size.height > 0,
+            currentClip?.isEmpty != true
+        else { return nil }
+        let determinant = transform.a * transform.d - transform.b * transform.c
+        guard rect.minX.isFinite, rect.minY.isFinite, rect.maxX.isFinite, rect.maxY.isFinite,
+            transform.a.isFinite, transform.b.isFinite, transform.c.isFinite, transform.d.isFinite,
+            transform.tx.isFinite, transform.ty.isFinite, determinant.isFinite, determinant != 0
+        else {
+            CanvasSymbolSource.reportRejection("the scene symbol affine placement is not finite or invertible")
+            appendRejectedCanvasSymbol(
+                rect: rect.offsetBy(dx: origin.x, dy: origin.y), opacity: effectiveOpacity,
+                clip: currentClip, into: &scene, layerIndex: layerIndex,
+                surfaceSize: surfaceSize, displayScale: displayScale)
+            return nil
+        }
+        let key = ObjectIdentifier(symbol)
+        guard !emptySymbols.contains(key) else { return nil }
+        return CanvasSymbolOperationPaintState(
+            context: context, currentClip: currentClip, symbol: symbol, rect: rect, transform: transform,
+            effectiveOpacity: effectiveOpacity, key: key, cachedResource: symbolResources[key])
+    }
+
+    /// Source registration still precedes affine crop validation and records
+    /// one resource in this Canvas namespace for each nonempty source.
+    @inline(never)
+    private static func registerCanvasSymbolOperationResource(
+        _ painting: CanvasSymbolOperationPaintState,
+        into scene: inout GPUIScene,
+        symbolResources: inout [ObjectIdentifier: (Int32, CanvasSymbolSceneSnapshot)]
+    ) -> Bool {
+        guard let snapshot = painting.snapshot else { return false }
+        let resource = (
+            scene.registerImageRenderPass(snapshot.scene, size: snapshot.pixelSize), snapshot
+        )
+        symbolResources[painting.key] = resource
+        painting.textureID = resource.0
+        return true
+    }
+
+    @inline(never)
+    private static func appendCanvasSymbolImage(
+        _ painting: CanvasSymbolOperationPaintState,
+        into scene: inout GPUIScene
+    ) {
+        // Both cached sources and successful registration supply this value.
+        // An empty recording returns before the emission helper is called.
+        guard let snapshot = painting.snapshot else { return }
+        let resource = (painting.textureID, snapshot)
+        let context = painting.context
+        let currentClip = painting.currentClip
+        let symbol = painting.symbol
+        let rect = painting.rect
+        let transform = painting.transform
+        let effectiveOpacity = painting.effectiveOpacity
+        let origin = context.origin
+        let baseClip = context.baseClip
+        let placement = context.placement
+        let layerIndex = context.layerIndex
+        let surfaceSize = context.surfaceSize
+        let displayScale = context.displayScale
+        func clipRadius(_ quadRect: Rect) -> Double {
+            baseClip.ancestorCornerRadius(
+                forQuadRect: placement.footprint(of: quadRect), rejectingOutside: currentClip)
+        }
+
+        let sourceBounds = resource.1.pixelBounds
+        let sx = rect.size.width / symbol.size.width
+        let sy = rect.size.height / symbol.size.height
+        let crop = Rect(
+            x: rect.minX + sourceBounds.minX / symbol.displayScale * sx,
+            y: rect.minY + sourceBounds.minY / symbol.displayScale * sy,
+            width: sourceBounds.size.width / symbol.displayScale * sx,
+            height: sourceBounds.size.height / symbol.displayScale * sy)
+        let center = transform.apply(Point(x: crop.midX, y: crop.midY))
+        guard center.x.isFinite, center.y.isFinite,
+            crop.minX.isFinite, crop.minY.isFinite, crop.maxX.isFinite, crop.maxY.isFinite
+        else {
+            CanvasSymbolSource.reportRejection("the transformed symbol exceeds representable coordinates")
+            appendRejectedCanvasSymbol(
+                rect: rect.offsetBy(dx: origin.x, dy: origin.y), opacity: effectiveOpacity,
+                clip: currentClip, into: &scene, layerIndex: layerIndex,
+                surfaceSize: surfaceSize, displayScale: displayScale)
+            return
+        }
+        let corners = [
+            Point(x: crop.minX, y: crop.minY), Point(x: crop.maxX, y: crop.minY),
+            Point(x: crop.maxX, y: crop.maxY), Point(x: crop.minX, y: crop.maxY),
+        ].map { transform.apply($0) }
+        let left = corners.map(\.x).min() ?? 0
+        let top = corners.map(\.y).min() ?? 0
+        let footprint = Rect(
+            x: left + origin.x, y: top + origin.y,
+            width: (corners.map(\.x).max() ?? left) - left,
+            height: (corners.map(\.y).max() ?? top) - top)
+        let clipR = clipRectFloats(currentClip, surfaceSize: surfaceSize, displayScale: displayScale)
+        let width = crop.size.width * displayScale
+        let height = crop.size.height * displayScale
+        let image = placement.rotating(
+            ImagePrimitive(
+                screenX: Float((center.x + origin.x) * displayScale - width / 2),
+                screenY: Float((center.y + origin.y) * displayScale - height / 2),
+                screenW: Float(width), screenH: Float(height), opacity: effectiveOpacity,
+                clipX: clipR.0, clipY: clipR.1, clipWidth: clipR.2, clipHeight: clipR.3,
+                clipCornerRadius: Float(clipRadius(footprint) * displayScale), textureID: resource.0,
+                affineA: Float(transform.a), affineB: Float(transform.b),
+                affineC: Float(transform.c), affineD: Float(transform.d)),
+            displayScale: displayScale)
+        guard let image = GPUISceneSanitizer.sanitized(image) else {
+            CanvasSymbolSource.reportRejection("the scene symbol affine placement is not finite or invertible")
+            appendRejectedCanvasSymbol(
+                rect: rect.offsetBy(dx: origin.x, dy: origin.y), opacity: effectiveOpacity,
+                clip: currentClip, into: &scene, layerIndex: layerIndex,
+                surfaceSize: surfaceSize, displayScale: displayScale)
+            return
+        }
+        scene.addImage(image, toLayer: layerIndex)
     }
 
     private static func canvasGradient(

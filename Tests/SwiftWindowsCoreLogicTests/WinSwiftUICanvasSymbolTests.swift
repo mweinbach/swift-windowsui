@@ -223,7 +223,12 @@ final class WinSwiftUICanvasSymbolTests: XCTestCase {
     }
 
     func testResolvedSourceKeepsQuadsGlyphsImagesAndPathsForSceneRendering() async throws {
-        let bitmap = BitmapSurface(width: 1, height: 1, bytesPerRow: 4, pixels: Data([0, 255, 0, 255]))
+        // Keep the source at its intended logical size so this test covers
+        // retained image preservation independently of Image resizing support.
+        let greenPixel: [UInt8] = [0, 255, 0, 255]
+        let bitmap = BitmapSurface(
+            width: 8, height: 8, bytesPerRow: 32,
+            pixels: Data((0..<64).flatMap { _ in greenPixel }))
         let view = Canvas { context, _ in
             guard let symbol = context.resolveSymbol(id: "mixed") else {
                 XCTFail("Missing composite symbol")
@@ -234,7 +239,7 @@ final class WinSwiftUICanvasSymbolTests: XCTestCase {
             HStack(spacing: 0) {
                 Self.red.frame(width: 8, height: 16)
                 Text("X").font(.system(size: 16)).foregroundStyle(Self.white).frame(width: 16, height: 16)
-                Image(bitmap: bitmap).resizable().frame(width: 8, height: 8)
+                Image(bitmap: bitmap).frame(width: 8, height: 8)
                 Canvas { context, _ in
                     var path = SwiftWindowsCore.Path()
                     path.moveTo(Point(x: 0, y: 16))
@@ -365,6 +370,12 @@ final class WinSwiftUICanvasSymbolTests: XCTestCase {
     }
 
     func testUniformAncestorScaleKeepsCanvasCallbackSizeLogicalAndScalesSymbolsOnce() async throws {
+        // Isolate placement with an opaque source. The retained quad's
+        // antialiased source corner is covered by CanvasSymbolSamplingTests.
+        let bluePixel: [UInt8] = [255, 0, 0, 255]
+        let blueBitmap = BitmapSurface(
+            width: 8, height: 8, bytesPerRow: 32,
+            pixels: Data((0..<64).flatMap { _ in bluePixel }))
         var callbackSizes: [CGSize] = []
         let view = ZStack(alignment: .topLeading) {
             Canvas { context, size in
@@ -379,18 +390,28 @@ final class WinSwiftUICanvasSymbolTests: XCTestCase {
                     CGRect(x: size.width - 4, y: size.height - 4, width: 4, height: 4),
                     with: .color(Self.yellow))
             } symbols: {
-                Self.blue.frame(width: 8, height: 8).tag("mark")
+                Image(bitmap: blueBitmap).frame(width: 8, height: 8).tag("mark")
             }
             .frame(width: 40, height: 40)
-            .scaleEffect(2, anchor: .topLeading)
+            // The retained View transform currently uses the center anchor.
+            // Translate its 80-by-80 footprint back onto the test surface.
+            .scaleEffect(2)
+            .offset(x: 20, y: 20)
         }
         .frame(width: 128, height: 80, alignment: .topLeading)
         let result = snapshot(view)
         XCTAssertFalse(callbackSizes.isEmpty)
         XCTAssertTrue(callbackSizes.allSatisfy { $0 == CGSize(width: 40, height: 40) })
         let symbolImage = try XCTUnwrap(result.scene.layers.flatMap(\.images).first)
-        XCTAssertEqual(symbolImage.screenW, 16, accuracy: 0.001)
-        XCTAssertEqual(symbolImage.screenH, 16, accuracy: 0.001)
+        // The rectangle and affine basis jointly define the painted footprint.
+        // This fixture has no additional rotation.
+        XCTAssertEqual(symbolImage.rotationRadians, 0, accuracy: 0.001)
+        let symbolWidth =
+            abs(symbolImage.affineA) * symbolImage.screenW + abs(symbolImage.affineC) * symbolImage.screenH
+        let symbolHeight =
+            abs(symbolImage.affineB) * symbolImage.screenW + abs(symbolImage.affineD) * symbolImage.screenH
+        XCTAssertEqual(symbolWidth, 16, accuracy: 0.001)
+        XCTAssertEqual(symbolHeight, 16, accuracy: 0.001)
         let scenePixels = raster(result)
         let framePixels = GPUIRawSceneRasterizer.rasterize(result.frame, size: Self.logicalSize)
         for pixels in [scenePixels, framePixels] {

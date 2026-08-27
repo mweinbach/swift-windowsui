@@ -1128,11 +1128,14 @@ public final class Win32Window: PlatformWindow {
     /// `.fixedSize` drops the sizing border and the maximize box, which is the
     /// half of `.windowResizability(.contentSize)` that a track-size limit
     /// cannot express.
-    private var windowStyle: DWORD {
+    /// Internal so style masks can be checked without creating a native window.
+    var windowStyle: DWORD {
         var style: Int32
         switch titleBarVisibility.kind {
         case .hidden:
-            style = Int32(WS_POPUP) | Int32(WS_THICKFRAME) | Int32(WS_MINIMIZEBOX) | Int32(WS_MAXIMIZEBOX)
+            style =
+                Int32(bitPattern: UInt32(WS_POPUP)) | Int32(WS_THICKFRAME) | Int32(WS_MINIMIZEBOX)
+                | Int32(WS_MAXIMIZEBOX)
         default:
             style = Int32(WS_OVERLAPPEDWINDOW)
         }

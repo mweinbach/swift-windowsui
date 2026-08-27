@@ -230,6 +230,29 @@ final class Win32WindowCloseRequestTests: XCTestCase {
         XCTAssertEqual(recorder.closes, 1)
     }
 
+    func testHiddenTitleBarStylePreservesPopupBitWithoutCreatingAWindow() async {
+        let window = Win32Window(
+            title: "Popup style mask", clientSize: IntSize(width: 160, height: 100), titleBarVisibility: .hidden)
+        let style = window.windowStyle
+        XCTAssertEqual(style & DWORD(WS_POPUP), DWORD(WS_POPUP))
+        XCTAssertNotEqual(style & DWORD(WS_THICKFRAME), 0)
+        XCTAssertNotEqual(style & DWORD(WS_MAXIMIZEBOX), 0)
+        XCTAssertEqual(style & DWORD(WS_SYSMENU), 0)
+        XCTAssertNil(window.nativeHandle)
+    }
+
+    func testFixedHiddenTitleBarStyleKeepsPopupAndRemovesResizeBits() async {
+        let window = Win32Window(
+            title: "Fixed popup style mask", clientSize: IntSize(width: 160, height: 100),
+            titleBarVisibility: .hidden, configuration: Win32WindowConfiguration(resizability: .fixedSize))
+        let style = window.windowStyle
+        XCTAssertEqual(style & DWORD(WS_POPUP), DWORD(WS_POPUP))
+        XCTAssertEqual(style & DWORD(WS_THICKFRAME), 0)
+        XCTAssertEqual(style & DWORD(WS_MAXIMIZEBOX), 0)
+        XCTAssertNotEqual(style & DWORD(WS_MINIMIZEBOX), 0)
+        XCTAssertNil(window.nativeHandle)
+    }
+
     func testApprovalForAnOldLifetimeCannotDestroyARecreatedWindow() async throws {
         let recorder = CloseRequestDelegate()
         let window = try makeWindow(delegate: recorder)

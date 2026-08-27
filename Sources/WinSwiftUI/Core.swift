@@ -5451,10 +5451,25 @@ public final class UndoManager: @unchecked Sendable {
         withTarget target: TargetType,
         handler: @escaping @MainActor (TargetType) -> Void
     ) {
-        guard isUndoRegistrationEnabled else { return }
+        _ = recordUndo(withTarget: target, actionName: nil, handler: handler)
+    }
+
+    @discardableResult
+    func registerUndo<TargetType: AnyObject>(
+        withTarget target: TargetType, actionName: String,
+        handler: @escaping @MainActor (TargetType) -> Void
+    ) -> Bool {
+        recordUndo(withTarget: target, actionName: actionName, handler: handler)
+    }
+
+    private func recordUndo<TargetType: AnyObject>(
+        withTarget target: TargetType, actionName: String?,
+        handler: @escaping @MainActor (TargetType) -> Void
+    ) -> Bool {
+        guard isUndoRegistrationEnabled else { return false }
         pruneDeadTargets()
-        guard isUndoRegistrationEnabled else { return }
-        let action = UndoAction(target: target, name: pendingActionName) { target in
+        guard isUndoRegistrationEnabled else { return false }
+        let action = UndoAction(target: target, name: actionName ?? pendingActionName) { target in
             guard let target = target as? TargetType else { return }
             handler(target)
         }
@@ -5474,6 +5489,7 @@ public final class UndoManager: @unchecked Sendable {
         if isUndoing || isRedoing {
             replayAction = action
         }
+        return true
     }
 
     public func setActionName(_ actionName: String) {
@@ -5492,26 +5508,44 @@ public final class UndoManager: @unchecked Sendable {
     }
 
     public func undo() {
-        guard !isProcessingReplay else { return }
-        isProcessingReplay = true
-        defer { isProcessingReplay = false }
-        performReplay(undoing: true)
+        processReplay(undoing: true)
     }
 
     public func redo() {
+        processReplay(undoing: false)
+    }
+
+    func undo(allowingTarget predicate: @escaping @MainActor (AnyObject) -> Bool) {
+        processReplay(undoing: true, allowingTarget: predicate)
+    }
+
+    func redo(allowingTarget predicate: @escaping @MainActor (AnyObject) -> Bool) {
+        processReplay(undoing: false, allowingTarget: predicate)
+    }
+
+    private func processReplay(undoing: Bool, allowingTarget predicate: (@MainActor (AnyObject) -> Bool)? = nil) {
         guard !isProcessingReplay else { return }
         isProcessingReplay = true
         defer { isProcessingReplay = false }
-        performReplay(undoing: false)
+        performReplay(undoing: undoing, allowingTarget: predicate)
     }
 
-    private func performReplay(undoing: Bool) {
+    private func performReplay(undoing: Bool, allowingTarget predicate: (@MainActor (AnyObject) -> Bool)?) {
         // Keep the request guard active while pruning or releasing an
         // executed action. Captured payloads can deinitialize and attempt
         // another replay even outside the handler's public replay phase.
         pruneDeadTargets()
-        let action = undoing ? undoStack.popLast() : redoStack.popLast()
+        let action = undoing ? undoStack.last : redoStack.last
         guard let action, let target = action.target else { return }
+        guard predicate?(target) ?? true,
+            action === (undoing ? undoStack.last : redoStack.last), action.target === target
+        else { return }
+        if let editor = target as? any UndoManagerReplayTarget, !editor.prepareForUndoReplay() { return }
+        guard predicate?(target) ?? true else { return }
+        // Preflight can rebuild content, remove a target, or release captured
+        // payloads. Never consume a replacement action installed by that work.
+        guard action === (undoing ? undoStack.last : redoStack.last), action.target === target else { return }
+        if undoing { undoStack.removeLast() } else { redoStack.removeLast() }
         isUndoing = undoing
         isRedoing = !undoing
         pendingActionName = ""
@@ -19685,6 +19719,24 @@ private func retainedPresentationCanvasScrimFrame(root: ViewNode, canvasSize: Si
     )
 }
 @MainActor
+private func retainedUnpresentedSheet(base: Component) -> Component {
+    Component { runtime in
+        let baseNode = base.makeNode(runtime: runtime)
+        // Keep the same host and base-child slot as a presented sheet. Returning
+        // the bare base would replace its retained identity on every toggle.
+        let root = Controls.panel(
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [baseNode]
+        )
+        root.onLayout = { bounds in
+            let baseFrame = Rect(origin: .zero, size: bounds.size)
+            if baseNode.frame != baseFrame { baseNode.frame = baseFrame }
+        }
+        return root
+    }
+}
+@MainActor
 private func retainedSheetPresentation(
     base: Component,
     sheet: Component,
@@ -21464,7 +21516,7 @@ extension View {
         ModifiedView(content: self) { content, context in
             let base = content.makeComponent(context: context)
             guard isPresented.wrappedValue else {
-                return base
+                return retainedUnpresentedSheet(base: base)
             }
 
             let dismiss: @MainActor () -> Void = {
@@ -21504,7 +21556,7 @@ extension View {
         ModifiedView(content: self) { content, context in
             let base = content.makeComponent(context: context)
             guard let selectedItem = item.wrappedValue else {
-                return base
+                return retainedUnpresentedSheet(base: base)
             }
 
             let dismiss: @MainActor () -> Void = {

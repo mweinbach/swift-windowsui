@@ -13751,7 +13751,7 @@ extension ControlSize {
 /// In-flight callbacks resolve `current` after calling application code, so a
 /// synchronous rebuild can replace bindings and a removal can end the operation.
 @MainActor
-private final class TextInputInteractionController: RetainedTextInputController {
+private final class TextInputInteractionController: RetainedTextInputController, TextInputUndoClient {
     private(set) weak var node: ViewNode?
     private(set) var isAttached = false
     let characterCount: Int
@@ -13760,6 +13760,11 @@ private final class TextInputInteractionController: RetainedTextInputController 
     let hasSelectionBinding: Bool
     let isSecure: Bool
     let allowsNewlines: Bool
+    let isEnabled: Bool
+    weak var undoRuntime: RetainedViewRuntime?
+    private weak var configuredUndoManager: UndoManager?
+    var undoSession: TextInputUndoSession?
+    var isComposing = false
     var pointerDragAnchor = 0
     var readText: (() -> String)?
     var readSelection: (() -> TextSelection?)?
@@ -13767,10 +13772,13 @@ private final class TextInputInteractionController: RetainedTextInputController 
     var refreshChrome: (() -> Void)?
     var textOffset: ((Point) -> Int?)?
     var invalidate: (() -> Void)?
+    var writeUndoText: ((String, TextInputUndoSelection) -> Void)?
+    var restoreUndoSelection: ((TextInputUndoSelection) -> Void)?
 
     init(
         node: ViewNode, characterCount: Int, hasSelectionBinding: Bool,
-        isSecure: Bool, allowsNewlines: Bool
+        isSecure: Bool, allowsNewlines: Bool, isEnabled: Bool,
+        runtime: RetainedViewRuntime, undoManager: UndoManager?
     ) {
         self.node = node
         self.characterCount = characterCount
@@ -13779,6 +13787,9 @@ private final class TextInputInteractionController: RetainedTextInputController 
         self.hasSelectionBinding = hasSelectionBinding
         self.isSecure = isSecure
         self.allowsNewlines = allowsNewlines
+        self.isEnabled = isEnabled
+        undoRuntime = runtime
+        configuredUndoManager = undoManager
     }
 
     var current: TextInputInteractionController? {
@@ -13795,16 +13806,62 @@ private final class TextInputInteractionController: RetainedTextInputController 
 
     func detach(from node: ViewNode) {
         if self.node === node {
+            undoSession?.invalidate()
             self.node = nil
             isAttached = false
+        }
+    }
+
+    func willDetach(from node: ViewNode) {
+        if self.node === node { undoSession?.invalidate() }
+    }
+
+    var undoText: String? { current === self && isAttached ? readText?() : nil }
+
+    var undoSelection: TextInputUndoSelection? {
+        guard let node, let text = undoText else { return nil }
+        return TextInputUndoSelection(node: node, text: text)
+    }
+
+    var permitsUndoReplay: Bool {
+        guard current === self, isAttached, isEnabled, !isSecure, !isComposing,
+            writeUndoText != nil, let node, let undoRuntime
+        else { return false }
+        let allowed = undoRuntime.permitsTextInputReplay(on: node)
+        return allowed && current === self && isAttached && !isComposing
+    }
+
+    func refreshUndoConfiguration() { invalidate?() }
+    func invalidateUndoDisplay() { current?.invalidate?() }
+    func applyUndoText(_ text: String, selection: TextInputUndoSelection) { writeUndoText?(text, selection) }
+
+    func configureUndoSession(from previous: TextInputInteractionController? = nil) {
+        if !isSecure, let manager = configuredUndoManager, let text = readText?() {
+            if let old = previous?.undoSession, old.isValid, old.manager === manager,
+                previous?.isSecure == isSecure, previous?.allowsNewlines == allowsNewlines
+            {
+                undoSession = old
+            } else {
+                previous?.undoSession?.invalidate()
+                undoSession = TextInputUndoSession(manager: manager, text: text)
+            }
+            undoSession?.adopt(self, text: text)
+        } else {
+            previous?.undoSession?.invalidate()
+            undoSession = nil
         }
     }
 
     func reconcile(from previous: (any RetainedTextInputController)?, onto node: ViewNode) {
         self.node = node
         let previous = previous as? TextInputInteractionController
+        // The retained node's controller setter already attached this value
+        // when it belongs to a runtime. A slot without a previous controller
+        // must retain that attachment even when its child list is unchanged.
         let preservesEditing = previous?.isSecure == isSecure && previous?.allowsNewlines == allowsNewlines
+        configureUndoSession(from: previous)
         if preservesEditing {
+            isComposing = previous?.isComposing ?? false
             pointerDragAnchor = min(max(0, previous?.pointerDragAnchor ?? 0), characterCount)
         } else {
             node.textInputMarkedText = nil
@@ -13829,6 +13886,25 @@ private final class TextInputInteractionController: RetainedTextInputController 
             node.textInputCaretOffset = authoredCaret
             node.textInputSelection = authoredSelection
         }
+    }
+}
+
+/// Invalidate every closing session before releasing any history payload, then
+/// let the host deliver focus-exit callbacks before detaching the controllers.
+@MainActor
+func prepareTextInputUndoForWindowClose(in runtime: RetainedViewRuntime) -> @MainActor () -> Void {
+    var pending = [runtime.root]
+    var controllers: [(ViewNode, TextInputInteractionController)] = []
+    while let node = pending.popLast() {
+        pending.append(contentsOf: node.children)
+        if let controller = node.textInputController as? TextInputInteractionController {
+            controllers.append((node, controller))
+        }
+    }
+    for (_, controller) in controllers { controller.undoSession?.markInvalid() }
+    for (_, controller) in controllers { controller.undoSession?.purgeHistory() }
+    return {
+        for (node, controller) in controllers { controller.detach(from: node) }
     }
 }
 
@@ -13935,11 +14011,13 @@ private func textInputComponent(
         node.textInputSelection = selectionValue?.retainedSelection(in: currentText)
         let controller = TextInputInteractionController(
             node: node, characterCount: currentText.count, hasSelectionBinding: selection != nil,
-            isSecure: isSecure, allowsNewlines: allowsNewlines)
+            isSecure: isSecure, allowsNewlines: allowsNewlines, isEnabled: context.isEnabled,
+            runtime: runtime, undoManager: context.environmentValues.undoManager)
         node.textInputController = controller
         controller.readText = { binding.wrappedValue }
         controller.readSelection = { selection?.wrappedValue }
         controller.invalidate = { context.invalidate() }
+        controller.configureUndoSession()
         node.textContentType = context.textContentType?.retainedContentType
         node.textInputKeyboardType = context.keyboardType.retainedKeyboardType
         node.textInputSuggestions = retainedTextInputSuggestions(
@@ -14077,6 +14155,8 @@ private func textInputComponent(
         }
         node.onFocusExit = {
             guard controller.current === controller else { return }
+            controller.isComposing = false
+            controller.node?.textInputMarkedText = nil
             onEditingChanged?(false)
             refreshChrome()
         }
@@ -14130,6 +14210,15 @@ private func textInputComponent(
             }
             controller.current?.refreshChrome?()
         }
+        controller.restoreUndoSelection = { [weak controller] snapshot in
+            guard let controller, let node = controller.node, controller.current === controller else { return }
+            let text = binding.wrappedValue
+            node.textInputCaretOffset = min(max(0, snapshot.caret), text.count)
+            node.textInputSelection = snapshot.selection
+            node.textSelectionAffinity = snapshot.affinity
+            selection?.wrappedValue = snapshot.boundValue(in: text)
+            controller.current?.refreshChrome?()
+        }
         @MainActor func invalidate() {
             controller.current?.invalidate?()
         }
@@ -14138,9 +14227,39 @@ private func textInputComponent(
         }
         @MainActor func replaceText(in range: Range<Int>, with inserted: String) {
             guard controller.current === controller, let node = controller.node else { return }
-            let updatedText = binding.wrappedValue.replacingText(in: range, with: inserted)
+            let wasAttached = controller.isAttached
+            let originalText = binding.wrappedValue
+            guard controller.current === controller, controller.node === node,
+                !wasAttached || controller.isAttached
+            else { return }
+            let updatedText = originalText.replacingText(in: range, with: inserted)
+            let session = controller.undoSession
+            let mutation = session?.beginEdit(
+                before: originalText, expected: updatedText,
+                selection: TextInputUndoSelection(node: node, text: originalText))
+            defer { session?.cancelEdit(mutation) }
+            let generation = session?.generation
+            // Stale-history cleanup can close or rebuild the editor before
+            // this callback has performed any binding write.
+            guard controller.current === controller, controller.node === node,
+                !wasAttached || controller.isAttached, controller.undoSession === session,
+                session?.isValid != false
+            else { return }
             let caret = range.lowerBound + inserted.count
             let previousSelection = controller.readSelection?()
+            guard controller.current === controller, controller.node === node,
+                !wasAttached || controller.isAttached, controller.undoSession === session,
+                session?.isValid != false, session?.generation == generation
+            else { return }
+            let currentText = binding.wrappedValue
+            guard controller.current === controller, controller.node === node,
+                !wasAttached || controller.isAttached, controller.undoSession === session,
+                session?.isValid != false, session?.generation == generation
+            else { return }
+            guard currentText == originalText else {
+                invalidate()
+                return
+            }
             // Stage the live selection before a Binding setter can synchronously
             // rebuild. Continue only while this editor still presents the edit;
             // a callback may instead remove it or install another document.
@@ -14154,7 +14273,39 @@ private func textInputComponent(
             if current.readText?() == updatedText, !selectionWasReplaced {
                 current.applySelection?(caret, caret)
             }
+            if let latest = controller.current, latest.undoSession === session, let text = latest.undoText,
+                let selection = latest.undoSelection
+            {
+                session?.finishEdit(mutation, text: text, selection: selection)
+            }
             controller.current?.invalidate?()
+        }
+        controller.writeUndoText = { [weak controller] text, snapshot in
+            guard let controller, controller.current === controller, let node = controller.node,
+                let session = controller.undoSession, session.isValid
+            else { return }
+            let generation = session.generation
+            let previousSelection = controller.readSelection?()
+            guard controller.current === controller, controller.node === node,
+                session.isValid, session.generation == generation, controller.undoSession === session
+            else { return }
+            let currentText = binding.wrappedValue
+            guard controller.current === controller, controller.node === node,
+                controller.undoSession === session,
+                session.canWriteReplacement(over: currentText, generation: generation)
+            else { return }
+            node.textInputCaretOffset = snapshot.caret
+            node.textInputSelection = snapshot.selection
+            node.textSelectionAffinity = snapshot.affinity
+            binding.wrappedValue = text
+            guard session.isValid, session.generation == generation,
+                let current = controller.current, current.undoSession === session,
+                current.readText?() == text
+            else { return }
+            let selectionWasReplaced = current.hasSelectionBinding && current.readSelection?() != previousSelection
+            if !selectionWasReplaced {
+                current.restoreUndoSelection?(snapshot)
+            }
         }
         @MainActor func deleteSelection(_ range: Range<Int>) {
             replaceText(in: range, with: "")
@@ -14162,11 +14313,32 @@ private func textInputComponent(
         node.onKeyDown = { event in
             guard controller.current === controller, let node = controller.node else { return }
 
+            let isUndo = event.keyCode == 0x5A && event.modifiers == [.control]
+            let isRedo =
+                (event.keyCode == 0x5A && event.modifiers == [.control, .shift])
+                || (event.keyCode == 0x59 && event.modifiers == [.control])
+            if isUndo || isRedo {
+                controller.invalidate?()
+                guard let current = controller.current, current.permitsUndoReplay,
+                    let manager = current.undoSession?.manager, let runtime = current.undoRuntime
+                else { return }
+                let permitsTarget: @MainActor (AnyObject) -> Bool = { target in
+                    (target as? TextInputUndoSession)?.belongs(to: runtime) == true
+                }
+                if isUndo {
+                    manager.undo(allowingTarget: permitsTarget)
+                } else {
+                    manager.redo(allowingTarget: permitsTarget)
+                }
+                return
+            }
+
             // Escape discards an in-progress IME composition without
             // committing. Real IMEs normally consume Escape themselves and
             // cancel via WM_IME_COMPOSITION; this covers IMEs that pass the
             // key through.
             if event.key == .escape, node.textInputMarkedText != nil {
+                controller.isComposing = false
                 node.textInputMarkedText = nil
                 refreshChrome()
                 return
@@ -14351,8 +14523,9 @@ private func textInputComponent(
             guard controller.current === controller, let node = controller.node else { return }
             switch event.phase {
             case .started:
-                break
+                controller.isComposing = true
             case .updated(let composition):
+                controller.isComposing = true
                 let marked =
                     allowsNewlines
                     ? composition
@@ -14360,6 +14533,8 @@ private func textInputComponent(
                 node.textInputMarkedText = marked.isEmpty ? nil : marked
                 refreshChrome()
             case .committed(let result):
+                // A native result can arrive before WM_IME_ENDCOMPOSITION.
+                // Keep an existing composition session protected until end.
                 node.textInputMarkedText = nil
                 let committed =
                     allowsNewlines
@@ -14381,6 +14556,7 @@ private func textInputComponent(
                     : committed
                 replaceText(in: replacementRange, with: inserted)
             case .ended:
+                controller.isComposing = false
                 node.textInputMarkedText = nil
                 refreshChrome()
             }

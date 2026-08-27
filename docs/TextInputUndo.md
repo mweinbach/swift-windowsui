@@ -1,0 +1,109 @@
+# Retained text undo and redo
+
+Nonsecure `TextField` and `TextEditor` controls register accepted text edits
+with their inherited `EnvironmentValues.undoManager`. Hosted windows supply a
+stable default manager; an environment override can share a manager or set it
+to `nil` to disable automatic history. `SecureField` does not create an
+automatic history session or store plaintext undo payloads.
+
+Each accepted text change is one action, named `Edit Text`. Typing, deletion,
+selection replacement, paste, cut, and an accepted IME result use the same
+registration path. Caret movement, selection changes, IME preedit updates, and
+composition cancellation do not register actions. An active composition blocks
+replay until its end or cancellation, including the interval between a native
+result and the end-composition event. Undo and redo do not use the clipboard,
+accessibility values, or logging to transfer their text payloads.
+
+An action stores a replacement delta at grapheme offsets and the before/after
+caret, selection, and affinity. Its retained editor session stores one current
+text checkpoint. This avoids retaining a whole document copy for every ordinary
+keystroke, although computing and applying deltas still examines the text and
+is not a long-document performance guarantee. There is no automatic typing,
+event-loop, or explicit-group coalescing in this implementation.
+
+## Bindings and retained identity
+
+History follows the retained control, not a temporary view value or a closure
+from its first build. After reconciliation, replay uses the current text and
+selection bindings. A binding setter can synchronously rebuild or remove the
+control; generation checks prevent the interrupted edit from adding a stale
+inverse. A selection explicitly changed by application code during a text
+setter takes precedence over the saved selection.
+
+History cleanup and binding getters can also run application callbacks before
+the write starts. If those callbacks detach or replace the editing controller,
+the interrupted edit is cancelled without writing through the old binding.
+Its pending undo ticket is cancelled too, leaving subsequent input and existing
+history usable. Input is not retried against a different configuration using
+the interrupted edit's selection offsets.
+
+Programmatic binding changes do not automatically register text undo. A text
+replacement different from the session checkpoint clears that editor's history
+when it is observed during reconciliation, the next edit, or replay preflight.
+An accepted edit that happens while registration is disabled also clears that
+editor's older history. Rejected or normalized binding writes are handled
+conservatively: they do not register the proposed value, and stale history for
+that editor is removed rather than replaying a value the binding did not accept.
+Applications that need formatter-aware model undo can register model actions
+explicitly.
+
+Arbitrary `Binding` closures do not expose a document identity. Rebinding the
+same retained control to a different document containing equal text cannot be
+detected. A document switch must change the editor identity, for example:
+
+```swift
+TextEditor(text: $document.text)
+    .id(documentSessionID)
+```
+
+The identifier must represent the document session, not the current text or
+selection. Changing that identifier, removing the control, changing between
+secure and nonsecure input, or replacing its manager ends its old history.
+Equal-text replacements with an unchanged identity are not a new session.
+
+Boolean and item-based sheets keep a stable retained host around their base
+content, including while unpresented. Opening or dismissing a sheet therefore
+preserves the background editor's identity, selection, caret, and history;
+the active modal scope still blocks replay into that background editor.
+
+## Commands and lifecycle
+
+While an eligible nonsecure editor is focused, exact Ctrl+Z requests undo and
+exact Ctrl+Shift+Z or Ctrl+Y requests redo. Existing explicit command handlers
+and shortcut routing retain precedence. This fallback handles text-editor
+targets in the originating runtime; it does not replay an unrelated manual
+application action or an action owned by another window. An application can
+still call its manager explicitly for application commands.
+
+Replay checks the current editor configuration before popping the action.
+Disabled, detached, hidden, or modal-blocked editors cannot replay, and an
+ineligible top action is not skipped to execute a different action underneath.
+Reentrant requests do not consume another action. The manager's `canUndo` and
+`canRedo` still report recorded history; they do not perform all editor input
+eligibility checks or provide native menu validation.
+
+Closing a host marks every current editor session invalid before releasing any
+history payload, then removes only those sessions' actions. The host still
+delivers normal focus-exit callbacks before detaching the controllers. This
+also applies when a sheet editor is focused. A refused close keeps history.
+Neither an overridden manager nor a default manager deliberately shared with
+another window is cleared wholesale: other windows' editor actions and manual
+application targets remain owned by their callers.
+
+## Validation and remaining scope
+
+`TextInputUndoTests` exercises public controls through `WinSwiftUIWindowHost`,
+including repeated keyboard and direct replay, selection, Unicode, IME,
+clipboard operations, environment overrides, modal input isolation, identity
+changes, external replacements, setter reentry, removal, and window closure.
+`TextInputUndoSessionTests` covers replacement deltas and manager/session races;
+`UndoManagerTests` protects ordinary application targets and reciprocal action
+registration. Run these with the existing text input, reconciliation, and close
+suites when changing the integration.
+
+This is a bounded editor history path, not a complete document workflow. Native
+typing-group behavior, full Foundation grouping/event notifications, platform
+Edit-menu validation, native IME/selection parity, vertical caret navigation,
+internal document scrolling, document dirty/save checkpoints, autosave, and
+`DocumentGroup` hosting remain separate work. Same-source API compatibility
+does not establish those behaviors without a pinned native reference.

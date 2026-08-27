@@ -1453,3 +1453,34 @@ inferring ordinary backdrop behavior. No system preference was changed and
 no threshold was relaxed. Verified raw artifacts are under
 `artifacts/goal-macos-reference-33120203035/`; the material ZIP SHA-256 is
 `4072e8e6c56ee0b1beb5137bb50fe4b8e4f3d606b1cd60e7d276670b6aa6e960`.
+
+### Automatic editor undo integration
+
+Nonsecure TextField and TextEditor now register accepted text changes with
+their inherited undo manager, preserve grapheme replacement deltas and
+selection, and use current bindings after reconciliation. Exact Ctrl+Z,
+Ctrl+Shift+Z, and Ctrl+Y retain explicit command precedence and enforce
+runtime, modal, enabled, and IME eligibility before consuming history.
+SecureField stores no automatic plaintext undo history. A shared manager is
+never cleared wholesale during editor cleanup. Typing coalescence, general
+undo groups, native Edit-menu validation, document identity inference, and
+the complete document template remain separate open work.
+
+Integrated tests exposed and corrected two real regressions. Reconciliation
+must preserve the attachment already established by a retained node's
+controller setter, even when that slot previously had no controller. Sheets
+must also retain the same wrapper and base-child slot while absent and
+present; changing the wrapper had detached the background editor and erased
+its valid history. Both Boolean and item sheet paths now preserve that
+identity without weakening modal replay or removal cleanup.
+
+The corrected focused run passed 275 XCTest cases across 16 targets and
+13 serial invocations, with no failure or skip. It includes all 46 new host
+undo cases, 18 session cases, four sheet identity/history cases, and existing
+editing, geometry, IME, selection, modal, close, and host coverage. Evidence
+is `artifacts/goal-editor-undo-focused-v4.log`. Earlier failed logs remain
+preserved; a new sheet fixture's invalid test-hook spelling was corrected to
+the existing four-argument testing override without changing its assertions.
+Quick now includes the new suites. Mounted-State interaction and complete
+batch validation still await the next integration; no native behavior or
+release qualification is inferred from these focused tests.

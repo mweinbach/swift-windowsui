@@ -3183,12 +3183,14 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         nextBatchRecoveryAttemptAt = nil
         resetObservedObjects()
         syncAnimationDriver(for: window)
+        let finishTextInputTeardown = prepareTextInputUndoForWindowClose(in: runtime)
         // Direct teardown and failed-start rollback need not receive native
         // capture/focus-loss messages. Cancel every input source after setting
         // the closed guard, so cleanup cannot reenter this host to start work.
         isPrimaryTouchActive = false
         runtime.pointerCancelled()
         runtime.keyboardFocusDidLeaveWindow()
+        finishTextInputTeardown()
         uiaBridge?.disconnect()
         window.accessibilityProvider = nil
         // Release the GPU stack while the HWND is still alive. A swap chain

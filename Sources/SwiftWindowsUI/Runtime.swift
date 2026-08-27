@@ -4468,6 +4468,7 @@ public final class ViewNode {
             if let state = scrollContainerState { state.attachmentGeneration &+= 1 }
             self.runtime?.unregisterScrollObservationNode(self)
             scrollObserverStorage?.reset()
+            if self.runtime != nil { textInputController?.willDetach(from: self) }
             self.runtime?.releaseInteractionTargets(in: self)
             self.runtime?.cancelColorAnimations(of: self)
             if runtime == nil {
@@ -10726,6 +10727,16 @@ public final class RetainedViewRuntime {
         if Self.isInteractionTarget(focusedNode, within: subtree) {
             updateFocusTarget(to: nil)
         }
+    }
+
+    /// Tests the current retained input scope without exposing facade-specific
+    /// command or history types to the renderer-neutral runtime.
+    public func permitsTextInputReplay(on node: ViewNode) -> Bool {
+        updateResolvedLayout()
+        guard node.runtime === self, Self.isInteractionTarget(node, within: root), !Self.hasHiddenAncestor(node) else {
+            return false
+        }
+        return activeModalPresentationNode.map { Self.isInteractionTarget(node, within: $0) } ?? true
     }
 
     private static func isInteractionTarget(_ candidate: ViewNode?, within subtree: ViewNode) -> Bool {

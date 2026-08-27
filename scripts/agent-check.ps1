@@ -269,7 +269,7 @@ if ($Full) {
         & $testScript -Sharded -Filter "RetainedViewIdentityTests|WinSwiftUIStructuralIdentityTests|ViewIdentityRoleTests"
     }
     Invoke-Step "undo ownership and bitmap stretch" {
-        & $testScript -Sharded -Filter "UndoManagerTests|WinSwiftUIBitmapStretchTests"
+        & $testScript -Sharded -Filter "UndoManagerTests|TextInputUndoTests|TextInputUndoSessionTests|SheetContentIdentityTests|WinSwiftUIBitmapStretchTests"
     }
     Invoke-Step "asynchronous GPU timing diagnostics" {
         & $testScript -Sharded -Filter "D3D11GPUFrameTimingCollectorTests|D3D11GPUFrameTimingNativeTests|LiveGPUFrameTimingHostTests|LiveGPUFrameTimingReportTests"

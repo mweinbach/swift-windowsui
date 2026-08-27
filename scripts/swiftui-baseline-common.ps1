@@ -189,7 +189,12 @@ function Resolve-SwiftUIBaselineFileSystemPath {
                 $target = $target.Substring(4)
                 if ($target -notmatch '^[A-Za-z]:[\\/]') { throw "Unsupported filesystem alias target for '$candidate'." }
             }
-            if (-not [System.IO.Path]::IsPathRooted($target)) { $target = Join-Path (Split-Path -Parent $candidate) $target }
+            if (-not [System.IO.Path]::IsPathRooted($target)) {
+                # $current is already the resolved parent. Split-Path can lose
+                # the Unix root qualifier for /var -> private/var and return an
+                # empty parent; filesystem combination must retain that root.
+                $target = [System.IO.Path]::Combine($current, $target)
+            }
             $current = Resolve-SwiftUIBaselineFileSystemPath -Path $target -LinkDepth ($LinkDepth + 1)
         } else { $current = [System.IO.Path]::GetFullPath($item.FullName) }
     }

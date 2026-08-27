@@ -1423,3 +1423,33 @@ destruction can reenter a mounted binding. Integration must revoke both editor
 replay and state writes before either cleanup releases application payloads;
 real-host tests must cover both directions before this behavior is accepted.
 All nine original completion gates remain open.
+
+### Third-push hosted evidence and Unix-path correction
+
+The nine third-batch commits were pushed together as `e33a9fa`. Ubuntu and
+macOS portable jobs passed, and macOS reference run `33120203035` built and
+captured its fixtures successfully. The separate pinned SDK run `33120202986`
+failed in the material-provenance fixtures before export. Its first failure
+was obscured by cleanup reaching the same broken filesystem resolver: on Unix,
+PowerShell's parent-path operation lost the root qualifier while resolving
+`/var` to the relative target `private/var`.
+
+The resolver now combines a relative link target with its already resolved
+filesystem parent. Canonical containment, alias depth, and owned-directory
+cleanup checks remain enforced. A second cleanup failure preserves the first
+exception and stack, and a cleanup-only failure still fails the test. Root
+validation passed 272 assertions across 100 material-provenance fixtures on
+each PowerShell version, plus all 489 existing SDK-tooling assertions. The
+native Unix alias assertions and a successful pinned export still require a
+new hosted run; local tests do not promote the earlier failed captures.
+
+The successful floating macOS capture is an inconclusive material observation,
+not normal-material or group conformance. Its manifest records macOS 15.7.7
+build `24G720`, arm64, Xcode 26.3, SDK 26.2, and Swift 6.2.4, with Reduce
+Transparency enabled. The ordinary material and every grouped variant are
+opaque in the measured regions; the pattern and flat-tint controls remain
+distinct. This accessibility setting and the unattached hosting view prevent
+inferring ordinary backdrop behavior. No system preference was changed and
+no threshold was relaxed. Verified raw artifacts are under
+`artifacts/goal-macos-reference-33120203035/`; the material ZIP SHA-256 is
+`4072e8e6c56ee0b1beb5137bb50fe4b8e4f3d606b1cd60e7d276670b6aa6e960`.

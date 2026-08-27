@@ -51,6 +51,17 @@ function Test-MaterialRejection {
     }
 }
 
+function Invoke-MaterialTestCleanup {
+    param($OriginalFailure, [scriptblock]$Cleanup)
+    try { & $Cleanup } catch {
+        if ($null -eq $OriginalFailure) { throw }
+        # A failing resolver can be reached both by the test and by cleanup.
+        # Keep the original ErrorRecord/stack; never retry deletion unchecked.
+        $OriginalFailure.Exception.Data["MaterialFixtureCleanupFailure"] = $_.Exception.Message
+        Write-Warning "Material fixture cleanup also failed: $($_.Exception.Message). The original test failure is preserved." -WarningAction Continue
+    }
+}
+
 function Get-MaterialTestHash {
     param([string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -268,12 +279,51 @@ function New-MaterialTestFixture {
     return $fixture
 }
 
+$materialTestPrimaryFailure = $null
 try {
     foreach ($name in @("swiftui-material-reference-common.ps1", "test-swiftui-material-reference.ps1")) {
         $tokens = $null
         $errors = $null
         [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $RepositoryRoot "scripts/$name"), [ref]$tokens, [ref]$errors)
         Assert-MaterialTest ($errors.Count -eq 0) "PowerShell syntax in $name"
+    }
+    $primaryFixtureError = $null
+    $observedFixtureError = $null
+    $cleanupWarnings = @()
+    try {
+        try { throw "synthetic primary fixture failure" } catch { $primaryFixtureError = $_; throw } finally {
+            $cleanupWarnings = @(Invoke-MaterialTestCleanup -OriginalFailure $primaryFixtureError -Cleanup {
+                throw "synthetic secondary cleanup failure"
+            } 3>&1)
+        }
+    } catch { $observedFixtureError = $_ }
+    Assert-MaterialTest ([object]::ReferenceEquals($primaryFixtureError.Exception, $observedFixtureError.Exception)) "cleanup preserves the original fixture exception"
+    Assert-MaterialTest ($observedFixtureError.ScriptStackTrace -ceq $primaryFixtureError.ScriptStackTrace) "cleanup preserves the original fixture stack"
+    Assert-MaterialTest ($observedFixtureError.Exception.Message -ceq "synthetic primary fixture failure") "cleanup does not replace the original message"
+    Assert-MaterialTest ($observedFixtureError.Exception.Data["MaterialFixtureCleanupFailure"] -ceq "synthetic secondary cleanup failure") "secondary cleanup diagnostics remain attached"
+    Assert-MaterialTest ($cleanupWarnings.Count -eq 1 -and $cleanupWarnings[0].Message -match 'synthetic secondary cleanup failure') "secondary cleanup failure is reported separately"
+    Assert-MaterialTestThrows { Invoke-MaterialTestCleanup -Cleanup { throw "synthetic cleanup-only failure" } } `
+        'synthetic cleanup-only failure' "cleanup failure alone still fails the suite"
+
+    if ([System.IO.Path]::DirectorySeparatorChar -eq '/') {
+        # Exercise actual Unix relative symlinks, including a missing suffix,
+        # using only this invocation's owned temporary directory.
+        $relativeAliasRoot = Join-Path $script:MaterialTestRoot "relative-symlink"
+        $relativeAliasTarget = Join-Path $relativeAliasRoot "target"
+        [void][System.IO.Directory]::CreateDirectory($relativeAliasTarget)
+        $relativeAlias = Join-Path $relativeAliasRoot "alias"
+        [void][System.IO.Directory]::CreateSymbolicLink($relativeAlias, "target")
+        $resolvedTarget = Resolve-SwiftUIBaselineFileSystemPath -Path $relativeAliasTarget
+        Assert-MaterialTest ((Resolve-SwiftUIBaselineFileSystemPath -Path $relativeAlias) -ceq $resolvedTarget) "Unix relative symlink resolves from its filesystem parent"
+        $absentSuffix = "missing-" + [Guid]::NewGuid().ToString("N")
+        Assert-MaterialTest ((Resolve-SwiftUIBaselineFileSystemPath -Path (Join-Path $relativeAlias $absentSuffix)) -ceq (Join-Path $resolvedTarget $absentSuffix)) "Unix relative symlink retains a nonexistent suffix"
+        if ($IsMacOS) {
+            # Read the OS aliases without creating or deleting anything there.
+            # Split-Path's Unix drive-qualifier handling used to lose this root.
+            Assert-MaterialTest ((Resolve-SwiftUIBaselineFileSystemPath -Path "/var") -ceq (Resolve-SwiftUIBaselineFileSystemPath -Path "/private/var")) "macOS root-level /var alias resolves canonically"
+            $resolvedTempForTest = Resolve-SwiftUIBaselineFileSystemPath -Path $materialTestTemp
+            Assert-MaterialTest ((Resolve-SwiftUIBaselineFileSystemPath -Path (Join-Path $materialTestTemp $absentSuffix)) -ceq (Join-Path $resolvedTempForTest $absentSuffix)) "macOS temporary-directory aliases retain a nonexistent UUID suffix"
+        }
     }
     # Dictionary fixtures only: never inspect or print the caller's actual
     # environment. Build override diagnostics must contain names, not values.
@@ -617,21 +667,27 @@ try {
     if ($script:MaterialTestFailures.Count -gt 0) {
         throw ("Material provenance rejected $($script:MaterialTestFailures.Count) test expectations:`n" + ($script:MaterialTestFailures -join "`n"))
     }
-    Write-Host "Material provenance tests passed: $script:MaterialTestAssertions assertions across $script:MaterialTestCases synthetic fixtures. No native execution or pixel validation."
+} catch {
+    $materialTestPrimaryFailure = $_
+    throw
 } finally {
     # Delete only this invocation's exact, resolved UUID child of the OS temp
     # directory. Do not pass enumerated paths to another shell for deletion.
-    if (Test-Path -LiteralPath $script:MaterialTestRoot) {
-        $resolvedRoot = Resolve-SwiftUIBaselineFileSystemPath -Path $script:MaterialTestRoot
-        $resolvedTemp = (Resolve-SwiftUIBaselineFileSystemPath -Path $materialTestTemp).TrimEnd([char[]]"\/")
-        $expectedRoot = [System.IO.Path]::GetFullPath((Join-Path $resolvedTemp $materialTestName))
-        $comparison = [System.StringComparison]::Ordinal
-        if ([System.IO.Path]::DirectorySeparatorChar -eq '\') { $comparison = [System.StringComparison]::OrdinalIgnoreCase }
-        if (-not [string]::Equals($resolvedRoot, $expectedRoot, $comparison) -or
-            -not [string]::Equals((Split-Path -Parent $resolvedRoot), $resolvedTemp, $comparison) -or
-            $materialTestName -notmatch '^swiftui-material-provenance-[a-f0-9]{32}$') {
-            throw "Refusing to clean a synthetic fixture directory outside the owned OS-temp location."
+    Invoke-MaterialTestCleanup -OriginalFailure $materialTestPrimaryFailure -Cleanup {
+        if (Test-Path -LiteralPath $script:MaterialTestRoot) {
+            $resolvedRoot = Resolve-SwiftUIBaselineFileSystemPath -Path $script:MaterialTestRoot
+            $resolvedTemp = Resolve-SwiftUIBaselineFileSystemPath -Path $materialTestTemp
+            $expectedRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($resolvedTemp, $materialTestName))
+            $relativeRoot = Get-SwiftUIBaselineRelativePath -Root $resolvedTemp -Path $resolvedRoot
+            $comparison = [System.StringComparison]::Ordinal
+            if ([System.IO.Path]::DirectorySeparatorChar -eq '\') { $comparison = [System.StringComparison]::OrdinalIgnoreCase }
+            if (-not [string]::Equals($resolvedRoot, $expectedRoot, $comparison) -or
+                -not [string]::Equals($relativeRoot, $materialTestName, $comparison) -or
+                $materialTestName -notmatch '^swiftui-material-provenance-[a-f0-9]{32}$') {
+                throw "Refusing to clean a synthetic fixture directory outside the owned OS-temp location."
+            }
+            Remove-Item -LiteralPath $resolvedRoot -Recurse -Force
         }
-        Remove-Item -LiteralPath $resolvedRoot -Recurse -Force
     }
 }
+Write-Host "Material provenance tests passed: $script:MaterialTestAssertions assertions across $script:MaterialTestCases synthetic fixtures. No native execution or pixel validation."

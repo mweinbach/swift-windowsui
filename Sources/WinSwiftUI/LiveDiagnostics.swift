@@ -705,7 +705,8 @@ final class LiveDiagnosticsSession {
                 "skippedUploadCount": diagnostics.atlasSkippedUploadCount,
                 "uploadedByteCountTotal": diagnostics.atlasUploadedByteCount,
                 "uploadedByteCountAfterWarmup": nullable(warmBytes),
-                "uploadedBytesPerFrameAfterWarmup": ratio(warmBytes.map(Double.init), over: Double(timedSamples.count)),
+                "uploadedBytesPerFrameAfterWarmup": ratio(
+                    warmBytes.map { Double($0) }, over: Double(timedSamples.count)),
             ]
         } else {
             report["adapter"] = ["description": "<no batch backend attached>"]

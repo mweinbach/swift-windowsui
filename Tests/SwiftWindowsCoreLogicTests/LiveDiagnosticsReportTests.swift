@@ -361,4 +361,20 @@ final class LiveDiagnosticsReportTests: XCTestCase {
             }
         }
     }
+
+    func testAtlasAverageUsesNumericBytesAcrossAllEligibleFrames() async throws {
+        var prewarmup = sample(at: 1.4, backendTimingsAvailable: true)
+        prewarmup.atlasUploadedByteCount = 100
+        var first = sample(at: 1.5, backendTimingsAvailable: true)
+        first.atlasUploadedByteCount = 150
+        var unchanged = sample(at: 1.6, backendTimingsAvailable: true)
+        unchanged.atlasUploadedByteCount = 150
+        var last = sample(at: 1.7, backendTimingsAvailable: true)
+        last.atlasUploadedByteCount = 201
+        let report = try makeReport(samples: [prewarmup, first, unchanged, last], atlasTotalBytes: 201)
+        let atlas = try object(report, "atlas")
+        XCTAssertEqual(atlas["uploadedByteCountAfterWarmup"] as? Int, 101)
+        XCTAssertEqual(atlas["uploadedBytesPerFrameAfterWarmup"] as? Double ?? -1, 101.0 / 3.0, accuracy: 0.0001)
+        XCTAssertEqual(atlas["framesThatUploadedAfterWarmup"] as? Int, 2)
+    }
 }

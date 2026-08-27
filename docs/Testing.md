@@ -72,11 +72,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   transactions through immediate host invalidation and coalesced observation.
   `SettingsSceneHostingTests` covers static/availability scene composition,
   environment propagation, singleton Settings lifecycle, and startup rollback.
+  `WindowGroupContentIdentityTests` checks fresh roots per managed/direct window,
+  same-window rebuild continuity, inherited environments, Settings reuse, and
+  explicit configuration-content replacement.
   `DemoSettingsPersistenceTests` exercises file/memory stores, restart, dirty
   state, malformed data, validation, keyboard save, failed writes, and retry.
   These suites also gate Quick.
 - `DemoObservationShowcaseTests` drives the live gallery's observer readouts,
-  reset action, and animated binding through the retained host. Its shared
+  reset action, and animated binding through the retained host. Two-host tests
+  also verify independent derived readouts, late window creation, same-window
+  rebuilds, and tab remounts while authored preferences stay shared. Its shared
   view source remains ordinary SwiftUI-shaped application code.
 - `ScrollObservationTests` and `WinSwiftUIScrollObservationTests` cover actual
   geometry, phase, and visibility callbacks, presented offsets, reconciliation,

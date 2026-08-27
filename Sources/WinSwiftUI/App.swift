@@ -200,14 +200,16 @@ public struct WindowGroup: Scene {
         _ title: String = "WinSwiftUI",
         size: IntSize = IntSize(width: 1280, height: 720),
         clearColor: Color = Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
-        @ViewBuilder content: () -> [AnyView]
+        @ViewBuilder content: @escaping @MainActor () -> [AnyView]
     ) {
-        self.configuration = WindowGroupConfiguration(
+        var configuration = WindowGroupConfiguration(
             title: title,
             size: size,
             clearColor: clearColor,
             content: content()
         )
+        configuration.windowContentFactory = content
+        self.configuration = configuration
     }
 
     public init(
@@ -215,15 +217,17 @@ public struct WindowGroup: Scene {
         id: String,
         size: IntSize = IntSize(width: 1280, height: 720),
         clearColor: Color = Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
-        @ViewBuilder content: () -> [AnyView]
+        @ViewBuilder content: @escaping @MainActor () -> [AnyView]
     ) {
-        self.configuration = WindowGroupConfiguration(
+        var configuration = WindowGroupConfiguration(
             title: title,
             size: size,
             clearColor: clearColor,
             content: content(),
             windowID: id
         )
+        configuration.windowContentFactory = content
+        self.configuration = configuration
     }
 
     public init<Content: View, Value: Codable & Hashable>(
@@ -1703,7 +1707,13 @@ public struct EnvironmentScene<Content: Scene, Value>: Scene {
 
     private func applyingEnvironment(to original: WindowGroupConfiguration) -> WindowGroupConfiguration {
         var configuration = original
+        let buildWindowContent = configuration.windowContentFactory
         configuration.content = configuration.content.map { AnyView($0.environment(keyPath, value)) }
+        if let buildContent = buildWindowContent {
+            configuration.windowContentFactory = {
+                buildContent().map { AnyView($0.environment(keyPath, value)) }
+            }
+        }
         if let buildContent = configuration.dataBoundContent {
             configuration.dataBoundContent = { payload in
                 buildContent(payload).map { AnyView($0.environment(keyPath, value)) }
@@ -1738,7 +1748,13 @@ public struct EnvironmentObjectScene<Content: Scene, ObjectType: ObservableObjec
 
     private func applyingEnvironmentObject(to original: WindowGroupConfiguration) -> WindowGroupConfiguration {
         var configuration = original
+        let buildWindowContent = configuration.windowContentFactory
         configuration.content = configuration.content.map { AnyView($0.environmentObject(object)) }
+        if let buildContent = buildWindowContent {
+            configuration.windowContentFactory = {
+                buildContent().map { AnyView($0.environmentObject(object)) }
+            }
+        }
         if let buildContent = configuration.dataBoundContent {
             configuration.dataBoundContent = { payload in
                 buildContent(payload).map { AnyView($0.environmentObject(object)) }
@@ -1844,7 +1860,13 @@ public struct WindowGroupConfiguration {
     public var title: String
     public var size: IntSize
     public var clearColor: Color
-    public var content: [AnyView]
+    public var content: [AnyView] {
+        didSet { windowContentFactory = nil }
+    }
+    /// The declaration's content remains inspectable, but each ordinary
+    /// WindowGroup window gets fresh root view values. A materialized host
+    /// keeps those values through its own observed-object rebuilds.
+    var windowContentFactory: (@MainActor () -> [AnyView])?
     public var handlesExternalEvents: Set<String>?
     public var windowID: String?
     public var isSettingsWindow: Bool
@@ -1935,6 +1957,13 @@ public struct WindowGroupConfiguration {
         self.windowManagerRole = windowManagerRole
         self.allowsWindowInlining = allowsWindowInlining
         self.resizeToContents = resizeToContents
+    }
+
+    @MainActor
+    mutating func instantiateWindowContent() {
+        guard let buildContent = windowContentFactory else { return }
+        content = buildContent()
+        windowContentFactory = nil
     }
 }
 enum WindowHostInputEvent {
@@ -2450,6 +2479,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         backendResolution: RenderBackendResolution? = nil,
         presentPacingMemory: PresentPacingMemoryStore? = nil
     ) {
+        var configuration = configuration
+        configuration.instantiateWindowContent()
         self.backendResolution = backendResolution
         self.presentPacingMemory = presentPacingMemory
         self.configuration = configuration

@@ -1395,6 +1395,9 @@ struct DemoButton: View {
 
 public struct DemoRootView: View {
     @ObservedObject var model: DemoDashboardModel
+    // The WindowGroup creates this root once per window. Keep its readout
+    // ownership above tabs that rebuild or remove their child view values.
+    @StateObject private var windowState = DemoWindowState()
 
     public init(model: DemoDashboardModel) {
         self.model = model
@@ -1423,6 +1426,7 @@ public struct DemoRootView: View {
                 .tag(DemoScreen.data)
 
             DemoGalleryScreen(model: model)
+                .environmentObject(windowState)
                 .tabItem {
                     Label(DemoScreen.gallery.label, systemImage: DemoScreen.gallery.systemImage)
                 }

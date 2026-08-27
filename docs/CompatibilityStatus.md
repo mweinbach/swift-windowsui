@@ -72,7 +72,7 @@ limits still apply; this is not the completed product in `goal.md`.
 
 | API | Status | Notes |
 | --- | --- | --- |
-| `App`, `Scene`, `SceneBuilder`, `WindowGroup` | **Implemented** | Primary host path; static multi-scene declarations and availability checks preserve scene order and modifiers, and startup opens the first ordinary window scene. Scene registration is not dynamically reconciled |
+| `App`, `Scene`, `SceneBuilder`, `WindowGroup` | **Implemented** | Primary host path; static multi-scene declarations and availability checks preserve scene order and modifiers, and startup opens the first ordinary window scene. Ordinary WindowGroup builders construct fresh root content once per hosted window and preserve those values across that host's rebuilds; scene environments remain inherited. Explicitly replacing a configuration's content overrides its builder. Scene registration is not dynamically reconciled; this is not general State/StateObject lifetime conformance |
 | `Window`, `WindowScene` | **Partial** | Configurations participate in coordinator hosting; full native scene-specific uniqueness and restoration semantics remain incomplete |
 | Host loop / invalidation coalescing | **Implemented** | Coalesced rebuilds; high-rate pumping only when input dirties presentation |
 

@@ -46,6 +46,15 @@ snapshot executable uses an isolated in-memory store, so user preferences do
 not change regression images. Raw screenshots continue through the retained
 snapshot renderer; no desktop capture is involved.
 
+Ordinary WindowGroup windows now construct independent root view values.
+`DemoRootView` owns a window-local `DemoWindowState` above its tabs and passes
+it through the standard environment. Scroll offsets, visibility, and phase
+readouts therefore belong to that window's viewport; a newly opened window
+does not reset another one's readouts. The bright-preview choice remains in
+the shared gallery model, while a remounted viewport samples fresh geometry
+and starts with an idle phase. This explicit owner does not establish general
+nested State/StateObject lifetime conformance in WinSwiftUI.
+
 The same application sources build on macOS with `swift build --product
 swift-windowsui`. A native build and behavior run at the pinned reference
 revision are still required; Windows tests do not establish that result.

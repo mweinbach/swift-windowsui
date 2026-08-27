@@ -239,7 +239,7 @@ if ($Full) {
         & $testScript -Filter "WindowCoordinatorTests"
     }
     Invoke-Step "binding transactions and Settings workflows" {
-        & $testScript -Sharded -Filter "BindingTransactionTests|BindingHostTransactionTests|SettingsSceneHostingTests|DemoSettingsPersistenceTests|DemoObservationShowcaseTests"
+        & $testScript -Sharded -Filter "BindingTransactionTests|BindingHostTransactionTests|SettingsSceneHostingTests|WindowGroupContentIdentityTests|DemoSettingsPersistenceTests|DemoObservationShowcaseTests"
     }
     # Optional retained capabilities must stay genuinely sparse; rebuilding
     # controls must preserve their IME composition and caret callbacks.

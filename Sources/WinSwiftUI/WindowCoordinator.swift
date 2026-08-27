@@ -340,6 +340,8 @@ final class WinSwiftUIWindowCoordinator {
         isPrimary: Bool
     ) throws -> WinSwiftUIWindowHost {
         releaseClosedHosts()
+        var configuration = configuration
+        configuration.instantiateWindowContent()
         let host = try hostFactory(configuration, isPrimary)
         host.windowEnvironment = WindowSceneEnvironment(
             openWindow: OpenWindowAction(payloadHandler: { [weak self] payload in

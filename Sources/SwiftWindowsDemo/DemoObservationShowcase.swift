@@ -4,7 +4,7 @@
     import WinSwiftUI
 #endif
 
-/// The gallery retains these values across observed-object rebuilds. Keeping
+/// The window retains these values across observed-object rebuilds. Keeping
 /// the readouts outside the scroll content avoids changing the measured rows
 /// in response to their own geometry or visibility callbacks.
 @MainActor
@@ -12,7 +12,11 @@ final class DemoObservationState: ObservableObject {
     @Published private(set) var offset = 0
     @Published private(set) var phaseDescription = "Idle"
     @Published private(set) var isRowVisible = false
-    @Published var isPreviewBright = true
+
+    func resetPhaseForAppearance() {
+        guard phaseDescription != "Idle" else { return }
+        phaseDescription = "Idle"
+    }
 
     func recordOffset(_ value: Int) {
         guard offset != value else { return }
@@ -49,10 +53,12 @@ struct DemoObservationShowcase: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var model: DemoDashboardModel
     @ObservedObject var state: DemoObservationState
+    @ObservedObject var galleryState: DemoGalleryState
 
-    init(model: DemoDashboardModel) {
+    init(model: DemoDashboardModel, state: DemoObservationState) {
         self.model = model
-        self.state = model.galleryState.observation
+        self.state = state
+        self.galleryState = model.galleryState
     }
 
     private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
@@ -125,15 +131,17 @@ struct DemoObservationShowcase: View {
 
                             Spacer(minLength: 0)
 
-                            Toggle("Bright preview", isOn: $state.isPreviewBright.animation(animation))
-                                .toggleStyle(.switch)
-                                .accessibilityIdentifier("gallery.observation.toggle")
+                            Toggle(
+                                "Bright preview", isOn: $galleryState.isObservationPreviewBright.animation(animation)
+                            )
+                            .toggleStyle(.switch)
+                            .accessibilityIdentifier("gallery.observation.toggle")
 
                             RoundedRectangle(cornerRadius: DemoMetrics.radiusSM)
                                 .fill(palette.accentInk)
                                 .accessibilityHidden(true)
                                 .accessibilityIdentifier("gallery.observation.preview")
-                                .opacity(state.isPreviewBright ? 1 : 0.25)
+                                .opacity(galleryState.isObservationPreviewBright ? 1 : 0.25)
                                 .frame(width: 32, height: 24)
                         }
                     }
@@ -142,6 +150,7 @@ struct DemoObservationShowcase: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityIdentifier("gallery.observation-showcase")
+        .onAppear { state.resetPhaseForAppearance() }
     }
 
     @ViewBuilder

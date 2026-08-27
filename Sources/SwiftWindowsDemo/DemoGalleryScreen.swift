@@ -14,7 +14,7 @@
 /// same-source SwiftUI bindings across both host and navigation rebuilds.
 @MainActor
 final class DemoGalleryState: ObservableObject {
-    let observation = DemoObservationState()
+    @Published var isObservationPreviewBright = true
 
     // Control workbench.
     @Published var draftName = "Native component kit"
@@ -128,6 +128,7 @@ enum DemoGalleryCategory: String, CaseIterable, Hashable {
 /// so the exact same gallery builds against native Apple SwiftUI on macOS.
 struct DemoGalleryScreen: View {
     @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var windowState: DemoWindowState
     @ObservedObject var model: DemoDashboardModel
 
     private var palette: DemoPalette { DemoPalette(colorScheme: colorScheme) }
@@ -166,7 +167,7 @@ struct DemoGalleryScreen: View {
 
                             if visibleCategories.contains(.controls) {
                                 DemoComponentShowcase(model: model, compact: compact)
-                                DemoObservationShowcase(model: model)
+                                DemoObservationShowcase(model: model, state: windowState.observation)
                             }
 
                             if visibleCategories.contains(.presentations) {

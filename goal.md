@@ -617,6 +617,19 @@ nested StateObject lifetime remains a separate audited gap; a demo ownership
 fix must not be presented as full property-wrapper conformance. The checkpoint
 above predates this correction and must be rerun after integration.
 
+The window correction subsequently passed 111 focused XCTest cases across
+eight suites, including four WindowGroup content-identity tests and four
+live gallery observation tests. Ordinary WindowGroup builders are now
+main-actor closures materialized once per new host; explicit content
+replacement and scene environment propagation remain supported. The demo's
+window-owned readout state sits above its tabs, while the bright-preview
+preference remains shared. Late opening, independent scroll phases/offsets,
+same-window rebuilds, and tab remounts are covered. All 50 Swift files changed
+in the batch passed strict lint, and the two builder actor annotations passed
+an additional file lint after compilation identified their missing isolation.
+The fresh whole-ladder result for this corrected candidate is recorded below
+once it completes; the focused pass does not replace it.
+
 ### Additional state lifetime acceptance detail
 
 A source audit found that the current State and StateObject wrappers follow

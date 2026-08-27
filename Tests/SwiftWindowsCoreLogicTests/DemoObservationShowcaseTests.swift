@@ -37,7 +37,7 @@ final class DemoObservationShowcaseTests: XCTestCase {
         let window = Win32Window(title: "Observation showcase", clientSize: size)
         let content = ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                DemoObservationShowcase(model: model)
+                DemoObservationShowcase(model: model, state: DemoObservationState())
                 Text("Outer gallery content").frame(height: 600)
             }
             .padding(16)
@@ -55,6 +55,39 @@ final class DemoObservationShowcaseTests: XCTestCase {
         let harness = Harness(model: model, host: host, window: window, clock: clock)
         harness.frames()
         return harness
+    }
+
+    private func makeWindowHarness(model: DemoDashboardModel, configuration: WindowGroupConfiguration) -> Harness {
+        let clock = RuntimeTestClock()
+        clock.now = 10
+        let size = IntSize(width: 960, height: 760)
+        let surface = SurfaceDescriptor(
+            windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
+            pixelSize: size, scaleFactor: 1
+        )
+        let window = Win32Window(title: "Independent observation window", clientSize: size)
+        let host = WinSwiftUIWindowHost(
+            configuration: configuration,
+            platformWindow: window,
+            renderer: FakeRenderBackend(), batchRenderer: nil,
+            surfaceDescriptorProvider: { _ in surface }, startupProbeConfiguration: nil
+        )
+        host.frameClock = { clock.now }
+        host.hostedRuntime.clock = { clock.now }
+        host.windowDidCreate(window)
+        let harness = Harness(model: model, host: host, window: window, clock: clock)
+        harness.frames()
+        return harness
+    }
+
+    private func revealObservation(in harness: Harness) throws -> ViewNode {
+        let showcase = try XCTUnwrap(
+            firstNode(in: harness.runtime.root) { $0.accessibilityIdentifier == "gallery.observation-showcase" }
+        )
+        XCTAssertTrue(harness.runtime.scrollToDescendant(showcase, anchorY: 0))
+        harness.frames()
+        let scroll = try identified("scroll", in: harness.runtime)
+        return try XCTUnwrap(firstNode(in: scroll) { $0.scrollAxis == .vertical })
     }
 
     private func firstNode(in root: ViewNode, matching predicate: (ViewNode) -> Bool) -> ViewNode? {
@@ -141,7 +174,7 @@ final class DemoObservationShowcaseTests: XCTestCase {
         let preview = try identified("preview", in: runtime)
         XCTAssertEqual(preview.opacity, 1)
         try activateFromKeyboard("toggle", in: runtime)
-        XCTAssertFalse(harness.model.galleryState.observation.isPreviewBright)
+        XCTAssertFalse(harness.model.galleryState.isObservationPreviewBright)
         XCTAssertEqual(preview.opacity, 1, "The control must keep its binding transaction through host invalidation")
         let animation = try XCTUnwrap(preview.animationStates[.opacity])
         XCTAssertEqual(animation.duration, 0.6)
@@ -165,5 +198,97 @@ final class DemoObservationShowcaseTests: XCTestCase {
         XCTAssertNotNil(
             firstNode(in: snapshot.runtime.root) { $0.accessibilityIdentifier == "gallery.observation-showcase" })
         XCTAssertNotNil(firstNode(in: snapshot.runtime.root) { $0.text == "Scroll observations" })
+    }
+
+    func testSharedModelWindowsKeepReadoutsIndependentAndNewWindowDoesNotResetExistingOne() async throws {
+        let model = DemoDashboardModel()
+        model.selectedScreen = .gallery
+        model.selectedGalleryCategory = .controls
+        model.galleryQuery = "scroll geometry"
+        let configuration = WindowGroup(
+            "Observation windows", id: "observation", size: IntSize(width: 960, height: 760)
+        ) {
+            DemoRootView(model: model)
+        }.makeWindowConfiguration()
+        let first = makeWindowHarness(model: model, configuration: configuration)
+        defer { first.host.windowWillClose(first.window) }
+        let firstInner = try revealObservation(in: first)
+        first.runtime.mouseWheel(at: center(of: firstInner), delta: -120 / firstInner.scrollStep)
+        first.frames()
+        XCTAssertEqual(firstInner.resolvedScrollOffset, 120, accuracy: 0.001)
+        XCTAssertEqual(try readout("offset", in: first.runtime), "Offset: 120 pt")
+        XCTAssertEqual(try readout("visibility", in: first.runtime), "Row 6: visible")
+
+        // Reuse the same WindowGroup configuration and shared app model.
+        // Initial callbacks from the new viewport must not rewrite A's state.
+        let second = makeWindowHarness(model: model, configuration: configuration)
+        defer { second.host.windowWillClose(second.window) }
+        let secondInner = try revealObservation(in: second)
+        first.frames()
+        second.frames()
+        XCTAssertEqual(firstInner.resolvedScrollOffset, 120, accuracy: 0.001)
+        XCTAssertEqual(secondInner.resolvedScrollOffset, 0)
+        XCTAssertEqual(try readout("offset", in: first.runtime), "Offset: 120 pt")
+        XCTAssertEqual(try readout("visibility", in: first.runtime), "Row 6: visible")
+        XCTAssertEqual(try readout("offset", in: second.runtime), "Offset: 0 pt")
+        XCTAssertEqual(try readout("visibility", in: second.runtime), "Row 6: outside")
+        XCTAssertEqual(try readout("phase", in: second.runtime), "Phase: Idle")
+
+        first.runtime.mouseWheel(at: center(of: firstInner), delta: -1, source: .precise)
+        first.frames()
+        second.frames()
+        XCTAssertTrue(try readout("phase", in: first.runtime).contains("Decelerating"))
+        XCTAssertEqual(try readout("phase", in: second.runtime), "Phase: Idle")
+        XCTAssertEqual(secondInner.resolvedScrollOffset, 0)
+
+        model.lastAction = "Rebuild both windows"
+        first.frames()
+        second.frames()
+        XCTAssertEqual(try readout("offset", in: second.runtime), "Offset: 0 pt")
+        XCTAssertEqual(try readout("visibility", in: second.runtime), "Row 6: outside")
+        XCTAssertGreaterThan(firstInner.resolvedScrollOffset, 120)
+        XCTAssertTrue(try revealObservation(in: first) === firstInner)
+        XCTAssertTrue(try revealObservation(in: second) === secondInner)
+    }
+
+    func testWindowStateSurvivesBodyRebuildAndAuthoredPreferenceSurvivesTabRemount() async throws {
+        let model = DemoDashboardModel()
+        model.selectedScreen = .gallery
+        model.selectedGalleryCategory = .controls
+        model.galleryQuery = "scroll geometry"
+        let configuration = WindowGroup("Observation continuity", size: IntSize(width: 960, height: 760)) {
+            DemoRootView(model: model)
+        }.makeWindowConfiguration()
+        let harness = makeWindowHarness(model: model, configuration: configuration)
+        defer { harness.host.windowWillClose(harness.window) }
+        let inner = try revealObservation(in: harness)
+        harness.runtime.mouseWheel(at: center(of: inner), delta: -120 / inner.scrollStep)
+        harness.frames()
+        try activateFromKeyboard("toggle", in: harness.runtime)
+        harness.frames()
+        XCTAssertFalse(model.galleryState.isObservationPreviewBright)
+        model.lastAction = "Preserve this window's state"
+        harness.frames()
+        XCTAssertTrue(try revealObservation(in: harness) === inner)
+        XCTAssertEqual(inner.resolvedScrollOffset, 120, accuracy: 0.001)
+        XCTAssertEqual(try readout("offset", in: harness.runtime), "Offset: 120 pt")
+
+        model.selectedScreen = .settings
+        harness.frames()
+        harness.clock.now += 1
+        harness.frames()
+        model.selectedScreen = .gallery
+        harness.frames()
+        harness.clock.now += 1
+        harness.frames()
+        let replacement = try revealObservation(in: harness)
+        XCTAssertFalse(
+            replacement === inner, "Tab changes replace the viewport, so its derived state must be sampled anew")
+        XCTAssertEqual(replacement.resolvedScrollOffset, 0)
+        XCTAssertEqual(try readout("offset", in: harness.runtime), "Offset: 0 pt")
+        XCTAssertEqual(try readout("visibility", in: harness.runtime), "Row 6: outside")
+        XCTAssertEqual(try readout("phase", in: harness.runtime), "Phase: Idle")
+        XCTAssertFalse(model.galleryState.isObservationPreviewBright)
+        XCTAssertEqual(try identified("preview", in: harness.runtime).opacity, 0.25, accuracy: 0.001)
     }
 }

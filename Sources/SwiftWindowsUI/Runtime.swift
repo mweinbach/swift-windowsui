@@ -2,6 +2,7 @@ import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsLayout
+
 // Gap/Fix: Granular dirty tracking — OptionSet replaces single isDirty boolean.
 
 // MARK: - Animation interpolation support
@@ -3065,6 +3066,33 @@ public final class ViewNode {
     /// never drawn.
     public var implicitReconcileAnimation: AnimationTransaction?
 
+    private var animationModifierStorage: RetainedAnimationModifierStorage?
+
+    /// Declarative modifiers, in the order they are attached while building
+    /// the view (inner first). The host evaluates them from outer to inner
+    /// and retains their triggers across rebuilds.
+    public var reconcileAnimationModifiers: [RetainedAnimationModifier] {
+        get { animationModifierStorage?.modifiers ?? [] }
+        set {
+            guard !newValue.isEmpty || animationModifierStorage != nil else { return }
+            if animationModifierStorage == nil {
+                animationModifierStorage = RetainedAnimationModifierStorage()
+            }
+            animationModifierStorage?.modifiers = newValue
+        }
+    }
+
+    /// Insertion runs after reconciliation, when the ambient modifier scope
+    /// has unwound. Keep its effective transaction until that first arrival.
+    func retainInsertionTransaction(_ transaction: Transaction?) {
+        guard transition.kind != .identity, !didPlayInsertionTransition else { return }
+        guard transaction != nil || animationModifierStorage != nil else { return }
+        if animationModifierStorage == nil {
+            animationModifierStorage = RetainedAnimationModifierStorage()
+        }
+        animationModifierStorage?.insertionTransaction = transaction
+    }
+
     /// Marks this node as a text input's insertion indicator, so the runtime
     /// can blink it. Set by the text-input chrome builder; nothing else in the
     /// tree carries it.
@@ -4050,9 +4078,8 @@ public final class ViewNode {
 
     public func removeAllChildren() {
         for child in children {
-            if child.transition.removal.kind != .identity {
+            if child.transition.removal.kind != .identity, child.applyRemovalTransition() {
                 child.isRemovalOverlay = true
-                child.applyRemovalTransition()
                 child.cachedFrameKey = nil
                 child.cachedFrameCommandRange = nil
                 child.cachedSceneKey = nil
@@ -4106,9 +4133,8 @@ public final class ViewNode {
     /// `replaceChild` and `setChildren`.
     private func detachRemovedChild(_ removed: ViewNode) {
         removed.onDismantlePlatformView?(removed)
-        if removed.transition.removal.kind != .identity {
+        if removed.transition.removal.kind != .identity, removed.applyRemovalTransition() {
             removed.isRemovalOverlay = true
-            removed.applyRemovalTransition()
             removed.cachedFrameKey = nil
             removed.cachedFrameCommandRange = nil
             removed.cachedSceneKey = nil
@@ -4186,6 +4212,7 @@ public final class ViewNode {
     fileprivate func setRuntime(_ runtime: RetainedViewRuntime?) {
         if self.runtime !== runtime {
             self.runtime?.releaseInteractionTargets(in: self)
+            self.runtime?.cancelColorAnimations(of: self)
         }
 
         // Animation registration follows the node across runtimes: a node
@@ -7907,8 +7934,14 @@ public final class ViewNode {
         switch property {
         case .background:
             backgroundColor = color
+            if interactionSurface?.appliesSurfaceSheen == true {
+                backgroundGradient = Controls.backgroundSheen(for: color)
+            }
         case .border:
             borderColor = color
+            if interactionSurface?.appliesSurfaceSheen == true {
+                borderGradient = Controls.borderSheen(for: color)
+            }
         case .outline:
             outlineColor = color
         case .shadow:
@@ -7923,31 +7956,40 @@ public final class ViewNode {
     }
 
     /// Cross-fades this node's fill from where it was to what the build just
-    /// wrote, for a node that animates its own changes
-    /// (`implicitReconcileAnimation`).
+    /// wrote, using the transaction selected by reconciliation.
     ///
     /// The gradient ends are animated too, and that is not a nicety: a
     /// gradient wins over `backgroundColor` at paint time, so a tween that
     /// moved only the colour under a snapped gradient would not be visible at
     /// all.
-    func applyImplicitFillTween(fromBackgroundColor: Color?, fromBackgroundGradient: GradientType?) {
-        guard let animation = implicitReconcileAnimation, animation.duration > 0, let runtime else {
-            return
+    func applyReconcileFillTween(
+        fromBackgroundColor: Color?, fromBackgroundGradient: GradientType?,
+        animation: AnimationTransaction?, animationsDisabled: Bool
+    ) {
+        guard let runtime else { return }
+        if let target = backgroundColor {
+            let fromBackgroundColor = fromBackgroundColor ?? .clear
+            if fromBackgroundColor != target { backgroundColor = fromBackgroundColor }
+            runtime.reconcileColor(
+                .background, of: self, to: target, animation: animation, animationsDisabled: animationsDisabled)
+        } else if fromBackgroundColor != nil {
+            runtime.cancelColorAnimation(.background, of: self)
         }
-
-        let timestamp = animationClockNow
-        if let fromBackgroundColor, let target = backgroundColor, fromBackgroundColor != target {
-            backgroundColor = fromBackgroundColor
-            runtime.animateColor(.background, of: self, to: target, duration: animation.duration, at: timestamp)
-        }
-        if let fromBackgroundGradient, let target = backgroundGradient, fromBackgroundGradient != target {
+        if let fromBackgroundGradient, let target = backgroundGradient {
             let startColor = target.startColor
             let endColor = target.endColor
-            backgroundGradient = fromBackgroundGradient
-            runtime.animateColor(
-                .backgroundGradientStart, of: self, to: startColor, duration: animation.duration, at: timestamp)
-            runtime.animateColor(
-                .backgroundGradientEnd, of: self, to: endColor, duration: animation.duration, at: timestamp)
+            let startingGradient = target.replacingStartColor(with: fromBackgroundGradient.startColor)
+                .replacingEndColor(with: fromBackgroundGradient.endColor)
+            if backgroundGradient != startingGradient { backgroundGradient = startingGradient }
+            runtime.reconcileColor(
+                .backgroundGradientStart, of: self, to: startColor,
+                animation: animation, animationsDisabled: animationsDisabled)
+            runtime.reconcileColor(
+                .backgroundGradientEnd, of: self, to: endColor,
+                animation: animation, animationsDisabled: animationsDisabled)
+        } else if backgroundGradient == nil, fromBackgroundGradient != nil {
+            runtime.cancelColorAnimation(.backgroundGradientStart, of: self)
+            runtime.cancelColorAnimation(.backgroundGradientEnd, of: self)
         }
     }
 
@@ -7956,12 +7998,23 @@ public final class ViewNode {
         guard insertion.kind != .identity else { return }
         didPlayInsertionTransition = true
 
+        let fullTransaction = animationModifierStorage?.insertionTransaction ?? currentTransaction
+        animationModifierStorage?.insertionTransaction = nil
+        if let fullTransaction,
+            fullTransaction.disablesAnimations || fullTransaction.animation == nil
+        {
+            return
+        }
+
         // Ambient `withAnimation` first, then the node's own transaction (a
         // control whose state change is its own — a disclosure, a switch —
         // never has an ambient one), then the SwiftUI default.
-        let tx = currentAnimationTransaction ?? implicitReconcileAnimation.map { ($0.duration, $0.easing) }
+        let tx: (duration: Double, easing: AnimationEasing)? =
+            fullTransaction?.animation.map { ($0.duration, $0.easing) }
+            ?? currentAnimationTransaction ?? implicitReconcileAnimation.map { ($0.duration, $0.easing) }
         let duration = tx?.duration ?? 0.35
         let easing = tx?.easing ?? .easeInOut
+        guard duration > 0 else { return }
         let now = animationClockNow
 
         applySingleTransition(insertion, duration: duration, easing: easing, now: now)
@@ -8066,16 +8119,39 @@ public final class ViewNode {
         }
     }
 
-    func applyRemovalTransition() {
+    @discardableResult
+    func applyRemovalTransition() -> Bool {
         let removal = transition.removal
-        guard removal.kind != .identity else { return }
+        guard removal.kind != .identity else { return false }
 
-        let tx = currentAnimationTransaction ?? implicitReconcileAnimation.map { ($0.duration, $0.easing) }
+        var fullTransaction =
+            currentTransaction
+            ?? currentAnimationTransaction.map {
+                Transaction(animation: Animation(duration: $0.duration, easing: $0.easing))
+            }
+        let modifiers = reconcileAnimationModifiers
+        for modifier in modifiers.reversed() {
+            var transaction = fullTransaction ?? Transaction()
+            if modifier.apply(to: &transaction, previous: modifier) {
+                fullTransaction = transaction
+            }
+        }
+        if let fullTransaction,
+            fullTransaction.disablesAnimations || fullTransaction.animation == nil
+        {
+            return false
+        }
+
+        let tx: (duration: Double, easing: AnimationEasing)? =
+            fullTransaction?.animation.map { ($0.duration, $0.easing) }
+            ?? currentAnimationTransaction ?? implicitReconcileAnimation.map { ($0.duration, $0.easing) }
         let duration = tx?.duration ?? 0.35
         let easing = tx?.easing ?? .easeInOut
+        guard duration > 0 else { return false }
         let now = animationClockNow
 
         applySingleRemovalTransition(removal, duration: duration, easing: easing, now: now)
+        return !animationStates.isEmpty
     }
 
     private func applySingleRemovalTransition(
@@ -9978,6 +10054,48 @@ public final class RetainedViewRuntime {
         invalidate()
     }
 
+    /// A rebuild with the same colour destination must keep the original
+    /// tween, just as it does for scalar properties. Re-seeding it here would
+    /// prevent a switch's track from ever arriving during frequent updates.
+    fileprivate func reconcileColor(
+        _ property: AnimatedColorProperty, of node: ViewNode, to targetColor: Color,
+        animation: AnimationTransaction?, animationsDisabled: Bool
+    ) {
+        let key = ColorAnimationKey(node: node, property: property)
+        if !animationsDisabled, colorAnimations[key]?.endColor == targetColor { return }
+        if !animationsDisabled, property == .background, let running = colorAnimations[key],
+            let surface = node.interactionSurface,
+            surface.background(for: interactionPhase(for: node)) == running.endColor
+        {
+            return
+        }
+        guard node.color(for: property) != targetColor else {
+            colorAnimations.removeValue(forKey: key)
+            return
+        }
+        if let animation, animation.duration > 0, !animationsDisabled {
+            animateColor(
+                property, of: node, to: targetColor, duration: animation.duration,
+                at: clock(), easing: animation.easing)
+        } else {
+            colorAnimations.removeValue(forKey: key)
+            if node.color(for: property) != targetColor { node.setColor(targetColor, for: property) }
+        }
+    }
+
+    fileprivate func cancelColorAnimation(_ property: AnimatedColorProperty, of node: ViewNode) {
+        guard !colorAnimations.isEmpty else { return }
+        colorAnimations.removeValue(forKey: ColorAnimationKey(node: node, property: property))
+    }
+
+    fileprivate func cancelColorAnimations(of node: ViewNode) {
+        guard !colorAnimations.isEmpty else { return }
+        let identifier = ObjectIdentifier(node)
+        for key in Array(colorAnimations.keys) where key.nodeIdentifier == identifier {
+            colorAnimations.removeValue(forKey: key)
+        }
+    }
+
     @discardableResult
     public func tickAnimations(at timestamp: Double) -> Bool {
         // First, because a due rebuild produces the tree the rest of this tick
@@ -10011,8 +10129,11 @@ public final class RetainedViewRuntime {
                 transitionOverlays.remove(at: index)
             }
         }
-        if !completedOverlays.isEmpty {
-            invalidate()
+        if didAdvanceOverlayAnimations || !completedOverlays.isEmpty {
+            // Removal overlays are detached from the live tree, so their
+            // property observers cannot invalidate this runtime. Without
+            // this, a removal replays the cached scene until its final tick.
+            invalidate(.paint)
         }
 
         guard !colorAnimations.isEmpty else {
@@ -10374,19 +10495,25 @@ public final class RetainedViewRuntime {
         for (property, state) in node.animationStates {
             let elapsed = timestamp - state.startTime
             guard elapsed >= 0 else { continue }
-            let progress = min(1.0, max(0.0, elapsed / max(state.duration, 0.001)))
-            let eased = state.easing.apply(progress)
-            let value = state.startValue + (state.endValue - state.startValue) * eased
+            let value = state.interpolatedValue(at: timestamp)
+            // Zero means an automatic extent in the retained layout model.
+            // A spring between positive fixed sizes can undershoot zero, but
+            // that must collapse visually without releasing its fixed-size
+            // constraint and expanding to the parent's proposal.
+            let minimumDimension = state.startValue > 0 && state.endValue > 0 ? Double.leastNormalMagnitude : 0
+            let dimensionValue = max(minimumDimension, value)
 
             switch property {
             case .opacity:
-                if node.opacity != value {
-                    node.opacity = value
+                let opacity = min(1, max(0, value))
+                if node.opacity != opacity {
+                    node.opacity = opacity
                     didUpdate = true
                 }
             case .outlineWidth:
-                if node.outlineWidth != value {
-                    node.outlineWidth = value
+                let width = max(0, value)
+                if node.outlineWidth != width {
+                    node.outlineWidth = width
                     didUpdate = true
                 }
             case .frameOriginX:
@@ -10406,19 +10533,31 @@ public final class RetainedViewRuntime {
                     didUpdate = true
                 }
             case .frameWidth:
-                let newSize = Size(width: value, height: node.frame.size.height)
+                let newSize = Size(width: dimensionValue, height: node.frame.size.height)
                 let newFrame = Rect(origin: node.frame.origin, size: newSize)
                 if node.frame != newFrame {
                     node.frame = newFrame
-                    node.resolvedFrame.size.width = value
+                    node.resolvedFrame.size.width = newSize.width
                     didUpdate = true
                 }
             case .frameHeight:
-                let newSize = Size(width: node.frame.size.width, height: value)
+                let newSize = Size(width: node.frame.size.width, height: dimensionValue)
                 let newFrame = Rect(origin: node.frame.origin, size: newSize)
                 if node.frame != newFrame {
                     node.frame = newFrame
-                    node.resolvedFrame.size.height = value
+                    node.resolvedFrame.size.height = newSize.height
+                    didUpdate = true
+                }
+            case .preferredWidth:
+                if var size = node.preferredSize, size.width != dimensionValue {
+                    size.width = dimensionValue
+                    node.preferredSize = size
+                    didUpdate = true
+                }
+            case .preferredHeight:
+                if var size = node.preferredSize, size.height != dimensionValue {
+                    size.height = dimensionValue
+                    node.preferredSize = size
                     didUpdate = true
                 }
             case .transformScaleX:
@@ -10450,7 +10589,7 @@ public final class RetainedViewRuntime {
                 break
             }
 
-            if progress >= 1.0 {
+            if state.isComplete(at: timestamp) {
                 node.animationStates.removeValue(forKey: property)
             }
         }
@@ -11353,20 +11492,31 @@ public final class RetainedViewRuntime {
         let duration = animated ? surface.duration(intoPhase: phase) : 0
         let timestamp = clock()
 
+        func applyColor(_ property: AnimatedColorProperty, to color: Color) {
+            if !animated, let running = colorAnimations[ColorAnimationKey(node: node, property: property)],
+                running.endColor == color
+            {
+                let current = running.startColor.interpolated(to: color, progress: running.progress(at: timestamp))
+                if node.color(for: property) != current { node.setColor(current, for: property) }
+            } else {
+                animateColor(property, of: node, to: color, duration: duration, at: timestamp)
+            }
+        }
+
         if let background = surface.background(for: phase) {
-            animateColor(.background, of: node, to: background, duration: duration, at: timestamp)
+            applyColor(.background, to: background)
             if surface.appliesSurfaceSheen {
-                node.backgroundGradient = Controls.backgroundSheen(for: background)
+                node.backgroundGradient = Controls.backgroundSheen(for: node.backgroundColor ?? background)
             }
         }
         if let border = surface.border(for: phase) {
-            animateColor(.border, of: node, to: border, duration: duration, at: timestamp)
+            applyColor(.border, to: border)
             if surface.appliesSurfaceSheen {
-                node.borderGradient = Controls.borderSheen(for: border)
+                node.borderGradient = Controls.borderSheen(for: node.borderColor)
             }
         }
         if let shadow = surface.shadow(for: phase) {
-            animateColor(.shadow, of: node, to: shadow, duration: duration, at: timestamp)
+            applyColor(.shadow, to: shadow)
         }
 
         if let focusRingColor = surface.focusRingColor {
@@ -11374,26 +11524,26 @@ public final class RetainedViewRuntime {
             // focus for the *fill*, but AppKit keeps the ring on a focused
             // control the whole time the mouse is held down on it.
             let isFocused = node.isFocused
-            animateColor(
-                .outline, of: node, to: isFocused ? focusRingColor : .clear,
-                duration: duration, at: timestamp)
+            applyColor(.outline, to: isFocused ? focusRingColor : .clear)
             // macOS does not cross-fade the ring's alpha in place: it grows
             // out of the control's edge. Animating the width alongside the
             // colour is what makes it read as a ring arriving rather than a
             // blue haze resolving. See `docs/AnimationParity.md`.
             animateOutlineWidth(
                 of: node, to: isFocused ? surface.focusRingWidth : 0,
-                duration: duration, at: timestamp)
+                duration: duration, at: timestamp, preservingActiveAnimation: !animated)
         }
 
         let isPressed = phase == .pressed
         if surface.pressedScale != 1 {
-            animateScale(of: node, to: isPressed ? surface.pressedScale : 1, duration: duration, at: timestamp)
+            animateScale(
+                of: node, to: isPressed ? surface.pressedScale : 1, duration: duration, at: timestamp,
+                preservingActiveAnimation: !animated)
         }
         if surface.pressedContentOpacity != 1 {
             animateOpacity(
                 of: node, to: isPressed ? surface.pressedContentOpacity : 1,
-                duration: duration, at: timestamp)
+                duration: duration, at: timestamp, preservingActiveAnimation: !animated)
         }
     }
 
@@ -11416,7 +11566,14 @@ public final class RetainedViewRuntime {
         }
     }
 
-    private func animateOutlineWidth(of node: ViewNode, to target: Double, duration: Double, at timestamp: Double) {
+    private func animateOutlineWidth(
+        of node: ViewNode, to target: Double, duration: Double, at timestamp: Double,
+        preservingActiveAnimation: Bool = false
+    ) {
+        if preservingActiveAnimation, let state = node.animationStates[.outlineWidth], state.endValue == target {
+            node.outlineWidth = max(0, state.interpolatedValue(at: timestamp))
+            return
+        }
         guard duration > 0, node.outlineWidth != target else {
             node.animationStates[.outlineWidth] = nil
             node.outlineWidth = target
@@ -11431,7 +11588,18 @@ public final class RetainedViewRuntime {
             easing: .easeOut)
     }
 
-    private func animateScale(of node: ViewNode, to target: Double, duration: Double, at timestamp: Double) {
+    private func animateScale(
+        of node: ViewNode, to target: Double, duration: Double, at timestamp: Double,
+        preservingActiveAnimation: Bool = false
+    ) {
+        if preservingActiveAnimation,
+            let horizontal = node.animationStates[.transformScaleX], horizontal.endValue == target,
+            let vertical = node.animationStates[.transformScaleY], vertical.endValue == target
+        {
+            node.transform.scaleX = horizontal.interpolatedValue(at: timestamp)
+            node.transform.scaleY = vertical.interpolatedValue(at: timestamp)
+            return
+        }
         guard duration > 0 else {
             node.animationStates[.transformScaleX] = nil
             node.animationStates[.transformScaleY] = nil
@@ -11441,22 +11609,35 @@ public final class RetainedViewRuntime {
         }
         let startX = node.transform.scaleX
         let startY = node.transform.scaleY
-        node.transform.scaleX = target
-        node.transform.scaleY = target
+        guard startX != target || startY != target else {
+            node.animationStates[.transformScaleX] = nil
+            node.animationStates[.transformScaleY] = nil
+            return
+        }
         node.animationStates[.transformScaleX] = AnimationState(
             startValue: startX, endValue: target, startTime: timestamp, duration: duration, easing: .easeOut)
         node.animationStates[.transformScaleY] = AnimationState(
             startValue: startY, endValue: target, startTime: timestamp, duration: duration, easing: .easeOut)
     }
 
-    private func animateOpacity(of node: ViewNode, to target: Double, duration: Double, at timestamp: Double) {
+    private func animateOpacity(
+        of node: ViewNode, to target: Double, duration: Double, at timestamp: Double,
+        preservingActiveAnimation: Bool = false
+    ) {
+        if preservingActiveAnimation, let state = node.animationStates[.opacity], state.endValue == target {
+            node.opacity = min(1, max(0, state.interpolatedValue(at: timestamp)))
+            return
+        }
         guard duration > 0 else {
             node.animationStates[.opacity] = nil
             node.opacity = target
             return
         }
         let start = node.opacity
-        node.opacity = target
+        guard start != target else {
+            node.animationStates[.opacity] = nil
+            return
+        }
         node.animationStates[.opacity] = AnimationState(
             startValue: start, endValue: target, startTime: timestamp, duration: duration, easing: .easeOut)
     }
@@ -11840,6 +12021,8 @@ public enum AnimatableProperty: Hashable, Sendable {
     case frameOriginY
     case frameWidth
     case frameHeight
+    case preferredWidth
+    case preferredHeight
     case transformScaleX
     case transformScaleY
     case transformTranslationX
@@ -11866,7 +12049,7 @@ public struct AnimationState {
     /// Returns the interpolated value at the given timestamp.
     public func interpolatedValue(at timestamp: Double) -> Double {
         let elapsed = timestamp - startTime
-        guard duration > 0 else {
+        guard duration > 0, elapsed < duration else {
             return endValue
         }
 
@@ -11899,7 +12082,7 @@ public struct ColorAnimationState {
 
     public func interpolatedColor(at timestamp: Double) -> Color {
         let elapsed = timestamp - startTime
-        guard duration > 0 else {
+        guard duration > 0, elapsed < duration else {
             return endColor
         }
 

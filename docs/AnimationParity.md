@@ -29,6 +29,22 @@ where `dampingFraction = 1 − extraBounce`.
 | `Animation.bouncy`     | 0.5      | 0.7             | 0.3              |
 | `Animation.interactiveSpring()` | 0.15 | 0.86       | 0.14             |
 
+The evaluator uses the zero-velocity response of a damped spring. Underdamped
+springs pass through their target continuously; critical and overdamped springs
+approach it without overshoot. The public duration remains `response * 5`.
+Because easing receives normalized time, its dimensionless spring time is
+`10π * progress`: the response already scales elapsed time through duration.
+Dividing normalized time by response again incorrectly made motion scale with
+response squared. At the finite envelope's end the target is exact.
+Negative or nonfinite damping falls back to a critical response; very large
+finite damping is evaluated without overflowing the exponential mode rates.
+
+The previous clamped cosine produced long plateaus at the target followed by
+late retreats, and even the no-bounce `smooth` preset oscillated. The spring
+tests now sample the full envelope, check the physical peak at different
+responses, and verify monotone critical and overdamped motion. This changes
+evaluation, not the preset constants above.
+
 ## Function-style factories
 
 | Factory                                              | Behaviour                                                     |
@@ -170,8 +186,12 @@ A control's state colours are data on the node
 resolves them against `hoveredNode` / `focusedNode` / `pressedNode`, the three
 things a view build cannot know. `ComponentHost.reload()` ends by calling
 `RetainedViewRuntime.restoreInteractionChrome()`, which re-applies them
-**instantly** — a rebuild is not an interaction, and the chrome it restores was
-already on screen a frame ago, so replaying the 0.18s ramp would be a flicker.
+without restarting an interaction. A settled colour is restored instantly;
+an active colour, focus-ring width, press scale or content-opacity tween keeps
+its original start time and current presentation value. Snapping every restore
+to the destination used to cut press feedback short whenever unrelated state
+rebuilt the window. A control's sheen follows the same interpolated colour, so
+the gradient painted over its fill cannot jump straight to the destination.
 
 This replaced six closures per control over a build-scope interaction state,
 which had two failures a fill ramp cannot survive:
@@ -222,14 +242,16 @@ properties used to reach their end value in a single frame here: sampled at
 | Constant                                | Value                                        |
 |-----------------------------------------|----------------------------------------------|
 | `Controls.switchKnobAnimation`          | `Animation.snappy` - spring(response 0.5, damping fraction 0.85) |
-| Knob travel (effective)                 | 0.3125s - where the spring saturates          |
-| `Controls.switchTrackCrossfadeDuration` | 0.3125s ease-in-out, matching the travel      |
+| Knob travel                            | About 97% by 0.3125s, then a small spring overshoot and settling |
+| `Controls.switchTrackCrossfadeDuration` | 0.3125s ease-in-out, covering the main travel |
 
 The knob is `Animation.snappy` itself, read from the named spring rather than
-restated. Its *envelope* is `response * 5` (this stack's spring convention),
-but `AnimationEasing.spring` clamps its first overshoot, so the knob arrives at
-`0.25 * response` of normalised progress - 0.3125s. That is the number to
-compare against NSSwitch, and it is what the track cross-fade matches.
+restated. Its *envelope* is `response * 5` (this stack's spring convention).
+The track retains its established 0.3125s cross-fade while the knob settles
+continuously. The old clamped curve held the knob at its target from 0.3125s
+through 0.9375s, then pulled it back roughly 0.35px at 1.1s. The physical
+spring removes that delayed retreat; `SwitchKnobMotionTests` now samples beyond
+the initial travel to catch it.
 
 The mechanism is `ViewNode.implicitReconcileAnimation`: a transaction the node
 carries for its *own* frame and fill changes. A control's state change rebuilds
@@ -371,10 +393,56 @@ which is why the gallery's interaction tier renders at
 states - and why a stuck pressed fill and a two-tone focus ring both shipped.
 
 `RetainedViewRuntime.clock` is now the single source of "now" for the whole
-interaction layer, defaulting to `Win32Window.currentTimestampSeconds`. Nodes
+interaction layer, defaulting to `PlatformClock.now`. Nodes
 reach it through `ViewNode.animationClockNow`. Override it and mid-tween
 assertions become writable, which is what every case in
 `InteractionTimelineFidelityTests` does.
+
+## Rebuilds preserve property animation timelines
+
+`ViewNode.reconcileAnimationModifiers` holds declarative animation configuration
+separately from active `animationStates`. Installing `.animation` no longer
+creates placeholder animations on the initial tree. The host compares a value
+modifier's retained `Equatable` trigger with the next build and applies its
+animation only when that trigger changes. Parent transactions reach descendants;
+nested modifiers run from outer to inner, and explicit nil animations and
+`disablesAnimations` suppress inherited animation. Control-owned implicit
+animations remain a fallback when there is no overriding transaction.
+
+Reconciliation compares the next model destination with an active tween's
+destination, rather than treating its intermediate presentation value as a new
+change. An unrelated rebuild preserves the clock and the current frame,
+transform, opacity and fill. A changed destination retargets from what is on
+screen. Positive fixed `.frame(width:height:)` dimensions animate the wrapper's
+preferred size so layout and following siblings move at each tick; changes
+between automatic and explicit dimensions still apply immediately.
+
+Removal overlays invalidate their owning runtime on each animated frame even
+though they are detached from its tree. Without that invalidation both scene
+and frame caches held the old pixels until the overlay disappeared. Removing
+a fill cancels its colour channels, and moving a node to another runtime
+cancels its former runtime's colour tweens. Completion writes exact declared
+endpoints, including zero-duration and submillisecond animations.
+
+`RuntimeAnimationGatingTests`, `ContinuousAnimationCrossViewTests` and the
+animation cases in `WinSwiftUITests` exercise these timelines with injected
+clocks and intermediate rendered output.
+
+The window host advances that clock for every admitted presentation, including
+`WM_PAINT`, after the frame-pacing gate. Previously only `WM_TIMER` advanced
+animations, so an input-triggered paint could use a frame slot while displaying
+the previous animation sample. `FrameClockPacingTests` exercises intermediate
+and final values through both scene and frame presenters and verifies that an
+early self-paced wake does not advance a phase before presentation is due.
+
+Observed-object changes also preserve their scoped `withAnimation` or
+`withTransaction` context across a coalesced rebuild. The latest relevant
+mutation supplies that context; unrelated notifications cannot replace it.
+A native frame drains the pending batch because the blocking Win32 message
+loop does not service Swift's main-actor Task executor. Headless hosts retain
+the Task fallback, and either path consumes a batch only once.
+`WinSwiftUIWindowHostTests` covers native-frame delivery, preserved animation,
+explicit nil/disabled transactions, and dependency filtering.
 
 ## The first tree is a state, not an insertion
 

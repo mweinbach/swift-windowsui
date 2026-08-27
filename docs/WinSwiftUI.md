@@ -784,7 +784,7 @@ colour.
   *ideal*: a greedy node with one (a slider, a scroll panel) reports it when
   nothing proposes an extent, and fills when something does.
 
-Greedy today: `ScrollView` (both axes), `List`, `Form` (horizontal, capped at
+Greedy today: `Color` and shapes (both axes), `ScrollView` (both axes), `List`, `Form` (horizontal, capped at
 `MacOSControlMetrics.Form.contentMaxWidth` and centred in the leftover),
 `NavigationStack`/`NavigationView` containers, the `TabView` container and its
 tab band, `GeometryReader`, `Divider` (cross axis), `Slider` (horizontal), a
@@ -818,9 +818,19 @@ at the origin.
   and Ctrl+Shift+Left/Right selection across Unicode, emoji, punctuation,
   whitespace, and multiline text without losing clipboard shortcuts.
 - `Text` maps into retained label nodes and the current runtime text renderer path.
+  `Text.bold()` and `Text.fontWeight(_:)` override weight after resolving the
+  inherited or explicit font, preserving its size, family, features, and Dynamic
+  Type behavior. Clearing the override with `fontWeight(nil)` restores the
+  original font's weight.
 - `LocalizedStringKey` is a source-compatibility shim that resolves to plain retained text today; it does not perform bundle/table lookup or real localization yet. `Text(LocalizedStringKey, tableName:bundle:comment:)` accepts SwiftUI's localized text metadata labels but currently resolves the key through the same retained text path. Common title-bearing controls and titled containers also accept `StringProtocol` inputs such as `Substring` and forward them through the same retained label paths as `String` titles.
 - Named `Font` styles and `Font.system(_:design:weight:)` text-style overloads are fixed point-size and weight presets before environment scaling. `Font.custom(_:size:)` stores the supplied Windows font family name and participates in the retained dynamic type scale; `Font.custom(_:fixedSize:)` stores the same family but bypasses dynamic type scaling; `Font.custom(_:size:relativeTo:)` keeps the supplied family and point size while inheriting retained weight/design/leading defaults from the referenced text style. `Font.leading(_:)` maps `.standard`, `.tight`, and `.loose` onto retained line spacing values of `2`, `0`, and `6`; explicit `lineSpacing(_:)` still takes precedence. `Font.Width` accepts `.compressed`, `.condensed`, `.standard`, and `.expanded`; `Font.width(_:)`, `Text.fontWidth(_:)`, and container `fontWidth(_:)` retain width metadata, pass it to DirectWrite as font stretch, and provide a deterministic GDI fallback width hint. `Font.bold(_:)`, `Font.italic(_:)`, and `Font.monospacedDigit()` retain the matching text weight, italic, and tabular-digit metadata when the font is applied to retained `Text` or text input labels. `Font.smallCaps(_:)`, `Font.lowercaseSmallCaps(_:)`, and `Font.uppercaseSmallCaps(_:)` retain small-capital typography intent and pass OpenType `smcp` / `c2sc` feature tags to DirectWrite when native text layout is available; fallback paths preserve metadata and render without synthetic small-cap glyph substitution. `dynamicTypeSize(_:)` and `EnvironmentValues.dynamicTypeSize` scale retained `Text` and text-input font sizes with SwiftUI-shaped cases from `.xSmall` through `.accessibility5`; this is a deterministic retained scale table, not a Windows system text-size subscription yet. `legibilityWeight(_:)` and `EnvironmentValues.legibilityWeight` accept `.regular`, `.bold`, or `nil`; retained text maps that value through the existing font-weight path unless an explicit `.fontWeight(_:)` overrides it. This is an inherited compatibility value, not yet a Windows Bold Text accessibility subscription. `Text.bold(_:)`, `Text.italic(_:)`, `Text.monospaced(_:)`, and the matching container modifiers accept SwiftUI-shaped Boolean toggles for source compatibility and retained subtree overrides. `Text.italic()` and container `.italic()` carry retained italic text style through native DirectWrite/GDI font creation and glyph/text caches. `Font.Design.default` and `.rounded` map to Segoe UI, `.serif` maps to Georgia, and `.monospaced` maps to Cascadia Mono. `Font.monospaced()`, `Font.monospaced(_:)`, `Text.monospaced()`, and `fontDesign(_:)` resolve through the same retained font family mapping as `.system(..., design: .monospaced)`. `Text.monospacedDigit()` and container `.monospacedDigit()` retain fixed-width digit intent and request DirectWrite tabular figures on the native text path; fallback text paths keep the metadata and otherwise render with their current font support. `font(_:)` accepts `Font?`, bridges through `EnvironmentValues.font`, and `.font(nil)` resets a subtree to the retained default font. `Text.fontWeight(nil)` clears a previously applied explicit text weight while preserving inherited container weight when no explicit text font is present.
 - SwiftUI-shaped RGB, white, and HSB `Color` initializers reduce to the renderer-neutral RGBA color type used by the retained scene. `Color.RGBColorSpace.sRGBLinear` converts linear component values through the standard sRGB transfer curve before retaining them; `.sRGB` preserves supplied components, and `.displayP3` is accepted but currently stored as renderer-neutral RGB channels without gamut conversion.
+- `frame(width:height:alignment:)` sizes an alignment wrapper without rewriting
+  the child's preferred size. Text retains its intrinsic size inside a larger
+  frame, nested frames retain their own dimensions, and flexible shapes accept
+  the wrapper's proposal. Text measurement receives the frame's width before
+  wrapping, so a narrow paragraph reserves its full height before the next row
+  is placed.
 - `frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:alignment:)` maps finite constraints into retained `LayoutConstraints`; an *infinite* maximum is not a constraint at all but SwiftUI's "be greedy on this axis", and maps to `ViewNode.layoutFillAxes` (see "Size proposals and greedy views" below), so `.frame(maxWidth: .infinity)` takes the width its parent proposes.
 - `containerRelativeFrame` maps requested axes to deterministic retained frame sizes derived from the current `ViewBuildContext.canvasSize`. The direct axes overload uses the full container length, the closure overload receives the current container length and axis, and the `count` / `span` / `spacing` overload computes grid-slot lengths for the requested axes. This is based on the retained build context rather than SwiftUI's full container proposal hierarchy.
 - `fixedSize()` and `fixedSize(horizontal:vertical:)` map to retained measurement axes that ignore incoming maximum constraints on selected axes; final placement can still be limited by the parent layout mode.
@@ -942,7 +952,24 @@ at the origin.
 - `contentTransition(_:)`, `EnvironmentValues.contentTransition`, and `EnvironmentValues.contentTransitionAddsDrawingGroup` accept SwiftUI-shaped content transition metadata including `.identity`, `.interpolate`, `.opacity`, `.numericText(...)`, and `.symbolEffect`. Retained content-change interpolation is not modeled yet, so this currently propagates source-compatible environment metadata without changing rendered nodes.
 - `SymbolEffect`, `SymbolEffectOptions`, `symbolEffect(...)`, `symbolEffectsRemoved(_:)`, and `ContentTransition.symbolEffect(...)` accept common SF Symbols effect call sites such as `.pulse`, `.bounce`, `.variableColor.reversing`, `.replace`, `.repeat(...)`, `.repeating`, and `.speed(...)`. WinSwiftUI currently preserves source compatibility and rendered symbol/text content; it does not yet animate SF Symbol layers on the retained renderer.
 - `SensoryFeedback` accepts SwiftUI-shaped haptic/audio feedback values and `sensoryFeedback(...)` trigger modifiers for source compatibility. Windows retained rendering does not currently play haptics or audio feedback, so these modifiers preserve the rendered subtree unchanged.
-- `animation(_:)` and `animation(_:value:)` attach retained animation state for properties the runtime can interpolate today, currently focused on opacity and background color. `PhaseAnimator`, `phaseAnimator(_:content:animation:)`, and `phaseAnimator(_:trigger:content:animation:)` accept SwiftUI-shaped phased animation call sites with `PlaceholderContentView` for the modifier form, render the initial phase through the supplied content closure, and retain phase, trigger, and animation metadata on the node. WinSwiftUI does not yet schedule continuous phase cycling or trigger-driven phase advancement. `withAnimation`, including the completion overload, `AnimationCompletionCriteria`, `Transaction`, including `isContinuous`, `scrollTargetAnchor`, `tracksVelocity`, and immediate completion callbacks, `withTransaction`, including the key-path/value overload, and `transaction(_:)` accept SwiftUI-shaped call sites and execute their body/transform closures, but transaction propagation is not yet modeled by the retained runtime.
+- `animation(_:)` and `animation(_:value:)` store retained configuration rather
+  than active interpolation state. The value overload compares its `Equatable`
+  trigger with the previous retained value and changes the subtree's animation
+  transaction only when that value changes. Opacity, background, frame, and 2D
+  transform changes use the resulting transaction; rebuilding an unchanged
+  target preserves motion already in progress. Nested modifiers apply from
+  outer to inner, and `transaction(_:)` transforms the inherited transaction,
+  including explicit `nil` animation and `disablesAnimations`. Reduce Motion
+  suppresses these view animations. `withAnimation` and `withTransaction`
+  preserve the full transaction through deferred observed-object reloads.
+  Completion callbacks remain immediate compatibility callbacks rather than
+  notifications of animation completion; delayed and repeated animation timing
+  are not implemented.
+- `PhaseAnimator`, `phaseAnimator(_:content:animation:)`, and
+  `phaseAnimator(_:trigger:content:animation:)` accept SwiftUI-shaped phased
+  animation call sites with `PlaceholderContentView` for the modifier form and
+  retain phase, trigger, and animation metadata on the node. See
+  `docs/AnimationParity.md` for the retained phase timer and its limitations.
 - `disabled(_:)` propagates an inherited enabled-state environment through `ViewBuildContext`, and retained controls consume that state while they are built.
 - `scrollDisabled(_:)` propagates `EnvironmentValues.isScrollEnabled`; retained `ScrollView`, `List`, and scrolling `Section` nodes keep their layout and clipping but remove their scroll axis and indicators when disabled.
 - `scrollClipDisabled(_:)` maps to retained scroll container bounds clipping for `ScrollView`, `List`, and scrolling `Section` nodes. Non-scroll `Section` panels keep their rounded clipping.

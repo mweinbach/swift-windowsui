@@ -1761,14 +1761,7 @@ public protocol TextAttribute {}
 @MainActor
 @discardableResult
 public func withAnimation<Result>(_ animation: Animation? = .default, _ body: () throws -> Result) rethrows -> Result {
-    let previous = currentAnimationTransaction
-    defer { currentAnimationTransaction = previous }
-    if let animation {
-        currentAnimationTransaction = (duration: animation.duration, easing: animation.easing)
-    } else {
-        currentAnimationTransaction = nil
-    }
-    return try body()
+    try withTransaction(Transaction(animation: animation), body)
 }
 @MainActor
 @discardableResult
@@ -1778,18 +1771,8 @@ public func withAnimation<Result>(
     _ body: () throws -> Result,
     completion: @escaping () -> Void
 ) rethrows -> Result {
-    let previous = currentAnimationTransaction
-    defer {
-        currentAnimationTransaction = previous
-        completion()
-    }
-    if let animation {
-        currentAnimationTransaction = (duration: animation.duration, easing: animation.easing)
-    } else {
-        currentAnimationTransaction = nil
-    }
-    let result = try body()
-    return result
+    defer { completion() }
+    return try withTransaction(Transaction(animation: animation), body)
 }
 @discardableResult
 @MainActor
@@ -30062,56 +30045,18 @@ extension View {
 
     public func transaction(_ transform: @escaping (inout Transaction) -> Void) -> some View {
         ModifiedView(content: self) { content, context in
-            var transaction = Transaction()
-            transform(&transaction)
             let child = content.makeComponent(context: context)
-            guard let animation = transaction.animation, !transaction.disablesAnimations,
-                !context.accessibilityReduceMotion
-            else {
-                return child
-            }
+            let reducesMotion = context.accessibilityReduceMotion
             return Component { runtime in
                 let node = child.makeNode(runtime: runtime)
-                let now = 0.0
-                node.animationStates[.opacity] = AnimationState(
-                    startValue: Double(node.opacity), endValue: Double(node.opacity),
-                    startTime: now, duration: animation.duration, easing: animation.easing
-                )
-                node.animationStates[.frameOriginX] = AnimationState(
-                    startValue: node.frame.origin.x, endValue: node.frame.origin.x,
-                    startTime: now, duration: animation.duration, easing: animation.easing
-                )
-                node.animationStates[.frameOriginY] = AnimationState(
-                    startValue: node.frame.origin.y, endValue: node.frame.origin.y,
-                    startTime: now, duration: animation.duration, easing: animation.easing
-                )
-                node.animationStates[.frameWidth] = AnimationState(
-                    startValue: node.frame.size.width, endValue: node.frame.size.width,
-                    startTime: now, duration: animation.duration, easing: animation.easing
-                )
-                node.animationStates[.frameHeight] = AnimationState(
-                    startValue: node.frame.size.height, endValue: node.frame.size.height,
-                    startTime: now, duration: animation.duration, easing: animation.easing
-                )
-                node.animationStates[.transformScaleX] = AnimationState(
-                    startValue: node.transform.scaleX, endValue: node.transform.scaleX,
-                    startTime: now, duration: animation.duration, easing: animation.easing
-                )
-                node.animationStates[.transformScaleY] = AnimationState(
-                    startValue: node.transform.scaleY, endValue: node.transform.scaleY,
-                    startTime: now, duration: animation.duration, easing: animation.easing
-                )
-                node.animationStates[.transformTranslationX] = AnimationState(
-                    startValue: node.transform.translationX, endValue: node.transform.translationX,
-                    startTime: now, duration: animation.duration, easing: animation.easing
-                )
-                node.animationStates[.transformTranslationY] = AnimationState(
-                    startValue: node.transform.translationY, endValue: node.transform.translationY,
-                    startTime: now, duration: animation.duration, easing: animation.easing
-                )
-                node.animationStates[.transformRotation] = AnimationState(
-                    startValue: node.transform.rotation, endValue: node.transform.rotation,
-                    startTime: now, duration: animation.duration, easing: animation.easing
+                node.reconcileAnimationModifiers.append(
+                    RetainedAnimationModifier(transaction: { transaction in
+                        transform(&transaction)
+                        if reducesMotion {
+                            transaction.animation = nil
+                            transaction.disablesAnimations = true
+                        }
+                    })
                 )
                 return node
             }
@@ -30121,86 +30066,49 @@ extension View {
     public func animation(_ animation: Animation?) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
+            let modifier: RetainedAnimationModifier
+            if context.accessibilityReduceMotion {
+                modifier = RetainedAnimationModifier(transaction: { transaction in
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
+                })
+            } else {
+                modifier = RetainedAnimationModifier(animation: animation)
+            }
             return Component { runtime in
                 let node = child.makeNode(runtime: runtime)
-                guard let animation, !context.accessibilityReduceMotion else {
-                    return node
-                }
-
-                // Snapshot the current property values so that subsequent
-                // property changes can be detected and animated.
-                node.previousPropertyValues = PropertySnapshot(
-                    opacity: Double(node.opacity),
-                    backgroundColor: node.backgroundColor
-                )
-
-                // Store animation configuration on the node for the runtime
-                // to pick up when it detects property changes during
-                // reconciliation.
-                let now = 0.0  // Placeholder; actual start time is set when
-                // a property change is detected at reconciliation.
-                node.animationStates[.opacity] = AnimationState(
-                    startValue: Double(node.opacity),
-                    endValue: Double(node.opacity),
-                    startTime: now,
-                    duration: animation.duration,
-                    easing: animation.easing
-                )
-                node.animationStates[.frameOriginX] = AnimationState(
-                    startValue: node.frame.origin.x,
-                    endValue: node.frame.origin.x,
-                    startTime: now,
-                    duration: animation.duration,
-                    easing: animation.easing
-                )
-                node.animationStates[.frameOriginY] = AnimationState(
-                    startValue: node.frame.origin.y,
-                    endValue: node.frame.origin.y,
-                    startTime: now,
-                    duration: animation.duration,
-                    easing: animation.easing
-                )
-                node.animationStates[.frameWidth] = AnimationState(
-                    startValue: node.frame.size.width,
-                    endValue: node.frame.size.width,
-                    startTime: now,
-                    duration: animation.duration,
-                    easing: animation.easing
-                )
-                node.animationStates[.frameHeight] = AnimationState(
-                    startValue: node.frame.size.height,
-                    endValue: node.frame.size.height,
-                    startTime: now,
-                    duration: animation.duration,
-                    easing: animation.easing
-                )
-                if let bg = node.backgroundColor {
-                    node.animationStates[.backgroundColor] = AnimationState(
-                        startValue: 0,
-                        endValue: 0,
-                        startTime: now,
-                        duration: animation.duration,
-                        easing: animation.easing
-                    )
-                    // Store previous color for interpolation.
-                    node.previousPropertyValues?.backgroundColor = bg
-                }
-
+                // Configuration is not an active animation. The retained host
+                // creates interpolation state only when a property changes.
+                node.reconcileAnimationModifiers.append(modifier)
                 return node
             }
         }
     }
 
-    /// Attach an animation context to this view.  When properties (opacity,
-    /// background color) change between rebuilds, the runtime will
-    /// interpolate between the old and new values over the given duration
-    /// using the specified easing curve.
+    /// Animate property changes in this view's subtree with the specified
+    /// duration and easing curve.
     public func animation(_ duration: Double = 0.25, easing: AnimationEasing = .easeInOut) -> some View {
         animation(Animation(duration: duration, easing: easing))
     }
 
     public func animation<Value: Equatable>(_ animation: Animation?, value: Value) -> some View {
-        self.animation(animation)
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            let modifier: RetainedAnimationModifier
+            if context.accessibilityReduceMotion {
+                modifier = RetainedAnimationModifier(transaction: { transaction in
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
+                })
+            } else {
+                modifier = RetainedAnimationModifier(animation: animation, value: value)
+            }
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                node.reconcileAnimationModifiers.append(modifier)
+                return node
+            }
+        }
     }
 
     public func previewDisplayName(_ name: String?) -> some View {

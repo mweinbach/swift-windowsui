@@ -1,11 +1,7 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
-
 import SwiftWindowsPlatform
-
 import XCTest
 
 @testable import SwiftWindowsUI
@@ -17,6 +13,124 @@ import XCTest
 /// that starts the animation is also the frame that clears `dirtyFlags`, and
 /// with nothing else reporting activity the timer is switched off.
 final class RuntimeAnimationGatingTests: XCTestCase {
+
+    func testRemovalOverlayRepaintsIntermediateFrameAndSceneSamples() async {
+        await MainActor.run {
+            for scenePath in [false, true] {
+                let clock = RuntimeTestClock()
+                clock.now = 10
+                let child = ViewNode(
+                    frame: Rect(x: 10, y: 10, width: 40, height: 30), backgroundColor: .white,
+                    transition: RetainedTransition(kind: .opacity))
+                let root = ViewNode(frame: Rect(x: 0, y: 0, width: 100, height: 100), children: [child])
+                let runtime = RetainedViewRuntime(root: root)
+                runtime.clock = { clock.now }
+                let paintedAlpha: @MainActor () -> Float = {
+                    if scenePath {
+                        return runtime.renderScene().layers.flatMap(\.quads).first?.startA ?? -1
+                    }
+                    return runtime.renderFrame().commands.compactMap { command -> Float? in
+                        guard case .fillRect(let fill) = command else { return nil }
+                        return fill.color.alpha
+                    }.first ?? -1
+                }
+
+                XCTAssertEqual(paintedAlpha(), 1)
+                root.removeChild(child)
+                XCTAssertEqual(paintedAlpha(), 1)
+                XCTAssertFalse(runtime.isDirty)
+
+                clock.now += 0.175
+                XCTAssertTrue(runtime.tickAnimations(at: clock.now))
+                XCTAssertTrue(runtime.isDirty, "A detached overlay must dirty its owning runtime each frame")
+                XCTAssertEqual(paintedAlpha(), 0.5, accuracy: 0.0001)
+
+                clock.now += 0.0875
+                _ = runtime.tickAnimations(at: clock.now)
+                XCTAssertEqual(paintedAlpha(), 0.125, accuracy: 0.0001)
+                XCTAssertEqual(runtime.transitionOverlays.count, 1)
+            }
+        }
+    }
+
+    func testZeroAndSubmillisecondPropertyAnimationsFinishAtTheirDeadline() async {
+        await MainActor.run {
+            for duration in [0.0, 0.0001] {
+                let node = ViewNode(frame: Rect(x: 0, y: 0, width: 40, height: 30))
+                let runtime = RetainedViewRuntime(root: node)
+                node.opacity = 0.2
+                node.animationStates[.opacity] = AnimationState(
+                    startValue: 0.2, endValue: 0.8, startTime: 0, duration: duration, easing: .linear)
+
+                _ = runtime.tickAnimations(at: duration)
+
+                XCTAssertEqual(node.opacity, 0.8)
+                XCTAssertTrue(node.animationStates.isEmpty)
+                XCTAssertFalse(runtime.hasActiveAnimations)
+            }
+        }
+    }
+
+    func testCompletedCurvesReachTheExactDeclaredScalarAndColorEndpoints() async {
+        await MainActor.run {
+            let curve = AnimationEasing.timingCurve(c0x: 0.2, c0y: 0.1, c1x: 0.8, c1y: 0.9)
+            let state = AnimationState(startValue: 0.2, endValue: 0.8, startTime: 0, duration: 1, easing: curve)
+            let color = Color(red: 0.8, green: 0.6, blue: 0.4, alpha: 0.5)
+            let colorState = ColorAnimationState(
+                startColor: .clear, endColor: color, startTime: 0, duration: 1, easing: curve)
+            let node = ViewNode()
+            let runtime = RetainedViewRuntime(root: node)
+            node.animationStates[.opacity] = state
+
+            _ = runtime.tickAnimations(at: 1)
+
+            XCTAssertEqual(node.opacity, 0.8, "Retiring a curve must not strand its final approximate sample")
+            XCTAssertEqual(state.interpolatedValue(at: 1), 0.8)
+            XCTAssertEqual(colorState.interpolatedColor(at: 1), color)
+            XCTAssertFalse(runtime.hasActiveAnimations)
+        }
+    }
+
+    func testExplicitlyDisabledTransitionsDoNotLeaveAOneFrameRemovalOverlay() async {
+        await MainActor.run {
+            let previous = currentTransaction
+            defer { currentTransaction = previous }
+            let child = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 40, height: 30), backgroundColor: .white,
+                transition: RetainedTransition(kind: .opacity))
+            let runtime = RetainedViewRuntime(root: ViewNode(children: [child]))
+            _ = runtime.renderFrame()
+            currentTransaction = Transaction(animation: nil)
+
+            runtime.root.removeChild(child)
+
+            XCTAssertTrue(runtime.transitionOverlays.isEmpty)
+            XCTAssertFalse(runtime.hasActiveAnimations)
+            XCTAssertFalse(child.hasAppeared)
+        }
+    }
+
+    func testReparentingCancelsThePreviousRuntimesColorAnimation() async {
+        await MainActor.run {
+            let child = ViewNode(frame: Rect(x: 0, y: 0, width: 40, height: 30), backgroundColor: .black)
+            let first = RetainedViewRuntime(root: ViewNode(children: [child]))
+            let second = RetainedViewRuntime(root: ViewNode())
+            first.animateBackgroundColor(of: child, to: .white, duration: 10, at: 0)
+            XCTAssertTrue(first.hasActiveAnimations)
+
+            second.root.addChild(child)
+            second.animateBackgroundColor(
+                of: child, to: Color(red: 1, green: 0, blue: 0, alpha: 1), duration: 1, at: 0, easing: .linear)
+            _ = second.tickAnimations(at: 0.5)
+            let presentedColor = child.backgroundColor
+            _ = first.tickAnimations(at: 10)
+
+            XCTAssertEqual(child.backgroundColor, presentedColor)
+            XCTAssertEqual(child.backgroundColor?.red ?? -1, 0.5, accuracy: 0.0001)
+            XCTAssertEqual(child.backgroundColor?.green, 0)
+            XCTAssertFalse(first.hasActiveAnimations)
+        }
+    }
 
     /// The regression this class exists for: a child removed with an explicit
     /// removal transition becomes a `transitionOverlay` whose only state lives

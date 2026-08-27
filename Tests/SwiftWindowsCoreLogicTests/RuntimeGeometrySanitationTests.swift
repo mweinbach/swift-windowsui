@@ -49,6 +49,21 @@ final class RuntimeGeometrySanitationTests: XCTestCase {
             XCTAssertTrue(
                 sceneQuads(scene).contains { $0.startG == 1 && $0.startR == 0 },
                 "an unrelated sibling must still render next to malformed geometry")
+
+            // A malformed preferred size must not become an animation's
+            // non-finite endpoint when a later build replaces it, either.
+            let previousTransaction = currentTransaction
+            defer { currentTransaction = previousTransaction }
+            currentTransaction = Transaction(animation: .linear(duration: 1))
+            for nextSize in [Size(width: 80, height: 60), Size(width: .infinity, height: .nan)] {
+                let incoming = ViewNode(
+                    frame: malformed.frame, backgroundColor: malformed.backgroundColor, preferredSize: nextSize)
+                ComponentHost.adopt(source: incoming, into: malformed)
+                XCTAssertTrue(
+                    malformed.animationStates.isEmpty,
+                    "Non-finite preferred dimensions must apply immediately instead of seeding a poisoned tween")
+                XCTAssertTrue(sceneFieldsAreFinite(runtime.renderScene()))
+            }
         }
     }
 
@@ -108,9 +123,8 @@ final class RuntimeGeometrySanitationTests: XCTestCase {
             let clampedOffset = scroller.resolvedScrollOffset
             XCTAssertGreaterThan(clampedOffset, 0, "the scroller must be pinned at its bottom edge")
 
-            // The rubber-band spring writes `scrollOvershoot` directly; it has
-            // no `didSet`, which is exactly why the full-relayout exit dropping
-            // it stayed hidden. An async image finishing on a visible row is
+            // The rubber-band spring changes presentation separately from
+            // the logical scrollOffset. An async image finishing on a visible row is
             // the `.layout` invalidation that lands on top of it. Only the
             // cross-axis size changes, so the scrollable extent — and therefore
             // the clamp — is unchanged.

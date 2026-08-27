@@ -1331,6 +1331,8 @@ final class RetainedViewRuntimeTests: XCTestCase {
     /// for a press scale still gets one, down on press and back on release.
     func testButtonPressScaleIsOptInPerStyle() async {
         await MainActor.run {
+            let clock = RuntimeTestClock()
+            clock.now = 10
             let palette = SurfacePalette(
                 idle: Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 1),
                 focused: Color(red: 0.3, green: 0.4, blue: 0.5, alpha: 1),
@@ -1355,15 +1357,23 @@ final class RetainedViewRuntimeTests: XCTestCase {
             root.addChild(button)
             XCTAssertEqual(button.transform.scaleX, 1.0)
 
+            runtime.clock = { clock.now }
             runtime.pointerDown(at: Point(x: 20, y: 16))
-            // Animation target is the pressed scale; runtime tween-interpolates
-            // visible scale toward it.
+            XCTAssertEqual(button.transform.scaleX, 1.0, "The first press frame keeps the presented scale")
+            XCTAssertEqual(button.transform.scaleY, 1.0)
+            XCTAssertEqual(
+                button.animationStates[.transformScaleX]?.endValue, ControlAnimationStyle.tactilePressedScale)
+
+            clock.now = 10.101
+            _ = runtime.tickAnimations(at: clock.now)
             XCTAssertEqual(button.transform.scaleX, ControlAnimationStyle.tactilePressedScale, accuracy: 0.001)
             XCTAssertEqual(button.transform.scaleY, ControlAnimationStyle.tactilePressedScale, accuracy: 0.001)
-            XCTAssertNotNil(button.animationStates[.transformScaleX])
 
-            // After activate the button springs back to 1.0.
+            // Releasing starts the return from the pressed presentation value.
             runtime.pointerUp(at: Point(x: 20, y: 16))
+            XCTAssertEqual(button.transform.scaleX, ControlAnimationStyle.tactilePressedScale, accuracy: 0.001)
+            clock.now = 10.222
+            _ = runtime.tickAnimations(at: clock.now)
             XCTAssertEqual(button.transform.scaleX, 1.0, accuracy: 0.001)
             XCTAssertEqual(button.transform.scaleY, 1.0, accuracy: 0.001)
         }
@@ -1374,6 +1384,8 @@ final class RetainedViewRuntimeTests: XCTestCase {
     /// would not acknowledge the pointer at all once the shrink was removed.
     func testBorderlessButtonPressDimsItsContent() async {
         await MainActor.run {
+            let clock = RuntimeTestClock()
+            clock.now = 10
             let palette = SurfacePalette(
                 idle: .clear,
                 hovered: .clear,
@@ -1395,12 +1407,19 @@ final class RetainedViewRuntimeTests: XCTestCase {
             root.addChild(button)
             XCTAssertEqual(button.opacity, 1.0, accuracy: 0.0001)
 
+            runtime.clock = { clock.now }
             runtime.pointerDown(at: Point(x: 20, y: 16))
-            XCTAssertEqual(button.opacity, 0.72, accuracy: 0.0001)
-            XCTAssertNotNil(button.animationStates[.opacity])
+            XCTAssertEqual(button.opacity, 1.0, "The first press frame keeps the presented opacity")
+            XCTAssertEqual(button.animationStates[.opacity]?.endValue, 0.72)
             XCTAssertEqual(button.transform.scaleX, 1.0, accuracy: 0.0001, "still no geometry change")
 
+            clock.now = 10.141
+            _ = runtime.tickAnimations(at: clock.now)
+            XCTAssertEqual(button.opacity, 0.72, accuracy: 0.0001)
             runtime.pointerUp(at: Point(x: 20, y: 16))
+            XCTAssertEqual(button.opacity, 0.72, accuracy: 0.0001)
+            clock.now = 10.322
+            _ = runtime.tickAnimations(at: clock.now)
             XCTAssertEqual(button.opacity, 1.0, accuracy: 0.0001)
         }
     }
@@ -1469,8 +1488,9 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             _ = runtime.renderFrame()
             runtime.pointerMoved(to: Point(x: 30, y: 30))
-            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: -3)
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: -3, source: .precise)
             let offsetAfterWheel = scrollPanel.scrollOffset
+            XCTAssertTrue(runtime.hasActiveAnimations)
 
             runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
             // Logical offset advanced by exactly one scrollStep — the wheel

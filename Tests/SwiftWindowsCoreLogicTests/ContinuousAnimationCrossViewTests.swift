@@ -1,11 +1,14 @@
 import Foundation
+
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import SwiftWindowsPlatform
+
 import XCTest
 
 @testable import SwiftWindowsUI
-@testable import WinSwiftUI
 
 /// Drives every animation source simultaneously across multiple view types
 /// in a single tree, then runs sustained simulated frames to prove no
@@ -18,8 +21,175 @@ import XCTest
 /// - Animated keyboard-scroll presented-delta tween.
 /// - Material backdrop blur background (static, just to verify the
 ///   blurred-quad path keeps emitting under continuous animation).
+@testable import WinSwiftUI
+
 @MainActor
 final class ContinuousAnimationCrossViewTests: XCTestCase {
+
+    func testExplicitAnimationsSurviveRebuildsAndRetargetFromThePresentedValues() async {
+        let clock = RuntimeTestClock()
+        clock.now = 10
+        let runtime = RetainedViewRuntime(root: ViewNode(frame: Rect(x: 0, y: 0, width: 300, height: 200)))
+        runtime.clock = { clock.now }
+        let host = ComponentHost(runtime: runtime)
+        var width = 20.0
+        var opacity = 1.0
+        var translation = 0.0
+        var color = Color.black
+        host.setContent {
+            Component { _ in
+                let node = ViewNode(frame: Rect(x: 0, y: 0, width: width, height: 20), backgroundColor: color)
+                node.opacity = opacity
+                node.transform.translationX = translation
+                return node
+            }
+        }
+        let node = runtime.root.children[0]
+        withAnimation(.linear(duration: 1)) {
+            width = 120
+            opacity = 0.2
+            translation = 50
+            color = .white
+            host.reload()
+        }
+
+        clock.now = 10.4
+        _ = runtime.tickAnimations(at: clock.now)
+        host.reload()
+        XCTAssertEqual(node.frame.size.width, 60, accuracy: 0.0001)
+        XCTAssertEqual(node.opacity, 0.68, accuracy: 0.0001)
+        XCTAssertEqual(node.transform.translationX, 20, accuracy: 0.0001)
+        XCTAssertEqual(node.backgroundColor?.red ?? -1, 0.4, accuracy: 0.0001)
+        XCTAssertEqual(node.animationStates[.frameWidth]?.startTime, 10)
+        XCTAssertEqual(node.animationStates[.opacity]?.startTime, 10)
+
+        clock.now = 10.6
+        _ = runtime.tickAnimations(at: clock.now)
+        withAnimation(.linear(duration: 0.5)) {
+            width = 20
+            opacity = 1
+            translation = 0
+            color = .black
+            host.reload()
+        }
+        XCTAssertEqual(node.animationStates[.frameWidth]?.startValue ?? -1, 80, accuracy: 0.0001)
+        XCTAssertEqual(node.animationStates[.opacity]?.startValue ?? -1, 0.52, accuracy: 0.0001)
+
+        clock.now = 10.85
+        _ = runtime.tickAnimations(at: clock.now)
+        XCTAssertEqual(node.frame.size.width, 50, accuracy: 0.0001)
+        XCTAssertEqual(node.opacity, 0.76, accuracy: 0.0001)
+        XCTAssertEqual(node.transform.translationX, 15, accuracy: 0.0001)
+        XCTAssertEqual(node.backgroundColor?.red ?? -1, 0.3, accuracy: 0.0001)
+
+        clock.now = 11.1
+        _ = runtime.tickAnimations(at: clock.now)
+        XCTAssertEqual(node.frame.size.width, 20)
+        XCTAssertEqual(node.opacity, 1)
+        XCTAssertEqual(node.transform.translationX, 0)
+        XCTAssertEqual(node.backgroundColor, .black)
+        XCTAssertFalse(runtime.hasActiveAnimations)
+
+        width = 100
+        host.reload()
+        withAnimation(.bouncy) {
+            width = 1
+            host.reload()
+        }
+        let springStartedAt = clock.now
+        clock.now += 0.35
+        _ = runtime.tickAnimations(at: clock.now)
+        _ = runtime.renderFrame()
+        XCTAssertGreaterThan(node.frame.size.width, 0)
+        XCTAssertLessThan(node.resolvedFrame.size.width, 1)
+        host.reload()
+        _ = runtime.renderFrame()
+        XCTAssertLessThan(node.resolvedFrame.size.width, 1)
+        XCTAssertEqual(node.animationStates[.frameWidth]?.startTime, springStartedAt)
+        clock.now += 3
+        _ = runtime.tickAnimations(at: clock.now)
+        XCTAssertEqual(node.frame.size.width, 1)
+        XCTAssertFalse(runtime.hasActiveAnimations)
+    }
+
+    func testRemovingAnAnimatedFillCancelsEveryColorChannel() async {
+        let clock = RuntimeTestClock()
+        clock.now = 10
+        let runtime = RetainedViewRuntime(root: ViewNode())
+        runtime.clock = { clock.now }
+        let host = ComponentHost(runtime: runtime)
+        var color: Color? = .black
+        var gradient: GradientType? = .linear(
+            SwiftWindowsGraphics.LinearGradient(startColor: .black, endColor: .black, axis: .vertical))
+        host.setContent {
+            Component { _ in
+                ViewNode(
+                    frame: Rect(x: 0, y: 0, width: 40, height: 30),
+                    backgroundColor: color, backgroundGradient: gradient)
+            }
+        }
+        let node = runtime.root.children[0]
+        withAnimation(.linear(duration: 1)) {
+            color = .white
+            gradient = .linear(
+                SwiftWindowsGraphics.LinearGradient(startColor: .white, endColor: .white, axis: .vertical))
+            host.reload()
+        }
+        clock.now = 10.25
+        _ = runtime.tickAnimations(at: clock.now)
+        XCTAssertTrue(runtime.hasActiveAnimations)
+
+        color = nil
+        gradient = nil
+        host.reload()
+        _ = runtime.tickAnimations(at: 11)
+
+        XCTAssertNil(node.backgroundColor, "A cancelled colour tween must not resurrect a removed fill")
+        XCTAssertNil(node.backgroundGradient)
+        XCTAssertFalse(runtime.hasActiveAnimations)
+    }
+
+    func testRebuildPreservesPressedChromeMotionAndItsPaintedGradient() async {
+        let clock = RuntimeTestClock()
+        clock.now = 10
+        let runtime = RetainedViewRuntime(root: ViewNode(frame: Rect(x: 0, y: 0, width: 200, height: 100)))
+        runtime.clock = { clock.now }
+        let host = ComponentHost(runtime: runtime)
+        let palette = SurfacePalette(
+            idle: .black, hovered: .black, focused: .black, pressed: .white, pressedContentOpacity: 0.5)
+        host.setContent {
+            Component { runtime in
+                Controls.button(
+                    runtime: runtime, frame: Rect(x: 10, y: 10, width: 100, height: 40), cornerRadius: 6,
+                    palette: palette, chrome: SurfaceChrome(),
+                    animation: ControlAnimationStyle(focusDuration: 1, pressDuration: 1, pressedScale: 0.8),
+                    appliesSurfaceSheen: true, action: {})
+            }
+        }
+        _ = runtime.renderFrame()
+        let node = runtime.root.children[0]
+        runtime.pointerMoved(to: Point(x: 30, y: 30))
+        runtime.pointerDown(at: Point(x: 30, y: 30))
+        XCTAssertEqual(node.transform.scaleX, 1, "A press starts at the current scale, not its destination")
+        XCTAssertEqual(node.opacity, 1)
+
+        clock.now = 10.4
+        _ = runtime.tickAnimations(at: clock.now)
+        host.reload()
+        XCTAssertEqual(node.backgroundColor?.red ?? -1, 0.32, accuracy: 0.0001)
+        XCTAssertEqual(node.backgroundGradient, Controls.backgroundSheen(for: node.backgroundColor ?? .clear))
+        XCTAssertEqual(node.transform.scaleX, 0.872, accuracy: 0.0001)
+        XCTAssertEqual(node.opacity, 0.68, accuracy: 0.0001)
+        XCTAssertEqual(node.animationStates[.transformScaleX]?.startTime, 10)
+        XCTAssertEqual(node.animationStates[.opacity]?.startTime, 10)
+
+        clock.now = 10.7
+        _ = runtime.tickAnimations(at: clock.now)
+        XCTAssertEqual(node.backgroundColor?.red ?? -1, 0.82, accuracy: 0.0001)
+        XCTAssertEqual(node.backgroundGradient, Controls.backgroundSheen(for: node.backgroundColor ?? .clear))
+        XCTAssertEqual(node.transform.scaleX, 0.818, accuracy: 0.0001)
+        XCTAssertEqual(node.opacity, 0.545, accuracy: 0.0001)
+    }
 
     private func makeMixedRuntime() -> (RetainedViewRuntime, scroll: ViewNode, button: ViewNode) {
         let palette = SurfacePalette(
@@ -164,7 +334,6 @@ final class ContinuousAnimationCrossViewTests: XCTestCase {
         XCTAssertEqual(scroll.scrollPresentedDelta, 0)
     }
 }
-
 extension Rect {
     fileprivate var midX: Double { origin.x + size.width / 2 }
     fileprivate var midY: Double { origin.y + size.height / 2 }

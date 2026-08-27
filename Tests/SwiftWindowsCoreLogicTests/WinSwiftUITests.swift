@@ -14,6 +14,29 @@ import XCTest
 
 @testable import WinSwiftUI
 
+/// The value a colour takes once the build context has resolved it for the
+/// tests' default (dark) appearance.
+///
+/// Identity for a colour the test mixed itself, and the published dark twin
+/// for one of the system colours (`SystemColorPalette`) — which is why an
+/// expectation written as `Color.red` needs this wrapper while
+/// `Color(red: 0.2, ...)` does not.
+
+/// The same, for a gradient: every stop resolves, so a gradient built from
+/// `[.red, .blue]` is not the gradient the node carries in a dark window.
+
+/// A list's *row* children, skipping the hairline rules the default list
+/// style interleaves between adjacent rows.
+
+/// NSStepper is a *vertical* joined pair — one bezel holding an up chevron
+/// over a down chevron — beside the label, not the side-by-side
+/// decrement/increment pills that used to sit as `children[1]`/`children[2]`.
+
+/// Returns the child at `index` inside a presented overlay container
+/// (`[base, overlay]` roots built by the retained presentation helpers:
+/// scrim at index 0, panel at index 1), asserting the overlay carries the
+/// expected `<kind>-overlay` tag.
+
 private struct OneThirdHorizontalAlignmentID: AlignmentID {
     static func defaultValue(in context: ViewDimensions) -> Double {
         context.width / 3
@@ -17281,29 +17304,295 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
-    func testSwiftUIAnimationValueOverloadMapsToRetainedAnimationState() async {
+    func testAnimationValueOnlyAnimatesChangedTriggerAndPreservesActiveMotion() async {
         await MainActor.run {
-            let animatedNode = makeNode(
-                Text("MOVE")
-                    .animation(.linear(duration: 0.4), value: true)
-            )
-            let disabledNode = makeNode(
-                Text("STILL")
-                    .animation(nil, value: false)
-            )
-            let reduceMotionNode = makeNode(
-                Text("QUIET")
-                    .animation(.linear(duration: 0.4), value: true)
-                    .environment(\.accessibilityReduceMotion, true)
-            )
-
-            XCTAssertEqual(animatedNode.animationStates[.opacity]?.duration, 0.4)
-            if case .linear? = animatedNode.animationStates[.opacity]?.easing {
-            } else {
-                XCTFail("Expected linear easing")
+            struct Trigger: Equatable {
+                var selection: Int
             }
-            XCTAssertTrue(disabledNode.animationStates.isEmpty)
-            XCTAssertTrue(reduceMotionNode.animationStates.isEmpty)
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            var trigger = Trigger(selection: 0)
+            var opacity = 1.0
+            host.setComponents {
+                [
+                    Text("MOVE")
+                        .opacity(opacity)
+                        .animation(.linear(duration: 0.4), value: trigger)
+                        .makeComponent(context: context)
+                ]
+            }
+            let node = runtime.root.children[0]
+            XCTAssertTrue(node.animationStates.isEmpty, "configuration alone must not start an animation")
+
+            opacity = 0.7
+            host.reload()
+            XCTAssertEqual(node.opacity, 0.7)
+            XCTAssertTrue(node.animationStates.isEmpty, "an unchanged trigger must not animate an unrelated update")
+
+            opacity = 0.2
+            trigger = Trigger(selection: 1)
+            host.reload()
+            guard let animation = node.animationStates[.opacity] else {
+                return XCTFail("Expected the changed Equatable trigger to animate opacity")
+            }
+            XCTAssertEqual(animation.startValue, 0.7)
+            XCTAssertEqual(animation.endValue, 0.2)
+            XCTAssertEqual(animation.duration, 0.4)
+            XCTAssertEqual(animation.easing, .linear)
+
+            runtime.tickAnimations(at: animation.startTime + 0.2)
+            let presentedOpacity = node.opacity
+            host.reload()
+            XCTAssertEqual(node.animationStates[.opacity]?.startTime, animation.startTime)
+            XCTAssertEqual(node.opacity, presentedOpacity, accuracy: 0.0001)
+
+            runtime.tickAnimations(at: animation.startTime + 0.5)
+            XCTAssertEqual(node.opacity, 0.2, accuracy: 0.0001)
+            XCTAssertTrue(node.animationStates.isEmpty)
+        }
+    }
+
+    func testAnimationValuePropagatesToDescendantTransformsAndOpacity() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            var expanded = false
+            host.setComponents {
+                [
+                    VStack {
+                        Text("MOVE")
+                            .offset(x: expanded ? 60 : 0)
+                            .opacity(expanded ? 0.25 : 1)
+                        Text("SCALE")
+                            .scaleEffect(expanded ? 1.5 : 1)
+                    }
+                    .animation(.linear(duration: 0.4), value: expanded)
+                    .makeComponent(context: context)
+                ]
+            }
+            let container = runtime.root.children[0]
+            let movedNode = container.children[0]
+            let scaledNode = container.children[1]
+
+            expanded = true
+            host.reload()
+
+            XCTAssertEqual(movedNode.animationStates[.transformTranslationX]?.startValue, 0)
+            XCTAssertEqual(movedNode.animationStates[.transformTranslationX]?.endValue, 60)
+            XCTAssertEqual(movedNode.animationStates[.opacity]?.endValue, 0.25)
+            XCTAssertEqual(scaledNode.animationStates[.transformScaleX]?.endValue, 1.5)
+            XCTAssertEqual(scaledNode.animationStates[.transformScaleY]?.endValue, 1.5)
+            XCTAssertEqual(scaledNode.animationStates[.transformScaleX]?.duration, 0.4)
+        }
+    }
+
+    func testAnimatedFixedFrameInterpolatesSizeAndSiblingPlacementAcrossRebuilds() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 400, height: 100) },
+                invalidateHandler: {}
+            )
+            let clock = RuntimeTestClock()
+            clock.now = 10
+            runtime.clock = { clock.now }
+            var width = 100.0
+            var height = 20.0
+            var animation: Animation? = .linear(duration: 1)
+            host.setComponents {
+                [
+                    HStack(spacing: 10) {
+                        Rectangle()
+                            .frame(width: width, height: height)
+                            .animation(animation, value: width)
+                        Text("NEXT")
+                    }
+                    .makeComponent(context: context)
+                ]
+            }
+            runtime.setRootSize(IntSize(width: 400, height: 100))
+            _ = runtime.renderFrame()
+            let row = runtime.root.children[0]
+            let framedNode = row.children[0]
+            let sibling = row.children[1]
+            XCTAssertEqual(framedNode.resolvedFrame.size.width, 100, accuracy: 0.001)
+            XCTAssertEqual(sibling.resolvedFrame.minX, 110, accuracy: 0.001)
+
+            width = 200
+            host.reload()
+            clock.now = 10.5
+            runtime.tickAnimations(at: clock.now)
+            _ = runtime.renderFrame()
+            XCTAssertEqual(framedNode.resolvedFrame.size.width, 150, accuracy: 0.001)
+            XCTAssertEqual(framedNode.children[0].resolvedFrame.size.width, 150, accuracy: 0.001)
+            XCTAssertEqual(sibling.resolvedFrame.minX, 160, accuracy: 0.001)
+
+            host.reload()
+            _ = runtime.renderFrame()
+            XCTAssertEqual(framedNode.resolvedFrame.size.width, 150, accuracy: 0.001)
+            XCTAssertEqual(sibling.resolvedFrame.minX, 160, accuracy: 0.001)
+
+            clock.now = 11
+            runtime.tickAnimations(at: clock.now)
+            _ = runtime.renderFrame()
+            XCTAssertEqual(framedNode.resolvedFrame.size.width, 200, accuracy: 0.001)
+            XCTAssertEqual(sibling.resolvedFrame.minX, 210, accuracy: 0.001)
+            XCTAssertFalse(runtime.hasActiveAnimations)
+
+            animation = nil
+            width = 100
+            height = 100
+            host.reload()
+            _ = runtime.renderFrame()
+            animation = .bouncy
+            width = 1
+            height = 1
+            host.reload()
+            clock.now = 11.35
+            runtime.tickAnimations(at: clock.now)
+            _ = runtime.renderFrame()
+            XCTAssertGreaterThan(framedNode.preferredSize?.width ?? 0, 0)
+            XCTAssertGreaterThan(framedNode.preferredSize?.height ?? 0, 0)
+            XCTAssertLessThan(framedNode.resolvedFrame.size.width, 1)
+            XCTAssertLessThan(framedNode.resolvedFrame.size.height, 1)
+            XCTAssertLessThan(framedNode.children[0].resolvedFrame.size.width, 1)
+            XCTAssertLessThan(framedNode.children[0].resolvedFrame.size.height, 1)
+            XCTAssertEqual(sibling.resolvedFrame.minX, 10, accuracy: 0.001)
+
+            // The spring's negative sample is visually collapsed, but must
+            // retain its fixed-size identity through an unrelated rebuild.
+            host.reload()
+            _ = runtime.renderFrame()
+            XCTAssertLessThan(framedNode.resolvedFrame.size.width, 1)
+            XCTAssertEqual(sibling.resolvedFrame.minX, 10, accuracy: 0.001)
+            XCTAssertEqual(framedNode.animationStates[.preferredWidth]?.startTime, 11)
+            XCTAssertEqual(framedNode.animationStates[.preferredHeight]?.startTime, 11)
+
+            clock.now = 14
+            runtime.tickAnimations(at: clock.now)
+            _ = runtime.renderFrame()
+            XCTAssertEqual(framedNode.resolvedFrame.size, Size(width: 1, height: 1))
+            XCTAssertEqual(sibling.resolvedFrame.minX, 11, accuracy: 0.001)
+            XCTAssertFalse(runtime.hasActiveAnimations)
+        }
+    }
+
+    func testNilAnimationValueSuppressesOnlyTheUpdateThatChangesItsTrigger() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            var trigger = false
+            var opacity = 1.0
+            host.setComponents {
+                [
+                    Text("CONDITIONAL")
+                        .opacity(opacity)
+                        .animation(nil, value: trigger)
+                        .makeComponent(context: context)
+                ]
+            }
+            let node = runtime.root.children[0]
+
+            opacity = 0.6
+            withAnimation(.linear(duration: 0.4)) {
+                host.reload()
+            }
+            guard let animation = node.animationStates[.opacity] else {
+                return XCTFail("An unchanged nil-animation trigger must leave the ambient transaction intact")
+            }
+            runtime.tickAnimations(at: animation.startTime + 1)
+
+            trigger = true
+            opacity = 0.2
+            withAnimation(.linear(duration: 0.4)) {
+                host.reload()
+            }
+            XCTAssertEqual(node.opacity, 0.2)
+            XCTAssertTrue(node.animationStates.isEmpty)
+        }
+    }
+
+    func testTransactionModifiersTransformInheritedAnimationAndDisableNestedAnimations() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            var faded = false
+            host.setComponents {
+                [
+                    VStack {
+                        Text("STILL")
+                            .opacity(faded ? 0.25 : 1)
+                            .transaction { $0.animation = nil }
+                        Text("FASTER")
+                            .opacity(faded ? 0.25 : 1)
+                            .transaction { $0.animation = $0.animation?.speed(2) }
+                        Text("DISABLED")
+                            .opacity(faded ? 0.25 : 1)
+                            .animation(.linear(duration: 0.8), value: faded)
+                            .transaction { $0.disablesAnimations = true }
+                    }
+                    .animation(.linear(duration: 0.4), value: faded)
+                    .makeComponent(context: context)
+                ]
+            }
+            let children = runtime.root.children[0].children
+            faded = true
+            host.reload()
+
+            XCTAssertEqual(children[0].opacity, 0.25)
+            XCTAssertTrue(children[0].animationStates.isEmpty)
+            XCTAssertEqual(children[1].animationStates[.opacity]?.duration, 0.2)
+            XCTAssertEqual(children[1].animationStates[.opacity]?.endValue, 0.25)
+            XCTAssertEqual(children[2].opacity, 0.25)
+            XCTAssertTrue(children[2].animationStates.isEmpty)
+        }
+    }
+
+    func testReduceMotionSuppressesModifierAndAmbientAnimations() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            var faded = false
+            host.setComponents {
+                [
+                    VStack {
+                        Text("QUIET")
+                            .opacity(faded ? 0.25 : 1)
+                            .animation(.linear(duration: 0.4), value: faded)
+                    }
+                    .animation(.linear(duration: 0.4), value: faded)
+                    .environment(\.accessibilityReduceMotion, true)
+                    .makeComponent(context: context)
+                ]
+            }
+            let node = runtime.root.children[0].children[0]
+            faded = true
+            withAnimation(.linear(duration: 0.4)) {
+                host.reload()
+            }
+            XCTAssertEqual(node.opacity, 0.25)
+            XCTAssertTrue(node.animationStates.isEmpty)
         }
     }
 
@@ -17669,6 +17958,13 @@ final class WinSwiftUITests: XCTestCase {
 
             var animationCompletionCount = 0
             let animationResult = withAnimation(.easeOut(duration: 0.15), completionCriteria: .removed) {
+                XCTAssertEqual(currentTransaction?.animation?.duration, 0.15)
+                withAnimation(nil) {
+                    XCTAssertNotNil(currentTransaction, "an explicit nil animation is still a transaction")
+                    XCTAssertNil(currentTransaction?.animation)
+                    XCTAssertNil(currentAnimationTransaction)
+                }
+                XCTAssertEqual(currentTransaction?.animation?.duration, 0.15)
                 value += 3
                 return value
             } completion: {
@@ -17677,7 +17973,13 @@ final class WinSwiftUITests: XCTestCase {
 
             var didTransform = false
             var transformedAnchor: UnitPoint?
-            let node = makeNode(
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            host.setContent(
                 Text("TX")
                     .transaction { transaction in
                         transaction.disablesAnimations = true
@@ -17687,7 +17989,9 @@ final class WinSwiftUITests: XCTestCase {
                         transformedAnchor = transaction.scrollTargetAnchor
                         didTransform = true
                     }
+                    .makeComponent(context: context)
             )
+            let node = runtime.root.children[0]
 
             XCTAssertEqual(result, 8)
             XCTAssertEqual(anchoredResult, 9)
@@ -21538,16 +21842,32 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
-    func testAnimationValueModifierStoresAnimationOnNode() async {
+    func testUnconditionalAnimationModifierStartsOnlyWhenAPropertyChanges() async {
         await MainActor.run {
-            let node = makeNode(
-                Text("ANIM")
-                    .animation(.easeInOut(duration: 0.3), value: "hello")
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
             )
+            var opacity = 1.0
+            host.setComponents {
+                [
+                    Text("ANIM")
+                        .opacity(opacity)
+                        .animation(.easeInOut(duration: 0.3))
+                        .makeComponent(context: context)
+                ]
+            }
+            let node = runtime.root.children[0]
+            XCTAssertTrue(node.animationStates.isEmpty)
+            XCTAssertFalse(runtime.hasActiveAnimations)
 
-            let textNode = firstTextNode(in: node)!
-            XCTAssertFalse(textNode.animationStates.isEmpty)
-            XCTAssertEqual(textNode.animationStates[.opacity]?.duration, 0.3)
+            opacity = 0.4
+            host.reload()
+            XCTAssertEqual(node.animationStates[.opacity]?.duration, 0.3)
+            XCTAssertEqual(node.animationStates[.opacity]?.endValue, 0.4)
+            XCTAssertTrue(runtime.hasActiveAnimations)
         }
     }
 
@@ -21630,21 +21950,10 @@ private func makeNode<V: View>(
     let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: onInvalidate)
     return view.makeComponent(context: context).makeNode(runtime: runtime)
 }
-
-/// The value a colour takes once the build context has resolved it for the
-/// tests' default (dark) appearance.
-///
-/// Identity for a colour the test mixed itself, and the published dark twin
-/// for one of the system colours (`SystemColorPalette`) — which is why an
-/// expectation written as `Color.red` needs this wrapper while
-/// `Color(red: 0.2, ...)` does not.
 private func inDarkAppearance(_ color: Color) -> Color {
     color.resolvedForVisualEnvironment(
         colorScheme: .dark, contrast: .standard, backgroundProminence: .standard)
 }
-
-/// The same, for a gradient: every stop resolves, so a gradient built from
-/// `[.red, .blue]` is not the gradient the node carries in a dark window.
 private func inDarkAppearance(_ gradient: WinSwiftUI.LinearGradient) -> WinSwiftUI.LinearGradient {
     gradient.resolvedForVisualEnvironment(
         colorScheme: .dark, contrast: .standard, backgroundProminence: .standard)
@@ -21757,8 +22066,6 @@ private func firstBitmapNode(in node: ViewNode) -> ViewNode? {
 
     return nil
 }
-/// A list's *row* children, skipping the hairline rules the default list
-/// style interleaves between adjacent rows.
 @MainActor
 private func listRows(of node: ViewNode) -> [ViewNode] {
     let separator = ControlPalette.darkStandard.separator
@@ -21766,7 +22073,6 @@ private func listRows(of node: ViewNode) -> [ViewNode] {
         !(child.backgroundColor == separator && child.text == nil && child.children.isEmpty)
     }
 }
-
 @MainActor
 private func allTextColors(in node: ViewNode) -> [Color] {
     var result: [Color] = []
@@ -21778,21 +22084,15 @@ private func allTextColors(in node: ViewNode) -> [Color] {
     }
     return result
 }
-
-/// NSStepper is a *vertical* joined pair — one bezel holding an up chevron
-/// over a down chevron — beside the label, not the side-by-side
-/// decrement/increment pills that used to sit as `children[1]`/`children[2]`.
 @MainActor
 private func stepperIncrement(of node: ViewNode) -> ViewNode {
     // The bezel holds [increment][seam rule][decrement].
     node.children[1].children[0]
 }
-
 @MainActor
 private func stepperDecrement(of node: ViewNode) -> ViewNode {
     node.children[1].children[2]
 }
-
 @MainActor
 private func allTexts(in node: ViewNode) -> [String] {
     var texts: [String] = []
@@ -21830,10 +22130,6 @@ private func firstFocusable(in node: ViewNode) -> ViewNode? {
 
     return nil
 }
-/// Returns the child at `index` inside a presented overlay container
-/// (`[base, overlay]` roots built by the retained presentation helpers:
-/// scrim at index 0, panel at index 1), asserting the overlay carries the
-/// expected `<kind>-overlay` tag.
 @MainActor
 private func presentationOverlayChild(
     in node: ViewNode,

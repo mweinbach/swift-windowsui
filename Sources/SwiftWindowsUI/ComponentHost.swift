@@ -242,8 +242,63 @@ public final class ComponentHost {
     /// which node the new build corresponds to. `RetainedViewRuntime` uses it
     /// to re-seat a `GeometryReader` body on its resolved slot.
     static func adopt(source: ViewNode, into target: ViewNode) {
-        updateNodeProperties(target: target, source: source)
-        reconcileChildren(of: target, oldChildren: target.children, newNodes: source.children)
+        withReconcileAnimationTransaction(source: source, previous: target) {
+            updateNodeProperties(target: target, source: source)
+            reconcileChildren(of: target, oldChildren: target.children, newNodes: source.children)
+        }
+    }
+
+    private static var inheritedTransaction: Transaction? {
+        if let currentTransaction { return currentTransaction }
+        guard let animation = currentAnimationTransaction else { return nil }
+        return Transaction(animation: Animation(duration: animation.duration, easing: animation.easing))
+    }
+
+    /// Modifier configuration belongs to the new build, but value triggers
+    /// belong to the retained identity. Scope the resulting transaction over
+    /// both the node and its children, restoring the parent before siblings.
+    private static func withReconcileAnimationTransaction(
+        source: ViewNode, previous: ViewNode?, perform body: () -> Void
+    ) {
+        let modifiers = source.reconcileAnimationModifiers
+        guard !modifiers.isEmpty else {
+            body()
+            return
+        }
+        let previousModifiers = previous?.reconcileAnimationModifiers ?? []
+        var transaction = inheritedTransaction ?? Transaction()
+        var didApplyModifier = false
+        for index in modifiers.indices.reversed() {
+            let previousModifier = previousModifiers.indices.contains(index) ? previousModifiers[index] : nil
+            if modifiers[index].apply(to: &transaction, previous: previousModifier) {
+                didApplyModifier = true
+            }
+        }
+        guard didApplyModifier else {
+            body()
+            return
+        }
+
+        let previousTransaction = currentTransaction
+        let previousAnimation = currentAnimationTransaction
+        currentTransaction = transaction
+        currentAnimationTransaction =
+            transaction.disablesAnimations
+            ? nil : transaction.animation.map { ($0.duration, $0.easing) }
+        defer {
+            currentTransaction = previousTransaction
+            currentAnimationTransaction = previousAnimation
+        }
+        body()
+    }
+
+    private static func prepareInsertedSubtree(_ node: ViewNode) {
+        withReconcileAnimationTransaction(source: node, previous: nil) {
+            node.retainInsertionTransaction(inheritedTransaction)
+            for child in node.children {
+                prepareInsertedSubtree(child)
+            }
+        }
     }
 
     /// Keyed view-diffing reconciliation: identity first, position second.
@@ -310,11 +365,14 @@ public final class ComponentHost {
         nextChildren.reserveCapacity(newNodes.count)
         for (newIndex, newNode) in newNodes.enumerated() {
             guard let oldNode = matches[newIndex] else {
+                prepareInsertedSubtree(newNode)
                 nextChildren.append(newNode)
                 continue
             }
-            updateNodeProperties(target: oldNode, source: newNode)
-            reconcileChildren(of: oldNode, oldChildren: oldNode.children, newNodes: newNode.children)
+            withReconcileAnimationTransaction(source: newNode, previous: oldNode) {
+                updateNodeProperties(target: oldNode, source: newNode)
+                reconcileChildren(of: oldNode, oldChildren: oldNode.children, newNodes: newNode.children)
+            }
             nextChildren.append(oldNode)
         }
 
@@ -376,6 +434,47 @@ public final class ComponentHost {
         }
     }
 
+    /// Reconcile a model value without replacing an animation's presentation
+    /// value. An unchanged destination keeps its original clock; a different
+    /// destination starts from the value that is currently on screen.
+    private static func reconciledAnimatedValue(
+        _ property: AnimatableProperty, current: Double, proposed: Double,
+        target: ViewNode, source: ViewNode, transaction: AnimationTransaction?, animationsDisabled: Bool
+    ) -> Double {
+        let existing = target.animationStates[property]
+        if animationsDisabled {
+            if existing != nil { target.animationStates.removeValue(forKey: property) }
+            return proposed
+        }
+        if existing != nil, let surface = target.interactionSurface,
+            (property == .opacity && surface.pressedContentOpacity != 1)
+                || ((property == .transformScaleX || property == .transformScaleY) && surface.pressedScale != 1)
+        {
+            // A build describes idle control chrome. Pointer-owned animation
+            // destinations are restored by the runtime after reconciliation.
+            return current
+        }
+        if let existing, existing.startValue != existing.endValue, existing.endValue == proposed {
+            return current
+        }
+        guard current != proposed else {
+            if existing != nil { target.animationStates.removeValue(forKey: property) }
+            return proposed
+        }
+        let animation =
+            source.animationStates[property].map {
+                AnimationTransaction(duration: $0.duration, easing: $0.easing)
+            } ?? transaction
+        guard let animation, animation.duration > 0 else {
+            if existing != nil { target.animationStates.removeValue(forKey: property) }
+            return proposed
+        }
+        target.animationStates[property] = AnimationState(
+            startValue: current, endValue: proposed, startTime: target.animationClockNow,
+            duration: animation.duration, easing: animation.easing)
+        return current
+    }
+
     /// Copy visual / layout properties from `source` onto `target`, keeping
     /// `target`'s identity (parent, runtime, callbacks) intact.
     private static func updateNodeProperties(target: ViewNode, source: ViewNode) {
@@ -396,107 +495,57 @@ public final class ComponentHost {
         // ancestors to the root. Measured 2026-08 on the demo's screen
         // switch: the unconditional block cost about four times as much per
         // property as the guarded compares around it.
-        if !(target.animationStates.isEmpty && source.animationStates.isEmpty) {
-            target.animationStates = source.animationStates
+        if !target.reconcileAnimationModifiers.isEmpty || !source.reconcileAnimationModifiers.isEmpty {
+            target.reconcileAnimationModifiers = source.reconcileAnimationModifiers
         }
+        if target.implicitReconcileAnimation != source.implicitReconcileAnimation {
+            target.implicitReconcileAnimation = source.implicitReconcileAnimation
+        }
+        if target.interactionSurface != nil || source.interactionSurface != nil {
+            target.interactionSurface = source.interactionSurface
+        }
+        target.retainInsertionTransaction(inheritedTransaction)
         // A node may animate its own changes with no ambient `withAnimation`
         // — `NSSwitch` does, and a rebuilt control's state change carries no
         // transaction at all. The explicit one still wins when both are set.
-        let reconcileTransaction: (duration: Double, easing: AnimationEasing)? =
-            currentAnimationTransaction
-            ?? target.implicitReconcileAnimation.map { ($0.duration, $0.easing) }
+        let inherited = inheritedTransaction
+        let animationsDisabled = inherited.map { $0.disablesAnimations || $0.animation == nil } ?? false
+        let reconcileTransaction: AnimationTransaction? =
+            animationsDisabled
+            ? nil
+            : inherited?.animation.map { AnimationTransaction(duration: $0.duration, easing: $0.easing) }
+                ?? target.implicitReconcileAnimation
 
-        if oldFrame != source.frame {
-            let now = target.animationClockNow
-            var newOrigin = oldFrame.origin
-            var newSize = oldFrame.size
-            var hasFrameAnimation = false
-
-            if oldFrame.origin.x != source.frame.origin.x {
-                if var state = target.animationStates[.frameOriginX] {
-                    state.startValue = oldFrame.origin.x
-                    state.endValue = source.frame.origin.x
-                    state.startTime = now
-                    target.animationStates[.frameOriginX] = state
-                    hasFrameAnimation = true
-                } else if let tx = reconcileTransaction {
-                    target.animationStates[.frameOriginX] = AnimationState(
-                        startValue: oldFrame.origin.x, endValue: source.frame.origin.x,
-                        startTime: now, duration: tx.duration, easing: tx.easing
-                    )
-                    hasFrameAnimation = true
-                } else {
-                    newOrigin.x = source.frame.origin.x
-                }
-            }
-
-            if oldFrame.origin.y != source.frame.origin.y {
-                if var state = target.animationStates[.frameOriginY] {
-                    state.startValue = oldFrame.origin.y
-                    state.endValue = source.frame.origin.y
-                    state.startTime = now
-                    target.animationStates[.frameOriginY] = state
-                    hasFrameAnimation = true
-                } else if let tx = reconcileTransaction {
-                    target.animationStates[.frameOriginY] = AnimationState(
-                        startValue: oldFrame.origin.y, endValue: source.frame.origin.y,
-                        startTime: now, duration: tx.duration, easing: tx.easing
-                    )
-                    hasFrameAnimation = true
-                } else {
-                    newOrigin.y = source.frame.origin.y
-                }
-            }
-
-            if oldFrame.size.width != source.frame.size.width {
-                if var state = target.animationStates[.frameWidth] {
-                    state.startValue = oldFrame.size.width
-                    state.endValue = source.frame.size.width
-                    state.startTime = now
-                    target.animationStates[.frameWidth] = state
-                    hasFrameAnimation = true
-                } else if let tx = reconcileTransaction {
-                    target.animationStates[.frameWidth] = AnimationState(
-                        startValue: oldFrame.size.width, endValue: source.frame.size.width,
-                        startTime: now, duration: tx.duration, easing: tx.easing
-                    )
-                    hasFrameAnimation = true
-                } else {
-                    newSize.width = source.frame.size.width
-                }
-            }
-
-            if oldFrame.size.height != source.frame.size.height {
-                if var state = target.animationStates[.frameHeight] {
-                    state.startValue = oldFrame.size.height
-                    state.endValue = source.frame.size.height
-                    state.startTime = now
-                    target.animationStates[.frameHeight] = state
-                    hasFrameAnimation = true
-                } else if let tx = reconcileTransaction {
-                    target.animationStates[.frameHeight] = AnimationState(
-                        startValue: oldFrame.size.height, endValue: source.frame.size.height,
-                        startTime: now, duration: tx.duration, easing: tx.easing
-                    )
-                    hasFrameAnimation = true
-                } else {
-                    newSize.height = source.frame.size.height
-                }
-            }
-
-            if hasFrameAnimation {
-                target.frame = Rect(origin: newOrigin, size: newSize)
-            } else {
-                target.frame = source.frame
-            }
+        if oldFrame != source.frame || !target.animationStates.isEmpty {
+            let nextFrame = Rect(
+                x: reconciledAnimatedValue(
+                    .frameOriginX, current: oldFrame.origin.x, proposed: source.frame.origin.x,
+                    target: target, source: source, transaction: reconcileTransaction,
+                    animationsDisabled: animationsDisabled),
+                y: reconciledAnimatedValue(
+                    .frameOriginY, current: oldFrame.origin.y, proposed: source.frame.origin.y,
+                    target: target, source: source, transaction: reconcileTransaction,
+                    animationsDisabled: animationsDisabled),
+                width: reconciledAnimatedValue(
+                    .frameWidth, current: oldFrame.size.width, proposed: source.frame.size.width,
+                    target: target, source: source, transaction: reconcileTransaction,
+                    animationsDisabled: animationsDisabled),
+                height: reconciledAnimatedValue(
+                    .frameHeight, current: oldFrame.size.height, proposed: source.frame.size.height,
+                    target: target, source: source, transaction: reconcileTransaction,
+                    animationsDisabled: animationsDisabled)
+            )
+            if target.frame != nextFrame { target.frame = nextFrame }
         }
         if target.backgroundColor != source.backgroundColor { target.backgroundColor = source.backgroundColor }
         if target.backgroundGradient != source.backgroundGradient {
             target.backgroundGradient = source.backgroundGradient
         }
-        target.applyImplicitFillTween(
+        target.applyReconcileFillTween(
             fromBackgroundColor: oldBackgroundColor,
-            fromBackgroundGradient: oldBackgroundGradient
+            fromBackgroundGradient: oldBackgroundGradient,
+            animation: reconcileTransaction,
+            animationsDisabled: animationsDisabled
         )
         if target.bitmapSurface != source.bitmapSurface { target.bitmapSurface = source.bitmapSurface }
         if target.canvasDraw != nil || source.canvasDraw != nil { target.canvasDraw = source.canvasDraw }
@@ -515,7 +564,28 @@ public final class ComponentHost {
         if target.clipsToBounds != source.clipsToBounds { target.clipsToBounds = source.clipsToBounds }
         if target.clipFillStyle != source.clipFillStyle { target.clipFillStyle = source.clipFillStyle }
         if target.backgroundPath != source.backgroundPath { target.backgroundPath = source.backgroundPath }
-        if target.preferredSize != source.preferredSize { target.preferredSize = source.preferredSize }
+        if let oldSize = target.preferredSize, let proposedSize = source.preferredSize {
+            // Fixed SwiftUI frame modifiers declare preferred dimensions on
+            // their wrapper. Animate those dimensions so layout and sibling
+            // placement see the intermediate size, not only paint geometry.
+            let nextSize = Size(
+                width: reconciledAnimatedValue(
+                    .preferredWidth, current: oldSize.width, proposed: proposedSize.width,
+                    target: target, source: source, transaction: reconcileTransaction,
+                    animationsDisabled: animationsDisabled || oldSize.width <= 0 || proposedSize.width <= 0
+                        || !oldSize.width.isFinite || !proposedSize.width.isFinite),
+                height: reconciledAnimatedValue(
+                    .preferredHeight, current: oldSize.height, proposed: proposedSize.height,
+                    target: target, source: source, transaction: reconcileTransaction,
+                    animationsDisabled: animationsDisabled || oldSize.height <= 0 || proposedSize.height <= 0
+                        || !oldSize.height.isFinite || !proposedSize.height.isFinite)
+            )
+            if target.preferredSize != nextSize { target.preferredSize = nextSize }
+        } else {
+            if target.animationStates[.preferredWidth] != nil { target.animationStates[.preferredWidth] = nil }
+            if target.animationStates[.preferredHeight] != nil { target.animationStates[.preferredHeight] = nil }
+            if target.preferredSize != source.preferredSize { target.preferredSize = source.preferredSize }
+        }
         if target.layoutConstraints != source.layoutConstraints { target.layoutConstraints = source.layoutConstraints }
         if target.fixedSizeAxes != source.fixedSizeAxes { target.fixedSizeAxes = source.fixedSizeAxes }
         if target.layoutPriority != source.layoutPriority { target.layoutPriority = source.layoutPriority }
@@ -537,21 +607,12 @@ public final class ComponentHost {
         if target.blurRadius != source.blurRadius { target.blurRadius = source.blurRadius }
         if target.blurOpaque != source.blurOpaque { target.blurOpaque = source.blurOpaque }
         if target.geometryEffect != source.geometryEffect { target.geometryEffect = source.geometryEffect }
-        if oldOpacity != source.opacity {
-            if var state = target.animationStates[.opacity] {
-                state.startValue = oldOpacity
-                state.endValue = source.opacity
-                state.startTime = target.animationClockNow
-                target.animationStates[.opacity] = state
-            } else if let tx = reconcileTransaction {
-                target.animationStates[.opacity] = AnimationState(
-                    startValue: oldOpacity, endValue: source.opacity,
-                    startTime: target.animationClockNow,
-                    duration: tx.duration, easing: tx.easing
-                )
-            } else {
-                target.opacity = source.opacity
-            }
+        if oldOpacity != source.opacity || target.animationStates[.opacity] != nil {
+            let nextOpacity = reconciledAnimatedValue(
+                .opacity, current: oldOpacity, proposed: source.opacity,
+                target: target, source: source, transaction: reconcileTransaction,
+                animationsDisabled: animationsDisabled)
+            if target.opacity != nextOpacity { target.opacity = nextOpacity }
         }
         if target.blendMode != source.blendMode { target.blendMode = source.blendMode }
         if target.isCompositingGroup != source.isCompositingGroup {
@@ -716,107 +777,33 @@ public final class ComponentHost {
         }
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
         if target.position != source.position { target.position = source.position }
-        if target.transform != source.transform {
+        if target.transform != source.transform || !target.animationStates.isEmpty {
             let oldTransform = target.transform
-            var newTransform = oldTransform
-            var hasTransformAnimation = false
-            let now = target.animationClockNow
-
-            if oldTransform.scaleX != source.transform.scaleX {
-                if var state = target.animationStates[.transformScaleX] {
-                    state.startValue = oldTransform.scaleX
-                    state.endValue = source.transform.scaleX
-                    state.startTime = now
-                    target.animationStates[.transformScaleX] = state
-                    hasTransformAnimation = true
-                } else if let tx = reconcileTransaction {
-                    target.animationStates[.transformScaleX] = AnimationState(
-                        startValue: oldTransform.scaleX, endValue: source.transform.scaleX,
-                        startTime: now, duration: tx.duration, easing: tx.easing
-                    )
-                    hasTransformAnimation = true
-                } else {
-                    newTransform.scaleX = source.transform.scaleX
-                }
-            }
-
-            if oldTransform.scaleY != source.transform.scaleY {
-                if var state = target.animationStates[.transformScaleY] {
-                    state.startValue = oldTransform.scaleY
-                    state.endValue = source.transform.scaleY
-                    state.startTime = now
-                    target.animationStates[.transformScaleY] = state
-                    hasTransformAnimation = true
-                } else if let tx = reconcileTransaction {
-                    target.animationStates[.transformScaleY] = AnimationState(
-                        startValue: oldTransform.scaleY, endValue: source.transform.scaleY,
-                        startTime: now, duration: tx.duration, easing: tx.easing
-                    )
-                    hasTransformAnimation = true
-                } else {
-                    newTransform.scaleY = source.transform.scaleY
-                }
-            }
-
-            if oldTransform.translationX != source.transform.translationX {
-                if var state = target.animationStates[.transformTranslationX] {
-                    state.startValue = oldTransform.translationX
-                    state.endValue = source.transform.translationX
-                    state.startTime = now
-                    target.animationStates[.transformTranslationX] = state
-                    hasTransformAnimation = true
-                } else if let tx = reconcileTransaction {
-                    target.animationStates[.transformTranslationX] = AnimationState(
-                        startValue: oldTransform.translationX, endValue: source.transform.translationX,
-                        startTime: now, duration: tx.duration, easing: tx.easing
-                    )
-                    hasTransformAnimation = true
-                } else {
-                    newTransform.translationX = source.transform.translationX
-                }
-            }
-
-            if oldTransform.translationY != source.transform.translationY {
-                if var state = target.animationStates[.transformTranslationY] {
-                    state.startValue = oldTransform.translationY
-                    state.endValue = source.transform.translationY
-                    state.startTime = now
-                    target.animationStates[.transformTranslationY] = state
-                    hasTransformAnimation = true
-                } else if let tx = reconcileTransaction {
-                    target.animationStates[.transformTranslationY] = AnimationState(
-                        startValue: oldTransform.translationY, endValue: source.transform.translationY,
-                        startTime: now, duration: tx.duration, easing: tx.easing
-                    )
-                    hasTransformAnimation = true
-                } else {
-                    newTransform.translationY = source.transform.translationY
-                }
-            }
-
-            if oldTransform.rotation != source.transform.rotation {
-                if var state = target.animationStates[.transformRotation] {
-                    state.startValue = oldTransform.rotation
-                    state.endValue = source.transform.rotation
-                    state.startTime = now
-                    target.animationStates[.transformRotation] = state
-                    hasTransformAnimation = true
-                } else if let tx = reconcileTransaction {
-                    target.animationStates[.transformRotation] = AnimationState(
-                        startValue: oldTransform.rotation, endValue: source.transform.rotation,
-                        startTime: now, duration: tx.duration, easing: tx.easing
-                    )
-                    hasTransformAnimation = true
-                } else {
-                    newTransform.rotation = source.transform.rotation
-                }
-            }
-
-            if hasTransformAnimation {
-                target.transform = newTransform
-            } else {
-                target.transform = source.transform
-            }
+            let nextTransform = Transform2D(
+                translationX: reconciledAnimatedValue(
+                    .transformTranslationX, current: oldTransform.translationX, proposed: source.transform.translationX,
+                    target: target, source: source, transaction: reconcileTransaction,
+                    animationsDisabled: animationsDisabled),
+                translationY: reconciledAnimatedValue(
+                    .transformTranslationY, current: oldTransform.translationY, proposed: source.transform.translationY,
+                    target: target, source: source, transaction: reconcileTransaction,
+                    animationsDisabled: animationsDisabled),
+                scaleX: reconciledAnimatedValue(
+                    .transformScaleX, current: oldTransform.scaleX, proposed: source.transform.scaleX,
+                    target: target, source: source, transaction: reconcileTransaction,
+                    animationsDisabled: animationsDisabled),
+                scaleY: reconciledAnimatedValue(
+                    .transformScaleY, current: oldTransform.scaleY, proposed: source.transform.scaleY,
+                    target: target, source: source, transaction: reconcileTransaction,
+                    animationsDisabled: animationsDisabled),
+                rotation: reconciledAnimatedValue(
+                    .transformRotation, current: oldTransform.rotation, proposed: source.transform.rotation,
+                    target: target, source: source, transaction: reconcileTransaction,
+                    animationsDisabled: animationsDisabled),
+                skewX: source.transform.skewX,
+                skewY: source.transform.skewY
+            )
+            if target.transform != nextTransform { target.transform = nextTransform }
         }
         if target.transition != source.transition { target.transition = source.transition }
         if target.contentTransition != source.contentTransition { target.contentTransition = source.contentTransition }

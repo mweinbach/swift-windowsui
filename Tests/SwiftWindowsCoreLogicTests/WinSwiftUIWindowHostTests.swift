@@ -262,6 +262,14 @@ struct ObservedObjectValueView: View {
     }
 }
 @MainActor
+private struct ObservedObjectAnimatedValueView: View {
+    @ObservedObject var model: TestObservableObject
+
+    var body: some View {
+        Text("Animated value").opacity(model.value == 0 ? 1 : 0.25)
+    }
+}
+@MainActor
 final class HostEnvironmentRecorder {
     private(set) var snapshots: [EnvironmentValues] = []
 
@@ -1790,6 +1798,181 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
     }
 
     // MARK: - VAL-CROSS-010: Observed-Object Batching and Coalescing Tests
+
+    private func makeObservedAnimationHost(
+        observable: TestObservableObject, clock: FakeRecoveryClock
+    ) -> (WinSwiftUIWindowHost, Win32Window, FakeRenderBackend) {
+        let renderer = FakeRenderBackend()
+        let surface = SurfaceDescriptor(
+            windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
+            pixelSize: IntSize(width: 320, height: 200), scaleFactor: 1)
+        let window = Win32Window(title: "Observed animation", clientSize: surface.pixelSize)
+        let host = WinSwiftUIWindowHost(
+            configuration: WindowGroupConfiguration(
+                title: "Observed animation", size: surface.pixelSize, clearColor: .black,
+                content: [AnyView(ObservedObjectAnimatedValueView(model: observable))]),
+            platformWindow: window,
+            renderer: renderer,
+            batchRenderer: nil,
+            surfaceDescriptorProvider: { _ in surface },
+            startupProbeConfiguration: nil)
+        host.frameClock = { clock.now }
+        host.hostedRuntime.clock = { clock.now }
+        host.windowDidCreate(window)
+        host.resetObservabilityCounters()
+        return (host, window, renderer)
+    }
+
+    func testNativeFrameDrainsObservedAnimationWithoutYieldingToSwiftExecutor() async {
+        let observable = TestObservableObject()
+        let clock = FakeRecoveryClock(5_000)
+        let (host, window, renderer) = makeObservedAnimationHost(observable: observable, clock: clock)
+        var rebuildDuration: Double?
+        host.onReloadContentCompleted = { rebuildDuration = currentAnimationTransaction?.duration }
+
+        withAnimation(.linear(duration: 1)) {
+            observable.value = 1
+            observable.secondaryValue = "coalesced"
+            observable.value = 2
+        }
+        XCTAssertNil(currentAnimationTransaction)
+        XCTAssertEqual(host.executedReloadCount, 0)
+        XCTAssertTrue(host.currentTimerState.isEnabled, "A native frame must wake the deferred observed-object batch.")
+        let invalidationsBeforeFrame = window.invalidateRequestCount
+
+        // No await: GetMessage/DispatchMessage can deliver this frame without
+        // ever handing control to the Swift main-actor Task executor.
+        clock.now += 0.02
+        host.windowNeedsDisplay(window)
+        XCTAssertEqual(host.executedReloadCount, 1)
+        XCTAssertEqual(host.completedObservedObjectReloadTaskCount, 1)
+        XCTAssertEqual(rebuildDuration, 1)
+        XCTAssertTrue(host.hostedRuntime.hasActiveAnimations, "The captured transaction must create a real tween.")
+        XCTAssertEqual(window.invalidateRequestCount, invalidationsBeforeFrame, "The frame must not invalidate itself.")
+        XCTAssertNil(currentAnimationTransaction, "The scoped animation must not leak into subsequent input.")
+        XCTAssertNil(currentTransaction)
+
+        var candidates = [host.hostedRuntime.root]
+        var animatedNode: ViewNode?
+        while let candidate = candidates.popLast() {
+            if candidate.animationStates[.opacity] != nil {
+                animatedNode = candidate
+                break
+            }
+            candidates.append(contentsOf: candidate.children)
+        }
+        XCTAssertNotNil(animatedNode)
+        // At the tween's start its opacity is unchanged, so the host may
+        // correctly skip that duplicate. Advance to a visibly different
+        // sample before requiring a new presentation.
+        let presentsAtAnimationStart = renderer.renderedFrames.count
+        clock.now += 0.5
+        host.windowNeedsDisplay(window)
+        XCTAssertEqual(animatedNode?.opacity ?? .nan, 0.625, accuracy: 0.0001)
+        XCTAssertEqual(renderer.renderedFrames.count, presentsAtAnimationStart + 1)
+
+        await Task.yield()
+        XCTAssertEqual(host.executedReloadCount, 1, "The executor fallback must not consume an already-drained batch.")
+    }
+
+    func testObservedMutationDuringNativeReloadRemainsQueuedForTheNextFrame() async {
+        let observable = TestObservableObject()
+        let clock = FakeRecoveryClock(5_000)
+        let (host, window, renderer) = makeObservedAnimationHost(observable: observable, clock: clock)
+        var completedRebuilds = 0
+        host.onReloadContentCompleted = {
+            completedRebuilds += 1
+            if completedRebuilds == 1 { observable.value = 0 }
+        }
+
+        observable.value = 1
+        clock.now += 0.02
+        host.windowNeedsDisplay(window)
+        XCTAssertEqual(host.executedReloadCount, 1)
+        XCTAssertTrue(host.currentTimerState.isEnabled, "A change produced by the rebuild still needs its own frame.")
+
+        clock.now += 0.02
+        host.windowNeedsDisplay(window)
+        XCTAssertEqual(host.executedReloadCount, 2)
+        XCTAssertEqual(renderer.renderedFrames.count, 3)
+        XCTAssertFalse(host.currentTimerState.isEnabled)
+        await Task.yield()
+        XCTAssertEqual(host.executedReloadCount, 2, "Stale executor fallbacks must not repeat either native rebuild.")
+    }
+
+    func testDeferredObservedReloadPreservesFullTransactionIncludingExplicitNilAnimation() async {
+        let observable = TestObservableObject()
+        let clock = FakeRecoveryClock(5_000)
+        let (host, _, _) = makeObservedAnimationHost(observable: observable, clock: clock)
+        let rebuilt = expectation(description: "captured transaction rebuilt")
+        var capturedTransaction: Transaction?
+        host.onReloadContentCompleted = {
+            capturedTransaction = currentTransaction
+            rebuilt.fulfill()
+        }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        transaction.isContinuous = true
+
+        withTransaction(transaction) { observable.value = 1 }
+        XCTAssertNil(currentTransaction)
+        await fulfillment(of: [rebuilt], timeout: 1)
+
+        XCTAssertNotNil(capturedTransaction)
+        XCTAssertNil(capturedTransaction?.animation)
+        XCTAssertEqual(capturedTransaction?.disablesAnimations, true)
+        XCTAssertEqual(capturedTransaction?.isContinuous, true)
+        XCTAssertFalse(host.hostedRuntime.hasActiveAnimations)
+        XCTAssertNil(currentTransaction)
+    }
+
+    func testSelfPacedHostCoalescesObservedChangesUntilPresentationIsDue() async {
+        let observable = TestObservableObject()
+        let clock = FakeRecoveryClock(5_000)
+        let (host, window, renderer) = makeObservedAnimationHost(observable: observable, clock: clock)
+        renderer.presentPacing = PresentPacingStatus(mode: .selfPaced, displayFrameInterval: 1.0 / 60)
+        clock.now += 0.02
+        host.requestDiagnosticsFrame()
+        host.windowNeedsDisplay(window)
+        let startedAt = clock.now
+        let originalPresents = renderer.renderedFrames.count
+
+        for value in 1...10 {
+            clock.now = startedAt + Double(value) / 1_000
+            observable.value = value
+            host.windowNeedsDisplay(window)
+        }
+        XCTAssertEqual(host.scheduledReloadCount, 1)
+        XCTAssertEqual(host.executedReloadCount, 0, "Rejected paints must not rebuild at the input-report rate.")
+        XCTAssertEqual(renderer.renderedFrames.count, originalPresents)
+
+        clock.now = startedAt + 0.017
+        host.windowNeedsDisplay(window)
+        XCTAssertEqual(host.executedReloadCount, 1)
+        XCTAssertEqual(renderer.renderedFrames.count, originalPresents + 1)
+    }
+
+    func testIrrelevantNotificationDoesNotReplaceARelevantObservedAnimationTransaction() async {
+        let observable = TestObservableObject()
+        let unrelated = TestObservableObject()
+        let clock = FakeRecoveryClock(5_000)
+        let (host, window, _) = makeObservedAnimationHost(observable: observable, clock: clock)
+        // Establish the host's dependency snapshot through its normal rebuild.
+        observable.secondaryValue = "establish dependencies"
+        clock.now += 0.02
+        host.windowNeedsDisplay(window)
+        host.observe(unrelated)
+
+        var rebuildDuration: Double?
+        host.onReloadContentCompleted = { rebuildDuration = currentAnimationTransaction?.duration }
+        withAnimation(.linear(duration: 0.6)) { observable.value = 1 }
+        withTransaction(Transaction(animation: nil)) { unrelated.value = 1 }
+        clock.now += 0.02
+        host.windowNeedsDisplay(window)
+
+        XCTAssertEqual(rebuildDuration, 0.6)
+        XCTAssertTrue(host.hostedRuntime.hasActiveAnimations)
+    }
 
     /// VAL-CROSS-010: Multiple same-turn changes from an observed object coalesce into one host-driven rebuild.
     /// This test waits for the deferred reload task, then proves exactly one

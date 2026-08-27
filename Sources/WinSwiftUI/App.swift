@@ -1,11 +1,7 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
-
 import SwiftWindowsPlatform
-
 import SwiftWindowsUI
 
 // MARK: - Timer State Observability
@@ -1885,8 +1881,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private var isWindowVisible = true
     private(set) var currentPresentationSelection: PresentationSelection?
 
-    /// Batching flag: when true, a reload has already been scheduled for the
-    /// next main-actor turn and additional change notifications are coalesced.
+    /// Batching flag: when true, a reload is waiting for the next native frame
+    /// or cooperative main-actor turn; additional notifications are coalesced.
     private var reloadScheduled = false
 
     /// Set of ObjectIdentifiers for which we currently hold observation tokens.
@@ -1899,6 +1895,15 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// reload fires, only rebuild if the ComponentHost actually depends on at
     /// least one of them.
     private var pendingChangedObjects: Set<ObjectIdentifier> = []
+    /// Notifications are synchronous, but their coalesced rebuild is not.
+    /// Preserve the mutation's scoped transaction until that rebuild runs.
+    private struct ObservedObjectReloadContext {
+        var sequence: UInt64
+        var animation: (duration: Double, easing: AnimationEasing)?
+        var transaction: Transaction?
+    }
+    private var pendingObservedObjectContexts: [ObjectIdentifier: ObservedObjectReloadContext] = [:]
+    private var observedObjectChangeSequence: UInt64 = 0
 
     /// Counter for reload tasks actually scheduled (not coalesced).
     /// Used for testing same-turn coalescing behavior.
@@ -2694,12 +2699,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             return
         }
 
-        let didAdvanceAnimations = runtime.tickAnimations(at: timestamp)
-        if didAdvanceAnimations || runtime.isDirty || pendingPresentation {
-            _ = renderCurrentFrame(in: window, timestamp: timestamp)
-        } else {
-            syncAnimationDriver(for: window)
-        }
+        _ = renderCurrentFrame(in: window, timestamp: timestamp)
     }
 
     func windowDidChangeDisplay(_ window: Win32Window) {
@@ -2838,7 +2838,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         composeComponent(from: configuration.content, context: buildContext)
     }
 
-    private func reloadContent() {
+    private func reloadContent(requestsFrame: Bool = true) {
         executedReloadCount += 1
 
         // Record the objects the ComponentHost accesses during this rebuild
@@ -2858,7 +2858,9 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         }
 
         onReloadContentCompleted?()
-        commitRuntimeState(in: window)
+        if requestsFrame {
+            commitRuntimeState(in: window)
+        }
     }
 
     /// Manually observe an object for testing purposes.
@@ -3001,6 +3003,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// rebuild is skipped entirely.
     private func scheduleObservedObjectReload(for changedObjectID: ObjectIdentifier) {
         pendingChangedObjects.insert(changedObjectID)
+        observedObjectChangeSequence &+= 1
+        pendingObservedObjectContexts[changedObjectID] = ObservedObjectReloadContext(
+            sequence: observedObjectChangeSequence,
+            animation: currentAnimationTransaction,
+            transaction: currentTransaction)
         reloadTriggeringObjectIDs.insert(changedObjectID)
 
         guard !reloadScheduled else {
@@ -3014,35 +3021,58 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         scheduledReloadCount += 1
         onObservedObjectReloadScheduled?(changedObjectID, false)
 
+        // The native GetMessage/DispatchMessage loop does not yield to Swift's
+        // main-actor executor. Give the batch a native wake as well as the
+        // Task fallback used by hosts running under a cooperative executor.
+        syncAnimationDriver(for: window)
+        window.invalidate()
+
+        // A live HWND has the wake above. Do not accumulate unserviceable
+        // Swift Tasks behind its blocking native message loop.
+        guard window.nativeHandle == nil else { return }
         Task { @MainActor [weak self] in
             guard let self else {
                 return
             }
-
-            self.reloadScheduled = false
-
-            // Dependency tracking: only rebuild if the ComponentHost actually
-            // observed at least one of the changed objects.
-            let relevantChanges = self.pendingChangedObjects
-            self.pendingChangedObjects.removeAll()
-
-            let dependsOnChangedObject =
-                self.componentHost.observedObjects.isEmpty
-                || !relevantChanges.isDisjoint(with: self.componentHost.observedObjects)
-
-            guard dependsOnChangedObject else {
-                // Dependency filtering: none of the changed objects are in our dependency set
-                // Skip the reload entirely
-                self.skippedObservedObjectReloadCount += 1
-                self.completedObservedObjectReloadTaskCount += 1
-                self.onObservedObjectReloadTaskCompleted?(false)
-                return
-            }
-
-            self.reloadContent()
-            self.completedObservedObjectReloadTaskCount += 1
-            self.onObservedObjectReloadTaskCompleted?(true)
+            self.flushObservedObjectReload(in: self.window, requestsFrame: true)
         }
+    }
+
+    /// Either a native frame or the Task consumes a pending batch, never both.
+    private func flushObservedObjectReload(in window: Win32Window, requestsFrame: Bool) {
+        guard reloadScheduled else { return }
+        reloadScheduled = false
+
+        let changedObjects = pendingChangedObjects
+        let contexts = pendingObservedObjectContexts
+        pendingChangedObjects.removeAll()
+        pendingObservedObjectContexts.removeAll()
+
+        let observedObjects = componentHost.observedObjects
+        let relevantObjects =
+            observedObjects.isEmpty ? changedObjects : changedObjects.intersection(observedObjects)
+
+        guard let context = relevantObjects.compactMap({ contexts[$0] }).max(by: { $0.sequence < $1.sequence }) else {
+            skippedObservedObjectReloadCount += 1
+            completedObservedObjectReloadTaskCount += 1
+            onObservedObjectReloadTaskCompleted?(false)
+            syncAnimationDriver(for: window)
+            return
+        }
+
+        // The latest relevant mutation controls this coalesced rebuild.
+        // An unrelated object's later notification must not erase its context.
+        let previousAnimation = currentAnimationTransaction
+        let previousTransaction = currentTransaction
+        currentAnimationTransaction = context.animation
+        currentTransaction = context.transaction
+        defer {
+            currentAnimationTransaction = previousAnimation
+            currentTransaction = previousTransaction
+        }
+        reloadContent(requestsFrame: requestsFrame)
+        completedObservedObjectReloadTaskCount += 1
+        onObservedObjectReloadTaskCompleted?(true)
     }
 
     private func commitRuntimeState(in window: Win32Window, interactive: Bool = false) {
@@ -3097,9 +3127,17 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         // Opportunistic recovery: if we previously downgraded and the
         // configured policy permits, try re-attaching the batch backend
         // before this frame's render path picks a backend.
-        attemptBatchBackendRecoveryIfDue(in: window)
+        // A content failure must see this frame's animation changes before
+        // deciding that the scene is unchanged and extending its backoff.
+        let recoveryNeedsAnimationSample =
+            lastPresentationFailureKind == .sceneContent && (runtime.hasActiveAnimations || reloadScheduled)
+        if !recoveryNeedsAnimationSample {
+            attemptBatchBackendRecoveryIfDue(in: window)
+        }
 
-        guard runtime.isDirty || pendingPresentation || runtime.hasActiveAnimations || inputRateTracker.isHighRate
+        guard
+            reloadScheduled || runtime.isDirty || pendingPresentation || runtime.hasActiveAnimations
+                || inputRateTracker.isHighRate
         else {
             syncAnimationDriver(for: window)
             return false
@@ -3115,7 +3153,6 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         // call, nothing re-invalidates it, and the deferred frame is re-armed
         // on the animation timer by `syncAnimationDriver`.
         guard isFrameDueUnderSelfPacing(at: frameTimestamp) else {
-            pendingPresentation = true
             syncAnimationDriver(for: window)
             return false
         }
@@ -3124,6 +3161,25 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         // a QPC round-trip, and this is the frame loop.
         let isSamplingFrames = onFramePresented != nil
         let frameStartedAt = isSamplingFrames ? frameClock() : 0
+        // Coalesce @Published changes until a frame is admitted, without
+        // invalidating again from inside BeginPaint/EndPaint. A rejected
+        // dependency must not turn its native wake into a duplicate present.
+        flushObservedObjectReload(in: window, requestsFrame: false)
+        guard runtime.isDirty || pendingPresentation || runtime.hasActiveAnimations || inputRateTracker.isHighRate
+        else {
+            syncAnimationDriver(for: window)
+            return false
+        }
+        // Every admitted frame advances the same animation clock, including
+        // WM_PAINT-driven frames. Ticking only from WM_TIMER let an input paint
+        // consume a presentation slot with the preceding tick's values.
+        _ = runtime.tickAnimations(at: frameTimestamp)
+        if runtime.isDirty {
+            didSceneContentChangeSinceFailure = true
+        }
+        if recoveryNeedsAnimationSample {
+            attemptBatchBackendRecoveryIfDue(in: window)
+        }
         let rebuildsBefore = runtime.sceneRebuildCount
         var sceneBuildEndedAt = frameStartedAt
         var bindEndedAt = frameStartedAt
@@ -3466,7 +3522,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             intervalMilliseconds = min(intervalMilliseconds, waitMilliseconds)
         }
         let shouldDriveFrames =
-            runtime.hasActiveAnimations || runtime.isDirty || pendingPresentation || inputRateTracker.isHighRate
+            reloadScheduled || runtime.hasActiveAnimations || runtime.isDirty || pendingPresentation
+            || inputRateTracker.isHighRate
         window.setAnimationTimerEnabled(shouldDriveFrames, intervalMilliseconds: intervalMilliseconds)
 
         // Record timer state for observability (testing and debugging)

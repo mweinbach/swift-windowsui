@@ -170,6 +170,87 @@ final class FrameClockPacingTests: XCTestCase {
             "A zero timestamp is the sentinel that turns the runtime's pacing gate off."
         )
     }
+
+    private func makeAnimatingHost(
+        clock: FakeRecoveryClock,
+        frame: FakeRenderBackend,
+        batch: FakeBatchRenderBackend?
+    ) -> (WinSwiftUIWindowHost, Win32Window, ViewNode) {
+        let host = WinSwiftUIWindowHost(
+            configuration: WindowGroupConfiguration(
+                title: "Animation clock", size: IntSize(width: 320, height: 200), clearColor: .black, content: []),
+            renderer: frame,
+            batchRenderer: batch,
+            surfaceDescriptorProvider: { [surface = makeSurface()] _ in surface },
+            startupProbeConfiguration: nil)
+        host.frameClock = { clock.now }
+        host.hostedRuntime.clock = { clock.now }
+        let window = Win32Window(title: "Animation clock", clientSize: IntSize(width: 320, height: 200))
+        window.testMonitorRefreshRateOverride = 60
+        host.windowDidCreate(window)
+
+        clock.now += 0.02
+        let node = ViewNode(frame: Rect(x: 0, y: 0, width: 80, height: 40), backgroundColor: .white)
+        host.hostedRuntime.root.addChild(node)
+        node.animationStates[.opacity] = AnimationState(
+            startValue: 1, endValue: 0, startTime: clock.now, duration: 1, easing: .linear)
+        return (host, window, node)
+    }
+
+    func testPaintFramesAdvanceAndCompleteAnimationsOnBothPresentationPaths() async {
+        for usesBatchRenderer in [false, true] {
+            let frame = FakeRenderBackend()
+            let batch = FakeBatchRenderBackend()
+            let clock = FakeRecoveryClock(5_000)
+            let (host, window, node) = makeAnimatingHost(
+                clock: clock, frame: frame, batch: usesBatchRenderer ? batch : nil)
+
+            clock.now += 0.5
+            host.windowNeedsDisplay(window)
+            XCTAssertEqual(
+                node.opacity, 0.5, accuracy: 0.0001, "A paint must sample the animation at its own timestamp.")
+            XCTAssertTrue(host.currentTimerState.isEnabled)
+            let presentedBeforeCompletion = usesBatchRenderer ? batch.renderedScenes.count : frame.renderedFrames.count
+
+            clock.now += 0.5
+            host.windowNeedsDisplay(window)
+            XCTAssertEqual(node.opacity, 0, accuracy: 0.0001)
+            XCTAssertFalse(host.hostedRuntime.hasActiveAnimations)
+            XCTAssertFalse(host.currentTimerState.isEnabled)
+            XCTAssertEqual(
+                usesBatchRenderer ? batch.renderedScenes.count : frame.renderedFrames.count,
+                presentedBeforeCompletion + 1,
+                "The final animation value must reach the presenter before its timer stops.")
+        }
+    }
+
+    func testSelfPacingAdvancesAnimationsOnlyWhenAFrameIsAdmitted() async {
+        let clock = FakeRecoveryClock(5_000)
+        let batch = FakeBatchRenderBackend()
+        let (host, window, node) = makeAnimatingHost(clock: clock, frame: FakeRenderBackend(), batch: batch)
+        batch.presentPacing = PresentPacingStatus(mode: .selfPaced, displayFrameInterval: 1.0 / 60)
+        let startedAt = clock.now
+        var deferredRebuilds = 0
+        host.hostedRuntime.scheduleDeferredRebuild(key: "admitted-frame", delay: 0.003) {
+            deferredRebuilds += 1
+        }
+        host.windowNeedsDisplay(window)
+        let initialPresents = batch.renderedScenes.count
+
+        clock.now = startedAt + 0.006
+        host.window(window, animationFrameAt: clock.now)
+        clock.now = startedAt + 0.010
+        host.windowNeedsDisplay(window)
+        XCTAssertEqual(node.opacity, 1, accuracy: 0.0001)
+        XCTAssertEqual(deferredRebuilds, 0, "A rejected timer wake must not run the next animation phase early.")
+        XCTAssertEqual(batch.renderedScenes.count, initialPresents)
+
+        clock.now = startedAt + 1.0 / 60
+        host.windowNeedsDisplay(window)
+        XCTAssertEqual(node.opacity, 1 - 1.0 / 60, accuracy: 0.0001)
+        XCTAssertEqual(deferredRebuilds, 1)
+        XCTAssertEqual(batch.renderedScenes.count, initialPresents + 1)
+    }
 }
 
 /// Reference-type collector so the injected scene renderer does not capture a

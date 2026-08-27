@@ -16741,6 +16741,12 @@ public struct ScrollGeometry: Sendable, Equatable, CustomDebugStringConvertible 
         self.containerSize = containerSize
     }
 
+    fileprivate init(retained: RetainedScrollGeometry) {
+        self.init(
+            contentOffset: retained.contentOffset, contentSize: retained.contentSize,
+            contentInsets: retained.contentInsets, containerSize: retained.containerSize)
+    }
+
     public var bounds: CGRect {
         CGRect(origin: contentOffset, size: containerSize)
     }
@@ -16759,6 +16765,16 @@ public enum ScrollPhase: Sendable, Equatable, Hashable, CustomDebugStringConvert
     case interacting
     case decelerating
     case animating
+
+    fileprivate init(retained: RetainedScrollPhase) {
+        switch retained {
+        case .idle: self = .idle
+        case .tracking: self = .tracking
+        case .interacting: self = .interacting
+        case .decelerating: self = .decelerating
+        case .animating: self = .animating
+        }
+    }
 
     public var isScrolling: Bool {
         switch self {
@@ -16807,6 +16823,7 @@ final class ScrollViewProxyStorage {
     private struct ScrollRequest {
         var targetIdentifier: String
         var anchor: UnitPoint?
+        var transaction: Transaction
     }
 
     let identifier = UUID().uuidString
@@ -16877,7 +16894,12 @@ final class ScrollViewProxyStorage {
         else {
             return
         }
-        pendingRequests.append(ScrollRequest(targetIdentifier: targetIdentifier, anchor: anchor))
+        var transaction = currentTransaction ?? Transaction()
+        if currentTransaction == nil, let animation = currentAnimationTransaction {
+            transaction.animation = Animation(duration: animation.duration, easing: animation.easing)
+        }
+        pendingRequests.append(
+            ScrollRequest(targetIdentifier: targetIdentifier, anchor: anchor, transaction: transaction))
         resolvePendingRequests()
     }
 
@@ -16919,7 +16941,8 @@ final class ScrollViewProxyStorage {
             if !runtime.scrollToDescendant(
                 target,
                 anchorX: request.anchor?.x,
-                anchorY: request.anchor?.y
+                anchorY: request.anchor?.y,
+                transaction: request.transaction
             ), !runtime.hasCompletedLayout || runtime.isLayoutInProgress || runtime.hasPendingLayout {
                 pendingRequests.append(request)
             }
@@ -28220,7 +28243,8 @@ extension View {
 
     public func scrollDisabled(_ disabled: Bool = true) -> some View {
         ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context.withEnvironmentValue(\.isScrollEnabled, !disabled))
+            content.makeComponent(
+                context: context.withEnvironmentValue(\.isScrollEnabled, context.isScrollEnabled && !disabled))
         }
     }
 
@@ -28377,29 +28401,40 @@ extension View {
         of transform: @escaping (ScrollGeometry) -> Value,
         action: @escaping (Value, Value) -> Void
     ) -> some View {
-        let _ = transform
-        let _ = action
-        return scrollObservation("geometry:type:\(String(describing: Value.self))")
+        scrollObservation("geometry:type:\(String(describing: Value.self))") { node in
+            node.observeScrollGeometry(of: { transform(ScrollGeometry(retained: $0)) }, action: action)
+        }
     }
 
     public func onScrollPhaseChange(_ action: @escaping (ScrollPhase, ScrollPhase) -> Void) -> some View {
-        let _ = action
-        return scrollObservation("phase")
+        scrollObservation("phase") { node in
+            node.observeScrollPhase { old, new, _ in
+                action(ScrollPhase(retained: old), ScrollPhase(retained: new))
+            }
+        }
     }
 
     public func onScrollPhaseChange(
         _ action: @escaping (ScrollPhase, ScrollPhase, ScrollPhaseChangeContext) -> Void
     ) -> some View {
-        let _ = action
-        return scrollObservation("phase:context")
+        scrollObservation("phase:context") { node in
+            node.observeScrollPhase { old, new, context in
+                action(
+                    ScrollPhase(retained: old), ScrollPhase(retained: new),
+                    ScrollPhaseChangeContext(
+                        geometry: ScrollGeometry(retained: context.geometry),
+                        velocity: context.velocity.map { CGVector(dx: $0.x, dy: $0.y) }))
+            }
+        }
     }
 
     public func onScrollVisibilityChange(
         threshold: Double = 0.5,
         _ action: @escaping (Bool) -> Void
     ) -> some View {
-        let _ = action
-        return scrollObservation("visibility:threshold:\(threshold)")
+        scrollObservation("visibility:threshold:\(threshold)") { node in
+            node.observeScrollVisibility(threshold: threshold, action)
+        }
     }
 
     public func onScrollTargetVisibilityChange<ID: Hashable>(
@@ -28416,12 +28451,16 @@ extension View {
         return scrollObservation("scroll")
     }
 
-    private func scrollObservation(_ description: String) -> some View {
+    private func scrollObservation(
+        _ description: String,
+        configure: @escaping @MainActor (ViewNode) -> Void = { _ in }
+    ) -> some View {
         ModifiedView(content: self) { content, context in
             let component = content.makeComponent(context: context)
             return Component { runtime in
                 let node = component.makeNode(runtime: runtime)
                 node.scrollObservations.append(description)
+                configure(node)
                 return node
             }
         }

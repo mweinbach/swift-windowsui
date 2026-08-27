@@ -561,7 +561,7 @@ final class WinSwiftUIScrollViewReaderTests: XCTestCase {
         }
     }
 
-    func testMissingTargetAndDisabledScrollContainerRemainUnchanged() async {
+    func testMissingTargetRemainsUnchangedAndDisabledContainerAllowsProgrammaticScroll() async {
         await MainActor.run {
             var missingTargetProxy: ScrollViewProxy?
             let (runtime, enabledNode) = makeScrollReaderRuntime(
@@ -595,9 +595,15 @@ final class WinSwiftUIScrollViewReaderTests: XCTestCase {
 
             disabledProxy?.scrollTo("two", anchor: .bottom)
 
-            XCTAssertNil(disabledNode.scrollAxis)
-            XCTAssertEqual(disabledNode.scrollOffset, 0)
-            XCTAssertFalse(disabledRuntime.isDirty, "A disabled container must not schedule repeated layout passes")
+            XCTAssertEqual(disabledNode.scrollAxis, .vertical)
+            XCTAssertFalse(disabledNode.isScrollInputEnabled)
+            XCTAssertEqual(disabledNode.scrollOffset, 60)
+            _ = disabledRuntime.renderScene()
+            XCTAssertEqual(disabledNode.resolvedScrollOffset, 60)
+            XCTAssertFalse(disabledRuntime.isDirty, "The programmatic request settles without repeated layout passes")
+
+            disabledRuntime.mouseWheel(at: Point(x: 30, y: 30), delta: 1)
+            XCTAssertEqual(disabledNode.scrollOffset, 60, "Disabling input still rejects the wheel")
         }
     }
 

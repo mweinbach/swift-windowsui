@@ -2221,6 +2221,21 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    /// Allocated only on views carrying scroll observation callbacks. Kept
+    /// separately from diagnostic metadata so reconciliation can retain values.
+    internal var scrollObserverStorage: RetainedScrollObserverStorage? {
+        didSet {
+            if scrollObserverStorage != nil {
+                runtime?.registerScrollObservationNode(self)
+            } else {
+                runtime?.unregisterScrollObservationNode(self)
+            }
+            invalidateRuntime(.paint)
+        }
+    }
+
+    internal var scrollContainerState: RetainedScrollContainerState?
+
     public var scrollReaderID: String? {
         didSet { invalidateRuntime(.layout) }
     }
@@ -2267,7 +2282,37 @@ public final class ViewNode {
     }
 
     public var scrollAxis: ScrollAxis? {
-        didSet { invalidateRuntime(.layout) }
+        didSet {
+            if scrollAxis != oldValue {
+                runtime?.cancelScrollMomentum(for: self)
+                runtime?.cancelScrollPresentedTween(for: self)
+            }
+            if let scrollAxis {
+                if let state = scrollContainerState {
+                    state.axis = scrollAxis
+                } else {
+                    scrollContainerState = RetainedScrollContainerState(axis: scrollAxis)
+                }
+            } else {
+                scrollContainerState = nil
+            }
+            invalidateRuntime(.layout)
+        }
+    }
+
+    /// Input policy is separate from the axis used for layout and paint. A
+    /// disabled scroll view keeps its viewport, content extent and offset.
+    /// Programmatic requests can still move it through scrollToDescendant.
+    /// This retained bridge configures an existing scroll container: assign
+    /// scrollAxis first. Ordinary nodes do not allocate or retain scroll policy.
+    public var isScrollInputEnabled: Bool {
+        get { scrollContainerState?.isInputEnabled ?? true }
+        set {
+            guard let state = scrollContainerState, state.isInputEnabled != newValue else { return }
+            state.isInputEnabled = newValue
+            if !newValue { runtime?.disableScrollInput(for: self) }
+            invalidateRuntime(.paint)
+        }
     }
 
     public var scrollOffset: Double {
@@ -2282,6 +2327,7 @@ public final class ViewNode {
         // thumb drag, momentum, scroll-into-view, `scrollPosition` — so it is
         // where an overlay scroller learns it should be on screen.
         didSet {
+            runtime?.cancelProgrammaticScrollIfTargetChanged(for: self)
             invalidateRuntime(hasVirtualizedDescendants ? [.paint, .layout] : .paint)
             if scrollIndicatorAutoHides, scrollOffset != oldValue {
                 runtime?.revealScrollIndicator(for: self)
@@ -3443,10 +3489,8 @@ public final class ViewNode {
         }
     }
     // Signed pixel offset that visually lags the logical scrollOffset during
-    // animated keyboard scrolls. Starts at (oldOffset - newOffset) when the
-    // user triggers an instantaneous offset change, then tweens to 0 over a
-    // short duration so the viewport glides instead of snapping. Painter
-    // adds this to resolvedScrollOffset before applying child positioning.
+    // keyboard and programmatic animations. Layout, hit testing, paint, and
+    // observation all consume the same composed presentation offset.
     internal var scrollPresentedDelta: Double = 0 {
         didSet {
             if scrollPresentedDelta != oldValue {
@@ -3922,6 +3966,7 @@ public final class ViewNode {
         self.contentTransition = contentTransition
         self.sensoryFeedback = sensoryFeedback
         self.scrollAxis = scrollAxis
+        self.scrollContainerState = scrollAxis.map { RetainedScrollContainerState(axis: $0) }
         self.scrollOffset = scrollOffset
         self.scrollStep = scrollStep
         self.showsScrollIndicator = showsScrollIndicator
@@ -4286,6 +4331,9 @@ public final class ViewNode {
 
     fileprivate func setRuntime(_ runtime: RetainedViewRuntime?) {
         if self.runtime !== runtime {
+            if let state = scrollContainerState { state.attachmentGeneration &+= 1 }
+            self.runtime?.unregisterScrollObservationNode(self)
+            scrollObserverStorage?.reset()
             self.runtime?.releaseInteractionTargets(in: self)
             self.runtime?.cancelColorAnimations(of: self)
         }
@@ -4299,6 +4347,9 @@ public final class ViewNode {
             runtime?.registerAnimatingNode(self)
         }
         self.runtime = runtime
+        if scrollObserverStorage != nil {
+            runtime?.registerScrollObservationNode(self)
+        }
         for child in children {
             child.setRuntime(runtime)
         }
@@ -4586,9 +4637,11 @@ public final class ViewNode {
             var maxChildX: Double = 0
             var maxChildY: Double = 0
             for child in children {
+                guard !child.isHidden else { continue }
                 maxChildX = max(maxChildX, child.resolvedFrame.maxX)
                 maxChildY = max(maxChildY, child.resolvedFrame.maxY)
             }
+            scrollContainerState?.contentSize = Size(width: maxChildX, height: maxChildY)
             resolvedContentSize = Size(
                 width: max(resolvedFrame.size.width, maxChildX),
                 height: max(resolvedFrame.size.height, maxChildY)
@@ -4695,6 +4748,7 @@ public final class ViewNode {
         }
 
         resolvedContentSize = resolvedFrame.size
+        scrollContainerState?.contentSize = resolvedFrame.size
     }
 
     /// `.stack` / `.lazyStack`: allocate the track, then walk it placing —
@@ -4783,11 +4837,13 @@ public final class ViewNode {
 
         switch stackLayout.axis {
         case .vertical:
+            scrollContainerState?.contentSize = Size(width: contentCrossExtent, height: contentMainExtent)
             return Size(
                 width: max(resolvedFrame.size.width, contentCrossExtent),
                 height: max(resolvedFrame.size.height, contentMainExtent)
             )
         case .horizontal:
+            scrollContainerState?.contentSize = Size(width: contentMainExtent, height: contentCrossExtent)
             return Size(
                 width: max(resolvedFrame.size.width, contentMainExtent),
                 height: max(resolvedFrame.size.height, contentCrossExtent)
@@ -7686,6 +7742,10 @@ public final class ViewNode {
         scrollAxis != nil
     }
 
+    fileprivate var acceptsScrollInput: Bool {
+        isScrollable && isScrollInputEnabled
+    }
+
     fileprivate var isDraggable: Bool {
         onDragStart != nil || onDragChange != nil || onDragEnd != nil
     }
@@ -7704,7 +7764,7 @@ public final class ViewNode {
     /// Applies a wheel impulse to scrollOffset and returns the signed offset
     /// change that was actually applied (0 when no movement happened).
     fileprivate func applyMouseWheelDelta(_ delta: Double) -> Double {
-        guard isScrollable, delta.isFinite, scrollStep.isFinite, scrollStep > 0 else {
+        guard acceptsScrollInput, delta.isFinite, scrollStep.isFinite, scrollStep > 0 else {
             return 0
         }
 
@@ -7733,7 +7793,7 @@ public final class ViewNode {
     /// Must be read *before* `applyMouseWheelDelta`, which moves the offset out
     /// from under it.
     fileprivate func refusedMouseWheelDelta(_ delta: Double) -> Double {
-        guard isScrollable, maxScrollOffset > 0, delta.isFinite, scrollStep.isFinite, scrollStep > 0 else {
+        guard acceptsScrollInput, maxScrollOffset > 0, delta.isFinite, scrollStep.isFinite, scrollStep > 0 else {
             return 0
         }
 
@@ -7743,32 +7803,37 @@ public final class ViewNode {
     }
 
     fileprivate func applyKeyboardScroll(_ key: KeyboardKey) -> Bool {
-        guard isScrollable else {
-            return false
+        guard let offset = requestedKeyboardScrollOffset(for: key) else { return false }
+        return setScrollOffset(offset)
+    }
+
+    fileprivate func requestedKeyboardScrollOffset(for key: KeyboardKey) -> Double? {
+        guard acceptsScrollInput else {
+            return nil
         }
 
         switch (scrollAxis, key) {
         case (.vertical, .downArrow), (.horizontal, .rightArrow):
-            return applyScrollDelta(scrollStep)
+            return scrollOffset + scrollStep
         case (.vertical, .upArrow), (.horizontal, .leftArrow):
-            return applyScrollDelta(-scrollStep)
+            return scrollOffset - scrollStep
         case (_, .pageDown):
-            return applyScrollDelta(
-                (scrollAxis == .vertical ? resolvedFrame.size.height : resolvedFrame.size.width) * 0.85)
+            return scrollOffset + (scrollAxis == .vertical ? resolvedFrame.size.height : resolvedFrame.size.width)
+                * 0.85
         case (_, .pageUp):
-            return applyScrollDelta(
-                -(scrollAxis == .vertical ? resolvedFrame.size.height : resolvedFrame.size.width) * 0.85)
+            return scrollOffset - (scrollAxis == .vertical ? resolvedFrame.size.height : resolvedFrame.size.width)
+                * 0.85
         case (_, .home):
-            return setScrollOffset(0)
+            return 0
         case (_, .end):
-            return setScrollOffset(maxScrollOffset)
+            return maxScrollOffset
         default:
-            return false
+            return nil
         }
     }
 
     fileprivate func applyScrollIndicatorDrag(startOffset: Double, delta: Double, travel: Double) -> Bool {
-        guard maxScrollOffset > 0, travel > 0 else {
+        guard acceptsScrollInput, maxScrollOffset > 0, travel > 0 else {
             return false
         }
 
@@ -7934,10 +7999,6 @@ public final class ViewNode {
         return composed.isFinite ? composed : 0
     }
 
-    private func applyScrollDelta(_ delta: Double) -> Bool {
-        setScrollOffset(scrollOffset + delta)
-    }
-
     /// Reveals this node in its nearest scrollable ancestor. A live runtime
     /// also cancels momentum and resolves deferred lazy-stack descendants;
     /// an already-laid-out standalone tree can still adjust its own offset
@@ -7985,7 +8046,8 @@ public final class ViewNode {
     fileprivate static func requestedScrollOffset(
         for target: ViewNode,
         within scrollContainer: ViewNode,
-        anchor: Double?
+        anchor: Double?,
+        visibleOffset: Double? = nil
     ) -> Double? {
         guard let axis = scrollContainer.scrollAxis, anchor?.isFinite ?? true else {
             return nil
@@ -8031,13 +8093,14 @@ public final class ViewNode {
             let boundedAnchor = min(max(anchor, 0), 1)
             return targetStart + targetExtent * boundedAnchor - viewportExtent * boundedAnchor
         }
-        if targetStart < scrollContainer.scrollOffset {
+        let currentOffset = visibleOffset ?? scrollContainer.scrollOffset
+        if targetStart < currentOffset {
             return targetStart
         }
-        if targetStart + targetExtent > scrollContainer.scrollOffset + viewportExtent {
+        if targetStart + targetExtent > currentOffset + viewportExtent {
             return targetStart + targetExtent - viewportExtent
         }
-        return scrollContainer.scrollOffset
+        return currentOffset
     }
 
     fileprivate func setScrollOffset(_ value: Double) -> Bool {
@@ -8744,9 +8807,12 @@ public final class RetainedViewRuntime {
     private var pendingAfterLayoutActions: [String: @MainActor () -> Void] = [:]
     private var pendingAfterLayoutActionKeys: [String] = []
     private var isDrainingAfterLayoutActions = false
+    private var scrollObserverRegistry: RetainedScrollObserverRegistry?
     private struct PendingPreciseScrollAlignment {
         weak var target: ViewNode?
+        weak var coarseTarget: ViewNode?
         weak var container: ViewNode?
+        var containerEpoch: RetainedScrollSourceEpoch?
         var anchorX: Double?
         var anchorY: Double?
         var expectedOffset: Double
@@ -8972,7 +9038,7 @@ public final class RetainedViewRuntime {
     /// which is what springs it back. Nothing else in the runtime could reach
     /// that branch from rest.
     fileprivate func beginEdgeRubberBand(for node: ViewNode, refusedOffsetDelta: Double) {
-        guard node.isScrollable, refusedOffsetDelta != 0 else {
+        guard node.acceptsScrollInput, refusedOffsetDelta != 0 else {
             return
         }
 
@@ -9000,11 +9066,29 @@ public final class RetainedViewRuntime {
     // to its new target synchronously so external observers see the value
     // immediately, but visually we keep a lag delta that tweens to 0 over
     // ~220ms with ease-out so the viewport feels animated.
+    // Programmatic requests share that presentation path with their authored
+    // duration and easing. Their origin keeps input disabling from cancelling
+    // an application-requested animation.
     fileprivate struct ScrollPresentedTween {
+        enum Origin {
+            case keyboard
+            case programmatic(AnimationEasing)
+
+            var isProgrammatic: Bool {
+                if case .programmatic = self { return true }
+                return false
+            }
+        }
+
         weak var node: ViewNode?
+        weak var target: ViewNode?
         var startDelta: Double
         var startTime: Double
+        var lastTime: Double
         var duration: Double
+        var targetOffset: Double
+        var scrollLimit: Double
+        var origin: Origin
     }
     private var scrollPresentedTweens: [ObjectIdentifier: ScrollPresentedTween] = [:]
     private static let scrollKeyboardTweenDuration: Double = 0.22
@@ -9231,6 +9315,9 @@ public final class RetainedViewRuntime {
     }
 
     public func renderFrame(at timestamp: Double = 0) -> RenderFrame {
+        if scrollObserverRegistry?.isDelivering == true, let cachedFrame {
+            return cachedFrame
+        }
         if let cachedFrame, !isDirty {
             lastFrameReplayCount = 0
             lastLayoutReuseCount = 0
@@ -9316,6 +9403,9 @@ public final class RetainedViewRuntime {
 
     /// Render the current view tree as a GPUIScene for batch rendering.
     public func renderScene(at timestamp: Double = 0) -> GPUIScene {
+        if scrollObserverRegistry?.isDelivering == true, let cachedScene {
+            return shippable(cachedScene)
+        }
         // WS-14's stale-UV rule, applied to the one holder that had escaped it.
         // `shippable` staples the *current* shared atlas onto a scene whose
         // glyph quads were addressed against an earlier one, and the atlas is
@@ -9424,7 +9514,7 @@ public final class RetainedViewRuntime {
     }
 
     public func pointerMoved(to point: Point) {
-        if let dragState = scrollDragState {
+        if var dragState = scrollDragState {
             guard let node = dragState.node else {
                 scrollDragState = nil
                 updateScrollIndicatorHover(to: nil)
@@ -9433,8 +9523,13 @@ public final class RetainedViewRuntime {
 
             let delta =
                 dragState.axis == .vertical ? point.y - dragState.startPoint.y : point.x - dragState.startPoint.x
-            _ = node.applyScrollIndicatorDrag(
+            let didScroll = node.applyScrollIndicatorDrag(
                 startOffset: dragState.startOffset, delta: delta, travel: dragState.track.travel)
+            if didScroll {
+                dragState.didScroll = true
+                scrollDragState = dragState
+                recordScrollPhase(.interacting, for: node)
+            }
             updateScrollIndicatorHover(to: ScrollIndicatorHit(node: node, track: dragState.track))
             return
         }
@@ -9494,6 +9589,7 @@ public final class RetainedViewRuntime {
         updateScrollIndicatorHover(to: nil)
 
         if let cancelledScrollIndicatorNode {
+            recordScrollPhase(.idle, for: cancelledScrollIndicatorNode)
             animateColor(
                 .scrollIndicator,
                 of: cancelledScrollIndicatorNode,
@@ -9555,9 +9651,15 @@ public final class RetainedViewRuntime {
                 cancelScrollMomentum(for: scrollableNode)
             }
 
+            let previousGeometry = scrollObserverRegistry.map { _ in
+                scrollGeometry(of: scrollableNode, useResolvedOffset: false)
+            }
             let refusedDelta = scrollableNode.refusedMouseWheelDelta(remainingDelta)
             let appliedDelta = scrollableNode.applyMouseWheelDelta(remainingDelta)
             didMove = didMove || appliedDelta != 0
+            if appliedDelta != 0 {
+                recordScrollPhase(.interacting, for: scrollableNode, geometry: previousGeometry)
+            }
 
             // Pass only unused line movement to an ancestor on the same
             // axis. A nested viewport whose content fits must not swallow
@@ -9570,11 +9672,15 @@ public final class RetainedViewRuntime {
                     remainingDelta += appliedDelta / scrollableNode.scrollStep
                 }
                 cancelScrollMomentum(for: scrollableNode)
+                if appliedDelta != 0 { recordScrollPhase(.idle, for: scrollableNode) }
                 candidate = ancestor
                 continue
             }
 
             if refusedDelta != 0 {
+                if appliedDelta == 0 {
+                    recordScrollPhase(.interacting, for: scrollableNode, geometry: previousGeometry)
+                }
                 // Include a push that first reaches the edge: dropping its
                 // refused part made offsets 0 and 0.1 react differently to
                 // exactly the same wheel event.
@@ -9584,6 +9690,7 @@ public final class RetainedViewRuntime {
             } else if source == .precise, appliedDelta != 0 {
                 seedScrollMomentum(for: scrollableNode, wheelDelta: remainingDelta, appliedOffsetDelta: appliedDelta)
             }
+            recordScrollPhase(scrollPhase(of: scrollableNode), for: scrollableNode)
             break
         }
 
@@ -9615,6 +9722,7 @@ public final class RetainedViewRuntime {
                 node: scrollIndicatorHit.node, axis: scrollIndicatorHit.track.axis, startPoint: point,
                 startOffset: scrollIndicatorHit.node.scrollOffset, track: scrollIndicatorHit.track)
             activeScrollIndicatorNode = scrollIndicatorHit.node
+            recordScrollPhase(.tracking, for: scrollIndicatorHit.node)
             animateColor(
                 .scrollIndicator, of: scrollIndicatorHit.node, to: scrollIndicatorHit.node.scrollIndicatorActiveColor,
                 duration: 0.10, at: clock())
@@ -9652,6 +9760,7 @@ public final class RetainedViewRuntime {
             updateScrollIndicatorHover(to: nextIndicatorHit)
 
             if let node = dragState.node {
+                recordScrollPhase(.idle, for: node)
                 let targetColor =
                     nextIndicatorHit?.node === node
                     ? node.scrollIndicatorHoverColor : node.restingScrollIndicatorColor
@@ -9927,6 +10036,255 @@ public final class RetainedViewRuntime {
         invalidate(.layout)
     }
 
+    fileprivate func registerScrollObservationNode(_ node: ViewNode) {
+        let registry = scrollObserverRegistry ?? RetainedScrollObserverRegistry()
+        registry.register(node)
+        scrollObserverRegistry = registry
+    }
+
+    fileprivate func unregisterScrollObservationNode(_ node: ViewNode) {
+        guard let registry = scrollObserverRegistry else { return }
+        registry.unregister(node)
+        if registry.isEmpty, !registry.isDelivering {
+            scrollObserverRegistry = nil
+        }
+    }
+
+    /// A modifier outside a ScrollView observes the first enclosed container,
+    /// not every nested scroller. Stop descending at each container boundary.
+    private func observedScrollSource(for owner: ViewNode, storage: RetainedScrollObserverStorage) -> ViewNode? {
+        var work: [(ViewNode, Int)] = [(owner, 0)]
+        var first: ViewNode?
+        while let (node, depth) = work.popLast() {
+            guard depth < ViewNode.maximumTraversalDepth else { continue }
+            if node.scrollContainerState != nil || node.scrollAxis != nil {
+                if first == nil {
+                    first = node
+                } else {
+                    if !storage.reportedMultipleSources {
+                        storage.reportedMultipleSources = true
+                        FileHandle.standardError.write(
+                            Data(
+                                "[SwiftWindowsUI] Scroll observation found multiple scroll views; only the first is observed.\n"
+                                    .utf8))
+                    }
+                    break
+                }
+                continue
+            }
+            for child in node.children.reversed() { work.append((child, depth + 1)) }
+        }
+        storage.selectSource(first)
+        return first
+    }
+
+    private func scrollGeometry(of node: ViewNode, useResolvedOffset: Bool) -> RetainedScrollGeometry {
+        let authoredInsets = node.layoutMode.stackLayout?.padding ?? .zero
+        let insets = EdgeInsets(
+            top: sanitizedLayoutCoordinate(authoredInsets.top),
+            leading: sanitizedLayoutCoordinate(authoredInsets.leading),
+            bottom: sanitizedLayoutCoordinate(authoredInsets.bottom),
+            trailing: sanitizedLayoutCoordinate(authoredInsets.trailing))
+        // Natural extents are captured before the viewport floor and before
+        // layout sanitation. Observers must receive the same finite coordinate
+        // range as presentation, including malformed application margins.
+        let extent = sanitizedLayoutSize(node.scrollContainerState?.contentSize ?? node.resolvedContentSize)
+        let offset = useResolvedOffset ? node.resolvedScrollOffset : node.effectiveScrollOffset
+        return RetainedScrollGeometry(
+            contentOffset: Point(
+                x: sanitizedLayoutCoordinate((node.scrollAxis == .horizontal ? offset : 0) - insets.leading),
+                y: sanitizedLayoutCoordinate((node.scrollAxis == .vertical ? offset : 0) - insets.top)),
+            contentSize: sanitizedLayoutSize(
+                Size(
+                    width: extent.width - insets.leading - insets.trailing,
+                    height: extent.height - insets.top - insets.bottom)),
+            contentInsets: insets,
+            containerSize: node.resolvedFrame.size)
+    }
+
+    private func scrollPhase(of node: ViewNode) -> RetainedScrollPhase {
+        guard node.scrollAxis != nil, !Self.hasHiddenAncestor(node) else { return .idle }
+        let identifier = ObjectIdentifier(node)
+        if let tween = scrollPresentedTweens[identifier],
+            tween.origin.isProgrammatic || node.acceptsScrollInput
+        {
+            return .animating
+        }
+        guard node.acceptsScrollInput else { return .idle }
+        if let drag = scrollDragState, drag.node === node {
+            return drag.didScroll ? .interacting : .tracking
+        }
+        if scrollMomenta[identifier] != nil { return .decelerating }
+        return .idle
+    }
+
+    private func scrollPhaseContext(
+        of node: ViewNode,
+        geometry: RetainedScrollGeometry? = nil
+    ) -> RetainedScrollPhaseChangeContext {
+        let velocity = scrollMomenta[ObjectIdentifier(node)].map { state in
+            Point(
+                x: node.scrollAxis == .horizontal ? state.velocity : 0,
+                y: node.scrollAxis == .vertical ? state.velocity : 0)
+        }
+        return RetainedScrollPhaseChangeContext(
+            geometry: geometry ?? scrollGeometry(of: node, useResolvedOffset: false), velocity: velocity)
+    }
+
+    private func recordScrollPhase(
+        _ phase: RetainedScrollPhase,
+        for node: ViewNode,
+        geometry: RetainedScrollGeometry? = nil
+    ) {
+        guard let registry = scrollObserverRegistry else { return }
+        for reference in registry.nodes {
+            guard let owner = reference.node, owner.runtime === self,
+                let storage = owner.scrollObserverStorage, !storage.phase.isEmpty,
+                observedScrollSource(for: owner, storage: storage) === node
+            else { continue }
+            if storage.currentPhase != phase {
+                storage.recordPhase(phase, context: scrollPhaseContext(of: node, geometry: geometry))
+                invalidate(.paint)
+            }
+        }
+    }
+
+    /// A final momentum tick can retire without changing a pixel. It must still
+    /// schedule the idle notification instead of stranding app state as active.
+    private func refreshScrollObservationPhases() {
+        guard let registry = scrollObserverRegistry else { return }
+        for reference in registry.nodes {
+            guard let owner = reference.node, owner.runtime === self,
+                let storage = owner.scrollObserverStorage, !storage.phase.isEmpty,
+                let source = observedScrollSource(for: owner, storage: storage)
+            else { continue }
+            let phase = scrollPhase(of: source)
+            if storage.currentPhase != phase {
+                storage.recordPhase(phase, context: scrollPhaseContext(of: source))
+                invalidate(.paint)
+            }
+        }
+    }
+
+    private func scrollVisibilityFraction(of node: ViewNode) -> Double {
+        var chain: [ViewNode] = []
+        var ancestor: ViewNode? = node
+        while let current = ancestor, chain.count < ViewNode.maximumTraversalDepth {
+            guard !current.isHidden else { return 0 }
+            chain.append(current)
+            if current === root { break }
+            ancestor = current.parent
+        }
+        guard chain.last === root else { return 0 }
+
+        // The physical surface bounds do not rotate with a transformed root.
+        var clips = [
+            RetainedScrollVisibilityGeometry.corners(
+                of: Rect(origin: .zero, size: root.frame.size), transform: .identity)
+        ]
+        var parentOrigin = Point.zero
+        var transform = Transform2D.identity
+        var inverse: Transform2D?
+        var polygon: [Point] = []
+        for current in chain.reversed() {
+            let frame = Rect(
+                x: parentOrigin.x + current.resolvedFrame.origin.x,
+                y: parentOrigin.y + current.resolvedFrame.origin.y,
+                width: current.resolvedFrame.width, height: current.resolvedFrame.height)
+            let geometry = ViewNode.prepaintGeometry(
+                of: frame, transform: current.transform,
+                inheritedTransform: transform, inheritedInverseTransform: inverse)
+            transform = geometry.effectiveTransform
+            inverse = geometry.inverseTransform
+            polygon = RetainedScrollVisibilityGeometry.corners(of: frame, transform: transform)
+            if current !== node,
+                current.clipsToBounds || current.scrollContainerState != nil || current.scrollAxis != nil
+            {
+                clips.append(polygon)
+            }
+            parentOrigin = Point(
+                x: frame.minX - (current.scrollAxis == .horizontal ? current.resolvedScrollOffset : 0),
+                y: frame.minY - (current.scrollAxis == .vertical ? current.resolvedScrollOffset : 0))
+        }
+        let area = RetainedScrollVisibilityGeometry.area(of: polygon)
+        guard area.isFinite, area > 0 else { return 0 }
+        for clip in clips {
+            polygon = RetainedScrollVisibilityGeometry.intersect(polygon, with: clip)
+            if polygon.isEmpty { return 0 }
+        }
+        let fraction = RetainedScrollVisibilityGeometry.area(of: polygon) / area
+        return fraction.isFinite ? min(1, max(0, fraction)) : 0
+    }
+
+    /// Snapshot all values before running any app action. Callbacks run only
+    /// after a completed paint, never from layout or input dispatch, so a state
+    /// mutation schedules another frame rather than recursively sampling one.
+    private func deliverScrollObservations() {
+        guard let registry = scrollObserverRegistry, !registry.isDelivering else { return }
+        registry.isDelivering = true
+        registry.compact()
+        defer {
+            registry.isDelivering = false
+            if registry.renderedDuringDelivery {
+                // A callback may explicitly render through the other backend
+                // path, for which no cached output exists yet. That nested
+                // paint cannot consume the next observation of its mutation.
+                registry.renderedDuringDelivery = false
+                invalidate(.paint)
+            }
+            if registry.isEmpty { scrollObserverRegistry = nil }
+        }
+        var actions:
+            [(
+                RetainedScrollObserverRegistry.NodeRef, RetainedScrollObserverStorage,
+                UInt64, RetainedScrollObserverRegistry.NodeRef?, () -> Void
+            )] = []
+        for reference in registry.nodes {
+            guard let owner = reference.node, owner.runtime === self,
+                let storage = owner.scrollObserverStorage
+            else { continue }
+            if !storage.geometry.isEmpty || !storage.phase.isEmpty,
+                let source = observedScrollSource(for: owner, storage: storage)
+            {
+                let sourceReference = RetainedScrollObserverRegistry.NodeRef(node: source)
+                if !Self.hasHiddenAncestor(source), source.cachedLayoutKey != nil {
+                    let geometry = scrollGeometry(of: source, useResolvedOffset: true)
+                    for observer in storage.geometry {
+                        if let action = observer.sample(geometry) {
+                            actions.append((reference, storage, storage.generation, sourceReference, action))
+                        }
+                    }
+                }
+                storage.recordPhase(scrollPhase(of: source), context: scrollPhaseContext(of: source))
+                for observer in storage.phase {
+                    for action in observer.pendingActions() {
+                        actions.append((reference, storage, storage.generation, sourceReference, action))
+                    }
+                }
+            }
+            if !storage.visibility.isEmpty {
+                let fraction = scrollVisibilityFraction(of: owner)
+                for observer in storage.visibility {
+                    if let action = observer.sample(fraction) {
+                        actions.append((reference, storage, storage.generation, nil, action))
+                    }
+                }
+            }
+        }
+        for (reference, storage, generation, sourceReference, action) in actions {
+            guard let owner = reference.node, owner.runtime === self,
+                owner.scrollObserverStorage === storage, storage.generation == generation
+            else { continue }
+            if let sourceReference {
+                guard let source = sourceReference.node, source.runtime === self,
+                    Self.isInteractionTarget(source, within: owner),
+                    source.scrollSourceEpoch == sourceReference.sourceEpoch
+                else { continue }
+            }
+            action()
+        }
+    }
+
     /// Moves the nearest retained scroll container until `descendant` is
     /// visible. Explicit anchor coordinates align the same fractional point
     /// on the target and viewport; without one, only the smallest movement
@@ -9947,6 +10305,40 @@ public final class RetainedViewRuntime {
         anchorX: Double? = nil,
         anchorY: Double? = nil
     ) -> Bool {
+        var transaction = currentTransaction ?? Transaction()
+        if currentTransaction == nil, let animation = currentAnimationTransaction {
+            transaction.animation = Animation(duration: animation.duration, easing: animation.easing)
+        }
+        return scrollToDescendant(descendant, anchorX: anchorX, anchorY: anchorY, transaction: transaction)
+    }
+
+    /// Uses the transaction captured when a request was made. A deferred
+    /// proxy replay must not inherit a different animation from the later
+    /// layout pass, including when the original request explicitly used nil.
+    @discardableResult
+    public func scrollToDescendant(
+        _ descendant: ViewNode,
+        anchorX: Double? = nil,
+        anchorY: Double? = nil,
+        transaction: Transaction
+    ) -> Bool {
+        let animation =
+            transaction.disablesAnimations
+            ? nil
+            : transaction.animation.map {
+                AnimationTransaction(duration: $0.duration, easing: $0.easing)
+            }
+        return performProgrammaticScroll(
+            to: descendant, anchorX: anchorX, anchorY: anchorY, animation: animation, at: clock())
+    }
+
+    private func performProgrammaticScroll(
+        to descendant: ViewNode,
+        anchorX: Double?,
+        anchorY: Double?,
+        animation: AnimationTransaction?,
+        at timestamp: Double
+    ) -> Bool {
         guard descendant.runtime === self, layoutPassID != 0, !Self.hasHiddenAncestor(descendant) else {
             return false
         }
@@ -9966,15 +10358,45 @@ public final class RetainedViewRuntime {
             let requestedOffset = ViewNode.requestedScrollOffset(
                 for: target,
                 within: scrollContainer,
-                anchor: anchor
+                anchor: anchor,
+                visibleOffset: scrollContainer.effectiveScrollOffset
             )
         else {
             return false
         }
 
+        // Retarget from the last presented position, including a keyboard
+        // tween or wheel glide that this request interrupts. The logical
+        // target changes immediately while every presented consumer shares
+        // the lag delta, including the lazy-layout viewport.
+        let presentedOffset = scrollContainer.effectiveScrollOffset
         cancelScrollMomentum(for: scrollContainer)
         cancelScrollPresentedTween(for: scrollContainer)
+        if scrollDragState?.node === scrollContainer || activeScrollIndicatorNode === scrollContainer {
+            pointerCancelled()
+        }
         _ = scrollContainer.setScrollOffset(requestedOffset)
+        let delta = presentedOffset - scrollContainer.scrollOffset
+        if let animation, animation.duration.isFinite, animation.duration > 0,
+            timestamp.isFinite, delta.isFinite, delta != 0
+        {
+            scrollContainer.scrollPresentedDelta = delta
+            scrollPresentedTweens[ObjectIdentifier(scrollContainer)] = ScrollPresentedTween(
+                node: scrollContainer,
+                target: descendant,
+                startDelta: delta,
+                startTime: timestamp,
+                lastTime: timestamp,
+                duration: animation.duration,
+                targetOffset: scrollContainer.scrollOffset,
+                scrollLimit: scrollContainer.maxScrollOffset,
+                origin: .programmatic(animation.easing)
+            )
+            recordScrollPhase(.animating, for: scrollContainer)
+            invalidate(.paint)
+        } else {
+            recordScrollPhase(.idle, for: scrollContainer)
+        }
 
         // The next explicit request for a container supersedes any older
         // deferred correction. Once its oversized lazy row is realized, an
@@ -9987,7 +10409,9 @@ public final class RetainedViewRuntime {
             pendingPreciseScrollAlignments.append(
                 PendingPreciseScrollAlignment(
                     target: descendant,
+                    coarseTarget: target,
                     container: scrollContainer,
+                    containerEpoch: scrollContainer.scrollSourceEpoch,
                     anchorX: anchorX,
                     anchorY: anchorY,
                     expectedOffset: scrollContainer.scrollOffset
@@ -10228,6 +10652,7 @@ public final class RetainedViewRuntime {
 
     @discardableResult
     public func tickAnimations(at timestamp: Double) -> Bool {
+        defer { refreshScrollObservationPhases() }
         // First, because a due rebuild produces the tree the rest of this tick
         // advances — a phase boundary that landed this frame should be animated
         // from this frame, not from the next one.
@@ -10313,7 +10738,7 @@ public final class RetainedViewRuntime {
     /// notch count from the platform; we map that to a velocity in offset
     /// units per second so subsequent ticks can glide the scroll to a stop.
     fileprivate func seedScrollMomentum(for node: ViewNode, wheelDelta: Double, appliedOffsetDelta: Double) {
-        guard node.isScrollable, appliedOffsetDelta.isFinite, appliedOffsetDelta != 0 else {
+        guard node.acceptsScrollInput, appliedOffsetDelta.isFinite, appliedOffsetDelta != 0 else {
             return
         }
 
@@ -10350,9 +10775,36 @@ public final class RetainedViewRuntime {
         }
     }
 
-    /// Drops any in-flight keyboard-scroll tween for `node` so the next
+    fileprivate func disableScrollInput(for node: ViewNode) {
+        // Freeze an in-flight keyboard tween or glide where the content is
+        // currently presented, rather than exposing its logical target when
+        // the presentation delta is cleared. Rubber-band space is clamped
+        // back into the scrollable content when input is disabled.
+        let presentedOffset = node.effectiveScrollOffset
+        let hasProgrammaticTween = scrollPresentedTweens[ObjectIdentifier(node)]?.origin.isProgrammatic == true
+        cancelScrollMomentum(for: node)
+        if !hasProgrammaticTween {
+            cancelScrollPresentedTween(for: node, cancelsPendingAlignment: false)
+            _ = node.setScrollOffset(presentedOffset)
+        }
+        if scrollDragState?.node === node || activeScrollIndicatorNode === node {
+            pointerCancelled()
+        }
+        recordScrollPhase(hasProgrammaticTween ? .animating : .idle, for: node)
+    }
+
+    /// Drops any in-flight presented scroll tween for `node` so the next
     /// imperative offset change isn't double-counted with stale lag.
-    fileprivate func cancelScrollPresentedTween(for node: ViewNode, preservingPresentation: Bool = false) {
+    fileprivate func cancelScrollPresentedTween(
+        for node: ViewNode,
+        preservingPresentation: Bool = false,
+        cancelsPendingAlignment: Bool = true
+    ) {
+        if cancelsPendingAlignment {
+            pendingPreciseScrollAlignments.removeAll {
+                $0.container === node || $0.container == nil || $0.target == nil
+            }
+        }
         if scrollPresentedTweens.removeValue(forKey: ObjectIdentifier(node)) != nil {
             let presentedOffset = node.scrollOffset + node.scrollPresentedDelta
             node.scrollPresentedDelta = 0
@@ -10362,15 +10814,61 @@ public final class RetainedViewRuntime {
         }
     }
 
+    fileprivate func cancelProgrammaticScrollIfTargetChanged(for node: ViewNode) {
+        guard let tween = scrollPresentedTweens[ObjectIdentifier(node)],
+            tween.origin.isProgrammatic, node.scrollOffset != tween.targetOffset
+        else { return }
+        cancelScrollPresentedTween(for: node)
+        recordScrollPhase(.idle, for: node)
+    }
+
+    private func settleProgrammaticScrollRangeChanges() -> Bool {
+        var didCancel = false
+        for key in Array(scrollPresentedTweens.keys) {
+            guard var tween = scrollPresentedTweens[key], tween.origin.isProgrammatic,
+                let node = tween.node, node.runtime === self
+            else { continue }
+            let limit = node.maxScrollOffset
+            guard limit != tween.scrollLimit else { continue }
+            let previousLimit = tween.scrollLimit
+            tween.scrollLimit = limit
+            scrollPresentedTweens[key] = tween
+
+            // Use the prior logical target with its lag, not the newly
+            // clamped target: mixing the new limit with the old lag can
+            // produce negative presentation after a viewport/content resize.
+            let presentedOffset = tween.targetOffset + node.scrollPresentedDelta
+            guard limit < previousLimit,
+                node.clampedScrollOffset(for: tween.targetOffset) != tween.targetOffset
+                    || node.clampedScrollOffset(for: presentedOffset) != presentedOffset
+            else { continue }
+            cancelScrollPresentedTween(for: node)
+            _ = node.setScrollOffset(presentedOffset)
+            recordScrollPhase(.idle, for: node)
+            didCancel = true
+        }
+        return didCancel
+    }
+
     private func cancelScrollAnimations(in subtree: ViewNode) {
+        pendingPreciseScrollAlignments.removeAll {
+            $0.target == nil || $0.container == nil
+                || Self.isInteractionTarget($0.target, within: subtree)
+                || Self.isInteractionTarget($0.container, within: subtree)
+        }
         for state in Array(scrollMomenta.values) {
             if let node = state.node, Self.isInteractionTarget(node, within: subtree) {
                 cancelScrollMomentum(for: node)
             }
         }
         for tween in Array(scrollPresentedTweens.values) {
-            if let node = tween.node, Self.isInteractionTarget(node, within: subtree) {
-                cancelScrollPresentedTween(for: node)
+            if let node = tween.node {
+                if Self.isInteractionTarget(node, within: subtree) {
+                    cancelScrollPresentedTween(for: node)
+                } else if Self.isInteractionTarget(tween.target, within: subtree) {
+                    cancelScrollPresentedTween(for: node, preservingPresentation: true)
+                    recordScrollPhase(.idle, for: node)
+                }
             }
         }
     }
@@ -10401,7 +10899,7 @@ public final class RetainedViewRuntime {
                 scrollMomenta.removeValue(forKey: key)
                 continue
             }
-            guard node.isScrollable, !Self.hasHiddenAncestor(node) else {
+            guard node.acceptsScrollInput, !Self.hasHiddenAncestor(node) else {
                 didUpdate = didUpdate || node.scrollOvershoot != 0
                 cancelScrollMomentum(for: node)
                 continue
@@ -10792,6 +11290,10 @@ public final class RetainedViewRuntime {
         pendingDirtyNodes.removeAll(keepingCapacity: true)
         dirtyFlags = pendingDirtyFlags
         pendingDirtyFlags = []
+        if let registry = scrollObserverRegistry, registry.isDelivering {
+            registry.renderedDuringDelivery = true
+        }
+        deliverScrollObservations()
     }
 
     /// Number of nested render passes observed since process start. Diagnostic
@@ -11118,7 +11620,7 @@ public final class RetainedViewRuntime {
     private func scrollTargetDispatchIndex(at point: Point, axis: ScrollAxis? = nil) -> Int? {
         updateResolvedLayout()
         for interaction in prepaintState.interactions.reversed() {
-            guard interaction.node.isScrollable else {
+            guard interaction.node.acceptsScrollInput else {
                 continue
             }
 
@@ -11143,7 +11645,7 @@ public final class RetainedViewRuntime {
         for deferredDraw in deferredDrawsInteracting(at: point) {
             switch deferredDraw.interaction {
             case .scrollIndicator(let dispatchIndex, let track):
-                guard let node = node(for: dispatchIndex) else {
+                guard let node = node(for: dispatchIndex), node.acceptsScrollInput else {
                     continue
                 }
                 return ScrollIndicatorHit(node: node, track: track)
@@ -11200,7 +11702,7 @@ public final class RetainedViewRuntime {
             for: nearestDispatchIndex(
                 from: dispatchIndex(for: node),
                 where: { candidate in
-                    candidate.isScrollable && (axis == nil || candidate.scrollAxis == axis)
+                    candidate.acceptsScrollInput && (axis == nil || candidate.scrollAxis == axis)
                 }
             )
         )
@@ -11254,10 +11756,17 @@ public final class RetainedViewRuntime {
             guard let modal else { return true }
             return Self.isInteractionTarget(candidate, within: modal)
         }
-        guard let scrollableNode else {
+        // Activation and editing keys must not cancel an application
+        // scroll. Only a key this axis actually
+        // handles may take control of that motion. Compute again after any
+        // interruption so arrows still start from the presented offset.
+        guard let scrollableNode, scrollableNode.requestedKeyboardScrollOffset(for: key) != nil else {
             return false
         }
 
+        if scrollPresentedTweens[ObjectIdentifier(scrollableNode)]?.origin.isProgrammatic == true {
+            cancelScrollPresentedTween(for: scrollableNode, preservingPresentation: true)
+        }
         let previousOffset = scrollableNode.scrollOffset
         let didScroll = scrollableNode.applyKeyboardScroll(key)
         if didScroll {
@@ -11280,13 +11789,21 @@ public final class RetainedViewRuntime {
         // Combine with any in-flight presented delta so rapid key presses
         // accumulate without snapping.
         let combinedStart = node.scrollPresentedDelta + delta
+        let timestamp = clock()
+        pendingPreciseScrollAlignments.removeAll { $0.container === node || $0.container == nil || $0.target == nil }
         node.scrollPresentedDelta = combinedStart
         scrollPresentedTweens[key] = ScrollPresentedTween(
             node: node,
+            target: nil,
             startDelta: combinedStart,
-            startTime: clock(),
-            duration: Self.scrollKeyboardTweenDuration
+            startTime: timestamp,
+            lastTime: timestamp,
+            duration: Self.scrollKeyboardTweenDuration,
+            targetOffset: node.scrollOffset,
+            scrollLimit: node.maxScrollOffset,
+            origin: .keyboard
         )
+        recordScrollPhase(.animating, for: node)
         invalidate(.paint)
     }
 
@@ -11295,12 +11812,15 @@ public final class RetainedViewRuntime {
 
         var didUpdate = false
         for key in Array(scrollPresentedTweens.keys) {
-            guard let tween = scrollPresentedTweens[key] else { continue }
+            guard var tween = scrollPresentedTweens[key] else { continue }
             guard let node = tween.node, node.runtime === self else {
                 scrollPresentedTweens.removeValue(forKey: key)
                 continue
             }
-            guard node.isScrollable, !Self.hasHiddenAncestor(node) else {
+            guard node.scrollAxis != nil, !Self.hasHiddenAncestor(node),
+                tween.origin.isProgrammatic || node.acceptsScrollInput,
+                !tween.origin.isProgrammatic || node.scrollOffset == tween.targetOffset
+            else {
                 didUpdate = didUpdate || node.scrollPresentedDelta != 0
                 cancelScrollPresentedTween(for: node)
                 continue
@@ -11308,17 +11828,27 @@ public final class RetainedViewRuntime {
 
             let elapsed = max(0, timestamp - tween.startTime)
             let progress = tween.duration > 0 ? min(1, elapsed / tween.duration) : 1
-            // Ease-out (1 - (1 - t)^3) so the viewport decelerates into the
-            // target like macOS keyboard scrolling.
-            let eased = 1 - pow(1 - progress, 3)
+            let eased: Double
+            switch tween.origin {
+            case .keyboard:
+                // Preserve the existing macOS-style keyboard curve.
+                eased = 1 - pow(1 - progress, 3)
+            case .programmatic(let easing):
+                let value = progress == 0 ? 0 : progress == 1 ? 1 : easing.apply(progress)
+                eased = value.isFinite ? value : progress
+            }
             let nextDelta = tween.startDelta * (1 - eased)
-            if node.scrollPresentedDelta != nextDelta {
-                node.scrollPresentedDelta = nextDelta
+            let finiteDelta = nextDelta.isFinite ? nextDelta : 0
+            if node.scrollPresentedDelta != finiteDelta {
+                node.scrollPresentedDelta = finiteDelta
                 didUpdate = true
             }
             if progress >= 1 {
                 node.scrollPresentedDelta = 0
                 scrollPresentedTweens.removeValue(forKey: key)
+            } else {
+                tween.lastTime = max(tween.lastTime, timestamp)
+                scrollPresentedTweens[key] = tween
             }
         }
 
@@ -11347,6 +11877,10 @@ public final class RetainedViewRuntime {
             runLayoutPass()
         }
 
+        if settleProgrammaticScrollRangeChanges() {
+            settleLayoutAfterProgrammaticScroll()
+        }
+
         if drainAfterLayoutActions() {
             // Programmatic scrolling changes a scrollable node's presented
             // offset after the first pass resolved it. Lazy content also
@@ -11361,6 +11895,12 @@ public final class RetainedViewRuntime {
             // acquires its own frame only after the row's first settle. One
             // additional bounded pass aligns that precise frame and still
             // paints the correct target in the same scene/frame.
+            settleLayoutAfterProgrammaticScroll()
+        }
+
+        if settleProgrammaticScrollRangeChanges() {
+            // A deferred target can change the content extent during its
+            // settle pass. Correct that range before this frame is painted.
             settleLayoutAfterProgrammaticScroll()
         }
 
@@ -11399,12 +11939,41 @@ public final class RetainedViewRuntime {
         for alignment in alignments {
             guard let target = alignment.target, let container = alignment.container,
                 target.runtime === self, container.runtime === self,
+                container.scrollSourceEpoch == alignment.containerEpoch,
                 container.scrollOffset == alignment.expectedOffset,
-                nearestRetainedScrollContainer(of: target) === container
+                nearestRetainedScrollContainer(of: target) === container,
+                let (placedTarget, placedContainer) = target.nearestScrollTarget(),
+                placedContainer === container
             else {
                 continue
             }
-            if scrollToDescendant(target, anchorX: alignment.anchorX, anchorY: alignment.anchorY) {
+
+            let tween = scrollPresentedTweens[ObjectIdentifier(container)]
+            if placedTarget !== target, placedTarget === alignment.coarseTarget {
+                // Presentation has not reached the deferred row yet. Keep
+                // its request without restarting the animation on every
+                // intermediate render or realizing offscreen content early.
+                if tween?.origin.isProgrammatic == true {
+                    pendingPreciseScrollAlignments.append(alignment)
+                }
+                continue
+            }
+
+            var continuation: AnimationTransaction?
+            var timestamp = clock()
+            if let tween, case .programmatic(let easing) = tween.origin {
+                // A more precise target uses the remaining authored time.
+                // This is a correction to the same request, not a second
+                // animation with a new full duration. Once the tween has
+                // completed, the final alignment settles before painting.
+                timestamp = tween.lastTime
+                continuation = AnimationTransaction(
+                    duration: max(0, tween.duration - max(0, timestamp - tween.startTime)), easing: easing)
+            }
+            if performProgrammaticScroll(
+                to: target, anchorX: alignment.anchorX, anchorY: alignment.anchorY,
+                animation: continuation, at: timestamp)
+            {
                 didResolve = true
             }
         }
@@ -11850,6 +12419,7 @@ private struct ScrollDragState {
     let startPoint: Point
     let startOffset: Double
     let track: ScrollIndicatorTrack
+    var didScroll = false
 }
 private struct NodeDragState {
     weak var node: ViewNode?

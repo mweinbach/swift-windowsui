@@ -1,17 +1,11 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
-
 import SwiftWindowsLayout
-
 import XCTest
 
 @testable import SwiftWindowsPlatform
-
 @testable import SwiftWindowsUI
-
 @testable import WinSwiftUI
 
 private struct OneThirdHorizontalAlignmentID: AlignmentID {
@@ -6564,16 +6558,19 @@ final class WinSwiftUITests: XCTestCase {
                 .scrollDisabled(false)
             )
 
-            XCTAssertNil(scrollViewNode.scrollAxis)
+            XCTAssertEqual(scrollViewNode.scrollAxis, .vertical)
+            XCTAssertFalse(scrollViewNode.isScrollInputEnabled)
             XCTAssertFalse(scrollViewNode.showsScrollIndicator)
             XCTAssertTrue(scrollViewNode.clipsToBounds)
             XCTAssertEqual(scrollViewNode.children[0].text, "ROW")
 
-            XCTAssertNil(listNode.scrollAxis)
+            XCTAssertEqual(listNode.scrollAxis, .vertical)
+            XCTAssertFalse(listNode.isScrollInputEnabled)
             XCTAssertFalse(listNode.showsScrollIndicator)
             XCTAssertEqual(listRows(of: listNode).count, 2)
 
-            XCTAssertNil(sectionNode.scrollAxis)
+            XCTAssertEqual(sectionNode.scrollAxis, .vertical)
+            XCTAssertFalse(sectionNode.isScrollInputEnabled)
             XCTAssertFalse(sectionNode.showsScrollIndicator)
             XCTAssertEqual(sectionNode.children[1].text, "ITEM")
 
@@ -6789,7 +6786,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(listNode.scrollInputBehaviors, ["look": "disabled"])
             XCTAssertEqual(sectionNode.scrollInputBehaviors, ["look(vertical)": "enabled"])
             XCTAssertEqual(disabledScrollNode.scrollInputBehaviors, ["handGestureShortcut": "enabled"])
-            XCTAssertNil(disabledScrollNode.scrollAxis)
+            XCTAssertEqual(disabledScrollNode.scrollAxis, .vertical)
+            XCTAssertFalse(disabledScrollNode.isScrollInputEnabled)
         }
     }
 

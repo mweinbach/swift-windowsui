@@ -9139,8 +9139,8 @@ public struct ScrollView: View {
             node.scrollIndicatorsFlashOnAppear = context.scrollIndicatorsFlashOnAppear
             node.scrollIndicatorsFlashTrigger = context.scrollIndicatorsFlashTrigger
             node.scrollPosition = context.scrollPositionMetadata
+            node.isScrollInputEnabled = context.isScrollEnabled
             if !context.isScrollEnabled {
-                node.scrollAxis = nil
                 node.showsScrollIndicator = false
             } else {
                 node.showsScrollIndicator =
@@ -9710,8 +9710,8 @@ public struct List: View {
             node.scrollIndicatorColor = node.restingScrollIndicatorColor
             node.initialScrollAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .initialOffset))
             node.scrollSizeChangeAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .sizeChanges))
+            node.isScrollInputEnabled = context.isScrollEnabled
             if !context.isScrollEnabled {
-                node.scrollAxis = nil
                 node.showsScrollIndicator = false
             } else {
                 node.showsScrollIndicator = context.verticalScrollIndicatorVisibility.showsRetainedScrollIndicator
@@ -10999,10 +10999,13 @@ public struct Section: View {
                 children: children
             )
 
-            if context.isScrollEnabled, let axis = style.scrollAxis {
+            if let axis = style.scrollAxis {
                 node.scrollAxis = axis.scrollAxis
+                node.isScrollInputEnabled = context.isScrollEnabled
                 node.scrollStep = style.scrollStep
-                node.showsScrollIndicator = context.scrollIndicatorVisibility(for: axis).showsRetainedScrollIndicator
+                node.showsScrollIndicator =
+                    context.isScrollEnabled
+                    && context.scrollIndicatorVisibility(for: axis).showsRetainedScrollIndicator
                 node.horizontalScrollBounceBehavior = context.horizontalScrollBounceBehavior.description
                 node.verticalScrollBounceBehavior = context.verticalScrollBounceBehavior.description
                 node.scrollTargetBehavior = context.scrollTargetBehavior?.description

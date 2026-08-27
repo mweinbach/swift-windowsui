@@ -418,9 +418,38 @@ limits here as each item is validated.
       context handlers, so an immediate redraw cannot discard the binding's
       captured transaction. These are Windows semantics tests, not native
       SwiftUI reference evidence.
-- [ ] Dispatch scroll geometry, phase, and visibility callbacks from retained
+- [x] Dispatch scroll geometry, phase, and visibility callbacks from retained
       presentation, preserving observer history across rebuilds and respecting
       scroll ownership, clipping, and animation.
+      Validation exposed related defects in the existing presentation path:
+      disabling a scroller removed its layout axis; animated proxy requests
+      lost their transaction; unrelated keyboard input could cancel motion;
+      shrinking the scroll range could produce a negative presentation; and
+      returning clipped content could replay stale prepaint ranges. The
+      implementation and regression cases now address these paths together.
+      Paint-only culling at zero opacity needs separate frame/scene snapshot
+      ownership because prepaint visibility alone cannot establish that a
+      descendant contributed pixels to the prior output. Pixel regressions
+      include in-bounds stale ranges that refer to another view's records,
+      not only out-of-bounds crashes. The subsequent consolidated run passed
+      all 24 targets in 20 serial invocations: 344 XCTest cases and 16 Swift
+      Testing cases. The scrolling coverage includes 43 retained and 8 public
+      observer tests, 7 retained and 6 public programmatic-animation tests,
+      and a public keyboard activation test; 4 snapshot-ownership regressions
+      and 2 real-host gallery tests also passed. The existing reader, runtime
+      scrolling, window, rendering, binding, and Settings suites passed in
+      that same run. This is focused Windows evidence, not the Full or hosted
+      release gate.
+      Geometry and phase observe the first enclosed scroller; multiple
+      candidates produce a diagnostic. Geometry uses the same presented
+      offset as paint and input, and history survives reconciliation. Visibility
+      uses transformed rectangular intersections, without opacity, sibling
+      occlusion, or complete rounded-mask coverage. Target visibility,
+      binding-driven scroll position, scroll transitions, two-axis scrolling,
+      native phase/threshold comparison, and hardware pacing remain open.
+      Active-animation interruption is tested; whether a queued pre-layout
+      proxy request should be superseded by newer input remains a separate
+      audit/test item for the existing request queue.
 - [x] Persist the settings template through an injectable local store; restore
       it on launch, validate saved data, preserve unsaved edits on write failure,
       and keep snapshots/tests isolated from user settings.

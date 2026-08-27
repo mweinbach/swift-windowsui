@@ -1,7 +1,5 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import SwiftWindowsPlatform
 
 @MainActor
@@ -791,6 +789,7 @@ public final class ComponentHost {
         if target.scrollObservations != source.scrollObservations {
             target.scrollObservations = source.scrollObservations
         }
+        target.reconcileScrollObservers(from: source)
         if target.scrollReaderID != source.scrollReaderID { target.scrollReaderID = source.scrollReaderID }
         if target.scrollProxyRequests != source.scrollProxyRequests {
             target.scrollProxyRequests = source.scrollProxyRequests
@@ -836,6 +835,7 @@ public final class ComponentHost {
         if target.flexItem != source.flexItem { target.flexItem = source.flexItem }
         if target.flexItemStyle != source.flexItemStyle { target.flexItemStyle = source.flexItemStyle }
         if target.scrollAxis != source.scrollAxis { target.scrollAxis = source.scrollAxis }
+        target.reconcileScrollContainer(from: source)
         // Scroll offsets are runtime-driven (wheel/drag/keyboard); a freshly
         // built node always starts at zero, so only adopt a source offset that
         // was explicitly set and never let a rebuild reset a live offset.

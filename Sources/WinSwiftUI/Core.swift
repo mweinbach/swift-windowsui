@@ -19165,7 +19165,7 @@ private func retainedPreferenceIdentifier<Key: PreferenceKey>(_ key: Key.Type) -
 private func retainedLayoutValueIdentifier<Key: LayoutValueKey>(_ key: Key.Type) -> ObjectIdentifier {
     ObjectIdentifier(key)
 }
-private func retainedContainerValuesIdentifier() -> ObjectIdentifier {
+func retainedContainerValuesIdentifier() -> ObjectIdentifier {
     ObjectIdentifier(ContainerValues.self)
 }
 @MainActor
@@ -29669,8 +29669,8 @@ extension View {
                     maximumDistance: Double(maximumDistance),
                     isEnabled: context.isEnabled,
                     onBegin: begin,
-                    onPressingChanged: pressingChanged,
-                    onRecognized: action
+                    onPressingChanged: { isPressing in pressingChanged?(isPressing) },
+                    onRecognized: { action() }
                 )
 
                 return childNode

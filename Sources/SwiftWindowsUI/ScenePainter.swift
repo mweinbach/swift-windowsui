@@ -2,6 +2,14 @@ import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 
+/// The replay log and the identity owning its cached ranges travel together.
+/// Copies that only attach atlases retain ownership; a new paint attempt does
+/// not, even when its output happens to have the same number of records.
+struct ScenePaintSnapshot: Sendable {
+    var scene: GPUIScene
+    let identity: PaintSnapshotIdentity
+}
+
 /// Walks a ViewNode tree and produces a GPUIScene with typed primitive arrays,
 /// mirroring the logic of ViewNode.appendCommands() but targeting the GPUI
 /// instanced-rendering pipeline instead of the RenderCommand enum list.
@@ -156,35 +164,36 @@ public enum ScenePainter {
         var replayCount = 0
         var deferredReplayCount = 0
         var deferredDraws: [DeferredDrawState] = []
-        return paint(
+        return paintSnapshot(
             root: root,
             clearColor: clearColor,
             surfaceSize: surfaceSize,
             displayScale: displayScale,
             textSystem: WindowTextSystem(),
-            previousScene: nil,
+            previousSnapshot: nil,
             deferredDraws: &deferredDraws,
             replayCount: &replayCount,
             deferredReplayCount: &deferredReplayCount
-        )
+        ).scene
     }
 
-    static func paint(
+    static func paintSnapshot(
         root: ViewNode,
         clearColor: Color,
         surfaceSize: Size,
         displayScale: Double = 1.0,
         textSystem: WindowTextSystem,
-        previousScene: GPUIScene?,
+        previousSnapshot: ScenePaintSnapshot?,
         deferredDraws: inout [DeferredDrawState],
         replayCount: inout Int,
         deferredReplayCount: inout Int,
         overlays: [ViewNode] = []
-    ) -> GPUIScene {
+    ) -> ScenePaintSnapshot {
         let fullClip = RuntimeClipShape(
             rect: Rect(x: 0, y: 0, width: surfaceSize.width, height: surfaceSize.height), space: .painted)
         let deviceSurfaceSize = surfaceSize.scaled(by: max(displayScale, 1.0))
         let originalDeferredDraws = deferredDraws
+        let previousScene = previousSnapshot?.scene
 
         // One LRU tick per *rendered frame*, not per attempt: the loop below
         // repaints the same frame, and advancing the clock again would age
@@ -216,6 +225,7 @@ public enum ScenePainter {
             TextRenderDiagnosticsCounters.beginPass(preservingAtlasRecoveries: attempt > 0)
 
             var scene = GPUIScene(clearColor: clearColor)
+            let snapshotIdentity = PaintSnapshotIdentity()
             // The list outlives the frame (it carries the replay ranges);
             // "an earlier pass already drew this" does not. Every attempt
             // starts with every deferred entry undrawn.
@@ -241,6 +251,8 @@ public enum ScenePainter {
                 displayScale: max(displayScale, 1.0),
                 textSystem: textSystem,
                 previousScene: replaySource,
+                previousSceneIdentity: previousSnapshot?.identity,
+                snapshotIdentity: snapshotIdentity,
                 usedNativeGlyphs: &usedNativeGlyphs,
                 usedPixelGlyphs: &usedPixelGlyphs,
                 replayCount: &attemptReplayCount
@@ -257,6 +269,8 @@ public enum ScenePainter {
                     displayScale: max(displayScale, 1.0),
                     textSystem: textSystem,
                     previousScene: replaySource,
+                    previousSceneIdentity: previousSnapshot?.identity,
+                    snapshotIdentity: snapshotIdentity,
                     usedNativeGlyphs: &usedNativeGlyphs,
                     usedPixelGlyphs: &usedPixelGlyphs,
                     replayCount: &attemptReplayCount
@@ -266,6 +280,8 @@ public enum ScenePainter {
                 &attemptDeferredDraws,
                 into: &scene,
                 previousScene: replaySource,
+                previousSceneIdentity: previousSnapshot?.identity,
+                snapshotIdentity: snapshotIdentity,
                 surfaceSize: deviceSurfaceSize,
                 displayScale: max(displayScale, 1.0),
                 textSystem: textSystem,
@@ -315,7 +331,7 @@ public enum ScenePainter {
             deferredReplayCount = attemptDeferredReplayCount
             scene.paintMetrics.textDiagnostics = TextRenderDiagnosticsCounters.snapshot()
             scene.finish()
-            return scene
+            return ScenePaintSnapshot(scene: scene, identity: snapshotIdentity)
         }
 
         // Unreachable by construction: the final attempt runs with the atlas
@@ -327,7 +343,7 @@ public enum ScenePainter {
         deferredReplayCount = 0
         var scene = GPUIScene(clearColor: clearColor)
         scene.finish()
-        return scene
+        return ScenePaintSnapshot(scene: scene, identity: PaintSnapshotIdentity())
     }
 
     // MARK: - Private
@@ -433,6 +449,8 @@ public enum ScenePainter {
         displayScale: Double,
         textSystem: WindowTextSystem,
         previousScene: GPUIScene?,
+        previousSceneIdentity: PaintSnapshotIdentity? = nil,
+        snapshotIdentity: PaintSnapshotIdentity = PaintSnapshotIdentity(),
         primitiveOpacity: Float = 1,
         inheritedColorEffects: [RetainedColorEffect] = [],
         inheritedBlendMode: BlendMode = .normal,
@@ -474,7 +492,8 @@ public enum ScenePainter {
                     state,
                     into: &scene,
                     surfaceSize: surfaceSize,
-                    displayScale: displayScale
+                    displayScale: displayScale,
+                    snapshotIdentity: snapshotIdentity
                 )
                 continue
 
@@ -523,12 +542,14 @@ public enum ScenePainter {
             if skipCacheUpdates {
                 node.cachedSceneKey = nil
                 node.cachedScenePaintRange = nil
+                node.cachedSceneSnapshotIdentity = nil
             }
 
             guard !node.isHidden else {
                 if !skipCacheUpdates {
                     node.cachedSceneKey = nil
                     node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+                    node.cachedSceneSnapshotIdentity = snapshotIdentity
                 }
                 node.markSubtreeRendered()
                 continue
@@ -636,6 +657,7 @@ public enum ScenePainter {
                 if !skipCacheUpdates {
                     node.cachedSceneKey = nil
                     node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+                    node.cachedSceneSnapshotIdentity = snapshotIdentity
                 }
                 node.markSubtreeRendered()
                 continue
@@ -660,6 +682,7 @@ public enum ScenePainter {
                     if !skipCacheUpdates {
                         node.cachedSceneKey = nil
                         node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+                        node.cachedSceneSnapshotIdentity = snapshotIdentity
                     }
                     node.markSubtreeRendered()
                     continue
@@ -712,6 +735,7 @@ public enum ScenePainter {
                 if !skipCacheUpdates {
                     node.cachedSceneKey = cacheKey
                     node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+                    node.cachedSceneSnapshotIdentity = snapshotIdentity
                 }
                 node.markSubtreeRendered()
                 continue
@@ -732,8 +756,10 @@ public enum ScenePainter {
             if !skipCacheUpdates,
                 !refusesReplayForContentBlur,
                 let previousScene,
+                let previousSceneIdentity,
                 !node.hasDirtySubtree,
                 node.cachedSceneKey == cacheKey,
+                node.cachedSceneSnapshotIdentity == previousSceneIdentity,
                 let cachedScenePaintRange = node.cachedScenePaintRange
             {
                 // Replay validates before it appends anything, so a
@@ -745,9 +771,11 @@ public enum ScenePainter {
                 switch scene.replay(cachedScenePaintRange, from: previousScene) {
                 case .success:
                     let delta = startPaintRecord - cachedScenePaintRange.lowerBound
-                    node.shiftCachedSceneRangesRecursively(by: delta)
+                    node.shiftCachedSceneRangesRecursively(
+                        by: delta, from: previousSceneIdentity, to: snapshotIdentity)
                     node.cachedSceneKey = cacheKey
                     node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
+                    node.cachedSceneSnapshotIdentity = snapshotIdentity
                     node.markSubtreeRendered()
                     replayCount += 1
                     continue
@@ -755,6 +783,7 @@ public enum ScenePainter {
                     reportRejectedReplay()
                     node.cachedSceneKey = nil
                     node.cachedScenePaintRange = nil
+                    node.cachedSceneSnapshotIdentity = nil
                 }
             }
 
@@ -777,6 +806,7 @@ public enum ScenePainter {
                 if !skipCacheUpdates {
                     node.cachedSceneKey = cacheKey
                     node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
+                    node.cachedSceneSnapshotIdentity = snapshotIdentity
                 }
                 node.markSubtreeRendered()
                 continue
@@ -826,6 +856,7 @@ public enum ScenePainter {
                 if !skipCacheUpdates {
                     node.cachedSceneKey = cacheKey
                     node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
+                    node.cachedSceneSnapshotIdentity = snapshotIdentity
                 }
                 node.markSubtreeRendered()
                 continue
@@ -1587,7 +1618,8 @@ public enum ScenePainter {
                 ),
                 into: &scene,
                 surfaceSize: surfaceSize,
-                displayScale: displayScale
+                displayScale: displayScale,
+                snapshotIdentity: snapshotIdentity
             )
         }
     }
@@ -1596,7 +1628,8 @@ public enum ScenePainter {
         _ state: PaintNodeFinishState,
         into scene: inout GPUIScene,
         surfaceSize: Size,
-        displayScale: Double
+        displayScale: Double,
+        snapshotIdentity: PaintSnapshotIdentity
     ) {
         let node = state.node
 
@@ -1684,6 +1717,7 @@ public enum ScenePainter {
         if !state.skipCacheUpdates {
             node.cachedSceneKey = state.cacheKey
             node.cachedScenePaintRange = state.startPaintRecord..<scene.paintRecordCount
+            node.cachedSceneSnapshotIdentity = snapshotIdentity
         }
         node.markSubtreeRendered()
     }
@@ -2212,6 +2246,7 @@ public enum ScenePainter {
             // The entry no longer draws into the outer scene, so any
             // paint-record range it carries describes a scene it is not in.
             deferredDraws[index].cachedScenePaintRange = nil
+            deferredDraws[index].cachedSceneSnapshotIdentity = nil
             claimed.append(claim)
         }
         return claimed
@@ -3149,6 +3184,8 @@ public enum ScenePainter {
         _ deferredDraws: inout [DeferredDrawState],
         into scene: inout GPUIScene,
         previousScene: GPUIScene?,
+        previousSceneIdentity: PaintSnapshotIdentity?,
+        snapshotIdentity: PaintSnapshotIdentity,
         surfaceSize: Size,
         displayScale: Double,
         textSystem: WindowTextSystem,
@@ -3178,13 +3215,23 @@ public enum ScenePainter {
                 // It did not draw into this scene, so any range it carries
                 // describes a scene it is not in.
                 deferredDraws[deferredDrawIndex].cachedScenePaintRange = nil
+                deferredDraws[deferredDrawIndex].cachedSceneSnapshotIdentity = nil
                 continue
             }
             let startPaintRecord = scene.paintRecordCount
-            if let previousScene, let cachedScenePaintRange = deferredDraws[deferredDrawIndex].cachedScenePaintRange {
+            if let previousScene, let previousSceneIdentity,
+                deferredDraws[deferredDrawIndex].cachedSceneSnapshotIdentity == previousSceneIdentity,
+                let cachedScenePaintRange = deferredDraws[deferredDrawIndex].cachedScenePaintRange
+            {
                 switch scene.replay(cachedScenePaintRange, from: previousScene) {
                 case .success:
+                    if case .subtree(let payload) = deferredDraws[deferredDrawIndex].payload {
+                        payload.node?.shiftCachedSceneRangesRecursively(
+                            by: startPaintRecord - cachedScenePaintRange.lowerBound,
+                            from: previousSceneIdentity, to: snapshotIdentity)
+                    }
                     deferredDraws[deferredDrawIndex].cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
+                    deferredDraws[deferredDrawIndex].cachedSceneSnapshotIdentity = snapshotIdentity
                     replayCount += 1
                     continue
                 case .invalidRange, .unbalanced:
@@ -3193,6 +3240,7 @@ public enum ScenePainter {
                     // rather than caching the emptiness.
                     reportRejectedReplay()
                     deferredDraws[deferredDrawIndex].cachedScenePaintRange = nil
+                    deferredDraws[deferredDrawIndex].cachedSceneSnapshotIdentity = nil
                 }
             }
 
@@ -3212,6 +3260,7 @@ public enum ScenePainter {
             case .subtree(let payload):
                 guard let node = payload.node else {
                     deferredDraws[deferredDrawIndex].cachedScenePaintRange = startPaintRecord..<startPaintRecord
+                    deferredDraws[deferredDrawIndex].cachedSceneSnapshotIdentity = snapshotIdentity
                     continue
                 }
                 paintNode(
@@ -3225,6 +3274,8 @@ public enum ScenePainter {
                     displayScale: displayScale,
                     textSystem: textSystem,
                     previousScene: previousScene,
+                    previousSceneIdentity: previousSceneIdentity,
+                    snapshotIdentity: snapshotIdentity,
                     primitiveOpacity: payload.inheritedOpacity,
                     inheritedColorEffects: payload.inheritedColorEffects,
                     inheritedBlendMode: payload.inheritedBlendMode,
@@ -3236,6 +3287,7 @@ public enum ScenePainter {
             }
 
             deferredDraws[deferredDrawIndex].cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
+            deferredDraws[deferredDrawIndex].cachedSceneSnapshotIdentity = snapshotIdentity
         }
     }
 

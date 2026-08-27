@@ -337,16 +337,17 @@ final class ContentBlurRenderPassTests: XCTestCase {
         func paint() -> GPUIScene {
             var replay = 0
             var deferredReplay = 0
-            return ScenePainter.paint(
+            return ScenePainter.paintSnapshot(
                 root: root,
                 clearColor: .black,
                 surfaceSize: Size(width: 120, height: 100),
                 displayScale: 1,
                 textSystem: WindowTextSystem(),
-                previousScene: nil,
+                previousSnapshot: nil,
                 deferredDraws: &deferredDraws,
                 replayCount: &replay,
-                deferredReplayCount: &deferredReplay)
+                deferredReplayCount: &deferredReplay
+            ).scene
         }
 
         func headerQuadCount(_ scene: GPUIScene) -> Int {
@@ -591,16 +592,17 @@ final class ContentBlurRenderPassTests: XCTestCase {
             var deferredDraws = fixture.deferredDraws
             var replay = 0
             var deferredReplay = 0
-            return ScenePainter.paint(
+            return ScenePainter.paintSnapshot(
                 root: fixture.root,
                 clearColor: .black,
                 surfaceSize: Size(width: 120, height: 100),
                 displayScale: 1,
                 textSystem: WindowTextSystem(),
-                previousScene: nil,
+                previousSnapshot: nil,
                 deferredDraws: &deferredDraws,
                 replayCount: &replay,
-                deferredReplayCount: &deferredReplay)
+                deferredReplayCount: &deferredReplay
+            ).scene
         }
 
         func indicatorQuadCount(_ scene: GPUIScene) -> Int {
@@ -664,16 +666,16 @@ final class ContentBlurRenderPassTests: XCTestCase {
         ]
 
         var replay = 0
-        func paint(previousScene: GPUIScene?) -> GPUIScene {
+        func paint(previousSnapshot: ScenePaintSnapshot?) -> ScenePaintSnapshot {
             replay = 0
             var deferredReplay = 0
-            return ScenePainter.paint(
+            return ScenePainter.paintSnapshot(
                 root: root,
                 clearColor: .black,
                 surfaceSize: Size(width: 120, height: 100),
                 displayScale: 1,
                 textSystem: WindowTextSystem(),
-                previousScene: previousScene,
+                previousSnapshot: previousSnapshot,
                 deferredDraws: &deferredDraws,
                 replayCount: &replay,
                 deferredReplayCount: &deferredReplay)
@@ -685,17 +687,17 @@ final class ContentBlurRenderPassTests: XCTestCase {
             }
         }
 
-        let first = paint(previousScene: nil)
-        XCTAssertEqual(first.paintMetrics.contentBlurPasses, 1)
-        XCTAssertEqual(indicatorQuadCount(first), 0, "the nested indicator belongs inside the bitmap")
+        let first = paint(previousSnapshot: nil)
+        XCTAssertEqual(first.scene.paintMetrics.contentBlurPasses, 1)
+        XCTAssertEqual(indicatorQuadCount(first.scene), 0, "the nested indicator belongs inside the bitmap")
 
-        let second = paint(previousScene: first)
+        let second = paint(previousSnapshot: first)
         XCTAssertGreaterThan(replay, 0, "the fixture must actually replay the clean ancestor")
         XCTAssertEqual(
-            second.paintMetrics.contentBlurPasses, 0,
+            second.scene.paintMetrics.contentBlurPasses, 0,
             "a replayed ancestor carries the composited bitmap forward without re-entering the blur")
         XCTAssertEqual(
-            indicatorQuadCount(second), 0,
+            indicatorQuadCount(second.scene), 0,
             "the replayed bitmap already contains the nested indicator; the deferred phase must skip it")
     }
 

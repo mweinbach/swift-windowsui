@@ -1251,6 +1251,8 @@ struct DeferredDrawState {
     var payload: DeferredDrawPayload
     var cachedFrameCommandRange: Range<Int>?
     var cachedScenePaintRange: Range<Int>?
+    var cachedFrameSnapshotIdentity: PaintSnapshotIdentity?
+    var cachedSceneSnapshotIdentity: PaintSnapshotIdentity?
     /// Set when a pass earlier in the frame already drew this entry, so the
     /// deferred phase must not draw it again.
     ///
@@ -1286,9 +1288,29 @@ struct PrepaintStateIndex: Equatable, Sendable {
     var deferredDrawIndex: Int
     var deferredPriority: Int
 }
+final class PrepaintSnapshotIdentity: Sendable, Equatable {
+    static func == (lhs: PrepaintSnapshotIdentity, rhs: PrepaintSnapshotIdentity) -> Bool {
+        lhs === rhs
+    }
+}
+/// Paint can omit a subtree that prepaint still visits, for example under
+/// zero opacity. Paint ranges therefore belong to their own output snapshot,
+/// independently of the snapshot containing interaction and focus records.
+final class PaintSnapshotIdentity: Sendable, Equatable {
+    static func == (lhs: PaintSnapshotIdentity, rhs: PaintSnapshotIdentity) -> Bool {
+        lhs === rhs
+    }
+}
+struct FramePaintSnapshot: Sendable {
+    var frame: RenderFrame
+    let identity: PaintSnapshotIdentity
+}
 struct PrepaintStateRange: Equatable, Sendable {
     var start: PrepaintStateIndex
     var end: PrepaintStateIndex
+    /// A culled ancestor leaves descendant ranges untouched. Their offsets
+    /// remain meaningful only in the snapshot that actually contains them.
+    var generation: PrepaintSnapshotIdentity
 }
 @MainActor
 struct PrepaintDispatchState {
@@ -1337,6 +1359,9 @@ struct PrepaintInteractionState {
 }
 @MainActor
 struct RuntimePrepaintState {
+    // Cached ranges retain their token, so snapshots remain distinct even
+    // when a subtree moves between runtimes or an older snapshot is released.
+    let generation = PrepaintSnapshotIdentity()
     var dispatchNodes: [PrepaintDispatchState] = []
     var interactions: [PrepaintInteractionState] = []
     var focusOrder: [Int] = []
@@ -3497,8 +3522,10 @@ public final class ViewNode {
     internal var cachedPrepaintRange: PrepaintStateRange?
     internal var cachedFrameKey: ViewPaintCacheKey?
     internal var cachedFrameCommandRange: Range<Int>?
+    internal var cachedFrameSnapshotIdentity: PaintSnapshotIdentity?
     internal var cachedSceneKey: ViewPaintCacheKey?
     internal var cachedScenePaintRange: Range<Int>?
+    internal var cachedSceneSnapshotIdentity: PaintSnapshotIdentity?
     /// Offscreen bitmap this node's compositing group (`.drawingGroup()`,
     /// `.compositingGroup()`) rasterized into, and the paint key it was
     /// rasterized for. A group CPU-rasterizes its whole subtree on the main
@@ -5362,7 +5389,7 @@ public final class ViewNode {
                 )
                 finish.node.cachedPrepaintKey = finish.cacheKey
                 finish.node.cachedPrepaintRange = PrepaintStateRange(
-                    start: finish.startIndex, end: state.currentIndex)
+                    start: finish.startIndex, end: state.currentIndex, generation: state.generation)
                 continue
 
             case .enter(let entryContext):
@@ -5397,13 +5424,15 @@ public final class ViewNode {
 
             guard ViewNode.enterTraversal(atDepth: baseDepth + context.depth) else {
                 node.cachedPrepaintKey = nil
-                node.cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
+                node.cachedPrepaintRange = PrepaintStateRange(
+                    start: startIndex, end: startIndex, generation: state.generation)
                 continue
             }
 
             if node.isHidden {
                 node.cachedPrepaintKey = nil
-                node.cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
+                node.cachedPrepaintRange = PrepaintStateRange(
+                    start: startIndex, end: startIndex, generation: state.generation)
                 continue
             }
 
@@ -5425,7 +5454,8 @@ public final class ViewNode {
 
             if !inheritedClip.allowsDrawing(geometry.paintFrame) {
                 node.cachedPrepaintKey = nil
-                node.cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
+                node.cachedPrepaintRange = PrepaintStateRange(
+                    start: startIndex, end: startIndex, generation: state.generation)
                 continue
             }
 
@@ -5450,7 +5480,8 @@ public final class ViewNode {
                         uniformRadius: node.cornerRadius)
                 else {
                     node.cachedPrepaintKey = nil
-                    node.cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
+                    node.cachedPrepaintRange = PrepaintStateRange(
+                        start: startIndex, end: startIndex, generation: state.generation)
                     continue
                 }
                 effectiveClip = clipped
@@ -5477,7 +5508,8 @@ public final class ViewNode {
             if let previousState,
                 !node.hasDirtySubtree,
                 node.cachedPrepaintKey == cacheKey,
-                let previousRange = node.cachedPrepaintRange
+                let previousRange = node.cachedPrepaintRange,
+                previousRange.generation == previousState.generation
             {
                 node.replayPrepaintState(
                     into: &state,
@@ -5823,6 +5855,8 @@ public final class ViewNode {
         )
 
         shiftCachedPrepaintRangesRecursively(
+            fromGeneration: previousState.generation,
+            toGeneration: state.generation,
             dispatchDelta: dispatchDelta,
             interactionDelta: interactionDelta,
             focusOrderDelta: focusOrderDelta,
@@ -5831,7 +5865,8 @@ public final class ViewNode {
             deferredPriorityDelta: deferredPriorityDelta
         )
         cachedPrepaintKey = cacheKey
-        cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: state.currentIndex)
+        cachedPrepaintRange = PrepaintStateRange(
+            start: startIndex, end: state.currentIndex, generation: state.generation)
     }
 
     /// The clip a `clipsToBounds` node narrows to, with its rotation lowered.
@@ -5936,7 +5971,8 @@ public final class ViewNode {
         inheritedOpacity: Float = 1,
         inheritedBlendMode: BlendMode = .normal,
         inheritedTransform: Transform2D = .identity,
-        previousRenderedFrame: RenderFrame? = nil,
+        previousRenderedFrame: FramePaintSnapshot? = nil,
+        snapshotIdentity: PaintSnapshotIdentity,
         displayScale: Double = 1,
         replayCount: inout Int
     ) {
@@ -5967,6 +6003,7 @@ public final class ViewNode {
                 ViewNode.traversalDepth = baseDepth + state.depth + 1
                 state.node.cachedFrameKey = state.cacheKey
                 state.node.cachedFrameCommandRange = state.startIndex..<commands.count
+                state.node.cachedFrameSnapshotIdentity = snapshotIdentity
                 state.node.markSubtreeRendered()
                 continue
 
@@ -5983,6 +6020,7 @@ public final class ViewNode {
             guard ViewNode.enterTraversal(atDepth: baseDepth + context.depth) else {
                 node.cachedFrameKey = nil
                 node.cachedFrameCommandRange = startIndex..<startIndex
+                node.cachedFrameSnapshotIdentity = snapshotIdentity
                 node.markSubtreeRendered()
                 continue
             }
@@ -5990,6 +6028,7 @@ public final class ViewNode {
             if node.isHidden {
                 node.cachedFrameKey = nil
                 node.cachedFrameCommandRange = startIndex..<startIndex
+                node.cachedFrameSnapshotIdentity = snapshotIdentity
                 node.markSubtreeRendered()
                 continue
             }
@@ -6020,6 +6059,7 @@ public final class ViewNode {
             if !inheritedClip.allowsSubtreeTraversal(bounds: paintFrame) {
                 node.cachedFrameKey = nil
                 node.cachedFrameCommandRange = startIndex..<startIndex
+                node.cachedFrameSnapshotIdentity = snapshotIdentity
                 node.markSubtreeRendered()
                 continue
             }
@@ -6042,6 +6082,7 @@ public final class ViewNode {
                 else {
                     node.cachedFrameKey = nil
                     node.cachedFrameCommandRange = startIndex..<startIndex
+                    node.cachedFrameSnapshotIdentity = snapshotIdentity
                     node.markSubtreeRendered()
                     continue
                 }
@@ -6070,6 +6111,7 @@ public final class ViewNode {
             guard effectiveOpacity > 0 else {
                 node.cachedFrameKey = cacheKey
                 node.cachedFrameCommandRange = startIndex..<startIndex
+                node.cachedFrameSnapshotIdentity = snapshotIdentity
                 node.markSubtreeRendered()
                 continue
             }
@@ -6077,13 +6119,18 @@ public final class ViewNode {
             if let previousRenderedFrame,
                 !node.hasDirtySubtree,
                 node.cachedFrameKey == cacheKey,
-                let previousRange = node.cachedFrameCommandRange
+                node.cachedFrameSnapshotIdentity == previousRenderedFrame.identity,
+                let previousRange = node.cachedFrameCommandRange,
+                previousRange.lowerBound >= 0,
+                previousRange.upperBound <= previousRenderedFrame.frame.commands.count
             {
-                commands.append(contentsOf: previousRenderedFrame.commands[previousRange])
+                commands.append(contentsOf: previousRenderedFrame.frame.commands[previousRange])
                 let delta = startIndex - previousRange.lowerBound
-                node.shiftCachedFrameRangesRecursively(by: delta)
+                node.shiftCachedFrameRangesRecursively(
+                    by: delta, from: previousRenderedFrame.identity, to: snapshotIdentity)
                 node.cachedFrameKey = cacheKey
                 node.cachedFrameCommandRange = startIndex..<commands.count
+                node.cachedFrameSnapshotIdentity = snapshotIdentity
                 node.markSubtreeRendered()
                 replayCount += 1
                 continue
@@ -6764,23 +6811,29 @@ public final class ViewNode {
         }
     }
 
-    func shiftCachedFrameRangesRecursively(by delta: Int) {
+    func shiftCachedFrameRangesRecursively(
+        by delta: Int, from previousIdentity: PaintSnapshotIdentity, to snapshotIdentity: PaintSnapshotIdentity
+    ) {
         guard ViewNode.enterTraversal() else { return }
         defer { ViewNode.leaveTraversal() }
 
-        if let existingRange = cachedFrameCommandRange {
-            cachedFrameCommandRange = (existingRange.lowerBound + delta)..<(existingRange.upperBound + delta)
+        guard let existingRange = cachedFrameCommandRange, cachedFrameSnapshotIdentity == previousIdentity else {
+            return
         }
+        cachedFrameCommandRange = (existingRange.lowerBound + delta)..<(existingRange.upperBound + delta)
+        cachedFrameSnapshotIdentity = snapshotIdentity
 
         for child in children {
             guard !child.paintsInDeferredPhase else {
                 continue
             }
-            child.shiftCachedFrameRangesRecursively(by: delta)
+            child.shiftCachedFrameRangesRecursively(by: delta, from: previousIdentity, to: snapshotIdentity)
         }
     }
 
     func shiftCachedPrepaintRangesRecursively(
+        fromGeneration: PrepaintSnapshotIdentity,
+        toGeneration: PrepaintSnapshotIdentity,
         dispatchDelta: Int,
         interactionDelta: Int,
         focusOrderDelta: Int,
@@ -6791,32 +6844,37 @@ public final class ViewNode {
         guard ViewNode.enterTraversal() else { return }
         defer { ViewNode.leaveTraversal() }
 
-        if let existingRange = cachedPrepaintRange {
-            cachedPrepaintRange = PrepaintStateRange(
-                start: PrepaintStateIndex(
-                    dispatchIndex: existingRange.start.dispatchIndex + dispatchDelta,
-                    interactionIndex: existingRange.start.interactionIndex + interactionDelta,
-                    focusOrderIndex: existingRange.start.focusOrderIndex + focusOrderDelta,
-                    deferredSubtreeIndex: existingRange.start.deferredSubtreeIndex + deferredSubtreeDelta,
-                    deferredDrawIndex: existingRange.start.deferredDrawIndex + deferredDrawDelta,
-                    deferredPriority: existingRange.start.deferredPriority + deferredPriorityDelta
-                ),
-                end: PrepaintStateIndex(
-                    dispatchIndex: existingRange.end.dispatchIndex + dispatchDelta,
-                    interactionIndex: existingRange.end.interactionIndex + interactionDelta,
-                    focusOrderIndex: existingRange.end.focusOrderIndex + focusOrderDelta,
-                    deferredSubtreeIndex: existingRange.end.deferredSubtreeIndex + deferredSubtreeDelta,
-                    deferredDrawIndex: existingRange.end.deferredDrawIndex + deferredDrawDelta,
-                    deferredPriority: existingRange.end.deferredPriority + deferredPriorityDelta
-                )
-            )
-        }
+        // Hidden or clipped branches did not contribute their descendants to
+        // the copied snapshot. Do not rebase those older ranges or make them
+        // appear current merely because a visible ancestor was replayed.
+        guard let existingRange = cachedPrepaintRange, existingRange.generation == fromGeneration else { return }
+        cachedPrepaintRange = PrepaintStateRange(
+            start: PrepaintStateIndex(
+                dispatchIndex: existingRange.start.dispatchIndex + dispatchDelta,
+                interactionIndex: existingRange.start.interactionIndex + interactionDelta,
+                focusOrderIndex: existingRange.start.focusOrderIndex + focusOrderDelta,
+                deferredSubtreeIndex: existingRange.start.deferredSubtreeIndex + deferredSubtreeDelta,
+                deferredDrawIndex: existingRange.start.deferredDrawIndex + deferredDrawDelta,
+                deferredPriority: existingRange.start.deferredPriority + deferredPriorityDelta
+            ),
+            end: PrepaintStateIndex(
+                dispatchIndex: existingRange.end.dispatchIndex + dispatchDelta,
+                interactionIndex: existingRange.end.interactionIndex + interactionDelta,
+                focusOrderIndex: existingRange.end.focusOrderIndex + focusOrderDelta,
+                deferredSubtreeIndex: existingRange.end.deferredSubtreeIndex + deferredSubtreeDelta,
+                deferredDrawIndex: existingRange.end.deferredDrawIndex + deferredDrawDelta,
+                deferredPriority: existingRange.end.deferredPriority + deferredPriorityDelta
+            ),
+            generation: toGeneration
+        )
 
         for child in children {
             guard !child.paintsInDeferredPhase else {
                 continue
             }
             child.shiftCachedPrepaintRangesRecursively(
+                fromGeneration: fromGeneration,
+                toGeneration: toGeneration,
                 dispatchDelta: dispatchDelta,
                 interactionDelta: interactionDelta,
                 focusOrderDelta: focusOrderDelta,
@@ -6827,19 +6885,23 @@ public final class ViewNode {
         }
     }
 
-    func shiftCachedSceneRangesRecursively(by delta: Int) {
+    func shiftCachedSceneRangesRecursively(
+        by delta: Int, from previousIdentity: PaintSnapshotIdentity, to snapshotIdentity: PaintSnapshotIdentity
+    ) {
         guard ViewNode.enterTraversal() else { return }
         defer { ViewNode.leaveTraversal() }
 
-        if let existingRange = cachedScenePaintRange {
-            cachedScenePaintRange = (existingRange.lowerBound + delta)..<(existingRange.upperBound + delta)
+        guard let existingRange = cachedScenePaintRange, cachedSceneSnapshotIdentity == previousIdentity else {
+            return
         }
+        cachedScenePaintRange = (existingRange.lowerBound + delta)..<(existingRange.upperBound + delta)
+        cachedSceneSnapshotIdentity = snapshotIdentity
 
         for child in children {
             guard !child.paintsInDeferredPhase else {
                 continue
             }
-            child.shiftCachedSceneRangesRecursively(by: delta)
+            child.shiftCachedSceneRangesRecursively(by: delta, from: previousIdentity, to: snapshotIdentity)
         }
     }
 
@@ -8690,8 +8752,10 @@ public final class RetainedViewRuntime {
         var expectedOffset: Double
     }
     private var pendingPreciseScrollAlignments: [PendingPreciseScrollAlignment] = []
-    private var cachedFrame: RenderFrame?
-    private var cachedScene: GPUIScene?
+    private var cachedFrameSnapshot: FramePaintSnapshot?
+    private var cachedSceneSnapshot: ScenePaintSnapshot?
+    private var cachedFrame: RenderFrame? { cachedFrameSnapshot?.frame }
+    private var cachedScene: GPUIScene? { cachedSceneSnapshot?.scene }
     /// The glyph-atlas generation `cachedScene`'s glyph quads were addressed
     /// against, or `nil` when it draws no native glyph. `nil` for a scene
     /// without glyphs rather than "unknown": there is nothing to go stale.
@@ -9199,7 +9263,8 @@ public final class RetainedViewRuntime {
         updateResolvedLayout()
         applyMatchedGeometryAnimations()
 
-        let previousFrame = cachedFrame
+        let previousFrame = cachedFrameSnapshot
+        let snapshotIdentity = PaintSnapshotIdentity()
         var commands: [RenderCommand] = []
         var replayCount = 0
         var deferredDrawReplayCount = 0
@@ -9208,12 +9273,14 @@ public final class RetainedViewRuntime {
             parentOrigin: .zero,
             inheritedClip: nil,
             previousRenderedFrame: previousFrame,
+            snapshotIdentity: snapshotIdentity,
             displayScale: displayScale,
             replayCount: &replayCount
         )
         appendDeferredDraws(
             into: &commands,
             previousFrame: previousFrame,
+            snapshotIdentity: snapshotIdentity,
             displayScale: displayScale,
             replayCount: &deferredDrawReplayCount
         )
@@ -9226,6 +9293,7 @@ public final class RetainedViewRuntime {
                 parentOrigin: .zero,
                 inheritedClip: nil,
                 previousRenderedFrame: previousFrame,
+                snapshotIdentity: snapshotIdentity,
                 displayScale: displayScale,
                 replayCount: &overlayReplayCount
             )
@@ -9236,8 +9304,8 @@ public final class RetainedViewRuntime {
         lastFrameReplayCount = replayCount
         lastDeferredDrawFrameReplayCount = deferredDrawReplayCount
         lastDeferredDrawSceneReplayCount = 0
-        cachedFrame = frame
-        cachedScene = nil
+        cachedFrameSnapshot = FramePaintSnapshot(frame: frame, identity: snapshotIdentity)
+        cachedSceneSnapshot = nil
         cachedSceneAtlasGeneration = nil
         contentRevision &+= 1
         if timestamp > 0 {
@@ -9258,7 +9326,7 @@ public final class RetainedViewRuntime {
         // also drops the replay source, since replayed primitives carry the
         // same dead UVs.
         if let generation = cachedSceneAtlasGeneration, generation != NativeGlyphAtlas.shared.atlasGeneration {
-            cachedScene = nil
+            cachedSceneSnapshot = nil
             cachedSceneAtlasGeneration = nil
         }
 
@@ -9296,22 +9364,23 @@ public final class RetainedViewRuntime {
         applyMatchedGeometryAnimations()
         let layoutEndedAt = collectsPhaseTimings ? PlatformClock.now() : 0
 
-        let previousScene = cachedScene
+        let previousScene = cachedSceneSnapshot
         var replayCount = 0
         var deferredDrawReplayCount = 0
         var deferredDraws = prepaintState.deferredDraws
-        let scene = ScenePainter.paint(
+        let paintedSnapshot = ScenePainter.paintSnapshot(
             root: root,
             clearColor: clearColor,
             surfaceSize: root.frame.size,
             displayScale: displayScale,
             textSystem: textSystem,
-            previousScene: previousScene,
+            previousSnapshot: previousScene,
             deferredDraws: &deferredDraws,
             replayCount: &replayCount,
             deferredReplayCount: &deferredDrawReplayCount,
             overlays: transitionOverlays
         )
+        let scene = paintedSnapshot.scene
         prepaintState.deferredDraws = deferredDraws
         if collectsPhaseTimings {
             let paintEndedAt = PlatformClock.now()
@@ -9332,9 +9401,9 @@ public final class RetainedViewRuntime {
         lastDeferredDrawSceneReplayCount = deferredDrawReplayCount
         lastDeferredDrawFrameReplayCount = 0
         lastScenePaintMetrics = scene.paintMetrics
-        cachedScene = cachedSceneCopy
+        cachedSceneSnapshot = ScenePaintSnapshot(scene: cachedSceneCopy, identity: paintedSnapshot.identity)
         cachedSceneAtlasGeneration = cachedSceneCopy.usesGlyphs ? NativeGlyphAtlas.shared.atlasGeneration : nil
-        cachedFrame = nil
+        cachedFrameSnapshot = nil
         if timestamp > 0 {
             lastRenderTime = timestamp
         }
@@ -10768,18 +10837,28 @@ public final class RetainedViewRuntime {
 
     private func appendDeferredDraws(
         into commands: inout [RenderCommand],
-        previousFrame: RenderFrame?,
+        previousFrame: FramePaintSnapshot?,
+        snapshotIdentity: PaintSnapshotIdentity,
         displayScale: Double,
         replayCount: inout Int
     ) {
         for deferredDrawIndex in orderedDeferredDrawIndices(prepaintState.deferredDraws) {
             let startCommandIndex = commands.count
             if let previousFrame,
-                let cachedFrameCommandRange = prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange
+                prepaintState.deferredDraws[deferredDrawIndex].cachedFrameSnapshotIdentity == previousFrame.identity,
+                let cachedFrameCommandRange = prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange,
+                cachedFrameCommandRange.lowerBound >= 0,
+                cachedFrameCommandRange.upperBound <= previousFrame.frame.commands.count
             {
-                commands.append(contentsOf: previousFrame.commands[cachedFrameCommandRange])
+                commands.append(contentsOf: previousFrame.frame.commands[cachedFrameCommandRange])
+                if case .subtree(let payload) = prepaintState.deferredDraws[deferredDrawIndex].payload {
+                    payload.node?.shiftCachedFrameRangesRecursively(
+                        by: startCommandIndex - cachedFrameCommandRange.lowerBound,
+                        from: previousFrame.identity, to: snapshotIdentity)
+                }
                 prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange =
                     startCommandIndex..<commands.count
+                prepaintState.deferredDraws[deferredDrawIndex].cachedFrameSnapshotIdentity = snapshotIdentity
                 replayCount += 1
                 continue
             }
@@ -10794,6 +10873,7 @@ public final class RetainedViewRuntime {
                 guard let node = payload.node else {
                     prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange =
                         startCommandIndex..<startCommandIndex
+                    prepaintState.deferredDraws[deferredDrawIndex].cachedFrameSnapshotIdentity = snapshotIdentity
                     continue
                 }
                 node.appendCommands(
@@ -10813,12 +10893,14 @@ public final class RetainedViewRuntime {
                     // when it resumes a deferred subtree.
                     inheritedTransform: payload.inheritedTransform,
                     previousRenderedFrame: previousFrame,
+                    snapshotIdentity: snapshotIdentity,
                     displayScale: displayScale,
                     replayCount: &replayCount
                 )
             }
 
             prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange = startCommandIndex..<commands.count
+            prepaintState.deferredDraws[deferredDrawIndex].cachedFrameSnapshotIdentity = snapshotIdentity
         }
     }
 

@@ -299,17 +299,17 @@ final class ScenePresentationOrderTests: XCTestCase {
         XCTAssertEqual(scene.paintRecordCount, 0)
     }
 
-    /// One painted frame, threading `previousScene` the way the runtime does.
-    private func paintFrame(_ root: ViewNode, previous: GPUIScene?, surfaceSize: Size) -> GPUIScene {
+    /// One painted frame, threading snapshot ownership the way the runtime does.
+    private func paintFrame(_ root: ViewNode, previous: ScenePaintSnapshot?, surfaceSize: Size) -> ScenePaintSnapshot {
         var deferredDraws: [DeferredDrawState] = []
         var replayCount = 0
         var deferredReplayCount = 0
-        return ScenePainter.paint(
+        return ScenePainter.paintSnapshot(
             root: root,
             clearColor: .black,
             surfaceSize: surfaceSize,
             textSystem: WindowTextSystem(),
-            previousScene: previous,
+            previousSnapshot: previous,
             deferredDraws: &deferredDraws,
             replayCount: &replayCount,
             deferredReplayCount: &deferredReplayCount
@@ -352,14 +352,14 @@ final class ScenePresentationOrderTests: XCTestCase {
 
         // Frame 1, inline: three quads, and the leaf caches the third.
         let inlineScene = paintFrame(root, previous: nil, surfaceSize: surfaceSize)
-        XCTAssertEqual(inlineScene.layers[0].quads.count, 3)
+        XCTAssertEqual(inlineScene.scene.layers[0].quads.count, 3)
 
         // Frame 2, grouped: the leaf's quad moves into the discarded
         // sub-scene and an image takes its place at record index 2.
         group.isCompositingGroup = true
         let groupedScene = paintFrame(root, previous: inlineScene, surfaceSize: surfaceSize)
-        XCTAssertEqual(groupedScene.layers[0].quads.count, 2)
-        XCTAssertEqual(groupedScene.layers[0].images.count, 1)
+        XCTAssertEqual(groupedScene.scene.layers[0].quads.count, 2)
+        XCTAssertEqual(groupedScene.scene.layers[0].images.count, 1)
 
         // Frame 3, inline again.
         group.isCompositingGroup = false
@@ -369,10 +369,10 @@ final class ScenePresentationOrderTests: XCTestCase {
         let freshScene = paintFrame(freshRoot, previous: nil, surfaceSize: surfaceSize)
 
         XCTAssertTrue(
-            unwrappedScene.layers[0].images.isEmpty,
+            unwrappedScene.scene.layers[0].images.isEmpty,
             "the leaf replayed the group's composited image out of a range that no longer describes it")
-        XCTAssertEqual(unwrappedScene.layers[0].quads, freshScene.layers[0].quads)
-        XCTAssertEqual(unwrappedScene.paintRecords, freshScene.paintRecords)
+        XCTAssertEqual(unwrappedScene.scene.layers[0].quads, freshScene.scene.layers[0].quads)
+        XCTAssertEqual(unwrappedScene.scene.paintRecords, freshScene.scene.paintRecords)
     }
 
     /// A frame that replays all of its text rasterizes no glyph, and the
@@ -391,21 +391,21 @@ final class ScenePresentationOrderTests: XCTestCase {
         )
 
         let firstScene = paintFrame(root, previous: nil, surfaceSize: surfaceSize)
-        let glyphCount = firstScene.layers[0].glyphs.count + firstScene.layers[0].pixelGlyphs.count
+        let glyphCount = firstScene.scene.layers[0].glyphs.count + firstScene.scene.layers[0].pixelGlyphs.count
         XCTAssertGreaterThan(glyphCount, 0, "this test only means something if the frame draws text")
 
         let replayedScene = paintFrame(root, previous: firstScene, surfaceSize: surfaceSize)
         XCTAssertEqual(
-            replayedScene.layers[0].glyphs, firstScene.layers[0].glyphs,
+            replayedScene.scene.layers[0].glyphs, firstScene.scene.layers[0].glyphs,
             "the replayed frame must carry the same glyph quads")
-        XCTAssertEqual(replayedScene.layers[0].pixelGlyphs, firstScene.layers[0].pixelGlyphs)
-        XCTAssertEqual(replayedScene.usesGlyphs, replayedScene.glyphAtlas != nil)
-        XCTAssertEqual(replayedScene.usesPixelGlyphs, replayedScene.pixelGlyphAtlas != nil)
+        XCTAssertEqual(replayedScene.scene.layers[0].pixelGlyphs, firstScene.scene.layers[0].pixelGlyphs)
+        XCTAssertEqual(replayedScene.scene.usesGlyphs, replayedScene.scene.glyphAtlas != nil)
+        XCTAssertEqual(replayedScene.scene.usesPixelGlyphs, replayedScene.scene.pixelGlyphAtlas != nil)
 
         // The claim that matters is pixels, not payload presence.
         let size = IntSize(width: 200, height: 60)
-        let firstPixels = GPUIRawSceneRasterizer.rasterize(firstScene, size: size).pixels
-        let replayedPixels = GPUIRawSceneRasterizer.rasterize(replayedScene, size: size).pixels
+        let firstPixels = GPUIRawSceneRasterizer.rasterize(firstScene.scene, size: size).pixels
+        let replayedPixels = GPUIRawSceneRasterizer.rasterize(replayedScene.scene, size: size).pixels
         XCTAssertTrue(firstPixels.contains { $0 != 0 }, "the first frame must actually draw something")
         XCTAssertEqual(
             replayedPixels, firstPixels,
@@ -427,6 +427,7 @@ final class ScenePresentationOrderTests: XCTestCase {
         var previousScene = GPUIScene(clearColor: .black)
         previousScene.addQuad(QuadPrimitive(x: 0, y: 0, width: 4, height: 4))
         previousScene.finish()
+        let previousSnapshot = ScenePaintSnapshot(scene: previousScene, identity: PaintSnapshotIdentity())
 
         var deferredDraws = [
             DeferredDrawState(
@@ -446,22 +447,23 @@ final class ScenePresentationOrderTests: XCTestCase {
                         cornerRadius: 3
                     )),
                 cachedFrameCommandRange: nil,
-                cachedScenePaintRange: 900..<920
+                cachedScenePaintRange: 900..<920,
+                cachedSceneSnapshotIdentity: previousSnapshot.identity
             )
         ]
 
         var replayCount = 0
         var deferredReplayCount = 0
-        let scene = ScenePainter.paint(
+        let scene = ScenePainter.paintSnapshot(
             root: root,
             clearColor: .black,
             surfaceSize: Size(width: 100, height: 100),
             textSystem: WindowTextSystem(),
-            previousScene: previousScene,
+            previousSnapshot: previousSnapshot,
             deferredDraws: &deferredDraws,
             replayCount: &replayCount,
             deferredReplayCount: &deferredReplayCount
-        )
+        ).scene
 
         XCTAssertGreaterThan(ScenePainter.rejectedReplayCount, 0, "the rejection must be reported")
         XCTAssertEqual(deferredReplayCount, 0, "a rejected replay is not a replay")

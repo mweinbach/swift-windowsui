@@ -12,10 +12,24 @@ the executable composition root.
 | Dashboard | Cards, metrics, deterministic local model changes, and component detail panels. A full chart integration and complete asynchronous loading/failure workflows remain open. |
 | Settings and forms | Shared form, input validation, dirty state, explicit save/reset, theme and text-size controls, injectable persistence, and restart/error tests as detailed below. Audio/telemetry flags are sample configuration; native accessibility and macOS workflow qualification remain open. |
 | Data browser | Search, sorting, filters, pagination, selection, and detail inspector. Viewport-bounded row construction and a complete large-data template remain open. |
-| Document or editor | Native file services and editable controls provide building blocks; a complete open/edit/undo/save/unsaved-change/document-window template is still required. |
+| Document or editor | Native dialogs choose file URLs, but the current exporter does not write document bytes. TextEditor loses unbound caret/selection across rebuilds, editor undo is not registered, and native window close cannot yet defer for unsaved changes. A complete open/edit/undo/save/unsaved-change/document-window template is still required. |
 | Media or file browser | Image loading and file-drop primitives provide building blocks; the complete thumbnail, failure/retry, selection, preview, and drag/drop workflow remains open. |
 | Navigation and presentations | Navigation and presentation examples exist in the gallery. A complete master/detail application with all competing-input and focus-restoration flows remains required. |
 | Animation and drawing lab | Gallery primitives and motion examples exist. The complete interruptible transitions, matched geometry, keyframe, effects, and gesture lab remains required. |
+
+## Audited document workflow gaps
+
+`DocumentGroup` is not a hosted document lifecycle. Its configuration does not
+yet provide the standard projected document binding, and the host does not
+install working new/open/save document actions. Native dialog URL selection
+must not be confused with decoding, saving, or owning a document session.
+
+The native close path currently handles destruction, not a close request that
+can be deferred. `windowDismissBehavior` stores metadata and
+`interactiveDismissDisabled` protects retained presentations; neither supplies
+Save/Discard/Cancel handling before a document window is destroyed. The eventual
+template needs an explicit decision before teardown, successful persistence
+before clearing dirty state, and cancellation that keeps the editor usable.
 
 ## Run and inspect the current application
 

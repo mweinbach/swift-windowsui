@@ -513,6 +513,55 @@ The original goal text and nine gates in sections 1–9 were compared against
 starting revision `38e855d` during this batch and remain unchanged. All new
 execution detail is recorded in this section.
 
+### Next implementation detail within the existing requirements
+
+The following source audit refines work already required by sections 1–7.
+These are open implementation items, not new completion gates. Work prepared
+in isolated branches is not counted as implemented in the validated main
+checkout until it is integrated and tested.
+
+- [ ] Correct retained long-press recognition as described above, including
+      a shared-source gallery interaction and regression tests for callback
+      reentry. Native callback ordering and gesture arbitration need separate
+      reference evidence even after the retained behavior passes.
+- [ ] Make Canvas symbols resolve tagged public views and draw through the
+      existing renderer-neutral scene contract. Preserve the outer glyph-atlas
+      frame and resource budgets. Context copies must share drawing order while
+      retaining independent graphics state; symbol transforms must preserve
+      authored affine placement. This does not by itself complete Canvas blend
+      modes, Core Graphics adapters, gradients, or all inherited transforms.
+- [ ] Resolve the overload ambiguity in ordinary public
+      `Color(red: 1, green: 0, blue: 0)` source while preserving existing typed
+      Core Float callers. Cover both public WinSwiftUI and portable Core
+      initializer families; successful internal call sites do not establish
+      ordinary shared-source compatibility.
+- [ ] Make single-file FileDocument export serialize the document and write
+      the accepted destination atomically before reporting success. The current
+      code reports a save URL without consuming the document. Encoding/write
+      failures must reach the completion handler, cancellation must not write,
+      and unsupported payloads must fail explicitly. Migrate save-dialog test
+      destinations to uniquely owned temporary directories before exercising
+      real writes. Directory, multiple-document, and Transferable export remain
+      separate gaps unless implemented and tested.
+- [ ] Preserve TextEditor caret, selection, IME, and drag state across
+      reconciliation and bind callbacks to the surviving node with the latest
+      application bindings. The audit found that a mid-string caret can move
+      to the end after an unrelated rebuild, and callbacks can target a
+      discarded node. Exercise mid-string insertion, selected replacement,
+      Unicode, composition geometry, removal, and callback-triggered rebuilds.
+
+The document/editor template needs further work beyond those two input/file
+fixes: real document sessions and projected document bindings, installed
+new/open/save environment actions, undo/redo registration, vertical caret
+navigation and scrolling, document commands, and unsaved-change handling.
+Currently `DocumentGroup` is a shim, command descriptors are not native menus,
+and titlebar close reaches destruction without a veto or deferred decision.
+`windowDismissBehavior` metadata and retained-presentation dismissal policy do
+not protect document windows. Save/Discard/Cancel must run before teardown,
+preserve edits on cancellation or failure, and close exactly once after an
+approved result. These remain requirements of the original document lifecycle,
+text/input, and template gates; a successful dialog alone closes none of them.
+
 ### Hosted validation follow-up
 
 The starting revision's [Windows CI run](https://github.com/mweinbach/swift-windowsui/actions/runs/33081745181)

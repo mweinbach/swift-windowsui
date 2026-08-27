@@ -20,6 +20,9 @@ on:
       - "scripts/test-swiftui-baseline-streaming.ps1"
       - "scripts/test-swiftui-baseline-memory.ps1"
       - "scripts/measure-swiftui-baseline-inventory.ps1"
+      - "scripts/build-swiftui-api-audit.ps1"
+      - "scripts/swiftui-api-audit-*.ps1"
+      - "scripts/test-swiftui-api-audit*.ps1"
       - "scripts/fixtures/swiftui-baseline/**"
       - "scripts/test-checkout-metadata.ps1"
       - "docs/swiftui-baseline.json"
@@ -50,6 +53,15 @@ jobs:
 
       - name: Verify inventory streaming fixtures
         run: ./scripts/test-swiftui-baseline.ps1
+
+      - name: Verify API audit capture intake fixtures
+        run: ./scripts/test-swiftui-api-audit-capture.ps1
+
+      - name: Verify API audit ledger fixtures
+        run: ./scripts/test-swiftui-api-audit.ps1
+
+      - name: Verify API audit bounded-memory fixtures
+        run: ./scripts/test-swiftui-api-audit-memory.ps1
 
       - name: Verify material capture provenance fixtures
         run: ./scripts/test-swiftui-material-reference.ps1

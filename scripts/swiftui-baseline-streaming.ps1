@@ -37,6 +37,25 @@ namespace SwiftUIBaseline.Streaming {
         public long LargestOccurrenceGroup;
     }
 
+    // A callback receives one complete JSON record, never a graph or a gathered
+    // identifier group. Json retains every field; InventoryJson is only the
+    // existing inventory projection used to reconcile that separate artifact.
+    public sealed class RawGraphRecord {
+        public GraphInput Graph;
+        public string Kind;
+        public string Name;
+        public long Index;
+        public string PreciseIdentifier;
+        public string Json;
+        public string InventoryJson;
+    }
+
+    public sealed class GraphVisitSummary {
+        public string GraphRecord;
+        public string Sha256;
+        public InventorySummary Statistics;
+    }
+
     // This is a JSON grammar reader, not a brace/line splitter. Nested values are
     // retained as JSON text: numbers, null, empty arrays, unknown members and
     // escaped strings never pass through PowerShell's lossy/large object graph.
@@ -399,8 +418,7 @@ namespace SwiftUIBaseline.Streaming {
             if (String.IsNullOrWhiteSpace(value)) throw new InvalidDataException(context + " is missing '" + name + "'.");
             return value;
         }
-        private static string Symbol(JsonInput input, GraphInput graph, long index, int maximum, out string identifier) {
-            Dictionary<string, string> symbol = input.ObjectFields();
+        private static string Symbol(Dictionary<string, string> symbol, GraphInput graph, long index, int maximum, out string identifier) {
             Dictionary<string, string> identity;
             try {
                 identity = JsonInput.Fields(Raw(symbol, "identifier"), graph.RelativePath + "/identifier", maximum);
@@ -436,9 +454,10 @@ namespace SwiftUIBaseline.Streaming {
             if (os != "macosx" && os != "macos") throw new InvalidDataException("Graph '" + graph.RelativePath + "' is not a macOS desktop graph.");
         }
         private static string ReadGraph(GraphInput graph, BinaryWriter payloads, ExternalIndex index,
-                TextWriter relationships, InventorySummary summary, int maximum, out string rawHash) {
+                TextWriter relationships, InventorySummary summary, int maximum, out string rawHash,
+                Action<RawGraphRecord> visitor = null) {
             string metadata = null, module = null;
-            long symbolCount = 0, relationshipCount = 0;
+            long symbolCount = 0, relationshipCount = 0, rootFieldIndex = 0;
             HashSet<string> properties = new HashSet<string>(StringComparer.Ordinal);
             using (FileStream source = new FileStream(graph.Path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536))
             using (SHA256 hash = SHA256.Create())
@@ -459,20 +478,31 @@ namespace SwiftUIBaseline.Streaming {
                                     input.StartRecord();
                                     if (property == "symbols") {
                                         string identifier;
-                                        string occurrence = Symbol(input, graph, symbolCount, maximum, out identifier);
-                                        long offset = payloads.BaseStream.Position;
-                                        payloads.Write(occurrence);
-                                        index.Add(identifier, summary.DeclarationOccurrences, offset);
+                                        string rawSymbol = visitor == null ? null : input.RawValue();
+                                        Dictionary<string, string> fields = visitor == null ? input.ObjectFields() :
+                                            JsonInput.Fields(rawSymbol, graph.RelativePath + "/symbol", maximum);
+                                        string occurrence = Symbol(fields, graph, symbolCount, maximum, out identifier);
+                                        if (payloads != null) {
+                                            long offset = payloads.BaseStream.Position;
+                                            payloads.Write(occurrence);
+                                            index.Add(identifier, summary.DeclarationOccurrences, offset);
+                                        }
+                                        if (visitor != null) visitor(new RawGraphRecord { Graph = graph, Kind = "symbol",
+                                            Index = symbolCount, PreciseIdentifier = identifier, Json = rawSymbol, InventoryJson = occurrence });
                                         symbolCount++; summary.DeclarationOccurrences++;
                                     } else {
                                         string raw = input.RawValue();
                                         Dictionary<string, string> fields = JsonInput.Fields(raw, graph.RelativePath + "/relationship", maximum);
                                         foreach (string required in new string[] { "kind", "source", "target" })
                                             RequiredString(fields, required, "Relationship " + relationshipCount + " in '" + graph.RelativePath + "'", maximum);
-                                        if (summary.RelationshipOccurrences != 0) relationships.Write(',');
-                                        relationships.Write("{\"graphPath\":" + Quote(graph.RelativePath) +
-                                            ",\"relationshipIndex\":" + Number(relationshipCount) + ",\"relationship\":");
-                                        relationships.Write(raw); relationships.Write('}');
+                                        string occurrence = "{\"graphPath\":" + Quote(graph.RelativePath) +
+                                            ",\"relationshipIndex\":" + Number(relationshipCount) + ",\"relationship\":" + raw + "}";
+                                        if (relationships != null) {
+                                            if (summary.RelationshipOccurrences != 0) relationships.Write(',');
+                                            relationships.Write(occurrence);
+                                        }
+                                        if (visitor != null) visitor(new RawGraphRecord { Graph = graph, Kind = "relationship",
+                                            Index = relationshipCount, Json = raw, InventoryJson = occurrence });
                                         relationshipCount++; summary.RelationshipOccurrences++;
                                     }
                                     input.EndRecord();
@@ -481,10 +511,19 @@ namespace SwiftUIBaseline.Streaming {
                             }
                         } else if (property == "metadata" || property == "module") {
                             input.StartRecord();
-                            if (property == "metadata") metadata = input.RawValue();
-                            else module = input.RawValue();
+                            string raw = input.RawValue();
+                            if (property == "metadata") metadata = raw;
+                            else module = raw;
+                            if (visitor != null) visitor(new RawGraphRecord { Graph = graph, Kind = "graph-field",
+                                Name = property, Index = rootFieldIndex, Json = raw });
+                            input.EndRecord();
+                        } else if (visitor != null) {
+                            input.StartRecord();
+                            visitor(new RawGraphRecord { Graph = graph, Kind = "graph-field", Name = property,
+                                Index = rootFieldIndex, Json = input.RawValue() });
                             input.EndRecord();
                         } else input.SkipValue();
+                        rootFieldIndex++;
                     } while (input.Consume(','));
                     input.Expect('}');
                 }
@@ -502,6 +541,18 @@ namespace SwiftUIBaseline.Streaming {
                 ",\"requestedModule\":" + Quote(graph.RequestedModule) + ",\"target\":" + Quote(graph.Target) +
                 ",\"metadata\":" + metadata + ",\"module\":" + module + ",\"symbolCount\":" + Number(symbolCount) +
                 ",\"relationshipCount\":" + Number(relationshipCount) + "}";
+        }
+
+        public static GraphVisitSummary VisitGraph(GraphInput graph, Action<RawGraphRecord> visitor,
+                int maximumRecordCharacters) {
+            if (graph == null || visitor == null) throw new ArgumentNullException("graph/visitor");
+            if (maximumRecordCharacters < 1024 || maximumRecordCharacters > 134217728)
+                throw new ArgumentOutOfRangeException("maximumRecordCharacters");
+            InventorySummary summary = new InventorySummary();
+            string hash;
+            string record = ReadGraph(graph, null, null, null, summary, maximumRecordCharacters, out hash, visitor);
+            summary.Graphs = 1;
+            return new GraphVisitSummary { GraphRecord = record, Sha256 = hash, Statistics = summary };
         }
         private static void CopyText(string path, TextWriter destination) {
             char[] buffer = new char[65536];
@@ -611,6 +662,473 @@ namespace SwiftUIBaseline.Streaming {
             }
         }
     }
+public sealed class AuditTextInput {
+        public string Path;
+        public string RelativePath;
+        public string Module;
+        public string Sha256;
+        public string CaptureRecordJson;
+    }
+
+    public sealed class AuditLedgerOptions {
+        public string BaselineId;
+        public GraphInput[] Graphs;
+        public string InventoryPath;
+        public string InventorySha256;
+        public string GraphSetSha256;
+        public long ExpectedGraphs;
+        public long ExpectedPreciseSymbols;
+        public long ExpectedDeclarations;
+        public long ExpectedRelationships;
+        public AuditTextInput[] Interfaces;
+        public AuditTextInput[] Overlays;
+        public string[] QueueFamilies;
+        public string OutputDirectory;
+        public long SortChunkBytes = 16777216;
+        public int MergeFanIn = 16;
+        public int MaximumRecordCharacters = 33554432;
+    }
+
+    public sealed class AuditLedgerSummary {
+        public InventorySummary Inventory = new InventorySummary();
+        public long GraphFieldFacts;
+        public long InventoryFacts;
+        public long InterfaceFiles;
+        public long InterfaceLines;
+        public long OverlayFiles;
+        public long OverlayLines;
+        public long QueueRecords;
+        public long LargestTextLineCharacters;
+        public string[] RecordFiles;
+    }
+
+    internal sealed class AuditGraphState {
+        public GraphInput Input;
+        public long FirstSymbol;
+        public long SymbolCount;
+        public byte[] RecordDigest;
+    }
+
+    // The audit is additive: raw symbols and relationships are retained, while
+    // the existing inventory is independently streamed and reconciled. No
+    // Windows matching, Swift parsing, or behavioral classification occurs here.
+    public static class AuditLedgerWriter {
+        private static readonly UTF8Encoding UTF8 = new UTF8Encoding(false, true);
+        private static readonly string[] Families = new string[] {
+            "view-builder", "binding-projections", "image-resizing", "long-press", "file-export"
+        };
+        private static readonly string[] Files = new string[] {
+            "identities.ndjson", "occurrences.ndjson", "relationships.ndjson", "graph-fields.ndjson",
+            "partitions.ndjson", "inventory-facts.ndjson", "interface-facts.ndjson",
+            "overlay-facts.ndjson", "candidate-queues.ndjson"
+        };
+        private static string Q(string value) { return InventoryWriter.Quote(value); }
+        private static string N(long value) { return value.ToString(CultureInfo.InvariantCulture); }
+        private static string Hex(byte[] value) { return BitConverter.ToString(value).Replace("-", "").ToLowerInvariant(); }
+        private static byte[] Digest(string value) {
+            using (SHA256 hash = SHA256.Create()) { return hash.ComputeHash(UTF8.GetBytes(value)); }
+        }
+        private static bool Equal(byte[] first, byte[] second) {
+            if (first.Length != second.Length) return false;
+            for (int index = 0; index < first.Length; index++) if (first[index] != second[index]) return false;
+            return true;
+        }
+        private static StreamWriter Writer(string path) {
+            StreamWriter result = new StreamWriter(new FileStream(path, FileMode.CreateNew,
+                FileAccess.Write, FileShare.None, 65536), UTF8, 65536);
+            result.NewLine = "\n"; return result;
+        }
+        private static string Required(Dictionary<string, string> fields, string name) {
+            string result;
+            if (!fields.TryGetValue(name, out result)) throw new InvalidDataException("Missing inventory field '" + name + "'.");
+            return result;
+        }
+        private static string Text(Dictionary<string, string> fields, string name, int maximum) {
+            return JsonInput.DecodeString(Required(fields, name), name, maximum);
+        }
+        private static long Integer(Dictionary<string, string> fields, string name) {
+            long result;
+            if (!Int64.TryParse(Required(fields, name), NumberStyles.None, CultureInfo.InvariantCulture, out result))
+                throw new InvalidDataException("Expected a nonnegative Int64 inventory count/index for '" + name + "'.");
+            return result;
+        }
+        private static string Canonical(string raw, string[] required, string[] optional, int maximum) {
+            Dictionary<string, string> fields = JsonInput.Fields(raw, "inventory projection", maximum);
+            StringBuilder output = new StringBuilder("{");
+            int count = 0;
+            foreach (string name in required) {
+                if (count++ != 0) output.Append(',');
+                output.Append(Q(name)).Append(':').Append(Required(fields, name));
+            }
+            foreach (string name in optional) if (fields.ContainsKey(name)) {
+                if (count++ != 0) output.Append(',');
+                output.Append(Q(name)).Append(':').Append(fields[name]);
+            }
+            if (count != fields.Count) throw new InvalidDataException("Unexpected inventory projection fields; review the inventory schema before auditing it.");
+            return output.Append('}').ToString();
+        }
+        private static string SymbolProjection(string raw, int maximum) {
+            return Canonical(raw, new string[] { "graphPath", "symbolIndex", "requestedModule", "target",
+                "interfaceLanguage", "kind", "pathComponents", "names", "accessLevel" },
+                new string[] { "availability", "declarationFragments", "swiftGenerics", "swiftExtension" }, maximum);
+        }
+        private static string GraphProjection(string raw, int maximum) {
+            return Canonical(raw, new string[] { "path", "sha256", "requestedModule", "target", "metadata",
+                "module", "symbolCount", "relationshipCount" }, new string[0], maximum);
+        }
+        private static string RelationshipProjection(string raw, int maximum) {
+            return Canonical(raw, new string[] { "graphPath", "relationshipIndex", "relationship" },
+                new string[0], maximum);
+        }
+        private static int QueueMask(string raw, int maximum) {
+            Dictionary<string, string> fields = JsonInput.Fields(raw, "candidate queue symbol", maximum);
+            string path;
+            if (!fields.TryGetValue("pathComponents", out path) || path == "null" || path.Length == 0 || path[0] != '[') return 0;
+            JsonInput input = new JsonInput(new StringReader(path), "pathComponents", maximum);
+            string first = null, second = null, last = null;
+            int count = 0;
+            input.Expect('[');
+            if (!input.Consume(']')) {
+                do {
+                    string value = input.RawValue();
+                    if (value.Length == 0 || value[0] != '"') return 0;
+                    last = JsonInput.DecodeString(value, "path component", maximum);
+                    if (count == 0) first = last;
+                    if (count == 1) second = last;
+                    count++;
+                } while (input.Consume(','));
+                input.Expect(']');
+            }
+            input.EndDocument();
+            int mask = 0;
+            if (first == "ViewBuilder" || (first == "View" && (count == 1 || last == "body"))) mask |= 1;
+            if (first == "Binding") mask |= 2;
+            if (first == "Image" && (count == 1 || second == "ResizingMode" ||
+                    last.StartsWith("resizable(", StringComparison.Ordinal))) mask |= 4;
+            if (first == "LongPressGesture" || (first == "View" &&
+                    last.StartsWith("onLongPressGesture(", StringComparison.Ordinal))) mask |= 8;
+            if (first == "FileDocument" || first == "FileDocumentReadConfiguration" ||
+                    first == "FileDocumentWriteConfiguration" || first == "ReferenceFileDocument" ||
+                    (first == "View" && last.StartsWith("fileExporter(", StringComparison.Ordinal))) mask |= 16;
+            return mask;
+        }
+        private static int SelectedQueues(string[] names) {
+            if (names == null) return 31;
+            int mask = 0;
+            foreach (string name in names) {
+                int index = Array.IndexOf(Families, name);
+                if (index < 0) throw new InvalidDataException("Unknown candidate queue family '" + name + "'.");
+                mask |= 1 << index;
+            }
+            return mask;
+        }
+        private static void RequireDigest(BinaryReader expected, string value, string context) {
+            byte[] bytes = expected.ReadBytes(32);
+            if (bytes.Length != 32 || !Equal(bytes, Digest(value)))
+                throw new InvalidDataException("Inventory does not match raw " + context + ".");
+        }
+
+        private static void ValidateInventory(AuditLedgerOptions options, AuditLedgerSummary result,
+                List<AuditGraphState> graphs, string sortedIndex, string symbolDigests,
+                string relationshipDigests, string factsPath) {
+            int maximum = options.MaximumRecordCharacters;
+            Dictionary<string, AuditGraphState> graphByPath = new Dictionary<string, AuditGraphState>(StringComparer.Ordinal);
+            foreach (AuditGraphState graph in graphs) graphByPath.Add(graph.Input.RelativePath, graph);
+            HashSet<string> rootFields = new HashSet<string>(StringComparer.Ordinal);
+            Dictionary<string, string> header = new Dictionary<string, string>(StringComparer.Ordinal);
+            long graphCount = 0, symbolCount = 0, occurrenceCount = 0, relationshipCount = 0;
+            using (RunReader identities = new RunReader(sortedIndex, maximum))
+            using (BinaryReader expectedSymbols = new BinaryReader(File.OpenRead(symbolDigests)))
+            using (BinaryReader expectedRelationships = new BinaryReader(File.OpenRead(relationshipDigests)))
+            using (StreamWriter facts = Writer(factsPath))
+            using (FileStream source = new FileStream(options.InventoryPath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536))
+            using (SHA256 hash = SHA256.Create())
+            using (CryptoStream hashed = new CryptoStream(source, hash, CryptoStreamMode.Read))
+            using (StreamReader reader = new StreamReader(hashed, UTF8, false, 65536)) {
+                JsonInput input = new JsonInput(reader, options.InventoryPath, maximum);
+                input.SkipUTF8BOM(); input.Expect('{');
+                if (!input.Consume('}')) {
+                    do {
+                        string property = input.PropertyName();
+                        // The schema has a bounded header. Unknown fields are
+                        // written immediately instead of being accumulated here.
+                        bool known = property == "graphs" || property == "symbols" || property == "relationships" ||
+                            property == "schemaVersion" || property == "baselineId" || property == "counts" ||
+                            property == "graphSetSha256" || property == "evidenceKind" || property == "rawGraphsAreAuthoritative" ||
+                            property == "behaviorConformance" || property == "completeness" || property == "crossImportOverlayCompleteness";
+                        if (known && !rootFields.Add(property)) throw new InvalidDataException("Duplicate inventory field '" + property + "'.");
+                        if (property == "graphs") {
+                            input.Expect('[');
+                            if (!input.Consume(']')) {
+                                do {
+                                    input.StartRecord(); string raw = input.RawValue(); input.EndRecord();
+                                    if (graphCount >= graphs.Count || !Equal(Digest(GraphProjection(raw, maximum)), graphs[(int)graphCount].RecordDigest))
+                                        throw new InvalidDataException("Inventory graph partition metadata/hash does not match raw graphs.");
+                                    graphCount++;
+                                } while (input.Consume(','));
+                                input.Expect(']');
+                            }
+                        } else if (property == "symbols") {
+                            input.Expect('[');
+                            if (!input.Consume(']')) {
+                                do {
+                                    if (identities.Current == null) throw new InvalidDataException("Inventory has duplicate or extra precise identifiers.");
+                                    string expectedId = identities.Current.Identifier;
+                                    bool sawId = false, sawOccurrences = false;
+                                    long groupCount = 0;
+                                    input.Expect('{');
+                                    if (!input.Consume('}')) {
+                                        do {
+                                            string member = input.PropertyName();
+                                            if (member == "preciseIdentifier") {
+                                                if (sawId) throw new InvalidDataException("Duplicate inventory preciseIdentifier field.");
+                                                sawId = true; input.StartRecord();
+                                                string identifier = JsonInput.DecodeString(input.RawValue(), "preciseIdentifier", maximum);
+                                                input.EndRecord();
+                                                if (!String.Equals(identifier, expectedId, StringComparison.Ordinal))
+                                                    throw new InvalidDataException("Inventory precise identifiers are missing, duplicated, changed or out of ordinal order.");
+                                            } else if (member == "occurrences") {
+                                                if (sawOccurrences) throw new InvalidDataException("Duplicate inventory occurrences array.");
+                                                sawOccurrences = true; input.Expect('[');
+                                                if (!input.Consume(']')) {
+                                                    do {
+                                                        input.StartRecord(); string raw = input.RawValue(); input.EndRecord();
+                                                        Dictionary<string, string> fields = JsonInput.Fields(raw, "inventory occurrence", maximum);
+                                                        AuditGraphState graph;
+                                                        string path = Text(fields, "graphPath", maximum);
+                                                        long symbolIndex = Integer(fields, "symbolIndex");
+                                                        if (!graphByPath.TryGetValue(path, out graph) || symbolIndex >= graph.SymbolCount ||
+                                                                identities.Current == null || identities.Current.Identifier != expectedId ||
+                                                                identities.Current.Sequence != graph.FirstSymbol + symbolIndex)
+                                                            throw new InvalidDataException("Inventory occurrence identity/path/index is missing, duplicated or changed.");
+                                                        expectedSymbols.BaseStream.Position = identities.Current.Offset;
+                                                        RequireDigest(expectedSymbols, SymbolProjection(raw, maximum), "symbol projection");
+                                                        identities.Advance(); groupCount++; occurrenceCount++;
+                                                    } while (input.Consume(','));
+                                                    input.Expect(']');
+                                                }
+                                            } else {
+                                                throw new InvalidDataException("Unexpected inventory identity-group field; review the inventory schema.");
+                                            }
+                                        } while (input.Consume(','));
+                                        input.Expect('}');
+                                    }
+                                    if (!sawId || !sawOccurrences || groupCount == 0 ||
+                                            (identities.Current != null && identities.Current.Identifier == expectedId))
+                                        throw new InvalidDataException("Inventory has an incomplete or duplicate precise identifier group.");
+                                    symbolCount++;
+                                } while (input.Consume(','));
+                                input.Expect(']');
+                            }
+                        } else if (property == "relationships") {
+                            input.Expect('[');
+                            if (!input.Consume(']')) {
+                                do {
+                                    input.StartRecord(); string raw = input.RawValue(); input.EndRecord();
+                                    RequireDigest(expectedRelationships, RelationshipProjection(raw, maximum), "relationship");
+                                    relationshipCount++;
+                                } while (input.Consume(','));
+                                input.Expect(']');
+                            }
+                        } else {
+                            input.StartRecord(); string raw = input.RawValue(); input.EndRecord();
+                            facts.WriteLine("{\"reviewStatus\":\"unreviewed\",\"field\":" + Q(property) + ",\"value\":" + raw + "}");
+                            result.InventoryFacts++;
+                            if (known) header.Add(property, raw);
+                        }
+                    } while (input.Consume(','));
+                    input.Expect('}');
+                }
+                input.EndDocument();
+                if (Hex(hash.Hash) != options.InventorySha256) throw new InvalidDataException("Inventory SHA-256 does not match the successful capture.");
+                if (identities.Current != null || expectedRelationships.BaseStream.Position != expectedRelationships.BaseStream.Length ||
+                        graphCount != graphs.Count || symbolCount != result.Inventory.PreciseSymbols ||
+                        occurrenceCount != result.Inventory.DeclarationOccurrences || relationshipCount != result.Inventory.RelationshipOccurrences)
+                    throw new InvalidDataException("Inventory does not account for every raw graph, identity, occurrence and relationship.");
+                foreach (string name in new string[] { "graphs", "symbols", "relationships", "schemaVersion", "baselineId",
+                        "counts", "graphSetSha256", "evidenceKind", "rawGraphsAreAuthoritative", "behaviorConformance",
+                        "completeness", "crossImportOverlayCompleteness" })
+                    if (!rootFields.Contains(name)) throw new InvalidDataException("Missing inventory field '" + name + "'.");
+                if (Required(header, "schemaVersion") != "1" || Text(header, "baselineId", maximum) != options.BaselineId ||
+                        Text(header, "graphSetSha256", maximum) != result.Inventory.GraphSetSha256 ||
+                        Text(header, "evidenceKind", maximum) != "compiler-exported-api-inventory-only" ||
+                        Text(header, "behaviorConformance", maximum) != "not-verified" ||
+                        Text(header, "completeness", maximum) != "requires-public-interface-and-documentation-audit" ||
+                        Text(header, "crossImportOverlayCompleteness", maximum) != "requires-declaration-and-interface-audit" ||
+                        Required(header, "rawGraphsAreAuthoritative") != "true")
+                    throw new InvalidDataException("Inventory baseline/schema/provenance is incompatible with the captured raw graphs.");
+                Dictionary<string, string> counts = JsonInput.Fields(Required(header, "counts"), "inventory counts", maximum);
+                if (Integer(counts, "graphs") != graphCount || Integer(counts, "preciseSymbols") != symbolCount ||
+                        Integer(counts, "declarationOccurrences") != occurrenceCount || Integer(counts, "relationshipOccurrences") != relationshipCount)
+                    throw new InvalidDataException("Inventory declared counts do not match its streamed records.");
+                result.Inventory.InventorySha256 = Hex(hash.Hash);
+                result.Inventory.LargestRecordCharacters = Math.Max(result.Inventory.LargestRecordCharacters, input.LargestRecordCharacters);
+            }
+        }
+
+        private static bool ReadTextLine(StreamReader reader, int maximum, out string text, out string ending) {
+            StringBuilder value = new StringBuilder();
+            ending = "";
+            while (true) {
+                int character = reader.Read();
+                if (character < 0) { text = value.ToString(); return value.Length != 0; }
+                if (character == '\r' || character == '\n') {
+                    ending = character == '\r' ? "\r" : "\n";
+                    if (character == '\r' && reader.Peek() == '\n') { reader.Read(); ending = "\r\n"; }
+                    text = value.ToString(); return true;
+                }
+                if (value.Length >= maximum) throw new InvalidDataException("Interface/overlay line exceeds MaximumRecordCharacters; increase the explicit budget, never truncate it.");
+                value.Append((char)character);
+            }
+        }
+        private static long WriteTextFacts(AuditTextInput[] files, string output, string kind,
+                AuditLedgerSummary summary, int maximum) {
+            long lines = 0;
+            using (StreamWriter writer = Writer(output)) {
+                string previous = null;
+                foreach (AuditTextInput file in files) {
+                    if (previous != null && StringComparer.Ordinal.Compare(previous, file.RelativePath) >= 0)
+                        throw new InvalidDataException("Interface/overlay paths must be unique and ordinally sorted.");
+                    previous = file.RelativePath;
+                    JsonInput.Fields(file.CaptureRecordJson, "captured interface/overlay record", maximum);
+                    JsonInput metadata = new JsonInput(new StringReader(file.CaptureRecordJson), "captured text-file record", maximum);
+                    metadata.StartRecord();
+                    string metadataJson = metadata.RawValue();
+                    metadata.EndRecord(); metadata.EndDocument();
+                    writer.WriteLine("{\"reviewStatus\":\"unreviewed\",\"factKind\":" + Q(kind + "-file") +
+                        ",\"path\":" + Q(file.RelativePath) + ",\"module\":" + Q(file.Module) +
+                        ",\"sha256\":" + Q(file.Sha256) + ",\"captureRecord\":" + metadataJson + "}");
+                    long number = 0;
+                    using (FileStream source = new FileStream(file.Path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536))
+                    using (SHA256 hash = SHA256.Create())
+                    using (CryptoStream hashed = new CryptoStream(source, hash, CryptoStreamMode.Read))
+                    using (StreamReader reader = new StreamReader(hashed, UTF8, false, 65536)) {
+                        string text, ending;
+                        while (ReadTextLine(reader, maximum, out text, out ending)) {
+                            number++; lines++;
+                            summary.LargestTextLineCharacters = Math.Max(summary.LargestTextLineCharacters, text.Length);
+                            writer.WriteLine("{\"reviewStatus\":\"unreviewed\",\"factKind\":" + Q(kind + "-source-line") +
+                                ",\"path\":" + Q(file.RelativePath) + ",\"line\":" + N(number) +
+                                ",\"text\":" + Q(text) + ",\"lineEnding\":" + Q(ending) + "}");
+                        }
+                        if (Hex(hash.Hash) != file.Sha256) throw new InvalidDataException("Interface/overlay SHA-256 changed while reading '" + file.RelativePath + "'.");
+                    }
+                }
+            }
+            return lines;
+        }
+
+        public static AuditLedgerSummary Write(AuditLedgerOptions options) {
+            if (options == null || options.Graphs == null || options.Interfaces == null || options.Overlays == null)
+                throw new ArgumentNullException("options/graphs/interfaces/overlays");
+            if (options.SortChunkBytes < 1024 || options.SortChunkBytes > 1073741824L ||
+                    options.MergeFanIn < 2 || options.MergeFanIn > 64 ||
+                    options.MaximumRecordCharacters < 1024 || options.MaximumRecordCharacters > 134217728)
+                throw new ArgumentOutOfRangeException("Invalid explicit audit resource budgets.");
+            if (!Directory.Exists(options.OutputDirectory)) throw new DirectoryNotFoundException("Audit staging directory does not exist.");
+            int selectedQueues = SelectedQueues(options.QueueFamilies);
+            AuditLedgerSummary result = new AuditLedgerSummary();
+            result.RecordFiles = (string[])Files.Clone();
+            string spool = Path.Combine(options.OutputDirectory, ".audit-index-" + Guid.NewGuid().ToString("N"));
+            if (Directory.Exists(spool) || File.Exists(spool)) throw new IOException("Audit index scratch already exists.");
+            Directory.CreateDirectory(spool);
+            string symbolDigests = Path.Combine(spool, "symbol-digests.bin");
+            string relationshipDigests = Path.Combine(spool, "relationship-digests.bin");
+            ExternalIndex index = new ExternalIndex(spool, options.SortChunkBytes,
+                options.MaximumRecordCharacters, options.MergeFanIn, result.Inventory);
+            List<AuditGraphState> states = new List<AuditGraphState>();
+            using (BinaryWriter symbolHashes = new BinaryWriter(new FileStream(symbolDigests, FileMode.CreateNew)))
+            using (BinaryWriter relationshipHashes = new BinaryWriter(new FileStream(relationshipDigests, FileMode.CreateNew)))
+            using (StreamWriter occurrences = Writer(Path.Combine(options.OutputDirectory, "occurrences.ndjson")))
+            using (StreamWriter relationships = Writer(Path.Combine(options.OutputDirectory, "relationships.ndjson")))
+            using (StreamWriter graphFields = Writer(Path.Combine(options.OutputDirectory, "graph-fields.ndjson")))
+            using (StreamWriter partitions = Writer(Path.Combine(options.OutputDirectory, "partitions.ndjson")))
+            using (SHA256 graphSet = SHA256.Create()) {
+                string previous = null;
+                foreach (GraphInput graph in options.Graphs) {
+                    if (previous != null && StringComparer.Ordinal.Compare(previous, graph.RelativePath) >= 0)
+                        throw new InvalidDataException("Audit graph paths must be unique and ordinally sorted.");
+                    previous = graph.RelativePath;
+                    AuditGraphState state = new AuditGraphState { Input = graph, FirstSymbol = result.Inventory.DeclarationOccurrences };
+                    GraphVisitSummary visited = InventoryWriter.VisitGraph(graph, delegate(RawGraphRecord record) {
+                        string provenance = "\"reviewStatus\":\"unreviewed\",\"graphPath\":" + Q(graph.RelativePath) +
+                            ",\"requestedModule\":" + Q(graph.RequestedModule) + ",\"target\":" + Q(graph.Target);
+                        if (record.Kind == "symbol") {
+                            long offset = symbolHashes.BaseStream.Position;
+                            symbolHashes.Write(Digest(record.InventoryJson));
+                            symbolHashes.Write(QueueMask(record.Json, options.MaximumRecordCharacters));
+                            index.Add(record.PreciseIdentifier, result.Inventory.DeclarationOccurrences, offset);
+                            occurrences.WriteLine("{" + provenance + ",\"symbolIndex\":" + N(record.Index) +
+                                ",\"preciseIdentifier\":" + Q(record.PreciseIdentifier) + ",\"symbol\":" + record.Json + "}");
+                            result.Inventory.DeclarationOccurrences++;
+                        } else if (record.Kind == "relationship") {
+                            relationshipHashes.Write(Digest(record.InventoryJson));
+                            relationships.WriteLine("{" + provenance + ",\"relationshipIndex\":" + N(record.Index) +
+                                ",\"relationship\":" + record.Json + "}");
+                            result.Inventory.RelationshipOccurrences++;
+                        } else {
+                            graphFields.WriteLine("{" + provenance + ",\"rootFieldIndex\":" + N(record.Index) +
+                                ",\"field\":" + Q(record.Name) + ",\"value\":" + record.Json + "}");
+                            result.GraphFieldFacts++;
+                        }
+                    }, options.MaximumRecordCharacters);
+                    state.SymbolCount = visited.Statistics.DeclarationOccurrences;
+                    state.RecordDigest = Digest(visited.GraphRecord); states.Add(state);
+                    partitions.WriteLine("{\"reviewStatus\":\"unreviewed\",\"graph\":" + visited.GraphRecord + "}");
+                    result.Inventory.Graphs++; result.Inventory.InputBytes += visited.Statistics.InputBytes;
+                    result.Inventory.LargestRecordCharacters = Math.Max(result.Inventory.LargestRecordCharacters, visited.Statistics.LargestRecordCharacters);
+                    byte[] line = UTF8.GetBytes(graph.RelativePath + "\t" + visited.Sha256 + "\n");
+                    graphSet.TransformBlock(line, 0, line.Length, null, 0);
+                }
+                graphSet.TransformFinalBlock(new byte[0], 0, 0);
+                result.Inventory.GraphSetSha256 = Hex(graphSet.Hash);
+            }
+            string sortedIndex = index.Finish();
+            if (result.Inventory.GraphSetSha256 != options.GraphSetSha256 ||
+                    result.Inventory.Graphs != options.ExpectedGraphs || result.Inventory.PreciseSymbols != options.ExpectedPreciseSymbols ||
+                    result.Inventory.DeclarationOccurrences != options.ExpectedDeclarations || result.Inventory.RelationshipOccurrences != options.ExpectedRelationships)
+                throw new InvalidDataException("Successful capture counts/graphSetSha256 do not match every raw graph record.");
+            ValidateInventory(options, result, states, sortedIndex, symbolDigests, relationshipDigests,
+                Path.Combine(options.OutputDirectory, "inventory-facts.ndjson"));
+            using (RunReader sorted = new RunReader(sortedIndex, options.MaximumRecordCharacters))
+            using (BinaryReader payloads = new BinaryReader(File.OpenRead(symbolDigests)))
+            using (StreamWriter identities = Writer(Path.Combine(options.OutputDirectory, "identities.ndjson")))
+            using (StreamWriter queues = Writer(Path.Combine(options.OutputDirectory, "candidate-queues.ndjson"))) {
+                while (sorted.Current != null) {
+                    string identifier = sorted.Current.Identifier;
+                    long count = 0; int queuesForIdentity = 0;
+                    do {
+                        payloads.BaseStream.Position = sorted.Current.Offset + 32;
+                        queuesForIdentity |= payloads.ReadInt32();
+                        count++; sorted.Advance();
+                    } while (sorted.Current != null && sorted.Current.Identifier == identifier);
+                    result.Inventory.LargestOccurrenceGroup = Math.Max(result.Inventory.LargestOccurrenceGroup, count);
+                    identities.WriteLine("{\"reviewStatus\":\"unreviewed\",\"preciseIdentifier\":" + Q(identifier) +
+                        ",\"occurrenceCount\":" + N(count) + "}");
+                    for (int family = 0; family < Families.Length; family++) if ((queuesForIdentity & selectedQueues & (1 << family)) != 0) {
+                        queues.WriteLine("{\"reviewStatus\":\"unreviewed\",\"selection\":\"lexical-candidate-only\",\"family\":" +
+                            Q(Families[family]) + ",\"preciseIdentifier\":" + Q(identifier) + "}");
+                        result.QueueRecords++;
+                    }
+                }
+            }
+            result.InterfaceFiles = options.Interfaces.Length;
+            result.InterfaceLines = WriteTextFacts(options.Interfaces, Path.Combine(options.OutputDirectory, "interface-facts.ndjson"),
+                "interface", result, options.MaximumRecordCharacters);
+            result.OverlayFiles = options.Overlays.Length;
+            result.OverlayLines = WriteTextFacts(options.Overlays, Path.Combine(options.OutputDirectory, "overlay-facts.ndjson"),
+                "overlay", result, options.MaximumRecordCharacters);
+            // The caller publishes only a complete staging directory. This
+            // generated, checked child is the only scratch removed here.
+            if (Path.GetDirectoryName(Path.GetFullPath(spool)) != Path.GetFullPath(options.OutputDirectory) ||
+                    (File.GetAttributes(spool) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("Refusing unsafe audit index scratch cleanup.");
+            Directory.Delete(spool, true);
+            foreach (string name in Files) result.Inventory.OutputBytes += new FileInfo(Path.Combine(options.OutputDirectory, name)).Length;
+            return result;
+        }
+    }
+
 }
 '@
     $sourceHash = Get-SwiftUIBaselineTextHash -Text $source

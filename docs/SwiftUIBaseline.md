@@ -244,6 +244,13 @@ test evidence. Compilation alone cannot promote a shim or ignored argument
 to implemented. Exact native reference OS builds, fonts, appearance,
 geometry, and fixture provenance belong with the behavior evidence.
 
+The [first API audit stage](SwiftUIAPIAudit.md) can seed an immutable,
+unreviewed ledger from a successful, hash-verified candidate. It streams full
+raw records and retains every identity and occurrence; its family queues do
+not filter the ledger. Windows declaration mapping, interface/overlay review,
+and behavioral conformance remain separate work. A locally reindexed failed
+capture cannot be used as an official audit input.
+
 The existing macOS reference workflow currently chooses an installed
 compatible Xcode and refreshes its renders weekly. It remains useful for
 exploration, but does not establish this fixed SDK or a qualified visual

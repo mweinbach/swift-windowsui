@@ -14,6 +14,8 @@
 /// same-source SwiftUI bindings across both host and navigation rebuilds.
 @MainActor
 final class DemoGalleryState: ObservableObject {
+    let observation = DemoObservationState()
+
     // Control workbench.
     @Published var draftName = "Native component kit"
     @Published var density: DemoShowcaseDensity = .balanced
@@ -103,6 +105,7 @@ enum DemoGalleryCategory: String, CaseIterable, Hashable {
             return [
                 "input", "field", "form", "binding", "state", "checkbox", "switch", "button",
                 "segmented", "stepper", "picker", "slider", "progress", "validation", "text",
+                "scroll", "geometry", "phase", "visibility", "observation", "animation",
             ]
         case .visuals:
             return [
@@ -163,6 +166,7 @@ struct DemoGalleryScreen: View {
 
                             if visibleCategories.contains(.controls) {
                                 DemoComponentShowcase(model: model, compact: compact)
+                                DemoObservationShowcase(model: model)
                             }
 
                             if visibleCategories.contains(.presentations) {

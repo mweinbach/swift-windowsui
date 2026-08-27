@@ -184,11 +184,44 @@ final class ListVirtualizationTests: XCTestCase {
         XCTAssertTrue(placeholders.allSatisfy { $0.children.isEmpty })
     }
 
-    func testScrollDisabledLongListKeepsEagerLayout() async {
-        let disabled = makeRuntime(plainList(rowCount: 100).scrollDisabled(true))
+    func testScrollDisabledLongListPreservesVirtualizationAndProgrammaticAccess() async throws {
+        var proxy: ScrollViewProxy?
+        let disabled = makeRuntime(
+            ScrollViewReader { capturedProxy in
+                proxy = capturedProxy
+                List(0..<100, id: \.self) { index in
+                    Text("ROW \(index)")
+                        .frame(width: 220, height: 24)
+                        .id("row-\(index)")
+                }
+                .scrollDisabled(true)
+            }
+        )
 
-        XCTAssertNil(disabled.node.scrollAxis)
-        XCTAssertFalse(disabled.node.layoutMode.virtualizesChildren)
-        XCTAssertEqual(disabled.runtime.virtualizedLayoutSkipCount, 0)
+        XCTAssertEqual(disabled.node.scrollAxis, .vertical)
+        XCTAssertFalse(disabled.node.isScrollInputEnabled)
+        XCTAssertTrue(disabled.node.layoutMode.virtualizesChildren)
+        XCTAssertGreaterThan(disabled.runtime.virtualizedLayoutSkipCount, 80)
+        // Default list chrome interleaves separators with its actual rows.
+        let rows = disabled.node.children.filter { $0.text != nil || !$0.children.isEmpty || $0.onActivate != nil }
+        XCTAssertEqual(rows.count, 100)
+        let distantRow = try XCTUnwrap(rows.dropFirst(95).first)
+        XCTAssertTrue(distantRow.isLayoutDeferredByVirtualization)
+
+        disabled.runtime.mouseWheel(at: Point(x: 130, y: 100), delta: -1)
+        _ = disabled.runtime.renderScene(at: 1)
+        XCTAssertEqual(disabled.node.scrollOffset, 0)
+
+        try XCTUnwrap(proxy).scrollTo("row-95", anchor: .top)
+        _ = disabled.runtime.renderScene(at: 1)
+        let programmaticOffset = disabled.node.scrollOffset
+        XCTAssertGreaterThan(programmaticOffset, 2000)
+        XCTAssertFalse(distantRow.isLayoutDeferredByVirtualization)
+        XCTAssertGreaterThan(disabled.runtime.virtualizedLayoutSkipCount, 80)
+
+        disabled.runtime.mouseWheel(at: Point(x: 130, y: 100), delta: 1)
+        _ = disabled.runtime.renderScene(at: 1)
+        XCTAssertEqual(disabled.node.scrollOffset, programmaticOffset)
+        XCTAssertEqual(disabled.node.resolvedScrollOffset, programmaticOffset)
     }
 }

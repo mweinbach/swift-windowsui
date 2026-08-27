@@ -145,11 +145,14 @@ struct CapturedGlyphRasterMetrics: Equatable, Sendable {
 func makeCapturedGlyphRasterMetrics(for glyph: NativeTextGlyphLayout, scaleFactor: Double)
     -> CapturedGlyphRasterMetrics?
 {
-    guard scaleFactor.isFinite else {
+    guard scaleFactor.isFinite, scaleFactor > 0 else {
         return nil
     }
 
-    let renderScale = max(scaleFactor, 1.0)
+    // The painter divides this raster's pixel metrics by the requested atlas
+    // rung before applying the view transform. Clamping a shrinking run to 1x
+    // leaves its ink full-size while its advances shrink, overlapping letters.
+    let renderScale = scaleFactor
     guard glyph.fontSize.isFinite, glyph.origin.y.isFinite, glyph.advance.isFinite else {
         return nil
     }
@@ -188,11 +191,11 @@ func makeCapturedGlyphRasterMetrics(for glyph: NativeTextGlyphLayout, scaleFacto
     )
 }
 func isUsableCapturedGlyphBitmap(_ bitmap: NativeGlyphBitmap, fontSize: Double, scaleFactor: Double) -> Bool {
-    guard fontSize.isFinite, scaleFactor.isFinite, bitmap.width > 0, bitmap.height > 0 else {
+    guard fontSize.isFinite, scaleFactor.isFinite, scaleFactor > 0, bitmap.width > 0, bitmap.height > 0 else {
         return false
     }
 
-    let maxExtent = max(fontSize * max(scaleFactor, 1.0) * 4.0, 32.0)
+    let maxExtent = max(fontSize * scaleFactor * 4.0, 32.0)
     return Double(bitmap.width) <= maxExtent && Double(bitmap.height) <= maxExtent
 }
 /// The one `Double -> Int32` conversion in the text layer.
@@ -380,6 +383,10 @@ private final class DirectWriteSystem {
         maxWidth: Double? = nil,
         resolvesMinimumScaleFactor: Bool = true
     ) -> NativeTextLayoutResult? {
+        // Uniform DirectWrite line metrics already include positive leading.
+        // The painter adds this field between line boxes, so repeating that
+        // leading here would double every paragraph's baseline spacing.
+        let interLineSpacing = style.lineSpacing >= 0 ? 0 : style.lineSpacing
         guard !text.isEmpty else {
             let emptySize = snapLogicalTextSize(
                 Size(
@@ -387,7 +394,7 @@ private final class DirectWriteSystem {
                 scaleFactor: scaleFactor
             )
             return NativeTextLayoutResult(
-                lines: [], lineSpacing: style.lineSpacing, contentSize: .zero, measuredSize: emptySize)
+                lines: [], lineSpacing: interLineSpacing, contentSize: .zero, measuredSize: emptySize)
         }
 
         guard let measurementFormat = createTextFormat(style: style, wrapping: dwriteWordWrappingNoWrap) else {
@@ -437,7 +444,7 @@ private final class DirectWriteSystem {
             contentWidth = max(contentWidth, lineLayout.width)
             contentHeight += lineLayout.height
             if index < resolvedLayout.lines.count - 1 {
-                contentHeight += style.lineSpacing
+                contentHeight += interLineSpacing
             }
         }
 
@@ -445,7 +452,7 @@ private final class DirectWriteSystem {
             let reservedLineHeight = lines.first?.height ?? max(style.nativeFontPixelSize, 1)
             let reservedContentHeight =
                 Double(reservedLineCount) * reservedLineHeight + Double(max(reservedLineCount - 1, 0))
-                * style.lineSpacing
+                * interLineSpacing
             contentHeight = max(contentHeight, reservedContentHeight)
         }
 
@@ -460,7 +467,7 @@ private final class DirectWriteSystem {
 
         return NativeTextLayoutResult(
             lines: lines,
-            lineSpacing: style.lineSpacing,
+            lineSpacing: interLineSpacing,
             contentSize: Size(width: contentWidth, height: contentHeight),
             measuredSize: measuredSize
         )
@@ -646,7 +653,14 @@ private final class DirectWriteSystem {
             TextRenderDiagnosticsCounters.letterSpacingDroppedRasterizations += 1
         }
 
-        guard let format = createTextFormat(style: style, wrapping: wrappingMode(for: resolvedLayout, style: style))
+        // textOrigin owns vertical alignment within the raster. Asking
+        // DirectWrite to align the paragraph as well applies the same offset
+        // twice and pushes bottom-aligned text beyond the bitmap.
+        var rasterStyle = style
+        rasterStyle.verticalAlignment = .top
+        guard
+            let format = createTextFormat(
+                style: rasterStyle, wrapping: wrappingMode(for: resolvedLayout, style: style))
         else {
             return nil
         }
@@ -753,13 +767,14 @@ private final class DirectWriteSystem {
         lineStyle.alignment = .leading
 
         guard !text.isEmpty else {
-            let lineHeight = max(lineStyle.nativeFontPixelSize, 1)
+            let lineHeight = max(lineStyle.nativeFontPixelSize + max(lineStyle.lineSpacing, 0), 1)
+            let ascent = lineStyle.nativeFontPixelSize * 0.8
             return NativeTextLineLayout(
                 text: text,
                 width: 0,
                 height: lineHeight,
-                ascent: lineHeight * 0.8,
-                descent: lineHeight * 0.2,
+                ascent: ascent,
+                descent: max(0, lineHeight - ascent),
                 glyphs: []
             )
         }
@@ -805,7 +820,10 @@ private final class DirectWriteSystem {
         }
 
         let lineHeight = max(bounds.height, lineStyle.nativeFontPixelSize)
-        let ascent = max(lineStyle.nativeFontPixelSize * 0.8, lineHeight * 0.7)
+        let ascent =
+            lineStyle.lineSpacing >= 0
+            ? lineStyle.nativeFontPixelSize * 0.8
+            : max(lineStyle.nativeFontPixelSize * 0.8, lineHeight * 0.7)
         let descent = max(0, lineHeight - ascent)
         return NativeTextLineLayout(
             text: text,
@@ -830,9 +848,18 @@ private final class DirectWriteSystem {
             return lineWidth
         }
 
-        for index in glyphs.indices {
-            glyphs[index].origin.x += Double(index) * letterSpacing
-            if index < glyphs.count - 1 {
+        // Captured runs retain their logical glyph order. RTL runs walk left,
+        // so spacing by array index would pull those glyphs closer together.
+        // Apply gaps in visual order while retaining source/cluster identity.
+        let visualOrder = glyphs.indices.sorted {
+            if glyphs[$0].origin.x == glyphs[$1].origin.x {
+                return $0 < $1
+            }
+            return glyphs[$0].origin.x < glyphs[$1].origin.x
+        }
+        for (position, index) in visualOrder.enumerated() {
+            glyphs[index].origin.x += Double(position) * letterSpacing
+            if position < glyphs.count - 1 {
                 glyphs[index].advance += letterSpacing
             }
         }
@@ -2146,23 +2173,33 @@ private func directWriteGlyphLayoutDrawGlyphRun(
         }
     }
 
+    let isRightToLeft = glyphRun.bidiLevel % 2 != 0
     var cursorX = Double(baselineOriginX)
     for index in 0..<glyphCount {
         let offset = offsetsStorage[index]
+        let advance = Double(advancesStorage[index])
+        // DirectWrite's RTL origin is the right edge and positive offsets
+        // move left. Atlas glyphs are rasterized individually in LTR space,
+        // so capture their left baseline origin, not the run's right edge.
+        if isRightToLeft {
+            cursorX -= advance
+        }
         context.pointee.glyphs.append(
             DirectWriteCapturedGlyph(
                 glyphID: UInt32(indices[index]),
                 textPosition: textPositions[index],
                 origin: Point(
-                    x: cursorX + Double(offset.advanceOffset),
+                    x: cursorX + Double(offset.advanceOffset) * (isRightToLeft ? -1 : 1),
                     y: Double(baselineOriginY) - Double(offset.ascenderOffset)
                 ),
-                advance: Double(advancesStorage[index]),
+                advance: advance,
                 fontFace: fontFace,
                 fontSize: Double(glyphRun.fontEmSize)
             )
         )
-        cursorX += Double(advancesStorage[index])
+        if !isRightToLeft {
+            cursorX += advance
+        }
     }
 
     return 0

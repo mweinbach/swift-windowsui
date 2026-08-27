@@ -775,6 +775,14 @@ Shaping is primary. `NativeTextRenderer.isGlyphShapingEnabled` (default
 the hit-test walk, which stays live anyway because a capture that comes
 back empty falls through to it.
 
+Capture also honors each run's `bidiLevel`: RTL runs start at their right
+edge and advance left. Their origins are converted to the left-baseline
+coordinates used by individual atlas rasters, including the reversed
+direction of `advanceOffset`. Tracking inserts gaps in visual order
+without rearranging source indices. `TextShapingPipelineTests` compares
+Hebrew placements with DirectWrite hit testing and covers mixed Latin,
+Arabic, Hebrew, and fallback-font runs.
+
 The capture renderer is a COM object DirectWrite calls *back* into, and
 before it reports a run's baseline it asks that object two questions:
 `IsPixelSnappingDisabled` and `GetPixelsPerDip`. The capture answers
@@ -2039,6 +2047,13 @@ against the float rect, in every family (quad, glyph, image, path, shadow),
 rather than via the outward-rounded scan window — a systematic 1 px bleed
 at 125 % and 150 % DPI.
 
+Clip bounds include their top/left edges and exclude their bottom/right
+edges, matching primitive geometry. Including both edges let adjacent clips
+both paint the same row when their shared boundary crossed a pixel centre,
+darkening translucent content during scrolling. `SharedCoverageKernelTests`,
+`D3D11GlyphShaderPixelTests`, and `D3D11TransparentCompositingTests` cover
+these fractional boundaries on the CPU and WARP paths.
+
 **Shadows.** The envelope is the rect grown by `2 · blurRadius`, the
 falloff is `1 - smoothstep(-blur/2, blur, distance)`, and the peak alpha is
 the requested alpha. The rasterizer used to grow by `blurRadius / 2`, ramp
@@ -2266,6 +2281,15 @@ materials blur the already-composited material beneath. Rotated blur
 quads take the same path over the axis-aligned bounding box of their
 rotated footprint (the window the CPU rasterizer also blurs). Locked by
 `D3D11BackdropBlurTests` (WARP-device pixel tests).
+
+The material pass replaces the covered fraction of the original backdrop:
+`material * coverage + original * (1 - coverage)`, in premultiplied space.
+Its tint still composites source-over, but the filtered backdrop already
+inside that result must not be blended over the original a second time.
+The D3D11 pass uses dual-source blending to keep coverage independent from
+material alpha; the CPU pass applies the same replacement directly. This
+preserves translucent backgrounds during fades, including antialiased edges
+and `blurOpaque`, as pinned by `D3D11TransparentCompositingTests`.
 
 **Region safety.** Four rules bound what a blurred quad may touch, all
 pinned by `BackdropBlurRegionSafetyTests`:
@@ -3068,6 +3092,14 @@ That tuple is exactly `TextRasterCacheKey`, so both renderers now go through
 the same `TextRasterCache` `Controls.icon` uses. One seam for both, so the
 two cannot drift onto different keys. The scene path is untouched: it draws
 text from the glyph atlas and never asks for a whole-string bitmap.
+
+The raster key includes native tracking and each span's UTF-16 range and
+complete style. A font or span-range change at a fixed frame size must not
+reuse old ink; tracking also changes wrapping and truncation on this path.
+`FramePathTextColorTests` checks those mutations and equivalent cache hits.
+The bitmap path applies vertical alignment once, through `textOrigin`;
+DirectWrite receives a top-aligned paragraph so center/bottom offsets are
+not repeated inside the raster and clipped away.
 
 `TextRasterCache.shared` is a process global on purpose — its callers
 (`Controls.icon` from a static factory, `appendCommands` from deep inside

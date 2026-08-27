@@ -848,6 +848,41 @@ struct ScenePainterTests {
         #expect(NativeGlyphAtlas.shared.wasUsedInCurrentFrame == false)
     }
 
+    @Test("Clipped native ink does not reappear in a different fallback font")
+    func clippedNativeInkDoesNotFallBackToPixelText() {
+        defer {
+            NativeTextRenderer.resetTestingOverrides()
+            NativeGlyphAtlas.shared.resetForTesting()
+        }
+        NativeGlyphAtlas.shared.resetForTesting()
+        NativeTextRenderer.testingOverrides.layout = { text, style, _, _ in
+            syntheticNativeLayout(for: text, style: style)
+        }
+        NativeTextRenderer.testingOverrides.rasterizeGlyphForLayout = { _, _, _ in
+            stubNativeGlyphBitmap()
+        }
+
+        // Native ink begins at x=13, outside this viewport. The bitmap font
+        // would instead place its wider run at x=6 and leak letters into it.
+        let textNode = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 40, height: 32),
+            text: "abc",
+            textStyle: PixelTextStyle(
+                color: .white, alignment: .trailing, verticalAlignment: .top,
+                nativeFontSize: 18)
+        )
+        let root = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 10, height: 32),
+            clipsToBounds: true,
+            children: [textNode]
+        )
+
+        let scene = ScenePainter.paint(root: root, clearColor: .black, surfaceSize: surfaceSize)
+
+        expectAtlasSilent(scene)
+        #expect(scene.paintMetrics.textDiagnostics.pixelFontFallbacks == 0)
+    }
+
     @Test("Native glyphs without source character mapping still reach the native atlas - VAL-TEXT-010")
     func nativeGlyphsWithoutSourceMappingStillRender() {
         defer {

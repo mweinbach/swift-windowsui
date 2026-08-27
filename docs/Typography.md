@@ -134,6 +134,21 @@ is the device pixel size, so a window dragged from a 100% monitor to a 150%
 one misses the cache and re-rasterizes for the new monitor
 (`testDisplayScaleChangeReRasterizesGlyphsAtTheNewDeviceSize`).
 
+The rasterizer also preserves effective scales below 1. A shrinking transform
+must shrink the ink as well as the advances; clamping the raster to 1x made
+half-size labels draw full-size letters on half-size spacing.
+`ScaledTextLayoutTests.testShrinkingLabelShrinksItsGlyphCellsAcrossDisplayScales`
+checks both cell dimensions at 100%, 125%, 150%, and 200% display scale.
+
+### Line spacing
+
+DirectWrite's uniform line height already contains `fontSize + lineSpacing`.
+The captured line box includes that leading, so the painter adds no second
+gap between those boxes. Empty lines and reserved line limits use the same
+height, and the baseline remains the baseline supplied to DirectWrite.
+`TextShapingPipelineTests.testNativeParagraphLeadingIsAppliedOnce` checks
+measurement and painted baseline spacing together.
+
 ### Hairline rules: the device-pixel pin
 
 **Rule: a separator is pinned to whole device pixels along its thin axis.**

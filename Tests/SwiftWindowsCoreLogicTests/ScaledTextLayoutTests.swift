@@ -247,6 +247,37 @@ final class ScaledTextLayoutTests: XCTestCase {
             "the 2x run's cells are 2x tall")
     }
 
+    func testShrinkingLabelShrinksItsGlyphCellsAcrossDisplayScales() async throws {
+        let text = "HHHH"
+        let frame = Rect(x: 300, y: 300, width: 240, height: 70)
+        var textStyle = style(lines: 1)
+        textStyle.nativeFontSize = 32
+
+        for displayScale in [1.0, 1.25, 1.5, 2.0] {
+            let unscaled = glyphs(label(text, frame: frame, style: textStyle), displayScale: displayScale)
+            XCTAssertEqual(unscaled.count, text.count, "the reference run must paint every glyph")
+            let firstUnscaled = try XCTUnwrap(unscaled.first)
+
+            for contentScale in [0.5, 0.75] {
+                let shrunk = glyphs(
+                    label(
+                        text, frame: frame, style: textStyle,
+                        transform: Transform2D(scaleX: contentScale, scaleY: contentScale)),
+                    displayScale: displayScale)
+                XCTAssertEqual(shrunk.count, unscaled.count, "shrinking preserves the shaped run")
+
+                for cell in shrunk {
+                    XCTAssertEqual(
+                        Double(cell.screenH), Double(firstUnscaled.screenH) * contentScale, accuracy: 2,
+                        "a \(contentScale)x run at \(displayScale)x DPI must shrink its ink with its advances")
+                    XCTAssertEqual(
+                        Double(cell.screenW), Double(firstUnscaled.screenW) * contentScale, accuracy: 2,
+                        "a shrinking run must not overlap full-size glyph cells")
+                }
+            }
+        }
+    }
+
     // MARK: - Composition with rotation
 
     /// Rotation was lowered in WS-19 and already turns the run about the

@@ -25,6 +25,7 @@ struct TextRasterCacheKey: Hashable, Sendable {
     var verticalAlignment: TextVerticalAlignment
     var lineSpacing: Double
     var letterSpacing: Double
+    var nativeLetterSpacing: Double?
     var lineBreakMode: TextLineBreakMode
     var maximumNumberOfLines: Int?
     var minimumNumberOfLines: Int?
@@ -53,6 +54,24 @@ struct TextRasterCacheKey: Hashable, Sendable {
     var strikethroughColorBlue: Float?
     var strikethroughColorAlpha: Float?
     var enableKerning: Bool
+    var spans: [SpanKey]
+
+    struct SpanKey: Hashable, Sendable {
+        var utf16RangeStart: Int?
+        var utf16RangeLength: Int?
+        var style: TextRasterCacheKey
+
+        init(span: TextSpan, in text: String) {
+            // Use the layout cache's structural range, not String.Index identity.
+            // A rebuilt string with the same spans must still hit the cache.
+            let layoutSpan = WindowTextSystem.LayoutSpanKey(span: span, in: text)
+            self.utf16RangeStart = layoutSpan.utf16RangeStart
+            self.utf16RangeLength = layoutSpan.utf16RangeLength
+            // Span paint inputs matter too, so use the complete raster key rather
+            // than only the font and layout fields in LayoutSpanKey.
+            self.style = TextRasterCacheKey(text: span.text, style: span.style, size: .zero)
+        }
+    }
 
     init(text: String, style: PixelTextStyle, size: Size, renderScale: Double = 1) {
         self.text = text
@@ -70,6 +89,7 @@ struct TextRasterCacheKey: Hashable, Sendable {
         self.verticalAlignment = style.verticalAlignment
         self.lineSpacing = style.lineSpacing
         self.letterSpacing = style.letterSpacing
+        self.nativeLetterSpacing = style.nativeLetterSpacing
         self.lineBreakMode = style.lineBreakMode
         self.maximumNumberOfLines = style.maximumNumberOfLines
         self.minimumNumberOfLines = style.minimumNumberOfLines
@@ -98,6 +118,7 @@ struct TextRasterCacheKey: Hashable, Sendable {
         self.strikethroughColorBlue = style.strikethroughColor?.blue
         self.strikethroughColorAlpha = style.strikethroughColor?.alpha
         self.enableKerning = style.enableKerning
+        self.spans = (style.spans ?? []).map { SpanKey(span: $0, in: text) }
     }
 }
 /// Whole-string rasters, bounded by entry count and by bytes.

@@ -116,6 +116,100 @@ final class TextShapingPipelineTests: XCTestCase {
         XCTAssertEqual(shaped.height, unshaped.height, accuracy: 0.001)
     }
 
+    @MainActor
+    func testRightToLeftGlyphOriginsMatchDirectWriteHitTesting() async throws {
+        let text = "\u{05D0}\u{05D1}\u{05D2}\u{05D3}"
+        let style = bodyStyle()
+        let shaped = try XCTUnwrap(NativeTextRenderer.layout(text, style: style, scaleFactor: 1)?.lines.first)
+        NativeTextRenderer.isGlyphShapingEnabled = false
+        defer { NativeTextRenderer.isGlyphShapingEnabled = true }
+        let hitTested = try XCTUnwrap(NativeTextRenderer.layout(text, style: style, scaleFactor: 1)?.lines.first)
+
+        XCTAssertEqual(shaped.glyphs.count, text.count)
+        for glyph in shaped.glyphs {
+            let reference = try XCTUnwrap(hitTested.glyphs.first { $0.sourceIndex == glyph.sourceIndex })
+            XCTAssertEqual(
+                glyph.origin.x + glyph.advance, reference.origin.x, accuracy: 0.001,
+                "an RTL atlas cell's left origin plus advance must reach DirectWrite's leading edge")
+            XCTAssertGreaterThanOrEqual(glyph.origin.x, -0.001)
+            XCTAssertLessThanOrEqual(glyph.origin.x + glyph.advance, shaped.width + 0.001)
+        }
+    }
+
+    @MainActor
+    func testMixedDirectionAndFallbackRunsStayWithinTheMeasuredLine() async throws {
+        let style = bodyStyle()
+        let hebrew = "\u{05E9}\u{05DC}\u{05D5}\u{05DD}"
+        let arabic = "\u{0645}\u{0631}\u{062D}\u{0628}\u{0627}"
+        let devanagari = "\u{0928}\u{092E}\u{0938}\u{094D}\u{0924}\u{0947}"
+        for text in ["ABC \(hebrew) XYZ", "ABC \(arabic) XYZ", "ABC \(hebrew) \(devanagari) XYZ"] {
+            let line = try XCTUnwrap(NativeTextRenderer.layout(text, style: style, scaleFactor: 1)?.lines.first)
+            XCTAssertFalse(line.glyphs.isEmpty)
+            for glyph in line.glyphs {
+                XCTAssertNotNil(glyph.glyphID, "mixed-script text must retain shaped glyph identity")
+                XCTAssertGreaterThanOrEqual(glyph.origin.x, -0.001, text)
+                XCTAssertLessThanOrEqual(glyph.origin.x, line.width + 0.001, text)
+            }
+            if text.contains(devanagari) {
+                XCTAssertGreaterThan(
+                    Set(line.glyphs.compactMap(\.fontFaceID)).count, 1,
+                    "the mixed-script regression must exercise a fallback font face")
+            }
+        }
+    }
+
+    @MainActor
+    func testTrackingOpensGapsInRightToLeftRuns() async throws {
+        let text = "\u{05D0}\u{05D1}\u{05D2}\u{05D3}"
+        var style = bodyStyle()
+        let untracked = try XCTUnwrap(NativeTextRenderer.layout(text, style: style, scaleFactor: 1)?.lines.first)
+        style.nativeLetterSpacing = 2
+        let tracked = try XCTUnwrap(NativeTextRenderer.layout(text, style: style, scaleFactor: 1)?.lines.first)
+        XCTAssertEqual(untracked.glyphs.count, text.count)
+        XCTAssertEqual(tracked.glyphs.count, untracked.glyphs.count)
+        guard tracked.glyphs.count == untracked.glyphs.count else { return }
+
+        for index in 1..<tracked.glyphs.count {
+            let originalGap = untracked.glyphs[index - 1].origin.x - untracked.glyphs[index].origin.x
+            let trackedGap = tracked.glyphs[index - 1].origin.x - tracked.glyphs[index].origin.x
+            XCTAssertGreaterThan(originalGap, 0, "the source run must advance right to left")
+            XCTAssertEqual(trackedGap, originalGap + 2, accuracy: 0.001)
+        }
+    }
+
+    @MainActor
+    func testNativeParagraphLeadingIsAppliedOnce() async throws {
+        var style = bodyStyle(size: 20)
+        style.lineSpacing = 10
+        let lineHeight = style.nativeFontPixelSize + style.lineSpacing
+
+        for text in ["H\nH\nH", "H\n\nH"] {
+            let layout = try XCTUnwrap(NativeTextRenderer.layout(text, style: style, scaleFactor: 1))
+            XCTAssertEqual(layout.lines.count, 3)
+            XCTAssertEqual(layout.contentSize.height, lineHeight * 3, accuracy: 0.001)
+            for line in layout.lines {
+                XCTAssertEqual(line.height, lineHeight, accuracy: 0.001)
+                if let glyph = line.glyphs.first {
+                    XCTAssertEqual(glyph.origin.y, line.ascent, accuracy: 0.001)
+                }
+            }
+        }
+
+        let scene = paintText("H\nH", style: style)
+        let glyphs = scene.layers.flatMap(\.glyphs)
+        XCTAssertEqual(glyphs.count, 2)
+        if glyphs.count == 2 {
+            XCTAssertEqual(
+                Double(glyphs[1].screenY - glyphs[0].screenY), lineHeight, accuracy: 1,
+                "successive baselines use the uniform line height without another leading gap")
+        }
+
+        style.maximumNumberOfLines = 3
+        style.reservesLineLimitSpace = true
+        let reserved = try XCTUnwrap(NativeTextRenderer.layout("H", style: style, scaleFactor: 1))
+        XCTAssertEqual(reserved.contentSize.height, lineHeight * 3, accuracy: 0.001)
+    }
+
     /// The capture renderer is an `IDWriteTextRenderer` DirectWrite calls back
     /// into, and DirectWrite asks it how to snap a run's baseline before it
     /// reports one. Those two answers used to come out of the *bitmap* draw

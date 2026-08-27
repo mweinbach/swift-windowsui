@@ -88,6 +88,35 @@ final class FramePathTextColorTests: XCTestCase {
         }
     }
 
+    private static func verticalInkBounds(of bitmap: BitmapSurface) -> ClosedRange<Int>? {
+        let bytes = [UInt8](bitmap.pixels)
+        let stride = Int(bitmap.bytesPerRow)
+        let width = Int(bitmap.width)
+        let height = Int(bitmap.height)
+        guard width > 0, height > 0, stride >= width * 4, bytes.count >= stride * height else {
+            return nil
+        }
+
+        var firstRow: Int?
+        var lastRow = 0
+        for row in 0..<height {
+            if (0..<width).contains(where: { bytes[row * stride + $0 * 4 + 3] > 64 }) {
+                firstRow = firstRow ?? row
+                lastRow = row
+            }
+        }
+        return firstRow.map { $0...lastRow }
+    }
+
+    @MainActor
+    private static func textBitmap(for text: String, in rect: Rect, style: PixelTextStyle) throws -> BitmapSurface {
+        var commands: [RenderCommand] = []
+        XCTAssertTrue(
+            NativeTextRenderer.appendCommands(
+                for: text, in: rect, style: style, scaleFactor: 1, clipRect: nil, into: &commands))
+        return try XCTUnwrap(textBitmaps(from: commands).first?.bitmap)
+    }
+
     private func requireDirectWrite(file: StaticString = #filePath, line: UInt = #line) async throws {
         let capabilities = await MainActor.run { TextSystem.capabilities() }
         guard capabilities.dwriteFactoryCreationSucceeded else {
@@ -124,6 +153,123 @@ final class FramePathTextColorTests: XCTestCase {
         XCTAssertEqual(bitmaps.count, 1, "Native text should ride exactly one pre-rasterized bitmap")
         for bitmap in bitmaps {
             assertDarkInk(in: bitmap, expectedColor: framePathDarkNavy, "frame-path native text bitmap")
+        }
+    }
+
+    func testFrameRasterCacheSeparatesSpanStylesAndRanges() async throws {
+        try await requireDirectWrite()
+
+        try await MainActor.run {
+            let cache = TextRasterCache()
+            TextRasterCache.installForTesting(cache)
+            defer { TextRasterCache.restoreSharedForTesting() }
+
+            let text = "Cache Cache"
+            let firstRange = text.startIndex..<text.index(text.startIndex, offsetBy: 5)
+            let secondRange = text.index(text.startIndex, offsetBy: 6)..<text.endIndex
+            let rect = Rect(x: 0, y: 0, width: 320, height: 100)
+            var style = PixelTextStyle(
+                color: framePathDarkNavy, alignment: .leading, verticalAlignment: .top,
+                nativeFontSize: 16, lineBreakMode: .clip)
+            var spanStyle = style
+            spanStyle.nativeFontSize = 20
+            style.spans = [TextSpan(text: "Cache", style: spanStyle, range: firstRange)]
+            let initial = try Self.textBitmap(for: text, in: rect, style: style)
+
+            spanStyle.nativeFontSize = 32
+            style.spans = [TextSpan(text: "Cache", style: spanStyle, range: firstRange)]
+            let enlarged = try Self.textBitmap(for: text, in: rect, style: style)
+            style.spans = [TextSpan(text: "Cache", style: spanStyle, range: secondRange)]
+            let moved = try Self.textBitmap(for: text, in: rect, style: style)
+
+            XCTAssertEqual(initial.width, enlarged.width, "The fixed raster size must not hide a missing span key")
+            XCTAssertEqual(initial.height, enlarged.height)
+            XCTAssertNotEqual(initial.pixels, enlarged.pixels, "Changing a span's font size must redraw its ink")
+            XCTAssertNotEqual(enlarged.pixels, moved.pixels, "Moving a styled range must move its ink")
+            XCTAssertEqual(cache.count, 3)
+            XCTAssertEqual(cache.hitCountForTesting, 0)
+
+            let rebuiltText = String(text)
+            let rebuiltRange = rebuiltText.index(rebuiltText.startIndex, offsetBy: 6)..<rebuiltText.endIndex
+            style.spans = [TextSpan(text: "Cache", style: spanStyle, range: rebuiltRange)]
+            let repeated = try Self.textBitmap(for: rebuiltText, in: rect, style: style)
+            XCTAssertEqual(repeated.pixels, moved.pixels)
+            XCTAssertEqual(cache.hitCountForTesting, 1, "Equivalent rebuilt spans must reuse their raster")
+        }
+    }
+
+    func testFrameRasterCacheSeparatesTrackingThatChangesTruncation() async throws {
+        try await requireDirectWrite()
+
+        try await MainActor.run {
+            let cache = TextRasterCache()
+            TextRasterCache.installForTesting(cache)
+            defer { TextRasterCache.restoreSharedForTesting() }
+
+            let text = "Tracking changes truncation"
+            var style = PixelTextStyle(
+                color: framePathDarkNavy, alignment: .leading, verticalAlignment: .top,
+                nativeFontSize: 16, lineBreakMode: .truncateTail, maximumNumberOfLines: 1)
+            let measured = try XCTUnwrap(DirectWriteTextRenderer.measure(text, style: style, scaleFactor: 1))
+            let rect = Rect(x: 0, y: 0, width: measured.width.rounded(.up) + 2, height: 80)
+            let initial = try Self.textBitmap(for: text, in: rect, style: style)
+
+            // Tracking changes the resolved string even on the bitmap path,
+            // where DirectWrite does not yet apply tracking to glyph positions.
+            style.nativeLetterSpacing = 8
+            let tracked = try Self.textBitmap(for: text, in: rect, style: style)
+            XCTAssertEqual(initial.width, tracked.width, "Both strings must use the same raster size")
+            XCTAssertEqual(initial.height, tracked.height)
+            XCTAssertNotEqual(initial.pixels, tracked.pixels, "Tracked truncation must not reuse the full string")
+            XCTAssertEqual(cache.count, 2)
+            XCTAssertEqual(cache.hitCountForTesting, 0)
+
+            let repeated = try Self.textBitmap(for: text, in: rect, style: style)
+            XCTAssertEqual(repeated.pixels, tracked.pixels)
+            XCTAssertEqual(cache.hitCountForTesting, 1)
+        }
+    }
+
+    func testDirectWriteFrameRasterAppliesVerticalAlignmentOnce() async throws {
+        try await requireDirectWrite()
+
+        let result = try await MainActor.run { () throws -> (lineHeight: Double, bitmaps: [BitmapSurface]) in
+            let cache = TextRasterCache()
+            TextRasterCache.installForTesting(cache)
+            defer { TextRasterCache.restoreSharedForTesting() }
+
+            let text = "Aligned text"
+            let rect = Rect(x: 0, y: 0, width: 260, height: 120)
+            var style = PixelTextStyle(
+                color: .white, alignment: .leading, verticalAlignment: .top,
+                nativeFontSize: 20, lineBreakMode: .clip, maximumNumberOfLines: 1)
+            let layout = try XCTUnwrap(DirectWriteTextRenderer.layout(text, style: style, scaleFactor: 1))
+            let bitmaps = try [TextVerticalAlignment.top, .center, .bottom].map { alignment in
+                style.verticalAlignment = alignment
+                var commands: [RenderCommand] = []
+                XCTAssertTrue(
+                    DirectWriteTextRenderer.appendCommands(
+                        for: text, in: rect, style: style, scaleFactor: 1, clipRect: nil, into: &commands))
+                let bitmap = try XCTUnwrap(Self.textBitmaps(from: commands).first?.bitmap)
+                XCTAssertEqual(bitmap.height, 120, "Every alignment must use the same fixed frame")
+                return bitmap
+            }
+            return (layout.contentSize.height, bitmaps)
+        }
+
+        let inkBounds = try result.bitmaps.map {
+            try XCTUnwrap(Self.verticalInkBounds(of: $0), "Top, center, and bottom text must all remain visible")
+        }
+        let extraHeight = 120 - result.lineHeight
+        for (index, fraction) in [0.5, 1.0].enumerated() {
+            let bounds = inkBounds[index + 1]
+            let expectedOffset = extraHeight * fraction
+            XCTAssertEqual(
+                Double(bounds.lowerBound - inkBounds[0].lowerBound), expectedOffset, accuracy: 1,
+                "Vertical alignment must translate the top of the ink only once")
+            XCTAssertEqual(
+                Double(bounds.upperBound - inkBounds[0].upperBound), expectedOffset, accuracy: 1,
+                "Vertical alignment must preserve the complete line of ink")
         }
     }
 

@@ -3346,6 +3346,7 @@ public enum ScenePainter {
         let cellScale = 1 / rasterScale
         var appendedGlyphs: [GlyphPrimitive] = []
         var appendedDecorationQuads: [QuadPrimitive] = []
+        var encounteredRasterFailure = false
         var lineOriginY = baseY
 
         for line in layout.lines {
@@ -3390,6 +3391,7 @@ public enum ScenePainter {
                         for: glyph, style: style, scaleFactor: rasterScaleFactor),
                     let previewEntry = preparedGlyph.previewEntry
                 else {
+                    encounteredRasterFailure = true
                     continue
                 }
                 guard previewEntry.width > 0, previewEntry.height > 0 else {
@@ -3430,6 +3432,7 @@ public enum ScenePainter {
                     continue
                 }
                 guard let entry = NativeGlyphAtlas.shared.commitPreparedGlyph(preparedGlyph) else {
+                    encounteredRasterFailure = true
                     continue
                 }
                 let atlasSize = NativeGlyphAtlas.shared.size
@@ -3475,7 +3478,10 @@ public enum ScenePainter {
             lineOriginY += line.height + layout.lineSpacing
         }
 
-        guard !appendedGlyphs.isEmpty else {
+        // A successfully laid-out run can have no visible ink after clipping.
+        // Falling back then re-lays it out with the wider bitmap font, which
+        // can paint letters inside a viewport the native run had already left.
+        guard !appendedGlyphs.isEmpty || !encounteredRasterFailure else {
             return false
         }
 

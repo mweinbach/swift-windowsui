@@ -105,6 +105,7 @@ limits still apply; this is not the completed product in `goal.md`.
 | `Text` date / format / attributed | **Partial** | Deterministic string resolution; rich runs / live timers incomplete |
 | `Label`, `Image(systemName:)` | **Partial** | System icons render as real Segoe Fluent/MDL2 glyphs (native bitmap) with a drawn-vector fallback — never `?`; ~40 common SF Symbols mapped, variants/scale honored |
 | `Image(_:)` named / file / resource | **Partial** | WIC PNG/JPEG/BMP; no full asset-catalog pipeline |
+| Bitmap `Image.resizable()` | **Partial** | Resize intent is retained, but an ordinary bitmap currently keeps its intrinsic preferred size inside a larger frame. Stretch-to-proposal, tiling, and cap-inset rendering remain incomplete |
 | `AsyncImage` | **Partial** | URL load into retained image phases; not a full network image stack |
 | Basic shapes (`Rectangle`, `RoundedRectangle`, `Capsule`, `Circle`, `Ellipse`, …) | **Implemented** | Fill/stroke/border through retained primitives |
 | `LinearGradient` | **Partial** | Axis-aligned shape fills preserve authored intermediate colors, nonuniform stop positions, duplicate-position hard stops, transparent stops, and reversed endpoints on CPU, the D3D11 scene path, and both live frame-fallback presenters; promoted rectangular Canvas fills additionally preserve diagonal, inset, transformed, and rounded gradient vectors on the CPU and D3D11 scene paths |

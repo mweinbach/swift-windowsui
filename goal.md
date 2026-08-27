@@ -872,6 +872,26 @@ two hosts using the same value, bound-only reads, nested custom wrappers,
 and deferred geometry/task work. Managed-window content factories are a useful
 scene correction, but cannot alone satisfy this general state-lifetime gate.
 
+A separate Swift 6.3 compiler prototype demonstrated typed installation into
+a local copy of private and nested struct property wrappers, including
+existential declarations, without mutating Mirror values or using raw-memory
+field writes. Six manually scoped assertion groups passed in debug and
+optimized builds, with library evolution and stripped reflection names also
+checked. These experiments establish a mechanism, not mounted runtime behavior.
+They depend on underscored reflection/key-path facilities and runtime metadata;
+metadata-disabled clients, immutable or reference-type custom wrappers, and
+enum payloads still require explicit handling rather than silent shared-state
+fallbacks. The adapter and compiler-upgrade qualification must remain isolated.
+
+Production integration is staged: first preserve typed structural identities
+through builders, erasure, explicit IDs, collection keys, and independent child
+roles without adding layout nodes; then install validated properties before
+body evaluation; finally commit and retire host/subtree ownership with lifecycle
+and reentrancy tests. The first stage must not change State storage or claim
+its lifetime fixed. Epochs must span both component composition and retained
+node construction, including deferred geometry and selection/measurement
+containers. The original identity/state completion requirement is unchanged.
+
 ### Additional performance evidence detail
 
 The current diagnostic harness was audited against the unchanged section 4
@@ -956,3 +976,81 @@ accessibility actions, whereas ordinary Button invocation is provided by the
 runtime's UI Automation adapter. The fixture now discovers the live adapter
 element, checks enabled/default-action state, and invokes it through that same
 adapter. This does not substitute for the still-required native Narrator flow.
+
+The continued runs exposed an atlas-report conversion bug: passing
+`Double.init` as an Optional.map function for UInt64 selected the bit-pattern
+initializer, so 50 bytes became approximately 2.47e-322 rather than 50. An
+explicit numeric conversion fixes the report; the original assertion remains,
+with additional fractional-average coverage. A standalone Swift 6.3 probe
+reproduced the overload selection. Native titlebarless window creation also
+trapped while converting WS_POPUP's high bit to signed Int32. The style now
+uses a bit-pattern conversion, with headless mask checks and the original
+owned-HWND close-veto test. At `6dde57b`, all 36 diagnostic and native window
+focused tests passed without failures or skips. The corrected gallery motion
+and UI Automation invocation fixtures also passed in the continued run.
+
+The public Canvas pixel fixtures revealed two separate preexisting API limits:
+View scale anchors are ignored, and bitmap Image.resizable does not yet accept
+the enclosing frame as its size. Those fixtures now author an 8-by-8 bitmap
+directly and use a supported centered scale plus translation; all original
+pixel assertions and tolerances remain. Image dimensions are checked using
+both the rectangle and its affine basis, rather than treating the rectangle
+alone as the painted footprint. This isolates the Canvas contract without
+closing the separate anchor-placement or bitmap-resizing requirements.
+
+Text-pointer tests also exposed a production geometry error when laid-out
+stack origins differ from authored frames. Pointer/IME coordinate conversion
+must use current retained layout and the visible text-content origin. Raw
+callback fixtures must explicitly retain their runtime; restoring strong
+runtime captures merely to keep those fixtures alive would risk ownership
+cycles. Both the geometry regression and full Canvas recursion remain pending
+correction and integrated validation; no original completion gate is closed.
+
+The pointer correction now resolves layout without changing authored frames,
+rejects hidden, detached, foreign, and reentrant geometry queries, and follows
+the visible text-content child through reconciliation. The first serial run
+passed all 15 hosted editor cases and the existing drag-selection, IME,
+environment, caret, and selection suites. One new test's callback count needs
+to include the runtime's existing second layout pass after a scheduled
+after-layout callback; the nested query itself returned nil as intended.
+The correction must assert that neither nested query increases either callback
+count, then rerun the complete filter, including the native input shard that
+the failed run did not reach. Weak runtime ownership remains required.
+
+The Canvas stack correction keeps the original scene budgets unchanged. The
+ordinary retained-tree traversal uses an explicit work list, with content,
+child, and finish operations preserving the original presentation and cache
+completion order. Large emission, source preparation, and bitmap-processing
+frames return before nested sources record; only small coordination frames
+remain on the stack. Five additional regressions exercise the full accepted
+symbol depth, queued content/child order, and the full accepted depth with mixed
+symbol/color-effect passes, drawing groups, and blur. Compiler frame inspection
+and independent review support the change, but do not replace execution of
+those cases, cache/atlas/order tests,
+or the subsequent Full validation. The known material-backdrop skip remains
+an unresolved feature requirement.
+
+Canvas sources currently record at the captured environment display scale;
+magnification filters that source's antialiasing instead of increasing its
+raster density. The scale-only fixture now uses an opaque authored bitmap,
+preserving its original position and opaque-pixel assertions. A separate
+regression preserves the existing square-quad coverage contract: three corner
+texels at 191/255 produce 195/255 under the specified bilinear magnification.
+It checks CPU source/scene/frame bytes and D3D11 WARP output, without changing
+the shared coverage kernel, sampling rules, or old test tolerances. Native
+SwiftUI Canvas capture-density behavior is still unqualified; this records
+current backend consistency rather than claiming native parity.
+
+The integrated focused run now passes: 681 XCTest executions across 59
+selected targets and 32 serial invocations, with zero failures and the one
+preexisting material-backdrop skip. This includes the original branching
+case, all five added depth/order cases, the CPU/frame/WARP sampling case,
+all seven layout-geometry cases, and the native text-input shard. The original
+branching case also passed independently in 0.166 seconds after previously
+ending in stack overflow. Strict formatting passed for all 56 Swift files
+changed since the first combined push; architecture contracts and diff checks
+passed. Logs are `artifacts/goal-batch-two-final-focused.log`,
+`artifacts/goal-canvas-stack-branch.log`, and
+`artifacts/goal-batch-two-all-changed-lint.log`. These focused results do not
+replace the pending Quick/Full, raw-render, hosted, or hardware qualification
+gates, and none of the nine original completion gates is closed.

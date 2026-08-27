@@ -489,6 +489,51 @@ final class TextEditorReconciliationTests: XCTestCase {
         }
     }
 
+    func testCaretRectangleTracksVisibleChromeInsteadOfTheHiddenSourceLabel() async throws {
+        try withFixture(text: "abcdef") { fixture in
+            fixture.key(.home)
+            fixture.rebuildUnrelatedContent()
+            let label = try XCTUnwrap(fixture.editor.children.first)
+            let caret = try XCTUnwrap(fixture.visibleCaretNodes().first)
+            let reported = try XCTUnwrap(fixture.host.windowTextInputCaretRect(fixture.window))
+
+            var origin = Point.zero
+            var current: ViewNode? = caret
+            while let node = current {
+                origin.x += node.resolvedFrame.origin.x
+                origin.y += node.resolvedFrame.origin.y
+                current = node.parent
+            }
+            XCTAssertTrue(label.isHidden)
+            XCTAssertEqual(label.resolvedFrame, .zero)
+            XCTAssertGreaterThan(origin.x, 0)
+            XCTAssertGreaterThan(origin.y, 0)
+            XCTAssertEqual(reported.origin.x, origin.x, accuracy: 0.001)
+            XCTAssertEqual(reported.origin.y, origin.y, accuracy: 0.001)
+        }
+    }
+
+    func testCaretGeometrySettlesPendingFocusChromeBeforeTheNextRender() async throws {
+        try withFixture(text: "abcdef") { fixture in
+            fixture.key(.home)
+            let expected = try XCTUnwrap(fixture.host.windowTextInputCaretRect(fixture.window))
+            fixture.runtime.requestFocus(nil)
+            fixture.render()
+            fixture.runtime.requestFocus(fixture.editor)
+            // Focus creates fresh chrome, but no render has placed it yet.
+            XCTAssertEqual(fixture.host.windowTextInputCaretRect(fixture.window), expected)
+
+            let point = Point(x: expected.origin.x + 2 * Self.characterAdvance, y: expected.origin.y + 1)
+            fixture.host.window(fixture.window, leftMouseDownAt: point)
+            fixture.host.window(fixture.window, leftMouseUpAt: point)
+            fixture.render()
+            XCTAssertTrue(fixture.runtime.focusedNode === fixture.editor)
+            XCTAssertEqual(fixture.editor.textInputCaretOffset, 2)
+            fixture.type("X")
+            XCTAssertEqual(fixture.state.primary.text, "abXcdef")
+        }
+    }
+
     func testTextBindingCallbackCanSynchronouslyRebuildWithoutLosingTheInsertionPoint() async throws {
         try withFixture { fixture in
             fixture.key(.home)

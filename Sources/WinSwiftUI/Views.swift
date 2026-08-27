@@ -13659,6 +13659,7 @@ extension ControlSize {
 @MainActor
 private final class TextInputInteractionController: RetainedTextInputController {
     private(set) weak var node: ViewNode?
+    private(set) var isAttached = false
     let characterCount: Int
     let authoredCaret: Int
     let authoredSelection: RetainedTextSelection?
@@ -13670,7 +13671,7 @@ private final class TextInputInteractionController: RetainedTextInputController 
     var readSelection: (() -> TextSelection?)?
     var applySelection: ((Int, Int) -> Void)?
     var refreshChrome: (() -> Void)?
-    var textOffset: ((Point) -> Int)?
+    var textOffset: ((Point) -> Int?)?
     var invalidate: (() -> Void)?
 
     init(
@@ -13695,10 +13696,14 @@ private final class TextInputInteractionController: RetainedTextInputController 
 
     func attach(to node: ViewNode) {
         self.node = node
+        isAttached = true
     }
 
     func detach(from node: ViewNode) {
-        if self.node === node { self.node = nil }
+        if self.node === node {
+            self.node = nil
+            isAttached = false
+        }
     }
 
     func reconcile(from previous: (any RetainedTextInputController)?, onto node: ViewNode) {
@@ -13903,7 +13908,9 @@ private func textInputComponent(
         // the marked text while composing.
         node.textInputCaretRectProvider = { [weak controller, weak runtime] in
             guard let controller, let node = controller.node,
-                node.textInputController === controller, let labelNode = node.children.first
+                node.textInputController === controller,
+                let contentOrigin = textInputContentOrigin(controller: controller, runtime: runtime),
+                let labelNode = node.children.first
             else {
                 return nil
             }
@@ -13948,10 +13955,7 @@ private func textInputComponent(
                 style: labelNode.textStyle,
                 displayScale: runtime?.displayScale ?? 1
             )
-            let rootPoint = textInputRootPoint(
-                labelNode: labelNode,
-                contentPoint: Point(x: caretX, y: rowTop)
-            )
+            let rootPoint = Point(x: contentOrigin.x + caretX, y: contentOrigin.y + rowTop)
             return Rect(x: rootPoint.x, y: rootPoint.y, width: 0, height: rowHeight)
         }
 
@@ -14289,14 +14293,17 @@ private func textInputComponent(
         }
 
         // Pointer-down places the caret at the hit offset; dragging extends
-        // the selection from the down anchor. The runtime's drag branch in
-        // pointerDown skips focus updates, so focus is requested explicitly.
+        // the selection from the down anchor. Request focus here as well as
+        // in runtime routing so direct callback callers use the same path.
         controller.textOffset = { [weak controller, weak runtime] point in
             guard let controller, let node = controller.node,
-                node.textInputController === controller, let labelNode = node.children.first
-            else { return 0 }
+                node.textInputController === controller,
+                let contentOrigin = textInputContentOrigin(controller: controller, runtime: runtime),
+                let labelNode = node.children.first
+            else { return nil }
             return textInputOffset(
                 atRootPoint: point,
+                contentOrigin: contentOrigin,
                 labelNode: labelNode,
                 text: binding.wrappedValue,
                 isSecure: isSecure,
@@ -14558,6 +14565,7 @@ private func updateTextInputEditingChrome(
 @MainActor
 private func textInputOffset(
     atRootPoint point: Point,
+    contentOrigin: Point,
     labelNode: ViewNode,
     text: String,
     isSecure: Bool,
@@ -14569,7 +14577,7 @@ private func textInputOffset(
     }
 
     let displayText = isSecure ? String(repeating: secureFieldMaskCharacter, count: text.count) : text
-    let localPoint = textInputContentPoint(labelNode: labelNode, rootPoint: point)
+    let localPoint = Point(x: point.x - contentOrigin.x, y: point.y - contentOrigin.y)
     let lineRanges = textInputHardLineRanges(in: displayText)
 
     let row: Int
@@ -14595,12 +14603,39 @@ private func textInputOffset(
     )
     return lineRange.lowerBound + column
 }
-/// Converts a root-space point into the coordinate space of a text input's
-/// content label by accumulating frame origins along the parent chain and
-/// subtracting ancestor scroll offsets, mirroring the runtime's hit-test
-/// origin math. Ancestor transforms are not accounted for.
+/// Pointer offsets and IME caret rectangles share the visible content's
+/// placement. The source label is hidden while caret/selection chrome is
+/// active, so its resolved frame is then zero and cannot locate the text.
+/// Ancestor transforms are not accounted for.
 @MainActor
-private func textInputContentPoint(labelNode: ViewNode, rootPoint: Point) -> Point {
+private func textInputContentOrigin(
+    controller: TextInputInteractionController,
+    runtime: RetainedViewRuntime?
+) -> Point? {
+    guard controller.current === controller, let node = controller.node,
+        let labelNode = node.children.first
+    else { return nil }
+    if controller.isAttached {
+        guard let runtime else { return nil }
+        // Resolving pending layout can replace an unfocused source label
+        // with editing chrome. Reselect once, without recursively asking
+        // layout to chase changes made by application callbacks.
+        for _ in 0..<2 {
+            guard controller.current === controller,
+                let contentNode = node.children.first(where: { !$0.isHidden })
+            else { return nil }
+            if let frame = runtime.resolvedLayoutFrame(of: contentNode),
+                controller.current === controller, contentNode.parent === node, !contentNode.isHidden
+            {
+                return frame.origin
+            }
+        }
+        return nil
+    }
+
+    // Component.makeNode does not attach the returned node. Callers using
+    // those callbacks before attachment supply authored geometry and own
+    // the runtime for the duration of the interaction.
     var chain: [ViewNode] = []
     var current: ViewNode? = labelNode
     while let ancestor = current {
@@ -14614,8 +14649,6 @@ private func textInputContentPoint(labelNode: ViewNode, rootPoint: Point) -> Poi
         guard index < chain.count - 1 else {
             continue
         }
-        // Remaining chain entries are children of `ancestor`, laid out in its
-        // scrolled content space.
         switch ancestor.scrollAxis {
         case .horizontal:
             origin.x -= ancestor.scrollOffset
@@ -14625,37 +14658,7 @@ private func textInputContentPoint(labelNode: ViewNode, rootPoint: Point) -> Poi
             break
         }
     }
-    return Point(x: rootPoint.x - origin.x, y: rootPoint.y - origin.y)
-}
-/// Inverse of `textInputContentPoint`: converts a content-space point of a
-/// text input's label into root coordinates, applying the same ancestor
-/// origin accumulation and scroll offsets. Used to report the caret
-/// rectangle for IME candidate-window positioning.
-@MainActor
-private func textInputRootPoint(labelNode: ViewNode, contentPoint: Point) -> Point {
-    var chain: [ViewNode] = []
-    var current: ViewNode? = labelNode
-    while let ancestor = current {
-        chain.append(ancestor)
-        current = ancestor.parent
-    }
-
-    var origin = Point(x: 0, y: 0)
-    for (index, ancestor) in chain.reversed().enumerated() {
-        origin = Point(x: origin.x + ancestor.frame.origin.x, y: origin.y + ancestor.frame.origin.y)
-        guard index < chain.count - 1 else {
-            continue
-        }
-        switch ancestor.scrollAxis {
-        case .horizontal:
-            origin.x -= ancestor.scrollOffset
-        case .vertical:
-            origin.y -= ancestor.scrollOffset
-        case nil:
-            break
-        }
-    }
-    return Point(x: contentPoint.x + origin.x, y: contentPoint.y + origin.y)
+    return origin
 }
 /// Hard line ranges (split on "\n") exactly as `updateTextInputEditingChrome`
 /// computes them.

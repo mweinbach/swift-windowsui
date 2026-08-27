@@ -3337,7 +3337,12 @@ public final class ViewNode {
     /// Optional editor-only state; ordinary nodes do not allocate a controller.
     public var textInputController: (any RetainedTextInputController)? {
         get { interactionHandlers?.textInputController }
-        set { setInteractionHandler(newValue, at: \.textInputController) }
+        set {
+            setInteractionHandler(newValue, at: \.textInputController)
+            // Reconciliation can install an editor on an already-attached
+            // node without changing child identities or calling setRuntime.
+            if runtime != nil { newValue?.attach(to: self) }
+        }
     }
     /// When true, unmodified up/down arrow keys are delivered to this node's
     /// `onKeyDown` before the runtime's scroll-key handling, so a focused node
@@ -9049,6 +9054,7 @@ public final class RetainedViewRuntime {
     /// nodes. Post-layout callbacks run with this false, after geometry has
     /// settled and programmatic scroll requests can safely be resolved.
     public private(set) var isLayoutInProgress = false
+    private var isResolvingLayoutFrame = false
 
     /// Whether this runtime has begun at least one retained layout pass.
     /// Clients combine this with `isLayoutInProgress` to distinguish a
@@ -10247,6 +10253,42 @@ public final class RetainedViewRuntime {
         }
 
         updateFocusTarget(to: node)
+    }
+
+    /// The current layout frame in root coordinates, including presented
+    /// ancestor scroll offsets. Authored `ViewNode.frame` values do not
+    /// describe the placement of children in stacks or frame wrappers.
+    ///
+    /// Settles pending layout before reading. Hidden, detached, foreign, or
+    /// removed nodes, and queries during rendering or another geometry query,
+    /// return nil. This is layout space; node transforms are not applied.
+    public func resolvedLayoutFrame(of node: ViewNode) -> Rect? {
+        guard node.runtime === self, !isRendering, !isLayoutInProgress, !isResolvingLayoutFrame else { return nil }
+        isResolvingLayoutFrame = true
+        defer { isResolvingLayoutFrame = false }
+        updateResolvedLayout()
+
+        var origin = Point.zero
+        var current: ViewNode? = node
+        var depth = 0
+        while let ancestor = current, depth < ViewNode.maximumTraversalDepth {
+            guard ancestor.runtime === self, !ancestor.isHidden else { return nil }
+            origin.x += ancestor.resolvedFrame.origin.x
+            origin.y += ancestor.resolvedFrame.origin.y
+            if ancestor !== node {
+                switch ancestor.scrollAxis {
+                case .horizontal: origin.x -= ancestor.resolvedScrollOffset
+                case .vertical: origin.y -= ancestor.resolvedScrollOffset
+                case nil: break
+                }
+            }
+            if ancestor === root {
+                return Rect(origin: origin, size: node.resolvedFrame.size)
+            }
+            current = ancestor.parent
+            depth += 1
+        }
+        return nil
     }
 
     /// Schedules one callback after the next complete retained layout, shared

@@ -1080,6 +1080,13 @@ selection, focus, or chrome. `TextEditorReconciliationTests` covers this host
 lifecycle. Undo registration, vertical caret navigation, internal scrolling,
 multi-range editing, and complete document workflows remain incomplete.
 
+Pointer selection and IME candidate placement use the current laid-out visible
+text child, including stack placement and presented scroll offsets, instead of
+the authored node frames. Geometry queries reject hidden, detached, foreign,
+or reentrant nodes and keep runtime references weak. Direct component fixtures
+must retain their runtime explicitly. This is retained layout-space geometry;
+full transformed and bidirectional caret mapping remains unqualified.
+
 ## Observation Model
 
 `WinSwiftUI` now supports a minimal SwiftUI-style observation path for shared source:

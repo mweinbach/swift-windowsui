@@ -1,7 +1,5 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import XCTest
 
 @testable import SwiftWindowsUI
@@ -51,7 +49,7 @@ private enum DragSelectionHarness {
     static func makeNode(
         text: Binding<String>,
         kind: Kind = .field
-    ) -> (node: ViewNode, label: ViewNode) {
+    ) -> (runtime: RetainedViewRuntime, node: ViewNode, label: ViewNode) {
         let runtime = RetainedViewRuntime(root: ViewNode())
         let context = ViewBuildContext(
             canvasSizeProvider: { Size(width: 800, height: 600) },
@@ -74,7 +72,9 @@ private enum DragSelectionHarness {
         // origin, so a root-space point maps to text-space by translation.
         node.frame = Rect(x: 10, y: 20, width: 200, height: 30)
         label.frame = Rect(x: 4, y: 4, width: 192, height: 22)
-        return (node, label)
+        // Component.makeNode leaves ownership of its runtime with the
+        // caller. The editor deliberately captures that runtime weakly.
+        return (runtime, node, label)
     }
 
     enum Kind {
@@ -102,9 +102,10 @@ final class TextInputDragSelectionTests: XCTestCase {
             defer { DragSelectionHarness.reset() }
 
             var value = "hello"
-            let (node, _) = DragSelectionHarness.makeNode(
+            let (runtime, node, _) = DragSelectionHarness.makeNode(
                 text: Binding(get: { value }, set: { value = $0 })
             )
+            defer { withExtendedLifetime(runtime) {} }
 
             XCTAssertFalse(node.isFocused)
 
@@ -123,9 +124,10 @@ final class TextInputDragSelectionTests: XCTestCase {
             defer { DragSelectionHarness.reset() }
 
             var value = "hello"
-            let (node, _) = DragSelectionHarness.makeNode(
+            let (runtime, node, _) = DragSelectionHarness.makeNode(
                 text: Binding(get: { value }, set: { value = $0 })
             )
+            defer { withExtendedLifetime(runtime) {} }
 
             node.onDragStart?(DragSelectionHarness.rootPoint(textX: DragSelectionHarness.x(atOffset: 1)))
             node.onDragChange?(
@@ -147,9 +149,10 @@ final class TextInputDragSelectionTests: XCTestCase {
             defer { DragSelectionHarness.reset() }
 
             var value = "hello"
-            let (node, _) = DragSelectionHarness.makeNode(
+            let (runtime, node, _) = DragSelectionHarness.makeNode(
                 text: Binding(get: { value }, set: { value = $0 })
             )
+            defer { withExtendedLifetime(runtime) {} }
 
             node.onDragStart?(DragSelectionHarness.rootPoint(textX: DragSelectionHarness.x(atOffset: 2)))
             node.onDragChange?(
@@ -188,9 +191,10 @@ final class TextInputDragSelectionTests: XCTestCase {
             defer { DragSelectionHarness.reset() }
 
             var value = "hello"
-            let (node, _) = DragSelectionHarness.makeNode(
+            let (runtime, node, _) = DragSelectionHarness.makeNode(
                 text: Binding(get: { value }, set: { value = $0 })
             )
+            defer { withExtendedLifetime(runtime) {} }
 
             node.onDragStart?(DragSelectionHarness.rootPoint(textX: DragSelectionHarness.x(atOffset: 1)))
             node.onDragChange?(DragSelectionHarness.rootPoint(textX: 1000), Point(x: 990, y: 0))
@@ -209,10 +213,11 @@ final class TextInputDragSelectionTests: XCTestCase {
             defer { DragSelectionHarness.reset() }
 
             var value = "secret"
-            let (node, _) = DragSelectionHarness.makeNode(
+            let (runtime, node, _) = DragSelectionHarness.makeNode(
                 text: Binding(get: { value }, set: { value = $0 }),
                 kind: .secure
             )
+            defer { withExtendedLifetime(runtime) {} }
 
             node.onDragStart?(DragSelectionHarness.rootPoint(textX: DragSelectionHarness.x(atOffset: 1)))
             node.onDragChange?(
@@ -235,9 +240,10 @@ final class TextInputDragSelectionTests: XCTestCase {
             defer { DragSelectionHarness.reset() }
 
             var value = "hello"
-            let (node, _) = DragSelectionHarness.makeNode(
+            let (runtime, node, _) = DragSelectionHarness.makeNode(
                 text: Binding(get: { value }, set: { value = $0 })
             )
+            defer { withExtendedLifetime(runtime) {} }
 
             // A click far below the field still resolves to the single line.
             node.onDragStart?(
@@ -254,10 +260,11 @@ final class TextInputDragSelectionTests: XCTestCase {
             defer { DragSelectionHarness.reset() }
 
             var value = "ab\ncd"
-            let (node, label) = DragSelectionHarness.makeNode(
+            let (runtime, node, label) = DragSelectionHarness.makeNode(
                 text: Binding(get: { value }, set: { value = $0 }),
                 kind: .editor
             )
+            defer { withExtendedLifetime(runtime) {} }
 
             let lineHeight = RetainedTextMetrics.size(of: "ab", style: label.textStyle).height
 

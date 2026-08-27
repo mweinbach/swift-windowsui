@@ -26,8 +26,20 @@ final class DemoObservationShowcaseTests: XCTestCase {
         }
     }
 
-    private func makeHarness() -> Harness {
+    private func pinSystemAppearance(on window: Win32Window, reduceMotion: Bool = false) {
+        // Headless CI can disable client-area animation. Exercise the chosen
+        // preference through the real host mapping without changing OS settings.
+        window.systemAppearanceProvider = FakeSystemAppearanceProvider(
+            snapshot: SystemAppearanceSnapshot(
+                colorSchemePreference: .light,
+                textScaleFactor: 1,
+                prefersReducedMotion: reduceMotion
+            ))
+    }
+
+    private func makeHarness(reduceMotion: Bool = false, animationsEnabled: Bool = true) -> Harness {
         let model = DemoDashboardModel()
+        model.animationsEnabled = animationsEnabled
         let clock = RuntimeTestClock()
         clock.now = 10
         let size = IntSize(width: 560, height: 500)
@@ -35,6 +47,7 @@ final class DemoObservationShowcaseTests: XCTestCase {
             windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
             pixelSize: size, scaleFactor: 1)
         let window = Win32Window(title: "Observation showcase", clientSize: size)
+        pinSystemAppearance(on: window, reduceMotion: reduceMotion)
         let content = ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 DemoObservationShowcase(model: model, state: DemoObservationState())
@@ -66,6 +79,7 @@ final class DemoObservationShowcaseTests: XCTestCase {
             pixelSize: size, scaleFactor: 1
         )
         let window = Win32Window(title: "Independent observation window", clientSize: size)
+        pinSystemAppearance(on: window)
         let host = WinSwiftUIWindowHost(
             configuration: configuration,
             platformWindow: window,
@@ -134,6 +148,8 @@ final class DemoObservationShowcaseTests: XCTestCase {
     func testRealScrollReadoutsKeyboardResetAndBindingAnimation() async throws {
         let harness = makeHarness()
         defer { harness.host.windowWillClose(harness.window) }
+        XCTAssertEqual(harness.window.systemAppearance.prefersReducedMotion, false)
+        XCTAssertTrue(harness.model.animationsEnabled)
         let runtime = harness.runtime
         let identifiedScroll = try identified("scroll", in: runtime)
         let inner = try XCTUnwrap(firstNode(in: identifiedScroll) { $0.scrollAxis == .vertical })
@@ -185,6 +201,53 @@ final class DemoObservationShowcaseTests: XCTestCase {
         harness.host.windowNeedsDisplay(harness.window)
         XCTAssertEqual(preview.opacity, 0.25, accuracy: 0.001)
         XCTAssertNil(preview.animationStates[.opacity])
+    }
+
+    private func assertResetAndBindingSkipAnimation(in harness: Harness) throws {
+        let runtime = harness.runtime
+        let scroll = try identified("scroll", in: runtime)
+        let inner = try XCTUnwrap(firstNode(in: scroll) { $0.scrollAxis == .vertical })
+        runtime.mouseWheel(at: center(of: inner), delta: -120 / inner.scrollStep)
+        harness.frames()
+        XCTAssertEqual(inner.resolvedScrollOffset, 120, accuracy: 0.001)
+        XCTAssertEqual(try readout("offset", in: runtime), "Offset: 120 pt")
+
+        try activateFromKeyboard("reset", in: runtime)
+        harness.frames()
+        XCTAssertEqual(inner.resolvedScrollOffset, 0, accuracy: 0.001)
+        XCTAssertEqual(inner.scrollPresentedDelta, 0)
+        XCTAssertEqual(try readout("offset", in: runtime), "Offset: 0 pt")
+        XCTAssertTrue(try readout("phase", in: runtime).hasPrefix("Phase: Idle"))
+        XCTAssertFalse(try readout("phase", in: runtime).contains("Animating"))
+
+        let preview = try identified("preview", in: runtime)
+        XCTAssertEqual(preview.opacity, 1)
+        try activateFromKeyboard("toggle", in: runtime)
+        XCTAssertFalse(harness.model.galleryState.isObservationPreviewBright)
+        XCTAssertEqual(preview.opacity, 0.25)
+        XCTAssertNil(preview.animationStates[.opacity])
+        harness.clock.now += 0.3
+        harness.frames()
+        XCTAssertEqual(preview.opacity, 0.25)
+        XCTAssertNil(preview.animationStates[.opacity])
+    }
+
+    func testReducedMotionSkipsResetAndBindingAnimation() async throws {
+        let harness = makeHarness(reduceMotion: true)
+        defer { harness.host.windowWillClose(harness.window) }
+        XCTAssertEqual(harness.window.systemAppearance.prefersReducedMotion, true)
+        XCTAssertTrue(harness.model.animationsEnabled)
+
+        try assertResetAndBindingSkipAnimation(in: harness)
+    }
+
+    func testDisabledAppAnimationsSkipResetAndBindingAnimation() async throws {
+        let harness = makeHarness(animationsEnabled: false)
+        defer { harness.host.windowWillClose(harness.window) }
+        XCTAssertEqual(harness.window.systemAppearance.prefersReducedMotion, false)
+        XCTAssertFalse(harness.model.animationsEnabled)
+
+        try assertResetAndBindingSkipAnimation(in: harness)
     }
 
     func testScrollExampleIsDiscoverableInTheExistingControlsCollection() async {

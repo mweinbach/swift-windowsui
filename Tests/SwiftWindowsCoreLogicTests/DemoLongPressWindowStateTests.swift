@@ -30,8 +30,12 @@ final class DemoLongPressWindowStateTests: XCTestCase {
         fixture.frames()
         XCTAssertEqual(try longPressStatus(in: fixture), "Confirmed 1 time")
 
-        let accessibleConfirmation = try XCTUnwrap(AccessibilityProjection.project(root: try button("confirm")))
-        XCTAssertTrue(accessibleConfirmation.invokeDefaultAction())
+        let source = RuntimeUIAElementTreeSource(runtime: fixture.runtime)
+        let elementID = try XCTUnwrap(source.projectedElementID(forNodeOrAncestor: try button("confirm")))
+        let accessibleConfirmation = try XCTUnwrap(source.uiaElementSnapshots().first { $0.id == elementID })
+        XCTAssertTrue(accessibleConfirmation.isEnabled)
+        XCTAssertTrue(accessibleConfirmation.hasDefaultAction)
+        XCTAssertTrue(source.uiaInvokeDefaultAction(elementID: elementID))
         fixture.frames()
         XCTAssertEqual(try longPressStatus(in: fixture), "Confirmed 2 times")
 

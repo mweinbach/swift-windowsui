@@ -925,3 +925,34 @@ verified mapping permits cleanup while the reference remains uninitialized at
 the same commit. Quick, Full, and the SDK workflow run that fixture. The new
 mapping does not change `extern/zed`, fetch it, or weaken credential cleanup.
 A new hosted candidate capture is still required after the next validated push.
+
+The first-push Windows Full job subsequently stopped at shard 32 of 161 in
+`DemoObservationShowcaseTests.testRealScrollReadoutsKeyboardResetAndBindingAnimation`.
+The reset phase lacked Animating, opacity changed immediately, and no opacity
+animation remained. The harness inherited system appearance, while the demo
+correctly suppresses animation for reduced motion; that preference explains
+the failure pattern but was not logged on the runner. The test now injects
+normal motion through the existing appearance-provider seam without changing
+its positive assertions. Two additional hosted tests exercise reduced motion
+and app-disabled animation explicitly. No OS setting or production preference
+handling is overridden. Integrated tests and a new exact-revision hosted run
+are required; later shards in the failed run were not executed.
+
+### Second-batch runtime validation in progress
+
+The source and integration test modules compile at `7b70a81`. The focused run
+then stopped in the branching Canvas symbol budget case. A direct invocation
+of that case reproduced native exit `0xC00000FD` (stack overflow), without an
+XCTest assertion failure. The accepted depth, count, and pixel budgets must
+remain covered; reducing the fixture, skipping it, or increasing the process
+stack alone would not establish a bounded implementation. Evidence is in
+`artifacts/goal-batch-two-focused-v3.log` and
+`artifacts/goal-canvas-branch-direct-v2.json`. The independently continued
+suites are partial diagnostic evidence, not a passing validation gate.
+
+That continuation also caught a fixture mistake in the new long-press
+accessibility alternative: the raw projection exposes explicitly authored
+accessibility actions, whereas ordinary Button invocation is provided by the
+runtime's UI Automation adapter. The fixture now discovers the live adapter
+element, checks enabled/default-action state, and invokes it through that same
+adapter. This does not substitute for the still-required native Narrator flow.

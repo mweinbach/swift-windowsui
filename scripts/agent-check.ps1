@@ -249,7 +249,7 @@ if ($Full) {
         & $testScript -Sharded -Filter "BindingTransactionTests|BindingHostTransactionTests|SettingsSceneHostingTests|WindowGroupContentIdentityTests|DemoSettingsPersistenceTests|DemoObservationShowcaseTests"
     }
     Invoke-Step "public API, input, document, window and diagnostic regressions" {
-        & $testScript -Sharded -Filter "WinSwiftUIColorInitializerTests|RetainedLongPressGestureTests|DemoLongPressWindowStateTests|TextEditorReconciliationTests|FileDocumentExportTests|FileDialogIntegrationTests|Win32WindowCloseRequestTests|WindowDismissBehaviorTests|LiveDiagnosticsAccountingTests|LiveDiagnosticsReportTests"
+        & $testScript -Sharded -Filter "WinSwiftUIColorInitializerTests|WinSwiftUIScaleOverloadTests|RetainedLongPressGestureTests|DemoLongPressWindowStateTests|TextEditorReconciliationTests|FileDocumentExportTests|FileDialogIntegrationTests|Win32WindowCloseRequestTests|WindowDismissBehaviorTests|LiveDiagnosticsAccountingTests|LiveDiagnosticsReportTests"
     }
     # Optional retained capabilities must stay genuinely sparse; rebuilding
     # controls must preserve their IME composition and caret callbacks.

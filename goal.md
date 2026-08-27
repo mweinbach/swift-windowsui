@@ -796,6 +796,24 @@ RGB initializer coverage runs with the existing portable stage. The first
 integration lint passed all 50 changed Swift files, but compiler and runtime
 validation are still pending.
 
+Initial compilation also exposed ambiguous default long-press call shapes:
+the older `pressing:perform:` overloads competed with current trailing-closure
+syntax. Those older spellings remain available but are now disfavored when
+current overloads match; a direct compiler probe accepted six call shapes,
+and the retained tests keep their ordinary unqualified calls. Test fixtures
+also needed their intended actor/test access and explicit return annotations.
+They now qualify WinSwiftUI geometry where Foundation defines competing names.
+Foundation CGRect/CGSize interoperability and implicit View.body builder
+behavior remain explicit source-compatibility gaps; these fixture corrections
+must not be counted as conformance proof for those gaps.
+
+The Canvas compile also found that unqualified planar scale anchors competed
+with the optional UnitPoint3D adapter. The adapter overloads are now disfavored
+when a planar form matches; typed depth anchors and explicit z arguments remain
+callable. Six source/retained regressions cover View and visual-effect forms.
+This fixes overload selection only: scale-anchor placement and actual depth
+rendering still require their original semantic and visual qualification.
+
 ### Material backdrop acceptance clarification
 
 Review of the existing skipped material case found that its name overstates

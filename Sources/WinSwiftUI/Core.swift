@@ -16288,10 +16288,12 @@ extension VisualEffect {
         )
     }
 
+    @_disfavoredOverload
     public func scaleEffect(_ scale: Double, anchor: UnitPoint3D) -> EmptyVisualEffect {
         scaleEffect(x: scale, y: scale, z: scale, anchor: anchor)
     }
 
+    @_disfavoredOverload
     public func scaleEffect(
         x: Double = 1,
         y: Double = 1,
@@ -28018,12 +28020,14 @@ extension View {
         return scaleEffect(x: x, y: y)
     }
 
+    @_disfavoredOverload
     public func scaleEffect(x: Double = 1, y: Double = 1, z: Double = 1, anchor: UnitPoint3D = .center) -> some View {
         _ = z
         _ = anchor
         return scaleEffect(x: x, y: y)
     }
 
+    @_disfavoredOverload
     public func scaleEffect(_ scale: Double, anchor: UnitPoint3D) -> some View {
         _ = anchor
         return scaleEffect(x: scale, y: scale)
@@ -29612,6 +29616,7 @@ extension View {
         )
     }
 
+    @_disfavoredOverload
     public func onLongPressGesture(
         minimumDuration: Double = 0.5,
         maximumDistance: CGFloat = 10,
@@ -29639,6 +29644,7 @@ extension View {
         )
     }
 
+    @_disfavoredOverload
     public func onLongPressGesture(
         minimumDuration: Double = 0.5,
         pressing: ((Bool) -> Void)? = nil,

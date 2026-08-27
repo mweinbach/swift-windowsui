@@ -59,7 +59,7 @@ private struct ReconciledEditorView: View {
                 document.selectionWrites += 1
             }
         )
-        VStack(alignment: .leading, spacing: 4) {
+        return VStack(alignment: .leading, spacing: 4) {
             if state.showsEditor {
                 TextEditor(text: text, selection: state.bindsSelection ? selection : nil)
                     .disabled(state.isDisabled)

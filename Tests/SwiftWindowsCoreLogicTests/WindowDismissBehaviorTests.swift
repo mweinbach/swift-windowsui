@@ -91,6 +91,7 @@ private final class RefusingNeutralCloseHost: PlatformWindowHost {
 
 @MainActor
 final class WindowDismissBehaviorTests: XCTestCase {
+    @MainActor
     private struct Harness {
         let host: WinSwiftUIWindowHost
         let renderer: FakeRenderBackend

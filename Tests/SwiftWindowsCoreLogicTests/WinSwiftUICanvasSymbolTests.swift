@@ -6,6 +6,10 @@ import XCTest
 @testable import SwiftWindowsUI
 @testable import WinSwiftUI
 
+private typealias CGPoint = WinSwiftUI.CGPoint
+private typealias CGSize = WinSwiftUI.CGSize
+private typealias CGRect = WinSwiftUI.CGRect
+
 /// Public Canvas symbols are reusable drawing sources, not children in the
 /// window's interaction tree. Fixed frames keep these tests independent of
 /// native SwiftUI's unconstrained symbol measurement policy.

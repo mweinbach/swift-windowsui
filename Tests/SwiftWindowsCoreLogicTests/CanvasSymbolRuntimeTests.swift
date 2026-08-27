@@ -67,7 +67,7 @@ final class CanvasSymbolRuntimeTests: XCTestCase {
 
     func testMissingContentAndInvalidScaleDoNotCreateAResolvedSource() async {
         var builds = 0
-        for scale in [Double.nan, 0, -.infinity] {
+        for scale in [Double.nan, 0, -Double.infinity] {
             XCTAssertNil(
                 CanvasSymbolSource(displayScale: scale) { _ in
                     builds += 1

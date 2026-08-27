@@ -3,8 +3,9 @@ import SwiftWindowsCore
 import SwiftWindowsPlatform
 import SwiftWindowsUI
 import WinSDK
-import WinSwiftUI
 import XCTest
+
+@testable import WinSwiftUI
 
 final class FileDocumentExportTests: XCTestCase {
     func testRegularFileExportRoundTripsBeforeSuccessCompletion() async throws {
@@ -16,8 +17,14 @@ final class FileDocumentExportTests: XCTestCase {
                 fixture.mount(document)
                 fixture.onCompletion = { result in
                     XCTAssertFalse(fixture.presented)
-                    XCTAssertEqual(try result.get(), destination)
-                    XCTAssertEqual(try Data(contentsOf: destination), Data(document.text.utf8))
+                    do {
+                        let url = try result.get()
+                        let saved = try Data(contentsOf: destination)
+                        XCTAssertEqual(url, destination)
+                        XCTAssertEqual(saved, Data(document.text.utf8))
+                    } catch {
+                        XCTFail("Export must finish writing before success completion: \(error)")
+                    }
                 }
 
                 fixture.present()

@@ -76,8 +76,10 @@ approves new SDK versions, or marks conformance complete.
 The [SwiftUI baseline candidate capture workflow](../.github/workflows/swiftui-baseline-capture.yml)
 can be dispatched manually. It also runs on pushes to `main` that change its
 workflow file, `.gitmodules`, `scripts/export-swiftui-baseline.ps1`,
-`scripts/swiftui-baseline-common.ps1`, `scripts/test-checkout-metadata.ps1`,
-or `docs/swiftui-baseline.json`.
+`scripts/swiftui-baseline-common.ps1`, `scripts/swiftui-baseline-streaming.ps1`,
+their baseline fixture tests and fixture data, `scripts/test-checkout-metadata.ps1`,
+or `docs/swiftui-baseline.json`. The job runs the checkout and inventory fixtures
+before exporting; changes to ordinary Swift source do not trigger this capture.
 General Swift source changes do not trigger this capture.
 
 Checkout keeps `persist-credentials: false` and `submodules: false`. The
@@ -162,6 +164,62 @@ declarations remain in the original interface. Referenced Foundation or
 other external modules are not erased from relationships. Their complete
 APIs are not silently relabeled as declarations owned by SwiftUI.
 
+An `arm64` target can appear as `aarch64` in a serialized module's graph.
+The validator accepts those two exact spellings only for the requested
+`arm64` architecture; `x86_64` must still match exactly. It preserves the
+observed module metadata and the full requested target rather than rewriting
+either. LLVM defines that specific [architecture alias](https://github.com/swiftlang/llvm-project/blob/swift-6.3-RELEASE/llvm/lib/TargetParser/Triple.cpp#L429),
+and Swift writes the [module triple's architecture name](https://github.com/swiftlang/swift/blob/swift-6.3-RELEASE/lib/SymbolGraphGen/JSON.cpp#L45).
+This does not admit `arm64e`, `arm64ec`, another SDK, or another target.
+
+### Inventory memory and failure behavior
+
+SDK symbol graphs can exceed the size of a single CLR string. The exporter
+therefore uses `Write-SwiftUIBaselineInventory`, which returns a compact
+summary and writes the complete index directly to disk. It never reads a
+whole graph or the final inventory into `ConvertFrom-Json`, and never sends
+the complete inventory to `ConvertTo-Json`. The object-returning
+`New-SwiftUIBaselineInventory` convenience function is limited to small
+synthetic fixtures of at most 16 MiB; it is not the SDK export path.
+
+`swiftui-baseline-streaming.ps1` compiles the same embedded C# implementation
+with PowerShell's standard `Add-Type` on Windows PowerShell 5.1 and PowerShell
+7. It uses no Python package, downloaded assembly, or private runtime path.
+Native SDK export still requires PowerShell 7 on macOS. The reader validates
+UTF-8 JSON a record at a time and retains nested JSON values without numeric
+conversion, special treatment of `__type`, or loss of null/empty arrays.
+Unknown root values are validated and skipped without materialization; their
+complete bytes remain in the authoritative raw graph.
+
+Declaration payloads and relationships are spooled to a new, owned scratch
+directory beside the output. Bounded sort runs contain decoded precise
+identifiers, 64-bit source sequences, and 64-bit payload offsets, not all
+declaration objects. Runs merge using ordinal identifier order and original
+occurrence order. The final writer streams even a single identifier's long
+occurrence list. Metadata, relationships, availability, extension data, and
+the existing inventory schema remain intact. Raw SHA-256 hashes cover the
+same bytes parsed, including a UTF-8 BOM and trailing whitespace.
+
+The defaults are a 16 MiB estimated index buffer, at most 16 open merge
+readers, and 33,554,432 source characters per retained JSON record. A single
+identifier larger than the sort buffer is handled as one bounded record.
+Memory depends on these buffers, the largest retained record/identifier, and
+the graph file list, not the total declaration count or graph byte size.
+There is no total SDK size or declaration-count cutoff. JSON nesting beyond
+256 levels and records beyond the explicit record budget fail with an error;
+the exporter does not truncate fields or retry with a smaller API surface.
+The `InventorySortChunkBytes`, `InventoryMergeFanIn`, and
+`InventoryMaximumRecordCharacters` exporter parameters expose the resource
+budgets without changing SDK pins or scope.
+
+The final inventory is published only after parsing, sorting, writing, and
+hashing succeed. Existing output files are never overwritten, and failures
+remove only the invocation's owned scratch directory. If cleanup also fails,
+the original error is retained with the cleanup error. `capture.json` records
+the indexing runtime, source digest, budgets and measured record/sort counts;
+`exporterSources` also hashes the streaming script. None of these statistics
+promotes the inventory to API completeness or behavior conformance.
+
 ## Inventory is not conformance
 
 A successful compiler export proves that the selected toolchain produced
@@ -199,12 +257,51 @@ separate unfulfilled gates until their actual evidence is recorded.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-swiftui-baseline.ps1
 # PowerShell 7, including on macOS:
 pwsh -NoProfile -File scripts/test-swiftui-baseline.ps1
+
+# Optional scale regression: a synthetic graph larger than 1 GiB, with an
+# 80,003-occurrence identifier. Allow about 5 GiB of free artifact space.
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-swiftui-baseline-memory.ps1 -Large
+pwsh -NoProfile -File scripts/test-swiftui-baseline-memory.ps1 -Large
+
+# Benchmark an already downloaded, read-only capture. Output goes to a new
+# artifacts directory outside the capture; the source status is not changed.
+pwsh -NoProfile -File scripts/measure-swiftui-baseline-inventory.ps1 `
+    -CaptureRoot ./artifacts/downloaded-candidate/capture
 ```
 
 These tests use explicitly synthetic JSON and interface fixtures under
-`scripts/fixtures/swiftui-baseline/`. They check version/build rejection,
+`scripts/fixtures/swiftui-baseline/` and generated records. They check version/build rejection,
 pending review, module and architecture completeness, precise identifier
 case sensitivity, overload/re-export preservation, extension relationships,
 availability metadata, deterministic indexing, hashes, malformed input, and
-the unsupported-host guard. Generated test evidence stays under `artifacts/`.
+the unsupported-host guard. Streaming tests force multiple merge passes,
+Unicode across buffer boundaries, numeric preservation, 64-bit run records,
+output collision and error cleanup. A fresh PowerShell child process runs
+the memory regression with a measured peak working set ceiling of 768 MiB;
+the default fixture is small, while `-Large` exercises the original
+whole-string failure and a long occurrence group. Generated test evidence
+stays under `artifacts/`.
 Passing these tests is not an Apple SDK capture or a SwiftUI conformance run.
+
+Peak memory is the current benchmark process's kernel peak, not its final
+working set or a sample of other processes. On macOS, where the [.NET process
+implementation does not populate its peak field](https://github.com/dotnet/runtime/blob/v10.0.0/src/libraries/System.Diagnostics.Process/src/System/Diagnostics/ProcessManager.OSX.cs#L60-L67),
+the adapter calls public `getrusage(RUSAGE_SELF)` in the system library.
+The Darwin 64-bit [rusage layout](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/resource.h#L139-L178)
+is 144 bytes with `ru_maxrss` at byte 32. The [kernel assigns peak resident size](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_resource.c#L1694)
+in [bytes](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/mach/task_info.h#L296-L307),
+so no Linux-style KiB multiplier is applied. Reports identify the metric,
+units and process scope, leave unsupported Mac paged/private metrics null,
+and fail if a true positive peak cannot be obtained. ABI tests on Windows
+do not constitute native execution of the Darwin call; the macOS workflow
+must exercise that branch on its actual host.
+
+`measure-swiftui-baseline-inventory.ps1` runs on either supported PowerShell
+runtime and records elapsed time, process memory, counts, source graph hashes
+and the output hash in `benchmark.json`. Reindexing a failed capture produces
+local benchmark evidence only. It does not manufacture a successful native
+`capture.json`, modify `capture-status.json`, review the observed identity,
+reconcile interfaces/overlays, or change the pinned baseline manifest.
+Source and output ancestors are resolved before the containment check,
+including Windows junctions and macOS aliases such as `/tmp` to `/private/tmp`.
+Output through an alias into the capture is rejected before writing.

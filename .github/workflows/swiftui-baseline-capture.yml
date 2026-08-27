@@ -10,6 +10,12 @@ on:
       - ".github/workflows/swiftui-baseline-capture.yml"
       - "scripts/export-swiftui-baseline.ps1"
       - "scripts/swiftui-baseline-common.ps1"
+      - "scripts/swiftui-baseline-streaming.ps1"
+      - "scripts/test-swiftui-baseline.ps1"
+      - "scripts/test-swiftui-baseline-streaming.ps1"
+      - "scripts/test-swiftui-baseline-memory.ps1"
+      - "scripts/measure-swiftui-baseline-inventory.ps1"
+      - "scripts/fixtures/swiftui-baseline/**"
       - "scripts/test-checkout-metadata.ps1"
       - "docs/swiftui-baseline.json"
 
@@ -36,6 +42,9 @@ jobs:
 
       - name: Verify checkout metadata fixtures
         run: ./scripts/test-checkout-metadata.ps1
+
+      - name: Verify inventory streaming fixtures
+        run: ./scripts/test-swiftui-baseline.ps1
 
       - name: Export pinned SDK candidate with CI provenance
         run: |

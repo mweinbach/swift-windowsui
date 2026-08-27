@@ -31,11 +31,48 @@ function Copy-BaselineTestObject {
     return (ConvertTo-Json -InputObject $Value -Depth 100 | ConvertFrom-Json)
 }
 
-foreach ($name in @("export-swiftui-baseline.ps1", "swiftui-baseline-common.ps1", "test-swiftui-baseline.ps1")) {
+foreach ($name in @("export-swiftui-baseline.ps1", "swiftui-baseline-common.ps1", "swiftui-baseline-streaming.ps1",
+        "measure-swiftui-baseline-inventory.ps1", "test-swiftui-baseline.ps1", "test-swiftui-baseline-streaming.ps1",
+        "test-swiftui-baseline-memory.ps1")) {
     $parseTokens = $null
     $parseErrors = $null
     [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot $name), [ref]$parseTokens, [ref]$parseErrors)
     Assert-BaselineTest ($parseErrors.Count -eq 0) "PowerShell syntax in $name"
+}
+$exporterAST = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot "export-swiftui-baseline.ps1"), [ref]$parseTokens, [ref]$parseErrors)
+$streamWrites = @($exporterAST.FindAll({ param($node)
+    $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq "Write-SwiftUIBaselineInventory"
+}, $true))
+$objectWrites = @($exporterAST.FindAll({ param($node)
+    $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq "New-SwiftUIBaselineInventory"
+}, $true))
+Assert-BaselineTest ($streamWrites.Count -eq 1 -and $objectWrites.Count -eq 0) "native exporter uses the bounded writer, never the fixture DOM"
+Assert-BaselineTest ($exporterAST.Extent.Text.Contains('"swiftui-baseline-streaming.ps1"')) "capture provenance hashes the streaming implementation"
+Assert-BaselineThrows { & (Join-Path $PSScriptRoot "measure-swiftui-baseline-inventory.ps1") -CaptureRoot $testRoot -OutputDirectory (Join-Path $testRoot "inside-source") } 'outside the read-only source capture' "benchmark cannot write inside its source"
+Assert-BaselineThrows { & (Join-Path $PSScriptRoot "measure-swiftui-baseline-inventory.ps1") -CaptureRoot $testRoot -OutputDirectory (Join-Path $testRoot.ToUpperInvariant() "inside-source") } 'outside the read-only source capture' "benchmark rejects case variants inside its source"
+Assert-BaselineTest (-not (Test-Path -LiteralPath (Join-Path $testRoot "inside-source"))) "benchmark source guard runs before writes"
+
+$physicalSource = Join-Path $testRoot "physical-source"
+$sourceAlias = Join-Path $testRoot "source-alias"
+[void][System.IO.Directory]::CreateDirectory($physicalSource)
+$aliasKind = "SymbolicLink"
+if ([System.IO.Path]::DirectorySeparatorChar -eq '\') { $aliasKind = "Junction" }
+[void](New-Item -ItemType $aliasKind -Path $sourceAlias -Target $physicalSource -ErrorAction Stop)
+Assert-BaselineTest ((Resolve-SwiftUIBaselineFileSystemPath -Path $sourceAlias) -ceq (Resolve-SwiftUIBaselineFileSystemPath -Path $physicalSource)) "resolve directory aliases before comparing source and output"
+Assert-BaselineThrows { & (Join-Path $PSScriptRoot "measure-swiftui-baseline-inventory.ps1") -CaptureRoot $physicalSource -OutputDirectory (Join-Path $sourceAlias "through-alias/new") } 'outside the read-only source capture' "benchmark rejects output through a source alias"
+Assert-BaselineThrows { & (Join-Path $PSScriptRoot "measure-swiftui-baseline-inventory.ps1") -CaptureRoot $sourceAlias -OutputDirectory (Join-Path $physicalSource "through-source-alias/new") } 'outside the read-only source capture' "benchmark resolves aliases in its source argument too"
+Assert-BaselineTest (@(Get-ChildItem -LiteralPath $physicalSource -Force).Count -eq 0) "alias rejection writes nothing into the source"
+
+Initialize-SwiftUIBaselineProcessMemory
+Assert-BaselineTest ([System.Runtime.InteropServices.Marshal]::SizeOf([type][SwiftUIBaseline.ProcessMemory.DarwinRUsage64]) -eq 144) "Darwin LP64 rusage layout is 144 bytes"
+Assert-BaselineTest ([System.Runtime.InteropServices.Marshal]::OffsetOf([type][SwiftUIBaseline.ProcessMemory.DarwinRUsage64], "MaximumResidentBytes").ToInt64() -eq 32) "Darwin maximum RSS field begins at byte 32"
+$processMemory = Get-SwiftUIBaselineProcessMemory
+Assert-BaselineTest ($processMemory.peakWorkingSetBytes -gt 0 -and $processMemory.metric.unit -ceq "bytes") "record a positive process peak with explicit byte units"
+if ($PSVersionTable.PSVersion.Major -ge 7 -and $IsMacOS) {
+    Assert-BaselineTest ($processMemory.metric.source -ceq "Darwin getrusage(RUSAGE_SELF).ru_maxrss") "macOS uses the kernel's process peak"
+    Assert-BaselineTest ($null -eq $processMemory.peakPagedMemoryBytes -and $null -eq $processMemory.privateMemoryBytesAtEnd) "unsupported Mac .NET metrics remain unavailable"
+} else {
+    Assert-BaselineThrows { [SwiftUIBaseline.ProcessMemory.Native]::DarwinPeakResidentBytes($false) } '64-bit macOS' "Darwin adapter cannot run on another host"
 }
 
 # These identifiers are deliberately synthetic. They never update the real
@@ -184,5 +221,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7 -or -not $IsMacOS) {
 
 Write-SwiftUIBaselineJson -Value $inventory -Path (Join-Path $testRoot "fixture-inventory.json")
 Write-Host "SwiftUI baseline tooling passed $script:assertionCount assertions using synthetic fixtures only."
+& (Join-Path $PSScriptRoot "test-swiftui-baseline-streaming.ps1")
+& (Join-Path $PSScriptRoot "test-swiftui-baseline-memory.ps1")
 Write-Host "No Apple SDK export, SwiftPM command, or behavior conformance check was run."
 exit 0

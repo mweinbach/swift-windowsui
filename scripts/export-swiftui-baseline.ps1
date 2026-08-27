@@ -12,7 +12,10 @@ captured, reviewed, and explicitly recorded in docs/swiftui-baseline.json.
 param(
     [string]$OutputPath,
     [string]$ManifestPath = (Join-Path (Split-Path -Parent $PSScriptRoot) "docs/swiftui-baseline.json"),
-    [switch]$RequireReviewedIdentity
+    [switch]$RequireReviewedIdentity,
+    [ValidateRange(1024, 1073741824)][long]$InventorySortChunkBytes = 16777216,
+    [ValidateRange(2, 64)][int]$InventoryMergeFanIn = 16,
+    [ValidateRange(1024, 134217728)][int]$InventoryMaximumRecordCharacters = 33554432
 )
 
 $ErrorActionPreference = "Stop"
@@ -202,9 +205,10 @@ try {
         }
     }
 
-    $inventory = New-SwiftUIBaselineInventory -Manifest $manifest -CaptureRoot $captureRoot -Exports $exports.ToArray()
     $inventoryPath = Join-Path $captureRoot "inventory.json"
-    Write-SwiftUIBaselineJson -Value $inventory -Path $inventoryPath
+    $inventory = Write-SwiftUIBaselineInventory -Manifest $manifest -CaptureRoot $captureRoot -Exports $exports.ToArray() `
+        -Path $inventoryPath -SortChunkBytes $InventorySortChunkBytes -MergeFanIn $InventoryMergeFanIn `
+        -MaximumRecordCharacters $InventoryMaximumRecordCharacters
     $hostVersion = Invoke-SwiftUIBaselineNativeCommand -FilePath "/usr/bin/sw_vers" -Arguments @("-productVersion")
     $hostBuild = Invoke-SwiftUIBaselineNativeCommand -FilePath "/usr/bin/sw_vers" -Arguments @("-buildVersion")
     $hostArchitecture = Invoke-SwiftUIBaselineNativeCommand -FilePath "/usr/bin/uname" -Arguments @("-m")
@@ -231,7 +235,7 @@ try {
             [ordered]@{ path = $extractorPath; sha256 = (Get-FileHash -LiteralPath $extractorPath -Algorithm SHA256).Hash.ToLowerInvariant() }
         )
         exporterSources = @(
-            foreach ($scriptName in @("export-swiftui-baseline.ps1", "swiftui-baseline-common.ps1")) {
+            foreach ($scriptName in @("export-swiftui-baseline.ps1", "swiftui-baseline-common.ps1", "swiftui-baseline-streaming.ps1")) {
                 [ordered]@{ path = "scripts/$scriptName"; sha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot $scriptName) -Algorithm SHA256).Hash.ToLowerInvariant() }
             }
         )
@@ -249,6 +253,7 @@ try {
             sha256 = (Get-FileHash -LiteralPath $inventoryPath -Algorithm SHA256).Hash.ToLowerInvariant()
             graphSetSha256 = $inventory.graphSetSha256
             counts = $inventory.counts
+            indexing = $inventory.indexing
         }
         commands = $nativeCommands.ToArray()
         qualification = [ordered]@{

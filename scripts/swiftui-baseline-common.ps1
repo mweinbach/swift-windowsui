@@ -150,6 +150,120 @@ function Get-SwiftUIBaselineTextHash {
     }
 }
 
+function Resolve-SwiftUIBaselineFileSystemPath {
+    param([Parameter(Mandatory)][string]$Path, [int]$LinkDepth = 0)
+
+    if ($LinkDepth -gt 64) { throw "Too many filesystem aliases while resolving '$Path'." }
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $root = [System.IO.Path]::GetPathRoot($fullPath)
+    $separators = [char[]]@([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $parts = $fullPath.Substring($root.Length).Split($separators, [System.StringSplitOptions]::RemoveEmptyEntries)
+    $current = $root
+    foreach ($part in $parts) {
+        $candidate = Join-Path $current $part
+        $item = $null
+        try { $item = Get-Item -LiteralPath $candidate -Force -ErrorAction Stop } catch {
+            if ($_.CategoryInfo.Category -ne [System.Management.Automation.ErrorCategory]::ObjectNotFound) { throw }
+        }
+        if ($null -eq $item) {
+            # A not-yet-created suffix has no aliases of its own. Its existing
+            # ancestors have already been resolved before any output is made.
+            $current = $candidate
+            continue
+        }
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            $targetProperty = $item.PSObject.Properties["Target"]
+            if ($null -eq $targetProperty -or [string]::IsNullOrEmpty([string]$targetProperty.Value)) {
+                $targetProperty = $item.PSObject.Properties["LinkTarget"]
+            }
+            $targets = @($targetProperty.Value)
+            if ($targets.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$targets[0])) {
+                throw "Cannot resolve the filesystem alias '$candidate'; no benchmark output was created."
+            }
+            $target = [string]$targets[0]
+            # PowerShell/.NET versions expose Windows junction targets with
+            # either DOS or native path prefixes. Normalize only those prefixes.
+            if ($target.StartsWith('\??\UNC\') -or $target.StartsWith('\\?\UNC\')) {
+                $target = '\\' + $target.Substring(8)
+            } elseif ($target.StartsWith('\??\') -or $target.StartsWith('\\?\')) {
+                $target = $target.Substring(4)
+                if ($target -notmatch '^[A-Za-z]:[\\/]') { throw "Unsupported filesystem alias target for '$candidate'." }
+            }
+            if (-not [System.IO.Path]::IsPathRooted($target)) { $target = Join-Path (Split-Path -Parent $candidate) $target }
+            $current = Resolve-SwiftUIBaselineFileSystemPath -Path $target -LinkDepth ($LinkDepth + 1)
+        } else { $current = [System.IO.Path]::GetFullPath($item.FullName) }
+    }
+    return [System.IO.Path]::GetFullPath($current)
+}
+
+function Initialize-SwiftUIBaselineProcessMemory {
+    # This public Darwin ABI is used only to measure the current benchmark
+    # process. It does not sample unrelated processes or change system settings.
+    $source = @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+namespace SwiftUIBaseline.ProcessMemory {
+    [StructLayout(LayoutKind.Explicit, Size = 144)]
+    public struct DarwinRUsage64 {
+        [FieldOffset(32)] public long MaximumResidentBytes;
+    }
+    public static class Native {
+        public static string SourceHash;
+        [DllImport("/usr/lib/libSystem.B.dylib", EntryPoint = "getrusage", SetLastError = true, CallingConvention = CallingConvention.Cdecl)]
+        private static extern int GetResourceUsage(int who, out DarwinRUsage64 usage);
+        public static long DarwinPeakResidentBytes(bool isMacOS) {
+            if (!isMacOS || IntPtr.Size != 8) throw new PlatformNotSupportedException("Darwin peak RSS requires a 64-bit macOS process.");
+            if (Marshal.SizeOf(typeof(DarwinRUsage64)) != 144 || Marshal.OffsetOf(typeof(DarwinRUsage64), "MaximumResidentBytes").ToInt64() != 32)
+                throw new InvalidOperationException("Unexpected Darwin rusage ABI layout.");
+            DarwinRUsage64 usage;
+            if (GetResourceUsage(0, out usage) != 0) throw new Win32Exception(Marshal.GetLastWin32Error(), "getrusage(RUSAGE_SELF) failed.");
+            if (usage.MaximumResidentBytes <= 0) throw new InvalidOperationException("Darwin did not return a positive process peak RSS.");
+            return usage.MaximumResidentBytes;
+        }
+    }
+}
+'@
+    $sourceHash = Get-SwiftUIBaselineTextHash -Text $source
+    if ($null -eq ("SwiftUIBaseline.ProcessMemory.Native" -as [type])) {
+        Add-Type -TypeDefinition $source -Language CSharp -ErrorAction Stop
+        [SwiftUIBaseline.ProcessMemory.Native]::SourceHash = $sourceHash
+    } elseif ([SwiftUIBaseline.ProcessMemory.Native]::SourceHash -cne $sourceHash) {
+        throw "The loaded process-memory adapter differs from this source. Start a fresh PowerShell process."
+    }
+}
+
+function Get-SwiftUIBaselineProcessMemory {
+    $process = [System.Diagnostics.Process]::GetCurrentProcess()
+    try {
+        $process.Refresh()
+        $isDarwin = $PSVersionTable.PSVersion.Major -ge 7 -and $IsMacOS
+        if ($isDarwin) {
+            Initialize-SwiftUIBaselineProcessMemory
+            $peak = [SwiftUIBaseline.ProcessMemory.Native]::DarwinPeakResidentBytes($true)
+            $source = "Darwin getrusage(RUSAGE_SELF).ru_maxrss"
+        } else {
+            $peak = $process.PeakWorkingSet64
+            $source = "System.Diagnostics.Process.PeakWorkingSet64"
+        }
+        if ($peak -le 0) { throw "This host does not provide a positive process peak RSS; current RSS is not substituted for peak memory." }
+        $isWindowsHost = [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
+        return [pscustomobject][ordered]@{
+            peakWorkingSetBytes = $peak
+            # These .NET fields are unset on macOS. Keep them unavailable, not
+            # zero or a different physical-footprint metric under the same name.
+            peakPagedMemoryBytes = $(if ($isWindowsHost) { $process.PeakPagedMemorySize64 } else { $null })
+            privateMemoryBytesAtEnd = $(if ($isWindowsHost) { $process.PrivateMemorySize64 } else { $null })
+            metric = [ordered]@{
+                source = $source
+                unit = "bytes"
+                scope = "current benchmark process"
+                kind = "kernel process peak; not sampled current RSS"
+            }
+        }
+    } finally { $process.Dispose() }
+}
+
 function Get-SwiftUIBaselineInterfaceImports {
     param([Parameter(Mandatory)][string]$Text)
 
@@ -170,7 +284,7 @@ function Get-SwiftUIBaselineInterfaceImports {
     return ,$imports.ToArray()
 }
 
-function New-SwiftUIBaselineInventory {
+function Get-SwiftUIBaselineGraphInputs {
     param(
         [Parameter(Mandatory)]$Manifest,
         [Parameter(Mandatory)][string]$CaptureRoot,
@@ -198,114 +312,111 @@ function New-SwiftUIBaselineInventory {
     }
     if ($expectedPairs.Count -ne 0) { throw "Missing module/target exports: $([string]::Join(', ', $expectedPairs))." }
 
-    $symbols = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
-    $graphRecords = [System.Collections.Generic.List[object]]::new()
-    $relationshipRecords = [System.Collections.Generic.List[object]]::new()
-    $hashLines = [System.Collections.Generic.List[string]]::new()
     [string[]]$orderedPaths = @($graphPaths.Keys)
     [System.Array]::Sort($orderedPaths, [System.StringComparer]::Ordinal)
-    $declarationCount = 0
+    $inputs = [System.Collections.Generic.List[object]]::new()
     foreach ($path in $orderedPaths) {
         $entry = $graphPaths[$path]
-        $graph = Get-Content -LiteralPath $entry.file.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
-        if ($null -eq $graph.metadata -or $null -eq $graph.module -or
-            $graph.symbols -isnot [array] -or $graph.relationships -isnot [array]) {
-            throw "Malformed symbol graph '$path': expected metadata, module, symbols array, and relationships array."
-        }
-        if ($entry.primary -and ($graph.module.name -cne $entry.export.module -or $graph.symbols.Count -eq 0)) {
-            throw "Primary graph '$path' is empty or names the wrong module."
-        }
-        $expectedArchitecture = $entry.export.target.Split('-')[0]
-        if ($graph.module.platform.architecture -cne $expectedArchitecture) {
-            throw "Graph '$path' has the wrong architecture for '$($entry.export.target)'."
-        }
-        if ($graph.module.platform.operatingSystem.name -cnotin @("macosx", "macos")) {
-            throw "Graph '$path' is not a macOS desktop graph."
-        }
-        $hash = (Get-FileHash -LiteralPath $entry.file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-        $hashLines.Add("$path`t$hash`n")
-        $graphRecords.Add([pscustomobject][ordered]@{
-            path = $path
-            sha256 = $hash
+        $inputs.Add([pscustomobject]@{
+            path = $entry.file.FullName
+            relativePath = $path
             requestedModule = $entry.export.module
             target = $entry.export.target
-            metadata = $graph.metadata
-            module = $graph.module
-            symbolCount = $graph.symbols.Count
-            relationshipCount = $graph.relationships.Count
-        })
-        for ($index = 0; $index -lt $graph.symbols.Count; $index++) {
-            $symbol = $graph.symbols[$index]
-            $precise = [string]$symbol.identifier.precise
-            if ([string]::IsNullOrWhiteSpace($precise)) { throw "Symbol $index in '$path' has no precise identifier." }
-            if (-not $symbols.ContainsKey($precise)) {
-                $symbols.Add($precise, [System.Collections.Generic.List[object]]::new())
-            }
-            $occurrence = [ordered]@{
-                graphPath = $path
-                symbolIndex = $index
-                requestedModule = $entry.export.module
-                target = $entry.export.target
-                interfaceLanguage = $symbol.identifier.interfaceLanguage
-                kind = $symbol.kind
-                pathComponents = $symbol.pathComponents
-                names = $symbol.names
-                accessLevel = Get-SwiftUIBaselineProperty -Value $symbol -Name "accessLevel"
-            }
-            # Retain availability domains, version tuples, and unknown fields
-            # verbatim. Nothing is excluded because it is deprecated, newer
-            # than the package deployment floor, or unavailable on this target.
-            foreach ($name in @("availability", "declarationFragments", "swiftGenerics", "swiftExtension")) {
-                if ($null -ne $symbol.PSObject.Properties[$name]) {
-                    $occurrence[$name] = Get-SwiftUIBaselineProperty -Value $symbol -Name $name
-                }
-            }
-            $symbols[$precise].Add([pscustomobject]$occurrence)
-            $declarationCount++
-        }
-        for ($index = 0; $index -lt $graph.relationships.Count; $index++) {
-            $relationship = $graph.relationships[$index]
-            foreach ($required in @("kind", "source", "target")) {
-                if ([string]::IsNullOrWhiteSpace($relationship.$required)) {
-                    throw "Relationship $index in '$path' is missing '$required'."
-                }
-            }
-            # Keep relationships even when one endpoint belongs to an external
-            # module. Dropping them loses conformances and extension ownership.
-            $relationshipRecords.Add([pscustomobject][ordered]@{
-                graphPath = $path
-                relationshipIndex = $index
-                relationship = $relationship
-            })
-        }
-    }
-    [string[]]$identifiers = @($symbols.Keys)
-    [System.Array]::Sort($identifiers, [System.StringComparer]::Ordinal)
-    $indexedSymbols = [System.Collections.Generic.List[object]]::new()
-    foreach ($identifier in $identifiers) {
-        $indexedSymbols.Add([pscustomobject][ordered]@{
-            preciseIdentifier = $identifier
-            occurrences = $symbols[$identifier].ToArray()
+            primary = $entry.primary
         })
     }
+    return ,$inputs.ToArray()
+}
+
+function Write-SwiftUIBaselineInventory {
+    param(
+        [Parameter(Mandatory)]$Manifest,
+        [Parameter(Mandatory)][string]$CaptureRoot,
+        [Parameter(Mandatory)][object[]]$Exports,
+        [Parameter(Mandatory)][string]$Path,
+        [ValidateRange(1024, 1073741824)][long]$SortChunkBytes = 16777216,
+        [ValidateRange(2, 64)][int]$MergeFanIn = 16,
+        [ValidateRange(1024, 134217728)][int]$MaximumRecordCharacters = 33554432
+    )
+
+    $entries = Get-SwiftUIBaselineGraphInputs -Manifest $Manifest -CaptureRoot $CaptureRoot -Exports $Exports
+    . (Join-Path $PSScriptRoot "swiftui-baseline-streaming.ps1")
+    Initialize-SwiftUIBaselineStreaming
+    $inputs = [System.Collections.Generic.List[SwiftUIBaseline.Streaming.GraphInput]]::new()
+    foreach ($entry in $entries) {
+        $graphInput = [SwiftUIBaseline.Streaming.GraphInput]::new()
+        $graphInput.Path = $entry.path
+        $graphInput.RelativePath = $entry.relativePath
+        $graphInput.RequestedModule = $entry.requestedModule
+        $graphInput.Target = $entry.target
+        $graphInput.Primary = $entry.primary
+        $inputs.Add($graphInput)
+    }
+    $summary = [SwiftUIBaseline.Streaming.InventoryWriter]::Write(
+        $Manifest.baselineId, $inputs.ToArray(), [System.IO.Path]::GetFullPath($Path),
+        $SortChunkBytes, $MergeFanIn, $MaximumRecordCharacters)
+    # This is deliberately a compact result. Never deserialize inventory.json
+    # here or hand the complete inventory to ConvertTo-Json in the exporter.
     return [pscustomobject][ordered]@{
-        schemaVersion = 1
-        baselineId = $Manifest.baselineId
-        evidenceKind = "compiler-exported-api-inventory-only"
-        completeness = "requires-public-interface-and-documentation-audit"
-        behaviorConformance = "not-verified"
-        crossImportOverlayCompleteness = "requires-declaration-and-interface-audit"
-        symbolIdentity = "case-sensitive identifier.precise; occurrences retained across targets and re-exports"
-        rawGraphsAreAuthoritative = $true
+        path = [System.IO.Path]::GetFullPath($Path)
+        sha256 = $summary.InventorySha256
+        graphSetSha256 = $summary.GraphSetSha256
         counts = [ordered]@{
-            graphs = $graphRecords.Count
-            preciseSymbols = $indexedSymbols.Count
-            declarationOccurrences = $declarationCount
-            relationshipOccurrences = $relationshipRecords.Count
+            graphs = $summary.Graphs
+            preciseSymbols = $summary.PreciseSymbols
+            declarationOccurrences = $summary.DeclarationOccurrences
+            relationshipOccurrences = $summary.RelationshipOccurrences
         }
-        graphSetSha256 = Get-SwiftUIBaselineTextHash -Text ([string]::Concat($hashLines))
-        graphs = $graphRecords.ToArray()
-        symbols = $indexedSymbols.ToArray()
-        relationships = $relationshipRecords.ToArray()
+        indexing = [ordered]@{
+            implementation = "bounded-json-records-and-external-ordinal-index-v1"
+            sourceSha256 = [SwiftUIBaseline.Streaming.InventoryWriter]::SourceHash
+            powerShellVersion = $PSVersionTable.PSVersion.ToString()
+            clrVersion = [System.Environment]::Version.ToString()
+            sortChunkBytes = $SortChunkBytes
+            mergeFanIn = $MergeFanIn
+            maximumRecordCharacters = $MaximumRecordCharacters
+            inputBytes = $summary.InputBytes
+            outputBytes = $summary.OutputBytes
+            largestRecordCharacters = $summary.LargestRecordCharacters
+            peakBufferedIndexEstimatedBytes = $summary.PeakBufferedIndexBytes
+            peakBufferedIndexRecords = $summary.PeakBufferedIndexRecords
+            initialSortRuns = $summary.InitialSortRuns
+            mergePasses = $summary.MergePasses
+            peakOpenRunReaders = $summary.PeakOpenRunReaders
+            largestOccurrenceGroup = $summary.LargestOccurrenceGroup
+        }
+    }
+}
+
+function New-SwiftUIBaselineInventory {
+    param(
+        [Parameter(Mandatory)]$Manifest,
+        [Parameter(Mandatory)][string]$CaptureRoot,
+        [Parameter(Mandatory)][object[]]$Exports
+    )
+
+    # Compatibility convenience for small synthetic fixtures only. The native
+    # exporter uses Write-SwiftUIBaselineInventory and never materializes a DOM.
+    $entries = Get-SwiftUIBaselineGraphInputs -Manifest $Manifest -CaptureRoot $CaptureRoot -Exports $Exports
+    [long]$inputBytes = 0
+    foreach ($entry in $entries) { $inputBytes += ([System.IO.FileInfo]$entry.path).Length }
+    if ($inputBytes -gt 16777216) {
+        throw "Object-returning inventory is limited to 16 MiB synthetic fixtures. Use Write-SwiftUIBaselineInventory for complete SDK graphs."
+    }
+    $fixtureDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("swiftui-small-inventory-" + [Guid]::NewGuid().ToString("N"))
+    if (Test-Path -LiteralPath $fixtureDirectory) { throw "Fixture inventory directory already exists." }
+    [void][System.IO.Directory]::CreateDirectory($fixtureDirectory)
+    $fixturePath = Join-Path $fixtureDirectory "inventory.json"
+    try {
+        $summary = Write-SwiftUIBaselineInventory -Manifest $Manifest -CaptureRoot $CaptureRoot -Exports $Exports -Path $fixturePath
+        if ($summary.indexing.outputBytes -gt 16777216) {
+            throw "Object-returning inventory exceeded 16 MiB. Use the complete file from Write-SwiftUIBaselineInventory instead."
+        }
+        return (Get-Content -LiteralPath $fixturePath -Raw -Encoding UTF8 | ConvertFrom-Json)
+    } finally {
+        # No recursive removal: only our exact output file and now-empty GUID
+        # directory are owned by this small-fixture convenience wrapper.
+        if (Test-Path -LiteralPath $fixturePath -PathType Leaf) { [System.IO.File]::Delete($fixturePath) }
+        [System.IO.Directory]::Delete($fixtureDirectory, $false)
     }
 }

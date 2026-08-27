@@ -1258,3 +1258,73 @@ in 225.66 seconds (`artifacts/goal-gpu-release-build.log`). Contracts and strict
 lint pass. The four GPU timing suites were added to Quick; Full discovers them
 with the rest of the test suite. This adds release compilation evidence while
 leaving broader validation, live telemetry, and hardware acceptance pending.
+
+### Third-batch validation and SDK indexing repair
+
+At clean commit `fce78ec`, expanded Quick passed 1,387 XCTest executions and
+nine Swift Testing cases across 88 XCTest invocations, plus the 31 synthetic
+material-classifier checks. There were no failures and one existing
+material-backdrop skip. The log and summary are
+`artifacts/goal-third-batch-quick.log` and
+`artifacts/goal-third-batch-quick-summary.json`. Full validation and hosted
+qualification remain separate pending work.
+
+Two 32-second release diagnostics runs completed with exit code zero on the
+RTX 5090 at 1280 by 720 pixels, 96 DPI, and a reported 59 Hz display. The GPU
+run joined 1,234 valid post-warmup intervals to their issuing frames; its one
+remaining query was explicitly cancelled at finish, with no query failures,
+dropped results, duplicate joins, or orphan results. The CPU-only control
+issued no GPU queries and reported no GPU measurements. Their directories are
+`artifacts/goal-native-gpu-89036e95907f46aeac50d863fd928f26/` and
+`artifacts/goal-native-cpu-89faa19abc7a406295e825ac0f0efd33/`. The executable
+SHA-256 was `e2a517a2764e303b831e90cb50ce3d5bf6c494f31223783807d587bc6569143c`.
+
+These runs validate instrumentation only. The launcher's main-window probe
+did not establish a visible window, other isolated agents could run compiler
+or script work, and input was the declared synthetic retained-runtime script.
+They do not qualify frame delivery, input latency, physical display identity,
+or the 60/120/144 Hz targets. Existing pacing data was copied into a process
+profile and the original file remained unchanged; Foundation continued to use
+the real Windows known folder, whose demo-settings file was verified absent
+before and after. An earlier harness attempt refused that path assumption
+before launch; another retained a report but lost its process exit-code
+observation. Those attempts remain recorded, not promoted to successful runs.
+
+The CPU-only report also exposes substantial rebuild work worth investigating.
+Its 287 rebuilds are accumulated into 235 frame samples: the 71.74 ms rebuild
+p95 is a per-frame accumulated value, not a single-reload percentile. Node
+construction includes nested child body evaluation and identity propagation,
+so the small initial-composition timer cannot isolate all body work. A source
+audit found repeated full identity-prefix copies/hashes and candidate-bucket
+shifts; controlled attribution and safe optimization remain pending. No old
+capture is treated as a comparable baseline or proof of a new regression.
+
+The SDK inventory repair now streams JSON records, sorts case-sensitive
+identifiers through bounded disk runs, and writes the final inventory without
+a whole-file object graph. Raw numeric representations, metadata, declarations,
+relationships, and both architecture exports remain intact. The exact LLVM
+`arm64`/`aarch64` alias is accepted while preserving the graph's raw spelling;
+unrelated architectures are still rejected. Record and nesting budgets fail
+explicitly rather than truncate the API surface. No total SDK declaration or
+file-size cutoff was added.
+
+Integrated tooling tests passed 489 assertions on each of PowerShell 5.1 and
+7.6.4, plus 18 large-memory assertions on each and 20 checkout assertions.
+The large fixture exceeds the original whole-string limit: a 1,351,649,097-byte
+graph with 160,003 declarations, 160,000 relationships, and an 80,003-occurrence
+identifier. Peak working sets were 164.7 and 191.5 MiB. Contracts and whitespace
+checks passed. Native Darwin peak-memory collection remains unexecuted locally;
+its public getrusage adapter records actual kernel byte units and must run in CI.
+
+Root reindexing of the actual 22 preserved graphs took 30.30 seconds and
+168.5 MiB peak working set on PowerShell 5.1, and 44.32 seconds and 208.2 MiB
+on PowerShell 7. Both produced exactly 134,147 identifiers, 300,436 declaration
+occurrences, and 309,048 relationships, with a 1,012,693,296-byte inventory
+whose SHA-256 is `e77f25fc01bf355d476740bf16ac4ea5fb54da7f0a7495e6fd5037686de4a063`.
+The independently rehashed source graph set still matches
+`cae2c67e354a2d82108809f28c7586dc7db1c764bb11234801fff345021227a8`.
+Reports are under `artifacts/goal-sdk-root-actual-ps51/` and
+`artifacts/goal-sdk-root-actual-ps7/`; the original capture still says failed.
+Reindexing does not manufacture a successful native capture, review the pinned
+identity, reconcile public interfaces and overlays, or prove API behavior.
+The fixed hosted capture must still complete before those audits proceed.

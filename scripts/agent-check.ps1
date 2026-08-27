@@ -146,6 +146,9 @@ if ($Full) {
     Invoke-Step "CanvasPathGradientIntegrationTests" {
         & $testScript -Filter "CanvasPathGradientIntegrationTests"
     }
+    Invoke-Step "Canvas symbols and affine image placement" {
+        & $testScript -Sharded -Filter "AffineImagePlacementTests|CanvasSymbolRuntimeTests|CanvasSymbolSceneTests|WinSwiftUICanvasSymbolTests|CanvasSymbolAtlasLifetimeTests|CanvasPixelFontScaleTests|GPUIPrimitiveLayoutCoherenceTests"
+    }
     # The coverage kernel the CPU rasterizer shares with the quad shader,
     # checked against an independent transcription of the HLSL (~0.02 s).
     # A divergence here is invisible to every screenshot gate, because every
@@ -244,6 +247,9 @@ if ($Full) {
     }
     Invoke-Step "binding transactions and Settings workflows" {
         & $testScript -Sharded -Filter "BindingTransactionTests|BindingHostTransactionTests|SettingsSceneHostingTests|WindowGroupContentIdentityTests|DemoSettingsPersistenceTests|DemoObservationShowcaseTests"
+    }
+    Invoke-Step "public API, input, document, window and diagnostic regressions" {
+        & $testScript -Sharded -Filter "WinSwiftUIColorInitializerTests|RetainedLongPressGestureTests|DemoLongPressWindowStateTests|TextEditorReconciliationTests|FileDocumentExportTests|FileDialogIntegrationTests|Win32WindowCloseRequestTests|WindowDismissBehaviorTests|LiveDiagnosticsAccountingTests|LiveDiagnosticsReportTests"
     }
     # Optional retained capabilities must stay genuinely sparse; rebuilding
     # controls must preserve their IME composition and caret callbacks.

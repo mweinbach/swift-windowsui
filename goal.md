@@ -762,6 +762,13 @@ Twenty-six new tests await integrated execution, including owned hidden native
 windows. This establishes a close decision boundary, not document dirty-state
 ownership or Save/Discard/Cancel behavior.
 
+Integration with timed gestures exposed another teardown edge: direct close
+or failed-start cleanup can bypass native focus/capture-loss messages. Close
+now cancels pointer and keyboard focus unconditionally after marking the host
+closed, and native/diagnostic input plus frame requests refuse later work.
+Four additional tests cover mouse GestureState reset, callback reentry, late
+input without repaint, and normal focus loss followed by a new hold.
+
 Canvas tagged symbols now resolve public views in the inherited environment,
 measure in logical coordinates, and record child scenes through the existing
 image-pass contract. Copied contexts share authored draw order but retain
@@ -784,6 +791,29 @@ construction, and reconciliation percentiles and labels synthetic input,
 CPU timing, forced frames, and unavailable qualification measurements.
 Fifteen injected-clock/report tests await integrated execution. Historical
 reports are unchanged, and no new machine performance result is implied.
+All second-batch semantic suites now gate Quick as well as Full; portable
+RGB initializer coverage runs with the existing portable stage. The first
+integration lint passed all 50 changed Swift files, but compiler and runtime
+validation are still pending.
+
+### Material backdrop acceptance clarification
+
+Review of the existing skipped material case found that its name overstates
+its scope: it builds retained compositing-group and content-blur examples,
+not a public drawingGroup chain or nested color-effect fixture. It records
+their current lack of parent-backdrop blur and then skips. Apple documents
+group flattening, effect scope, and material blur, but those descriptions do
+not settle every combination across an offscreen boundary. Pinned native
+fixtures need separate group/filter/opacity cases and a positive capture
+control before their pixels become conformance expectations.
+
+Any parent-backed layer route must preserve earlier local content, transparent
+parent alpha, geometric replacement coverage, occurrence-specific backdrop
+sampling, and draw order. Copying the whole parent into an ordinary cached
+image would not suffice. CPU memoization and GPU same-ID image batching are
+valid for backdrop-independent sources only. Native behavior, the scene
+contract, scratch-resource bounds, and CPU/WARP regressions remain required;
+the skip must not be removed by narrowing its test or assuming native pixels.
 
 ### Additional state lifetime acceptance detail
 

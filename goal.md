@@ -691,6 +691,22 @@ not establish native interaction, accessibility, recovery, or timing
 qualification. Sections 1 through 9 were compared against the starting commit
 and are unchanged; all nine original completion gates remain open.
 
+### Second implementation batch
+
+The first 24 commits were pushed together as `4e14693` after the validation
+above. Windows CI, portable CI, and the pinned SDK candidate capture started
+for that exact revision; their results are not yet known. The following
+prepared fixes are being integrated and remain subject to serial compiler,
+semantic, renderer, and workflow validation before the next combined push.
+
+Ordinary public RGB Color literals now prefer the public Double/opacity
+initializer without making the existing Core Float/alpha overload unavailable.
+Eight facade tests and four portable tests cover integer and fractional
+literals, contextual initialization, typed variables, initializer references,
+explicit labels, and unchanged extended components. This resolves an overload
+boundary; it does not establish full native color-space conformance. Integrated
+SwiftPM results are pending.
+
 ### Additional state lifetime acceptance detail
 
 A source audit found that the current State and StateObject wrappers follow

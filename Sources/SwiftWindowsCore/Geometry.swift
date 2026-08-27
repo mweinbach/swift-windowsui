@@ -400,6 +400,9 @@ public struct Color: Equatable, Sendable {
     public var blue: Float
     public var alpha: Float
 
+    // WinSwiftUI's Double/opacity initializer is also visible on this shared
+    // type. Keep Float/alpha available without making RGB literals ambiguous.
+    @_disfavoredOverload
     public init(red: Float, green: Float, blue: Float, alpha: Float = 1.0) {
         self.red = red
         self.green = green

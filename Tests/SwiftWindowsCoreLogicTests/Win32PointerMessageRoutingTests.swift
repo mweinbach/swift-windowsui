@@ -11,6 +11,8 @@ private final class PointerMessageRecordingDelegate: WindowDelegate {
     private(set) var pointerUpPoints: [Point] = []
     private(set) var doubleClicks: [MouseEvent] = []
     private(set) var horizontalScrollDeltas: [Double] = []
+    private(set) var verticalScrollDeltas: [Double] = []
+    private(set) var scrollSources: [ScrollInputSource] = []
     private(set) var cancellationCount = 0
 
     func window(_ window: Win32Window, leftMouseDownAt point: Point) {
@@ -29,6 +31,12 @@ private final class PointerMessageRecordingDelegate: WindowDelegate {
         _ window: Win32Window, horizontalScrollAt point: Point, delta: Double, source: ScrollInputSource
     ) {
         horizontalScrollDeltas.append(delta)
+        scrollSources.append(source)
+    }
+
+    func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double, source: ScrollInputSource) {
+        verticalScrollDeltas.append(delta)
+        scrollSources.append(source)
     }
 
     func windowDidCancelPointerInteraction(_ window: Win32Window) {
@@ -59,8 +67,8 @@ final class Win32PointerMessageRoutingTests: XCTestCase {
         LPARAM(UInt32(UInt16(bitPattern: x)) | (UInt32(UInt16(bitPattern: y)) << 16))
     }
 
-    private func wheelWParam(delta: Int16) -> WPARAM {
-        WPARAM(UInt32(UInt16(bitPattern: delta)) << 16)
+    private func wheelWParam(delta: Int16, keyState: UInt32 = 0) -> WPARAM {
+        WPARAM((UInt32(UInt16(bitPattern: delta)) << 16) | keyState)
     }
 
     func testDoubleClickPreservesItsOrdinaryPointerPressAndMouseCapture() async throws {
@@ -174,5 +182,20 @@ final class Win32PointerMessageRoutingTests: XCTestCase {
         )
         XCTAssertGreaterThan(recorder.horizontalScrollDeltas[1], 0)
         XCTAssertEqual(recorder.horizontalScrollDeltas[0], -recorder.horizontalScrollDeltas[1], accuracy: 0.001)
+    }
+
+    func testWheelUsesTheShiftStateCapturedInItsMessage() async throws {
+        let (window, hwnd, recorder) = try makeWindow()
+        defer {
+            _ = window
+            DestroyWindow(hwnd)
+        }
+
+        SendMessageW(hwnd, UINT(WM_MOUSEWHEEL), wheelWParam(delta: -40, keyState: UInt32(MK_SHIFT)), 0)
+        SendMessageW(hwnd, UINT(WM_MOUSEWHEEL), wheelWParam(delta: -40), 0)
+
+        XCTAssertEqual(recorder.horizontalScrollDeltas.count, 1, "Shift-wheel is horizontal at message time.")
+        XCTAssertEqual(recorder.verticalScrollDeltas.count, 1, "The next unmodified wheel message remains vertical.")
+        XCTAssertEqual(recorder.scrollSources, [.systemManaged, .systemManaged])
     }
 }

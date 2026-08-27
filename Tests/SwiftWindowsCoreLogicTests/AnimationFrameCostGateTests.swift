@@ -78,6 +78,8 @@ final class AnimationFrameCostGateTests: XCTestCase {
             children: siblings
         )
         let runtime = RetainedViewRuntime(root: root)
+        // Momentum starts and frame samples use the same synthetic clock.
+        runtime.clock = { 1 }
         // Populate the paint cache. Replay has no source until a scene has
         // been built once, so a test that measured the first frame would
         // measure the one frame where a full traversal is correct.

@@ -154,9 +154,9 @@ public protocol WindowDelegate: AnyObject {
     func windowPointerDidLeave(_ window: Win32Window)
     func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double)
     /// The wheel event with its provenance. `delta` is in lines; `source`
-    /// separates a click-wheel detent -- which must not glide -- from a
-    /// precision-touchpad gesture, which must. Defaults to forwarding to the
-    /// three-argument form so existing conformances keep working.
+    /// distinguishes raw gestures that need synthesized momentum from native
+    /// wheel streams that already contain all requested travel. Defaults to
+    /// forwarding to the three-argument form so existing conformances keep working.
     func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double, source: ScrollInputSource)
     func window(_ window: Win32Window, leftMouseDownAt point: Point)
     func window(_ window: Win32Window, leftMouseUpAt point: Point)
@@ -1891,9 +1891,11 @@ public final class Win32Window: PlatformWindow {
 
         case UINT(WM_MOUSEWHEEL):
             let point = Self.clientPoint(fromScreenLParam: lParam, hwnd: hwnd)
-            let modifiers = Self.currentKeyboardModifiers()
             let source = Self.scrollInputSource(from: wParam)
-            if modifiers.contains(.shift) {
+            // The message carries the key state when this input occurred.
+            // Reading GetKeyState here can reroute queued wheel input after
+            // the user has already pressed or released Shift.
+            if UInt(truncatingIfNeeded: wParam) & UInt(MK_SHIFT) != 0 {
                 delegate?.window(
                     self,
                     horizontalScrollAt: point,
@@ -2372,21 +2374,23 @@ public final class Win32Window: PlatformWindow {
         return Point(x: Double(point.x), y: Double(point.y))
     }
 
-    /// A click wheel reports whole multiples of `WHEEL_DELTA`; a precision
-    /// touchpad (and a Magic-Mouse-class device) reports fractions of it as
-    /// the finger moves. That is the only signal Windows gives for the
-    /// distinction AppKit exposes as `NSEvent.momentumPhase`, and it is
-    /// enough: momentum belongs to the gesture, never to the detent.
-    static func scrollInputSource(from wParam: WPARAM) -> ScrollInputSource {
-        let highWord = UInt16((UInt(truncatingIfNeeded: wParam) >> 16) & 0xFFFF)
-        let magnitude = abs(Int(Int16(bitPattern: highWord)))
-        return magnitude != 0 && magnitude % Int(WHEEL_DELTA) == 0 ? .wheelNotch : .precise
+    /// `WM_MOUSEWHEEL` does not identify gesture phases. Fractions of
+    /// `WHEEL_DELTA` are also valid for high-resolution mouse wheels, so
+    /// guessing a touchpad from granularity adds unwanted momentum to both
+    /// those wheels and touchpad streams Windows has already processed.
+    static func scrollInputSource(from _: WPARAM) -> ScrollInputSource {
+        .systemManaged
     }
 
     private static func mouseWheelDelta(from wParam: WPARAM, unit: MouseWheelUnit) -> Double {
+        mouseWheelDelta(from: wParam, unitCount: systemWheelUnitCount(for: unit))
+    }
+
+    /// Preserves fractional wheel travel and the system's zero-scroll setting.
+    static func mouseWheelDelta(from wParam: WPARAM, unitCount: UINT) -> Double {
         let highWord = UInt16((UInt(truncatingIfNeeded: wParam) >> 16) & 0xFFFF)
         let signedDelta = Int16(bitPattern: highWord)
-        return (Double(signedDelta) / Double(WHEEL_DELTA)) * Double(systemWheelUnitCount(for: unit))
+        return (Double(signedDelta) / Double(WHEEL_DELTA)) * Double(unitCount)
     }
 
     private static func systemWheelUnitCount(for unit: MouseWheelUnit) -> UINT {
@@ -2405,11 +2409,13 @@ public final class Win32Window: PlatformWindow {
             return unit.defaultCount
         }
 
-        if value == Self.wheelPageScrollValue {
-            return unit.defaultCount
-        }
+        return resolvedWheelUnitCount(value, defaultCount: unit.defaultCount)
+    }
 
-        return max(1, value)
+    static func resolvedWheelUnitCount(_ value: UINT, defaultCount: UINT) -> UINT {
+        // The current delegate contract is line-based; preserve its existing
+        // page-scroll fallback. Zero, however, explicitly disables scrolling.
+        value == Self.wheelPageScrollValue ? defaultCount : value
     }
 
     /// The window's monotonic frame clock, in seconds.

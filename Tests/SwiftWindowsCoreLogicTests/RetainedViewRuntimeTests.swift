@@ -12,6 +12,11 @@ import XCTest
 
 @testable import SwiftWindowsUI
 
+@MainActor
+final class RuntimeTestClock {
+    var now: Double = 0
+}
+
 // MARK: - VAL-PARITY-001: Normalized Output Comparison Helpers
 
 /// Helper struct for normalized output comparison (VAL-PARITY-001)
@@ -813,6 +818,310 @@ final class RetainedViewRuntimeTests: XCTestCase {
             XCTAssertEqual(node.backgroundColor, .white)
             XCTAssertFalse(runtime.hasActiveAnimations)
             XCTAssertFalse(runtime.tickAnimations(at: 13))
+        }
+    }
+
+    @MainActor
+    private static func makeScrollMotionRuntime(
+        contentHeight: Double = 1_200, offset: Double = 0
+    ) -> (RetainedViewRuntime, ViewNode, RuntimeTestClock) {
+        let marker = ViewNode(
+            frame: Rect(x: 0, y: 20, width: 40, height: 8), backgroundColor: .white)
+        let content = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 80, height: contentHeight), children: [marker])
+        let scroller = ViewNode(
+            frame: Rect(x: 10, y: 10, width: 80, height: 80),
+            clipsToBounds: true,
+            scrollAxis: .vertical,
+            scrollOffset: offset,
+            scrollStep: 20,
+            children: [content])
+        let runtime = RetainedViewRuntime(
+            root: ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 100),
+                isHitTestVisible: false, children: [scroller]))
+        let clock = RuntimeTestClock()
+        runtime.clock = { clock.now }
+        _ = runtime.renderScene()
+        return (runtime, scroller, clock)
+    }
+
+    func testKeyboardScrollMovesEveryRenderedFrameAndReachesItsTarget() async {
+        await MainActor.run {
+            let (runtime, scroller, clock) = Self.makeScrollMotionRuntime()
+            runtime.pointerMoved(to: Point(x: 30, y: 30))
+            runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
+            _ = runtime.renderScene()
+            XCTAssertEqual(scroller.resolvedScrollOffset, 0, accuracy: 0.0001)
+
+            for time in [0.055, 0.11, 0.22] {
+                clock.now = time
+                XCTAssertTrue(runtime.tickAnimations(at: time))
+                let scene = runtime.renderScene()
+                let expectedOffset = scroller.scrollOffset + scroller.scrollPresentedDelta
+                XCTAssertEqual(scroller.resolvedScrollOffset, expectedOffset, accuracy: 0.0001)
+                guard let marker = scene.layers.flatMap(\.quads).first else {
+                    return XCTFail("the moving marker must remain visible")
+                }
+                XCTAssertEqual(Double(marker.y), 30 - expectedOffset, accuracy: 0.001)
+            }
+            XCTAssertEqual(scroller.resolvedScrollOffset, 20, accuracy: 0.0001)
+            XCTAssertFalse(runtime.hasActiveAnimations)
+        }
+    }
+
+    func testRubberBandUpdatesRenderedGeometryUntilItReturnsToRest() async {
+        await MainActor.run {
+            let (runtime, scroller, clock) = Self.makeScrollMotionRuntime()
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: 3)
+            let peak = scroller.scrollOvershoot
+            XCTAssertLessThan(peak, 0)
+
+            for time in [0.0, 0.05, 0.1, 1.0] {
+                clock.now = time
+                _ = runtime.tickAnimations(at: time)
+                let scene = runtime.renderScene()
+                XCTAssertEqual(scroller.resolvedScrollOffset, scroller.scrollOvershoot, accuracy: 0.0001)
+                guard let marker = scene.layers.flatMap(\.quads).first else {
+                    return XCTFail("the bouncing marker must remain visible")
+                }
+                XCTAssertEqual(Double(marker.y), 30 - scroller.scrollOvershoot, accuracy: 0.001)
+            }
+            XCTAssertEqual(scroller.resolvedScrollOffset, 0, accuracy: 0.0001)
+            XCTAssertFalse(runtime.hasActiveAnimations)
+        }
+    }
+
+    func testWheelInterruptsKeyboardScrollAtThePresentedPosition() async {
+        await MainActor.run {
+            let (runtime, scroller, clock) = Self.makeScrollMotionRuntime()
+            runtime.pointerMoved(to: Point(x: 30, y: 30))
+            runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.pageDown.rawValue))
+            clock.now = 0.055
+            _ = runtime.tickAnimations(at: clock.now)
+            _ = runtime.renderScene()
+            let presentedOffset = scroller.resolvedScrollOffset
+
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: -1)
+            XCTAssertEqual(scroller.scrollOffset, presentedOffset + 20, accuracy: 0.0001)
+            XCTAssertEqual(scroller.scrollPresentedDelta, 0)
+            XCTAssertFalse(runtime.hasActiveAnimations)
+        }
+    }
+
+    func testWheelNotchCancelsAnOpposingPreciseMomentumTail() async {
+        await MainActor.run {
+            let (runtime, scroller, clock) = Self.makeScrollMotionRuntime()
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: -3, source: .precise)
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: 1)
+            XCTAssertEqual(scroller.scrollOffset, 40, accuracy: 0.0001)
+            clock.now = 0.5
+            _ = runtime.tickAnimations(at: clock.now)
+            XCTAssertEqual(scroller.scrollOffset, 40, accuracy: 0.0001)
+            XCTAssertFalse(runtime.hasActiveAnimations)
+        }
+    }
+
+    func testPreciseScrollDistanceIsIndependentOfFrameRate() async {
+        await MainActor.run {
+            for framesPerSecond in [20, 30, 60, 120] {
+                let (runtime, scroller, clock) = Self.makeScrollMotionRuntime()
+                runtime.mouseWheel(at: Point(x: 30, y: 30), delta: -3, source: .precise)
+                for frame in 1...(framesPerSecond / 2) {
+                    clock.now = Double(frame) / Double(framesPerSecond)
+                    _ = runtime.tickAnimations(at: clock.now)
+                    let offset = scroller.scrollOffset
+                    for staleTime in [clock.now, clock.now - 0.5 / Double(framesPerSecond), .nan, .infinity] {
+                        XCTAssertFalse(runtime.tickAnimations(at: staleTime))
+                        XCTAssertEqual(scroller.scrollOffset, offset, accuracy: 0.0001)
+                    }
+                }
+                XCTAssertEqual(scroller.scrollOffset, 60 + 50 * (1 - exp(-3)), accuracy: 0.0001)
+                clock.now = 1
+                _ = runtime.tickAnimations(at: clock.now)
+                XCTAssertEqual(scroller.scrollOffset, 109, accuracy: 0.0001)
+                XCTAssertFalse(runtime.hasActiveAnimations)
+            }
+        }
+    }
+
+    func testRubberBandReturnIsIndependentOfFrameRate() async {
+        await MainActor.run {
+            for framesPerSecond in [20, 30, 60, 120] {
+                let (runtime, scroller, clock) = Self.makeScrollMotionRuntime()
+                runtime.mouseWheel(at: Point(x: 30, y: 30), delta: 3)
+                let initialOvershoot = scroller.scrollOvershoot
+                for frame in 1...(framesPerSecond / 10) {
+                    clock.now = Double(frame) / Double(framesPerSecond)
+                    _ = runtime.tickAnimations(at: clock.now)
+                }
+                let expected = initialOvershoot * (5 * exp(-1.2) - 4 * exp(-1.5))
+                XCTAssertEqual(scroller.scrollOvershoot, expected, accuracy: 0.0001)
+            }
+        }
+    }
+
+    func testContinuousPreciseInputDecaysPreviousImpulsesBeforeAddingNewOnes() async {
+        await MainActor.run {
+            let (runtime, scroller, clock) = Self.makeScrollMotionRuntime(contentHeight: 10_000)
+            for frame in 1...60 {
+                clock.now = Double(frame) / 60
+                runtime.mouseWheel(at: Point(x: 30, y: 30), delta: -1, source: .precise)
+                _ = runtime.tickAnimations(at: clock.now)
+            }
+            let offsetAtRelease = scroller.scrollOffset
+            clock.now = 3
+            _ = runtime.tickAnimations(at: clock.now)
+            let velocityAtRelease = 100 * (1 - exp(-6)) / (1 - exp(-0.1))
+            XCTAssertEqual(scroller.scrollOffset - offsetAtRelease, (velocityAtRelease - 6) / 6, accuracy: 0.0001)
+            XCTAssertFalse(runtime.hasActiveAnimations)
+        }
+    }
+
+    func testFastGlideKeepsTheSameCappedBounceAtEveryFrameRate() async {
+        await MainActor.run {
+            for framesPerSecond in [20, 30, 60, 120] {
+                let (runtime, scroller, clock) = Self.makeScrollMotionRuntime(contentHeight: 12_000, offset: 11_100)
+                runtime.mouseWheel(at: Point(x: 30, y: 30), delta: -40, source: .precise)
+                for frame in 1...(framesPerSecond / 5) {
+                    clock.now = Double(frame) / Double(framesPerSecond)
+                    _ = runtime.tickAnimations(at: clock.now)
+                    if frame == framesPerSecond / 10 {
+                        XCTAssertEqual(scroller.scrollOvershoot, 80, accuracy: 0.0001)
+                    }
+                }
+                let springTime = 0.2 + log(0.97) / 6
+                let expected = (3_880.0 / 3) * (exp(-12 * springTime) - exp(-15 * springTime))
+                XCTAssertEqual(scroller.scrollOffset, 11_920, accuracy: 0.0001)
+                XCTAssertEqual(scroller.scrollOvershoot, expected, accuracy: 0.0001)
+            }
+        }
+    }
+
+    func testLongFrameGapSettlesMomentumIncludingAnEdgeCollision() async {
+        await MainActor.run {
+            let (runtime, scroller, clock) = Self.makeScrollMotionRuntime(offset: 1_060)
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: -2, source: .precise)
+            clock.now = 5
+            _ = runtime.tickAnimations(at: clock.now)
+            XCTAssertEqual(scroller.scrollOffset, 1_120, accuracy: 0.0001)
+            XCTAssertEqual(scroller.scrollOvershoot, 0, accuracy: 0.0001)
+            XCTAssertFalse(runtime.hasActiveAnimations)
+        }
+    }
+
+    func testNestedScrollerPassesUnusedWheelLinesToItsAncestor() async {
+        await MainActor.run {
+            let (runtime, outer, _) = Self.makeScrollMotionRuntime()
+            let inner = ViewNode(
+                frame: Rect(x: 0, y: 10, width: 70, height: 50),
+                scrollAxis: .vertical,
+                scrollOffset: 40,
+                scrollStep: 10,
+                children: [ViewNode(frame: Rect(x: 0, y: 0, width: 70, height: 100))])
+            outer.children[0].addChild(inner)
+            _ = runtime.renderScene()
+
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: -3)
+            XCTAssertEqual(inner.scrollOffset, 50, accuracy: 0.0001)
+            XCTAssertEqual(outer.scrollOffset, 40, accuracy: 0.0001)
+            XCTAssertEqual(inner.scrollOvershoot, 0)
+            XCTAssertFalse(runtime.hasActiveAnimations)
+        }
+    }
+
+    func testNestedScrollerWithFittingContentDoesNotSwallowWheelInput() async {
+        await MainActor.run {
+            let (runtime, outer, _) = Self.makeScrollMotionRuntime()
+            let inner = ViewNode(
+                frame: Rect(x: 0, y: 10, width: 70, height: 50),
+                scrollAxis: .vertical,
+                children: [ViewNode(frame: Rect(x: 0, y: 0, width: 70, height: 30))])
+            outer.children[0].addChild(inner)
+            _ = runtime.renderScene()
+
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: -3)
+            XCTAssertEqual(inner.scrollOffset, 0)
+            XCTAssertEqual(outer.scrollOffset, 60, accuracy: 0.0001)
+        }
+    }
+
+    func testNestedWheelChainingDoesNotEscapeAModalPresentation() async {
+        await MainActor.run {
+            let (runtime, outer, _) = Self.makeScrollMotionRuntime()
+            let modal = ViewNode(
+                frame: Rect(x: 0, y: 10, width: 70, height: 50),
+                scrollAxis: .vertical,
+                accessibilityTraits: [.isModal],
+                children: [ViewNode(frame: Rect(x: 0, y: 0, width: 70, height: 30))])
+            outer.children[0].addChild(modal)
+            _ = runtime.renderScene()
+
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: -3)
+            XCTAssertEqual(modal.scrollOffset, 0)
+            XCTAssertEqual(outer.scrollOffset, 0)
+            XCTAssertFalse(runtime.hasActiveAnimations)
+        }
+    }
+
+    func testFittingScrollAncestorDoesNotSuppressInnerEdgeFeedback() async {
+        await MainActor.run {
+            let (runtime, outer, _) = Self.makeScrollMotionRuntime(contentHeight: 80)
+            let inner = ViewNode(
+                frame: Rect(x: 0, y: 10, width: 70, height: 50),
+                scrollAxis: .vertical,
+                children: [ViewNode(frame: Rect(x: 0, y: 0, width: 70, height: 100))])
+            outer.children[0].addChild(inner)
+            _ = runtime.renderScene()
+
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: 3)
+            XCTAssertEqual(outer.scrollOffset, 0)
+            XCTAssertEqual(outer.scrollOvershoot, 0)
+            XCTAssertLessThan(inner.scrollOvershoot, 0)
+            XCTAssertTrue(runtime.hasActiveAnimations)
+        }
+    }
+
+    func testScrollMotionStopsWhenItsNodeLeavesTheRuntimeOrBecomesHidden() async {
+        await MainActor.run {
+            for detach in [true, false] {
+                let (runtime, scroller, clock) = Self.makeScrollMotionRuntime()
+                runtime.mouseWheel(at: Point(x: 30, y: 30), delta: -3, source: .precise)
+                let offset = scroller.scrollOffset
+                if detach {
+                    runtime.root.removeChild(scroller)
+                } else {
+                    scroller.isHidden = true
+                }
+                clock.now = 0.5
+                _ = runtime.tickAnimations(at: clock.now)
+                XCTAssertEqual(scroller.scrollOffset, offset, accuracy: 0.0001)
+                XCTAssertFalse(runtime.hasActiveAnimations)
+            }
+        }
+    }
+
+    func testDisablingScrollClearsAnActiveRubberBand() async {
+        await MainActor.run {
+            let (runtime, scroller, clock) = Self.makeScrollMotionRuntime()
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: 3)
+            XCTAssertNotEqual(scroller.scrollOvershoot, 0)
+            scroller.scrollAxis = nil
+            clock.now = 0.1
+            _ = runtime.tickAnimations(at: clock.now)
+            XCTAssertEqual(scroller.scrollOvershoot, 0)
+            XCTAssertFalse(runtime.hasActiveAnimations)
+        }
+    }
+
+    func testInvalidWheelDeltasDoNotResetTheViewportOrStartMotion() async {
+        await MainActor.run {
+            let (runtime, scroller, _) = Self.makeScrollMotionRuntime(offset: 100)
+            for delta in [Double.nan, .infinity, -.infinity, .greatestFiniteMagnitude, 0] {
+                runtime.mouseWheel(at: Point(x: 30, y: 30), delta: delta, source: .precise)
+                XCTAssertEqual(scroller.scrollOffset, 100, accuracy: 0.0001)
+                XCTAssertFalse(runtime.hasActiveAnimations)
+            }
         }
     }
 

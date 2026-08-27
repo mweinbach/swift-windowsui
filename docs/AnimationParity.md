@@ -267,7 +267,7 @@ keystroke that moved it would be unreadable exactly when it matters.
 |-------------------------------------|----------------------------------------|
 | `ViewNode.defaultScrollLineHeight`  | 16pt (13pt body at the 0.22 leading ratio) |
 | Default three-line notch            | 48pt                                   |
-| Momentum                            | `.precise` sources only                |
+| Synthesized momentum                | Explicit raw `.precise` sources only   |
 
 A wheel `delta` is in **lines**: the Win32 host has already multiplied the
 physical notch by `SPI_GETWHEELSCROLLLINES` (default 3) before the runtime sees
@@ -277,13 +277,26 @@ of glide, more than half a 600pt viewport. Measured with `delta = 1` on a 200pt
 scroll view: an immediate 64px jump, a glide reaching 117.68px, last motion at
 t = 0.667s.
 
-Momentum is now gated on `ScrollInputSource`. AppKit populates
-`NSEvent.momentumPhase` for gesture devices only - a trackpad or Magic Mouse -
-and a click-wheel detent is a bounded jump that stops when it stops. The decay
-constants above are right where they apply; what was wrong was applying them to
-a detent. Windows exposes the same distinction: a click wheel reports whole
-multiples of `WHEEL_DELTA`, a precision touchpad reports fractions of it, and
-`Win32Window.scrollInputSource(from:)` reads exactly that.
+Synthesized momentum is gated on `ScrollInputSource`. Explicit raw `.precise`
+input can ask the runtime for a glide; `.wheelNotch` and native `.systemManaged`
+input apply only the supplied travel. Native `WM_MOUSEWHEEL` and
+`WM_MOUSEHWHEEL` deltas preserve their fractions without adding a second tail.
+Windows documents fractional `WHEEL_DELTA` values for high-resolution mouse
+wheels as well as touchpad-generated streams, so granularity cannot establish
+device provenance or a gesture phase. The host also uses the modifier state
+stored in each wheel message and honors a zero system wheel-line preference.
+See [WM_MOUSEWHEEL](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-mousewheel),
+[Precision Touchpad Input](https://learn.microsoft.com/en-us/windows/win32/input-precisiontouchpad/precision-touchpad-portal),
+and [SystemParametersInfoW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-systemparametersinfow).
+
+Native input also cancels any earlier synthesized glide. Raw `.precise`
+momentum integrates exponential displacement over actual elapsed time, and
+edge bounce uses the analytic damped-spring solution (stiffness 180, damping
+27, slightly overdamped). Refresh rate and a delayed frame therefore do not
+change the requested travel. Changes to `scrollOvershoot` and
+`scrollPresentedDelta` invalidate the owning node's presentation: keyboard
+scrolling and bounce frames must change the rendered scene, not just the
+runtime's numeric state.
 
 ## List edits animate one row
 

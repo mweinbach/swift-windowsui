@@ -196,6 +196,31 @@ final class RuntimeProgrammaticScrollTests: XCTestCase {
         XCTAssertEqual(result.container.scrollOffset, requestedOffset, accuracy: 0.0001)
     }
 
+    func testKeyboardTweenRealizesLazyRowsAtThePresentedOffset() async {
+        let result = fixture(lazy: true)
+        result.runtime.clock = { 0 }
+        result.rows[0].isHitTestVisible = true
+        result.runtime.pointerMoved(to: Point(x: 30, y: 30))
+        result.runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.end.rawValue))
+        _ = result.runtime.renderScene()
+        XCTAssertEqual(result.container.scrollOffset, 530, accuracy: 0.0001)
+        XCTAssertEqual(result.container.resolvedScrollOffset, 0, accuracy: 0.0001)
+        XCTAssertTrue(result.rows[16].isLayoutDeferredByVirtualization)
+
+        _ = result.runtime.tickAnimations(at: 0.11)
+        _ = result.runtime.renderScene()
+        XCTAssertEqual(result.container.resolvedScrollOffset, 463.75, accuracy: 0.0001)
+        XCTAssertFalse(
+            result.rows[16].isLayoutDeferredByVirtualization,
+            "rows reached by presentation-only scroll motion must be laid out before painting")
+
+        _ = result.runtime.tickAnimations(at: 0.22)
+        let scene = result.runtime.renderScene()
+        XCTAssertEqual(result.container.resolvedScrollOffset, 530, accuracy: 0.0001)
+        XCTAssertFalse(result.rows[19].isLayoutDeferredByVirtualization)
+        XCTAssertTrue(scene.layers.flatMap(\.quads).contains { $0.startR == 1 && $0.startG == 0 && $0.startB == 0 })
+    }
+
     func testAfterLayoutScrollSettlesVirtualizedRowsBeforeFirstScenePaint() async {
         let result = fixture(lazy: true, render: false)
         result.runtime.scheduleAfterLayout(key: "initial-scroll") { [weak runtime = result.runtime] in

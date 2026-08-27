@@ -85,16 +85,42 @@ final class ScrollInputProvenanceTests: XCTestCase {
         XCTAssertGreaterThan(scroller.scrollOffset, immediate, "and the glide moves the offset")
     }
 
-    /// The host reads provenance off `WHEEL_DELTA` granularity, which is the
-    /// only signal Windows offers for the distinction.
-    func testTheHostClassifiesWholeDetentsAndFractionalGestures() async {
+    /// Finer wheel resolution is not evidence that a caller wants inertia.
+    func testTheHostPreservesSystemManagedTravelAtEveryWheelResolution() async {
         func wParam(delta: Int) -> UInt64 {
             UInt64(UInt16(bitPattern: Int16(delta))) << 16
         }
-        XCTAssertEqual(Win32Window.scrollInputSource(from: UInt64(wParam(delta: 120))), .wheelNotch)
-        XCTAssertEqual(Win32Window.scrollInputSource(from: UInt64(wParam(delta: -120))), .wheelNotch)
-        XCTAssertEqual(Win32Window.scrollInputSource(from: UInt64(wParam(delta: 240))), .wheelNotch)
-        XCTAssertEqual(Win32Window.scrollInputSource(from: UInt64(wParam(delta: 40))), .precise)
-        XCTAssertEqual(Win32Window.scrollInputSource(from: UInt64(wParam(delta: -17))), .precise)
+        for delta in [0, 120, -120, 240, 40, -17, Int(Int16.min)] {
+            XCTAssertEqual(Win32Window.scrollInputSource(from: wParam(delta: delta)), .systemManaged)
+        }
+    }
+
+    func testNativeFractionalWheelStreamStopsAtItsRequestedDistance() async {
+        let (runtime, scroller) = makeScroller()
+        var expectedOffset = 0.0
+        for delta in [-40, -80, -17, -120, -31] as [Int16] {
+            let parameter = UInt64(UInt16(bitPattern: delta)) << 16
+            let lines = Win32Window.mouseWheelDelta(from: parameter, unitCount: 3)
+            expectedOffset -= lines * ViewNode.defaultScrollLineHeight
+            runtime.mouseWheel(
+                at: Point(x: 30, y: 30), delta: lines,
+                source: Win32Window.scrollInputSource(from: parameter))
+        }
+        XCTAssertEqual(scroller.scrollOffset, expectedOffset, accuracy: 0.001)
+
+        let timestamp = runtime.clock()
+        for frame in 1...60 {
+            _ = runtime.tickAnimations(at: timestamp + Double(frame) / 60)
+        }
+        XCTAssertEqual(
+            scroller.scrollOffset, expectedOffset, accuracy: 0.001,
+            "Native input already describes its travel; fractional deltas must not create an extra glide.")
+    }
+
+    func testZeroSystemWheelPreferenceDisablesScrolling() async {
+        let unitCount = Win32Window.resolvedWheelUnitCount(0, defaultCount: 3)
+        XCTAssertEqual(unitCount, 0)
+        let parameter = UInt64(UInt16(bitPattern: Int16(-120))) << 16
+        XCTAssertEqual(Win32Window.mouseWheelDelta(from: parameter, unitCount: unitCount), 0)
     }
 }

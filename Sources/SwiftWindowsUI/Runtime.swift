@@ -3332,14 +3332,27 @@ public final class ViewNode {
     // rubber-band animations. Zero outside of edge-overshoot states. Painter
     // and child positioning consume this via `effectiveScrollOffset`; the
     // logical `scrollOffset` itself stays clamped so tests and external
-    // callers see the unsurprising value.
-    internal var scrollOvershoot: Double = 0
+    // callers see the unsurprising value. Presentation changes dirty this
+    // node too, so clean ancestors cannot replay the previous viewport.
+    internal var scrollOvershoot: Double = 0 {
+        didSet {
+            if scrollOvershoot != oldValue {
+                invalidateRuntime(hasVirtualizedDescendants ? [.paint, .layout] : .paint)
+            }
+        }
+    }
     // Signed pixel offset that visually lags the logical scrollOffset during
     // animated keyboard scrolls. Starts at (oldOffset - newOffset) when the
     // user triggers an instantaneous offset change, then tweens to 0 over a
     // short duration so the viewport glides instead of snapping. Painter
     // adds this to resolvedScrollOffset before applying child positioning.
-    internal var scrollPresentedDelta: Double = 0
+    internal var scrollPresentedDelta: Double = 0 {
+        didSet {
+            if scrollPresentedDelta != oldValue {
+                invalidateRuntime(hasVirtualizedDescendants ? [.paint, .layout] : .paint)
+            }
+        }
+    }
     internal private(set) var subtreeDirtyFlags: DirtyFlags = .all
     internal var cachedMeasureKey: ViewMeasureCacheKey?
     internal var cachedMeasuredSize: Size?
@@ -8706,6 +8719,9 @@ public final class RetainedViewRuntime {
         weak var node: ViewNode?
         var velocity: Double
         var lastTime: Double
+        // Keep the physical spring displacement separate from its 80pt
+        // presentation cap; clipping the state each frame changes its path.
+        var rubberBandDisplacement: Double? = nil
     }
     private var scrollMomenta: [ObjectIdentifier: ScrollMomentumState] = [:]
 
@@ -8719,7 +8735,7 @@ public final class RetainedViewRuntime {
     // Below this speed, momentum is considered finished.
     private static let scrollMomentumEpsilon: Double = 6.0
     // Spring constants for the rubber-band return when scroll over-shoots an
-    // edge. Tuned to feel like a snappy macOS bounce (~150ms to settle).
+    // edge. The slightly overdamped spring returns without oscillating.
     private static let scrollRubberBandStiffness: Double = 180
     private static let scrollRubberBandDamping: Double = 27
     // Cap on rubber-band excursion so a fast flick doesn't yank the content
@@ -8774,8 +8790,9 @@ public final class RetainedViewRuntime {
         var state = scrollMomenta[key] ?? ScrollMomentumState(node: node, velocity: 0, lastTime: clock())
         state.node = node
         state.lastTime = clock()
+        state.rubberBandDisplacement = node.scrollOvershoot
         scrollMomenta[key] = state
-        invalidate()
+        invalidate(.paint)
     }
 
     // Keyboard scroll (PageUp/Down, Home, End, arrow keys) jumps `scrollOffset`
@@ -9300,44 +9317,94 @@ public final class RetainedViewRuntime {
         axis: ScrollAxis? = nil,
         source: ScrollInputSource = .wheelNotch
     ) {
-        let scrollTarget = scrollTarget(at: point, axis: axis) ?? nearestScrollableNode(from: hoveredNode, axis: axis)
-        guard let scrollableNode = scrollTarget else {
+        guard delta.isFinite, delta != 0, point.x.isFinite, point.y.isFinite else {
             return
         }
 
-        cancelScrollPresentedTween(for: scrollableNode)
-        let refusedDelta = scrollableNode.refusedMouseWheelDelta(delta)
-        let appliedDelta = scrollableNode.applyMouseWheelDelta(delta)
-        if appliedDelta != 0 {
-            updateHoverTarget(to: pointerInteractionTarget(from: hitTest(at: point), at: point))
-            if source == .precise {
-                seedScrollMomentum(for: scrollableNode, wheelDelta: delta, appliedOffsetDelta: appliedDelta)
+        // Advance old velocity to the event time before adding an impulse.
+        // Resetting lastTime on every event without advancing it made a
+        // continuous stream accumulate an unbounded glide tail.
+        _ = tickScrollMomenta(at: clock())
+        guard
+            let initialTarget = scrollTarget(at: point, axis: axis)
+                ?? nearestScrollableNode(from: hoveredNode, axis: axis)
+        else {
+            return
+        }
+
+        let modal = activeModalPresentationNode
+        guard modal.map({ Self.isInteractionTarget(initialTarget, within: $0) }) ?? true else {
+            return
+        }
+        let requestedAxis = axis ?? initialTarget.scrollAxis
+        var candidate: ViewNode? = initialTarget
+        var remainingDelta = delta
+        var didMove = false
+        while let scrollableNode = candidate {
+            cancelScrollPresentedTween(for: scrollableNode, preservingPresentation: true)
+            let reversesOvershoot =
+                scrollableNode.scrollOvershoot != 0
+                && (scrollableNode.scrollOvershoot > 0) == (remainingDelta > 0)
+            if reversesOvershoot || (source != .precise && scrollableNode.scrollOvershoot == 0) {
+                cancelScrollMomentum(for: scrollableNode)
             }
-            return
+
+            let refusedDelta = scrollableNode.refusedMouseWheelDelta(remainingDelta)
+            let appliedDelta = scrollableNode.applyMouseWheelDelta(remainingDelta)
+            didMove = didMove || appliedDelta != 0
+
+            // Pass only unused line movement to an ancestor on the same
+            // axis. A nested viewport whose content fits must not swallow
+            // the wheel, and ancestors may have a different per-line step.
+            if appliedDelta == 0 || refusedDelta != 0,
+                let ancestor = wheelScrollAncestor(of: scrollableNode, delta: remainingDelta, axis: requestedAxis),
+                modal.map({ Self.isInteractionTarget(ancestor, within: $0) }) ?? true
+            {
+                if appliedDelta != 0 {
+                    remainingDelta += appliedDelta / scrollableNode.scrollStep
+                }
+                cancelScrollMomentum(for: scrollableNode)
+                candidate = ancestor
+                continue
+            }
+
+            if refusedDelta != 0 {
+                // Include a push that first reaches the edge: dropping its
+                // refused part made offsets 0 and 0.1 react differently to
+                // exactly the same wheel event.
+                beginEdgeRubberBand(for: scrollableNode, refusedOffsetDelta: refusedDelta)
+                revealScrollIndicator(for: scrollableNode)
+                didMove = true
+            } else if source == .precise, appliedDelta != 0 {
+                seedScrollMomentum(for: scrollableNode, wheelDelta: remainingDelta, appliedOffsetDelta: appliedDelta)
+            }
+            break
         }
 
-        // Nothing moved. Either the node has nothing to scroll — in which case
-        // `refusedMouseWheelDelta` is 0 and there is genuinely nothing to say —
-        // or the user is pushing against a bound they are already sitting on.
-        // The rubber band used to be unreachable from there: the spring branch
-        // in `tickScrollMomenta` only ran when an *already gliding* scroll ran
-        // into an edge, so a push against a stationary top produced no bounce,
-        // no overshoot and not even an indicator flash. AppKit bounces on a
-        // direct edge push, and shows the scroller for an input it cannot act
-        // on so the user can see where they are.
-        guard refusedDelta != 0 else {
-            return
+        if didMove {
+            updateHoverTarget(to: pointerInteractionTarget(from: hitTest(at: point), at: point))
         }
+    }
 
-        updateHoverTarget(to: pointerInteractionTarget(from: hitTest(at: point), at: point))
-        beginEdgeRubberBand(for: scrollableNode, refusedOffsetDelta: refusedDelta)
-        revealScrollIndicator(for: scrollableNode)
+    private func wheelScrollAncestor(of node: ViewNode, delta: Double, axis: ScrollAxis?) -> ViewNode? {
+        var candidate = nearestScrollableNode(from: node.parent, axis: axis)
+        while let ancestor = candidate {
+            let offset = ancestor.clampedScrollOffset(for: ancestor.scrollOffset + ancestor.scrollPresentedDelta)
+            let canMove = delta < 0 ? offset < ancestor.maxScrollOffset : offset > 0
+            if ancestor.maxScrollOffset > 0, ancestor.scrollStep.isFinite, ancestor.scrollStep > 0,
+                node.maxScrollOffset == 0 || canMove
+            {
+                return ancestor
+            }
+            candidate = nearestScrollableNode(from: ancestor.parent, axis: axis)
+        }
+        return nil
     }
 
     public func pointerDown(at point: Point) {
         if let scrollIndicatorHit = scrollIndicatorHit(at: point) {
             cancelScrollMomentum(for: scrollIndicatorHit.node)
-            cancelScrollPresentedTween(for: scrollIndicatorHit.node)
+            cancelScrollPresentedTween(for: scrollIndicatorHit.node, preservingPresentation: true)
             scrollDragState = ScrollDragState(
                 node: scrollIndicatorHit.node, axis: scrollIndicatorHit.track.axis, startPoint: point,
                 startOffset: scrollIndicatorHit.node.scrollOffset, track: scrollIndicatorHit.track)
@@ -9729,6 +9796,7 @@ public final class RetainedViewRuntime {
     /// holds one of its nodes alive. This also emits the matching focus/UIA
     /// exit while the removed node is still available to its callbacks.
     fileprivate func releaseInteractionTargets(in subtree: ViewNode) {
+        cancelScrollAnimations(in: subtree)
         let ownsPointerInteraction =
             Self.isInteractionTarget(pressedNode, within: subtree)
             || Self.isInteractionTarget(nodeDragState?.node, within: subtree)
@@ -9994,7 +10062,7 @@ public final class RetainedViewRuntime {
     /// notch count from the platform; we map that to a velocity in offset
     /// units per second so subsequent ticks can glide the scroll to a stop.
     fileprivate func seedScrollMomentum(for node: ViewNode, wheelDelta: Double, appliedOffsetDelta: Double) {
-        guard node.isScrollable, appliedOffsetDelta != 0 else {
+        guard node.isScrollable, appliedOffsetDelta.isFinite, appliedOffsetDelta != 0 else {
             return
         }
 
@@ -10003,6 +10071,7 @@ public final class RetainedViewRuntime {
         // Use the actual applied delta so we don't accumulate velocity against
         // a clamped edge.
         let impulse = appliedOffsetDelta * Self.scrollMomentumImpulseFactor
+        guard impulse.isFinite else { return }
         let key = ObjectIdentifier(node)
         var state = scrollMomenta[key] ?? ScrollMomentumState(node: node, velocity: 0, lastTime: 0)
 
@@ -10016,7 +10085,7 @@ public final class RetainedViewRuntime {
         state.node = node
         state.lastTime = clock()
         scrollMomenta[key] = state
-        invalidate()
+        invalidate(.paint)
     }
 
     /// Cancels any pending wheel momentum on `node`. Called when the user
@@ -10027,53 +10096,85 @@ public final class RetainedViewRuntime {
         scrollMomenta.removeValue(forKey: ObjectIdentifier(node))
         if node.scrollOvershoot != 0 {
             node.scrollOvershoot = 0
-            invalidate()
         }
     }
 
     /// Drops any in-flight keyboard-scroll tween for `node` so the next
     /// imperative offset change isn't double-counted with stale lag.
-    fileprivate func cancelScrollPresentedTween(for node: ViewNode) {
+    fileprivate func cancelScrollPresentedTween(for node: ViewNode, preservingPresentation: Bool = false) {
         if scrollPresentedTweens.removeValue(forKey: ObjectIdentifier(node)) != nil {
+            let presentedOffset = node.scrollOffset + node.scrollPresentedDelta
             node.scrollPresentedDelta = 0
-            invalidate()
+            if preservingPresentation {
+                _ = node.setScrollOffset(presentedOffset)
+            }
         }
     }
 
+    private func cancelScrollAnimations(in subtree: ViewNode) {
+        for state in Array(scrollMomenta.values) {
+            if let node = state.node, Self.isInteractionTarget(node, within: subtree) {
+                cancelScrollMomentum(for: node)
+            }
+        }
+        for tween in Array(scrollPresentedTweens.values) {
+            if let node = tween.node, Self.isInteractionTarget(node, within: subtree) {
+                cancelScrollPresentedTween(for: node)
+            }
+        }
+    }
+
+    private static func advancedScrollRubberBand(
+        overshoot: Double, velocity: Double, elapsed: Double
+    ) -> (overshoot: Double, velocity: Double) {
+        // Exact solution of x'' + c*x' + k*x = 0. These constants are
+        // slightly overdamped, with two distinct negative real roots.
+        let halfDamping = scrollRubberBandDamping * 0.5
+        let discriminant = sqrt(halfDamping * halfDamping - scrollRubberBandStiffness)
+        let slowRate = -halfDamping + discriminant
+        let fastRate = -halfDamping - discriminant
+        let slowAmplitude = (velocity - fastRate * overshoot) / (slowRate - fastRate)
+        let fastAmplitude = overshoot - slowAmplitude
+        let slowPart = slowAmplitude * exp(slowRate * elapsed)
+        let fastPart = fastAmplitude * exp(fastRate * elapsed)
+        return (slowPart + fastPart, slowRate * slowPart + fastRate * fastPart)
+    }
+
     private func tickScrollMomenta(at timestamp: Double) -> Bool {
-        guard !scrollMomenta.isEmpty else { return false }
+        guard !scrollMomenta.isEmpty, timestamp.isFinite else { return false }
 
         var didUpdate = false
         for key in Array(scrollMomenta.keys) {
             guard var state = scrollMomenta[key] else { continue }
-            guard let node = state.node, node.isScrollable else {
+            guard let node = state.node, node.runtime === self else {
                 scrollMomenta.removeValue(forKey: key)
                 continue
             }
-
-            let dt = max(0, timestamp - state.lastTime)
-            // Clamp very long gaps (window inactive, etc.) so momentum doesn't
-            // jump forward by a huge amount on the next active frame.
-            let effectiveDt = min(dt, 0.05)
-            guard effectiveDt > 0 else {
-                state.lastTime = timestamp
-                scrollMomenta[key] = state
+            guard node.isScrollable, !Self.hasHiddenAncestor(node) else {
+                didUpdate = didUpdate || node.scrollOvershoot != 0
+                cancelScrollMomentum(for: node)
                 continue
             }
 
-            if node.scrollOvershoot != 0 {
-                // Rubber-band phase: critically-damped spring pulls overshoot
-                // back to 0. F = -k*x - c*v with k ≈ 180, c ≈ 27 (just below
-                // critical damping so the return feels lively but doesn't
-                // visibly oscillate).
-                let stiffness = Self.scrollRubberBandStiffness
-                let damping = Self.scrollRubberBandDamping
-                let force = -stiffness * node.scrollOvershoot - damping * state.velocity
-                state.velocity += force * effectiveDt
-                let nextOvershoot = node.scrollOvershoot + state.velocity * effectiveDt
+            let dt = timestamp - state.lastTime
+            guard dt > 0 else {
+                // A repeated or delayed frame cannot rewind the integration
+                // clock and make the next valid frame apply the same time twice.
+                continue
+            }
+
+            if state.rubberBandDisplacement != nil || node.scrollOvershoot != 0 {
+                // Integrate the slightly overdamped spring analytically.
+                // Euler steps made a 50ms frame return almost twice as far
+                // as three 60Hz frames and kept old motion alive after pauses.
+                let previousOvershoot = state.rubberBandDisplacement ?? node.scrollOvershoot
+                let spring = Self.advancedScrollRubberBand(
+                    overshoot: previousOvershoot, velocity: state.velocity, elapsed: dt)
+                let nextOvershoot = spring.overshoot
+                state.velocity = spring.velocity
                 // Snap to zero once the spring has settled and would otherwise
                 // oscillate across the bound.
-                let crossedZero = (nextOvershoot > 0) != (node.scrollOvershoot > 0)
+                let crossedZero = previousOvershoot != 0 && (nextOvershoot > 0) != (previousOvershoot > 0)
                 if crossedZero
                     || (abs(nextOvershoot) < Self.scrollMomentumEpsilon * 0.1
                         && abs(state.velocity) < Self.scrollMomentumEpsilon)
@@ -10083,46 +10184,74 @@ public final class RetainedViewRuntime {
                     didUpdate = true
                     continue
                 }
-                node.scrollOvershoot = nextOvershoot
+                node.scrollOvershoot = max(min(nextOvershoot, Self.scrollRubberBandMax), -Self.scrollRubberBandMax)
+                state.rubberBandDisplacement = nextOvershoot
                 state.lastTime = timestamp
                 scrollMomenta[key] = state
                 didUpdate = true
                 continue
             }
 
+            let speed = abs(state.velocity)
+            guard speed > Self.scrollMomentumEpsilon else {
+                scrollMomenta.removeValue(forKey: key)
+                continue
+            }
+            // Integrating v(t) gives the same travel at every refresh rate.
+            // Stop exactly at the velocity threshold, including across a long
+            // frame gap, instead of replaying an old glide when focus returns.
+            let timeToRest = log(speed / Self.scrollMomentumEpsilon) / Self.scrollMomentumDecay
+            let travelTime = min(dt, timeToRest)
+            let attenuation = exp(-Self.scrollMomentumDecay * travelTime)
+            let initialVelocity = state.velocity
+            let distance = initialVelocity * (1 - attenuation) / Self.scrollMomentumDecay
+            state.velocity *= attenuation
             let previousOffset = node.scrollOffset
-            let proposedOffset = previousOffset + state.velocity * effectiveDt
+            let proposedOffset = previousOffset + distance
             let nextOffset = node.clampedScrollOffset(for: proposedOffset)
             if nextOffset != previousOffset {
                 node.scrollOffset = nextOffset
                 didUpdate = true
             }
 
-            // If clamping ate the proposed movement (hit an edge), convert
-            // the leftover travel into overshoot and let the rubber-band
-            // branch above spring it back next tick.
+            // Resolve the exact time of contact with a bound, then integrate
+            // the spring for the rest of this frame. Starting it only on the
+            // next tick made edge motion depend on refresh rate and revived
+            // a bounce after a long inactive gap.
             if proposedOffset != nextOffset {
-                let excess = proposedOffset - nextOffset
-                let cappedExcess = max(min(excess, Self.scrollRubberBandMax), -Self.scrollRubberBandMax)
-                node.scrollOvershoot = cappedExcess
+                let contactAttenuation = min(
+                    1,
+                    max(
+                        attenuation,
+                        1 - Self.scrollMomentumDecay * (nextOffset - previousOffset) / initialVelocity))
+                let contactTime = -log(contactAttenuation) / Self.scrollMomentumDecay
+                let spring = Self.advancedScrollRubberBand(
+                    overshoot: 0, velocity: initialVelocity * contactAttenuation,
+                    elapsed: max(0, dt - contactTime))
+                state.velocity = spring.velocity
+                if abs(spring.overshoot) < Self.scrollMomentumEpsilon * 0.1,
+                    abs(state.velocity) < Self.scrollMomentumEpsilon
+                {
+                    node.scrollOvershoot = 0
+                    scrollMomenta.removeValue(forKey: key)
+                    continue
+                }
+                node.scrollOvershoot = max(min(spring.overshoot, Self.scrollRubberBandMax), -Self.scrollRubberBandMax)
+                state.rubberBandDisplacement = spring.overshoot
                 state.lastTime = timestamp
                 scrollMomenta[key] = state
                 didUpdate = true
                 continue
             }
 
-            state.velocity *= exp(-Self.scrollMomentumDecay * effectiveDt)
             state.lastTime = timestamp
-            if abs(state.velocity) < Self.scrollMomentumEpsilon {
+            if dt >= timeToRest {
                 scrollMomenta.removeValue(forKey: key)
             } else {
                 scrollMomenta[key] = state
             }
         }
 
-        if didUpdate {
-            invalidate()
-        }
         return didUpdate
     }
 
@@ -10876,17 +11005,22 @@ public final class RetainedViewRuntime {
             startTime: clock(),
             duration: Self.scrollKeyboardTweenDuration
         )
-        invalidate()
+        invalidate(.paint)
     }
 
     private func tickScrollPresentedTweens(at timestamp: Double) -> Bool {
-        guard !scrollPresentedTweens.isEmpty else { return false }
+        guard !scrollPresentedTweens.isEmpty, timestamp.isFinite else { return false }
 
         var didUpdate = false
         for key in Array(scrollPresentedTweens.keys) {
             guard let tween = scrollPresentedTweens[key] else { continue }
-            guard let node = tween.node else {
+            guard let node = tween.node, node.runtime === self else {
                 scrollPresentedTweens.removeValue(forKey: key)
+                continue
+            }
+            guard node.isScrollable, !Self.hasHiddenAncestor(node) else {
+                didUpdate = didUpdate || node.scrollPresentedDelta != 0
+                cancelScrollPresentedTween(for: node)
                 continue
             }
 
@@ -10906,9 +11040,6 @@ public final class RetainedViewRuntime {
             }
         }
 
-        if didUpdate {
-            invalidate()
-        }
         return didUpdate
     }
 

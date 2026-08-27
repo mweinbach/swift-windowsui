@@ -309,3 +309,64 @@ Deliver this goal in cohesive slices: implement a capability through the full
 stack, demonstrate it in the gallery or a template, validate it, document its
 support level, and then expand coverage. Interim releases can ship useful
 subsets without being described as the completed SwiftUI-on-Windows product.
+
+## 10. Execution record and acceptance detail
+
+This section adds implementation and verification detail to sections 1–9. It
+does not replace their requirements, reduce the public API baseline to the
+currently implemented subset, or turn a local test pass into product completion.
+Keep the nine completion gates above open until their complete evidence exists.
+Record unverified behavior and external qualification separately from work that
+can be implemented and tested in this checkout.
+
+### Starting point: 2026-08-27
+
+- Starting revision: `38e855d` (`docs: define complete SwiftUI on Windows
+  product goal`), with a clean `main` worktree.
+- Fresh `scripts/agent-check.ps1 -ContractsOnly` passed before implementation.
+  This is architecture evidence only; no fresh Full, macOS, hosted-CI, manual
+  accessibility, or hardware-timing result is implied by it.
+- The current compatibility matrix is an implementation inventory, not the
+  full desktop SDK audit required by gate 1. The SDK baseline, complete symbol
+  inventory, and behavior-to-evidence mapping still need to be recorded.
+- Concrete source gaps include unhosted `Settings` scenes, binding transaction
+  modifiers that discard their arguments, scroll observers that discard their
+  closures, and demo settings whose Save action only updates memory. Color
+  effects also have incomplete propagation and parameter semantics. Closing
+  these gaps does not close their broader product gates by itself.
+
+### Evidence required for each unchanged completion gate
+
+| Gate | Acceptance detail and evidence to retain |
+| --- | --- |
+| 1. Full desktop API and behavior | Pin SDK, toolchain, and OS reference versions; inventory public desktop declarations with stable identifiers; map each to implementation, behavioral fixtures, and any justified platform-service exception. A missing audit entry is a gap, not an implicit exception. |
+| 2. Semantic, interaction, accessibility, and visual coverage | Associate each in-scope feature and applicable state with tests and reproducible fixtures. Include interruptions, invalid input, disabled controls, focus, nested composition, and custom public extensions. Source compilation alone cannot close a behavior requirement. |
+| 3. Shared reference apps | Build the same view sources on both platforms at a recorded revision. Capture reference behavior and raw retained output; review font, theme, and platform substitutions explicitly. Unavailable macOS execution remains unverified. |
+| 4. CPU and D3D11 scene agreement | Exercise actual D3D11 execution and readback as well as CPU rasterization, including effect chains, subtree composition, mixed primitive families, transparent edges, nested clips, and fractional DPI. Keep measured tolerances and skip counts visible. |
+| 5. Motion and bounded resources | Preserve deterministic animation/collection/resource tests and publish hardware qualification with the workload and p50/p95/p99 measurements required in section 4. WARP or unit-test timing does not qualify hardware pacing. |
+| 6. Complete template workflows | For every template in section 7, record start-to-finish pointer, keyboard, and accessibility flows, persisted state where advertised, loading/failure/retry/cancellation, and tests of restart and unsaved changes. Never report an unsuccessful or memory-only save as durable persistence. |
+| 7. Native machine smoke tests | Record device recovery, software fallback, display changes, IME, native dialogs, and Narrator flows with machine/toolchain/build details. Headless unit tests support these checks but do not replace native smoke evidence. |
+| 8. Exact release revision validation | Run contracts, lint, serial tests/builds, and reviewed visual gates on the candidate commit. Record hosted workflow URLs and their exact SHA; keep local results, manual checks, and hardware qualification distinct. |
+| 9. Clean-machine delivery | Record installation, sample creation/build/deployment, package version, deployment dependencies, compatibility notes, and reproducible evidence from a clean machine. A working developer checkout alone is insufficient. |
+
+### First implementation batch
+
+These are bounded work items within the existing goal, not additional release
+conditions or substitutes for the gates above. Add test results and remaining
+limits here as each item is validated.
+
+- [ ] Host `Settings` alongside ordinary scenes through public scene composition;
+      route `openSettings` to one reusable settings window and preserve normal
+      window lifecycle, renderer injection, and focus requests.
+- [ ] Carry binding transactions through writes, projected bindings, state
+      observation, and retained animation; restore ambient context after nested
+      writes and explicit animation suppression.
+- [ ] Dispatch scroll geometry, phase, and visibility callbacks from retained
+      presentation, preserving observer history across rebuilds and respecting
+      scroll ownership, clipping, and animation.
+- [ ] Persist the settings template through an injectable local store; restore
+      it on launch, validate saved data, preserve unsaved edits on write failure,
+      and keep snapshots/tests isolated from user settings.
+- [ ] Correct authored color-effect parameters and preserve sequential effects
+      across relevant primitive and compositing paths, with CPU/D3D11 execution
+      tests and explicitly recorded remaining limitations.

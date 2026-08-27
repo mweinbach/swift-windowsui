@@ -32,8 +32,9 @@ ls artifacts/macos-reference/
 # stack-default-spacing.png  text-body.png  toggle-on.png
 ```
 
-The PNGs land in `artifacts/macos-reference/` (gitignored). They are
-the gold reference.
+The PNGs land in `artifacts/macos-reference/` (gitignored). They are native
+capture candidates; review the capture method and toolchain provenance before
+using them as comparison evidence.
 
 ## Running in CI
 
@@ -46,6 +47,12 @@ retention). Triggered on:
 - Manual `workflow_dispatch`.
 - Weekly cron (Mondays at 06:00 UTC) so reference output tracks
   toolchain / SDK drift.
+
+This workflow selects a compatible toolchain available on `macos-15`; it does
+not select the pinned SDK in [SwiftUIBaseline.md](SwiftUIBaseline.md). Its
+observations do not qualify that baseline, and no SDK pin is changed by this
+workflow. Baseline capture, native behavioral review, and Windows/backend
+comparisons remain separate evidence.
 
 Download the artifact, drop it under `artifacts/macos-reference/`,
 and run the Windows-side comparison.
@@ -129,3 +136,79 @@ layers:
 Each layer narrows the scope of "visual matching" from aspiration
 to enforceable contract. The third layer was the previously-missing
 piece — that this doc and the renderer target now close.
+
+## Material capture diagnostics
+
+The optional diagnostic mode preserves the six canonical top-level PNGs:
+
+```bash
+swift run macos-reference-renderer --self-test-material-diagnostics
+swift run macos-reference-renderer --material-diagnostics
+```
+
+The first command exercises portable synthetic classifier checks and works on
+Windows too. Those pixels are not native reference images. The second command
+requires macOS and writes a unique run directory under
+`artifacts/macos-reference/material-diagnostics/`, containing a JSON manifest
+and two PNG captures of each fixture:
+
+| Fixture | Purpose |
+| --- | --- |
+| `pattern-control` | Verify scale, orientation, contrast, and opaque background capture |
+| `flat-tint-control` | Show the contrast attenuation caused by ordinary white at 0.4 opacity |
+| `material-direct-control` | Establish whether the capture represents spatial filtering by ordinary regular material |
+| `material-compositing-group` | Observe that material inside a `ZStack` followed by `.compositingGroup()` |
+| `material-drawing-group` | Observe `.drawingGroup(opaque: false, colorMode: .nonLinear)` |
+| `material-content-blur` | Observe `.blur(radius: 3, opaque: false)` |
+
+All fixtures use public SwiftUI views, a 384 by 288 point frame, an explicitly
+allocated 768 by 576 pixel bitmap, light appearance, and a fixed panel over a
+patterned background. Four-point stripes occupy the upper half; broad dark and
+light regions occupy the lower half. The panel remains inside the isolation
+wrapper, and the patterned backdrop remains outside it. There are no fonts,
+assets, system dialogs, or authored animations in the fixture.
+
+The helper captures an **unattached** `NSHostingView` with
+`cacheDisplay(in:to:)`; it never captures a desktop or window. It allocates and
+clears a fixed bitmap, converts it to sRGB, encodes PNG, and measures the decoded
+PNG. Each capture follows layout and a 50 ms main-run-loop opportunity, with
+two repetitions. This is a bounded settling policy, not proof of compositor
+completion. [Apple's capture documentation](https://developer.apple.com/documentation/appkit/nsview/cachedisplay(in:to:))
+does not guarantee that every compositor-backed effect appears in a view cache.
+
+The positive control measures fine-pattern contrast relative to coarse-pattern
+contrast, normalized to the bare pattern. A flat tint should attenuate both
+frequencies similarly, with a measurable dark-region brightness increase and
+contrast attenuation proving that the overlay itself was captured. Fine contrast
+uses twice the standard deviation of all fine-region pixels, so a sharp pattern
+shift cannot masquerade as blur by cancelling pooled stripe phases. Separate
+phase means validate the bare pattern's expected eight-pixel stripe grid.
+Ordinary material must preserve measurable coarse
+background variation while attenuating the fine pattern substantially more.
+The manifest records the exact sample regions, measurements, threshold version,
+and thresholds used by the classifier. These thresholds validate the capture
+diagnostic; they are not invented native material colors or conformance tolerances.
+
+Failed/missing controls, opaque or transparent output, insufficient coarse
+contrast, wrong orientation/scale, and unstable control repetitions yield
+`positiveControlStatus: "inconclusive"` with reasons. The PNGs and individual
+observations remain available. A valid but inconclusive run exits successfully;
+allocation, conversion, encoding, measurement, or file failures exit nonzero
+after preserving the report where possible. No group is assigned a native
+pass/fail expectation. Even a passing direct control does not prove capture
+fidelity through every wrapper, because grouping can change layer realization.
+
+The manifest includes actual OS/build, architecture, capture-time Xcode/Swift/SDK
+information, source commit and tracked checkout state, executable/PNG hashes,
+requested/effective appearance, accessibility settings, capture method, modifier
+order, and repetition results. Capture-time tool versions are not an embedded
+binary build identity; CI logs supply the build linkage. System accessibility
+settings are recorded, never changed to force a passing result.
+
+The existing `macos-15` workflow runs these diagnostics after the canonical
+captures and uploads `macos-material-diagnostics-candidate`, including JSON.
+It retains the **candidate-only** classification regardless of the controls'
+outcome. Pinned-SDK execution and reviewed native behavior are still required
+before changing the material isolation contract or removing the existing skipped
+renderer regression. No production renderer, reviewed baseline, or SDK pin is
+modified by this diagnostic.

@@ -186,3 +186,22 @@ jobs:
           path: artifacts/macos-reference/*.png
           if-no-files-found: error
           retention-days: 30
+
+      # This runner/toolchain floats. These are diagnostic observations, not
+      # qualification against docs/swiftui-baseline.json's pinned SDK.
+      - name: Verify material diagnostic classifier
+        run: swift run -c release macos-reference-renderer --self-test-material-diagnostics
+
+      - name: Capture material diagnostics (candidate only)
+        env:
+          SWIFT_WINDOWSUI_REFERENCE_BUILD_CONFIGURATION: release
+        run: swift run -c release macos-reference-renderer --material-diagnostics
+
+      - name: Upload material diagnostic observations and metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-material-diagnostics-candidate
+          path: artifacts/macos-reference/material-diagnostics/**
+          if-no-files-found: warn
+          retention-days: 30

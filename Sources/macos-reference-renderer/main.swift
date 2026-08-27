@@ -1,9 +1,9 @@
 // macOS-only reference renderer.
 //
 // Builds SwiftUI views using Apple's SwiftUI on macOS and saves PNG
-// snapshots to `artifacts/macos-reference/`. The output is the *gold
-// reference* against which Windows WinSwiftUI snapshots can be
-// compared visually and numerically.
+// snapshots to `artifacts/macos-reference/`. Captures are candidates for
+// reviewed comparisons with Windows WinSwiftUI, not automatic conformance
+// evidence. Material diagnostics validate their own positive capture control.
 //
 // This target intentionally has zero dependency on the Windows-only
 // modules (SwiftWindowsUI, WinSwiftUI, SwiftWindowsRendererD3D11)
@@ -12,14 +12,29 @@
 //
 // Run on macOS:
 //   swift run macos-reference-renderer
+//   swift run macos-reference-renderer --material-diagnostics
+// Portable classifier checks (no native rendering):
+//   swift run macos-reference-renderer --self-test-material-diagnostics
 //
 // Output artifacts/macos-reference/{button-regular,toggle-on,
 // slider-mid,text-body,system-colors,stack-default-spacing}.png
 
+import Foundation
+
+if Array(CommandLine.arguments.dropFirst()) == ["--self-test-material-diagnostics"] {
+    do {
+        let count = try MaterialDiagnosticSelfTests.run()
+        print("Material diagnostic classifier: \(count) synthetic checks passed; no native rendering tested.")
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(Data("Material diagnostic classifier failed: \(error)\n".utf8))
+        exit(1)
+    }
+}
+
 #if os(macOS)
 
     import AppKit
-    import Foundation
     import SwiftUI
 
     // MARK: - Reference scenes
@@ -107,7 +122,7 @@
     // MARK: - Driver
 
     @MainActor
-    private func main() {
+    private func main() async {
         let fileManager = FileManager.default
         let cwd = fileManager.currentDirectoryPath
         let outputDir = URL(fileURLWithPath: cwd)
@@ -119,6 +134,24 @@
             FileHandle.standardError.write(
                 Data("failed to create \(outputDir.path): \(error)\n".utf8))
             exit(1)
+        }
+
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        if arguments == ["--material-diagnostics"] {
+            do {
+                let succeeded = try await MaterialDiagnosticCapture.run(outputRoot: outputDir)
+                exit(succeeded ? 0 : 1)
+            } catch {
+                FileHandle.standardError.write(Data("Material diagnostic capture failed: \(error)\n".utf8))
+                exit(1)
+            }
+        }
+        guard arguments.isEmpty else {
+            FileHandle.standardError.write(
+                Data(
+                    "Usage: macos-reference-renderer [--material-diagnostics | --self-test-material-diagnostics]\n".utf8
+                ))
+            exit(64)
         }
 
         struct Scene {
@@ -164,14 +197,12 @@
     }
 
     Task { @MainActor in
-        main()
+        await main()
         exit(0)
     }
     RunLoop.main.run()
 
 #else
-
-    import Foundation
 
     FileHandle.standardError.write(
         Data(

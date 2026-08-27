@@ -82,6 +82,10 @@ Invoke-Step "pinned SwiftUI baseline tooling fixtures" {
 }
 
 # All SwiftPM steps below run strictly serially (shared .build/build.db).
+Invoke-Step "material diagnostic classifier (synthetic only)" {
+    & (Join-Path $PSScriptRoot "with-swift.ps1") swift run --package-path $repoRoot macos-reference-renderer --self-test-material-diagnostics
+}
+
 Invoke-Step "portable core, graphics, layout, and CPU backend tests" {
     & $portableTestScript
 }
@@ -255,6 +259,9 @@ if ($Full) {
     }
     Invoke-Step "typed retained view identity" {
         & $testScript -Sharded -Filter "RetainedViewIdentityTests|WinSwiftUIStructuralIdentityTests|ViewIdentityRoleTests"
+    }
+    Invoke-Step "undo ownership and bitmap stretch" {
+        & $testScript -Sharded -Filter "UndoManagerTests|WinSwiftUIBitmapStretchTests"
     }
     Invoke-Step "public API, input, document, window and diagnostic regressions" {
         & $testScript -Sharded -Filter "WinSwiftUIColorInitializerTests|WinSwiftUIScaleOverloadTests|RetainedLongPressGestureTests|DemoLongPressWindowStateTests|TextEditorReconciliationTests|TextInputLayoutGeometryTests|FileDocumentExportTests|FileDialogIntegrationTests|Win32WindowCloseRequestTests|WindowDismissBehaviorTests|LiveDiagnosticsAccountingTests|LiveDiagnosticsReportTests"

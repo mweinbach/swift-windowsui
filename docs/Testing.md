@@ -43,6 +43,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
 - Do not run multiple SwiftPM test/build commands against this checkout in parallel; they share `.build/build.db`.
 - Use `async` test methods in `@MainActor` XCTest classes. With the current Windows toolchain, synchronous actor-isolated methods can compile but crash SwiftPM's test discovery when it casts them to nonisolated callbacks, before a filter executes. A standalone XCTest entrypoint does not validate that discovery path.
 - Quick includes `RetainedViewIdentityTests`, `WinSwiftUIStructuralIdentityTests`, and `ViewIdentityRoleTests` for typed keys, structural branches and slots, erased fragments, and auxiliary builder roles. These check retained-node identity, not mounted `State` or `StateObject` storage.
+- `UndoManagerTests` and `WinSwiftUIBitmapStretchTests` also gate Quick, covering undo target/replay lifetime and ordinary bitmap stretch through layout, CPU scene/frame output, and D3D11. Full includes the same suites.
+- Quick and Full run the material diagnostic classifier's synthetic self-tests through `macos-reference-renderer`. These do not render native material on Windows or replace macOS capture, reviewed comparisons, or the unresolved material-backdrop regression.
 - Quick and Full run `test-swiftui-baseline.ps1` against synthetic exporter
   fixtures. These checks protect pinned-version rejection, inventory parsing,
   and provenance handling; they are not a native SDK capture or API conformance

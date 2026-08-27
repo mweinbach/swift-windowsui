@@ -1194,3 +1194,23 @@ reads and rejected writes, and prove release after those external handles are
 dropped. Native SwiftUI stale-access behavior remains unqualified. This refines
 the lifecycle implementation detail without closing any original completion
 gate or claiming State storage is already installed.
+
+Material reference diagnostics now add six public SwiftUI fixtures with two
+captures each: a bare pattern, flat tint, ordinary material, and material
+inside compositing group, drawing group, and content blur. Fine/coarse contrast
+and repeated-control checks reject missing, opaque, transparent, shifted, or
+unstable captures instead of mistaking them for verified blur. The integrated
+Windows helper passed 31 synthetic checks in debug and release; its native
+capture mode correctly refused Windows without creating capture output.
+Contracts, strict lint, and patch checks passed. These checks validate the
+classifier, not AppKit compilation, native material behavior, or rendered parity.
+
+The existing macOS reference workflow will capture these candidate observations
+and provenance using its documented compatible toolchain. It is not the pinned
+SDK qualification workflow. An unattached NSHostingView cache may omit
+compositor effects; a failed positive control remains explicitly inconclusive.
+Even a passing direct-material control does not qualify every isolation wrapper.
+No production renderer, reviewed baseline, SDK pin, or skipped material test was
+changed. Quick and Full now run the synthetic classifier, and Quick also gates
+the tested undo-manager and bitmap-stretch suites. Native artifacts and review
+remain pending until the accumulated commits are pushed and hosted jobs run.

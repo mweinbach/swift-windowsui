@@ -4,6 +4,12 @@
 
 The repo now also includes `WinSwiftUI`, a SwiftUI-shaped compatibility layer for the retained runtime. The demo app is written against that layer so the same demo source can be used in a macOS SwiftUI app by changing the import from `WinSwiftUI` to `SwiftUI`.
 
+The long-term target is a complete SwiftUI experience on Windows, including the
+rendering engine, animation, controls, and reusable application templates. See
+[`goal.md`](goal.md) for the intended end state and acceptance criteria;
+[`docs/CompatibilityStatus.md`](docs/CompatibilityStatus.md) describes what
+works today.
+
 ## What It Is
 
 - A custom-rendered UI stack, not a wrapper around native Win32 widgets

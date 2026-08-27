@@ -6,6 +6,10 @@ It is derived from the current repository layout, docs, scripts, and known
 limits in `README.md`, `docs/WinSwiftUI.md`, `docs/Testing.md`,
 `docs/GPURenderingPipeline.md`, and the package targets.
 
+The long-term destination is defined in [`goal.md`](../goal.md): a complete
+desktop SwiftUI experience on Windows. This roadmap sequences useful releases
+toward that goal; its initial supported subset does not limit the end state.
+
 **Honest baseline (do not overclaim):**
 
 - The stack is a custom-rendered retained UI toolkit with a SwiftUI-shaped
@@ -810,9 +814,15 @@ Minimum credible first release scope:
 
 ---
 
-## Non-goals (until explicitly reopened)
+## Scope beyond the first stabilization release
 
-- Full SwiftUI API parity
+Full desktop SwiftUI compatibility is a long-term goal in
+[`goal.md`](../goal.md), not a requirement to finish before shipping the first
+versioned subset. Rendering completeness, smooth animation, reusable primitives,
+and functional application templates extend beyond this initial release ladder.
+
+The following remain non-goals:
+
 - AppKit/UIKit or native Win32 control hosting as the primary renderer
 - Desktop/`CopyFromScreen` screenshots as validation
 - Making `FoundationApp` or `SwiftWindowsScene` the primary demo path

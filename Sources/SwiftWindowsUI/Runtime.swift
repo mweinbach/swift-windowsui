@@ -3192,6 +3192,11 @@ public final class ViewNode {
     /// rather than being torn down and recreated.
     public var nodeTag: String?
 
+    /// Typed declarative identity takes precedence over the legacy node tag
+    /// during reconciliation. Raw retained nodes leave this nil and retain
+    /// their existing tag or positional matching behavior.
+    public var retainedViewIdentity: RetainedViewIdentity?
+
     /// Snapshot of previous property values for animation interpolation.
     /// When an animation context is active and a property changes, the old
     /// value is recorded here so that the runtime can interpolate between old

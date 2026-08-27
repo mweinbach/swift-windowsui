@@ -1097,3 +1097,100 @@ evaluated, and adopted content must remain distinct; skipping a body or paint
 cannot by itself retire its state. Lazy StateObject factory ownership follows
 as a separate tested slice, with uninstalled/stale access policy and inactive
 container behavior still requiring explicit native qualification.
+
+The second combined push is `316ea9b`. Its portable hosted run passed on
+Ubuntu and macOS; Windows Full validation and the repaired SDK export are in
+progress. The SDK job has passed checkout and reached the actual exporter,
+unlike the first attempt. This is not yet a reviewed inventory or a green
+Windows result.
+
+A subsequent optimized executable build failed before diagnostics could run.
+Swift 6.3 rejected captures of COM context/resource pointers in the legacy
+frame renderer's nested rectangle-submission helper. Explicitly annotating
+that local function alone did not resolve the diagnostic. The fix must keep
+immediate-context work on the main actor without unchecked Sendable claims or
+unsafe isolation. Full validation is being extended to compile the release
+executable as well as debug, so optimized compilation is checked automatically;
+this still does not mean the XCTest suite runs in release or establish timing
+qualification. No new timing sample exists for the failed build.
+
+Typed structural identity is now applied for integration, with no State cells
+enabled. A new test initially compared the non-Equatable ViewLayoutMode enum;
+it now checks the stack case and compares its Equatable StackLayout payload.
+Its geometry assertions use resolved frames rather than authored frames.
+The editor attachment fixture now exercises explicit adoption into a raw
+attached slot, preserving controller and caret assertions without asking
+different concrete view types to share a typed identity. Production source
+compilation succeeded; the corrected tests still need execution and broader
+validation before this slice is accepted.
+
+The corrected integration run passed the 15 raw identity tests and four
+builder-role tests, then stopped at an existing close-policy test before the
+18 facade identity cases ran. That test expected a conditional branch change
+to preserve its node. The replacement fixture must instead prove both rules:
+policy value changes keep the same typed node, while changing the branch
+replaces it; a separate raw-slot case still requires adoption to clear removed
+policy metadata. Earlier editor geometry cases passed. These are partial run
+results, not a passing identity or compatibility gate.
+
+The SDK capture on `316ea9b` completed all four compiler exports before its
+inventory step failed while reading a 1.34 GB SwiftUI graph into one string.
+The preserved artifact contains 32 files totaling 2,990,598,841 uncompressed
+bytes; its ZIP SHA-256 is
+`5c6aa4720ffde305c0ff0d31186ba387a1129181673bdf8647c0ac4a9bd11af8`.
+The downloaded bytes match that hosted digest. Command provenance records
+Xcode 26.6 build 17F113, macOS SDK 26.5 build 25F70, and Apple Swift 6.3.3
+with swiftlang-6.3.3.1.3 / clang-2100.1.1.101. These are captured identities,
+not a completed identity review or behavior conformance. The raw capture is
+preserved unchanged under `artifacts/goal-sdk-33110144606/`. Repair must bound
+both parsing and inventory output without dropping declarations, availability,
+extensions, synthesized members, or either architecture, and without changing
+the pinned baseline. Windows hosted Full validation is still in progress.
+
+The optimized executable build now passes after moving rectangle submission
+into a private main-actor renderer method with explicit context/resource
+arguments and scoped uniform access. No COM ownership or draw ordering was
+changed, and no unchecked isolation was introduced. The successful build took
+240.69 seconds and is recorded in `artifacts/goal-release-outlined-build.log`.
+Commit `9e9e575` also adds an explicit build configuration option and makes
+Full compile the release executable. Its focused gradient and backend-lifetime
+tests had passed before the unrelated close-policy fixture stopped that run.
+This remains compile and functional evidence, not a release-mode XCTest run
+or hardware qualification.
+
+The next compatibility slices are applied for integration. UndoManager now
+uses weak targets and safe target-specific clearing, guards reentrant replay,
+and supports nested registration disabling; automatic editor registration,
+grouping, document ownership, and native command routing remain open. Ordinary
+bitmap stretch accepts finite layout proposals without enlarging its source
+resource; aspect-fit/fill negotiation, tile/cap-inset rendering, symbol resizing,
+and native pixel parity remain open. Their 30 and 10 authored tests still need
+integrated execution. The bitmap fixtures required test-only imports to inspect
+retained geometry; production access levels were not widened. The identity,
+close-policy, undo, and bitmap filters are being rerun together, serially.
+
+The first complete execution of those new suites passed all 30 undo tests,
+10 bitmap tests, and 18 close-policy tests. It found one production identity
+omission: the ordinary background builder did not append its background role,
+so prestructured content and background could have identical paths. The
+original failing assertion is unchanged; the builder now supplies that role.
+The subsequent broader run passed 353 XCTest executions across 21 targets
+and 17 serial invocations, with zero failures or skips. All 37 identity cases
+passed, alongside existing binding, editor, geometry, window, Settings,
+observation, scroll-reader, Canvas, gradient, and backend-lifetime checks.
+Evidence is `artifacts/goal-third-batch-focused-v4.log` and its summary JSON.
+Undo and bitmap changes are committed separately as `1e922d2` and `f6d098f`.
+Expanded Quick/Full, raw renders, and the next combined push remain pending.
+
+Mounted State implementation can now proceed on this tested identity
+foundation. Retirement must release registry ownership and revoke writes and
+invalidation without redirecting escaped bindings to a replacement mount.
+An escaped binding or installed-value handle may legitimately retain the last
+mounted Value until that external handle is released; a generic nonoptional
+getter cannot promise both continued reads and zero retained payload. This is
+a value snapshot, not a deep freeze of referenced objects. Tests must separate
+registry-only release from externally retained values, cover stale projected
+reads and rejected writes, and prove release after those external handles are
+dropped. Native SwiftUI stale-access behavior remains unqualified. This refines
+the lifecycle implementation detail without closing any original completion
+gate or claiming State storage is already installed.

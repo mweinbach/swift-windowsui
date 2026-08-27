@@ -253,6 +253,9 @@ if ($Full) {
     Invoke-Step "binding transactions and Settings workflows" {
         & $testScript -Sharded -Filter "BindingTransactionTests|BindingHostTransactionTests|SettingsSceneHostingTests|WindowGroupContentIdentityTests|DemoSettingsPersistenceTests|DemoObservationShowcaseTests"
     }
+    Invoke-Step "typed retained view identity" {
+        & $testScript -Sharded -Filter "RetainedViewIdentityTests|WinSwiftUIStructuralIdentityTests|ViewIdentityRoleTests"
+    }
     Invoke-Step "public API, input, document, window and diagnostic regressions" {
         & $testScript -Sharded -Filter "WinSwiftUIColorInitializerTests|WinSwiftUIScaleOverloadTests|RetainedLongPressGestureTests|DemoLongPressWindowStateTests|TextEditorReconciliationTests|TextInputLayoutGeometryTests|FileDocumentExportTests|FileDialogIntegrationTests|Win32WindowCloseRequestTests|WindowDismissBehaviorTests|LiveDiagnosticsAccountingTests|LiveDiagnosticsReportTests"
     }

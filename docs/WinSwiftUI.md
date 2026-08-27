@@ -1131,6 +1131,19 @@ setter payloads, projection overrides, restoration, suppression, and an actual
 state-driven intermediate opacity frame. Exact precedence when ambient and
 binding transactions conflict, and deferred-update behavior, still require
 native SwiftUI reference qualification.
+Retained reconciliation now carries a typed structural path through concrete
+views, builder slots and branches, auxiliary builder roles, and typed Hashable
+IDs. Keyed rows can retain their nodes through reordering even when their
+description strings collide. Changing a concrete type or conditional branch
+replaces its node; removing and reinserting it creates a new node. AnyView and
+flattened builder fragments preserve these boundaries without inserting layout
+wrappers. Raw untyped Component/ViewNode callers keep their existing matching
+behavior, and typed nodes never fall back to that matching. GeometryReader
+still resolves size from its actual layout slot; its content build carries the
+structural context independently of that measurement. Built-in modifier-kind
+erasure and specialized-container lifetime semantics remain incomplete.
+
+This identity path does not yet install or own property-wrapper storage.
 `@State` stores values in a retained box captured by the view value and exposes `$state` as a `Binding`, which is enough for common controls such as `Toggle`.
 `@AppStorage` supports common non-optional and optional `Bool`, `Int`, `Double`, `String`, `Data`, and `URL` values backed by `UserDefaults`, plus optional and non-optional `RawRepresentable` values with `String` or `Int` raw values for enum-backed preferences. Wrappers with an explicit `store:` keep using that store, while wrappers without one inherit `EnvironmentValues.defaultAppStorage` through `.defaultAppStorage(_:)` and remember that store for retained control actions. Optional nil writes remove the stored `UserDefaults` value. It exposes `$storage` as a `Binding` and invalidates the retained runtime after writes from the wrapper. It is a source-compatibility shim and does not yet observe external `UserDefaults` changes.
 `@SceneStorage` stores non-optional and optional `Bool`, `Int`, `Double`, `String`, `Data`, and `URL` values in a retained in-memory scene-state table, supports optional and non-optional `RawRepresentable` values with `String` or `Int` raw values for enum-backed scene state, exposes `$storage` as a `Binding`, and invalidates after writes. Optional nil writes remove the retained scene value. Coordinator-managed windows receive distinct scopes, including Settings windows, and isolation is covered by `WindowCoordinatorTests` and `SettingsSceneHostingTests`. Persistent scene restoration across application launches is not implemented.

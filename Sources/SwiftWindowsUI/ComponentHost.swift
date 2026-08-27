@@ -319,42 +319,44 @@ public final class ComponentHost {
         }
     }
 
-    /// Keyed view-diffing reconciliation: identity first, position second.
+    /// Reconciliation claims typed identities first, legacy tags second,
+    /// then considers the next unclaimed positional candidate. A typed node
+    /// never bridges to an untyped node through a tag or matching layout.
     ///
-    /// `nodeTag` is the stable identity a `ForEach` already writes onto every
-    /// row (`Views.swift`: `view.id("\(elementID)#\(index)")`). It used to be
-    /// consulted only as an equality test at the *same index*, which made it
-    /// worthless for the case it exists for: removing the head of a four-row
-    /// list mismatched at index 0, and at every index after it, so `replaceChild`
-    /// fired four times. One deletion produced four removal overlays — a ghost
-    /// copy of the entire previous list fading out on top of the new one — and
-    /// re-created every surviving row from opacity 0. Only a tail edit, where
-    /// index and identity happen to agree, behaved.
-    ///
-    /// Matching is two passes:
-    ///
-    /// 1. every tagged new node claims the old node carrying the same tag,
-    ///    wherever it sits;
-    /// 2. anything still unmatched takes the next unclaimed old node that
-    ///    `nodesMatch` accepts, scanning forward only. With no tags in play
-    ///    this is the old index walk exactly.
-    ///
-    /// Survivors then keep their identity *and move*, which is what lets the
-    /// frame animations installed by `updateNodeProperties` slide the rows
-    /// below a deleted one up under it, as SwiftUI and NSTableView both do.
+    /// Each old node can be claimed once, including when duplicate identities
+    /// occur. Survivors keep their nodes and move into the new order, retaining
+    /// runtime-owned focus, scroll state, and animations. Raw retained trees
+    /// without typed identities keep their existing matching behavior.
     static func reconcileChildren(of parent: ViewNode, oldChildren: [ViewNode], newNodes: [ViewNode]) {
         var matches = [ViewNode?](repeating: nil, count: newNodes.count)
         var isClaimed = [Bool](repeating: false, count: oldChildren.count)
 
+        var oldIndicesByIdentity: [RetainedViewIdentity: [Int]] = [:]
         var oldIndicesByTag: [String: [Int]] = [:]
         for (index, oldNode) in oldChildren.enumerated() {
-            guard let tag = oldNode.nodeTag else { continue }
-            oldIndicesByTag[tag, default: []].append(index)
+            if let identity = oldNode.retainedViewIdentity {
+                oldIndicesByIdentity[identity, default: []].append(index)
+            } else if let tag = oldNode.nodeTag {
+                oldIndicesByTag[tag, default: []].append(index)
+            }
+        }
+
+        if !oldIndicesByIdentity.isEmpty {
+            for (newIndex, newNode) in newNodes.enumerated() {
+                guard let identity = newNode.retainedViewIdentity,
+                    var candidates = oldIndicesByIdentity[identity], !candidates.isEmpty
+                else { continue }
+                let oldIndex = candidates.removeFirst()
+                oldIndicesByIdentity[identity] = candidates
+                matches[newIndex] = oldChildren[oldIndex]
+                isClaimed[oldIndex] = true
+            }
         }
 
         if !oldIndicesByTag.isEmpty {
             for (newIndex, newNode) in newNodes.enumerated() {
-                guard let tag = newNode.nodeTag, var candidates = oldIndicesByTag[tag], !candidates.isEmpty
+                guard newNode.retainedViewIdentity == nil, let tag = newNode.nodeTag,
+                    var candidates = oldIndicesByTag[tag], !candidates.isEmpty
                 else { continue }
                 let oldIndex = candidates.removeFirst()
                 oldIndicesByTag[tag] = candidates
@@ -397,10 +399,13 @@ public final class ComponentHost {
         parent.setChildren(nextChildren)
     }
 
-    /// Two nodes "match" when they carry the same stable identity tag or, in
-    /// the absence of explicit tags, when their structural layout and text
-    /// signatures are equivalent (same layoutMode category plus optional text).
+    /// Typed identities must agree on both nodes. Otherwise the legacy path
+    /// compares tags when both have one, then falls back to layout category.
     private static func nodesMatch(_ a: ViewNode, _ b: ViewNode) -> Bool {
+        if a.retainedViewIdentity != nil || b.retainedViewIdentity != nil {
+            return a.retainedViewIdentity == b.retainedViewIdentity
+        }
+
         // If both nodes carry an explicit tag, match on tag only.
         if let tagA = a.nodeTag, let tagB = b.nodeTag {
             return tagA == tagB
@@ -1250,6 +1255,9 @@ public final class ComponentHost {
             target.retainedContainerValues = source.retainedContainerValues
         }
         if target.nodeTag != source.nodeTag { target.nodeTag = source.nodeTag }
+        if target.retainedViewIdentity != source.retainedViewIdentity {
+            target.retainedViewIdentity = source.retainedViewIdentity
+        }
         let targetLayoutTag = layoutModeTag(target.layoutMode)
         let sourceLayoutTag = layoutModeTag(source.layoutMode)
         if targetLayoutTag != sourceLayoutTag {

@@ -121,28 +121,32 @@ final class TextInputLayoutGeometryTests: XCTestCase {
 
     func testReconciledEditorAttachesWhenTheRetainedSlotHadNoController() async throws {
         let root = ViewNode(frame: Rect(x: 30, y: 40, width: 320, height: 200))
+        let label = ViewNode(text: "Placeholder")
+        let slot = ViewNode(
+            layoutMode: .stack(
+                .vertical(padding: EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10), alignment: .stretch)),
+            children: [label])
+        root.addChild(slot)
         let runtime = RetainedViewRuntime(root: root)
-        let host = ComponentHost(runtime: runtime)
         let context = ViewBuildContext(
             canvasSizeProvider: { Size(width: 320, height: 200) }, invalidateHandler: {})
-        var showsEditor = false
-        host.setComponents {
-            if showsEditor {
-                return [TextEditor(text: .constant("abcdef")).id("editor-slot").makeComponent(context: context)]
-            }
-            return [VStack { Text("Placeholder") }.id("editor-slot").makeComponent(context: context)]
-        }
         _ = runtime.renderScene()
-        let slot = try XCTUnwrap(root.children.first)
         XCTAssertNil(slot.textInputController)
 
-        showsEditor = true
-        host.reload()
+        // Explicit raw adoption isolates controller attachment from typed
+        // view matching, which must remount different concrete view types.
+        let source = TextEditor(text: .constant("abcdef"))
+            .makeComponent(context: context).makeNode(runtime: runtime)
+        ComponentHost.adopt(source: source, into: slot)
         XCTAssertTrue(root.children.first === slot)
+        XCTAssertTrue(slot.children.first === label, "Unchanged children must not supply a later setRuntime walk")
         XCTAssertNotNil(slot.textInputController)
         runtime.requestFocus(slot)
         runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.home.rawValue))
         _ = runtime.renderScene()
+        XCTAssertTrue(runtime.focusedNode === slot)
+        XCTAssertTrue(slot.isFocused)
+        XCTAssertEqual(slot.textInputCaretOffset, 0)
 
         let content = try XCTUnwrap(slot.children.first(where: { !$0.isHidden }))
         let placedContent = try XCTUnwrap(runtime.resolvedLayoutFrame(of: content))

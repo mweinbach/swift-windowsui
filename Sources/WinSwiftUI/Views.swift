@@ -480,7 +480,9 @@ public struct KeyframeAnimator<Value>: View where Value: Animatable {
         return Component { runtime in
             let node = ViewNode(
                 layoutMode: .absolute,
-                children: views.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+                children: viewIdentityOccurrences(views).map {
+                    $0.makeComponent(context: context).makeNode(runtime: runtime)
+                }
             )
             return node
         }
@@ -597,14 +599,16 @@ public struct PhaseAnimator<Phase: Equatable>: View {
             let views: [AnyView]
             if let phase = phases.isEmpty ? nil : phases[phaseIndex] {
                 let currentAnimation = animation(phase)
-                views = content(phase).map { AnyView($0.animation(currentAnimation)) }
+                views = content(phase).map { $0.mappingViewIdentity { AnyView($0.animation(currentAnimation)) } }
             } else if let fallback = fallbackContent {
                 views = fallback
             } else {
                 views = []
             }
 
-            let childNodes = views.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+            let childNodes = viewIdentityOccurrences(views).map {
+                $0.makeComponent(context: context).makeNode(runtime: runtime)
+            }
             let node: ViewNode
             if childNodes.count == 1 {
                 node = childNodes[0]
@@ -741,7 +745,7 @@ public struct ViewThatFits: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let axes = axes
-        let components = content.map { $0.makeComponent(context: context) }
+        let components = viewIdentityOccurrences(content).map { $0.makeComponent(context: context) }
 
         return Component { runtime in
             guard !components.isEmpty else {
@@ -3757,7 +3761,9 @@ public struct Group: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        composeComponent(from: content, context: context)
+        let context = context.withViewIdentityType(Self.self)
+        return preservingViewIdentity(
+            of: composeComponent(from: content, context: context.withViewIdentityRole(.content)), context: context)
     }
 }
 @MainActor
@@ -4488,13 +4494,18 @@ public struct NavigationSplitView: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let context = context.withViewIdentityType(Self.self)
         let visibleColumns = visibleColumns()
         let style = context.navigationSplitViewStyle
         let columnComponents = visibleColumns.map { column in
-            composeComponent(
-                from: column,
-                context: context.withStackAxis(.vertical),
-                fallbackLayout: .stack(.vertical(alignment: .stretch))
+            let columnContext = context.withViewIdentityRole(column.role).withStackAxis(.vertical)
+            return preservingViewIdentity(
+                of: composeComponent(
+                    from: column.views,
+                    context: columnContext,
+                    fallbackLayout: .stack(.vertical(alignment: .stretch))
+                ),
+                context: columnContext
             )
         }
 
@@ -4555,7 +4566,12 @@ public struct NavigationSplitView: View {
         }
     }
 
-    private func visibleColumns() -> [[AnyView]] {
+    private func visibleColumns() -> [(role: RetainedViewIdentity.Role, views: [AnyView])] {
+        let columns = self.columns.enumerated().map { index, views in
+            let role: RetainedViewIdentity.Role =
+                index == 0 ? .sidebar : (index == self.columns.count - 1 ? .detail : .content)
+            return (role: role, views: views)
+        }
         guard let visibility = columnVisibility?.wrappedValue else {
             return columns
         }
@@ -5369,7 +5385,9 @@ public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        composeComponent(from: contentViews, context: context)
+        let context = context.withViewIdentityType(Self.self)
+        return preservingViewIdentity(
+            of: composeComponent(from: contentViews, context: context.withViewIdentityRole(.content)), context: context)
     }
 
     private static func buildContentViews(
@@ -5383,12 +5401,15 @@ public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View {
             let elementViews = content(element)
             for (index, view) in elementViews.enumerated() {
                 views.append(
-                    AnyView(
-                        DynamicListEditMetadataView(
-                            content: AnyView(view.implicitForEachScrollTarget(elementID, index: index)),
-                            dynamicContentIndex: elementIndex
+                    view.ensuringViewIdentitySlot(index).mappingViewIdentity { content in
+                        AnyView(
+                            DynamicListEditMetadataView(
+                                content: AnyView(content.implicitForEachScrollTarget(elementID, index: index)),
+                                dynamicContentIndex: elementIndex
+                            )
                         )
-                    )
+                    }
+                    .prefixedViewIdentity([.keyed(RetainedViewIdentity.Key(elementID))])
                 )
             }
         }
@@ -5401,12 +5422,14 @@ extension ForEach {
         ForEach(
             data: data,
             contentViews: contentViews.map { view in
-                AnyView(
-                    DynamicListEditMetadataView(
-                        content: view,
-                        deleteAction: .some(action)
+                view.mappingViewIdentity { content in
+                    AnyView(
+                        DynamicListEditMetadataView(
+                            content: content,
+                            deleteAction: .some(action)
+                        )
                     )
-                )
+                }
             }
         )
     }
@@ -5415,12 +5438,14 @@ extension ForEach {
         ForEach(
             data: data,
             contentViews: contentViews.map { view in
-                AnyView(
-                    DynamicListEditMetadataView(
-                        content: view,
-                        moveAction: .some(action)
+                view.mappingViewIdentity { content in
+                    AnyView(
+                        DynamicListEditMetadataView(
+                            content: content,
+                            moveAction: .some(action)
+                        )
                     )
-                )
+                }
             }
         )
     }
@@ -5433,13 +5458,15 @@ extension ForEach {
         return ForEach(
             data: data,
             contentViews: contentViews.map { view in
-                AnyView(
-                    DynamicListEditMetadataView(
-                        content: view,
-                        insertContentTypes: identifiers,
-                        insertAction: action
+                view.mappingViewIdentity { content in
+                    AnyView(
+                        DynamicListEditMetadataView(
+                            content: content,
+                            insertContentTypes: identifiers,
+                            insertAction: action
+                        )
                     )
-                )
+                }
             }
         )
     }
@@ -5451,13 +5478,15 @@ extension ForEach {
         ForEach(
             data: data,
             contentViews: contentViews.map { view in
-                AnyView(
-                    DynamicListEditMetadataView(
-                        content: view,
-                        insertContentTypes: acceptedTypeIdentifiers,
-                        insertAction: action
+                view.mappingViewIdentity { content in
+                    AnyView(
+                        DynamicListEditMetadataView(
+                            content: content,
+                            insertContentTypes: acceptedTypeIdentifiers,
+                            insertAction: action
+                        )
                     )
-                )
+                }
             }
         )
     }
@@ -5469,15 +5498,17 @@ extension ForEach {
         ForEach(
             data: data,
             contentViews: contentViews.map { view in
-                AnyView(
-                    DynamicListEditMetadataView(
-                        content: view,
-                        dropPayloadType: String(reflecting: payloadType),
-                        dropAction: { payloads, offset in
-                            action(payloads.compactMap { $0 as? T }, offset)
-                        }
+                view.mappingViewIdentity { content in
+                    AnyView(
+                        DynamicListEditMetadataView(
+                            content: content,
+                            dropPayloadType: String(reflecting: payloadType),
+                            dropAction: { payloads, offset in
+                                action(payloads.compactMap { $0 as? T }, offset)
+                            }
+                        )
                     )
-                )
+                }
             }
         )
     }
@@ -7395,6 +7426,7 @@ public struct LabeledContent: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let context = context.withViewIdentityType(Self.self)
         // In a grouped form the label belongs to the shared label column and
         // reads at the row's own prominence; standing alone it is the
         // secondary half of a label/value pair.
@@ -7403,9 +7435,11 @@ public struct LabeledContent: View {
             from: label,
             context: isFormRow
                 ? context
+                    .withViewIdentityRole(.label)
                     .withTextAlignment(.trailing)
                     .withLineLimit(1)
                 : context
+                    .withViewIdentityRole(.label)
                     .withForegroundColor(.secondary)
                     .withTextAlignment(.leading)
                     .withLineLimit(1),
@@ -7416,6 +7450,7 @@ public struct LabeledContent: View {
             from: content,
             context:
                 context
+                .withViewIdentityRole(.value)
                 .withTextAlignment(isFormRow ? .leading : .trailing)
                 .withLineLimit(1),
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
@@ -7929,10 +7964,12 @@ public struct ContentUnavailableView: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let context = context.withViewIdentityType(Self.self)
         let labelComponent = composeComponent(
             from: label,
             context:
                 context
+                .withViewIdentityRole(.label)
                 .withTextAlignment(.center)
                 .withLineLimit(2),
             fallbackLayout: .stack(.horizontal(spacing: 8, alignment: .center, mainAlignment: .center)),
@@ -7942,6 +7979,7 @@ public struct ContentUnavailableView: View {
             from: description,
             context:
                 context
+                .withViewIdentityRole(.description)
                 .withForegroundColor(.secondary)
                 .withFont(.caption)
                 .withTextAlignment(.center),
@@ -7950,7 +7988,7 @@ public struct ContentUnavailableView: View {
         )
         let actionsComponent = composeComponent(
             from: actions,
-            context: context.withButtonStyle(.bordered),
+            context: context.withViewIdentityRole(.actions).withButtonStyle(.bordered),
             fallbackLayout: .stack(.horizontal(spacing: 8, alignment: .center, mainAlignment: .center)),
             isHitTestVisible: false
         )
@@ -8188,15 +8226,18 @@ public struct VStack: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        Component { runtime in
-            let childContext = context.withStackAxis(.vertical)
+        let context = context.withViewIdentityType(Self.self)
+        return Component { runtime in
+            let childContext = context.withViewIdentityRole(.content).withStackAxis(.vertical)
             return Controls.stackPanel(
                 stackLayout: .vertical(
                     spacing: spacing,
                     alignment: alignment.stackAlignment(layoutDirection: context.layoutDirection)
                 ),
                 isHitTestVisible: false,
-                children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
+                children: viewIdentityOccurrences(content).map {
+                    $0.makeComponent(context: childContext).makeNode(runtime: runtime)
+                }
             )
         }
     }
@@ -8220,12 +8261,15 @@ public struct HStack: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        Component { runtime in
-            let childContext = context.withStackAxis(.horizontal)
+        let context = context.withViewIdentityType(Self.self)
+        return Component { runtime in
+            let childContext = context.withViewIdentityRole(.content).withStackAxis(.horizontal)
             return Controls.stackPanel(
                 stackLayout: .horizontal(spacing: spacing, alignment: alignment.stackAlignment),
                 isHitTestVisible: false,
-                children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
+                children: viewIdentityOccurrences(content).map {
+                    $0.makeComponent(context: childContext).makeNode(runtime: runtime)
+                }
             )
         }
     }
@@ -8394,8 +8438,9 @@ public struct LazyVStack: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let context = context.withViewIdentityType(Self.self)
         return Component { runtime in
-            let childContext = context.withStackAxis(.vertical)
+            let childContext = context.withViewIdentityRole(.content).withStackAxis(.vertical)
             let children = retainedLazyStackChildren(
                 from: content,
                 context: childContext,
@@ -8449,8 +8494,9 @@ public struct LazyHStack: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let context = context.withViewIdentityType(Self.self)
         return Component { runtime in
-            let childContext = context.withStackAxis(.horizontal)
+            let childContext = context.withViewIdentityRole(.content).withStackAxis(.horizontal)
             let children = retainedLazyStackChildren(
                 from: content,
                 context: childContext,
@@ -8475,7 +8521,9 @@ private func retainedLazyStackChildren(
     runtime: RetainedViewRuntime,
     pinnedViews: PinnedScrollableViews
 ) -> [ViewNode] {
-    let children = content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+    let children = viewIdentityOccurrences(content).map {
+        $0.makeComponent(context: context).makeNode(runtime: runtime)
+    }
     guard !pinnedViews.isEmpty else {
         return children
     }
@@ -8544,7 +8592,9 @@ public struct Grid: View {
                     alignment: alignment.horizontal.stackAlignment(layoutDirection: context.layoutDirection)
                 ),
                 isHitTestVisible: false,
-                children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
+                children: viewIdentityOccurrences(content).map {
+                    $0.makeComponent(context: childContext).makeNode(runtime: runtime)
+                }
             )
         }
     }
@@ -8572,7 +8622,9 @@ public struct GridRow: View {
             Controls.stackPanel(
                 stackLayout: .horizontal(spacing: horizontalSpacing, alignment: alignment.stackAlignment),
                 isHitTestVisible: false,
-                children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
+                children: viewIdentityOccurrences(content).map {
+                    $0.makeComponent(context: childContext).makeNode(runtime: runtime)
+                }
             )
         }
     }
@@ -8971,7 +9023,9 @@ public struct ZStack: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
-            let childNodes = content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+            let childNodes = viewIdentityOccurrences(content).map {
+                $0.makeComponent(context: context).makeNode(runtime: runtime)
+            }
             let root = Controls.panel(layoutMode: .absolute, isHitTestVisible: false, children: childNodes)
             // A ZStack containing flexible content must accept its parent's
             // proposal too. Otherwise a framed Color background stops at the
@@ -9017,11 +9071,12 @@ public struct GeometryReader: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let context = context.withViewIdentityType(Self.self)
         let seedSize = context.canvasSize
         let content = self.content
         let composed = composeComponent(
             from: content(GeometryProxy(size: seedSize)),
-            context: context,
+            context: context.withViewIdentityRole(.geometryContent),
             fallbackLayout: .absolute
         )
         return Component { runtime in
@@ -9041,6 +9096,7 @@ public struct GeometryReader: View {
             // body sits where it always sat and the wrapper's frame is the
             // slot the parent actually handed over.
             let node = Controls.panel(layoutMode: .absolute, isHitTestVisible: false, children: [bodyNode])
+            node.retainedViewIdentity = context.retainedViewIdentity
             node.layoutFillAxes = .both
 
             // Wherever no container narrowed — nested stacks, split panes,
@@ -9134,7 +9190,9 @@ public struct ScrollView: View {
                 initialScrollAnchor: initialScrollAnchor,
                 scrollSizeChangeAnchor: scrollSizeChangeAnchor,
                 isHitTestVisible: style.isHitTestVisible,
-                children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+                children: viewIdentityOccurrences(content).map {
+                    $0.makeComponent(context: context).makeNode(runtime: runtime)
+                }
             )
             // macOS parity: a scroll view is greedy. It takes the whole
             // proposal on both axes and proposes its viewport across to
@@ -9755,15 +9813,18 @@ public struct List: View {
             let elementViews = rowContent(element)
             for (index, view) in elementViews.enumerated() {
                 views.append(
-                    AnyView(
-                        DynamicListEditMetadataView(
-                            content: AnyView(
-                                view.implicitForEachScrollTarget(elementIDDescription, index: index)
-                                    .tag(elementID)
-                            ),
-                            dynamicContentIndex: elementIndex
+                    view.ensuringViewIdentitySlot(index).mappingViewIdentity { content in
+                        AnyView(
+                            DynamicListEditMetadataView(
+                                content: AnyView(
+                                    content.implicitForEachScrollTarget(elementIDDescription, index: index)
+                                        .tag(elementID)
+                                ),
+                                dynamicContentIndex: elementIndex
+                            )
                         )
-                    )
+                    }
+                    .prefixedViewIdentity([.role(.row), .keyed(RetainedViewIdentity.Key(elementID))])
                 )
             }
         }
@@ -9900,6 +9961,7 @@ public struct List: View {
             children: [rowContent]
         )
         rowNode.nodeTag = row.nodeTag ?? "selection:\(String(describing: tag.base))"
+        rowNode.retainedViewIdentity = row.retainedViewIdentity
 
         // Mark both selected and unselected rows so platform accessibility
         // providers can expose a complete SelectionItem pattern.
@@ -10222,7 +10284,8 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        Component { runtime in
+        let context = context.withViewIdentityType(Self.self)
+        return Component { runtime in
             let columnCount = columns.count
             guard columnCount > 0 else {
                 return Controls.panel(
@@ -10303,11 +10366,14 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
                 children: headerCells
             )
             headerRow.backgroundColor = headerBackground
+            headerRow.retainedViewIdentity = context.withViewIdentityRole(.header).retainedViewIdentity
 
             // Build data rows
             let dataRows = data.enumerated().map { pair in
                 let element = pair.element
                 let elementID = AnyHashable(element.id)
+                let rowContext = context.withViewIdentityRole(.row)
+                    .withViewIdentityPrefix([.keyed(RetainedViewIdentity.Key(element.id))])
                 let isSelected = self.selectionMode?.contains(elementID) == true
 
                 let cells = columns.enumerated().map { cellPair in
@@ -10316,7 +10382,7 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
                         column: column,
                         element: element,
                         columnIndex: cellPair.offset,
-                        context: context,
+                        context: rowContext,
                         runtime: runtime
                     )
                     return cellNode
@@ -10331,6 +10397,7 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
                     ),
                     children: cells
                 )
+                row.retainedViewIdentity = rowContext.retainedViewIdentity
 
                 // Alternating row background
                 if pair.offset % 2 == 1, !isSelected {
@@ -10374,6 +10441,7 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
         context: ViewBuildContext,
         runtime: RetainedViewRuntime
     ) -> ViewNode {
+        let context = context.withViewIdentityRole(.columnHeader).withViewIdentityPrefix([.slot(columnIndex)])
         let headerViews = column.headerBuilder()
         let headerNode =
             headerViews.first?.makeComponent(context: context).makeNode(runtime: runtime)
@@ -10414,6 +10482,7 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
         context: ViewBuildContext,
         runtime: RetainedViewRuntime
     ) -> ViewNode {
+        let context = context.withViewIdentityRole(.column).withViewIdentityPrefix([.slot(columnIndex)])
         let cellViews = column.cellBuilder(element)
         let cellNode =
             cellViews.first?.makeComponent(context: context).makeNode(runtime: runtime)
@@ -10463,6 +10532,7 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
             children: [row]
         )
         rowNode.nodeTag = "table-selection:\(String(describing: tag.base))"
+        rowNode.retainedViewIdentity = row.retainedViewIdentity
         rowNode.accessibilityTraits.formUnion(.isSelectable)
         if isSelected {
             rowNode.accessibilityTraits.formUnion(.isSelected)
@@ -10577,7 +10647,9 @@ public struct Form: View {
                 .withEnvironmentValue(\.groupedFormColumnScope, columnScope)
             let chrome = Self.retainedChrome(for: context.formStyle, palette: context.controlPalette)
             let rows = alignedGroupedFormRows(
-                content.map { $0.makeComponent(context: rowContext).makeNode(runtime: runtime) },
+                viewIdentityOccurrences(content).map {
+                    $0.makeComponent(context: rowContext).makeNode(runtime: runtime)
+                },
                 scope: columnScope
             )
             columnScope.resolve()
@@ -10814,6 +10886,7 @@ public struct Section: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let context = context.withViewIdentityType(Self.self)
         let expansionBinding = isExpanded
         // A **grouped-form** section header is a heading, not a label:
         // 15/600 at the primary rung, attached to the group under it. The
@@ -10880,17 +10953,19 @@ public struct Section: View {
                 .resolvedHeaderFont(for: context.headerProminence)
             let headerContext =
                 context
+                .withViewIdentityRole(.header)
                 .withForegroundColor(headerColor)
                 .withFont(headerFont)
                 .withTextAlignment(.leading)
                 .withLineLimit(1)
             let footerContext =
                 context
+                .withViewIdentityRole(.footer)
                 .withForegroundColor(palette.secondaryLabel)
                 .withFont(.footnote)
                 .withTextAlignment(.leading)
 
-            let headerNodes = header.map {
+            let headerNodes = viewIdentityOccurrences(header).map {
                 let node = $0.makeComponent(context: headerContext).makeNode(runtime: runtime)
                 // Section headers are headers by construction; the projection
                 // maps isHeader to the UIA header control type.
@@ -10950,7 +11025,9 @@ public struct Section: View {
             let builtContentNodes =
                 expansionBinding?.wrappedValue == false
                 ? []
-                : content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+                : viewIdentityOccurrences(content).map {
+                    $0.makeComponent(context: context.withViewIdentityRole(.content)).makeNode(runtime: runtime)
+                }
             // This section resolves its own group first — the widest label in
             // *this* box — and hands the result to the enclosing form, which
             // widens every group to one column once all of them exist. A
@@ -10965,7 +11042,9 @@ public struct Section: View {
                 : builtContentNodes
             let children =
                 (usesGroupedFormChrome ? [] : resolvedHeaderNodes) + contentNodes
-                + footer.map { $0.makeComponent(context: footerContext).makeNode(runtime: runtime) }
+                + viewIdentityOccurrences(footer).map {
+                    $0.makeComponent(context: footerContext).makeNode(runtime: runtime)
+                }
             let hidesScrollContentBackground =
                 style.scrollAxis != nil
                 && context.scrollContentBackgroundVisibility.hidesRetainedScrollContentBackground
@@ -11220,7 +11299,10 @@ public struct GroupBox: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let views = label + content
+        let context = context.withViewIdentityType(Self.self)
+        let views =
+            label.map { $0.prefixedViewIdentity([.role(.label)]) }
+            + content.map { $0.prefixedViewIdentity([.role(.content)]) }
         return Component { runtime in
             // An `NSBox` is the same grouped container a `Form` section is:
             // the appearance's raised surface, the panel material on it, a
@@ -11242,7 +11324,9 @@ public struct GroupBox: View {
                 cornerRadius: MacOSControlMetrics.GroupBox.cornerRadius,
                 layoutMode: .stack(.vertical(spacing: 8, padding: .all(12), alignment: .stretch)),
                 isHitTestVisible: false,
-                children: views.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+                children: viewIdentityOccurrences(views).map {
+                    $0.makeComponent(context: context).makeNode(runtime: runtime)
+                }
             )
             // Preserve the retained container contract: an explicit frame
             // sizes the chrome, while ordinary layout keeps it content-sized.
@@ -11308,18 +11392,19 @@ public struct DisclosureGroup: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        let context = context.withViewIdentityType(Self.self)
         let binding = isExpanded
         let fallbackState = expansionState
         let contentViews = content
         let labelComponent = composeComponent(
             from: label,
-            context: context,
+            context: context.withViewIdentityRole(.label),
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
             isHitTestVisible: false
         )
         let contentComponent = composeComponent(
             from: contentViews,
-            context: context,
+            context: context.withViewIdentityRole(.content),
             fallbackLayout: .stack(.vertical(spacing: 6, alignment: .stretch)),
             isHitTestVisible: false
         )

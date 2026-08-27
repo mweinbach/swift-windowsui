@@ -8396,6 +8396,8 @@ public struct ViewBuildContext {
     typealias NavigationDestinationDismissHandler = @MainActor () -> Void
     typealias NavigationDestinationPushHandler = @MainActor ([AnyView], NavigationDestinationDismissHandler?) -> Void
 
+    var viewIdentity: ViewIdentityContext
+
     private let canvasSizeProvider: () -> Size
     private let invalidateHandler: () -> Void
     private let stateMutationInvalidationHandler: () -> Void
@@ -9085,6 +9087,7 @@ public struct ViewBuildContext {
     }
 
     init(
+        viewIdentity: ViewIdentityContext = ViewIdentityContext(),
         canvasSizeProvider: @escaping () -> Size,
         invalidateHandler: @escaping () -> Void,
         stateMutationInvalidationHandler: (() -> Void)? = nil,
@@ -9141,6 +9144,7 @@ public struct ViewBuildContext {
         self.navigationValueHandlerProvider = navigationValueHandlerProvider
         self.navigationDestinationRegistrationsProvider = navigationDestinationRegistrationsProvider
         self.navigationPresentedDestinationsProvider = navigationPresentedDestinationsProvider
+        self.viewIdentity = viewIdentity
     }
 
     /// The ambient tint every control resolves its accent from. Tracks
@@ -9195,6 +9199,7 @@ public struct ViewBuildContext {
     func withCanvasSize(_ size: Size) -> ViewBuildContext {
         let clamped = Size(width: max(0, size.width), height: max(0, size.height))
         return ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: { clamped },
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9225,6 +9230,7 @@ public struct ViewBuildContext {
 
     func withEnabled(_ isEnabled: Bool) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9257,6 +9263,7 @@ public struct ViewBuildContext {
 
     func withForegroundColor(_ color: Color) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9292,6 +9299,7 @@ public struct ViewBuildContext {
 
     func withTint(_ tint: Color) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9327,6 +9335,7 @@ public struct ViewBuildContext {
 
     func withFont(_ font: Font?) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9361,6 +9370,7 @@ public struct ViewBuildContext {
 
     func withFontDesign(_ design: Font.Design?) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9391,6 +9401,7 @@ public struct ViewBuildContext {
 
     func withFontWidth(_ width: Font.Width?) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9425,6 +9436,7 @@ public struct ViewBuildContext {
 
     func withFontWeight(_ weight: Font.Weight?) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9455,6 +9467,7 @@ public struct ViewBuildContext {
 
     func withTextAlignment(_ alignment: TextAlignment) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9493,6 +9506,7 @@ public struct ViewBuildContext {
         reservesSpace: Bool = false
     ) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9529,6 +9543,7 @@ public struct ViewBuildContext {
 
     func withTruncationMode(_ mode: Text.TruncationMode?) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9563,6 +9578,7 @@ public struct ViewBuildContext {
 
     func withAllowsTightening(_ allowsTightening: Bool) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9597,6 +9613,7 @@ public struct ViewBuildContext {
 
     func withTextCase(_ textCase: Text.Case?) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9631,6 +9648,7 @@ public struct ViewBuildContext {
 
     func withLabelsHidden(_ labelsHidden: Bool) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9661,6 +9679,7 @@ public struct ViewBuildContext {
 
     func withControlSize(_ controlSize: ControlSize) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9695,6 +9714,7 @@ public struct ViewBuildContext {
 
     func withStackAxis(_ axis: StackAxis?) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9725,6 +9745,7 @@ public struct ViewBuildContext {
 
     func withButtonStyle(_ buttonStyle: ButtonStyle) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9759,6 +9780,7 @@ public struct ViewBuildContext {
 
     func withPickerStyle(_ pickerStyle: PickerStyle) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9795,6 +9817,7 @@ public struct ViewBuildContext {
         -> ViewBuildContext
     {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9830,6 +9853,7 @@ public struct ViewBuildContext {
 
     func withEnvironmentValues(_ values: EnvironmentValues) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9863,6 +9887,7 @@ public struct ViewBuildContext {
         _ transform: @escaping (inout Value) -> Void
     ) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9917,6 +9942,7 @@ public struct ViewBuildContext {
 
     func withNavigationDestinationHandler(_ handler: @escaping NavigationDestinationPushHandler) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9947,6 +9973,7 @@ public struct ViewBuildContext {
 
     func withNavigationValueHandler(_ handler: @escaping (AnyHashable) -> Bool) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -9977,6 +10004,7 @@ public struct ViewBuildContext {
 
     func withNavigationDestinationRegistration(_ registration: NavigationDestinationRegistration) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -10009,6 +10037,7 @@ public struct ViewBuildContext {
 
     func withNavigationPresentedDestination(_ destination: NavigationPresentedDestination) -> ViewBuildContext {
         ViewBuildContext(
+            viewIdentity: viewIdentity,
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             stateMutationInvalidationHandler: stateMutationInvalidationHandler,
@@ -10049,8 +10078,9 @@ public protocol View {
 }
 extension View {
     public func makeComponent(context: ViewBuildContext) -> Component {
-        ViewBuildContextScope.withCurrent(context) {
-            body.makeComponent(context: context)
+        let scopedContext = context.withViewIdentityType(Self.self)
+        return ViewBuildContextScope.withCurrent(scopedContext) {
+            makeViewComponent(body, context: scopedContext.withViewIdentityRole(.body))
         }
     }
 
@@ -10251,9 +10281,14 @@ public struct ModifiedContent<Content: View, Modifier: ViewModifier>: View, Tagg
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        modifier
-            .body(content: ViewModifierContent(content))
-            .makeComponent(context: context)
+        let modifierContext = context.withViewIdentityType(Self.self)
+            .withViewIdentityRole(.modifier).withViewIdentityType(Modifier.self)
+        return ViewBuildContextScope.withCurrent(modifierContext) {
+            makeViewComponent(
+                modifier.body(content: ViewModifierContent(content)),
+                context: modifierContext.withViewIdentityRole(.modifierBody)
+            )
+        }
     }
 }
 @MainActor
@@ -10619,6 +10654,7 @@ public struct AnyView: View {
     public typealias Body = Never
 
     private let buildComponent: (ViewBuildContext) -> Component
+    var structuralIdentity: [RetainedViewIdentity.Segment] = []
     let selectionTag: AnyHashable?
     let tabItem: [AnyView]?
     let badge: [AnyView]?
@@ -10633,6 +10669,10 @@ public struct AnyView: View {
     let swipeActions: [RetainedSwipeAction]
 
     public init<V: View>(_ view: V) {
+        if let erased = view as? AnyView {
+            self = erased
+            return
+        }
         self.selectionTag = (view as? any TaggedViewMetadata)?.anySelectionTag
         self.tabItem = (view as? any TaggedViewMetadata)?.anyTabItem
         self.badge = (view as? any TaggedViewMetadata)?.anyBadge
@@ -10648,9 +10688,7 @@ public struct AnyView: View {
             (view as? any TaggedViewMetadata)?.anyNavigationPresentedDestinations ?? []
         self.swipeActions = (view as? any SwipeActionMetadata)?.swipeActions ?? []
         self.buildComponent = { context in
-            ViewBuildContextScope.withCurrent(context) {
-                view.makeComponent(context: context)
-            }
+            makeViewComponent(view, context: context)
         }
     }
 
@@ -10659,7 +10697,7 @@ public struct AnyView: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        buildComponent(context)
+        buildComponent(context.withViewIdentityPrefix(structuralIdentity))
     }
 }
 extension Array: View where Element == AnyView {
@@ -10683,7 +10721,7 @@ extension Optional: View where Wrapped: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         switch self {
         case .some(let wrapped):
-            return wrapped.makeComponent(context: context)
+            return makeViewComponent(wrapped, context: context.withViewIdentityPrefix([.branch(true)]))
         case .none:
             return EmptyView().makeComponent(context: context)
         }
@@ -10750,7 +10788,8 @@ public struct TupleView<T>: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         if let view = value as? any View {
-            return view.makeComponent(context: context)
+            return makeViewComponent(
+                view, context: context.withViewIdentityType(Self.self).withViewIdentityRole(.content))
         }
         return composeComponent(from: [], context: context)
     }
@@ -10777,9 +10816,9 @@ public struct _ConditionalContent<TrueContent: View, FalseContent: View>: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         switch storage {
         case .trueContent(let content):
-            return content.makeComponent(context: context)
+            return makeViewComponent(content, context: context.withViewIdentityPrefix([.branch(true)]))
         case .falseContent(let content):
-            return content.makeComponent(context: context)
+            return makeViewComponent(content, context: context.withViewIdentityPrefix([.branch(false)]))
         }
     }
 }
@@ -10793,11 +10832,13 @@ public enum ViewBuilder {
     public static func buildExpression<Data, ID>(
         _ expression: ForEach<Data, ID>
     ) -> [AnyView] {
-        expression.contentViews
+        expression.contentViews.map {
+            $0.prefixedViewIdentity([.view(ObjectIdentifier(ForEach<Data, ID>.self)), .role(.content)])
+        }
     }
 
     public static func buildExpression(_ expression: [AnyView]) -> [AnyView] {
-        expression
+        viewIdentityOccurrences(expression)
     }
 
     public static func buildExpression(_ expression: Void) -> [AnyView] {
@@ -10805,23 +10846,27 @@ public enum ViewBuilder {
     }
 
     public static func buildBlock(_ components: [AnyView]...) -> [AnyView] {
-        components.flatMap { $0 }
+        components.enumerated().flatMap { index, views in
+            viewIdentityOccurrences(views).map { $0.prefixedViewIdentity([.slot(index)]) }
+        }
     }
 
     public static func buildOptional(_ components: [AnyView]?) -> [AnyView] {
-        components ?? []
+        (components ?? []).map { $0.prefixedViewIdentity([.branch(true)]) }
     }
 
     public static func buildEither(first components: [AnyView]) -> [AnyView] {
-        components
+        components.map { $0.prefixedViewIdentity([.branch(true)]) }
     }
 
     public static func buildEither(second components: [AnyView]) -> [AnyView] {
-        components
+        components.map { $0.prefixedViewIdentity([.branch(false)]) }
     }
 
     public static func buildArray(_ components: [[AnyView]]) -> [AnyView] {
-        components.flatMap { $0 }
+        components.enumerated().flatMap { index, views in
+            views.map { $0.prefixedViewIdentity([.iteration(index)]) }
+        }
     }
 
     public static func buildLimitedAvailability(_ components: [AnyView]) -> [AnyView] {
@@ -17594,6 +17639,7 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
     /// resulting ViewNode so the diffing algorithm can match nodes across
     /// rebuilds by identity rather than position alone.
     var id: String?
+    var explicitViewIdentity: RetainedViewIdentity.Key?
     var scrollTargetIdentity: RetainedScrollTargetIdentity?
     var selectionTag: AnyHashable?
     var tabItem: [AnyView]?
@@ -17657,7 +17703,12 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
     }
 
     func makeComponent(context: ViewBuildContext) -> Component {
-        let inner = transform(content, context)
+        var scopedContext = context.withViewIdentityType(Self.self)
+        if let explicitViewIdentity {
+            scopedContext = scopedContext.withViewIdentityPrefix([.explicit(explicitViewIdentity)])
+        }
+        let contentContext = scopedContext.withViewIdentityRole(.content).withViewIdentityType(Content.self)
+        let inner = preservingViewIdentity(of: transform(content, contentContext), context: scopedContext)
         guard let id else {
             return inner
         }
@@ -17794,6 +17845,7 @@ func composeComponent(
     fallbackLayout: ViewLayoutMode = .absolute,
     isHitTestVisible: Bool = false
 ) -> Component {
+    let views = viewIdentityOccurrences(views)
     if views.count == 1, let view = views.first {
         return view.makeComponent(context: context)
     }
@@ -20634,13 +20686,13 @@ private func retainedContextMenuPresentation(
         ? nil
         : composeComponent(
             from: preview,
-            context: menuContext,
+            context: menuContext.withViewIdentityRole(.presentation),
             fallbackLayout: .stack(.vertical(spacing: 4, alignment: .stretch)),
             isHitTestVisible: false
         )
     let itemComponent = composeComponent(
         from: menuItems,
-        context: menuContext,
+        context: menuContext.withViewIdentityRole(.menu),
         fallbackLayout: .stack(.vertical(spacing: 2, alignment: .stretch)),
         isHitTestVisible: false
     )
@@ -21007,7 +21059,7 @@ extension View {
             let base = content.makeComponent(context: context)
             let inset = composeComponent(
                 from: insetViews,
-                context: context,
+                context: context.withViewIdentityRole(.safeAreaInset),
                 fallbackLayout: .stack(
                     .vertical(
                         spacing: 0,
@@ -21050,7 +21102,7 @@ extension View {
             let base = content.makeComponent(context: context)
             let inset = composeComponent(
                 from: insetViews,
-                context: context,
+                context: context.withViewIdentityRole(.safeAreaInset),
                 fallbackLayout: .stack(
                     .horizontal(
                         spacing: 0,
@@ -21164,6 +21216,7 @@ extension View {
             let base = content.makeComponent(context: context)
             let toolbarContext =
                 context
+                .withViewIdentityRole(.toolbar)
                 .withButtonStyle(.borderless)
                 .withControlSize(.small)
             let toolbar = composeComponent(
@@ -21425,6 +21478,7 @@ extension View {
             }
             let sheetContext =
                 context
+                .withViewIdentityRole(.presentation)
                 .withEnvironmentValue(\.dismiss, DismissAction(handler: dismiss))
                 .withEnvironmentValue(\.isPresented, true)
             let sheet = composeComponent(
@@ -21464,6 +21518,7 @@ extension View {
             }
             let sheetContext =
                 context
+                .withViewIdentityRole(.presentation)
                 .withEnvironmentValue(\.dismiss, DismissAction(handler: dismiss))
                 .withEnvironmentValue(\.isPresented, true)
             let sheet = composeComponent(
@@ -21494,6 +21549,7 @@ extension View {
 
             let coverContext =
                 context
+                .withViewIdentityRole(.presentation)
                 .withEnvironmentValue(
                     \.dismiss,
                     DismissAction(handler: {
@@ -21530,6 +21586,7 @@ extension View {
 
             let coverContext =
                 context
+                .withViewIdentityRole(.presentation)
                 .withEnvironmentValue(
                     \.dismiss,
                     DismissAction(handler: {
@@ -21567,6 +21624,7 @@ extension View {
 
             let popoverContext =
                 context
+                .withViewIdentityRole(.presentation)
                 .withEnvironmentValue(
                     \.dismiss,
                     DismissAction(handler: {
@@ -21619,6 +21677,7 @@ extension View {
 
             let popoverContext =
                 context
+                .withViewIdentityRole(.presentation)
                 .withEnvironmentValue(
                     \.dismiss,
                     DismissAction(handler: {
@@ -21672,6 +21731,7 @@ extension View {
 
             let popoverContext =
                 context
+                .withViewIdentityRole(.presentation)
                 .withEnvironmentValue(
                     \.dismiss,
                     DismissAction(handler: {
@@ -21727,6 +21787,7 @@ extension View {
 
             let popoverContext =
                 context
+                .withViewIdentityRole(.presentation)
                 .withEnvironmentValue(
                     \.dismiss,
                     DismissAction(handler: {
@@ -21977,7 +22038,8 @@ extension View {
         let backgroundViews = background()
         return ModifiedView(content: self) { content, context in
             let base = content.makeComponent(context: context)
-            let background = composeComponent(from: backgroundViews, context: context, fallbackLayout: .absolute)
+            let background = composeComponent(
+                from: backgroundViews, context: context.withViewIdentityRole(.background), fallbackLayout: .absolute)
 
             return Component { runtime in
                 let backgroundNode = background.makeNode(runtime: runtime)
@@ -23240,7 +23302,8 @@ extension View {
         let backgroundViews = backgroundContent()
         return ModifiedView(content: self) { content, context in
             let base = content.makeComponent(context: context)
-            let background = composeComponent(from: backgroundViews, context: context, fallbackLayout: .absolute)
+            let background = composeComponent(
+                from: backgroundViews, context: context.withViewIdentityRole(.background), fallbackLayout: .absolute)
 
             return Component { runtime in
                 let backgroundNode = background.makeNode(runtime: runtime)
@@ -23315,7 +23378,7 @@ extension View {
                 let preferenceValue = retainedPreferenceValue(in: baseNode, key: key)
                 let background = composeComponent(
                     from: transform(preferenceValue),
-                    context: context,
+                    context: context.withViewIdentityRole(.background),
                     fallbackLayout: .absolute
                 )
                 let backgroundNode = background.makeNode(runtime: runtime)
@@ -23437,7 +23500,8 @@ extension View {
         let overlayViews = overlayContent()
         return ModifiedView(content: self) { content, context in
             let base = content.makeComponent(context: context)
-            let overlay = composeComponent(from: overlayViews, context: context, fallbackLayout: .absolute)
+            let overlay = composeComponent(
+                from: overlayViews, context: context.withViewIdentityRole(.overlay), fallbackLayout: .absolute)
 
             return Component { runtime in
                 let baseNode = base.makeNode(runtime: runtime)
@@ -23539,7 +23603,7 @@ extension View {
                 let preferenceValue = retainedPreferenceValue(in: baseNode, key: key)
                 let overlay = composeComponent(
                     from: transform(preferenceValue),
-                    context: context,
+                    context: context.withViewIdentityRole(.overlay),
                     fallbackLayout: .absolute
                 )
                 let overlayNode = overlay.makeNode(runtime: runtime)
@@ -27198,7 +27262,8 @@ extension View {
         let maskViews = mask()
         return ModifiedView(content: self) { content, context in
             let base = content.makeComponent(context: context)
-            let maskSource = composeComponent(from: maskViews, context: context, fallbackLayout: .absolute)
+            let maskSource = composeComponent(
+                from: maskViews, context: context.withViewIdentityRole(.mask), fallbackLayout: .absolute)
             var retainedMask = alignment.retainedViewMask
             retainedMask.isInverse = inverse
 
@@ -29910,11 +29975,17 @@ extension View {
             content.makeComponent(context: context)
         }
         modified.id = identifier
+        modified.explicitViewIdentity = RetainedViewIdentity.Key(identifier)
         return modified
     }
 
     public func id<ID: Hashable>(_ identifier: ID) -> some View {
-        id(String(describing: identifier))
+        var modified = ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+        modified.id = String(describing: identifier)
+        modified.explicitViewIdentity = RetainedViewIdentity.Key(identifier)
+        return modified
     }
 
     func implicitForEachScrollTarget<ID: Hashable>(_ identifier: ID, index: Int) -> some View {

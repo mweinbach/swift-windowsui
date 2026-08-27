@@ -243,13 +243,35 @@ final class WindowDismissBehaviorTests: XCTestCase {
         XCTAssertTrue(harness.host.windowShouldClose(harness.window))
         model.behavior = .disabled
         XCTAssertFalse(harness.host.windowShouldClose(harness.window))
+        XCTAssertTrue(
+            try policyNode(in: harness) === originalNode, "Policy value changes must preserve the same view identity.")
 
         model.includesModifier = false
         XCTAssertTrue(harness.host.windowShouldClose(harness.window))
         XCTAssertTrue(harness.window.isCloseButtonEnabled)
-        XCTAssertNil(try policyNode(in: harness).windowDismissBehavior)
-        XCTAssertTrue(
-            try policyNode(in: harness) === originalNode, "Reconciliation must clear the surviving node's policy.")
+        let replacement = try policyNode(in: harness)
+        XCTAssertNil(replacement.windowDismissBehavior)
+        XCTAssertFalse(replacement === originalNode, "Changing the builder branch must replace the typed view.")
+        XCTAssertNil(originalNode.parent)
+        XCTAssertEqual(originalNode.windowDismissBehavior, .disabled, "Detached policy must not veto the live window.")
+    }
+
+    func testRawRetainedSlotClearsRemovedClosePolicy() async {
+        let root = ViewNode()
+        let slot = ViewNode(windowDismissBehavior: .disabled)
+        slot.nodeTag = "raw-close-policy"
+        root.addChild(slot)
+        let runtime = RetainedViewRuntime(root: root)
+        XCTAssertEqual(runtime.windowDismissalBehavior, .disabled)
+
+        let replacement = ViewNode()
+        replacement.nodeTag = "raw-close-policy"
+        ComponentHost.reconcileChildren(of: root, oldChildren: root.children, newNodes: [replacement])
+
+        XCTAssertTrue(root.children.first === slot, "Raw tagged reconciliation must preserve the retained slot.")
+        XCTAssertTrue(slot.parent === root)
+        XCTAssertNil(slot.windowDismissBehavior)
+        XCTAssertEqual(runtime.windowDismissalBehavior, .automatic)
     }
 
     func testRemovalTransitionDoesNotKeepDetachedClosePolicyActive() async throws {

@@ -1708,15 +1708,17 @@ public struct EnvironmentScene<Content: Scene, Value>: Scene {
     private func applyingEnvironment(to original: WindowGroupConfiguration) -> WindowGroupConfiguration {
         var configuration = original
         let buildWindowContent = configuration.windowContentFactory
-        configuration.content = configuration.content.map { AnyView($0.environment(keyPath, value)) }
+        configuration.content = configuration.content.map {
+            $0.mappingViewIdentity { AnyView($0.environment(keyPath, value)) }
+        }
         if let buildContent = buildWindowContent {
             configuration.windowContentFactory = {
-                buildContent().map { AnyView($0.environment(keyPath, value)) }
+                buildContent().map { $0.mappingViewIdentity { AnyView($0.environment(keyPath, value)) } }
             }
         }
         if let buildContent = configuration.dataBoundContent {
             configuration.dataBoundContent = { payload in
-                buildContent(payload).map { AnyView($0.environment(keyPath, value)) }
+                buildContent(payload).map { $0.mappingViewIdentity { AnyView($0.environment(keyPath, value)) } }
             }
         }
         return configuration
@@ -1749,15 +1751,17 @@ public struct EnvironmentObjectScene<Content: Scene, ObjectType: ObservableObjec
     private func applyingEnvironmentObject(to original: WindowGroupConfiguration) -> WindowGroupConfiguration {
         var configuration = original
         let buildWindowContent = configuration.windowContentFactory
-        configuration.content = configuration.content.map { AnyView($0.environmentObject(object)) }
+        configuration.content = configuration.content.map {
+            $0.mappingViewIdentity { AnyView($0.environmentObject(object)) }
+        }
         if let buildContent = buildWindowContent {
             configuration.windowContentFactory = {
-                buildContent().map { AnyView($0.environmentObject(object)) }
+                buildContent().map { $0.mappingViewIdentity { AnyView($0.environmentObject(object)) } }
             }
         }
         if let buildContent = configuration.dataBoundContent {
             configuration.dataBoundContent = { payload in
-                buildContent(payload).map { AnyView($0.environmentObject(object)) }
+                buildContent(payload).map { $0.mappingViewIdentity { AnyView($0.environmentObject(object)) } }
             }
         }
         return configuration

@@ -1124,9 +1124,29 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertTrue(node.isFocusable)
             XCTAssertEqual(node.preferredSize, Size(width: 260, height: 120))
-            XCTAssertEqual(node.children[0].text, "hi")
-            XCTAssertNil(node.children[0].textStyle.maximumNumberOfLines)
-            XCTAssertEqual(node.children[0].textStyle.lineBreakMode, .wrap)
+            XCTAssertEqual(node.children.count, 1)
+            guard let viewport = node.children.first else {
+                XCTFail("The multiline input must retain its viewport")
+                return
+            }
+            XCTAssertEqual(viewport.scrollAxis, .vertical)
+            XCTAssertTrue(viewport.clipsToBounds)
+            XCTAssertNil(viewport.text)
+            XCTAssertEqual(viewport.children.count, 1)
+            guard let content = viewport.children.first else {
+                XCTFail("The viewport must retain its text content")
+                return
+            }
+            let fragments = content.children.filter { $0.text != nil }
+            XCTAssertEqual(fragments.compactMap(\.text), ["hi"])
+            XCTAssertEqual(node.accessibilityValue, "hi")
+            XCTAssertNil(viewport.textStyle.maximumNumberOfLines)
+            XCTAssertEqual(viewport.textStyle.lineBreakMode, .wrap)
+            for fragment in fragments {
+                XCTAssertFalse(fragment.isHidden)
+                XCTAssertEqual(fragment.textStyle.maximumNumberOfLines, 1)
+                XCTAssertEqual(fragment.textStyle.lineBreakMode, .clip)
+            }
 
             node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
             node.onKeyDown?(KeyboardEvent(keyCode: 0x4E))
@@ -1438,8 +1458,12 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(deleteValue, "abf")
             XCTAssertEqual(deleteNode.textInputCaretOffset, 2)
-            XCTAssertEqual(deleteNode.textInputSelection, RetainedTextSelection(indices: .insertionPoint(2)))
+            XCTAssertEqual(
+                deleteNode.textInputSelection,
+                RetainedTextSelection(indices: .insertionPoint(2), affinity: .downstream)
+            )
             XCTAssertEqual(insertionOffset(deleteSelection, in: deleteValue), 2)
+            XCTAssertEqual(deleteSelection?.affinity, .downstream)
         }
     }
 
@@ -2196,9 +2220,29 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertTrue(node.isFocusable)
             XCTAssertEqual(node.preferredSize, Size(width: 260, height: 120))
-            XCTAssertEqual(node.children[0].text, "hi")
-            XCTAssertNil(node.children[0].textStyle.maximumNumberOfLines)
-            XCTAssertEqual(node.children[0].textStyle.lineBreakMode, .wrap)
+            XCTAssertEqual(node.children.count, 1)
+            guard let viewport = node.children.first else {
+                XCTFail("The multiline editor must retain its viewport")
+                return
+            }
+            XCTAssertEqual(viewport.scrollAxis, .vertical)
+            XCTAssertTrue(viewport.clipsToBounds)
+            XCTAssertNil(viewport.text)
+            XCTAssertEqual(viewport.children.count, 1)
+            guard let content = viewport.children.first else {
+                XCTFail("The viewport must retain its text content")
+                return
+            }
+            let fragments = content.children.filter { $0.text != nil }
+            XCTAssertEqual(fragments.compactMap(\.text), ["hi"])
+            XCTAssertEqual(node.accessibilityValue, "hi")
+            XCTAssertNil(viewport.textStyle.maximumNumberOfLines)
+            XCTAssertEqual(viewport.textStyle.lineBreakMode, .wrap)
+            for fragment in fragments {
+                XCTAssertFalse(fragment.isHidden)
+                XCTAssertEqual(fragment.textStyle.maximumNumberOfLines, 1)
+                XCTAssertEqual(fragment.textStyle.lineBreakMode, .clip)
+            }
 
             node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
             node.onKeyDown?(KeyboardEvent(keyCode: 0x41, modifiers: [.shift]))
@@ -2208,7 +2252,27 @@ final class WinSwiftUITests: XCTestCase {
 
             let updatedNode = makeNode(TextEditor(text: binding))
 
-            XCTAssertEqual(updatedNode.children[0].text, "hi\nAb")
+            XCTAssertEqual(updatedNode.children.count, 1)
+            guard let updatedViewport = updatedNode.children.first else {
+                XCTFail("The rebuilt multiline editor must retain its viewport")
+                return
+            }
+            XCTAssertEqual(updatedViewport.scrollAxis, .vertical)
+            XCTAssertTrue(updatedViewport.clipsToBounds)
+            XCTAssertNil(updatedViewport.text)
+            XCTAssertEqual(updatedViewport.children.count, 1)
+            guard let updatedContent = updatedViewport.children.first else {
+                XCTFail("The rebuilt viewport must retain its text content")
+                return
+            }
+            let updatedFragments = updatedContent.children.filter { $0.text != nil }
+            XCTAssertEqual(updatedFragments.compactMap(\.text), ["hi", "Ab"])
+            XCTAssertEqual(updatedNode.accessibilityValue, "hi\nAb")
+            for fragment in updatedFragments {
+                XCTAssertFalse(fragment.isHidden)
+                XCTAssertEqual(fragment.textStyle.maximumNumberOfLines, 1)
+                XCTAssertEqual(fragment.textStyle.lineBreakMode, .clip)
+            }
         }
     }
 

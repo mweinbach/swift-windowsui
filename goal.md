@@ -4082,3 +4082,104 @@ the preceding batch's recorded 13-minute-31-second run does not satisfy it.
 The new candidate must be measured before the accumulated push. Full, Quick,
 rendering/reference results, and all nine original product gates still require
 their own evidence.
+
+### Sixth batch Full attempt: preserved facade regression evidence
+
+The first clean sixth-batch Full run used commit
+`26144ba3099447e2bf3bd32f4d2ef23f7c1d2bd8`. Its PowerShell child started at
+2026-08-28 14:29:38 UTC and exited naturally with code 1 at 14:45:03 UTC
+(925.203 seconds). The capture runner also returned 1. This was a test failure,
+not a timeout, cleanup intervention, or source change. All tracked working
+bytes, HEAD/tree, status, and raw index observations matched before and after.
+
+The run completed 17 agent-check steps before failing its eighteenth step,
+the main sharded XCTest suite, at shard 226 of 249. The observed log contains
+4,366 distinct XCTest starts and terminals: 4,362 passed, one known material
+test skipped, and three failed. The completed Swift Testing invocations
+reported 134 passing tests. Remaining shards, later builds, screenshots, and
+the gallery gate were not reached; these partial counts do not establish a
+successful Full result.
+
+There were four failed assertions in three existing `WinSwiftUITests` methods:
+
+- `testTextFieldVerticalAxisMapsToMultilineInput` expected the first child
+  itself to carry `hi`.
+- `testTextEditorSupportsBasicMultilineBindingInput` expected that same direct
+  text child both before input and for the rebuilt `hi\nAb` value.
+- `testTextInputSingleRangeSelectionReplacesAndDeletes` expected automatic
+  retained affinity after the multiline forward deletion; the editor returned
+  downstream affinity at the same insertion offset, 2.
+
+The committed editor now uses a clipped vertical viewport, with real shaped
+  line fragments in its content and no hidden full-source label. The viewport
+  retains the unlimited/wrapping style, while each shaped fragment paints once
+  with a single-line clipped style. A faithful fixture correction must check
+  the real fragment contents and viewport semantics, not move the old style
+  assertions onto the first fragment or inspect only the first line. The
+  affinity expectation must follow the editor's explicit post-edit downstream
+  policy without changing the single-line field's separate behavior. Source
+  review identified these fixture assumptions; a corrected run remains pending
+  at this entry.
+
+The complete raw log is 1,480,801 bytes, SHA256
+`8661d3070f38cf9748ebb9c914799ddbff25d8004a1447e7370c496f6e1f5fae`.
+The immutable failure archive is
+`artifacts/goal-sixth-full-26144ba-failure-v1/failure.json`, SHA256
+`4079d75989a29a7c809c60e82c96f9821bfee9e455badcff1806bc386a5a4476`.
+Its 193 preserved files include run receipts and the shared render files that
+were present after failure. Those render files predate this attempt and are
+explicitly stale; their existence is not new rendering evidence. Archive
+completion means the files were preserved and checked, not that validation
+passed. No baseline, tolerance, font, renderer, or test selection was changed.
+
+The follow-up is a minimal fixture correction, focused validation of those
+three methods, then fresh clean-commit Full and Quick runs. The failed attempt
+and all earlier evidence remain unchanged. The original nine completion gates
+remain open, and no interim test result is a substitute for their full scope.
+
+### Sixth batch facade correction: all 575 class cases pass
+
+The follow-up changes only the three fixture method bodies identified above.
+The multiline assertions now validate one clipped vertical viewport and its
+content, the propagated unlimited/wrap style, and the actual visible shaped
+fragments (`hi`, then `hi` and `Ab`). Each fragment must paint as one clipped
+line. The complete accessibility value is checked as well; no hidden source
+label or first-line-only shortcut replaces the original content check. The
+multiline deletion now checks downstream affinity in both retained selection
+and the authored selection binding. The two single-line field branches,
+original input dispatches, logical caret offsets, and every other method remain
+unchanged. This is the existing retained editor policy, not a new native
+SwiftUI conformance claim.
+
+The reviewed test-only patch has SHA256
+`4644641245ddbb9042be92dc21f2788956f63f22bbe6bfd5aac374b53f765f49`.
+Architecture checks and strict formatting of the changed Swift file passed.
+Root then ran the complete `WinSwiftUITests` class serially, not just the three
+methods: **575 distinct cases passed**, with zero failures, skips, duplicates,
+or unmatched generated identifiers, across 20 SwiftPM invocations. All three
+corrected cases are included. The unchanged `-Sharded` script selects and
+batches a whole discovered class even when a filter names individual methods;
+this run deliberately used the class name. Its 20 Swift Testing tails each
+reported zero additional tests.
+
+The run used staged tree `69353faea95bc4023fd410be8dc4f5171cbf987e` over
+`26144ba`, from 15:15 to 15:19 UTC on 2026-08-28. The first build completed in
+207.03 seconds. PowerShell and the capture runner exited naturally with 0;
+all 740 tracked input files, HEAD, exact staged tree, status, and raw index
+remained unchanged. There was no timeout or cleanup intervention. The 186,205
+byte log has SHA256
+`563b755a842b733e5662188f2e9bb153f905d4f021719fb4811d49ddb02daec1`;
+the exact case audit is
+`artifacts/goal-sixth-facade-focused-v1-case-audit.json`.
+
+The prior Full failure remains unchanged. A later source review also identified
+a case-sensitive baseline lookup in its artifact archiver: tracked paths use
+`Tests/fixtures/...`, while the report uses `tests/fixtures/...`. That adds
+lookup errors to the failed archive; it is not evidence of another rendering
+failure. A separate archiver correction must reject colliding path aliases and
+retain exact file hashes and lengths. It does not change the baseline pixels,
+thresholds, renderer, or the original failed validation result.
+
+Full, Quick, new raw renders, and same-commit diagnostic comparisons remain
+pending after this focused pass. All original goal requirements and nine open
+completion gates remain unchanged.

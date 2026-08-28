@@ -31,6 +31,14 @@ public struct DirtyFlags: OptionSet, Sendable {
 
     public static let all: DirtyFlags = [.layout, .paint, .children]
 }
+
+/// Exhaustion permanently disables optional selection replay rather than
+/// allowing an old scope stamp to match a later runtime state.
+func advanceTextInputReplayScopeRevision(_ revision: inout UInt64?) {
+    guard let current = revision else { return }
+    revision = current == UInt64.max ? nil : current + 1
+}
+
 public enum RetainedColorRenderingMode: Sendable, Equatable, Hashable {
     case nonLinear
     case linear
@@ -9268,6 +9276,10 @@ public final class RetainedViewRuntime {
     public private(set) var dirtyFlags: DirtyFlags = .all
     public var isDirty: Bool { !dirtyFlags.isEmpty }
 
+    /// Changes for every invalidation or layout entry, including a nested
+    /// layout that drains callbacks queued before a selection getter ran.
+    package private(set) var textInputReplayScopeRevision: UInt64? = 0
+
     /// Invalidation staging for the duration of a render pass — see
     /// `beginRenderPass()` / `endRenderPass()`.
     private var isRendering = false
@@ -12735,6 +12747,7 @@ public final class RetainedViewRuntime {
 
     fileprivate func invalidate(_ flags: DirtyFlags = .all) {
         recordLayoutSettlementInvalidation(flags)
+        advanceTextInputReplayScopeRevision(&textInputReplayScopeRevision)
         invalidateRenderLifecycleCandidates()
         guard isRendering else {
             dirtyFlags.insert(flags)
@@ -12745,6 +12758,7 @@ public final class RetainedViewRuntime {
 
     fileprivate func invalidate(_ flags: DirtyFlags, from node: ViewNode) {
         recordLayoutSettlementInvalidation(flags)
+        advanceTextInputReplayScopeRevision(&textInputReplayScopeRevision)
         if isDrainingAfterLayoutActions, !flags.intersection([.layout, .children]).isEmpty {
             afterLayoutGeometryInvalidations.append(WeakViewNodeRef(node: node))
         }
@@ -13378,6 +13392,7 @@ public final class RetainedViewRuntime {
         }
         let settlementSequence = beginLayoutSettlementResolution()
         let traversalOverflowCount = ViewNode.traversalDepthOverflowCount
+        advanceTextInputReplayScopeRevision(&textInputReplayScopeRevision)
         lastLayoutReuseCount = 0
         lastMeasureReuseCount = 0
         lastPrepaintReplayCount = 0

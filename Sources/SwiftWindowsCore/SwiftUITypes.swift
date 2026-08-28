@@ -274,15 +274,34 @@ public struct Transaction: Sendable {
     }
 }
 
+/// Framework mutation ownership travels with generated projections without
+/// making the portable binding layer depend on a document or UI runtime.
+@MainActor
+package protocol BindingMutationSource: AnyObject {}
+
+/// An explicit context belongs to one write. Ordinary application closures do
+/// not implicitly inherit it from a global or task-local editing scope.
+@MainActor
+package protocol BindingMutationContext: AnyObject {}
+
+@MainActor
+private struct BindingWritePermission {
+    let isValid: @MainActor () -> Bool
+}
+
 @MainActor
 @propertyWrapper
 @dynamicMemberLookup
 public struct Binding<Value> {
     private let getValue: @MainActor () -> Value
-    private let setValue: @MainActor (Value, Transaction) -> Void
+    private let setValue: @MainActor (Value, Transaction, (any BindingMutationContext)?, BindingWritePermission) -> Void
     private var isValidForWrite: @MainActor () -> Bool = { true }
     private var configuredTransaction: Transaction?
     private var inheritsAmbientTransaction = false
+    package private(set) var mutationSource: (any BindingMutationSource)?
+    /// A direct key-path chain has a stable selection projection. Optional and
+    /// indexed adapters retain ownership, but do not claim that identity.
+    package private(set) var mutationProjection: [AnyKeyPath]?
 
     /// The transaction supplied when writing through this binding. Reading
     /// an unconfigured binding returns an empty transaction without changing
@@ -299,7 +318,10 @@ public struct Binding<Value> {
 
     public init(get: @escaping @MainActor () -> Value, set: @escaping @MainActor (Value) -> Void) {
         self.getValue = get
-        self.setValue = { value, _ in set(value) }
+        self.setValue = { value, _, _, permission in
+            guard permission.isValid() else { return }
+            set(value)
+        }
     }
 
     public init(
@@ -307,7 +329,10 @@ public struct Binding<Value> {
         set: @escaping @MainActor (Value, Transaction) -> Void
     ) {
         self.getValue = get
-        self.setValue = set
+        self.setValue = { value, transaction, _, permission in
+            guard permission.isValid() else { return }
+            set(value, transaction)
+        }
     }
 
     /// A framework-owned location can revoke writes without changing ordinary
@@ -318,23 +343,45 @@ public struct Binding<Value> {
         isValidForWrite: @escaping @MainActor () -> Bool
     ) {
         self.getValue = get
-        self.setValue = { value, _ in set(value) }
+        self.setValue = { value, _, _, permission in
+            guard permission.isValid() else { return }
+            set(value)
+        }
         self.isValidForWrite = isValidForWrite
+    }
+
+    package init(
+        get: @escaping @MainActor () -> Value,
+        set: @escaping @MainActor (Value, Transaction, (any BindingMutationContext)?) -> Void,
+        isValidForWrite: @escaping @MainActor () -> Bool,
+        mutationSource: any BindingMutationSource
+    ) {
+        self.getValue = get
+        self.setValue = { value, transaction, mutation, permission in
+            guard permission.isValid() else { return }
+            set(value, transaction, mutation)
+        }
+        self.isValidForWrite = isValidForWrite
+        self.mutationSource = mutationSource
+        mutationProjection = []
     }
 
     public init<Wrapped>(_ base: Binding<Wrapped>) where Value == Wrapped? {
         self.getValue = {
             base.wrappedValue
         }
-        self.setValue = { value, transaction in
+        self.setValue = { value, transaction, mutation, permission in
             guard let value else {
                 return
             }
-            base.setValue(value, transaction)
+            guard base.isValidForWrite(), permission.isValid() else { return }
+            base.setValue(value, transaction, mutation, permission)
         }
         self.configuredTransaction = base.configuredTransaction
         self.inheritsAmbientTransaction = base.inheritsAmbientTransaction
         self.isValidForWrite = base.isValidForWrite
+        self.mutationSource = base.mutationSource
+        self.mutationProjection = nil
     }
 
     public init?(_ base: Binding<Value?>) {
@@ -345,12 +392,15 @@ public struct Binding<Value> {
         self.getValue = {
             base.wrappedValue ?? initialValue
         }
-        self.setValue = { value, transaction in
-            base.setValue(value, transaction)
+        self.setValue = { value, transaction, mutation, permission in
+            guard base.isValidForWrite(), permission.isValid() else { return }
+            base.setValue(value, transaction, mutation, permission)
         }
         self.configuredTransaction = base.configuredTransaction
         self.inheritsAmbientTransaction = base.inheritsAmbientTransaction
         self.isValidForWrite = base.isValidForWrite
+        self.mutationSource = base.mutationSource
+        self.mutationProjection = nil
     }
 
     public var wrappedValue: Value {
@@ -358,28 +408,39 @@ public struct Binding<Value> {
             getValue()
         }
         nonmutating set {
-            guard isValidForWrite() else { return }
-            let inherited =
-                TransactionContext.current
-                ?? TransactionContext.animation.map {
-                    Transaction(animation: Animation(duration: $0.duration, easing: $0.easing))
-                }
-            guard var transaction = configuredTransaction else {
-                // Do not create an explicit empty scope for an ordinary
-                // binding. Absence lets controls keep their own motion;
-                // an explicit nil animation intentionally suppresses it.
-                setValue(newValue, inherited ?? Transaction())
-                return
-            }
-            if inheritsAmbientTransaction {
-                let animation = transaction.animation
-                transaction = inherited ?? Transaction()
-                transaction.animation = animation
-            }
-            TransactionContext.withValue(transaction) {
-                setValue(newValue, transaction)
-            }
+            write(newValue, mutation: nil)
         }
+    }
+
+    package func write(_ value: Value, mutation: (any BindingMutationContext)?) {
+        guard isValidForWrite() else { return }
+        let permission = BindingWritePermission(isValid: isValidForWrite)
+        let inherited =
+            TransactionContext.current
+            ?? TransactionContext.animation.map {
+                Transaction(animation: Animation(duration: $0.duration, easing: $0.easing))
+            }
+        guard var transaction = configuredTransaction else {
+            // An absent explicit transaction still lets controls choose their
+            // own motion; tokened writes obey the same ambient inheritance.
+            setValue(value, inherited ?? Transaction(), mutation, permission)
+            return
+        }
+        if inheritsAmbientTransaction {
+            let animation = transaction.animation
+            transaction = inherited ?? Transaction()
+            transaction.animation = animation
+        }
+        TransactionContext.withValue(transaction) {
+            setValue(value, transaction, mutation, permission)
+        }
+    }
+
+    package func limitingWrites(_ predicate: @escaping @MainActor () -> Bool) -> Binding<Value> {
+        var binding = self
+        let previous = isValidForWrite
+        binding.isValidForWrite = { previous() && predicate() }
+        return binding
     }
 
     public var projectedValue: Binding<Value> {
@@ -391,15 +452,19 @@ public struct Binding<Value> {
             get: {
                 wrappedValue[keyPath: keyPath]
             },
-            set: { newValue, transaction in
+            forwardingSet: { newValue, transaction, mutation, permission in
                 var value = wrappedValue
+                guard isValidForWrite(), permission.isValid() else { return }
                 value[keyPath: keyPath] = newValue
-                setValue(value, transaction)
+                guard isValidForWrite(), permission.isValid() else { return }
+                setValue(value, transaction, mutation, permission)
             }
         )
         binding.configuredTransaction = configuredTransaction
         binding.inheritsAmbientTransaction = inheritsAmbientTransaction
         binding.isValidForWrite = isValidForWrite
+        binding.mutationSource = mutationSource
+        binding.mutationProjection = mutationProjection.map { $0 + [keyPath] }
         return binding
     }
 
@@ -409,16 +474,31 @@ public struct Binding<Value> {
             get: {
                 wrappedValue[position]
             },
-            set: { newValue, transaction in
+            forwardingSet: { newValue, transaction, mutation, permission in
                 var value = wrappedValue
+                guard isValidForWrite(), permission.isValid() else { return }
                 value[position] = newValue
-                setValue(value, transaction)
+                guard isValidForWrite(), permission.isValid() else { return }
+                setValue(value, transaction, mutation, permission)
             }
         )
         binding.configuredTransaction = configuredTransaction
         binding.inheritsAmbientTransaction = inheritsAmbientTransaction
         binding.isValidForWrite = isValidForWrite
+        binding.mutationSource = mutationSource
+        binding.mutationProjection = nil
         return binding
+    }
+
+    private init(
+        get: @escaping @MainActor () -> Value,
+        forwardingSet:
+            @escaping @MainActor (
+                Value, Transaction, (any BindingMutationContext)?, BindingWritePermission
+            ) -> Void
+    ) {
+        getValue = get
+        setValue = forwardingSet
     }
 
     public func transaction(_ transaction: Transaction) -> Binding<Value> {

@@ -13863,7 +13863,7 @@ extension ControlSize {
 /// In-flight callbacks resolve `current` after calling application code, so a
 /// synchronous rebuild can replace bindings and a removal can end the operation.
 @MainActor
-private final class TextInputInteractionController: RetainedTextInputController, TextInputUndoClient {
+private final class TextInputInteractionController: RetainedTextInputController, DocumentTextUndoClient {
     struct SelectionUpdate {
         var anchor: Int
         var extent: Int
@@ -13872,6 +13872,7 @@ private final class TextInputInteractionController: RetainedTextInputController,
         var pointerAnchor: Int? = nil
         var preferredVisualX: Double? = nil
         var resetsPreferredVisualX = false
+        var documentValidation: (@MainActor () -> Bool)? = nil
     }
 
     private(set) weak var node: ViewNode?
@@ -13886,17 +13887,22 @@ private final class TextInputInteractionController: RetainedTextInputController,
     weak var undoRuntime: RetainedViewRuntime?
     private weak var configuredUndoManager: UndoManager?
     var undoSession: TextInputUndoSession?
+    let documentSource: DocumentBindingSource?
+    let documentProjection: [AnyKeyPath]?
+    var documentEndpoint: DocumentTextSelectionEndpoint?
     var isComposing = false
     var pointerDragAnchor = 0
     var isSelectingWithPointer = false
     var readText: (() -> String)?
     var readSelection: (() -> TextSelection?)?
+    var observedDocumentSelection: TextSelection?
     var applySelection: ((SelectionUpdate) -> Bool)?
     var refreshChrome: (() -> Void)?
     var textPosition: ((Point) -> RetainedTextCaretPosition?)?
     var invalidate: (() -> Void)?
     var writeUndoText: ((String, TextInputUndoSelection) -> Void)?
     var restoreUndoSelection: ((TextInputUndoSelection) -> Void)?
+    var restoreDocumentSelectionBody: ((DocumentTextSelectionRestoration) -> Void)?
     var editorLayoutState: TextEditorLayoutState?
     var preferredVisualX: Double?
     var visualCaretAffinity: RetainedTextSelectionAffinity = .downstream
@@ -13905,7 +13911,8 @@ private final class TextInputInteractionController: RetainedTextInputController,
     init(
         node: ViewNode, characterCount: Int, hasSelectionBinding: Bool,
         isSecure: Bool, allowsNewlines: Bool, isEnabled: Bool,
-        runtime: RetainedViewRuntime, undoManager: UndoManager?
+        runtime: RetainedViewRuntime, undoManager: UndoManager?,
+        documentSource: DocumentBindingSource?, documentProjection: [AnyKeyPath]?
     ) {
         self.node = node
         self.characterCount = characterCount
@@ -13917,6 +13924,8 @@ private final class TextInputInteractionController: RetainedTextInputController,
         self.isEnabled = isEnabled
         undoRuntime = runtime
         configuredUndoManager = undoManager
+        self.documentSource = documentSource
+        self.documentProjection = documentProjection
         if allowsNewlines {
             editorLayoutState = TextEditorLayoutState()
             visualCaretAffinity = node.textInputSelection?.affinity ?? node.textSelectionAffinity
@@ -13938,6 +13947,7 @@ private final class TextInputInteractionController: RetainedTextInputController,
     func detach(from node: ViewNode) {
         if self.node === node {
             undoSession?.invalidate()
+            invalidateDocumentEndpoint()
             editorRevealQueued = false
             self.node = nil
             isAttached = false
@@ -13948,11 +13958,41 @@ private final class TextInputInteractionController: RetainedTextInputController,
         // Reconciliation also moves fresh nodes out of their unattached
         // construction parents. Only a live attachment owns history to revoke;
         // attaching a previously retired controller never revives its session.
-        if isAttached, self.node === node { undoSession?.markInvalid() }
+        if isAttached, self.node === node {
+            undoSession?.markInvalid()
+            invalidateDocumentEndpoint()
+        }
     }
 
     func willDetach(from node: ViewNode) {
-        if self.node === node { undoSession?.invalidate() }
+        if self.node === node {
+            undoSession?.invalidate()
+            invalidateDocumentEndpoint()
+        }
+    }
+
+    func invalidateDocumentEndpoint() {
+        if documentEndpoint?.client === self { documentEndpoint?.invalidate() }
+    }
+
+    func sharesDocumentLocation(with other: TextInputInteractionController) -> Bool {
+        guard let documentSource, documentSource === other.documentSource else { return false }
+        return self === other || (documentProjection != nil && documentProjection == other.documentProjection)
+    }
+
+    var documentSelectionIsCurrent: Bool { current === self && isAttached && isEnabled && !isSecure }
+    var documentSelectionIsComposing: Bool { isComposing || node?.textInputMarkedText != nil }
+    var documentHasSelectionBinding: Bool { hasSelectionBinding }
+    var documentBoundSelection: TextSelection? { observedDocumentSelection }
+
+    func restoreDocumentSelection(
+        _ selection: TextInputUndoSelection, expectedText: String, expectedBoundSelection: TextSelection?,
+        validate: @escaping @MainActor () -> Bool
+    ) {
+        restoreDocumentSelectionBody?(
+            DocumentTextSelectionRestoration(
+                selection: selection, expectedText: expectedText,
+                expectedBoundSelection: expectedBoundSelection, validate: validate))
     }
 
     var undoText: String? { current === self && isAttached ? readText?() : nil }
@@ -13968,6 +14008,7 @@ private final class TextInputInteractionController: RetainedTextInputController,
         guard current === self, isAttached, isEnabled, !isSecure, !isComposing,
             writeUndoText != nil, let node, let undoRuntime
         else { return false }
+        if let documentSource, !documentSource.belongs(to: undoRuntime) { return false }
         let allowed = undoRuntime.permitsTextInputReplay(on: node)
         return allowed && current === self && isAttached && !isComposing
     }
@@ -14012,7 +14053,8 @@ private final class TextInputInteractionController: RetainedTextInputController,
     }
 
     private func transferableUndoSession(from previous: TextInputInteractionController?) -> TextInputUndoSession? {
-        guard !isSecure, readText != nil, let manager = configuredUndoManager,
+        guard documentSource == nil, previous?.documentSource == nil,
+            !isSecure, readText != nil, let manager = configuredUndoManager,
             let old = previous?.undoSession, old.isValid, old.manager === manager,
             previous?.isSecure == isSecure, previous?.allowsNewlines == allowsNewlines
         else { return nil }
@@ -14021,12 +14063,36 @@ private final class TextInputInteractionController: RetainedTextInputController,
 
     func prepareForReconciliation(from previous: (any RetainedTextInputController)?, onto node: ViewNode) {
         guard let previous = previous as? TextInputInteractionController, previous.node === node else { return }
+        if let documentSource, !isSecure, previous.isSecure == isSecure, previous.allowsNewlines == allowsNewlines,
+            previous.documentEndpoint?.matches(source: documentSource, projection: documentProjection) == true
+        {
+            return
+        }
         if transferableUndoSession(from: previous) == nil {
             previous.revokeOwnership(from: node)
         }
     }
 
     func configureUndoSession(from previous: TextInputInteractionController? = nil) {
+        if let documentSource {
+            // A retained provenance marker stays authoritative even after its
+            // weak owner expires or supplies no manager. Never fall back to a
+            // second text history for the same document location.
+            previous?.undoSession?.invalidate()
+            undoSession = nil
+            if isSecure {
+                previous?.invalidateDocumentEndpoint()
+                invalidateDocumentEndpoint()
+                documentEndpoint = nil
+            } else {
+                let previousEndpoint = previous?.documentEndpoint ?? documentEndpoint
+                if documentEndpoint !== previousEndpoint { invalidateDocumentEndpoint() }
+                documentEndpoint = documentSource.endpoint(
+                    for: self, projection: documentProjection, previous: previousEndpoint)
+            }
+            return
+        }
+        previous?.invalidateDocumentEndpoint()
         if !isSecure, let manager = configuredUndoManager, let text = readText?() {
             if let old = transferableUndoSession(from: previous) {
                 undoSession = old
@@ -14047,7 +14113,13 @@ private final class TextInputInteractionController: RetainedTextInputController,
         // The retained node's controller setter already attached this value
         // when it belongs to a runtime. A slot without a previous controller
         // must retain that attachment even when its child list is unchanged.
-        let preservesEditing = previous?.isSecure == isSecure && previous?.allowsNewlines == allowsNewlines
+        let preservesDocumentLocation =
+            previous.map {
+                (documentSource == nil && $0.documentSource == nil) || sharesDocumentLocation(with: $0)
+            } ?? false
+        let preservesEditing =
+            previous?.isSecure == isSecure && previous?.allowsNewlines == allowsNewlines
+            && preservesDocumentLocation
         configureUndoSession(from: previous)
         if preservesEditing {
             isComposing = previous?.isComposing ?? false
@@ -14107,7 +14179,10 @@ func prepareTextInputUndoForWindowClose(in runtime: RetainedViewRuntime) -> (
             controllers.append((node, controller))
         }
     }
-    for (_, controller) in controllers { controller.undoSession?.markInvalid() }
+    for (_, controller) in controllers {
+        controller.undoSession?.markInvalid()
+        controller.invalidateDocumentEndpoint()
+    }
     return (
         purgeHistory: {
             for (_, controller) in controllers { controller.undoSession?.purgeHistory() }
@@ -14242,10 +14317,17 @@ private func textInputComponent(
         let controller = TextInputInteractionController(
             node: node, characterCount: currentText.count, hasSelectionBinding: selection != nil,
             isSecure: isSecure, allowsNewlines: allowsNewlines, isEnabled: context.isEnabled,
-            runtime: runtime, undoManager: context.environmentValues.undoManager)
+            runtime: runtime, undoManager: context.environmentValues.undoManager,
+            documentSource: binding.mutationSource as? DocumentBindingSource,
+            documentProjection: binding.mutationProjection)
         node.textInputController = controller
         controller.readText = { binding.wrappedValue }
-        controller.readSelection = { selection?.wrappedValue }
+        controller.observedDocumentSelection = selectionValue
+        controller.readSelection = { [weak controller] in
+            let value = selection?.wrappedValue
+            if let controller, controller.current === controller { controller.observedDocumentSelection = value }
+            return value
+        }
         controller.invalidate = { context.invalidate() }
         controller.configureUndoSession()
         node.textContentType = context.textContentType?.retainedContentType
@@ -14456,7 +14538,7 @@ private func textInputComponent(
             let wasAttached = controller.isAttached
             let text = binding.wrappedValue
             guard controller.current === controller, controller.node === node,
-                !wasAttached || controller.isAttached
+                !wasAttached || controller.isAttached, update.documentValidation?() ?? true
             else { return false }
             if let preparation = update.preparation, !text.utf8.elementsEqual(preparation.text.utf8) {
                 // A getter can replace the source without replacing this
@@ -14483,6 +14565,7 @@ private func textInputComponent(
                     controller.editorLayoutState?.key?.text.utf8.elementsEqual(preparation.text.utf8) == true
                 else { return false }
             }
+            guard update.documentValidation?() ?? true else { return false }
             if let affinity = update.affinity { controller.visualCaretAffinity = affinity }
             if update.resetsPreferredVisualX {
                 controller.preferredVisualX = nil
@@ -14508,6 +14591,7 @@ private func textInputComponent(
                             : context.textSelectionAffinity
                     )
                     node.textInputSelection = nextSelection.retainedSelection(in: text)
+                    controller.observedDocumentSelection = nextSelection
                     selection.wrappedValue = nextSelection
                 } else {
                     node.textInputSelection = nil
@@ -14521,10 +14605,12 @@ private func textInputComponent(
                 if let selection {
                     let lowerIndex = text.index(text.startIndex, offsetBy: lower)
                     let upperIndex = text.index(text.startIndex, offsetBy: upper)
-                    selection.wrappedValue = TextSelection(
+                    let nextSelection = TextSelection(
                         indices: .selection(lowerIndex..<upperIndex),
                         affinity: affinity
                     )
+                    controller.observedDocumentSelection = nextSelection
+                    selection.wrappedValue = nextSelection
                 }
             }
             controller.current?.refreshChrome?()
@@ -14539,8 +14625,42 @@ private func textInputComponent(
             node.textInputCaretOffset = min(max(0, snapshot.caret), text.count)
             node.textInputSelection = snapshot.selection
             node.textSelectionAffinity = snapshot.affinity
-            selection?.wrappedValue = snapshot.boundValue(in: text)
+            let restored = snapshot.boundValue(in: text)
+            controller.observedDocumentSelection = restored
+            selection?.wrappedValue = restored
             controller.current?.refreshChrome?()
+        }
+        controller.restoreDocumentSelectionBody = { [weak controller] request in
+            guard let controller, controller.documentSelectionIsCurrent, request.validate(),
+                let node = controller.node, let runtime = controller.undoRuntime,
+                runtime.permitsTextInputReplay(on: node), request.validate(), controller.current === controller,
+                let replayScopeRevision = runtime.textInputReplayScopeRevision
+            else { return }
+            let text = binding.wrappedValue
+            guard request.validate(), controller.current === controller, controller.node === node,
+                text.utf8.elementsEqual(request.expectedText.utf8)
+            else { return }
+            let boundSelection = selection?.wrappedValue
+            guard request.validate(), controller.current === controller, controller.node === node,
+                boundSelection == request.expectedBoundSelection
+            else { return }
+            // A getter can invalidate scope or run a nested layout that
+            // drains selection-changing callbacks. Compare without running
+            // more application callbacks after sampling the selection.
+            guard request.validate(), controller.current === controller, controller.node === node,
+                runtime.textInputReplayScopeRevision == replayScopeRevision
+            else { return }
+            let restored = request.selection.boundValue(in: text)
+            controller.preferredVisualX = nil
+            controller.visualCaretAffinity = request.selection.affinity
+            node.textInputCaretOffset = min(max(0, request.selection.caret), text.count)
+            node.textInputSelection = restored?.retainedSelection(in: text)
+            node.textSelectionAffinity = request.selection.affinity
+            controller.observedDocumentSelection = restored
+            selection?.wrappedValue = restored
+            guard request.validate(), controller.current === controller else { return }
+            controller.refreshChrome?()
+            controller.invalidate?()
         }
         @MainActor func invalidate() {
             controller.current?.invalidate?()
@@ -14548,7 +14668,103 @@ private func textInputComponent(
         @MainActor func setCaretOffset(_ offset: Int) {
             applySelection(anchor: offset, extent: offset)
         }
+        @MainActor func replaceDocumentText(in range: Range<Int>, with inserted: String) {
+            guard controller.current === controller, !isSecure, controller.isEnabled,
+                let node = controller.node, let source = controller.documentSource,
+                let runtime = controller.undoRuntime, source.belongs(to: runtime)
+            else { return }
+            let wasAttached = controller.isAttached
+            let originalText = binding.wrappedValue
+            guard controller.current === controller, controller.node === node,
+                !wasAttached || controller.isAttached, source.isLive
+            else { return }
+            let updatedText = originalText.replacingText(in: range, with: inserted)
+            var beforeSelection = TextInputUndoSelection(node: node, text: originalText)
+            if allowsNewlines { beforeSelection.affinity = controller.visualCaretAffinity }
+            guard
+                let ticket = source.beginEdit(
+                    before: originalText, proposed: updatedText, selection: beforeSelection,
+                    endpoint: controller.documentEndpoint)
+            else { return }
+            defer { ticket.cancel() }
+            let originalRevision = source.owner?.documentMutationRevision
+            let previousSelection = controller.readSelection?()
+            guard controller.current === controller, controller.node === node,
+                !wasAttached || controller.isAttached, ticket.permitsWrite
+            else { return }
+            let currentText = binding.wrappedValue
+            guard controller.current === controller, controller.node === node,
+                !wasAttached || controller.isAttached, ticket.permitsWrite
+            else { return }
+            guard currentText.utf8.elementsEqual(originalText.utf8) else {
+                invalidate()
+                return
+            }
+            let caret = range.lowerBound + inserted.count
+            let previousPreferredX = controller.preferredVisualX
+            node.textInputCaretOffset = caret
+            node.textInputSelection = nil
+            controller.preferredVisualX = nil
+            controller.visualCaretAffinity = .downstream
+            binding.write(updatedText, mutation: ticket)
+
+            guard ticket.receipt != nil else {
+                // A revoked/limited binding can reject the write. Restore only
+                // the internal selection we staged, never newer application
+                // text, selection, or an editor adopted by another document.
+                guard controller.current === controller, controller.node === node,
+                    !wasAttached || controller.isAttached, source.isLive,
+                    source.owner?.documentMutationRevision == originalRevision
+                else { return }
+                let text = binding.wrappedValue
+                guard controller.current === controller, source.isLive,
+                    source.owner?.documentMutationRevision == originalRevision,
+                    text.utf8.elementsEqual(originalText.utf8)
+                else { return }
+                let boundSelection = controller.readSelection?()
+                guard controller.current === controller, controller.node === node,
+                    !wasAttached || controller.isAttached, source.isLive,
+                    source.owner?.documentMutationRevision == originalRevision,
+                    boundSelection == previousSelection,
+                    node.textInputCaretOffset == caret, node.textInputSelection == nil
+                else { return }
+                node.textInputCaretOffset = beforeSelection.caret
+                node.textInputSelection = beforeSelection.selection
+                controller.visualCaretAffinity = beforeSelection.affinity
+                controller.preferredVisualX = previousPreferredX
+                controller.refreshChrome?()
+                return
+            }
+            guard let current = controller.current, current.node === node,
+                current.sharesDocumentLocation(with: controller), ticket.permitsCompletion
+            else { return }
+            let selectionWasReplaced = current.hasSelectionBinding && current.readSelection?() != previousSelection
+            guard current.current === current, ticket.permitsCompletion else { return }
+            let acceptedText = current.readText?()
+            guard current.current === current, ticket.permitsCompletion else { return }
+            if acceptedText?.utf8.elementsEqual(updatedText.utf8) == true, !selectionWasReplaced {
+                let validate: @MainActor () -> Bool = { [weak controller, weak current, weak ticket] in
+                    guard let controller, let current, let ticket else { return false }
+                    return current.current === current && current.sharesDocumentLocation(with: controller)
+                        && ticket.permitsCompletion
+                }
+                _ = current.applySelection?(.init(anchor: caret, extent: caret, documentValidation: validate))
+            }
+            guard let latest = controller.current, latest.node === node,
+                latest.sharesDocumentLocation(with: controller), ticket.permitsCompletion,
+                let text = latest.undoText
+            else { return }
+            guard latest.current === latest, ticket.permitsCompletion else { return }
+            let selection = latest.undoSelection
+            guard latest.current === latest, ticket.permitsCompletion else { return }
+            ticket.finish(text: text, selection: selection)
+            controller.current?.invalidate?()
+        }
         @MainActor func replaceText(in range: Range<Int>, with inserted: String) {
+            if controller.documentSource != nil {
+                replaceDocumentText(in: range, with: inserted)
+                return
+            }
             guard controller.current === controller, let node = controller.node else { return }
             let wasAttached = controller.isAttached
             let originalText = binding.wrappedValue
@@ -14648,9 +14864,29 @@ private func textInputComponent(
                 || (event.keyCode == 0x59 && event.modifiers == [.control])
             if isUndo || isRedo {
                 controller.invalidate?()
-                guard let current = controller.current, current.permitsUndoReplay,
-                    let manager = current.undoSession?.manager, let runtime = current.undoRuntime
+                guard let current = controller.current, current.permitsUndoReplay, let runtime = current.undoRuntime
                 else { return }
+                if let source = current.documentSource {
+                    guard source.belongs(to: runtime), let owner = source.owner,
+                        let manager = owner.documentUndoManager
+                    else { return }
+                    let permitsTarget: @MainActor (AnyObject) -> Bool = {
+                        [weak current, weak source, weak owner, weak runtime] target in
+                        guard let current, let source, let owner, let runtime,
+                            let active = current.current, active.sharesDocumentLocation(with: current),
+                            active.permitsUndoReplay, active.current === active,
+                            active.undoRuntime === runtime, source.belongs(to: runtime), source.owner === owner
+                        else { return false }
+                        return target === owner
+                    }
+                    if isUndo {
+                        manager.undo(allowingTarget: permitsTarget)
+                    } else {
+                        manager.redo(allowingTarget: permitsTarget)
+                    }
+                    return
+                }
+                guard let manager = current.undoSession?.manager else { return }
                 let permitsTarget: @MainActor (AnyObject) -> Bool = { target in
                     (target as? TextInputUndoSession)?.belongs(to: runtime) == true
                 }

@@ -7,11 +7,17 @@ Uses that export's exact XcodeDefault compiler and SDK with a fresh temporary
 SwiftPM scratch directory. Results remain unreviewed candidates, including
 inconclusive controls. Does not change pins, capture a desktop/window, or open
 inventory.json. The caller's CI step must also have a 15 minute timeout.
+The optional hosting experiment stays in the same UUID evidence directory,
+after the unchanged canonical run. It cannot promote the canonical result.
+.PARAMETER HostingContextExperiment
+Also request the fixed accessory-policy unattached/unshown-window experiment.
+Failed or interrupted checkpoints remain preserved, but fail this opt-in run.
 #>
 param(
     [string]$CaptureRoot = (Join-Path (Split-Path -Parent $PSScriptRoot) "artifacts/swiftui-baseline/github-actions/capture"),
     [string]$OutputPath = (Join-Path (Split-Path -Parent $PSScriptRoot) "artifacts/swiftui-baseline/github-actions/material"),
-    [string]$ManifestPath = (Join-Path (Split-Path -Parent $PSScriptRoot) "docs/swiftui-baseline.json")
+    [string]$ManifestPath = (Join-Path (Split-Path -Parent $PSScriptRoot) "docs/swiftui-baseline.json"),
+    [switch]$HostingContextExperiment
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,6 +58,18 @@ $context = [ordered]@{
         note = "Candidate observations on one native architecture; SDK inventory targets are not native execution coverage."
     }
     startedAtUtc = [DateTime]::UtcNow.ToString("o"); finishedAtUtc = $null; error = $null
+}
+if ($HostingContextExperiment) {
+    $context.hostingContextExperiment = [ordered]@{
+        requested = $true; reportFile = "hosting-experiment.json"; reportSha256 = $null
+        operationalStatus = $null; phase = $null; armControlStatuses = @()
+        validationStatus = "not-observed"; protocolValidated = $false; capturedEnvironmentMatched = $false
+        nativeCommandError = $null; preservationError = $null; reportValidationError = $null; contextWriteErrors = @()
+        qualification = [ordered]@{
+            nativeBehaviorReviewed = $false; nativeRuntimeBuildReviewed = $false; releaseQualified = $false
+        }
+        note = "Supplemental hosting observations only; no promotion of canonical classification or native qualification."
+    }
 }
 Write-SwiftUIBaselineJson -Path $contextPath -Value $context
 
@@ -136,6 +154,40 @@ function Save-MaterialRuns {
     }
 }
 
+function Set-MaterialHostingExperimentContext {
+    param([string]$Directory)
+    try {
+        # Save-MaterialRuns already preserved every flat file. Keep a bounded
+        # digest even when the sidecar cannot pass its typed summary checks.
+        $sidecarPath = Get-SwiftUIMaterialHostingEvidenceFile $Directory "hosting-experiment.json" 1048576
+        $context.hostingContextExperiment.reportSha256 = (Get-FileHash -LiteralPath $sidecarPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $receipt = Get-SwiftUIMaterialHostingExperimentContext -Directory $Directory
+        $context.hostingContextExperiment.reportSha256 = $receipt.reportSha256
+        $context.hostingContextExperiment.operationalStatus = $receipt.operationalStatus
+        $context.hostingContextExperiment.phase = $receipt.phase
+        $context.hostingContextExperiment.armControlStatuses = @($receipt.armControlStatuses)
+        $context.hostingContextExperiment.validationStatus = "checkpoint-only; not complete validation"
+    } catch {
+        $context.hostingContextExperiment.validationStatus = "rejected"
+        $context.hostingContextExperiment.reportValidationError = $_.Exception.Message
+    }
+}
+
+function Write-MaterialHostingContextPreservingFailure {
+    param($PrimaryFailure, [string]$Stage, [scriptblock]$Writer = {
+            Write-SwiftUIBaselineJson -Path $contextPath -Value $context
+        })
+    try { & $Writer } catch {
+        if ($null -eq $PrimaryFailure) { throw }
+        $message = $_.Exception.Message
+        $context.hostingContextExperiment.contextWriteErrors += [ordered]@{ stage = $Stage; message = $message }
+        $PrimaryFailure.Exception.Data["MaterialHostingContextWriteFailure:$Stage"] = $message
+        # If persistence itself failed, retain the secondary failure on the
+        # original exception and in stderr rather than replacing that error.
+        Write-Warning "Material hosting $Stage context write also failed: $message. The original failure is preserved." -WarningAction Continue
+    }
+}
+
 function Assert-MaterialCheckout {
     param([string]$ExpectedCommit)
     if ((Invoke-MaterialNative "/usr/bin/git" @("rev-parse", "HEAD")) -cne $ExpectedCommit -or
@@ -149,6 +201,7 @@ function Assert-MaterialCheckout {
     if (-not [string]::IsNullOrEmpty($extraInputs)) { throw "Untracked or ignored material build inputs are not part of the recorded source commit." }
 }
 
+$hostingPrimaryFailure = $null
 try {
     $context.rejectedEnvironmentOverrides = @(Get-SwiftUIMaterialEnvironmentOverrides ([Environment]::GetEnvironmentVariables()))
     if ($context.rejectedEnvironmentOverrides.Count -ne 0) {
@@ -212,12 +265,46 @@ try {
     $existingNames = @()
     if (Test-Path -LiteralPath $sourceRoot) { $existingNames = @(Get-ChildItem -LiteralPath $sourceRoot -Directory | ForEach-Object { $_.Name }) }
     Write-Host "Capturing native material candidates; inconclusive controls will be retained."
-    try { [void](Invoke-MaterialNative $binary @("--material-diagnostics") -TimeoutSeconds 120) } finally {
-        $saved = @(Save-MaterialRuns -SourceRoot $sourceRoot -ExistingNames $existingNames)
+    $materialArguments = @("--material-diagnostics")
+    if ($HostingContextExperiment) { $materialArguments += "--hosting-context-experiment" }
+    $hostingCaptureFailure = $null
+    try {
+        if ($HostingContextExperiment) {
+            try { [void](Invoke-MaterialNative $binary $materialArguments -TimeoutSeconds 120) }
+            catch {
+                $hostingCaptureFailure = $_
+                $context.hostingContextExperiment.nativeCommandError = $_.Exception.Message
+            }
+        } else { [void](Invoke-MaterialNative $binary $materialArguments -TimeoutSeconds 120) }
+    } finally {
+        try { $saved = @(Save-MaterialRuns -SourceRoot $sourceRoot -ExistingNames $existingNames) }
+        catch {
+            if ($HostingContextExperiment) {
+                $context.hostingContextExperiment.preservationError = $_.Exception.Message
+                if ($null -ne $hostingCaptureFailure) { throw $hostingCaptureFailure }
+            }
+            throw
+        }
+        if ($HostingContextExperiment -and $saved.Count -eq 1) {
+            Set-MaterialHostingExperimentContext -Directory $saved[0]
+            Write-MaterialHostingContextPreservingFailure -PrimaryFailure $hostingCaptureFailure -Stage "capture-checkpoint"
+        }
     }
+    if ($null -ne $hostingCaptureFailure) { throw $hostingCaptureFailure }
     if ($saved.Count -ne 1) { throw "Expected one fresh native material capture directory, found $($saved.Count)." }
     $observation = Read-SwiftUIMaterialObservation -Directory $saved[0] -SDKContext $sdk -ExpectedCommit $commit `
         -ExpectedExecutableSha256 $binaryHash -ExpectedArchitecture $architecture
+    $hostingObservation = $null
+    if ($HostingContextExperiment) {
+        try {
+            $hostingObservation = Read-SwiftUIMaterialHostingExperiment -Directory $saved[0] -SDKContext $sdk -ExpectedCommit $commit `
+                -ExpectedExecutableSha256 $binaryHash -ExpectedArchitecture $architecture
+        } catch {
+            $context.hostingContextExperiment.validationStatus = "rejected"
+            $context.hostingContextExperiment.reportValidationError = $_.Exception.Message
+            throw
+        }
+    }
     # Recheck the build inputs and output after the subprocesses finish.
     $after = Read-SwiftUIMaterialSDKContext -CaptureRoot $CaptureRoot -ManifestPath $ManifestPath
     if ($after.captureManifestSha256 -cne $sdk.captureManifestSha256 -or $after.baselineManifestSha256 -cne $sdk.baselineManifestSha256) {
@@ -231,12 +318,23 @@ try {
     $context.positiveControlStatus = $observation.positiveControlStatus
     $context.inconclusiveReasons = @($observation.manifest.inconclusiveReasons)
     $context.qualification.capturedEnvironmentMatched = $true
+    if ($HostingContextExperiment) {
+        $context.hostingContextExperiment.reportSha256 = $hostingObservation.reportSha256
+        $context.hostingContextExperiment.operationalStatus = $hostingObservation.operationalStatus
+        $context.hostingContextExperiment.armControlStatuses = @($hostingObservation.armControlStatuses)
+        $context.hostingContextExperiment.validationStatus = "complete-protocol-validated; native behavior unreviewed"
+        $context.hostingContextExperiment.protocolValidated = $true
+        $context.hostingContextExperiment.capturedEnvironmentMatched = $true
+    }
     $context.status = "captured-awaiting-review"
     Write-Host "Material candidate: $($context.positiveControlStatus). Native behavior and runtime-build review remain outstanding."
 } catch {
+    if ($HostingContextExperiment) { $hostingPrimaryFailure = $_ }
     $context.status = "failed"; $context.error = $_.Exception.Message
     throw
 } finally {
     $context.finishedAtUtc = [DateTime]::UtcNow.ToString("o")
-    Write-SwiftUIBaselineJson -Path $contextPath -Value $context
+    if ($HostingContextExperiment) {
+        Write-MaterialHostingContextPreservingFailure -PrimaryFailure $hostingPrimaryFailure -Stage "final"
+    } else { Write-SwiftUIBaselineJson -Path $contextPath -Value $context }
 }

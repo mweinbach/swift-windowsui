@@ -215,7 +215,7 @@ jobs:
         timeout-minutes: 15
         env:
           SWIFTUI_CAPTURE_ROOT: ${{ steps.sdk-export.outputs.capture-root }}
-        run: ./scripts/capture-swiftui-material-reference.ps1 -CaptureRoot $env:SWIFTUI_CAPTURE_ROOT
+        run: ./scripts/capture-swiftui-material-reference.ps1 -CaptureRoot $env:SWIFTUI_CAPTURE_ROOT -HostingContextExperiment
 
       - name: Build complete unreviewed API audit ledger
         if: ${{ !cancelled() && steps.sdk-export.outcome == 'success' && steps.sdk-export.outputs.capture-status == 'exported-awaiting-review' }}

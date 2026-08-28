@@ -13,23 +13,30 @@
 // Run on macOS:
 //   swift run macos-reference-renderer
 //   swift run macos-reference-renderer --material-diagnostics
+//   swift run macos-reference-renderer --material-diagnostics --hosting-context-experiment
 // Portable classifier checks (no native rendering):
 //   swift run macos-reference-renderer --self-test-material-diagnostics
 //
 // Output artifacts/macos-reference/{button-regular,toggle-on,
 // slider-mid,text-body,system-colors,stack-default-spacing}.png
 
+import Dispatch
 import Foundation
 
 if Array(CommandLine.arguments.dropFirst()) == ["--self-test-material-diagnostics"] {
-    do {
-        let count = try MaterialDiagnosticSelfTests.run()
-        print("Material diagnostic classifier: \(count) synthetic checks passed; no native rendering tested.")
-        exit(0)
-    } catch {
-        FileHandle.standardError.write(Data("Material diagnostic classifier failed: \(error)\n".utf8))
-        exit(1)
+    Task { @MainActor in
+        do {
+            let count = try await MaterialDiagnosticSelfTests.run()
+            print("Material diagnostic classifier: \(count) synthetic checks passed; no native rendering tested.")
+            exit(0)
+        } catch {
+            FileHandle.standardError.write(Data("Material diagnostic classifier failed: \(error)\n".utf8))
+            exit(1)
+        }
     }
+    // Only the portable synthetic mode uses this dispatcher. The existing
+    // native reference driver's Task/RunLoop lifecycle remains unchanged.
+    dispatchMain()
 }
 
 #if os(macOS)
@@ -137,9 +144,11 @@ if Array(CommandLine.arguments.dropFirst()) == ["--self-test-material-diagnostic
         }
 
         let arguments = Array(CommandLine.arguments.dropFirst())
-        if arguments == ["--material-diagnostics"] {
+        let hostingContextExperiment = arguments == ["--material-diagnostics", "--hosting-context-experiment"]
+        if arguments == ["--material-diagnostics"] || hostingContextExperiment {
             do {
-                let succeeded = try await MaterialDiagnosticCapture.run(outputRoot: outputDir)
+                let succeeded = try await MaterialDiagnosticCapture.run(
+                    outputRoot: outputDir, hostingContextExperiment: hostingContextExperiment)
                 exit(succeeded ? 0 : 1)
             } catch {
                 FileHandle.standardError.write(Data("Material diagnostic capture failed: \(error)\n".utf8))
@@ -149,7 +158,8 @@ if Array(CommandLine.arguments.dropFirst()) == ["--self-test-material-diagnostic
         guard arguments.isEmpty else {
             FileHandle.standardError.write(
                 Data(
-                    "Usage: macos-reference-renderer [--material-diagnostics | --self-test-material-diagnostics]\n".utf8
+                    "Usage: macos-reference-renderer [--material-diagnostics [--hosting-context-experiment] | --self-test-material-diagnostics]\n"
+                        .utf8
                 ))
             exit(64)
         }

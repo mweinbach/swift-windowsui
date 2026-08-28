@@ -168,7 +168,7 @@ light regions occupy the lower half. The panel remains inside the isolation
 wrapper, and the patterned backdrop remains outside it. There are no fonts,
 assets, system dialogs, or authored animations in the fixture.
 
-The helper captures an **unattached** `NSHostingView` with
+The canonical material phase captures an **unattached** `NSHostingView` with
 `cacheDisplay(in:to:)`; it never captures a desktop or window. It allocates and
 clears a fixed bitmap, converts it to sRGB, encodes PNG, and measures the decoded
 PNG. Each capture follows layout and a 50 ms main-run-loop opportunity, with
@@ -221,11 +221,77 @@ reported as observed visibility or backing values.
 After each attempt, the helper records only the format and dimensions returned by
 `bitmapImageRepForCachingDisplay(in:)`, or an explicit `unavailable` result. The
 recommended bitmap is never rendered into or substituted for the existing fixed
-2x bitmap. No window is created, no accessibility setting is changed, and neither
-the settling policy nor the control thresholds change. Additional provenance
+2x bitmap. This canonical phase creates no window and changes no accessibility
+setting, settling policy, or control threshold. Additional provenance
 alone cannot turn an inconclusive material control into a positive one.
 
-The existing `macos-15` workflow runs these diagnostics after the canonical
+An optional hosting experiment follows that unchanged canonical phase:
+
+```sh
+swift run -c release macos-reference-renderer --material-diagnostics --hosting-context-experiment
+```
+
+The original command without the added flag retains its six fixtures, two
+captures per fixture, and original manifest. With the flag, the helper writes
+that manifest first, then requests accessory activation policy only in its own
+process. It adds 24 captures using two fresh contexts: an unattached hosting view
+and a hosting view attached to an unshown window. For each fixture, repetition
+one captures unattached then window; repetition two reverses the order. Every
+additional attempt creates a new host and environment recorder, and the window
+arm creates one owned window. No host is moved or reused between the arms.
+The full additional matrix is predeclared and does not depend on whether the
+canonical positive control passes.
+
+The policy change must return success and be observed as accessory and inactive
+before the window arm creates anything. Its borderless, buffered window uses
+`defer: false` so its device is not deferred until onscreen, and
+`isReleasedWhenClosed = false` for Swift ownership. Only
+`NSHostingView.cacheDisplay(in:to:)` draws into the existing explicit bitmap.
+The helper never activates the application, orders or shows a window, captures
+a window or desktop, writes preferences, or overrides Reduce Transparency.
+It samples attachment, geometry, appearance, activity, and window visibility
+before/after capture; an unexpected visible, key, or main window fails the
+experiment. These checks are sampled observations, not a continuous observation
+of every AppKit state transition. [Apple activation policies](https://developer.apple.com/documentation/appkit/nsapplication/activationpolicy-swift.enum),
+[window initialization](https://developer.apple.com/documentation/appkit/nswindow/init(contentrect:stylemask:backing:defer:screen:))
+
+Each owned window is detached and closed before leaving its attempt. The
+application is sampled again after cleanup, before policy restoration could
+hide an activity or policy change. An outer scope then restores the observed
+pre-experiment prohibited policy and records
+both the return value and actual final application state. Capture, checkpoint,
+and restoration failures remain separate evidence. The sidecar is checkpointed
+before window creation and after each attempt, then finalized after restoration.
+Forced termination cannot promise deferred cleanup; its last checkpoint remains
+explicitly incomplete and cannot pass complete-result validation.
+
+The additional files remain flat within the original UUID directory:
+`hosting-experiment.json` and 24 PNGs prefixed with
+`accessory-unattached-` or `accessory-unshown-window-`. The sidecar hashes the
+untouched canonical manifest and retains its source/executable/toolchain/runtime
+provenance, the exact capture schedule, per-attempt metadata and cleanup state,
+and six observations for each arm. Each arm uses its own repeated pattern,
+flat-tint and ordinary-material controls through the existing classifier.
+Neither arm can borrow the other's positive control. A positive supplemental
+arm never replaces the canonical manifest's inconclusive result.
+
+The size, explicit 2x capture, 50 ms settling period, sample regions, and
+thresholds do not change. Actual layer/window backing scales are recorded, not
+forced to match the bitmap. Body environment observations are not compositor
+state, and a successfully returned cache call is not proof that a compositor
+finished. If Reduce Transparency remains enabled, opaque material can remain an
+inconclusive control in both arms; that result does not establish a cache
+failure. [Apple's accessibility environment documentation](https://developer.apple.com/documentation/swiftui/environmentvalues/accessibilityreducetransparency)
+
+The fresh unattached/window pair limits order bias, but comparing it with the
+original phase also changes host reuse and time/order in addition to policy.
+Different observed environments between arms prevent attributing pixel changes
+solely to attachment. A positive control establishes only a candidate capture
+capability for that context and runtime; each wrapper still needs its own
+review. No experiment result changes SDK pins, baselines, renderer skips,
+comparison thresholds, or native qualification.
+
+The existing `macos-15` workflow opts into this experiment after the canonical
 captures and uploads `macos-material-diagnostics-candidate`, including JSON.
 It retains the **candidate-only** classification regardless of the controls'
 outcome. Pinned-SDK execution and reviewed native behavior are still required
@@ -235,7 +301,9 @@ modified by this diagnostic.
 
 The pinned `swiftui-baseline-capture.yml` job also runs these unchanged public
 fixtures, serially after a successful SDK export, through
-`scripts/capture-swiftui-material-reference.ps1`. Its material step has a 15 minute
+`scripts/capture-swiftui-material-reference.ps1 -HostingContextExperiment`.
+The wrapper's default remains the original capture without the experiment.
+Its material step has a 15 minute
 limit inside the existing 90 minute job; the wrapper reserves time for failure
 evidence with a 13 minute internal command budget. It uses the captured absolute
 XcodeDefault Swift executable, verifies its SHA256 and the live SDK settings
@@ -266,8 +334,23 @@ build, establish arm64 native behavior, populate reviewed build pins, or qualify
 SwiftUI conformance. The SDK's two inventory targets do not supply two native
 rendering observations.
 
+When the experiment is requested, the wrapper also records a separate sidecar
+hash and operational status. It preserves every flat file before validating the
+supplemental report, including failed or interrupted checkpoints. A separate
+bounded validator checks the exact matrix, canonical-manifest/provenance link,
+PNG hashes, fixed parameters, observed policy/attachment/cleanup, and independent
+arm report consistency. It does not re-render PNGs or reproduce the classifier
+as a second PowerShell implementation. Partial or failed experiment reports
+cannot pass complete-result validation; a complete report with inconclusive
+controls remains a candidate. Existing canonical validation is unchanged.
+
 `scripts/test-swiftui-material-reference.ps1` checks provenance rejection and
 inconclusive-result preservation with synthetic files on Windows or macOS. It
 does not produce or validate native pixels. The native spatial-filtering positive
 control still has to succeed before these observations can inform any review of
 material grouping; even then each wrapper needs its own review.
+The portable material self-tests also exercise the same scoped coordinator with
+injected policy, capture and checkpoint failures, plus schedule and arm-isolation
+checks. Those tests cannot establish actual AppKit ownership, visibility,
+restoration, or backdrop filtering; each native execution must record those
+observations itself.

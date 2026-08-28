@@ -195,7 +195,7 @@ jobs:
       - name: Capture material diagnostics (candidate only)
         env:
           SWIFT_WINDOWSUI_REFERENCE_BUILD_CONFIGURATION: release
-        run: swift run -c release macos-reference-renderer --material-diagnostics
+        run: swift run -c release macos-reference-renderer --material-diagnostics --hosting-context-experiment
 
       - name: Upload material diagnostic observations and metadata
         if: always()

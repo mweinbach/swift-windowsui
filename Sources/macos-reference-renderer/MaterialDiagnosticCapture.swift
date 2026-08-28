@@ -189,7 +189,7 @@
 
         /// Operational failures are nonzero exits. A successfully written but
         /// inconclusive capture is not a CI failure and never claims parity.
-        static func run(outputRoot: URL) async throws -> Bool {
+        static func run(outputRoot: URL, hostingContextExperiment: Bool = false) async throws -> Bool {
             let output = outputRoot.appendingPathComponent("material-diagnostics")
                 .appendingPathComponent(UUID().uuidString)
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
@@ -245,12 +245,19 @@
             try encoder.encode(manifest).write(to: path, options: .atomic)
             print("Material positive control: \(manifest.positiveControlStatus); candidate observations only.")
             print("wrote \(path.path)")
-            return !observations.contains { $0.captures.contains { $0.error != nil } }
+            let canonicalSucceeded = !observations.contains { $0.captures.contains { $0.error != nil } }
+            if hostingContextExperiment {
+                return try await runHostingExperiment(
+                    output: output, canonicalManifest: manifest, canonicalManifestPath: path,
+                    canonicalSucceeded: canonicalSucceeded)
+            }
+            return canonicalSucceeded
         }
 
         private static func capture<V: View>(
             _ host: NSHostingView<V>, environmentRecorder: MaterialDiagnosticEnvironmentRecorder,
-            fixture: MaterialDiagnosticPlan.Fixture, repetition: Int, output: URL
+            fixture: MaterialDiagnosticPlan.Fixture, repetition: Int, output: URL,
+            hostingArm: MaterialDiagnosticHostingPlan.Arm? = nil
         ) -> Capture {
             let before = captureSnapshot(host, environmentRecorder: environmentRecorder)
             var cacheDisplayCompleted = false
@@ -276,7 +283,12 @@
                 guard let converted = bitmap.converting(to: .sRGB, renderingIntent: .default),
                     let png = converted.representation(using: .png, properties: [:])
                 else { throw captureError("Could not convert the captured bitmap to sRGB and encode PNG.") }
-                let name = "\(fixture.rawValue)-\(repetition).png"
+                let name: String
+                if let hostingArm {
+                    name = "\(hostingArm.rawValue)-\(fixture.rawValue)-\(repetition).png"
+                } else {
+                    name = "\(fixture.rawValue)-\(repetition).png"
+                }
                 try png.write(to: output.appendingPathComponent(name), options: .atomic)
                 pngFile = name
                 hash = SHA256.hash(data: png).map { String(format: "%02x", $0) }.joined()
@@ -312,6 +324,299 @@
                 captureProvenance: MaterialDiagnosticMetadata.Capture(
                     before: before, after: after, cacheDisplayCompleted: cacheDisplayCompleted,
                     recommendedBitmap: MaterialDiagnosticMetadata.BitmapRecommendation(bitmap: recommendedBitmap)))
+        }
+
+        /// New sidecar fields encode unknown values as null. The original
+        /// canonical Capture/Manifest encoding is deliberately untouched.
+        private struct RecordedOptional<Value: Encodable>: Encodable {
+            var value: Value?
+
+            func encode(to encoder: Encoder) throws {
+                var container = encoder.singleValueContainer()
+                if let value {
+                    try container.encode(value)
+                } else {
+                    try container.encodeNil()
+                }
+            }
+        }
+
+        private struct HostingCleanup: Encodable {
+            let ownsWindow: Bool
+            var status: String
+            var closeCalled = false
+            var contentDetached = RecordedOptional<Bool>(value: nil)
+            var hostHasWindowAfterCleanup = RecordedOptional<Bool>(value: nil)
+            var windowAfterCleanup = RecordedOptional<MaterialDiagnosticMetadata.Window>(value: nil)
+            var applicationAfterCleanup = RecordedOptional<MaterialDiagnosticMetadata.Application>(value: nil)
+
+            var isValid: Bool {
+                guard let application = applicationAfterCleanup.value,
+                    application.activationPolicy == "accessory", !application.isActive
+                else { return false }
+                if !ownsWindow { return status == "not-required" && !closeCalled }
+                guard status == "observed", closeCalled, contentDetached.value == true,
+                    hostHasWindowAfterCleanup.value == false, let window = windowAfterCleanup.value
+                else { return false }
+                return !window.isVisible && !window.isKeyWindow && !window.isMainWindow
+            }
+        }
+
+        private struct HostingAttempt: Encodable {
+            let attempt: MaterialDiagnosticHostingPlan.Attempt
+            var setup = RecordedOptional<MaterialDiagnosticMetadata.Snapshot>(value: nil)
+            var capture = RecordedOptional<Capture>(value: nil)
+            var cleanup: HostingCleanup
+            var protocolFailures: [String] = []
+            var error = RecordedOptional<String>(value: nil)
+        }
+
+        private final class HostingAttemptRecorder {
+            var value: HostingAttempt
+
+            init(_ attempt: MaterialDiagnosticHostingPlan.Attempt) {
+                let ownsWindow = attempt.arm == .unshownWindow
+                value = HostingAttempt(
+                    attempt: attempt,
+                    cleanup: HostingCleanup(ownsWindow: ownsWindow, status: ownsWindow ? "pending" : "not-required"))
+            }
+        }
+
+        private struct HostingObservation: Encodable {
+            let fixture: MaterialDiagnosticPlan.Fixture
+            let modifierOrder: String
+            let captureOrdinals: [Int]
+            let repeatedMeasurementsStable: Bool
+        }
+
+        private struct HostingArm: Encodable {
+            let arm: MaterialDiagnosticHostingPlan.Arm
+            let observations: [HostingObservation]
+            let controlsByRepetition: [MaterialDiagnosticControlResult]
+            let positiveControlStatus: String
+            let inconclusiveReasons: [String]
+        }
+
+        private struct HostingSidecar: Encodable {
+            let schemaVersion = 1
+            let experimentPlanVersion = MaterialDiagnosticHostingPlan.version
+            let fixtureVersion = MaterialDiagnosticPlan.version
+            let evidenceKind = "material-hosting-context-experiment-candidate"
+            let requested = true
+            let qualification = MaterialDiagnosticHostingPlan.Qualification()
+            let captureAPI = "NSHostingView.cacheDisplay(in:to:); no desktop or window capture"
+            let canonicalManifestFile = "manifest.json"
+            let canonicalManifestSha256: String
+            let canonicalPositiveControlStatus: String
+            let canonicalCaptureCount = MaterialDiagnosticHostingPlan.canonicalCaptureCount
+            let provenance: [String: String]
+            let parameters = MaterialDiagnosticHostingPlan.Parameters()
+            let startedAtUTC: String
+            let checkpointAtUTC: String
+            let finishedAtUTC: RecordedOptional<String>
+            let scheduledAttempts = MaterialDiagnosticHostingPlan.attempts
+            let attempts: [HostingAttempt]
+            let arms: [HostingArm]
+            let session: MaterialDiagnosticHostingSession.State
+        }
+
+        private static func runHostingExperiment(
+            output: URL, canonicalManifest: Manifest, canonicalManifestPath: URL, canonicalSucceeded: Bool
+        ) async throws -> Bool {
+            let canonicalData = try Data(contentsOf: canonicalManifestPath)
+            let canonicalHash = SHA256.hash(data: canonicalData).map { String(format: "%02x", $0) }.joined()
+            let started = materialDiagnosticTimestampUTC()
+            var finished: String?
+            let session = MaterialDiagnosticHostingSession()
+            var recorders: [HostingAttemptRecorder] = []
+            let path = output.appendingPathComponent(MaterialDiagnosticHostingPlan.fileName)
+
+            func checkpoint() throws {
+                if session.state.phase == "finished" && finished == nil {
+                    finished = materialDiagnosticTimestampUTC()
+                }
+                let attempts = recorders.map(\.value)
+                let sidecar = HostingSidecar(
+                    canonicalManifestSha256: canonicalHash,
+                    canonicalPositiveControlStatus: canonicalManifest.positiveControlStatus,
+                    provenance: canonicalManifest.provenance, startedAtUTC: started,
+                    checkpointAtUTC: materialDiagnosticTimestampUTC(),
+                    finishedAtUTC: RecordedOptional(value: finished), attempts: attempts,
+                    arms: hostingArms(attempts), session: session.state)
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+                try encoder.encode(sidecar).write(to: path, options: .atomic)
+            }
+
+            guard canonicalSucceeded else {
+                session.skipAfterCanonicalFailure()
+                try checkpoint()
+                return false
+            }
+            await session.run(
+                application: hostingApplication,
+                setPolicy: { policy in
+                    switch policy {
+                    case .accessory: return NSApp.setActivationPolicy(.accessory)
+                    case .prohibited: return NSApp.setActivationPolicy(.prohibited)
+                    }
+                },
+                perform: { attempt in
+                    let recorder = HostingAttemptRecorder(attempt)
+                    recorders.append(recorder)
+                    // Preserve the pending attempt before constructing a host
+                    // or window. A forced termination leaves a partial report.
+                    try checkpoint()
+                    do {
+                        try await captureHostingAttempt(recorder, output: output)
+                        if !recorder.value.cleanup.isValid || !recorder.value.protocolFailures.isEmpty {
+                            throw captureError("The attempt or owned-window cleanup violated the hosting protocol.")
+                        }
+                    } catch {
+                        recorder.value.error.value = String(String(describing: error).prefix(1024))
+                        throw error
+                    }
+                }, checkpoint: checkpoint)
+            for failure in session.state.failures {
+                FileHandle.standardError.write(
+                    Data("Material hosting experiment \(failure.stage): \(failure.message)\n".utf8))
+            }
+            for arm in hostingArms(recorders.map(\.value)) {
+                print("Material hosting \(arm.arm.rawValue): \(arm.positiveControlStatus); candidate capability only.")
+            }
+            print("Material hosting experiment: \(session.state.status); evidence path: \(path.path)")
+            return session.state.status == "completed"
+        }
+
+        private static func captureHostingAttempt(_ recorder: HostingAttemptRecorder, output: URL) async throws {
+            let attempt = recorder.value.attempt
+            let application = hostingApplication()
+            guard application.activationPolicy == "accessory", !application.isActive else {
+                throw captureError(
+                    "Accessory policy and inactivity must be observed before creating experiment objects.")
+            }
+            let environmentRecorder = MaterialDiagnosticEnvironmentRecorder()
+            let host = NSHostingView(
+                rootView: MaterialDiagnosticFixture(fixture: attempt.fixture, environmentRecorder: environmentRecorder))
+            host.frame = NSRect(
+                x: 0, y: 0,
+                width: CGFloat(MaterialDiagnosticPlan.width), height: CGFloat(MaterialDiagnosticPlan.height))
+            host.appearance = NSAppearance(named: .aqua)
+            var ownedWindow: NSWindow?
+            defer {
+                if let window = ownedWindow {
+                    // Local ownership remains strong through settling, capture,
+                    // detachment and closure. No ordering or activation call.
+                    window.contentView = nil
+                    recorder.value.cleanup.contentDetached.value = window.contentView == nil
+                    recorder.value.cleanup.hostHasWindowAfterCleanup.value = host.window != nil
+                    window.close()
+                    recorder.value.cleanup.closeCalled = true
+                    recorder.value.cleanup.windowAfterCleanup.value = hostingWindow(window)
+                    recorder.value.cleanup.status = "observed"
+                }
+                // Sample before the enclosing policy restoration can conceal a
+                // change in activity or policy during owned-window cleanup.
+                recorder.value.cleanup.applicationAfterCleanup.value = hostingApplication()
+                if !recorder.value.cleanup.isValid {
+                    recorder.value.protocolFailures.append("Cleanup or the inactive accessory policy was not observed.")
+                }
+            }
+            if attempt.arm == .unshownWindow {
+                let window = NSWindow(
+                    contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+                ownedWindow = window
+                window.isReleasedWhenClosed = false
+                window.contentView = host
+                if host.window !== window {
+                    recorder.value.protocolFailures.append("The host is not attached to its owned experiment window.")
+                }
+            }
+            recorder.value.setup.value = captureSnapshot(host, environmentRecorder: environmentRecorder)
+            if let setup = recorder.value.setup.value {
+                recorder.value.protocolFailures += MaterialDiagnosticHostingPlan.protocolFailures(
+                    setup, arm: attempt.arm)
+            }
+            guard recorder.value.protocolFailures.isEmpty else {
+                throw captureError("The initial host context violated the hosting protocol.")
+            }
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(MaterialDiagnosticPlan.settlingMilliseconds))
+            host.layoutSubtreeIfNeeded()
+            // Refresh the setup observation after settling and guard before
+            // calling the same view-cache capture helper as the canonical run.
+            let setup = captureSnapshot(host, environmentRecorder: environmentRecorder)
+            recorder.value.setup.value = setup
+            recorder.value.protocolFailures += MaterialDiagnosticHostingPlan.protocolFailures(setup, arm: attempt.arm)
+            if let window = ownedWindow, host.window !== window {
+                recorder.value.protocolFailures.append("The host moved away from its owned experiment window.")
+            }
+            guard recorder.value.protocolFailures.isEmpty else {
+                throw captureError("The settled host context violated the hosting protocol.")
+            }
+            let result = capture(
+                host, environmentRecorder: environmentRecorder, fixture: attempt.fixture,
+                repetition: attempt.repetition, output: output, hostingArm: attempt.arm)
+            recorder.value.capture.value = result
+            recorder.value.protocolFailures += MaterialDiagnosticHostingPlan.protocolFailures(
+                result.captureProvenance.before, arm: attempt.arm)
+            recorder.value.protocolFailures += MaterialDiagnosticHostingPlan.protocolFailures(
+                result.captureProvenance.after, arm: attempt.arm)
+            if let window = ownedWindow, host.window !== window {
+                recorder.value.protocolFailures.append("The host changed window during capture.")
+            }
+            if let error = result.error { throw captureError(error) }
+            guard recorder.value.protocolFailures.isEmpty else {
+                throw captureError("The captured host context violated the hosting protocol.")
+            }
+        }
+
+        private static func hostingArms(_ attempts: [HostingAttempt]) -> [HostingArm] {
+            func measurements(_ value: HostingAttempt) -> MaterialDiagnosticMeasurements? {
+                guard value.error.value == nil, value.protocolFailures.isEmpty, value.cleanup.isValid,
+                    let capture = value.capture.value, capture.error == nil
+                else { return nil }
+                return capture.measurements
+            }
+            let samples = attempts.map {
+                MaterialDiagnosticHostingPlan.Sample(attempt: $0.attempt, measurements: measurements($0))
+            }
+            return MaterialDiagnosticHostingPlan.Arm.allCases.map { arm in
+                let observations = MaterialDiagnosticPlan.Fixture.allCases.map { fixture in
+                    let matching = attempts.filter { $0.attempt.arm == arm && $0.attempt.fixture == fixture }
+                    let measured = matching.compactMap(measurements)
+                    return HostingObservation(
+                        fixture: fixture, modifierOrder: modifierOrder(fixture),
+                        captureOrdinals: matching.map { $0.attempt.ordinal },
+                        repeatedMeasurementsStable: measured.count == 2
+                            && MaterialDiagnosticAnalysis.areStable(measured[0], measured[1]))
+                }
+                let controls = MaterialDiagnosticHostingPlan.evaluateControls(arm: arm, samples: samples)
+                return HostingArm(
+                    arm: arm, observations: observations, controlsByRepetition: controls.repetitions,
+                    positiveControlStatus: controls.status.rawValue, inconclusiveReasons: controls.reasons)
+            }
+        }
+
+        private static func hostingApplication() -> MaterialDiagnosticMetadata.Application {
+            let policy: String
+            switch NSApp.activationPolicy() {
+            case .prohibited: policy = "prohibited"
+            case .accessory: policy = "accessory"
+            case .regular: policy = "regular"
+            @unknown default: policy = "unknown"
+            }
+            return MaterialDiagnosticMetadata.Application(
+                activationPolicy: policy, isActive: NSApp.isActive, isHidden: NSApp.isHidden, isRunning: NSApp.isRunning
+            )
+        }
+
+        private static func hostingWindow(_ window: NSWindow) -> MaterialDiagnosticMetadata.Window {
+            MaterialDiagnosticMetadata.Window(
+                isVisible: window.isVisible, isMiniaturized: window.isMiniaturized,
+                isKeyWindow: window.isKeyWindow, isMainWindow: window.isMainWindow,
+                occlusionStateVisible: window.occlusionState.contains(.visible),
+                backingScaleFactor: Double(window.backingScaleFactor))
         }
 
         private static func captureSnapshot<V: View>(

@@ -1,7 +1,5 @@
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
-
 import SwiftWindowsUI
 
 @MainActor
@@ -43,6 +41,23 @@ public enum WinSwiftUIRendererSnapshotter {
         clearColor: Color? = nil,
         timestamp: Double = 0
     ) -> WinSwiftUIRenderSnapshot {
+        snapshot(
+            of: view, size: size, displayScale: displayScale, colorScheme: colorScheme,
+            clearColor: clearColor, timestamp: timestamp, bitmapFontAttribution: nil
+        )
+    }
+
+    /// Explicit diagnostic overload. The caller owns/seals the session and
+    /// must not treat its bitmap observations as atlas or pixel qualification.
+    public static func snapshot<V: View>(
+        of view: V,
+        size: IntSize = IntSize(width: 1280, height: 720),
+        displayScale: Double = 1,
+        colorScheme: ColorScheme = .dark,
+        clearColor: Color? = nil,
+        timestamp: Double = 0,
+        bitmapFontAttribution: NativeBitmapFontAttributionSession?
+    ) -> WinSwiftUIRenderSnapshot {
         let palette = ControlPalette.resolve(colorScheme: colorScheme)
         let resolvedClearColor = clearColor ?? palette.windowBackground
         let runtime = RetainedViewRuntime(
@@ -54,17 +69,24 @@ public enum WinSwiftUIRendererSnapshotter {
         NativeTextRenderer.defaultIconDisplayScale = displayScale
         defer { NativeTextRenderer.defaultIconDisplayScale = previousIconDisplayScale }
 
+        // The provider can outlive this call through retained components; it
+        // captures only a weak link, never the diagnostic owner itself.
+        let attributionLink = bitmapFontAttribution.map(BitmapFontAttributionLink.init)
         let context = ViewBuildContext(
             canvasSizeProvider: {
                 Size(width: Double(size.width), height: Double(size.height))
             },
             invalidateHandler: {},
             environmentValuesProvider: {
-                EnvironmentValues(
+                var values = EnvironmentValues(
                     colorScheme: colorScheme,
                     displayScale: displayScale,
                     pixelLength: displayScale > 0 ? 1 / displayScale : 1
                 )
+                if let attributionLink {
+                    values.bitmapFontAttributionLink = attributionLink
+                }
+                return values
             }
         )
         let component = view.makeComponent(context: context)
@@ -72,6 +94,9 @@ public enum WinSwiftUIRendererSnapshotter {
         host.setContent(component)
 
         let scene = runtime.renderScene(at: timestamp)
+        // Icon rasters are made during node construction. Auxiliary frame
+        // rendering must not contribute new receipts to the selected scene.
+        bitmapFontAttribution?.stopRecording()
         let frame = runtime.renderFrame(at: timestamp)
         return WinSwiftUIRenderSnapshot(
             runtime: runtime,

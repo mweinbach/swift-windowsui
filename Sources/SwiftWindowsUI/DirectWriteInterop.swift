@@ -161,9 +161,9 @@ struct IDWriteRenderingParams { var lpVtbl: UnsafeMutablePointer<IDWriteRenderin
 struct IDWriteTextRenderer { var lpVtbl: UnsafeMutablePointer<IDWriteTextRendererVtbl>? }
 struct IDWriteTypography { var lpVtbl: UnsafeMutablePointer<IDWriteTypographyVtbl>? }
 struct IDWriteFontCollection { var lpVtbl: UnsafeMutablePointer<IDWriteFontCollectionVtbl>? }
-/// `IDWriteFontCollection`, in ABI order. Only `FindFamilyName` is typed:
-/// it is the one honest answer to "is this face installed", because
-/// `CreateTextFormat` succeeds for families that are not.
+/// `IDWriteFontCollection`, in ABI order. `FindFamilyName` answers whether
+/// a family is installed; `GetFontFromFontFace` resolves an observed physical
+/// face rather than the family that a caller merely requested.
 struct IDWriteFontCollectionVtbl {
     var QueryInterface: DWQueryInterfaceProc
     var AddRef: DWAddRefProc
@@ -171,8 +171,112 @@ struct IDWriteFontCollectionVtbl {
     var GetFontFamilyCount: UnsafeMutableRawPointer?
     var GetFontFamily: UnsafeMutableRawPointer?
     var FindFamilyName: DWFindFamilyNameProc
-    var GetFontFromFontFace: UnsafeMutableRawPointer?
+    var GetFontFromFontFace: DWGetFontFromFontFaceProc
 }
+
+// Metadata-only prefixes verified against Microsoft Windows SDK 10.0.26100.0,
+// um/dwrite.h: IDWriteFontFace (1047), IDWriteFontFile (822),
+// IDWriteFontFileLoader (675), IDWriteLocalFontFileLoader (700),
+// IDWriteFont (1599), IDWriteFontFamily (1548, including IDWriteFontList),
+// and IDWriteLocalizedStrings (1371). Unused preceding methods keep their
+// named ABI positions. No numeric vtable indexing or later face interfaces.
+struct IDWriteFontFace { var lpVtbl: UnsafeMutablePointer<IDWriteFontFaceVtbl>? }
+struct IDWriteFontFile { var lpVtbl: UnsafeMutablePointer<IDWriteFontFileVtbl>? }
+struct IDWriteFontFileLoader { var lpVtbl: UnsafeMutablePointer<IDWriteFontFileLoaderVtbl>? }
+struct IDWriteLocalFontFileLoader { var lpVtbl: UnsafeMutablePointer<IDWriteLocalFontFileLoaderVtbl>? }
+struct IDWriteFont { var lpVtbl: UnsafeMutablePointer<IDWriteFontVtbl>? }
+struct IDWriteFontFamily { var lpVtbl: UnsafeMutablePointer<IDWriteFontFamilyVtbl>? }
+struct IDWriteLocalizedStrings { var lpVtbl: UnsafeMutablePointer<IDWriteLocalizedStringsVtbl>? }
+
+struct IDWriteFontFaceVtbl {
+    var QueryInterface: DWQueryInterfaceProc
+    var AddRef: DWAddRefProc
+    var Release: DWReleaseProc
+    var GetType: DWGetUInt32Proc
+    var GetFiles: DWGetFontFilesProc
+    var GetIndex: DWGetUInt32Proc
+    var GetSimulations: DWGetUInt32Proc
+}
+struct IDWriteFontFileVtbl {
+    var QueryInterface: DWQueryInterfaceProc
+    var AddRef: DWAddRefProc
+    var Release: DWReleaseProc
+    var GetReferenceKey: DWGetFontReferenceKeyProc
+    var GetLoader: DWGetInterfaceProc
+}
+struct IDWriteFontFileLoaderVtbl {
+    var QueryInterface: DWQueryInterfaceProc
+    var AddRef: DWAddRefProc
+    var Release: DWReleaseProc
+    var CreateStreamFromKey: UnsafeMutableRawPointer?
+}
+struct IDWriteLocalFontFileLoaderVtbl {
+    var QueryInterface: DWQueryInterfaceProc
+    var AddRef: DWAddRefProc
+    var Release: DWReleaseProc
+    var CreateStreamFromKey: UnsafeMutableRawPointer?
+    var GetFilePathLengthFromKey: DWGetFontFilePathLengthProc
+    var GetFilePathFromKey: DWGetFontFilePathProc
+}
+struct IDWriteFontVtbl {
+    var QueryInterface: DWQueryInterfaceProc
+    var AddRef: DWAddRefProc
+    var Release: DWReleaseProc
+    var GetFontFamily: DWGetInterfaceProc
+    var GetWeight: UnsafeMutableRawPointer?
+    var GetStretch: UnsafeMutableRawPointer?
+    var GetStyle: UnsafeMutableRawPointer?
+    var IsSymbolFont: UnsafeMutableRawPointer?
+    var GetFaceNames: DWGetInterfaceProc
+}
+struct IDWriteFontFamilyVtbl {
+    var QueryInterface: DWQueryInterfaceProc
+    var AddRef: DWAddRefProc
+    var Release: DWReleaseProc
+    var GetFontCollection: UnsafeMutableRawPointer?
+    var GetFontCount: UnsafeMutableRawPointer?
+    var GetFont: UnsafeMutableRawPointer?
+    var GetFamilyNames: DWGetInterfaceProc
+}
+struct IDWriteLocalizedStringsVtbl {
+    var QueryInterface: DWQueryInterfaceProc
+    var AddRef: DWAddRefProc
+    var Release: DWReleaseProc
+    var GetCount: DWGetUInt32Proc
+    var FindLocaleName: DWFindLocalizedStringProc
+    var GetLocaleNameLength: UnsafeMutableRawPointer?
+    var GetLocaleName: UnsafeMutableRawPointer?
+    var GetStringLength: DWGetIndexedStringLengthProc
+    var GetString: DWGetIndexedStringProc
+}
+typealias DWGetUInt32Proc = @convention(c) (UnsafeMutableRawPointer?) -> UINT32
+typealias DWGetInterfaceProc =
+    @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> HRESULT
+typealias DWGetFontFromFontFaceProc =
+    @convention(c) (
+        UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutablePointer<UnsafeMutableRawPointer?>?
+    ) -> HRESULT
+typealias DWGetFontFilesProc =
+    @convention(c) (
+        UnsafeMutableRawPointer?, UnsafeMutablePointer<UINT32>?, UnsafeMutablePointer<UnsafeMutableRawPointer?>?
+    ) -> HRESULT
+typealias DWGetFontReferenceKeyProc =
+    @convention(c) (
+        UnsafeMutableRawPointer?, UnsafeMutablePointer<UnsafeRawPointer?>?, UnsafeMutablePointer<UINT32>?
+    ) -> HRESULT
+typealias DWGetFontFilePathLengthProc =
+    @convention(c) (UnsafeMutableRawPointer?, UnsafeRawPointer?, UINT32, UnsafeMutablePointer<UINT32>?) -> HRESULT
+typealias DWGetFontFilePathProc =
+    @convention(c) (UnsafeMutableRawPointer?, UnsafeRawPointer?, UINT32, UnsafeMutablePointer<WCHAR>?, UINT32) -> HRESULT
+typealias DWFindLocalizedStringProc =
+    @convention(c) (
+        UnsafeMutableRawPointer?, UnsafePointer<WCHAR>?, UnsafeMutablePointer<UINT32>?,
+        UnsafeMutablePointer<WindowsBool>?
+    ) -> HRESULT
+typealias DWGetIndexedStringLengthProc =
+    @convention(c) (UnsafeMutableRawPointer?, UINT32, UnsafeMutablePointer<UINT32>?) -> HRESULT
+typealias DWGetIndexedStringProc =
+    @convention(c) (UnsafeMutableRawPointer?, UINT32, UnsafeMutablePointer<WCHAR>?, UINT32) -> HRESULT
 typealias DWGetSystemFontCollectionProc =
     @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<UnsafeMutableRawPointer?>?, WindowsBool) -> HRESULT
 typealias DWFindFamilyNameProc =
@@ -448,6 +552,8 @@ let iidIDWriteTextRenderer = makeGUID(
     data1: 0xEF8A_8135, data2: 0x5CC6, data3: 0x45FE, data4: (0x88, 0x25, 0xC5, 0xA0, 0x72, 0x4E, 0xB8, 0x19))
 let iidIUnknownDirectWrite = makeGUID(
     data1: 0x0000_0000, data2: 0x0000, data3: 0x0000, data4: (0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46))
+let iidIDWriteLocalFontFileLoader = makeGUID(
+    data1: 0xB2D9_F3EC, data2: 0xC9FE, data3: 0x4A11, data4: (0xA2, 0xEC, 0xD8, 0x62, 0x08, 0xF7, 0xC0, 0xA2))
 func makeGUID(
     data1: UInt32, data2: UInt16, data3: UInt16, data4: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8)
 ) -> GUID {

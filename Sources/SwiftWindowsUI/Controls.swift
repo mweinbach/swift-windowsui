@@ -1,7 +1,5 @@
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
-
 import SwiftWindowsLayout
 
 public struct ControlAnimationStyle: Sendable {
@@ -1117,6 +1115,28 @@ public enum Controls {
         // `NativeTextRenderer.claimDefaultIconDisplayScale(_:owner:)`.
         displayScale: Double = NativeTextRenderer.defaultIconDisplayScale
     ) -> ViewNode {
+        icon(
+            symbol, frame: frame, preferredSize: preferredSize, color: color, scale: scale,
+            weight: weight, alignment: alignment, fontFamily: fontFamily, displayScale: displayScale,
+            bitmapFontAttribution: nil
+        )
+    }
+
+    /// Explicit tool-only observation; existing callers keep the original API.
+    /// Only symbols allowed by the scoped fixture can obtain an observer.
+    public static func icon(
+        _ symbol: SymbolIcon,
+        frame: Rect = .zero,
+        preferredSize: Size? = nil,
+        color: Color = .white,
+        scale: Double = 1.9,
+        weight: TextWeight = .regular,
+        alignment: TextHorizontalAlignment = .center,
+        fontFamily: String = "Segoe Fluent Icons",
+        displayScale: Double = NativeTextRenderer.defaultIconDisplayScale,
+        bitmapFontAttribution: NativeBitmapFontAttributionSession?
+    ) -> ViewNode {
+        let fontObservation = bitmapFontAttribution?.observation(for: symbol)
         let node = label(
             symbol.rawValue,
             frame: frame,
@@ -1139,7 +1159,8 @@ public enum Controls {
         // glyph (Fluent Icons on Windows 11, MDL2 Assets on Windows 10).
         let resolvedFamily = NativeFontAvailability.resolvedFontFamily(
             for: symbol.character,
-            preferred: [fontFamily] + SymbolIcon.fontFamilyFallbacks
+            preferred: [fontFamily] + SymbolIcon.fontFamilyFallbacks,
+            observation: fontObservation
         )
         if let resolvedFamily {
             var rasterStyle = node.textStyle
@@ -1158,16 +1179,22 @@ public enum Controls {
                 text: symbol.rawValue, style: rasterStyle, size: targetSize, renderScale: rasterScale)
             if let cached = TextRasterCache.shared.get(for: rasterKey) {
                 node.bitmapSurface = cached
-            } else if let bitmap = NativeTextRenderer.rasterize(
-                symbol.rawValue, style: rasterStyle, scaleFactor: rasterScale),
-                bitmapHasVisiblePixels(bitmap)
-            {
-                TextRasterCache.shared.insert(bitmap, for: rasterKey)
-                node.bitmapSurface = bitmap
+                fontObservation?.accept(cached, cacheHit: true)
+            } else {
+                let bitmap = NativeTextRenderer.rasterize(
+                    symbol.rawValue, style: rasterStyle, scaleFactor: rasterScale, observation: fontObservation)
+                if let bitmap, bitmapHasVisiblePixels(bitmap) {
+                    TextRasterCache.shared.insert(bitmap, for: rasterKey)
+                    node.bitmapSurface = bitmap
+                    fontObservation?.accept(bitmap, cacheHit: false)
+                } else {
+                    fontObservation?.reject(bitmap)
+                }
             }
         }
 
         if node.bitmapSurface == nil {
+            fontObservation?.selectVector()
             // No installed icon font carries this glyph: draw the symbol
             // through the path tessellator instead of showing '?'.
             node.canvasDraw = { context, size in

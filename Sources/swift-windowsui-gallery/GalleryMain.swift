@@ -2,6 +2,7 @@ import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsUI
+import WinSDK
 import WinSwiftUI
 
 @main
@@ -14,6 +15,8 @@ struct SwiftWindowsUIGalleryTool {
         // Defaults keep the historical behavior (all entries, artifacts/gallery).
         var outputDirPath = "artifacts/gallery"
         var entryFilter: Set<String>?
+        var bitmapFontAttributionDirectory: String?
+        var bitmapFontAttributionInvocation: String?
         var argumentIndex = 1
         let arguments = CommandLine.arguments
         while argumentIndex < arguments.count {
@@ -29,11 +32,51 @@ struct SwiftWindowsUIGalleryTool {
                         .filter { !$0.isEmpty }
                 )
                 argumentIndex += 1
+            } else if argument == "--bitmap-font-attribution-dir" {
+                guard bitmapFontAttributionDirectory == nil, argumentIndex + 1 < arguments.count else {
+                    throw GalleryError.invalidBitmapFontAttribution
+                }
+                bitmapFontAttributionDirectory = arguments[argumentIndex + 1]
+                argumentIndex += 1
+            } else if argument == "--bitmap-font-attribution-invocation" {
+                guard bitmapFontAttributionInvocation == nil, argumentIndex + 1 < arguments.count else {
+                    throw GalleryError.invalidBitmapFontAttribution
+                }
+                bitmapFontAttributionInvocation = arguments[argumentIndex + 1]
+                argumentIndex += 1
             }
             argumentIndex += 1
         }
 
         let outputDir = URL(fileURLWithPath: outputDirPath)
+        let fontAttributionOutput: URL?
+        if let directory = bitmapFontAttributionDirectory, let invocation = bitmapFontAttributionInvocation {
+            let allowed = Set([
+                NativeBitmapFontFixture.symbolPalette.rawValue, NativeBitmapFontFixture.stepper.rawValue,
+            ])
+            guard let entryFilter, !entryFilter.isEmpty, entryFilter.isSubset(of: allowed),
+                invocation.utf8.count == 32,
+                invocation.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
+                !directory.isEmpty
+            else {
+                throw GalleryError.invalidBitmapFontAttribution
+            }
+            // A dedicated directory must be created atomically. Existing
+            // native sidecars must never acquire a new invocation's identity.
+            let directoryURL = URL(fileURLWithPath: directory).standardizedFileURL
+            let created = directoryURL.path.withCString(encodedAs: UTF16.self) { CreateDirectoryW($0, nil) }
+            guard created else { throw GalleryError.bitmapFontAttributionOutputUnavailable }
+            for id in entryFilter {
+                guard !FileManager.default.fileExists(atPath: outputDir.appendingPathComponent("\(id).png").path) else {
+                    throw GalleryError.bitmapFontAttributionOutputUnavailable
+                }
+            }
+            fontAttributionOutput = directoryURL
+        } else if bitmapFontAttributionDirectory != nil || bitmapFontAttributionInvocation != nil {
+            throw GalleryError.invalidBitmapFontAttribution
+        } else {
+            fontAttributionOutput = nil
+        }
         try FileManager.default.createDirectory(
             at: outputDir,
             withIntermediateDirectories: true
@@ -1403,13 +1446,25 @@ struct SwiftWindowsUIGalleryTool {
             if let entryFilter, !entryFilter.contains(spec.id) {
                 continue
             }
-            let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
-                of: spec.view,
-                size: spec.size,
-                displayScale: displayScale,
-                colorScheme: spec.colorScheme,
-                clearColor: galleryClearColor(for: spec.colorScheme)
-            )
+            let fontSession: NativeBitmapFontAttributionSession?
+            if fontAttributionOutput != nil, let fixture = NativeBitmapFontFixture(rawValue: spec.id) {
+                fontSession = NativeBitmapFontAttributionSession(fixture: fixture)
+            } else {
+                fontSession = nil
+            }
+            defer { fontSession?.close() }
+            let snapshot: WinSwiftUIRenderSnapshot
+            if let fontSession {
+                snapshot = WinSwiftUIRendererSnapshotter.snapshot(
+                    of: spec.view, size: spec.size, displayScale: displayScale, colorScheme: spec.colorScheme,
+                    clearColor: galleryClearColor(for: spec.colorScheme), bitmapFontAttribution: fontSession
+                )
+            } else {
+                snapshot = WinSwiftUIRendererSnapshotter.snapshot(
+                    of: spec.view, size: spec.size, displayScale: displayScale, colorScheme: spec.colorScheme,
+                    clearColor: galleryClearColor(for: spec.colorScheme)
+                )
+            }
 
             let scene: GPUIScene
             if let interaction = spec.interaction {
@@ -1435,6 +1490,28 @@ struct SwiftWindowsUIGalleryTool {
             let filename = "\(spec.id).png"
             let url = outputDir.appendingPathComponent(filename)
             try bitmap.writePNG(to: url)
+            if let fontSession, let fontAttributionOutput, let bitmapFontAttributionInvocation {
+                let report = fontSession.finish(scene: scene)
+                let envelope = GalleryBitmapFontAttributionEnvelope(
+                    invocationID: bitmapFontAttributionInvocation, fixtureID: spec.id,
+                    pngFileName: filename, status: report.status, runtime: .current, report: report
+                )
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.sortedKeys]
+                let destination = fontAttributionOutput.appendingPathComponent(
+                    "\(spec.id).native-font-attribution.json")
+                do {
+                    let data = try encoder.encode(envelope)
+                    guard data.count <= 512 * 1024 else { throw GalleryError.bitmapFontAttributionOutputUnavailable }
+                    try data.write(to: destination, options: .withoutOverwriting)
+                } catch {
+                    // Do not echo a filesystem error containing a user path.
+                    // Attribution is supplementary: keep this PNG and render
+                    // later fixtures. The collector reports a missing sidecar.
+                    FileHandle.standardError.write(
+                        Data("Bitmap font attribution sidecar unavailable; native PNG retained.\n".utf8))
+                }
+            }
 
             entries.append(
                 GalleryEntry(
@@ -1778,12 +1855,48 @@ private func interactionStateSpecs() -> [GallerySpec] {
     ]
 }
 
+private struct GalleryBitmapFontAttributionEnvelope: Encodable {
+    struct Runtime: Encodable {
+        let os: String
+        let architecture: String
+
+        static var current: Self {
+            let version = ProcessInfo.processInfo.operatingSystemVersion
+            #if arch(x86_64)
+                let architecture = "x86_64"
+            #elseif arch(arm64)
+                let architecture = "arm64"
+            #else
+                let architecture = "unknown"
+            #endif
+            return Self(
+                os: "Windows \(version.majorVersion).\(version.minorVersion).\(version.patchVersion)",
+                architecture: architecture
+            )
+        }
+    }
+
+    let schemaVersion = 1
+    let invocationID: String
+    let fixtureID: String
+    let pngFileName: String
+    let status: String
+    let runtime: Runtime
+    let report: NativeBitmapFontAttributionReport
+}
+
 private enum GalleryError: Error, CustomStringConvertible {
     case interactionHadNoEffect(id: String, state: String)
     case unknownLightTierSource(id: String)
+    case invalidBitmapFontAttribution
+    case bitmapFontAttributionOutputUnavailable
 
     var description: String {
         switch self {
+        case .invalidBitmapFontAttribution:
+            return "Bitmap font attribution requires paired output/invocation flags and only symbol-palette or stepper."
+        case .bitmapFontAttributionOutputUnavailable:
+            return "Bitmap font attribution requires fresh owned output and a bounded writable sidecar."
         case .interactionHadNoEffect(let id, let state):
             return """
                 Gallery entry '\(id)' declares the '\(state)' state but renders \

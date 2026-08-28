@@ -30,6 +30,12 @@
     Skip re-rendering and compare whatever is already in the work directory
     (useful for manually produced before/after images).
 
+.PARAMETER BitmapFontAttribution
+    Collect bounded native bitmap-font observations for an explicit selection
+    of symbol-palette and/or stepper. Requires a new, nonexisting WorkDir and
+    a fresh render; cannot update baselines, skip rendering, or list entries.
+    This diagnostic does not qualify a font profile or change the pixel gate.
+
 .PARAMETER List
     List matching baseline entries, appearances, and tiers without building,
     rendering, creating output directories, or loading image-processing tools.
@@ -71,6 +77,7 @@ param(
     [switch] $UpdateBaselines,
     [switch] $SkipBuild,
     [switch] $SkipRender,
+    [switch] $BitmapFontAttribution,
     [switch] $List,
     [string[]] $Entries = @(),
     [string] $Pattern = "",
@@ -287,6 +294,16 @@ if ($selectedGalleryEntries.Count -eq 0) {
     throw "No gallery baseline entries match the supplied filters. Run with -List to inspect supported ids."
 }
 
+$selectedEntryIds = @($selectedGalleryEntries | ForEach-Object { $_.Id })
+$bitmapAttributionInvocation = $null
+$bitmapAttributionReport = $null
+if ($BitmapFontAttribution) {
+    . (Join-Path $PSScriptRoot 'gallery-bitmap-font-attribution.ps1')
+    Assert-GalleryBitmapFontAttributionOptions -EntryIds $requestedEntryIds -ExplicitEntries $PSBoundParameters.ContainsKey('Entries') `
+        -SkipRender ([bool]$SkipRender) -UpdateBaselines ([bool]$UpdateBaselines) -List ([bool]$List) -WorkDir $WorkDir
+    $bitmapAttributionInvocation = New-GalleryBitmapFontAttributionInvocation -WorkDir $WorkDir -EntryIds $selectedEntryIds -InvocationID ([Guid]::NewGuid().ToString('N'))
+}
+
 if ($List) {
     if ($UpdateBaselines) {
         throw "-List cannot be combined with -UpdateBaselines."
@@ -297,8 +314,6 @@ if ($List) {
     exit 0
 }
 
-$selectedEntryIds = @($selectedGalleryEntries | ForEach-Object { $_.Id })
-
 # Capture before build/image-processing setup, and keep this initial record
 # separate from later phases. A failed build must not label an old executable
 # as the product of the current checkout. -List still performs no collection.
@@ -306,6 +321,7 @@ $selectedEntryIds = @($selectedGalleryEntries | ForEach-Object { $_.Id })
 $galleryProvenancePath = Join-Path $WorkDir "provenance.json"
 $galleryInitialProvenancePath = Join-Path $WorkDir "provenance-initial.json"
 $galleryFontProvenance = New-GalleryFontProvenance -Executable $GalleryExe -Root (Split-Path -Parent $PSScriptRoot) -CaptureStage "before-build"
+if ($null -ne $bitmapAttributionInvocation) { $galleryFontProvenance.invocationID = $bitmapAttributionInvocation.invocationID }
 $galleryFontProvenance.build.status = if ($SkipBuild) { "skipped" } else { "pending" }
 $galleryFontProvenance.render.status = if ($SkipRender) { "skipped" } else { "pending" }
 $galleryFontProvenance.render.requestedEntries = $selectedEntryIds
@@ -733,7 +749,12 @@ try {
         $galleryFontProvenance.executableAssociation = if ($SkipBuild) { "preexisting-file-invoked-without-build" } else { "observed-after-successful-build; build-revision-not-embedded" }
         Write-GalleryFontProvenance $galleryFontProvenance $galleryProvenancePath
         Write-Step "Rendering $($selectedEntryIds.Count) baseline entries..."
-        & $GalleryExe --entries ($selectedEntryIds -join ",") --output-dir $currentDir
+        $galleryRenderArguments = @('--entries', ($selectedEntryIds -join ','), '--output-dir', $currentDir)
+        if ($null -ne $bitmapAttributionInvocation) {
+            $galleryRenderArguments += @('--bitmap-font-attribution-dir', $bitmapAttributionInvocation.nativeDirectory,
+                '--bitmap-font-attribution-invocation', $bitmapAttributionInvocation.invocationID)
+        }
+        & $GalleryExe @galleryRenderArguments
         $galleryFontProvenance.render.exitCode = $LASTEXITCODE
         $galleryFontProvenance.render.executableAfter = Get-GalleryFileFingerprint $GalleryExe
         if ($null -ne $galleryFontProvenance.executable.sha256 -and $null -ne $galleryFontProvenance.render.executableAfter.sha256) {
@@ -761,6 +782,16 @@ try {
     }
     Write-GalleryFontProvenance $galleryFontProvenance $galleryProvenancePath
     throw
+} finally {
+    if ($null -ne $bitmapAttributionInvocation) {
+        try {
+            $bitmapAttributionReport = Complete-GalleryBitmapFontAttribution -Invocation $bitmapAttributionInvocation -Provenance $galleryFontProvenance -ProfilePath $galleryProvenancePath
+        } catch {
+            # Attribution is supplementary. Preserve PNGs and the original
+            # build/render/pixel outcome, and never print path-bearing errors.
+            Write-Warning 'Bitmap font attribution is unavailable; retained PNGs and the pixel gate are unchanged.'
+        }
+    }
 }
 
 # ── Update or compare ──────────────────────────────────────────────────────
@@ -875,6 +906,14 @@ $jsonReport = [ordered]@{
         failing = $failCount
     }
     entries       = $jsonEntries
+}
+if ($BitmapFontAttribution) {
+    $jsonReport.bitmapFontAttribution = [ordered]@{
+        path = 'bitmap-font-attribution/report.json'
+        status = if ($null -ne $bitmapAttributionReport) { $bitmapAttributionReport.status } else { 'unavailable' }
+        qualification = 'unqualified'
+        pixelGate = 'unchanged'
+    }
 }
 $jsonReport | ConvertTo-Json -Depth 14 | Out-File -FilePath $jsonReportPath -Encoding utf8
 Write-Step "Machine-readable report written to $jsonReportPath"

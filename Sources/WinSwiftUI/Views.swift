@@ -6876,7 +6876,8 @@ public struct Image: View {
                     // From this view's environment, not the process-global
                     // default: two hosts on monitors at different DPI each
                     // rasterize at their own scale.
-                    displayScale: context.iconRasterDisplayScale
+                    displayScale: context.iconRasterDisplayScale,
+                    bitmapFontAttribution: context.bitmapFontAttribution
                 )
                 applyImageMetadata(to: node, context: context)
                 return retainedSymbolVariantNode(
@@ -18087,6 +18088,7 @@ public struct Stepper: View {
                 preferredSize: halfSize,
                 palette: palette,
                 iconDisplayScale: context.iconRasterDisplayScale,
+                bitmapFontAttribution: context.bitmapFontAttribution,
                 cornerRadii: RetainedCornerRadii(topLeft: outerRadius, topRight: outerRadius),
                 action: {
                     increment()
@@ -18101,6 +18103,7 @@ public struct Stepper: View {
                 preferredSize: halfSize,
                 palette: palette,
                 iconDisplayScale: context.iconRasterDisplayScale,
+                bitmapFontAttribution: context.bitmapFontAttribution,
                 cornerRadii: RetainedCornerRadii(bottomRight: outerRadius, bottomLeft: outerRadius),
                 action: {
                     decrement()
@@ -18162,6 +18165,7 @@ public struct Stepper: View {
         preferredSize: Size,
         palette: ControlPalette,
         iconDisplayScale: Double,
+        bitmapFontAttribution: NativeBitmapFontAttributionSession?,
         cornerRadii: RetainedCornerRadii,
         action: @escaping @MainActor () -> Void
     ) -> ViewNode {
@@ -18190,7 +18194,8 @@ public struct Stepper: View {
             ),
             color: isEnabled ? palette.label : palette.disabledLabel,
             scale: Stepper.chevronGlyphScale,
-            displayScale: iconDisplayScale
+            displayScale: iconDisplayScale,
+            bitmapFontAttribution: bitmapFontAttribution
         )
         let node = Controls.button(
             runtime: runtime,

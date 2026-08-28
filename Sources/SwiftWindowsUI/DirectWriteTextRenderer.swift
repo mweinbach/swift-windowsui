@@ -95,14 +95,34 @@ enum DirectWriteTextRenderer {
         return true
     }
 
-    static func rasterize(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
+    static func rasterize(
+        _ text: String, style: PixelTextStyle, scaleFactor: Double,
+        observation: NativeBitmapFontObservation? = nil
+    ) -> BitmapSurface? {
+        guard let observation else {
+            guard let system = DirectWriteSystem.shared,
+                let size = system.measure(text, style: style, scaleFactor: scaleFactor, maxWidth: nil)
+            else {
+                return nil
+            }
+
+            return system.rasterize(text, in: size, style: style, scaleFactor: scaleFactor)
+        }
+
+        let capture = observation.beginDirectWriteCapture()
+        var bitmap: BitmapSurface? = nil
+        defer { observation.completeDirectWriteCapture(capture, bitmap: bitmap) }
+        // Measurement can capture shaping faces, but those are not evidence
+        // about the separate bitmap layout. Only the final draw gets capture.
         guard let system = DirectWriteSystem.shared,
             let size = system.measure(text, style: style, scaleFactor: scaleFactor, maxWidth: nil)
         else {
             return nil
         }
 
-        return system.rasterize(text, in: size, style: style, scaleFactor: scaleFactor)
+        bitmap = system.rasterize(
+            text, in: size, style: style, scaleFactor: scaleFactor, fontDrawCapture: capture)
+        return bitmap
     }
 
     static func rasterizeGlyph(_ character: Character, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap?
@@ -614,7 +634,8 @@ private final class DirectWriteSystem {
         in size: Size,
         style: PixelTextStyle,
         scaleFactor: Double,
-        resolvesMinimumScaleFactor: Bool = true
+        resolvesMinimumScaleFactor: Bool = true,
+        fontDrawCapture: NativeBitmapFontDrawCapture? = nil
     ) -> BitmapSurface? {
         let contentSize = Size(
             width: max(1, size.width - style.insets.leading - style.insets.trailing),
@@ -643,7 +664,8 @@ private final class DirectWriteSystem {
                     in: size,
                     style: effectiveStyle,
                     scaleFactor: scaleFactor,
-                    resolvesMinimumScaleFactor: false
+                    resolvesMinimumScaleFactor: false,
+                    fontDrawCapture: fontDrawCapture
                 )
             }
         }
@@ -733,10 +755,12 @@ private final class DirectWriteSystem {
             bitmapRenderTarget: bitmapTarget,
             renderingParams: renderingParams,
             pixelsPerDip: FLOAT(scaleFactor),
-            textColor: COLORREF(0x00FF_FFFF)
+            textColor: COLORREF(0x00FF_FFFF),
+            fontDrawCapture: fontDrawCapture
         )
 
-        guard let renderer = createTextRenderer() else {
+        let bitmapRenderer = fontDrawCapture == nil ? createTextRenderer() : createBitmapFontCaptureRenderer()
+        guard let renderer = bitmapRenderer else {
             return nil
         }
         defer {
@@ -1960,6 +1984,9 @@ private struct DirectWriteDrawingContext {
     var renderingParams: UnsafeMutablePointer<IDWriteRenderingParams>
     var pixelsPerDip: FLOAT
     var textColor: COLORREF
+    // Only the opt-in bitmap vtable reads this field. The ordinary callback
+    // and every shaping/atlas entry point remain uninstrumented.
+    var fontDrawCapture: NativeBitmapFontDrawCapture? = nil
 }
 private struct DirectWriteGlyphLayoutContext {
     var contextTag: UInt32 = DirectWriteClientContextTag.glyphLayoutCapture
@@ -1991,6 +2018,19 @@ private var directWriteTextRendererVTable = IDWriteTextRendererVtbl(
     DrawInlineObject: directWriteRendererDrawInlineObject
 )
 @MainActor
+private var directWriteBitmapFontCaptureRendererVTable = IDWriteTextRendererVtbl(
+    QueryInterface: directWriteRendererQueryInterface,
+    AddRef: directWriteRendererAddRef,
+    Release: directWriteRendererRelease,
+    IsPixelSnappingDisabled: directWriteRendererIsPixelSnappingDisabled,
+    GetCurrentTransform: directWriteRendererGetCurrentTransform,
+    GetPixelsPerDip: directWriteRendererGetPixelsPerDip,
+    DrawGlyphRun: directWriteBitmapFontCaptureDrawGlyphRun,
+    DrawUnderline: directWriteRendererDrawUnderline,
+    DrawStrikethrough: directWriteRendererDrawStrikethrough,
+    DrawInlineObject: directWriteRendererDrawInlineObject
+)
+@MainActor
 private var directWriteGlyphLayoutRendererVTable = IDWriteTextRendererVtbl(
     QueryInterface: directWriteRendererQueryInterface,
     AddRef: directWriteRendererAddRef,
@@ -2008,6 +2048,14 @@ private func createTextRenderer() -> UnsafeMutablePointer<IDWriteTextRenderer>? 
     let storage = UnsafeMutablePointer<SwiftTextRendererCOM>.allocate(capacity: 1)
     storage.initialize(
         to: SwiftTextRendererCOM(interface: IDWriteTextRenderer(lpVtbl: &directWriteTextRendererVTable), refCount: 1))
+    return UnsafeMutableRawPointer(storage).assumingMemoryBound(to: IDWriteTextRenderer.self)
+}
+@MainActor
+private func createBitmapFontCaptureRenderer() -> UnsafeMutablePointer<IDWriteTextRenderer>? {
+    let storage = UnsafeMutablePointer<SwiftTextRendererCOM>.allocate(capacity: 1)
+    storage.initialize(
+        to: SwiftTextRendererCOM(
+            interface: IDWriteTextRenderer(lpVtbl: &directWriteBitmapFontCaptureRendererVTable), refCount: 1))
     return UnsafeMutableRawPointer(storage).assumingMemoryBound(to: IDWriteTextRenderer.self)
 }
 @MainActor
@@ -2192,6 +2240,22 @@ private func directWriteRendererDrawGlyphRun(
         context.pointee.textColor,
         nil
     )
+}
+private func directWriteBitmapFontCaptureDrawGlyphRun(
+    _ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ baselineOriginX: FLOAT,
+    _ baselineOriginY: FLOAT, _ measuringMode: DWriteMeasuringMode, _ glyphRun: UnsafeMutableRawPointer?,
+    _ glyphRunDescription: UnsafeMutableRawPointer?, _ clientDrawingEffect: UnsafeMutableRawPointer?
+) -> HRESULT {
+    let result = directWriteRendererDrawGlyphRun(
+        rawSelf, clientDrawingContext, baselineOriginX, baselineOriginY, measuringMode,
+        glyphRun, glyphRunDescription, clientDrawingEffect)
+    if let capture = drawingContext(from: clientDrawingContext)?.pointee.fontDrawCapture {
+        // The callback borrows the run. Read only its face pointer, never the
+        // glyph array, description, text positions, or glyph count.
+        let fontFace = glyphRun?.assumingMemoryBound(to: DWRITE_GLYPH_RUN.self).pointee.fontFace
+        capture.recordDraw(fontFace: fontFace, result: result)
+    }
+    return result
 }
 private func directWriteRendererDrawUnderline(
     _ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ baselineOriginX: FLOAT,

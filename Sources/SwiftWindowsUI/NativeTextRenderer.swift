@@ -219,12 +219,23 @@ public enum NativeTextRenderer {
         )
     }
 
-    static func rasterize(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
+    static func rasterize(
+        _ text: String, style: PixelTextStyle, scaleFactor: Double,
+        observation: NativeBitmapFontObservation? = nil
+    ) -> BitmapSurface? {
         if let override = testingOverrides.rasterize {
-            return override(text, style, scaleFactor)
+            let bitmap = override(text, style, scaleFactor)
+            observation?.recordTestingOverrideResult(bitmap: bitmap)
+            return bitmap
         }
-        return DirectWriteTextRenderer.rasterize(text, style: style, scaleFactor: scaleFactor)
-            ?? GDIRasterTextRenderer.rasterize(text, style: style, scaleFactor: scaleFactor)
+        if let bitmap = DirectWriteTextRenderer.rasterize(
+            text, style: style, scaleFactor: scaleFactor, observation: observation)
+        {
+            return bitmap
+        }
+        let bitmap = GDIRasterTextRenderer.rasterize(text, style: style, scaleFactor: scaleFactor)
+        observation?.recordGDIResult(bitmap: bitmap)
+        return bitmap
     }
 
     static func rasterizeGlyph(_ character: Character, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap?
@@ -824,13 +835,15 @@ enum NativeFontAvailability {
 
     /// Returns the first family in `preferred` that is installed and contains
     /// a glyph for `character`, preserving caller order (the fallback chain).
-    static func resolvedFontFamily(for character: Character, preferred: [String]) -> String? {
+    static func resolvedFontFamily(
+        for character: Character, preferred: [String], observation: NativeBitmapFontObservation? = nil
+    ) -> String? {
         var seen = Set<String>()
         for family in preferred where !family.isEmpty {
             guard seen.insert(family.lowercased()).inserted else {
                 continue
             }
-            if hasGlyph(character, fontFamily: family) {
+            if hasGlyph(character, fontFamily: family, observation: observation) {
                 return family
             }
         }
@@ -839,9 +852,14 @@ enum NativeFontAvailability {
 
     /// Returns whether `fontFamily` is installed and maps `character` to a
     /// real glyph (not `.notdef`).
-    static func hasGlyph(_ character: Character, fontFamily: String) -> Bool {
+    static func hasGlyph(
+        _ character: Character, fontFamily: String, observation: NativeBitmapFontObservation? = nil
+    ) -> Bool {
+        let candidateObservation = observation?.withPurpose(.candidateProbe)
         if let override = testingOverrides.hasGlyph {
-            return override(character, fontFamily)
+            let result = override(character, fontFamily)
+            candidateObservation?.recordTestingOverrideResult(bitmap: nil)
+            return result
         }
         guard !fontFamily.isEmpty else {
             return false
@@ -849,9 +867,16 @@ enum NativeFontAvailability {
         let cacheKey = "\(fontFamily.lowercased())|\(String(character).utf16.map { String($0) }.joined(separator: ","))"
         if let index = cache.index(forKey: cacheKey) {
             cache.values[index].lastAccessed = nextAccessStamp()
+            candidateObservation?.noteProbeCacheHit()
             return cache.values[index].hasGlyph
         }
-        let result = testingOverrides.probe?(character, fontFamily) ?? probeHasGlyph(character, fontFamily: fontFamily)
+        let result: Bool
+        if let override = testingOverrides.probe {
+            result = override(character, fontFamily)
+            candidateObservation?.recordTestingOverrideResult(bitmap: nil)
+        } else {
+            result = probeHasGlyph(character, fontFamily: fontFamily, observation: observation)
+        }
         if cache.count >= maxCacheEntries,
             let oldest = cache.min(by: { $0.value.lastAccessed < $1.value.lastAccessed })
         {
@@ -888,9 +913,14 @@ enum NativeFontAvailability {
     /// Renders `character` with the candidate family through the same
     /// DirectWrite path icons use, and compares it against the `.notdef`
     /// reference: identical output means the glyph is genuinely missing.
-    private static func probeHasGlyph(_ character: Character, fontFamily: String) -> Bool {
+    private static func probeHasGlyph(
+        _ character: Character, fontFamily: String, observation: NativeBitmapFontObservation? = nil
+    ) -> Bool {
         let style = PixelTextStyle(color: .white, scale: 2, fontFamily: fontFamily)
-        guard let glyphBitmap = DirectWriteTextRenderer.rasterize(String(character), style: style, scaleFactor: 1),
+        guard
+            let glyphBitmap = DirectWriteTextRenderer.rasterize(
+                String(character), style: style, scaleFactor: 1,
+                observation: observation?.withPurpose(.candidateProbe)),
             glyphBitmap.pixels.contains(where: { $0 != 0 })
         else {
             return false
@@ -898,7 +928,8 @@ enum NativeFontAvailability {
 
         guard
             let notdefBitmap = DirectWriteTextRenderer.rasterize(
-                missingGlyphSentinel, style: style, scaleFactor: 1)
+                missingGlyphSentinel, style: style, scaleFactor: 1,
+                observation: observation?.withPurpose(.sentinelProbe))
         else {
             // No reference to compare against; a non-empty glyph bitmap is
             // the best available evidence of coverage.

@@ -1,0 +1,375 @@
+name: SwiftUI StateObject compiler characterization
+
+# Metadata and cases require separate manual dispatches. This workflow never
+# exports an SDK, changes production StateObject, or executes generated SIL.
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Exact reviewed source commit (40 lowercase hexadecimal characters)
+        required: true
+        type: string
+      mode:
+        description: Metadata only, or cases using a separately reviewed metadata profile
+        required: true
+        default: metadata-only
+        type: choice
+        options:
+          - metadata-only
+          - cases
+      sdk_capture_run_id:
+        description: Completed successful SDK capture run in this repository
+        required: true
+        default: "33135644721"
+        type: string
+      sdk_capture_artifact_name:
+        description: Exact SDK artifact name, including its producing run and attempt
+        required: true
+        default: swiftui-macos-26.5-xcode-26.6-candidate-33135644721-1
+        type: string
+      expected_capture_sha256:
+        description: Frozen capture.json SHA-256; changing the capture requires reviewed code
+        required: true
+        default: f900bef9de2e5c37b8145ad6bdae7a3fe1c9b679f15b324175e3f1c89797057d
+        type: string
+      profile_run_id:
+        description: Cases only, completed successful metadata-only run in this repository
+        required: false
+        type: string
+      profile_artifact_name:
+        description: Cases only, exact metadata-only artifact name containing profile.json
+        required: false
+        type: string
+      reviewed_profile_sha256:
+        description: Cases only, explicitly reviewed profile.json SHA-256
+        required: false
+        type: string
+      reviewed_matrix_sha256:
+        description: Cases only, explicitly reviewed matrix.json SHA-256
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  characterize:
+    name: Characterize the frozen public StateObject cases
+    runs-on: macos-26-intel
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      STATEOBJECT_OUTPUT_PATH: ${{ github.workspace }}/artifacts/swiftui-stateobject-isolation/${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.mode }}
+      STATEOBJECT_SDK_DOWNLOAD_DIRECTORY_NAME: swiftui-stateobject-sdk-${{ github.run_id }}-${{ github.run_attempt }}
+      STATEOBJECT_PROFILE_DOWNLOAD_DIRECTORY_NAME: swiftui-stateobject-profile-${{ github.run_id }}-${{ github.run_attempt }}
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Validate manual inputs and producer artifact identities
+        id: intake
+        timeout-minutes: 3
+        uses: actions/github-script@v7
+        env:
+          REQUEST_SOURCE_COMMIT: ${{ inputs.source_commit }}
+          REQUEST_MODE: ${{ inputs.mode }}
+          REQUEST_SDK_RUN_ID: ${{ inputs.sdk_capture_run_id }}
+          REQUEST_SDK_ARTIFACT_NAME: ${{ inputs.sdk_capture_artifact_name }}
+          REQUEST_CAPTURE_SHA256: ${{ inputs.expected_capture_sha256 }}
+          REQUEST_PROFILE_RUN_ID: ${{ inputs.profile_run_id }}
+          REQUEST_PROFILE_ARTIFACT_NAME: ${{ inputs.profile_artifact_name }}
+          REQUEST_PROFILE_SHA256: ${{ inputs.reviewed_profile_sha256 }}
+          REQUEST_MATRIX_SHA256: ${{ inputs.reviewed_matrix_sha256 }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const receiptDirectory = path.join(process.env.RUNNER_TEMP,
+              `swiftui-stateobject-workflow-${context.runId}-${process.env.GITHUB_RUN_ATTEMPT}`);
+            fs.mkdirSync(receiptDirectory, { recursive: false });
+            const receiptPath = path.join(receiptDirectory, 'intake.json');
+            core.setOutput('receipt-path', receiptPath);
+            const receipt = {
+              schemaVersion: 1,
+              evidenceKind: 'workflow-artifact-intake',
+              status: 'in-progress',
+              repository: `${context.repo.owner}/${context.repo.repo}`,
+              eventName: context.eventName,
+              requestedSourceCommit: null,
+              workflowCommit: process.env.GITHUB_WORKFLOW_SHA,
+              workflowRef: process.env.GITHUB_WORKFLOW_REF,
+              runId: String(context.runId),
+              runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+              requestedRunnerLabel: 'macos-26-intel',
+              mode: null,
+              expectedCaptureManifestSHA256: null,
+              reviewedProfileSHA256: null,
+              reviewedMatrixSHA256: null,
+              sdkArtifact: null,
+              profileArtifact: null,
+              nativeSourceBehaviorObserved: false,
+              runtimeEvidence: false,
+              parityClaimed: false,
+              productionApprovalChanged: false,
+              startedAtUtc: new Date().toISOString(),
+              finishedAtUtc: null,
+              error: null
+            };
+            function runNumber(value, label) {
+              if (!/^[1-9][0-9]{0,14}$/.test(value)) {
+                throw new Error(`${label} must be a positive decimal run ID.`);
+              }
+              return Number(value);
+            }
+            function artifactAttempt(name, runId, expression, label) {
+              const match = expression.exec(name);
+              if (!match || match[1] !== String(runId) ||
+                  !/^[1-9][0-9]{0,5}$/.test(match[2])) {
+                throw new Error(`${label} must name the selected run and an explicit attempt.`);
+              }
+              return Number(match[2]);
+            }
+            async function verifiedArtifact(runId, attempt, name, workflowPath, manualOnly) {
+              const { data: run } = await github.rest.actions.getWorkflowRun({
+                ...context.repo, run_id: runId
+              });
+              // GitHub may report a workflow path as file.yml@ref. Only the
+              // fixed file prefix is compared; preserve the full reported path.
+              if (typeof run.path !== 'string' || run.path === '' || /[\x00-\x1f\x7f]/.test(run.path)) {
+                throw new Error('The producer workflow path is missing or malformed.');
+              }
+              const refSeparator = run.path.indexOf('@');
+              if (refSeparator === run.path.length - 1) {
+                throw new Error('A producer workflow ref suffix cannot be empty.');
+              }
+              const workflowFilePath = refSeparator < 0 ? run.path : run.path.slice(0, refSeparator);
+              if (run.id !== runId || run.repository.full_name !== receipt.repository ||
+                  workflowFilePath !== workflowPath || run.run_attempt !== attempt ||
+                  run.status !== 'completed' || run.conclusion !== 'success' ||
+                  (manualOnly && run.event !== 'workflow_dispatch')) {
+                throw new Error('The selected artifact producer is not the exact completed successful workflow and attempt.');
+              }
+              // One bounded page. Do not silently search other runs or artifacts.
+              const { data: listing } = await github.rest.actions.listWorkflowRunArtifacts({
+                ...context.repo, run_id: runId, per_page: 100, page: 1
+              });
+              if (listing.total_count > 100) {
+                throw new Error('The producer has more than 100 artifacts; bounded intake requires review.');
+              }
+              const matches = listing.artifacts.filter(artifact => artifact.name === name);
+              if (matches.length !== 1 || matches[0].expired) {
+                throw new Error('The exact artifact must exist once and must not be expired.');
+              }
+              const artifact = matches[0];
+              if (!Number.isSafeInteger(artifact.id) || artifact.id <= 0 ||
+                  (artifact.workflow_run && artifact.workflow_run.id !== runId)) {
+                  throw new Error('The artifact reports a different producer run.');
+              }
+              return {
+                name: artifact.name,
+                artifactId: String(artifact.id),
+                sizeInBytes: artifact.size_in_bytes,
+                archiveDigestAsReported: artifact.digest || null,
+                producerRunId: String(run.id),
+                producerRunAttempt: run.run_attempt,
+                producerWorkflowPath: run.path,
+                producerWorkflowFilePath: workflowFilePath,
+                producerHeadCommit: run.head_sha,
+                producerEvent: run.event,
+                producerConclusion: run.conclusion
+              };
+            }
+            try {
+              if (context.eventName !== 'workflow_dispatch') {
+                throw new Error('Only explicit manual dispatch is supported.');
+              }
+              const sourceCommit = process.env.REQUEST_SOURCE_COMMIT || '';
+              const mode = process.env.REQUEST_MODE || '';
+              const expectedCapture = process.env.REQUEST_CAPTURE_SHA256 || '';
+              if (!/^[0-9a-f]{40}$/.test(sourceCommit)) {
+                throw new Error('source_commit must be exactly 40 lowercase hexadecimal characters.');
+              }
+              if (!['metadata-only', 'cases'].includes(mode)) {
+                throw new Error('Select exactly metadata-only or cases.');
+              }
+              if (expectedCapture !== 'f900bef9de2e5c37b8145ad6bdae7a3fe1c9b679f15b324175e3f1c89797057d') {
+                throw new Error('This bounded workflow accepts only the frozen SDK capture hash.');
+              }
+              receipt.requestedSourceCommit = sourceCommit;
+              receipt.mode = mode;
+              receipt.expectedCaptureManifestSHA256 = expectedCapture;
+              const sdkRunId = runNumber(process.env.REQUEST_SDK_RUN_ID || '', 'sdk_capture_run_id');
+              const sdkName = process.env.REQUEST_SDK_ARTIFACT_NAME || '';
+              const sdkAttempt = artifactAttempt(sdkName, sdkRunId,
+                /^swiftui-macos-26\.5-xcode-26\.6-candidate-([1-9][0-9]*)-([1-9][0-9]*)$/,
+                'sdk_capture_artifact_name');
+              const profileRun = process.env.REQUEST_PROFILE_RUN_ID || '';
+              const profileName = process.env.REQUEST_PROFILE_ARTIFACT_NAME || '';
+              const profileHash = process.env.REQUEST_PROFILE_SHA256 || '';
+              const matrixHash = process.env.REQUEST_MATRIX_SHA256 || '';
+              if (mode === 'metadata-only' && [profileRun, profileName, profileHash, matrixHash].some(value => value !== '')) {
+                throw new Error('Metadata-only mode accepts no profile or case review inputs.');
+              }
+              let profileRunId = null;
+              let profileAttempt = null;
+              if (mode === 'cases') {
+                if (!/^[0-9a-f]{64}$/.test(profileHash) || !/^[0-9a-f]{64}$/.test(matrixHash)) {
+                  throw new Error('Cases require both explicit reviewed SHA-256 values.');
+                }
+                profileRunId = runNumber(profileRun, 'profile_run_id');
+                profileAttempt = artifactAttempt(profileName, profileRunId,
+                  /^swiftui-stateobject-isolation-metadata-only-([1-9][0-9]*)-([1-9][0-9]*)$/,
+                  'profile_artifact_name');
+                receipt.reviewedProfileSHA256 = profileHash;
+                receipt.reviewedMatrixSHA256 = matrixHash;
+              }
+              receipt.sdkArtifact = await verifiedArtifact(sdkRunId, sdkAttempt, sdkName,
+                '.github/workflows/swiftui-baseline-capture.yml', false);
+              core.setOutput('sdk-artifact-id', receipt.sdkArtifact.artifactId);
+              if (mode === 'cases') {
+                receipt.profileArtifact = await verifiedArtifact(profileRunId, profileAttempt, profileName,
+                  '.github/workflows/swiftui-stateobject-isolation.yml', true);
+                core.setOutput('profile-artifact-id', receipt.profileArtifact.artifactId);
+              }
+              receipt.status = 'artifact-identities-checked-awaiting-content-validation';
+            } catch (error) {
+              receipt.status = 'failed';
+              receipt.error = error.message;
+              core.setFailed(error.message);
+            } finally {
+              receipt.finishedAtUtc = new Date().toISOString();
+              fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n',
+                { encoding: 'utf8', flag: 'wx' });
+            }
+
+      - name: Check out the explicit source commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_commit }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+          lfs: false
+
+      - name: Verify checkout and pinned runner prerequisites
+        id: preflight
+        env:
+          REQUEST_SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ($PSVersionTable.PSVersion.Major -lt 7 -or -not $IsMacOS -or
+              $env:RUNNER_OS -cne "macOS" -or $env:RUNNER_ARCH -cne "X64") {
+              throw "This workflow requires PowerShell 7 on the pinned Intel macOS runner."
+          }
+          $checkedOutCommit = & git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $checkedOutCommit -cne $env:REQUEST_SOURCE_COMMIT) {
+              throw "The checked-out commit differs from source_commit."
+          }
+          if (-not (Test-Path -LiteralPath $env:DEVELOPER_DIR -PathType Container)) {
+              throw "Pinned Xcode 26.6 is unavailable; no replacement Xcode is allowed."
+          }
+          $sdkDownloadPath = Join-Path $env:RUNNER_TEMP $env:STATEOBJECT_SDK_DOWNLOAD_DIRECTORY_NAME
+          $profileDownloadPath = Join-Path $env:RUNNER_TEMP $env:STATEOBJECT_PROFILE_DOWNLOAD_DIRECTORY_NAME
+          foreach ($newPath in @($env:STATEOBJECT_OUTPUT_PATH, $sdkDownloadPath, $profileDownloadPath)) {
+              if (Test-Path -LiteralPath $newPath) {
+                  throw "Attempt and download paths must be new; this workflow never overwrites evidence."
+              }
+          }
+          # The CLI owns creation of the new attempt root. Create only its
+          # fixed parent containers, which an otherwise fresh checkout lacks.
+          $artifactParent = Join-Path $env:GITHUB_WORKSPACE "artifacts"
+          $stateObjectParent = Join-Path $artifactParent "swiftui-stateobject-isolation"
+          foreach ($parentPath in @($artifactParent, $stateObjectParent)) {
+              if (Test-Path -LiteralPath $parentPath) {
+                  $parentItem = Get-Item -LiteralPath $parentPath -Force
+                  if (-not $parentItem.PSIsContainer -or
+                      (($parentItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
+                      throw "Fixed artifact parents must be regular directories, not filesystem redirects."
+                  }
+              } else {
+                  [void][System.IO.Directory]::CreateDirectory($parentPath)
+              }
+          }
+
+      - name: Download the exact previously captured SDK artifact
+        timeout-minutes: 10
+        uses: actions/download-artifact@v4
+        with:
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.sdk_capture_run_id }}
+          artifact-ids: ${{ steps.intake.outputs.sdk-artifact-id }}
+          # Exactly one verified ID; preserve its archive-root capture/ layout.
+          merge-multiple: true
+          path: ${{ runner.temp }}/${{ env.STATEOBJECT_SDK_DOWNLOAD_DIRECTORY_NAME }}
+
+      - name: Download the explicitly reviewed metadata artifact
+        if: ${{ inputs.mode == 'cases' }}
+        timeout-minutes: 3
+        uses: actions/download-artifact@v4
+        with:
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.profile_run_id }}
+          artifact-ids: ${{ steps.intake.outputs.profile-artifact-id }}
+          # Exactly one verified ID; profile.json remains at the download root.
+          merge-multiple: true
+          path: ${{ runner.temp }}/${{ env.STATEOBJECT_PROFILE_DOWNLOAD_DIRECTORY_NAME }}
+
+      - name: Capture metadata only and stop awaiting external review
+        if: ${{ inputs.mode == 'metadata-only' }}
+        timeout-minutes: 8
+        env:
+          REQUEST_CAPTURE_SHA256: ${{ inputs.expected_capture_sha256 }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $captureRoot = Join-Path (Join-Path $env:RUNNER_TEMP $env:STATEOBJECT_SDK_DOWNLOAD_DIRECTORY_NAME) "capture"
+          ./scripts/capture-swiftui-stateobject-isolation.ps1 -MetadataOnly `
+              -OutputPath $env:STATEOBJECT_OUTPUT_PATH `
+              -SDKCaptureRoot $captureRoot `
+              -ExpectedCaptureManifestSHA256 $env:REQUEST_CAPTURE_SHA256
+
+      - name: Collect only the explicitly reviewed native SIL matrix
+        if: ${{ inputs.mode == 'cases' }}
+        timeout-minutes: 35
+        env:
+          REQUEST_CAPTURE_SHA256: ${{ inputs.expected_capture_sha256 }}
+          REQUEST_PROFILE_SHA256: ${{ inputs.reviewed_profile_sha256 }}
+          REQUEST_MATRIX_SHA256: ${{ inputs.reviewed_matrix_sha256 }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $captureRoot = Join-Path (Join-Path $env:RUNNER_TEMP $env:STATEOBJECT_SDK_DOWNLOAD_DIRECTORY_NAME) "capture"
+          $profilePath = Join-Path (Join-Path $env:RUNNER_TEMP $env:STATEOBJECT_PROFILE_DOWNLOAD_DIRECTORY_NAME) "profile.json"
+          ./scripts/capture-swiftui-stateobject-isolation.ps1 -Cases `
+              -OutputPath $env:STATEOBJECT_OUTPUT_PATH `
+              -SDKCaptureRoot $captureRoot `
+              -ExpectedCaptureManifestSHA256 $env:REQUEST_CAPTURE_SHA256 `
+              -ReviewedProfilePath $profilePath `
+              -ReviewedProfileSHA256 $env:REQUEST_PROFILE_SHA256 `
+              -ReviewedMatrixSHA256 $env:REQUEST_MATRIX_SHA256
+
+      - name: Upload raw candidate evidence and failure diagnostics
+        # Never archive a path rejected as preexisting or unowned. Preserve
+        # failure evidence after a successful ownership preflight.
+        if: ${{ always() && steps.preflight.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: swiftui-stateobject-isolation-${{ inputs.mode }}-${{ github.run_id }}-${{ github.run_attempt }}
+          # Only the sealed evidence subtree: never work/, caches, downloaded
+          # SDK archives, a checkout, or another attempt's output.
+          path: ${{ env.STATEOBJECT_OUTPUT_PATH }}/evidence/
+          include-hidden-files: false
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload separate workflow intake provenance
+        if: ${{ always() && steps.intake.outputs.receipt-path != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: swiftui-stateobject-isolation-workflow-intake-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.intake.outputs.receipt-path }}
+          include-hidden-files: false
+          if-no-files-found: error
+          retention-days: 30

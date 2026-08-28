@@ -143,6 +143,17 @@ final class StateMountOwner {
         return epoch.resolve(owner: self, slot: slot, seed: seed)
     }
 
+    func resolveObject<ObjectType: ObservableObject>(
+        at slot: StatePropertySlot, seed: () -> ObjectType
+    ) throws -> MountedStateCell<ObjectType> {
+        guard let epoch = installationEpoch else {
+            throw DynamicPropertyInstaller.failure(
+                .ownerUnavailable, type: StateObject<ObjectType>.self, at: slot,
+                "StateObject creation requires its original active mount build")
+        }
+        return try epoch.resolveObject(owner: self, slot: slot, seed: seed)
+    }
+
     func isInstalled<Value>(cell: MountedStateCell<Value>, at slot: StatePropertySlot) -> Bool {
         installationEpoch?.isInstalled(cell: cell, owner: self, slot: slot) == true
     }
@@ -303,6 +314,7 @@ final class StateMountEpoch {
     private var candidates: [RetainedViewIdentity: StateMountOwner] = [:]
     private var claimedSlots: [RetainedViewIdentity: Set<StatePropertySlot>] = [:]
     private var provisionalCells: [RetainedViewIdentity: [StatePropertySlot: any AnyMountedStateCell]] = [:]
+    private var pendingObjectCreations: [UInt64: Set<StatePropertySlot>] = [:]
     private var preservedScopes: [StateMountDeclarationScope] = []
     private var preparedOwnerGenerations: Set<UInt64> = []
     private var preparedCellIdentifiers: Set<ObjectIdentifier> = []
@@ -377,6 +389,62 @@ final class StateMountEpoch {
         return cell
     }
 
+    /// Object factories execute application code, unlike an ordinary State
+    /// seed read. Reserve this declaration before calling the factory so a
+    /// recursive build cannot initialize its unfinished object again.
+    fileprivate func resolveObject<ObjectType: ObservableObject>(
+        owner: StateMountOwner, slot: StatePropertySlot, seed: () -> ObjectType
+    ) throws -> MountedStateCell<ObjectType> {
+        guard isInstalling(owner) else {
+            throw DynamicPropertyInstaller.failure(
+                .ownerUnavailable, type: StateObject<ObjectType>.self, at: slot,
+                "The StateObject owner left its build before resolution")
+        }
+        claimedSlots[owner.identity, default: []].insert(slot)
+        if let existing = provisionalCells[owner.identity]?[slot] ?? owner.cells[slot] {
+            return try objectCell(existing, at: slot, as: ObjectType.self)
+        }
+        guard pendingObjectCreations[owner.generation, default: []].insert(slot).inserted else {
+            // The initializer cannot manufacture the unfinished object. Even
+            // if application code catches this diagnostic, do not adopt the
+            // candidate that attempted the recursive declaration.
+            supersede()
+            throw DynamicPropertyInstaller.failure(
+                .recursiveInitialization, type: StateObject<ObjectType>.self, at: slot,
+                "The same mounted StateObject declaration is already running its factory")
+        }
+        defer {
+            pendingObjectCreations[owner.generation]?.remove(slot)
+            if pendingObjectCreations[owner.generation]?.isEmpty == true {
+                pendingObjectCreations.removeValue(forKey: owner.generation)
+            }
+        }
+
+        let object = seed()
+        guard isInstalling(owner) else {
+            throw DynamicPropertyInstaller.failure(
+                .ownerUnavailable, type: StateObject<ObjectType>.self, at: slot,
+                "The StateObject factory closed, superseded, or abandoned its original build")
+        }
+        if let existing = provisionalCells[owner.identity]?[slot] ?? owner.cells[slot] {
+            return try objectCell(existing, at: slot, as: ObjectType.self)
+        }
+        let cell = MountedStateCell(value: object, owner: owner)
+        provisionalCells[owner.identity, default: [:]][slot] = cell
+        return cell
+    }
+
+    private func objectCell<ObjectType: ObservableObject>(
+        _ cell: any AnyMountedStateCell, at slot: StatePropertySlot, as type: ObjectType.Type
+    ) throws -> MountedStateCell<ObjectType> {
+        guard let typed = cell as? MountedStateCell<ObjectType> else {
+            throw DynamicPropertyInstaller.failure(
+                .changedPropertyType, type: StateObject<ObjectType>.self, at: slot,
+                "The StateObject declaration changed its stored object type without a new slot")
+        }
+        return typed
+    }
+
     fileprivate func isInstalled<Value>(
         cell: MountedStateCell<Value>, owner: StateMountOwner, slot: StatePropertySlot
     ) -> Bool {
@@ -417,7 +485,7 @@ final class StateMountEpoch {
     /// write either the outgoing generation or a new owner at the same path.
     @discardableResult
     func prepareForAdoption() -> Bool {
-        guard canAdopt, let registry else { return false }
+        guard canAdopt, pendingObjectCreations.isEmpty, let registry else { return false }
         phase = .adopting
         for (identity, owner) in registry.owners where includes(identity) && !keeps(identity) {
             owner.beginRetirement()
@@ -457,6 +525,7 @@ final class StateMountEpoch {
         registry.activeEpoch = nil
         candidates.removeAll()
         provisionalCells.removeAll()
+        pendingObjectCreations.removeAll()
     }
 
     /// The caller may abandon a prepared membership before mutating any
@@ -494,6 +563,7 @@ final class StateMountEpoch {
         registry.activeEpoch = nil
         candidates.removeAll()
         provisionalCells.removeAll()
+        pendingObjectCreations.removeAll()
         if registry.isClosed { registry.finishPendingRetirements() }
     }
 

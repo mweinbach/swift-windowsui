@@ -156,11 +156,10 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
 }
 
 // These existing leaves have a no-op DynamicProperty.update and manage their
-// own legacy mechanisms. They are not mount-owned by this State-only slice;
+// own legacy mechanisms. They are not mount-owned by State/StateObject installation;
 // inspecting their private implementation boxes would invent ownership.
 extension SwiftWindowsCore.Binding: NonOwningDynamicProperty {}
 extension ObservedObject: NonOwningDynamicProperty {}
-extension StateObject: NonOwningDynamicProperty {}
 extension Environment: NonOwningDynamicProperty {}
 extension EnvironmentObject: NonOwningDynamicProperty {}
 extension FocusedValue: NonOwningDynamicProperty {}

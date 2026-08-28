@@ -58,8 +58,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   `MountedState`/`MountedOutlineGroup` suites, and
   `EditorStateOwnershipTeardownTests`. They cover ordinary mounted State,
   candidate adoption, deferred GeometryReader scope, retired binding guards,
-  queued transactions, and accounting. They do not qualify StateObject or
-  general native SwiftUI lifetime. See [MountedState.md](MountedState.md).
+  queued transactions, and accounting. They do not establish general native
+  SwiftUI lifetime. See [MountedState.md](MountedState.md).
+- Quick also runs `MountedStateObjectInstallationTests`,
+  `MountedStateObjectLifecycleTests`, and `MountedStateObjectObservationTests`.
+  These exercise lazy factories, mounted owner/slot identity, discarded and
+  reentrant candidates, multi-window isolation, retired projections, and
+  projection-only observation. Supplied object aliases and the standalone
+  cache retain their documented behavior; native SwiftUI lifetime comparison
+  and App/Scene ownership remain separate qualification work.
 - Sharded `-Filter` target selection uses class-name substring/wildcard
   matching before it builds XCTest filters. Pass explicit class names joined
   by `|`; do not assume a regular expression such as `MountedState.*Tests`

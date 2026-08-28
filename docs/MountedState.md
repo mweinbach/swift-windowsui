@@ -1,16 +1,15 @@
 # Mounted State ownership
 
-Ordinary `@State` in custom struct views belongs to the mounted view in one
-`WinSwiftUIWindowHost`. Reconstructing a child with the same typed identity
-preserves its value. Reusing one source value at different tree positions or
+Ordinary `@State` and `@StateObject` in custom struct views belong to the mounted
+view in one `WinSwiftUIWindowHost`. Reconstructing a child with the same typed
+identity preserves its value. Reusing one source value at different tree positions or
 in different hosts creates independent storage cells. A removed identity and
 a later insertion at that path have different generations.
 
 This implements a bounded part of the state requirement in
-[`goal.md`](../goal.md), not full SwiftUI lifetime conformance. `@StateObject`
-still constructs eagerly and retains its legacy wrapper storage. Focus,
-gesture, namespace, storage, query, and observed wrappers retain their existing
-mechanisms; this change does not give them mounted ownership automatically.
+[`goal.md`](../goal.md), not full SwiftUI lifetime conformance. Focus,
+gesture, namespace, storage, query, and borrowed observed wrappers retain their
+existing mechanisms; this change does not give them mounted ownership automatically.
 
 ## Identity and installation
 
@@ -48,6 +47,72 @@ existing standalone build-context behavior. Initial values are ordinary Swift
 values: copying a reference value into separate cells does not clone the
 referenced object. Inherited `View.body` result-builder compatibility remains
 separate work; installation does not change public builder representation.
+
+## StateObject construction and compatibility
+
+`StateObject(wrappedValue:)` stores an escaping main-actor factory. Creating,
+copying, or erasing the source view does not invoke that factory. Installation
+of a new typed owner and property slot creates the object before evaluating
+the body. Rebuilding that owner reuses its object without invoking a newly
+supplied factory, even when initializer inputs change. Removing the owner and
+later inserting the same path creates a new generation and invokes its factory
+again. Factories that return an already-created object intentionally share
+that reference; independent ownership does not clone class instances.
+
+Object creation reserves its owner generation and declaration before calling
+application code. Recursively resolving the same unfinished object rejects
+the candidate with an installation diagnostic. Independent declarations can
+initialize during that callback. Adoption cannot begin while a factory is
+running, and the original epoch is checked again after it returns. A factory
+that closes or supersedes its build cannot publish a cell into a replacement
+epoch. The ordinary State seed-resolution policy is unchanged.
+
+Installation observes the resolved object even when the body only passes a
+projected binding without reading it. Published property changes continue
+through the existing observed-object batching and captured transaction path;
+member setters do not add a second State-style invalidation. Candidate
+subscriptions use the same commit and abandonment rules as other observed
+dependencies. Objects passed to `ObservedObject` or `environmentObject` remain
+ordinary borrowed references, and closing their owner does not close another
+host's subscription to that object.
+
+Outside an installed view, the first wrapped-value access or member projection
+creates a separate fallback object, cached by the source wrapper. Copies share
+that fallback until a copy's public setter explicitly replaces its source.
+Mounted creation never adopts the fallback cache: using the same source in two
+hosts invokes the factory separately for those two owners. This standalone
+policy, including App and Scene declarations not installed as views, is not a
+claim of native SwiftUI container lifetime parity.
+
+Two existing public API extensions are retained deliberately: `wrappedValue`
+has a mutating setter, and `projectedValue` returns `StateObject<ObjectType>`.
+Native SwiftUI exposes a get-only wrapped object and an
+`ObservedObject<ObjectType>.Wrapper` projection instead, as documented in
+[`wrappedValue`](https://developer.apple.com/documentation/swiftui/stateobject/wrappedvalue)
+and [`projectedValue`](https://developer.apple.com/documentation/swiftui/stateobject/projectedvalue).
+A mounted whole-object assignment replaces the value in its existing cell,
+advances the usual live
+State revision, and invalidates that host. Previously created member bindings
+follow this replacement within the same generation. An unmounted assignment
+changes only that source value, not its previous copies or installed owners.
+Initializer and access remain main-actor constrained; this slice does not
+adopt native initializer isolation or public Wrapper compatibility.
+
+Member bindings capture only the installed cell and key path. After retirement
+their write guards run before projected getter, modify, or setter operations,
+and cannot reconnect to a later owner. A getter still reads the retained object
+with ordinary reference semantics. Raw objects and bindings made through
+borrowed wrappers are not revoked by another wrapper's ownership. An escaped
+member binding legitimately retains its last object until released, but does
+not retain the authored factory or fallback cache. An escaped raw StateObject
+projection or installed view can retain those source values as well.
+
+A measured or superseded candidate may run an object factory and then discard
+its result. No framework can roll back that factory's external side effects.
+Never-evaluated inactive declarations do not run factories; previously mounted
+inactive scopes retain the existing State declaration-preservation policy.
+Exact speculative-construction, cyclic standalone initialization, inactive
+container, and stale-access semantics still require native qualification.
 
 ## Candidate builds and adoption
 
@@ -130,7 +195,8 @@ percentiles. The additional ownership and departure traversals have real
 cost and are not a performance qualification.
 
 Quick includes the installation, registry, root/deferred lifecycle, container,
-queued-transaction, timing, and combined editor teardown suites. See
+queued-transaction, timing, StateObject factory/lifetime/observation, and
+combined editor teardown suites. See
 [`Testing.md`](Testing.md) for serial invocation and
 [`goal.md`](../goal.md) for exact executed results, failures, and corrections.
 Standalone reflection probes do not replace production module compilation or

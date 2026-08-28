@@ -15,7 +15,7 @@ struct StatePropertySlot: Hashable {
 
 @MainActor
 protocol MountedDynamicProperty: DynamicProperty {
-    mutating func install(in owner: StateMountOwner, at slot: StatePropertySlot)
+    mutating func install(in owner: StateMountOwner, at slot: StatePropertySlot) throws
     func isInstalled(in owner: StateMountOwner, at slot: StatePropertySlot) -> Bool
 }
 
@@ -36,6 +36,7 @@ struct DynamicPropertyInstallationError: Error, Equatable, CustomStringConvertib
         case ambiguousPropertySlot
         case changedPropertyType
         case mutatedDynamicProperty
+        case recursiveInitialization
     }
 
     let reason: Reason
@@ -147,7 +148,7 @@ enum DynamicPropertyInstaller {
                     guard var property = value as? any MountedDynamicProperty else {
                         throw changedType(Value.self, at: slot)
                     }
-                    property.install(in: installation.owner, at: slot)
+                    try property.install(in: installation.owner, at: slot)
                     try requireActive(installation, at: slot, type: Value.self)
                     property.update()
                     try requireActive(installation, at: slot, type: Value.self)
@@ -413,7 +414,7 @@ enum DynamicPropertyInstaller {
             .changedPropertyType, type: type, at: slot, "The property no longer matches its validated concrete type")
     }
 
-    private static func failure(
+    static func failure(
         _ reason: DynamicPropertyInstallationError.Reason, type: Any.Type, at slot: StatePropertySlot, _ detail: String
     ) -> DynamicPropertyInstallationError {
         DynamicPropertyInstallationError(

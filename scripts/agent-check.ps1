@@ -300,6 +300,9 @@ if ($Full) {
     Invoke-Step "mounted State ownership and editor teardown" {
         & $testScript -Sharded -Filter "DynamicPropertyInstallationTests|StateMountRegistryTests|RetainedBuildLifecycleTests|MountedStateDeclarationTests|MountedStateDispatchTests|MountedStateEpochTests|MountedStateHostTimingTests|MountedStateLifecycleTests|MountedStateQueuedTransactionTests|MountedOutlineGroupStateTests|EditorStateOwnershipTeardownTests"
     }
+    Invoke-Step "mounted StateObject lifetime and observation" {
+        & $testScript -Sharded -Filter "MountedStateObjectInstallationTests|MountedStateObjectLifecycleTests|MountedStateObjectObservationTests"
+    }
     Invoke-Step "shared scene and frame lifecycle delivery" {
         & $testScript -Sharded -Filter "RenderLifecycleDeliveryTests|SceneLifecycleHostTests|RuntimeRenderPassReentrancyTests|RuntimeDirtyFlagIntegrityTests|ViewSnapshotTaskLifetimeTests|ViewSnapshotTests|TransitionConstructionOwnershipTests|TabViewLifecycleTransitionTests"
     }

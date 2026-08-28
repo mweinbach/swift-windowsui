@@ -7221,19 +7221,54 @@ public struct FocusedObject<ObjectType: ObservableObject>: DynamicProperty {
 @propertyWrapper
 @dynamicMemberLookup
 public struct StateObject<ObjectType: ObservableObject>: DynamicProperty {
-    private var object: ObjectType
+    @MainActor
+    private final class Seed {
+        let factory: @MainActor () -> ObjectType
+        private var unmountedObject: ObjectType?
 
-    public init(wrappedValue: @autoclosure () -> ObjectType) {
-        self.object = wrappedValue()
+        init(factory: @escaping @MainActor () -> ObjectType) {
+            self.factory = factory
+        }
+
+        init(object: ObjectType) {
+            factory = { object }
+            unmountedObject = object
+        }
+
+        func valueOutsideMount() -> ObjectType {
+            if let unmountedObject { return unmountedObject }
+            let object = factory()
+            if let unmountedObject { return unmountedObject }
+            unmountedObject = object
+            return object
+        }
+    }
+
+    private var seed: Seed
+    private var mountedCell: MountedStateCell<ObjectType>?
+
+    public init(wrappedValue: @autoclosure @escaping @MainActor () -> ObjectType) {
+        seed = Seed(factory: wrappedValue)
     }
 
     public var wrappedValue: ObjectType {
         get {
+            let object = mountedCell?.readValue() ?? seed.valueOutsideMount()
             ViewBuildContextScope.current?.observe(object)
             return object
         }
         set {
-            object = newValue
+            if let mountedCell {
+                // This setter remains a compatibility extension. Replacement
+                // belongs to the same mounted location, never a future owner.
+                if mountedCell.write(newValue), mountedCell.readValue() === newValue {
+                    ViewBuildContextScope.current?.observe(newValue)
+                }
+            } else {
+                // Do not change the fallback cache shared by earlier copies
+                // of this source value when one wrapper is explicitly assigned.
+                seed = Seed(object: newValue)
+            }
         }
     }
 
@@ -7243,14 +7278,52 @@ public struct StateObject<ObjectType: ObservableObject>: DynamicProperty {
 
     public subscript<Subject>(dynamicMember keyPath: ReferenceWritableKeyPath<ObjectType, Subject>) -> Binding<Subject>
     {
-        Binding<Subject>(
+        if let mountedCell {
+            // Captured bindings retain only the installed object location,
+            // not its authored factory or the separate unmounted cache.
+            return Binding<Subject>(
+                get: {
+                    let object = mountedCell.readValue()
+                    ViewBuildContextScope.current?.observe(object)
+                    return object[keyPath: keyPath]
+                },
+                set: { newValue in
+                    guard mountedCell.isWritable else { return }
+                    mountedCell.readValue()[keyPath: keyPath] = newValue
+                },
+                isValidForWrite: { mountedCell.isWritable })
+        }
+        let object = seed.valueOutsideMount()
+        return Binding<Subject>(
             get: {
-                wrappedValue[keyPath: keyPath]
+                ViewBuildContextScope.current?.observe(object)
+                return object[keyPath: keyPath]
             },
             set: { newValue in
-                wrappedValue[keyPath: keyPath] = newValue
+                ViewBuildContextScope.current?.observe(object)
+                object[keyPath: keyPath] = newValue
             }
         )
+    }
+}
+extension StateObject: MountedDynamicProperty {
+    mutating func install(in owner: StateMountOwner, at slot: StatePropertySlot) throws {
+        let epoch = owner.installationEpoch
+        let cell = try owner.resolveObject(at: slot, seed: seed.factory)
+        mountedCell = cell
+        guard owner.installationEpoch === epoch, owner.isInstalled(cell: cell, at: slot) else {
+            throw DynamicPropertyInstaller.failure(
+                .ownerUnavailable, type: Self.self, at: slot,
+                "The StateObject owner left its build while installing the resolved object")
+        }
+        // Ownership establishes the dependency even if this body only passes
+        // a projection elsewhere and never invokes its wrapped-value getter.
+        ViewBuildContextScope.current?.observe(cell.readValue())
+    }
+
+    func isInstalled(in owner: StateMountOwner, at slot: StatePropertySlot) -> Bool {
+        guard let mountedCell else { return false }
+        return owner.isInstalled(cell: mountedCell, at: slot)
     }
 }
 extension SwiftWindowsCore.Binding: DynamicProperty {}

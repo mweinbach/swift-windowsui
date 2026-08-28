@@ -2115,3 +2115,40 @@ No visible window or system preference changed. Neither the plain Foundation
 loop nor this six-family relay has been adopted in production. A usable native
 scheduler still has to preserve the complete Windows message and text paths;
 successful task progress alone does not satisfy that existing requirement.
+
+### Fifth batch: mounted StateObject ownership
+
+`@StateObject` now uses the mounted identity, declaration slot, host, and owner
+generation already established for ordinary State. Its initializer stores an
+escaping main-actor factory instead of constructing the object immediately.
+Installation resolves that factory for a new owner/slot and keeps the accepted
+object through fresh view values and keyed reordering. A factory returning a
+supplied instance still intentionally shares that reference; a copied source
+view does not by itself merge ownership between windows.
+
+Factory execution reserves its slot before calling application code. Recursive
+initialization, host closure, superseded builds, and unfinished adoption cannot
+publish an invalid candidate. Installation also subscribes to the object when
+the body only forwards its projected binding. Escaped mounted member bindings
+retain the last readable cell but reject projected writes before accessors run
+after that generation retires. Raw object references remain ordinary aliases;
+this is not a deep freeze or a revocation of arbitrary external references.
+
+The integrated code passes 220 focused XCTest cases across 23 targets and 14
+serial invocations, with no failures or skips: all 36 new installation,
+lifetime, and observation cases; 177 existing State, editor-teardown,
+transaction, window, demo, and construction regressions; and seven existing
+public object/publisher cases. The new-suite log is
+`artifacts/goal-fifth-stateobject-new-tests.log`, SHA-256
+`06f1e8fc62804aa1254634e9d1dad9fccef082fca0ed015fc795b8b4e50b9116`.
+The existing-suite log is `artifacts/goal-fifth-stateobject-regressions.log`,
+SHA-256 `1d9348223b02ccd4c65c2932bbd6bd376b7dc768410a42259946ed1279d67814`.
+Strict lint passed on all seven changed Swift files, and contracts passed
+before and after the architecture change. Quick now includes the three new
+StateObject suites; complete fifth-batch Quick/Full validation remains pending.
+
+The mutable whole-object setter, projected-self API, and standalone cache are
+explicit Windows compatibility extensions. App/Scene ownership, inactive
+opaque content, complete wrapper support, and paired native lifetime and
+transaction behavior remain open. [MountedState.md](docs/MountedState.md)
+records these boundaries; this slice does not close an original product gate.

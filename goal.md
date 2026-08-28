@@ -4054,3 +4054,31 @@ Fresh committed-source diagnostic runs remain required for those observations.
 No font profile is qualified and the 67/85 hosted gallery mismatch is not fixed
 by adding instrumentation. Full/Quick, raw retained/gallery/reference checks,
 hosted validation, and all nine original product completion gates remain open.
+
+### Sixth batch: routine regression registration
+
+Quick validation now includes the new document/session/undo, dialog and native
+close ownership, retained alert/accessibility lifetime, editor layout/viewport,
+Binding facade, and bitmap stream suites. Four new sharded steps and three
+extended filters preserve every existing step and filter term. Full and the
+shared preamble are unchanged; no assertion, screenshot, baseline, threshold,
+capability gate, or shard limit is removed or relaxed.
+
+The reviewed source model adds 28 previously unselected classes and 671 distinct
+methods exactly once, predicting 1,963 to 2,634 selected XCTest identifiers and
+126 to 166 serial main-Quick test invocations. Those counts exclude the portable
+test and material-classifier commands. DocumentSessionEditorIntegrationTests
+joins the existing public/input group so its substring match does not repeat
+the older IntegrationTests class in a separate group. Existing bitmap and
+editor classes already selected by Quick are not duplicated.
+
+The two-file patch has SHA-256
+`0fcdab3b8bebed6a3628c0197756debc2d3018704532266388838dcb52bbf10c`;
+its source model, exact replay, and independent review are retained under
+`artifacts/goal-sixth-quick-registration-intake-v1`. Explicit PowerShell 5.1 and
+7.6.4 AST checks pass. This is registration evidence, not execution or a timing
+claim. The documented approximately-ten-minute Quick target remains unchanged;
+the preceding batch's recorded 13-minute-31-second run does not satisfy it.
+The new candidate must be measured before the accumulated push. Full, Quick,
+rendering/reference results, and all nine original product gates still require
+their own evidence.

@@ -199,7 +199,7 @@ if ($Full) {
         & $testScript -Sharded -Filter "SceneColorEffectPassTests|D3D11ImageRenderPassTests|SceneAtlasLifetimeTests|D3D11SharedSceneAtlasTests|NativeTextConversionSafetyTests"
     }
     Invoke-Step "bitmap font attribution ownership" {
-        & $testScript -Sharded -Filter "BitmapFontAttributionViewTests|NativeBitmapFontAttributionSessionTests|NativeBitmapFontDrawCaptureTests|NativeBitmapFontMetadataTests"
+        & $testScript -Sharded -Filter "BitmapFontAttributionViewTests|NativeBitmapFontAttributionSessionTests|NativeBitmapFontDrawCaptureTests|NativeBitmapFontMetadataTests|NativeBitmapFontStreamTests"
     }
     Invoke-Step "ScenePrimitiveScaleInvarianceTests" {
         & $testScript -Filter "ScenePrimitiveScaleInvarianceTests"
@@ -315,8 +315,14 @@ if ($Full) {
     Invoke-Step "WindowCoordinatorTests" {
         & $testScript -Filter "WindowCoordinatorTests"
     }
+    Invoke-Step "dialog ownership and close settlement" {
+        & $testScript -Sharded -Filter "FileDialogOutcomeTests|FileDialogOwnershipTests|Win32CloseControlTests|Win32DeferredCloseTests|RetainedBuildSettlementTests|WindowCloseFinalizationTests"
+    }
     Invoke-Step "binding transactions and Settings workflows" {
-        & $testScript -Sharded -Filter "BindingTransactionTests|BindingHostTransactionTests|SettingsSceneHostingTests|WindowGroupContentIdentityTests|DemoSettingsPersistenceTests|DemoObservationShowcaseTests"
+        & $testScript -Sharded -Filter "BindingTransactionTests|BindingHostTransactionTests|BindingFacadePublicBoundaryTests|SettingsSceneHostingTests|WindowGroupContentIdentityTests|DemoSettingsPersistenceTests|DemoObservationShowcaseTests"
+    }
+    Invoke-Step "document file services, sessions, and editor undo" {
+        & $testScript -Sharded -Filter "DemoDocumentTemplateTests|DocumentFileServiceTests|DocumentGroupHostingTests|DocumentTextUndoTests|FileDocumentSessionTests"
     }
     Invoke-Step "typed retained view identity" {
         & $testScript -Sharded -Filter "RetainedViewIdentityTests|WinSwiftUIStructuralIdentityTests|ViewIdentityRoleTests"
@@ -327,6 +333,9 @@ if ($Full) {
     Invoke-Step "accepted sheet dismissal activity" {
         & $testScript -Sharded -Filter "PresentationActivityTests|SheetDismissActivityTests"
     }
+    Invoke-Step "retained alerts and accessibility ownership" {
+        & $testScript -Sharded -Filter "RetainedAlertActivityTests|RetainedAlertHostTests|RetainedPresentationFocusTests|AccessibilityProjectedActionLifetimeTests|ModalAccessibilityActionTests|UIACurrentElementMutationTests|UIAProviderLifetimeTests|UIARuntimeOwnershipTests"
+    }
     Invoke-Step "structural stack children" {
         & $testScript -Sharded -Filter "StructuralComponentTests|StructuralCompositionIdentityTests|StructuralComponentMountedTests"
     }
@@ -335,6 +344,9 @@ if ($Full) {
     }
     Invoke-Step "undo ownership and bitmap stretch" {
         & $testScript -Sharded -Filter "UndoManagerTests|TextInputUndoTests|TextInputUndoSessionTests|TextInputConstructionLifetimeTests|TextSelectionIndexSafetyTests|SheetContentIdentityTests|ItemSheetStateIdentityTests|WinSwiftUIBitmapStretchTests"
+    }
+    Invoke-Step "editor layout, navigation, and viewport ownership" {
+        & $testScript -Sharded -Filter "RetainedTextEditingLayoutTests|RetainedTextInputInvalidationTests|TextEditorFrameSizingTests|TextEditorNavigationTests|TextEditorRevealClampTests|TextEditorViewportRuntimeTests"
     }
     Invoke-Step "sheet dismissal and host environment notifications" {
         & $testScript -Filter "WinSwiftUITests/(testSheetIsPresentedComposesRetainedModalAndDismisses|testSheetItemRendersSelectedItemAndClearsOnDismiss)|WinSwiftUIWindowHostTests/testHostActiveAndVisibilityStateDriveEnvironmentValues"
@@ -352,7 +364,7 @@ if ($Full) {
         & $testScript -Sharded -Filter "D3D11GPUFrameTimingCollectorTests|D3D11GPUFrameTimingNativeTests|LiveGPUFrameTimingHostTests|LiveGPUFrameTimingReportTests"
     }
     Invoke-Step "public API, input, document, window and diagnostic regressions" {
-        & $testScript -Sharded -Filter "WinSwiftUIColorInitializerTests|WinSwiftUIColorSpaceConversionTests|WinSwiftUIScaleOverloadTests|RetainedLongPressGestureTests|DemoLongPressWindowStateTests|TextEditorReconciliationTests|TextInputLayoutGeometryTests|FileDocumentExportTests|FileDialogIntegrationTests|Win32WindowCloseRequestTests|WindowDismissBehaviorTests|LiveDiagnosticsAccountingTests|LiveDiagnosticsReportTests"
+        & $testScript -Sharded -Filter "WinSwiftUIColorInitializerTests|WinSwiftUIColorSpaceConversionTests|WinSwiftUIScaleOverloadTests|RetainedLongPressGestureTests|DemoLongPressWindowStateTests|TextEditorReconciliationTests|TextInputLayoutGeometryTests|FileDocumentExportTests|FileDialogIntegrationTests|DocumentSessionEditorIntegrationTests|Win32WindowCloseRequestTests|WindowDismissBehaviorTests|LiveDiagnosticsAccountingTests|LiveDiagnosticsReportTests"
     }
     # Optional retained capabilities must stay genuinely sparse; rebuilding
     # controls must preserve their IME composition and caret callbacks.

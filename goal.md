@@ -2040,3 +2040,78 @@ now selects both sheet dismissal cases and the environment-notification case
 explicitly. The compatibility documentation also states that retained async
 test results do not establish progress in the native host's current message
 loop. No production source changed in this fixture correction.
+
+### Fourth batch: completed local validation at `22eb732`
+
+The complete Full run now passes from the first shard on clean commit
+`22eb7326820568f0c4aaadebf0b3e0f84eb30243`, source tree
+`3cbdc4b11b9e2d72adba9100f163db0ee2246b49`. All 190 Windows shards covering
+304 targets passed, along with the separate portable test invocation, tooling
+fixtures, debug and release application builds, five raw retained screenshots,
+and the gallery regression gate. A complete Quick run subsequently passed on
+the same unchanged clean revision.
+
+| Local validation | XCTest passed | XCTest skipped | Swift Testing passed |
+| --- | ---: | ---: | ---: |
+| Full | 3,981 | 1 | 134 |
+| Quick | 1,641 | 1 | 9 |
+
+Neither successful run contains a failed test. Both skips are the existing
+`RenderPassAbstractionTests.testMaterialInsideADrawingGroupBlursNothing`
+case; this material limitation is not resolved by the other passing tests.
+Strict lint passed on all 45 Swift files changed since the third pushed batch.
+The full original goal prefix was verified unchanged before both runs.
+
+The five fresh raw images were opened and inspected: scene and frame dashboard,
+dark and light scene gallery, and frame gallery. All 85 reviewed gallery
+baselines passed with the existing channel tolerance 8, changed-pixel limit
+0.5 percent, and maximum channel delta 64. No baseline, threshold, font
+selection, or runner was changed. The frame fallback still visibly omits scene
+effects; its usable output is not a claim of visual parity with the scene path.
+
+The first Quick attempt stopped before Swift tests when Windows denied a
+directory rename while publishing a synthetic API-audit memory fixture. The
+failed staging directory was removed and no ledger was published. An unchanged
+focused rerun passed all 19 assertions. Source review found no persistent
+owned-stream leak, and the complete unchanged Quick retry also passed. The
+cause of the single access denial remains unestablished; no automatic retry or
+source workaround was added. This failed run remains separate evidence from
+the successful retry, just as the four failed Full attempts and partial tail
+diagnostics remain separate from the completed Full run.
+
+The archive at `artifacts/goal-fourth-batch-22eb732/validation.json` lists
+201 hashed evidence files totaling 26,013,301 bytes, including successful and
+failed logs, source attestations, focused checks, the raw images, gallery
+reports, and 85 current gallery renders. Its SHA-256 is
+`6d463f1bd555d3f24b4349bbe9a933e5658608a806417d3611bdb63d721643cf`.
+The successful Full log SHA-256 is
+`6159767774af19286f17133cb17998241346cf15fd1f890b4c17c180815c4b5f`;
+the successful Quick log SHA-256 is
+`e0f1065acbaa433c8d3f70e53b848a6d500146841371cf316911efac0609e4f8`.
+This documentation-only record does not alter the tested production or test
+sources. Hosted CI on the next pushed revision, reviewed native SDK/material
+captures, actual glyph-face attribution, native scheduling and interactive
+flows, hardware timing, complete API conformance, and clean-machine delivery
+remain outstanding. All nine original completion gates remain open.
+
+### Native scheduling follow-up: the character relay remains insufficient
+
+A separate optimized message-only-window probe preserved ten authored inputs
+across six character-message families through a fixed-ID relay around the
+Foundation loop. Task progress, controlled nested Unicode message dispatch,
+quit propagation, and owned cleanup also passed their scoped checks. Additional
+controls nevertheless reproduced data loss: an owned `WM_IME_COMPOSITION`
+character changed from `0x6F22` to `0x003F`, an owned `WM_MENUCHAR` changed its
+character while retaining its flags and menu handle, and a foreign Unicode
+window still received the wrong character. The GetMessageW baseline preserved
+all three. These were synthetic queued messages, not live IME or active-menu
+qualification, and standalone assertion counts are not XCTest case counts.
+
+The final source, executable, three result sets, watchdog records, runtime
+identity, and saved-evidence verification were imported without modification
+to `artifacts/goal-native-mainactor-relay-8304d98/`. The frozen manifest SHA-256
+is `de27e7c2f1f866ffe09bfcbaa5a3ddf17495831399d168a77358b5c634a02565`.
+No visible window or system preference changed. Neither the plain Foundation
+loop nor this six-family relay has been adopted in production. A usable native
+scheduler still has to preserve the complete Windows message and text paths;
+successful task progress alone does not satisfy that existing requirement.

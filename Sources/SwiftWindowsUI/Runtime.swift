@@ -9372,7 +9372,13 @@ public final class RetainedViewRuntime {
 
     var retainedBuildCoordinator: RetainedBuildCoordinator {
         if let retainedBuildCoordinatorStorage { return retainedBuildCoordinatorStorage }
-        let coordinator = RetainedBuildCoordinator()
+        let coordinator = RetainedBuildCoordinator { [weak self] in
+            guard let self else { return false }
+            return self.longPressReconciliationDepth == 0
+                && !self.isDrainingReconciliationCallbacks
+                && self.pendingLongPressCallbacks.isEmpty
+                && self.pendingRetainedBuildCompletions.isEmpty
+        }
         retainedBuildCoordinatorStorage = coordinator
         return coordinator
     }
@@ -11051,7 +11057,10 @@ public final class RetainedViewRuntime {
     private func drainReconciliationCallbacks() {
         guard longPressReconciliationDepth == 0, !isDrainingReconciliationCallbacks else { return }
         isDrainingReconciliationCallbacks = true
-        defer { isDrainingReconciliationCallbacks = false }
+        defer {
+            isDrainingReconciliationCallbacks = false
+            retainedBuildCoordinatorStorage?.retainedCallbacksDidDrain()
+        }
         while longPressReconciliationDepth == 0 {
             if !pendingLongPressCallbacks.isEmpty {
                 let callbacks = pendingLongPressCallbacks

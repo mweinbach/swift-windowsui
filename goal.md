@@ -3109,3 +3109,39 @@ No candidate DLL was loaded, installed, or activated. A separately reviewed
 plan for real XCTest and Swift Testing consumers is still being prepared;
 runtime ABI, native scheduling, Unicode, distribution, and all nine original
 product acceptance gates remain unqualified.
+
+### Sixth batch: retained build settlement notifications
+
+Deferred native delivery is committed as `07db359`. The next increment adds a
+stored settlement capability to coordinated retained builds. A build is not
+settled while its root or deferred subtree is building, queued rebuilds remain,
+the rebuild drain is active, or retained terminal callbacks remain. This does
+not claim that geometry is resolved: layout and deferred GeometryReader work
+still require their own evidence. Raw hosts without an installed lifecycle do
+not expose this capability.
+
+Settlement observers retain a registration token and preserve FIFO slots when
+the same owner replaces its pending action. Releasing an old action happens
+after its replacement is published and the collection's exclusive access ends.
+Notification delivery is bounded to the pass's original slots, so an observer
+cannot spin inline by registering itself. A lifecycle removal or replacement
+invalidates old host continuations even if that object is later reinstalled.
+An idle observer may run synchronously; notification is not final close
+authority and must not become a synchronous prompt/retry loop.
+
+The first focused build and run pass 115 distinct XCTest cases across seven
+serial invocations, with no failures, skips, or duplicate completed identifiers.
+The total includes all 34 new settlement cases and 81 existing component-host,
+retained-lifecycle, mounted-state/transaction, sheet, and presentation-activity
+cases. The actual child exited zero at 08:36:29 UTC. Its log is
+`artifacts/goal-sixth-build-settlement-tests-v1.log`, SHA-256
+`781b77ea45750ffd0246ab4e06ed845f29b52af537b8ea0d5d6cbd3158f6774f`.
+The tested staged tree is `d9e76c3c69a765ffd0a9ddd815c49b041d755688` over
+`07db359`; all recorded source inputs, index bytes, status, and tree remained
+unchanged during execution. All four changed Swift files pass strict lint and
+contracts. The frozen increment needed no further source correction. Root
+comparison also verifies that all 406 preexisting test/resource paths retain
+their original Git content; the two explicitly recorded earlier fixture
+overlays remain the only imported-source differences apart from this goal.
+Layout receipts and final native host integration remain unfinished, and none
+of the original nine acceptance gates is closed by this focused result.

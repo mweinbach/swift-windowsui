@@ -56,13 +56,54 @@ public final class ComponentHost {
         let onCompleted: (() -> Void)?
     }
 
+    private final class BuildLifecycleInstallation {}
+    private var buildLifecycleInstallation = BuildLifecycleInstallation()
+
     /// Optional state ownership supplied by the composition layer. Raw
     /// ComponentHost clients keep their existing path when this is absent.
-    public var buildLifecycle: (any RetainedBuildLifecycle)?
+    public var buildLifecycle: (any RetainedBuildLifecycle)? {
+        didSet {
+            if oldValue !== buildLifecycle {
+                buildLifecycleInstallation = BuildLifecycleInstallation()
+            }
+        }
+    }
 
     /// True while an installed lifecycle builds a root or deferred subtree,
     /// including terminal callbacks and request completion. Reentry queues.
     public var isBuilding: Bool { runtime.hasActiveRetainedBuild }
+
+    /// True after coordinated root/subtree builds, terminal callbacks, and
+    /// queued rebuilds have finished, including the coordinator's drain scope.
+    /// This does not mean layout is resolved: dirty geometry may build during
+    /// a later render. Manually inserted, lease-less geometry is not tracked.
+    /// False means unavailable for raw hosts without an installed lifecycle;
+    /// their existing unmanaged rebuild path does not expose this capability.
+    package var isBuildSettled: Bool {
+        buildLifecycle != nil && runtime.retainedBuildCoordinator.isBuildSettled
+    }
+
+    /// Schedule a native wake after coordinated builds settle, never a prompt
+    /// or close inline. An idle coordinator delivers synchronously. The owner
+    /// is a retained registration token; capture the host weakly and revalidate
+    /// the intent before submitting work. Removing or replacing the lifecycle
+    /// drops an old continuation, even if that lifecycle is later reinstalled.
+    /// False rejects unavailable raw hosts without invoking the action. True
+    /// accepts a continuation, not its eventual delivery or a lasting permit.
+    /// Records appended during notification delivery wait for a later independent
+    /// drain opportunity; this observer does not create a wakeup or follow-up pass.
+    @discardableResult
+    package func scheduleAfterBuildsSettled(owner: AnyObject, action: @escaping @MainActor () -> Void) -> Bool {
+        guard let lifecycle = buildLifecycle else { return false }
+        let installation = buildLifecycleInstallation
+        runtime.retainedBuildCoordinator.scheduleAfterBuildsSettled(owner: owner) { [weak self, weak lifecycle] in
+            guard let self, let lifecycle, self.buildLifecycle === lifecycle,
+                self.buildLifecycleInstallation === installation
+            else { return }
+            action()
+        }
+        return true
+    }
 
     /// Invoked only after a root was adopted and its terminal callbacks have
     /// drained. A rejected or obsolete request does not complete.

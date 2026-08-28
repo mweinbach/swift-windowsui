@@ -103,11 +103,66 @@ final class RetainedBuildCoordinator {
         let action: @MainActor () -> Void
     }
 
+    private struct SettlementCallback {
+        // Keep the registration alive: an identifier alone could refer to a
+        // different object after the original registration is deallocated.
+        let owner: AnyObject
+        let action: @MainActor () -> Void
+    }
+
     private(set) var isBuilding = false
     private var currentEpoch: (any RetainedBuildEpoch)?
     private var requestSequence: UInt64 = 0
     private var pendingWork: [PendingWork] = []
     private var isDrainingReloads = false
+    private var settlementCallbacks: [SettlementCallback] = []
+    private var isProcessingSettlementCallbacks = false
+    private let retainedCallbacksAreSettled: @MainActor () -> Bool
+
+    init(retainedCallbacksAreSettled: @escaping @MainActor () -> Bool = { true }) {
+        self.retainedCallbacksAreSettled = retainedCallbacksAreSettled
+    }
+
+    /// Notification delivery is not build work. This can remain true while
+    /// newly appended observers wait for another independent drain opportunity.
+    var isBuildSettled: Bool {
+        !isBuilding && pendingWork.isEmpty && !isDrainingReloads && retainedCallbacksAreSettled()
+    }
+
+    /// A completion can enqueue another terminal callback after finishBuild.
+    /// The runtime announces its actual callback drain exit without changing
+    /// the order of those callbacks or any queued rebuilds.
+    func retainedCallbacksDidDrain() {
+        drainSettlementCallbacks()
+    }
+
+    /// Observe settlement without adding a rebuild or changing its transaction.
+    /// The owner is a retained registration token, not the host it observes;
+    /// actions must capture that host weakly and recheck their current intent.
+    /// Re-registering a pending owner replaces its action in the same FIFO slot.
+    /// An idle registration may run synchronously. New records appended during
+    /// notification delivery wait for a later independent drain opportunity;
+    /// this observer creates no wakeup or immediate follow-up pass.
+    func scheduleAfterBuildsSettled(owner: AnyObject, action: @escaping @MainActor () -> Void) {
+        let wasProcessingCallbacks = isProcessingSettlementCallbacks
+        isProcessingSettlementCallbacks = true
+        replaceSettlementCallback(owner: owner, action: action)
+        isProcessingSettlementCallbacks = wasProcessingCallbacks
+        drainSettlementCallbacks()
+    }
+
+    private func replaceSettlementCallback(owner: AnyObject, action: @escaping @MainActor () -> Void) {
+        let callback = SettlementCallback(owner: owner, action: action)
+        if let index = settlementCallbacks.firstIndex(where: { $0.owner === owner }) {
+            let previous = settlementCallbacks[index]
+            settlementCallbacks[index] = callback
+            // Releasing captures can reenter. Publish the replacement and end
+            // the array's exclusive access before the old payload is released.
+            withExtendedLifetime(previous) {}
+        } else {
+            settlementCallbacks.append(callback)
+        }
+    }
 
     /// Preserve request order and transaction context. A receipt can discard
     /// a request made obsolete by a later model write; a plain control
@@ -156,10 +211,35 @@ final class RetainedBuildCoordinator {
     private func drainReloads() {
         guard !isBuilding, !isDrainingReloads else { return }
         isDrainingReloads = true
-        defer { isDrainingReloads = false }
+        defer {
+            isDrainingReloads = false
+            drainSettlementCallbacks()
+        }
         while !isBuilding, !pendingWork.isEmpty {
             let work = pendingWork.removeFirst()
             work.action()
         }
+    }
+
+    private func drainSettlementCallbacks() {
+        guard !settlementCallbacks.isEmpty, !isProcessingSettlementCallbacks, isBuildSettled else { return }
+        isProcessingSettlementCallbacks = true
+        defer { isProcessingSettlementCallbacks = false }
+        // A callback can register itself without doing any build work. Limit
+        // this pass to its original slots so that cannot spin inline. Pending
+        // replacements keep their slot and still use the latest action.
+        var remainingCallbacks = settlementCallbacks.count
+        while remainingCallbacks > 0, !settlementCallbacks.isEmpty, isBuildSettled {
+            remainingCallbacks -= 1
+            deliverNextSettlementCallback()
+        }
+    }
+
+    private func deliverNextSettlementCallback() {
+        // Remove before invoking so a callback can register the same owner for
+        // later settlement. Retire this coordinator-owned notification before
+        // the next readiness check; callers' aliases may outlive its delivery.
+        let callback = settlementCallbacks.removeFirst()
+        withExtendedLifetime(callback) { callback.action() }
     }
 }

@@ -8,6 +8,213 @@ import XCTest
 
 @MainActor
 final class NativeBitmapFontDrawCaptureTests: XCTestCase {
+    func testV1CannotReadEvenAnInvalidBorrowedGlyphRun() async {
+        let capture = NativeBitmapFontDrawCapture()
+        XCTAssertFalse(capture.capturesGlyphs)
+        capture.recordGlyphRun(UnsafeMutableRawPointer(bitPattern: 1), result: 0)
+        XCTAssertTrue(capture.faces.isEmpty)
+        XCTAssertTrue(capture.glyphRuns.isEmpty)
+        XCTAssertEqual(capture.drawCount, 0)
+    }
+
+    func testV2CopiesActualIndicesIncludingNotdefAndPreservesBorrowedArrayOrder() async {
+        let face = BitmapCaptureFakeFace()
+        let budget = NativeBitmapGlyphCaptureBudget()
+        let capture = NativeBitmapFontDrawCapture(glyphBudget: budget)
+        var values: [UInt16] = [0, 512, .max, 3, 3]
+        recordGlyphs(values, face: face, capture: capture, result: 1)
+        values[0] = 17
+        values.removeAll()
+
+        XCTAssertTrue(capture.capturesGlyphs)
+        XCTAssertEqual(capture.glyphRuns.count, 1)
+        XCTAssertEqual(capture.glyphRuns.first?.glyphIndices, [0, 512, .max, 3, 3])
+        XCTAssertEqual(capture.glyphRuns.first?.drawResult, 1)
+        XCTAssertEqual(capture.glyphRuns.first?.face.rawPointer, face.rawPointer)
+        XCTAssertEqual(budget.copiedRuns, 1)
+        XCTAssertEqual(budget.copiedGlyphs, 5)
+        XCTAssertFalse(capture.glyphsIncomplete)
+        XCTAssertEqual(face.state.addRefCalls, 1)
+    }
+
+    func testV2EmptyRunIsRecordedAsEmptyAndIncomplete() async {
+        let face = BitmapCaptureFakeFace()
+        let budget = NativeBitmapGlyphCaptureBudget()
+        let capture = NativeBitmapFontDrawCapture(glyphBudget: budget)
+        recordRawGlyphs(count: 0, indices: nil, face: face.rawPointer, capture: capture, result: 0)
+
+        XCTAssertEqual(capture.glyphRuns.count, 1)
+        XCTAssertEqual(capture.glyphRuns.first?.glyphIndices, [])
+        XCTAssertTrue(capture.glyphsIncomplete)
+        XCTAssertEqual(budget.copiedRuns, 1)
+        XCTAssertEqual(budget.copiedGlyphs, 0)
+    }
+
+    func testV2RejectsMissingRunFaceAndNonemptyNilArrayWithoutInventingIndices() async {
+        let face = BitmapCaptureFakeFace()
+        let budget = NativeBitmapGlyphCaptureBudget()
+        let capture = NativeBitmapFontDrawCapture(glyphBudget: budget)
+        capture.recordGlyphRun(nil, result: -1)
+        recordRawGlyphs(count: 1, indices: nil, face: face.rawPointer, capture: capture, result: 0)
+        recordRawGlyphs(
+            count: 1, indices: UnsafePointer<UInt16>(bitPattern: 1), face: nil, capture: capture, result: 0)
+
+        XCTAssertTrue(capture.glyphRuns.isEmpty)
+        XCTAssertTrue(capture.glyphsIncomplete)
+        XCTAssertEqual(capture.drawCount, 3)
+        XCTAssertEqual(capture.drawFailures, 1)
+        XCTAssertEqual(budget.copiedRuns, 0)
+        XCTAssertEqual(budget.copiedGlyphs, 0)
+        XCTAssertEqual(budget.dropped, 3)
+        XCTAssertEqual(face.state.addRefCalls, 1)
+    }
+
+    func testV2PerRunLimitRejectsBeforeReadingTheArrayWithoutKeepingAPrefix() async {
+        let face = BitmapCaptureFakeFace()
+        let budget = NativeBitmapGlyphCaptureBudget()
+        let capture = NativeBitmapFontDrawCapture(glyphBudget: budget)
+        recordGlyphs(Array(repeating: 23, count: 128), face: face, capture: capture)
+        recordRawGlyphs(
+            count: 129, indices: UnsafePointer<UInt16>(bitPattern: 1), face: face.rawPointer,
+            capture: capture, result: 0)
+        recordRawGlyphs(
+            count: .max, indices: UnsafePointer<UInt16>(bitPattern: 1), face: face.rawPointer,
+            capture: capture, result: 0)
+
+        XCTAssertEqual(capture.glyphRuns.count, 1)
+        XCTAssertEqual(capture.glyphRuns.first?.glyphIndices.count, 128)
+        XCTAssertEqual(budget.copiedGlyphs, 128)
+        XCTAssertEqual(budget.dropped, 2)
+        XCTAssertTrue(capture.glyphsIncomplete)
+    }
+
+    func testV2RasterLimitCountsEveryCallbackAndRejectsBeforeArrayRead() async {
+        let face = BitmapCaptureFakeFace()
+        let budget = NativeBitmapGlyphCaptureBudget()
+        let capture = NativeBitmapFontDrawCapture(glyphBudget: budget)
+        for _ in 0..<16 { recordGlyphs([9], face: face, capture: capture) }
+        recordRawGlyphs(
+            count: 1, indices: UnsafePointer<UInt16>(bitPattern: 1), face: face.rawPointer,
+            capture: capture, result: 0)
+
+        XCTAssertEqual(capture.drawCount, 17)
+        XCTAssertEqual(capture.glyphRuns.count, 16)
+        XCTAssertEqual(budget.copiedRuns, 16)
+        XCTAssertEqual(budget.copiedGlyphs, 16)
+        XCTAssertEqual(budget.dropped, 1)
+        XCTAssertTrue(capture.glyphsIncomplete)
+    }
+
+    func testV2SessionGlyphLimitIsSharedAcrossRasterAttempts() async {
+        let face = BitmapCaptureFakeFace()
+        let budget = NativeBitmapGlyphCaptureBudget()
+        for _ in 0..<2 {
+            let capture = NativeBitmapFontDrawCapture(glyphBudget: budget)
+            for _ in 0..<16 { recordGlyphs(Array(repeating: 31, count: 128), face: face, capture: capture) }
+            XCTAssertEqual(capture.glyphRuns.count, 16)
+        }
+        let rejected = NativeBitmapFontDrawCapture(glyphBudget: budget)
+        recordRawGlyphs(
+            count: 1, indices: UnsafePointer<UInt16>(bitPattern: 1), face: face.rawPointer,
+            capture: rejected, result: 0)
+
+        XCTAssertEqual(budget.copiedRuns, 32)
+        XCTAssertEqual(budget.copiedGlyphs, 4_096)
+        XCTAssertTrue(rejected.glyphRuns.isEmpty)
+        XCTAssertTrue(rejected.glyphsIncomplete)
+        XCTAssertEqual(budget.dropped, 1)
+    }
+
+    func testV2SessionRunLimitAlsoBoundsZeroGlyphCallbacks() async {
+        let face = BitmapCaptureFakeFace()
+        let budget = NativeBitmapGlyphCaptureBudget()
+        for _ in 0..<16 {
+            let capture = NativeBitmapFontDrawCapture(glyphBudget: budget)
+            for _ in 0..<16 {
+                recordRawGlyphs(count: 0, indices: nil, face: face.rawPointer, capture: capture, result: 0)
+            }
+        }
+        let rejected = NativeBitmapFontDrawCapture(glyphBudget: budget)
+        recordRawGlyphs(count: 0, indices: nil, face: face.rawPointer, capture: rejected, result: 0)
+
+        XCTAssertEqual(budget.copiedRuns, 256)
+        XCTAssertEqual(budget.copiedGlyphs, 0)
+        XCTAssertTrue(rejected.glyphRuns.isEmpty)
+        XCTAssertEqual(budget.dropped, 1)
+    }
+
+    func testV2PreservesFailedHRESULTsWithTheirCopiedRuns() async {
+        let face = BitmapCaptureFakeFace()
+        let budget = NativeBitmapGlyphCaptureBudget()
+        let capture = NativeBitmapFontDrawCapture(glyphBudget: budget)
+        recordGlyphs([7], face: face, capture: capture, result: -1)
+        recordGlyphs([8], face: face, capture: capture, result: .min)
+
+        XCTAssertEqual(capture.glyphRuns.map(\.drawResult), [-1, .min])
+        XCTAssertEqual(capture.glyphRuns.map(\.glyphIndices), [[7], [8]])
+        XCTAssertEqual(capture.drawFailures, 2)
+        XCTAssertTrue(capture.glyphsIncomplete)
+        XCTAssertEqual(budget.copiedRuns, 2)
+        XCTAssertEqual(face.state.addRefCalls, 1)
+    }
+
+    func testV2FaceLimitPrecedesBorrowedArrayRead() async {
+        let face = BitmapCaptureFakeFace()
+        let budget = NativeBitmapGlyphCaptureBudget()
+        let capture = NativeBitmapFontDrawCapture(maxFaces: 0, glyphBudget: budget)
+        recordRawGlyphs(
+            count: 1, indices: UnsafePointer<UInt16>(bitPattern: 1), face: face.rawPointer,
+            capture: capture, result: 0)
+
+        XCTAssertTrue(capture.glyphRuns.isEmpty)
+        XCTAssertTrue(capture.truncated)
+        XCTAssertTrue(capture.glyphsIncomplete)
+        XCTAssertEqual(face.state.addRefCalls, 0)
+        XCTAssertEqual(budget.copiedRuns, 0)
+    }
+
+    func testV2CaptureIsBoundToOneSessionRoleAndCannotReadAfterConsumptionOrClose() async {
+        let face = BitmapCaptureFakeFace()
+        let budget = NativeBitmapGlyphCaptureBudget()
+        let otherBudget = NativeBitmapGlyphCaptureBudget()
+        let capture = NativeBitmapFontDrawCapture(glyphBudget: budget, glyphRole: .folder)
+        recordGlyphs([11], face: face, capture: capture)
+        XCTAssertFalse(capture.consumeGlyphRuns(for: otherBudget, role: .folder))
+        XCTAssertFalse(capture.consumeGlyphRuns(for: budget, role: .heart))
+        XCTAssertTrue(capture.consumeGlyphRuns(for: budget, role: .folder))
+        XCTAssertFalse(capture.consumeGlyphRuns(for: budget, role: .folder))
+        capture.recordGlyphRun(UnsafeMutableRawPointer(bitPattern: 1), result: 0)
+        XCTAssertEqual(budget.copiedRuns, 1)
+        XCTAssertEqual(budget.dropped, 1)
+
+        budget.close()
+        let later = NativeBitmapFontDrawCapture(glyphBudget: budget)
+        later.recordGlyphRun(UnsafeMutableRawPointer(bitPattern: 1), result: 0)
+        XCTAssertTrue(later.glyphRuns.isEmpty)
+        XCTAssertEqual(budget.copiedRuns, 1)
+        XCTAssertEqual(budget.copiedGlyphs, 1)
+    }
+
+    private func recordGlyphs(
+        _ values: [UInt16], face: BitmapCaptureFakeFace, capture: NativeBitmapFontDrawCapture, result: HRESULT = 0
+    ) {
+        values.withUnsafeBufferPointer {
+            recordRawGlyphs(
+                count: UInt32($0.count), indices: $0.baseAddress, face: face.rawPointer, capture: capture,
+                result: result)
+        }
+    }
+
+    private func recordRawGlyphs(
+        count: UInt32, indices: UnsafePointer<UInt16>?, face: UnsafeMutableRawPointer?,
+        capture: NativeBitmapFontDrawCapture, result: HRESULT
+    ) {
+        var run = DWRITE_GLYPH_RUN(
+            fontFace: face, fontEmSize: 12, glyphCount: count, glyphIndices: indices,
+            glyphAdvances: nil, glyphOffsets: nil, isSideways: WindowsBool(false), bidiLevel: 0)
+        withUnsafeMutablePointer(to: &run) { capture.recordGlyphRun(UnsafeMutableRawPointer($0), result: result) }
+    }
+
     func testEmptyCaptureHasNoDrawsOrIncompleteFaces() async {
         let capture = NativeBitmapFontDrawCapture()
 

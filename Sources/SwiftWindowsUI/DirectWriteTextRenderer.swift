@@ -2608,10 +2608,15 @@ private func directWriteBitmapFontCaptureDrawGlyphRun(
         rawSelf, clientDrawingContext, baselineOriginX, baselineOriginY, measuringMode,
         glyphRun, glyphRunDescription, clientDrawingEffect)
     if let capture = drawingContext(from: clientDrawingContext)?.pointee.fontDrawCapture {
-        // The callback borrows the run. Read only its face pointer, never the
-        // glyph array, description, text positions, or glyph count.
-        let fontFace = glyphRun?.assumingMemoryBound(to: DWRITE_GLYPH_RUN.self).pointee.fontFace
-        capture.recordDraw(fontFace: fontFace, result: result)
+        if capture.capturesGlyphs {
+            // Explicit V2 display-bitmap scope only. The actual borrowed run
+            // is copied while valid; the forwarded draw and HRESULT stay intact.
+            capture.recordGlyphRun(glyphRun, result: result)
+        } else {
+            // V1 and probes read only the face, never the glyph array/count.
+            let fontFace = glyphRun?.assumingMemoryBound(to: DWRITE_GLYPH_RUN.self).pointee.fontFace
+            capture.recordDraw(fontFace: fontFace, result: result)
+        }
     }
     return result
 }

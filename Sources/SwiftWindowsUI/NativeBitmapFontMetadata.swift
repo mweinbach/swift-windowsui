@@ -1,3 +1,4 @@
+import CDirect2DInterop
 import Foundation
 import WinSDK
 
@@ -446,3 +447,328 @@ private typealias MetadataKnownFolderProc =
     @convention(c) (
         UnsafePointer<GUID>?, DWORD, HANDLE?, UnsafeMutablePointer<UnsafeMutablePointer<WCHAR>?>?
     ) -> HRESULT
+
+/// A bounded observation of a new stream associated with an actual callback face.
+/// It does not attest to every byte cached or rasterized before the observation.
+/// V2 records are output-only. The separate report reader validates imports;
+/// decoding a transport record here would not establish capture provenance.
+public struct NativeBitmapFontFaceEvidenceV2: Encodable, Equatable, Sendable {
+    public let faceType: UInt32?
+    public let axes: [NativeBitmapFontAxisValue]?
+    public let axesStatus: NativeBitmapFontMetadataStatus
+    public let hasVariations: Bool?
+    public let files: [NativeBitmapFontFileEvidenceV2]
+    public let filesStatus: NativeBitmapFontMetadataStatus
+
+    public init(
+        faceType: UInt32? = nil,
+        axes: [NativeBitmapFontAxisValue]? = nil,
+        axesStatus: NativeBitmapFontMetadataStatus = .unavailable,
+        hasVariations: Bool? = nil,
+        files: [NativeBitmapFontFileEvidenceV2] = [],
+        filesStatus: NativeBitmapFontMetadataStatus = .unavailable
+    ) {
+        self.faceType = faceType
+        self.axes = axes
+        self.axesStatus = axesStatus
+        self.hasVariations = hasVariations
+        self.files = files
+        self.filesStatus = filesStatus
+    }
+}
+
+public struct NativeBitmapFontFileEvidenceV2: Encodable, Equatable, Sendable {
+    public let index: UInt32
+    public let reference: NativeBitmapFontFileReference
+    public let status: NativeBitmapFontMetadataStatus
+    public let operation: String
+    public let codeDomain: String
+    public let code: Int32?
+    public let streamLength: UInt64?
+    public let requestedBytes: UInt64
+    public let readBytes: UInt64
+    public let sha256: String?
+    public let observationKind: String
+    public let loadedBytesDigest: String
+
+    public init(
+        index: UInt32,
+        reference: NativeBitmapFontFileReference,
+        status: NativeBitmapFontMetadataStatus,
+        operation: String,
+        codeDomain: String = "none",
+        code: Int32? = nil,
+        streamLength: UInt64? = nil,
+        requestedBytes: UInt64 = 0,
+        readBytes: UInt64 = 0,
+        sha256: String? = nil
+    ) {
+        self.index = index
+        self.reference = reference
+        self.status = status
+        self.operation = operation
+        self.codeDomain = codeDomain
+        self.code = code
+        self.streamLength = streamLength
+        self.requestedBytes = requestedBytes
+        self.readBytes = readBytes
+        self.sha256 = sha256
+        observationKind = "face-file-stream-at-observation"
+        loadedBytesDigest = "not-observed"
+    }
+}
+
+/// These limits are fixed; a caller cannot expand a capture's read allowance.
+/// Requested bytes include a failed fragment request. Read bytes include a
+/// successful fragment even when hashing or final identity checks later fail.
+public struct NativeBitmapFontStreamBudget: Equatable, Sendable {
+    public static let maximumFileBytes: UInt64 = 16_777_216
+    public static let maximumSessionBytes: UInt64 = 67_108_864
+    public static let fragmentBytes: UInt64 = 65_536
+
+    public private(set) var requestedBytes: UInt64 = 0
+    public private(set) var readBytes: UInt64 = 0
+    private var stopped = false
+
+    public init() {}
+
+    var remainingRequestedBytes: UInt64 {
+        stopped ? 0 : Self.maximumSessionBytes - requestedBytes
+    }
+
+    mutating func account(requested: UInt64, read: UInt64) -> Bool {
+        guard read <= requested, requested <= remainingRequestedBytes else {
+            stop()
+            return false
+        }
+        requestedBytes += requested
+        readBytes += read
+        return true
+    }
+
+    mutating func stop() {
+        // Malformed bridge output cannot grant another read allowance. Do not
+        // invent byte counts to express that the remaining work was stopped.
+        stopped = true
+    }
+}
+
+extension NativeBitmapFontMetadataResolver {
+    /// The C++ boundary uses SDK-declared COM interfaces. In particular, it does
+    /// not extend the handwritten V1 face vtable to guess a Face5 layout.
+    static func resolveV2(
+        _ face: NativeFontFaceHandle, budget: inout NativeBitmapFontStreamBudget
+    ) -> NativeBitmapFontFaceEvidenceV2 {
+        var raw = SWU_BitmapFontFaceEvidenceV2()
+        var axes = [SWU_BitmapFontAxisValueV2](
+            repeating: SWU_BitmapFontAxisValueV2(), count: maximumAxes)
+        var files = [SWU_BitmapFontFileEvidenceV2](
+            repeating: SWU_BitmapFontFileEvidenceV2(), count: maximumFiles)
+        let remaining = budget.remainingRequestedBytes
+        withExtendedLifetime(face) {
+            axes.withUnsafeMutableBufferPointer { axisBuffer in
+                files.withUnsafeMutableBufferPointer { fileBuffer in
+                    SWU_BitmapObserveFontFaceV2(
+                        face.rawPointer, remaining, &raw,
+                        axisBuffer.baseAddress, UInt32(axisBuffer.count),
+                        fileBuffer.baseAddress, UInt32(fileBuffer.count))
+                }
+            }
+        }
+        return projectV2(raw, axes: axes, files: files, budget: &budget)
+    }
+
+    /// Pure conversion is also the test seam. It cannot replace native path
+    /// approval, install a custom loader, or increase a production read budget.
+    static func projectV2(
+        _ raw: SWU_BitmapFontFaceEvidenceV2,
+        axes: [SWU_BitmapFontAxisValueV2],
+        files: [SWU_BitmapFontFileEvidenceV2],
+        budget: inout NativeBitmapFontStreamBudget
+    ) -> NativeBitmapFontFaceEvidenceV2 {
+        let faceType = raw.has_face_type == 1 && raw.face_type <= 7 ? raw.face_type : nil
+        let variations: Bool? =
+            raw.has_variations_value == 1 && raw.has_variations <= 1
+            ? raw.has_variations == 1 : nil
+        let axisResult = projectAxesV2(raw, axes: axes)
+
+        func result(
+            _ values: [NativeBitmapFontFileEvidenceV2], _ status: NativeBitmapFontMetadataStatus
+        ) -> NativeBitmapFontFaceEvidenceV2 {
+            .init(
+                faceType: faceType, axes: axisResult.0, axesStatus: axisResult.1,
+                hasVariations: variations, files: values, filesStatus: status)
+        }
+
+        guard raw.has_face_type <= 1, raw.has_variations_value <= 1,
+            raw.file_count <= UInt32(maximumFiles), Int(raw.file_count) <= files.count,
+            let filesStatus = streamStatusV2(raw.files_status)
+        else {
+            budget.stop()
+            return result([], .invalidValue)
+        }
+        var values: [NativeBitmapFontFileEvidenceV2] = []
+        var requested: UInt64 = 0
+        var read: UInt64 = 0
+        for index in 0..<Int(raw.file_count) {
+            guard let file = projectFileV2(files[index], expectedIndex: UInt32(index)) else {
+                budget.stop()
+                return result([], .invalidValue)
+            }
+            // Each per-file count was bounded before these additions, and
+            // there can be at most eight files.
+            requested += file.requestedBytes
+            read += file.readBytes
+            values.append(file)
+        }
+        guard requested == raw.requested_bytes, read == raw.read_bytes,
+            requested <= NativeBitmapFontStreamBudget.maximumSessionBytes,
+            read <= requested,
+            budget.account(requested: requested, read: read)
+        else {
+            budget.stop()
+            return result([], .invalidValue)
+        }
+        if values.isEmpty {
+            return result([], filesStatus == .observed ? .invalidValue : filesStatus)
+        }
+        let aggregate: NativeBitmapFontMetadataStatus =
+            values.allSatisfy { $0.status == .observed } ? .observed : .partial
+        return result(values, filesStatus == aggregate ? aggregate : .invalidValue)
+    }
+
+    private static func projectAxesV2(
+        _ raw: SWU_BitmapFontFaceEvidenceV2, axes: [SWU_BitmapFontAxisValueV2]
+    ) -> ([NativeBitmapFontAxisValue]?, NativeBitmapFontMetadataStatus) {
+        guard let status = streamStatusV2(raw.axes_status) else { return (nil, .invalidValue) }
+        guard status == .observed else {
+            return (nil, raw.axis_count == 0 ? status : .invalidValue)
+        }
+        guard raw.axis_count <= UInt32(maximumAxes), Int(raw.axis_count) <= axes.count,
+            raw.has_variations_value == 1, raw.has_variations <= 1
+        else { return (nil, .invalidValue) }
+        var tags: Set<UInt32> = []
+        var values: [NativeBitmapFontAxisValue] = []
+        for axis in axes.prefix(Int(raw.axis_count)) {
+            guard validAxisTagV2(axis.tag), axis.value.isFinite, tags.insert(axis.tag).inserted else {
+                return (nil, .invalidValue)
+            }
+            values.append(.init(tag: axis.tag, value: axis.value))
+        }
+        // Supported zero-axis metadata is an observed empty array. It is not
+        // interchangeable with the absence of the optional Face5 interface.
+        return (values, .observed)
+    }
+
+    static func validAxisTagV2(_ tag: UInt32) -> Bool {
+        // DWRITE_MAKE_FONT_AXIS_TAG stores the first ASCII character in the
+        // low byte. OpenType axis tags start with a letter and permit only
+        // letters, digits, and trailing spaces in the remaining positions.
+        func isLetter(_ byte: UInt32) -> Bool {
+            (65...90).contains(byte) || (97...122).contains(byte)
+        }
+        guard isLetter(tag & 0xFF) else { return false }
+        var foundSpace = false
+        for shift in [8, 16, 24] {
+            let byte = (tag >> shift) & 0xFF
+            if byte == 32 {
+                foundSpace = true
+            } else if foundSpace || !(isLetter(byte) || (48...57).contains(byte)) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func projectFileV2(
+        _ raw: SWU_BitmapFontFileEvidenceV2, expectedIndex: UInt32
+    ) -> NativeBitmapFontFileEvidenceV2? {
+        guard raw.index == expectedIndex,
+            let status = streamStatusV2(raw.status),
+            let referenceStatus = streamStatusV2(raw.reference_status),
+            Int(raw.operation) < streamOperationNamesV2.count,
+            Int(raw.code_domain) < streamCodeDomainNamesV2.count,
+            raw.has_code <= 1, raw.has_stream_length <= 1, raw.has_sha256 <= 1,
+            raw.requested_bytes <= NativeBitmapFontStreamBudget.maximumFileBytes,
+            raw.read_bytes <= raw.requested_bytes
+        else { return nil }
+        guard raw.code_domain == 0 ? raw.has_code == 0 && raw.code == 0 : raw.has_code == 1 else {
+            return nil
+        }
+        let operation = streamOperationNamesV2[Int(raw.operation)]
+        let domain = streamCodeDomainNamesV2[Int(raw.code_domain)]
+        let reference: NativeBitmapFontFileReference
+        if referenceStatus == .observed {
+            guard raw.basename_length > 0, raw.basename_length <= 255,
+                raw.scope == 1 || raw.scope == 2
+            else { return nil }
+            let units = withUnsafeBytes(of: raw.basename) { Array($0.bindMemory(to: UInt16.self)) }
+            let length = Int(raw.basename_length)
+            guard length < units.count, units[length] == 0, !units.prefix(length).contains(0),
+                let basename = String(validating: units.prefix(length), as: UTF16.self), safeBasename(basename)
+            else { return nil }
+            reference = .init(
+                status: .observed, scope: raw.scope == 1 ? .systemFonts : .userFonts, basename: basename)
+        } else {
+            guard raw.scope == 0, raw.basename_length == 0 else { return nil }
+            reference = .init(status: referenceStatus)
+        }
+        let length: UInt64? = raw.has_stream_length == 1 ? raw.stream_length : nil
+        guard raw.has_stream_length == 1 || raw.stream_length == 0,
+            raw.requested_bytes == 0 || (length != nil && raw.requested_bytes <= length!),
+            raw.operation >= 10 || length == nil,
+            raw.operation >= 13 || raw.requested_bytes == 0
+        else { return nil }
+        if let length, length == 0 {
+            guard status == .invalidValue, operation == "get-stream-size", raw.requested_bytes == 0 else {
+                return nil
+            }
+        }
+        if let length, length > NativeBitmapFontStreamBudget.maximumFileBytes {
+            guard status == .limitExceeded, operation == "check-byte-budget", raw.requested_bytes == 0 else {
+                return nil
+            }
+        }
+        let digest: String?
+        if status == .observed {
+            guard operation == "complete", reference.status == .observed,
+                domain == "none", raw.has_code == 0, raw.has_sha256 == 1,
+                let length, length > 0, length <= NativeBitmapFontStreamBudget.maximumFileBytes,
+                raw.requested_bytes == length, raw.read_bytes == length
+            else { return nil }
+            digest = withUnsafeBytes(of: raw.sha256) { bytes in
+                bytes.map { String(format: "%02x", $0) }.joined()
+            }
+        } else {
+            guard operation != "complete", raw.has_sha256 == 0 else { return nil }
+            if status == .nonlocalOrCustom {
+                guard operation == "query-local-loader", reference.status == .nonlocalOrCustom,
+                    length == nil, raw.requested_bytes == 0, raw.read_bytes == 0
+                else { return nil }
+            }
+            digest = nil
+        }
+        return .init(
+            index: raw.index, reference: reference, status: status,
+            operation: operation, codeDomain: domain, code: raw.has_code == 1 ? raw.code : nil,
+            streamLength: length, requestedBytes: raw.requested_bytes, readBytes: raw.read_bytes,
+            sha256: digest)
+    }
+
+    private static func streamStatusV2(_ value: UInt32) -> NativeBitmapFontMetadataStatus? {
+        let statuses: [NativeBitmapFontMetadataStatus] = [
+            .observed, .partial, .unavailable, .failed, .limitExceeded,
+            .invalidValue, .notInSystemCollection, .nonlocalOrCustom, .notApproved, .notImplemented,
+        ]
+        return Int(value) < statuses.count ? statuses[Int(value)] : nil
+    }
+
+    static let streamOperationNamesV2 = [
+        "not-started", "get-files", "get-reference-key", "get-loader", "query-local-loader",
+        "get-local-path", "validate-local-path", "open-local-file", "verify-local-file",
+        "create-stream", "get-stream-size", "check-byte-budget", "initialize-sha256",
+        "read-stream-fragment", "hash-stream-fragment", "finish-sha256", "verify-local-file-after", "complete",
+    ]
+
+    private static let streamCodeDomainNamesV2 = ["none", "hresult", "win32", "ntstatus"]
+}

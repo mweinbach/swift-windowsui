@@ -17,6 +17,8 @@ struct SwiftWindowsUIGalleryTool {
         var entryFilter: Set<String>?
         var bitmapFontAttributionDirectory: String?
         var bitmapFontAttributionInvocation: String?
+        var bitmapFontAttributionVersion = NativeBitmapFontAttributionVersion.v1
+        var bitmapFontVersionSupplied = false
         var argumentIndex = 1
         let arguments = CommandLine.arguments
         while argumentIndex < arguments.count {
@@ -43,6 +45,17 @@ struct SwiftWindowsUIGalleryTool {
                     throw GalleryError.invalidBitmapFontAttribution
                 }
                 bitmapFontAttributionInvocation = arguments[argumentIndex + 1]
+                argumentIndex += 1
+            } else if argument == "--bitmap-font-attribution-version" {
+                guard !bitmapFontVersionSupplied, argumentIndex + 1 < arguments.count,
+                    ["1", "2"].contains(arguments[argumentIndex + 1]),
+                    let value = Int(arguments[argumentIndex + 1]),
+                    let version = NativeBitmapFontAttributionVersion(rawValue: value)
+                else {
+                    throw GalleryError.invalidBitmapFontAttribution
+                }
+                bitmapFontVersionSupplied = true
+                bitmapFontAttributionVersion = version
                 argumentIndex += 1
             }
             argumentIndex += 1
@@ -72,7 +85,9 @@ struct SwiftWindowsUIGalleryTool {
                 }
             }
             fontAttributionOutput = directoryURL
-        } else if bitmapFontAttributionDirectory != nil || bitmapFontAttributionInvocation != nil {
+        } else if bitmapFontAttributionDirectory != nil || bitmapFontAttributionInvocation != nil
+            || bitmapFontVersionSupplied
+        {
             throw GalleryError.invalidBitmapFontAttribution
         } else {
             fontAttributionOutput = nil
@@ -1448,7 +1463,8 @@ struct SwiftWindowsUIGalleryTool {
             }
             let fontSession: NativeBitmapFontAttributionSession?
             if fontAttributionOutput != nil, let fixture = NativeBitmapFontFixture(rawValue: spec.id) {
-                fontSession = NativeBitmapFontAttributionSession(fixture: fixture)
+                fontSession = NativeBitmapFontAttributionSession(
+                    fixture: fixture, version: bitmapFontAttributionVersion)
             } else {
                 fontSession = nil
             }
@@ -1491,17 +1507,27 @@ struct SwiftWindowsUIGalleryTool {
             let url = outputDir.appendingPathComponent(filename)
             try bitmap.writePNG(to: url)
             if let fontSession, let fontAttributionOutput, let bitmapFontAttributionInvocation {
-                let report = fontSession.finish(scene: scene)
-                let envelope = GalleryBitmapFontAttributionEnvelope(
-                    invocationID: bitmapFontAttributionInvocation, fixtureID: spec.id,
-                    pngFileName: filename, status: report.status, runtime: .current, report: report
-                )
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.sortedKeys]
                 let destination = fontAttributionOutput.appendingPathComponent(
                     "\(spec.id).native-font-attribution.json")
                 do {
-                    let data = try encoder.encode(envelope)
+                    let data: Data
+                    if bitmapFontAttributionVersion == .v2 {
+                        guard let report = fontSession.finishV2(scene: scene) else {
+                            throw GalleryError.bitmapFontAttributionOutputUnavailable
+                        }
+                        data = try encoder.encode(
+                            GalleryBitmapFontAttributionEnvelopeV2(
+                                invocationID: bitmapFontAttributionInvocation, fixtureID: spec.id,
+                                pngFileName: filename, status: report.status, runtime: .current, report: report))
+                    } else {
+                        let report = fontSession.finish(scene: scene)
+                        data = try encoder.encode(
+                            GalleryBitmapFontAttributionEnvelope(
+                                invocationID: bitmapFontAttributionInvocation, fixtureID: spec.id,
+                                pngFileName: filename, status: report.status, runtime: .current, report: report))
+                    }
                     guard data.count <= 512 * 1024 else { throw GalleryError.bitmapFontAttributionOutputUnavailable }
                     try data.write(to: destination, options: .withoutOverwriting)
                 } catch {
@@ -1883,6 +1909,18 @@ private struct GalleryBitmapFontAttributionEnvelope: Encodable {
     let status: String
     let runtime: Runtime
     let report: NativeBitmapFontAttributionReport
+}
+
+/// This envelope is selected only by an explicit V2 request. V1's DTO and
+/// encoding are deliberately unchanged; consumers must select their parser.
+private struct GalleryBitmapFontAttributionEnvelopeV2: Encodable {
+    let schemaVersion = 2
+    let invocationID: String
+    let fixtureID: String
+    let pngFileName: String
+    let status: String
+    let runtime: GalleryBitmapFontAttributionEnvelope.Runtime
+    let report: NativeBitmapFontAttributionReportV2
 }
 
 private enum GalleryError: Error, CustomStringConvertible {

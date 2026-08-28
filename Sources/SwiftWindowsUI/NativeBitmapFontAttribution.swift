@@ -115,8 +115,10 @@ public final class NativeBitmapFontAttributionSession {
     }
 
     public let fixture: NativeBitmapFontFixture
+    public let version: NativeBitmapFontAttributionVersion
     private let bounds: Bounds
     private let resolveMetadata: @MainActor (NativeFontFaceHandle) -> NativeBitmapFontFaceMetadata
+    private let glyphEvidence: NativeBitmapGlyphEvidenceSession?
     private var retainedFaces: [UInt: NativeFontFaceHandle] = [:]
     private var faceMetadataIndices: [UInt: Int] = [:]
     private var metadata: [NativeBitmapFontFaceMetadata] = []
@@ -129,17 +131,26 @@ public final class NativeBitmapFontAttributionSession {
     private var recording = true
     private var closed = false
     private var finishedReport: NativeBitmapFontAttributionReport?
+    private var finishedReportV2: NativeBitmapFontAttributionReportV2?
 
     public convenience init(fixture: NativeBitmapFontFixture) {
         self.init(fixture: fixture, bounds: Bounds(), resolveMetadata: NativeBitmapFontMetadataResolver.resolve)
     }
 
+    public convenience init(fixture: NativeBitmapFontFixture, version: NativeBitmapFontAttributionVersion) {
+        self.init(
+            fixture: fixture, bounds: Bounds(), resolveMetadata: NativeBitmapFontMetadataResolver.resolve,
+            glyphEvidence: version == .v2 ? NativeBitmapGlyphEvidenceSession() : nil)
+    }
+
     init(
         fixture: NativeBitmapFontFixture,
         bounds: Bounds,
-        resolveMetadata: @escaping @MainActor (NativeFontFaceHandle) -> NativeBitmapFontFaceMetadata
+        resolveMetadata: @escaping @MainActor (NativeFontFaceHandle) -> NativeBitmapFontFaceMetadata,
+        glyphEvidence: NativeBitmapGlyphEvidenceSession? = nil
     ) {
         self.fixture = fixture
+        self.version = glyphEvidence == nil ? .v1 : .v2
         self.bounds = Bounds(
             faces: min(64, max(0, bounds.faces)),
             receipts: min(256, max(0, bounds.receipts)),
@@ -151,6 +162,7 @@ public final class NativeBitmapFontAttributionSession {
             sceneOperations: min(4096, max(0, bounds.sceneOperations))
         )
         self.resolveMetadata = resolveMetadata
+        self.glyphEvidence = glyphEvidence
     }
 
     /// End construction/selected-scene observation before the snapshotter's
@@ -162,6 +174,7 @@ public final class NativeBitmapFontAttributionSession {
     public func close() {
         recording = false
         closed = true
+        glyphEvidence?.close()
         retainedFaces.removeAll()
         faceMetadataIndices.removeAll()
         receipts.removeAll()
@@ -191,14 +204,18 @@ public final class NativeBitmapFontAttributionSession {
         return NativeBitmapFontObservation(owner: self, role: role, purpose: .displayBitmap)
     }
 
-    fileprivate func beginDirectWriteCapture() -> NativeBitmapFontDrawCapture? {
+    fileprivate func beginDirectWriteCapture(
+        purpose: NativeBitmapFontPurpose, role: NativeBitmapFontRole
+    ) -> NativeBitmapFontDrawCapture? {
         guard recording, !closed else { return nil }
         guard rasterAttempts < bounds.rasterAttempts else {
             noteDropped()
             return nil
         }
         rasterAttempts += 1
-        return NativeBitmapFontDrawCapture(maxFaces: min(8, bounds.faces))
+        return NativeBitmapFontDrawCapture(
+            maxFaces: min(8, bounds.faces),
+            glyphBudget: purpose == .displayBitmap ? glyphEvidence?.captureBudget : nil, glyphRole: role)
     }
 
     fileprivate func completeDirectWriteCapture(
@@ -235,6 +252,11 @@ public final class NativeBitmapFontAttributionSession {
         } else {
             partial = true
         }
+        glyphEvidence?.complete(capture, bitmap: bitmap, observation: observation) { face in
+            guard let index = faceMetadataIndices[face.faceAddress] else { return nil }
+            return metadata[index]
+        }
+        guard recording, !closed else { return }
         let sortedIndices = indices.sorted()
         if sortedIndices.isEmpty { partial = true }
         record(
@@ -250,6 +272,7 @@ public final class NativeBitmapFontAttributionSession {
         _ bitmap: BitmapSurface?, backend: NativeBitmapFontBackend, observation: NativeBitmapFontObservation
     ) {
         guard recording, !closed else { return }
+        glyphEvidence?.unknownRaster(bitmap, backend: backend, observation: observation)
         partial = true
         record(
             observation, backend: backend,
@@ -267,6 +290,7 @@ public final class NativeBitmapFontAttributionSession {
 
     fileprivate func accept(_ bitmap: BitmapSurface, cacheHit: Bool, observation: NativeBitmapFontObservation) {
         guard recording, !closed else { return }
+        glyphEvidence?.accept(bitmap, cacheHit: cacheHit, observation: observation)
         if var receipt = receipts[bitmap.contentKey] {
             receipt.acceptedRoles.insert(observation.role)
             receipts[bitmap.contentKey] = receipt
@@ -291,6 +315,7 @@ public final class NativeBitmapFontAttributionSession {
 
     fileprivate func reject(_ bitmap: BitmapSurface?, observation: NativeBitmapFontObservation) {
         guard recording, !closed else { return }
+        glyphEvidence?.reject(bitmap, observation: observation)
         let receipt = bitmap.flatMap { receipts[$0.contentKey] }
         record(
             observation, backend: receipt?.backend ?? .unknown, outcome: .bitmapRejected,
@@ -300,6 +325,7 @@ public final class NativeBitmapFontAttributionSession {
 
     fileprivate func selectVector(_ observation: NativeBitmapFontObservation) {
         guard recording, !closed else { return }
+        glyphEvidence?.selectVector(observation)
         // The chosen node route is known; vector contribution to final pixels
         // is outside the bitmap-resource association implemented in this mode.
         partial = true
@@ -465,9 +491,19 @@ public final class NativeBitmapFontAttributionSession {
                 maxObservations: bounds.observations, dropped: dropped
             )
         )
+        finishedReportV2 = glyphEvidence?.finish(
+            attributionV1: report, referenced: referenced, scenePartial: scenePartial)
         close()
         finishedReport = report
         return report
+    }
+
+    /// Available only for a session explicitly created as V2. Calling the V1
+    /// finish method still seals both reports, without changing its return DTO.
+    public func finishV2(scene: GPUIScene) -> NativeBitmapFontAttributionReportV2? {
+        guard version == .v2 else { return nil }
+        _ = finish(scene: scene)
+        return finishedReportV2
     }
 }
 
@@ -483,7 +519,9 @@ struct NativeBitmapFontObservation {
         Self(owner: owner, role: role, purpose: purpose)
     }
 
-    func beginDirectWriteCapture() -> NativeBitmapFontDrawCapture? { owner?.beginDirectWriteCapture() }
+    func beginDirectWriteCapture() -> NativeBitmapFontDrawCapture? {
+        owner?.beginDirectWriteCapture(purpose: purpose, role: role)
+    }
 
     func completeDirectWriteCapture(_ capture: NativeBitmapFontDrawCapture?, bitmap: BitmapSurface?) {
         owner?.completeDirectWriteCapture(capture, bitmap: bitmap, observation: self)

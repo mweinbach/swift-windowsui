@@ -108,6 +108,120 @@ HRESULT SWU_LoadImageFileToBGRA(
 
 void SWU_FreeImagePixels(void *pixels);
 
+// Optional bitmap-font evidence. These POD records contain no paths, reference
+// keys, COM pointers, or font bytes. Numeric values are part of the V2 ABI.
+enum {
+    SWU_BITMAP_FONT_MAX_FILES = 8,
+    SWU_BITMAP_FONT_MAX_AXES = 32,
+    SWU_BITMAP_FONT_MAX_REFERENCE_KEY_BYTES = 65536,
+    SWU_BITMAP_FONT_MAX_PATH_UNITS = 1024,
+    SWU_BITMAP_FONT_MAX_BASENAME_UNITS = 255,
+    SWU_BITMAP_FONT_FRAGMENT_BYTES = 65536,
+    SWU_BITMAP_FONT_MAX_FILE_BYTES = 16777216,
+    SWU_BITMAP_FONT_MAX_SESSION_BYTES = 67108864,
+};
+
+enum {
+    SWU_BITMAP_FONT_STATUS_OBSERVED = 0,
+    SWU_BITMAP_FONT_STATUS_PARTIAL = 1,
+    SWU_BITMAP_FONT_STATUS_UNAVAILABLE = 2,
+    SWU_BITMAP_FONT_STATUS_FAILED = 3,
+    SWU_BITMAP_FONT_STATUS_LIMIT_EXCEEDED = 4,
+    SWU_BITMAP_FONT_STATUS_INVALID_VALUE = 5,
+    SWU_BITMAP_FONT_STATUS_NOT_IN_SYSTEM_COLLECTION = 6,
+    SWU_BITMAP_FONT_STATUS_NONLOCAL_OR_CUSTOM = 7,
+    SWU_BITMAP_FONT_STATUS_NOT_APPROVED = 8,
+    SWU_BITMAP_FONT_STATUS_NOT_IMPLEMENTED = 9,
+};
+
+enum {
+    SWU_BITMAP_FONT_SCOPE_NONE = 0,
+    SWU_BITMAP_FONT_SCOPE_SYSTEM_FONTS = 1,
+    SWU_BITMAP_FONT_SCOPE_USER_FONTS = 2,
+    SWU_BITMAP_FONT_CODE_NONE = 0,
+    SWU_BITMAP_FONT_CODE_HRESULT = 1,
+    SWU_BITMAP_FONT_CODE_WIN32 = 2,
+    SWU_BITMAP_FONT_CODE_NTSTATUS = 3,
+};
+
+enum {
+    SWU_BITMAP_FONT_OPERATION_NOT_STARTED = 0,
+    SWU_BITMAP_FONT_OPERATION_GET_FILES = 1,
+    SWU_BITMAP_FONT_OPERATION_GET_REFERENCE_KEY = 2,
+    SWU_BITMAP_FONT_OPERATION_GET_LOADER = 3,
+    SWU_BITMAP_FONT_OPERATION_QUERY_LOCAL_LOADER = 4,
+    SWU_BITMAP_FONT_OPERATION_GET_LOCAL_PATH = 5,
+    SWU_BITMAP_FONT_OPERATION_VALIDATE_LOCAL_PATH = 6,
+    SWU_BITMAP_FONT_OPERATION_OPEN_LOCAL_FILE = 7,
+    SWU_BITMAP_FONT_OPERATION_VERIFY_LOCAL_FILE = 8,
+    SWU_BITMAP_FONT_OPERATION_CREATE_STREAM = 9,
+    SWU_BITMAP_FONT_OPERATION_GET_STREAM_SIZE = 10,
+    SWU_BITMAP_FONT_OPERATION_CHECK_BYTE_BUDGET = 11,
+    SWU_BITMAP_FONT_OPERATION_INITIALIZE_SHA256 = 12,
+    SWU_BITMAP_FONT_OPERATION_READ_STREAM_FRAGMENT = 13,
+    SWU_BITMAP_FONT_OPERATION_HASH_STREAM_FRAGMENT = 14,
+    SWU_BITMAP_FONT_OPERATION_FINISH_SHA256 = 15,
+    SWU_BITMAP_FONT_OPERATION_VERIFY_LOCAL_FILE_AFTER = 16,
+    SWU_BITMAP_FONT_OPERATION_COMPLETE = 17,
+};
+
+typedef struct SWU_BitmapFontAxisValueV2 {
+    uint32_t tag;
+    float value;
+} SWU_BitmapFontAxisValueV2;
+
+typedef struct SWU_BitmapFontFileEvidenceV2 {
+    uint32_t index;
+    uint32_t reference_status;
+    uint32_t scope;
+    uint32_t basename_length;
+    uint16_t basename[256];
+    uint32_t status;
+    uint32_t operation;
+    uint32_t code_domain;
+    uint32_t has_code;
+    int32_t code;
+    uint32_t has_stream_length;
+    uint64_t stream_length;
+    uint64_t requested_bytes;
+    uint64_t read_bytes;
+    uint32_t has_sha256;
+    uint8_t sha256[32];
+} SWU_BitmapFontFileEvidenceV2;
+
+typedef struct SWU_BitmapFontFaceEvidenceV2 {
+    uint32_t has_face_type;
+    uint32_t face_type;
+    uint32_t axes_status;
+    uint32_t axis_count;
+    uint32_t has_variations_value;
+    uint32_t has_variations;
+    uint32_t files_status;
+    uint32_t file_count;
+    uint64_t requested_bytes;
+    uint64_t read_bytes;
+} SWU_BitmapFontFaceEvidenceV2;
+
+// The face is borrowed; this synchronous call holds its own reference. Output
+// capacities must be exactly MAX_AXES/MAX_FILES. A caller may share a 64 MiB
+// request budget across calls; each file is capped at 16 MiB. Requested bytes
+// are charged immediately before each ReadFileFragment attempt, including a
+// failed attempt. Read bytes count successful nonnull fragments, even if a
+// subsequent hash operation fails. A digest is published only after all bytes
+// and the final local-file checks succeed. Work caps are not a COM timeout.
+//
+// The digest describes this face's file stream at observation time. It does
+// not prove the bytes used by an earlier rasterization or an atomic snapshot.
+void SWU_BitmapObserveFontFaceV2(
+    void *borrowed_font_face,
+    uint64_t remaining_requested_bytes,
+    SWU_BitmapFontFaceEvidenceV2 *face_out,
+    SWU_BitmapFontAxisValueV2 *axes_out,
+    uint32_t axes_capacity,
+    SWU_BitmapFontFileEvidenceV2 *files_out,
+    uint32_t files_capacity
+);
+
 #ifdef __cplusplus
 }
 #endif

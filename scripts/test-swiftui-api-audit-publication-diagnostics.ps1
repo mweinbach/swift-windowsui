@@ -199,6 +199,109 @@ $invalidArguments.AttemptedAtUTC = [string]::new([char]'x', 65)
 Assert-PublicationRejected { Write-SwiftUIAuditPublicationFailureDiagnostic @invalidArguments } 'oversized attempt-time text is rejected'
 Assert-Publication ((Get-PublicationHash $directPath) -ceq $directHash) 'rejected identities preserve the existing diagnostic'
 
+# Exercise the actual path-error catch with synthetic ErrorRecords in a local
+# test scope. No production injection hook or filesystem failure is introduced.
+$helperTokens = $null; $helperErrors = $null
+$helperAst = [Management.Automation.Language.Parser]::ParseFile($helperPath, [ref]$helperTokens, [ref]$helperErrors)
+Assert-Publication (@($helperErrors).Count -eq 0) 'helper source parses before extracting attribute error projection'
+$pathFactFunctions = @($helperAst.FindAll({ param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -ceq 'Get-SwiftUIAuditPublicationPathFacts'
+}, $true))
+Assert-Publication ($pathFactFunctions.Count -eq 1) 'one production path-facts function supplies the attribute error projection'
+$attributeReads = @($pathFactFunctions[0].Body.FindAll({ param($node)
+    $node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and $node.Static -and
+    $node.Expression -is [Management.Automation.Language.TypeExpressionAst] -and
+    $node.Expression.TypeName.FullName -ceq 'System.IO.File' -and $node.Member.Extent.Text -ceq 'GetAttributes'
+}, $true))
+Assert-Publication ($attributeReads.Count -eq 1) 'one production attribute read supplies the actual catch body'
+$attributeTry = $attributeReads[0].Parent
+while ($null -ne $attributeTry -and $attributeTry -isnot [Management.Automation.Language.TryStatementAst]) {
+    $attributeTry = $attributeTry.Parent
+}
+Assert-Publication ($null -ne $attributeTry -and $attributeTry.CatchClauses.Count -eq 1 -and
+    $attributeTry.CatchClauses[0].CatchTypes.Count -eq 0) 'attribute observation has one untyped catch'
+$attributeCatchText = $attributeTry.CatchClauses[0].Body.Extent.Text
+$attributeProjectionSource = $attributeCatchText.Substring(1, $attributeCatchText.Length - 2) +
+    [char]10 + '$attributeReadError'
+$projectionTokens = $null; $projectionErrors = $null
+[void][Management.Automation.Language.Parser]::ParseInput($attributeProjectionSource, [ref]$projectionTokens, [ref]$projectionErrors)
+Assert-Publication (@($projectionErrors).Count -eq 0) 'unchanged extracted attribute catch parses'
+$attributeErrorProjection = [scriptblock]::Create($attributeProjectionSource)
+
+function Invoke-PublicationAttributeProjection {
+    param([Parameter(Mandatory)][Exception]$Exception)
+    $syntheticError = [Management.Automation.ErrorRecord]::new($Exception, 'SyntheticAttributeRead',
+        [Management.Automation.ErrorCategory]::ReadError, 'Synthetic attribute target')
+    return ($syntheticError | ForEach-Object $attributeErrorProjection)
+}
+
+$attributeWrapper = [Management.Automation.MethodInvocationException]::new('Synthetic attribute wrapper.', $outerException)
+$attributeWrapper.Data['do-not-serialize'] = $attributeWrapper
+$attributeCases = @(
+    [pscustomobject]@{ name = 'wrapped-native'; exception = $attributeWrapper; count = 3; truncated = $false },
+    [pscustomobject]@{ name = 'ordinary-denial'; exception = [UnauthorizedAccessException]::new('Synthetic attribute denied.'); count = 1; truncated = $false },
+    [pscustomobject]@{ name = 'deep-chain'; exception = $deepException; count = 8; truncated = $true }
+)
+foreach ($case in $attributeCases) {
+    $projectedError = Invoke-PublicationAttributeProjection -Exception $case.exception
+    Assert-PublicationPrimitive $projectedError
+    $projectedChain = @($projectedError.exceptions)
+    Assert-Publication ($projectedChain.Count -eq $case.count) "$($case.name) retains the bounded attribute exception chain"
+    Assert-Publication ($projectedError.exceptionChainTruncated -eq $case.truncated) "$($case.name) records chain truncation explicitly"
+    Assert-Publication ($projectedError.type -ceq $case.exception.GetType().FullName -and
+        $projectedError.hresult -eq $case.exception.HResult -and
+        $projectedError.hresultHex -ceq ('0x' + $case.exception.HResult.ToString('X8'))) "$($case.name) preserves all original outer error fields"
+    $expectedException = $case.exception
+    foreach ($entry in $projectedChain) {
+        Assert-Publication ($entry.type -ceq $expectedException.GetType().FullName -and
+            $entry.hresult -eq $expectedException.HResult -and
+            $entry.hresultHex -ceq ('0x' + $expectedException.HResult.ToString('X8'))) "$($case.name) retains each actual exception fact"
+        $expectedNativeCode = $null
+        if ($expectedException -is [ComponentModel.Win32Exception]) { $expectedNativeCode = $expectedException.NativeErrorCode }
+        Assert-Publication ($entry.nativeErrorCode -eq $expectedNativeCode) "$($case.name) never guesses a native code from an HRESULT"
+        $expectedException = $expectedException.InnerException
+    }
+    $nestedReport = [ordered]@{ paths = [ordered]@{ destination = [ordered]@{ attributeReadError = $projectedError } } }
+    $nestedJson = ConvertTo-Json -InputObject $nestedReport -Depth 8 -Compress -WarningAction Stop
+    Assert-Publication ($nestedJson -notmatch 'Synthetic|Exception\.Data|do-not-serialize') "$($case.name) omits messages, targets, and exception Data"
+    $roundTrip = $nestedJson | ConvertFrom-Json
+    Assert-PublicationPrimitive $roundTrip
+    $roundTripError = $roundTrip.paths.destination.attributeReadError
+    $roundTripChain = @($roundTripError.exceptions)
+    Assert-Publication ($roundTripChain.Count -eq $projectedChain.Count -and
+        $roundTripError.exceptionChainTruncated -eq $projectedError.exceptionChainTruncated) "$($case.name) fits the production JSON depth without losing the chain"
+    for ($position = 0; $position -lt $projectedChain.Count; $position++) {
+        $actualEntry = $roundTripChain[$position]; $expectedEntry = $projectedChain[$position]
+        Assert-Publication ($actualEntry.type -ceq $expectedEntry.type -and
+            $actualEntry.hresult -eq $expectedEntry.hresult -and
+            $actualEntry.hresultHex -ceq $expectedEntry.hresultHex -and
+            $actualEntry.nativeErrorCode -eq $expectedEntry.nativeErrorCode) "$($case.name) survives nested JSON roundtrip unchanged"
+    }
+}
+
+# This is the existing real missing-path observation, not a synthetic native
+# error. Do not pin PowerShell's outer wrapper shape across supported versions.
+$missingError = $missingFacts.attributeReadError
+$missingChain = @($missingError.exceptions)
+Assert-Publication ($missingChain.Count -ge 1 -and $missingChain.Count -le 8 -and
+    -not $missingError.exceptionChainTruncated) 'real missing-path error has a complete bounded exception chain'
+Assert-Publication ($missingError.type -ceq $missingChain[0].type -and
+    $missingError.hresult -eq $missingChain[0].hresult -and
+    $missingError.hresultHex -ceq $missingChain[0].hresultHex) 'real missing-path outer fields match the first retained exception'
+Assert-Publication (@($missingChain | Where-Object { $_.type -in @('System.IO.FileNotFoundException', 'System.IO.DirectoryNotFoundException') }).Count -ge 1) 'real missing-path observation retains its missing-file or missing-directory cause'
+Assert-Publication (@($missingChain | Where-Object { $null -ne $_.nativeErrorCode -and $_.type -cne 'System.ComponentModel.Win32Exception' }).Count -eq 0) 'real missing-path projection never invents a native error code'
+Assert-Publication ($null -eq $directoryFacts.attributeReadError -and
+    $null -eq $fileFacts.attributeReadError) 'successful directory and file observations still have no attribute error'
+$serializedMissingError = $directReport.paths.destination.attributeReadError
+$serializedMissingChain = @($serializedMissingError.exceptions)
+Assert-Publication ($serializedMissingChain.Count -ge 1 -and $serializedMissingChain.Count -le 8 -and
+    -not $serializedMissingError.exceptionChainTruncated) 'the real diagnostic JSON retains a complete bounded path-error chain'
+Assert-Publication ($serializedMissingError.type -ceq $serializedMissingChain[0].type -and
+    $serializedMissingError.hresult -eq $serializedMissingChain[0].hresult -and
+    $serializedMissingError.hresultHex -ceq $serializedMissingChain[0].hresultHex) 'serialized outer path error fields remain intact'
+Assert-Publication (@($serializedMissingChain | Where-Object { $_.type -in @('System.IO.FileNotFoundException', 'System.IO.DirectoryNotFoundException') }).Count -ge 1) 'the real diagnostic JSON retains the missing-path inner cause'
+
 # Extract only the production publication tail, its catch, and its unchanged
 # cleanup. The production builder has no test injection parameter.
 $builderSource = [IO.File]::ReadAllText($builderPath, $publicationUtf8)

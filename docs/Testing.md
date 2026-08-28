@@ -167,7 +167,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   `.publication-failure.json` before the existing staging cleanup runs;
   reporting is best effort and neither retries nor makes publication succeed.
   False path-existence observations do not prove absence when the recorded
-  attribute lookup also failed. The report does not identify a handle owner or
+  attribute lookup also failed. Each failed attribute lookup retains its outer
+  error facts and a bounded inner-exception chain, including HRESULTs and
+  available native error codes. The report does not identify a handle owner or
   establish the cause of a publication failure.
 - Quick and Full also run `test-swiftui-material-reference.ps1` for bounded
   metadata, source/tool identity, artifact hashes, and consistent control

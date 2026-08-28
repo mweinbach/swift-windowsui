@@ -4690,3 +4690,59 @@ programmatic reveal, native keyboard/UIA behavior, large-list frame time and
 resource limits, combined Full/Quick validation, and macOS parity remain
 required. All nine original gates, performance targets, pinned scope, and
 visual tolerances remain unchanged and open.
+
+### 2026-08-28: retain inner errors when publication path inspection fails
+
+The publication diagnostic now preserves a bounded exception chain for each
+failed path-attribute lookup, in addition to its existing outer exception
+type and HRESULT. This adds three helper lines and 103 test lines. The builder,
+its single directory move, cleanup, original-error propagation, and no-retry
+behavior remain unchanged. The new data can distinguish more failure facts;
+it does not infer absence from `Exists == false`, identify an open-handle owner,
+or establish why the earlier root `Directory.Move` returned access denied.
+
+The exact two-file patch has SHA256
+`672d68b6632e63acb232901085556524d22f6e29a31a16307ff5ddd1b4e6061e`.
+All 772 source-packet members and 153 passing isolated-run members were
+verified and copied into
+`artifacts/goal-seventh-publication-path-errors-intake-v1`. The isolated run
+completed 555 diagnostic assertions and 391 existing ledger assertions once
+on each of PowerShell 5 and 7. Synthetic wrapped-native, ordinary-denial, and
+truncated-deep-chain cases exercise the actual extracted catch body; they
+are not reproductions of the historical directory-move failure.
+
+The patch applied to root commit
+`52810b86b9eb4565b4be24c57f02bfb3b6682bed`, producing staged tree
+`92c1f544940827ce183e9c28b69f3b67f42ba169` before documentation changes.
+The first root invocation is preserved as
+`artifacts/goal-seventh-publication-path-errors-root-v1`: PowerShell PID 41016
+exited naturally with 1 because `Get-FileHash` could not be loaded. The temporary
+Python launcher removed a mixed-case environment key from an ordinary dict,
+leaving the inherited uppercase module-path override in place. No final
+assertion summary was produced, PowerShell 7 was not started, and all tracked
+inputs and the earlier publication-failure sidecar remained unchanged. This
+is a launcher failure, not a passing fixture or a newly diagnosed move error.
+
+The original launcher and outputs remain intact. A separate launcher removes
+the child-only module-path override case-insensitively; it does not change
+machine settings, installed modules, production code, or test expectations.
+Its separate run, `artifacts/goal-seventh-publication-path-errors-root-v2`,
+passed **555 diagnostic plus 391 existing ledger assertions on each host**.
+PowerShell 5.1.26100.9223 PID 54352 exited naturally with 0 in 8.25 seconds;
+bundled PowerShell 7.6.4 PID 6752 exited naturally with 0 in 12.375 seconds.
+The sequence took approximately 21.2 seconds and completed without timeout,
+termination, or automatic retry. Each host ran the unchanged existing ledger
+suite exactly once. All 753 tracked file inputs, the gitlink, status, staged
+tree, and real index bytes were preserved throughout both host runs.
+
+The passing root result has SHA256
+`daeeff8f9b9a2cec35dd79df22c4dca760640cb7eda26c0696bd54e23730f220`.
+The PowerShell 5 and 7 raw logs have SHA256
+`f0f589846ea30cf3d8fd1e29c63f0bbde28d6ac8dc3e224f85d85c4f050c779a`
+and `13e9be9952c73e5660703fe01de1d86c6f3d8b8ab48189d898741d5df0c55382`.
+The historical root access-denied sidecar retains SHA256
+`99557c84c78abf488be47819ca24981541846a17237c0ad25008f60670c36f77`.
+Neither the historical cause nor complete descendant closure is established.
+This fixture remains opt-in, with Quick/Full registration and combined
+validation still pending. No SwiftPM or native API-export workload ran in
+this validation. All original nine product gates and their scope remain open.

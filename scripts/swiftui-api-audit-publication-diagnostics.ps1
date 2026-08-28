@@ -38,10 +38,13 @@ function Get-SwiftUIAuditPublicationPathFacts {
         $typeName = [string]$exception.GetType().FullName
         if ($typeName.Length -gt 256) { $typeName = $typeName.Substring(0, 256) }
         $hresult = [int]$exception.HResult
+        $exceptionFacts = Get-SwiftUIAuditPublicationExceptionFacts -Exception $exception
         $attributeReadError = [ordered]@{
             type = $typeName
             hresult = $hresult
             hresultHex = "0x" + $hresult.ToString("X8")
+            exceptions = $exceptionFacts.chain
+            exceptionChainTruncated = $exceptionFacts.truncated
         }
     }
     # Exists can return false for an inaccessible path. Keep the attribute read

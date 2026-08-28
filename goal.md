@@ -2807,3 +2807,115 @@ observed owned processes exited and pinned inputs rehashed unchanged. Further
 work is limited to a separately reviewed link-argument transport plan; the
 native MainActor, Unicode, runtime-cohort, and release gates remain open. The
 original goal text and all nine acceptance gates remain unchanged.
+
+### Fifth batch: completed local validation at `580718b`
+
+The restarted Full run and the following Quick run both completed at clean
+`580718b12378280941174491d3a61b7c1b830ddf`, tree
+`4eb9e59ba2e6a35c271f39d5a72bdfe27f74d322`. The checkout, index, and commit
+remained frozen throughout each run. Both runner processes returned zero;
+the earlier failed Full and sheet attempts remain separate evidence and are
+excluded from these passing totals.
+
+- Full: 4,288 XCTest passes, 134 Swift Testing passes, and one documented skip;
+  326 selected targets in 208 serial test invocations, with all 26 runner steps
+  completed. Debug and release demo builds, all five raw screenshot products,
+  and the complete 85-fixture gallery comparison passed.
+- Quick: 1,948 XCTest passes, nine Swift Testing passes, and the same documented
+  skip; 126 selected-test invocations and all 88 runner steps completed,
+  including the debug demo build. This invocation did not request the optional
+  gallery comparison and did not generate another screenshot set.
+- All 60 changed Swift files passed strict lint at the same clean revision.
+  The lint receipt records unchanged input hashes and exit code zero; those
+  file hashes were independently checked again when the Quick archive was made.
+
+Full and Quick overlap and are not additive unique-test totals. The remaining
+skip is `RenderPassAbstractionTests.testMaterialInsideADrawingGroupBlursNothing`:
+an isolated offscreen material still lacks its external backdrop. Keeping this
+documented failure mode visible does not satisfy the rendering/effects gate.
+The fixed CI-font fixture also passes inside the actual Full and Quick runner,
+in addition to its earlier four-mode PowerShell matrix.
+
+The Full archive is
+`artifacts/goal-fifth-batch-580718b/validation-full.json`, SHA-256
+`e4c6a7bcd4ccb97e6251f251b2b4fcf5aedb96a556561425f0a29d72666470b2`.
+Its 196 listed files preserve the original log, start/exit/completion receipts,
+runner sources, screenshots, gallery inputs and reports, provenance, independent
+pixel checks, and visual-review record. The separate Quick archive is
+`artifacts/goal-fifth-quick-580718b/validation-quick.json`, SHA-256
+`3344fcda577ca146c7b38951886428688fa3e090471ced3ff018f69d295c4da5`.
+Its fourteen listed files preserve the completed Quick log, source/exit/summary
+records, lint evidence, and relevant runner/archiver sources. Both archives
+verified their listed bytes; Quick did not rewrite the sealed Full archive.
+
+All 85 current gallery images pass the unchanged thresholds: 0.5 percent,
+eight-channel-value tolerance, and maximum delta 64. An independent decoder
+recomputed all 85 RGBA comparisons against the same reviewed baselines, with
+zero pixels beyond the channel tolerance. `state-toggle-hover` has a maximum
+channel difference of eight; the other 84 report zero. Therefore the result
+is a complete passing comparison, not a claim that every image is byte-identical
+or every pixel is identical. Baseline file hashes match the preceding frozen
+batch. The recheck receipt is
+`artifacts/goal-fifth-full-580718b-pixel-recheck.json`, SHA-256
+`34783617923673c9b4a76871542f79c42a925384ecb118799c74856073cab7a9`.
+
+All five fresh 1280-by-720 retained-runtime screenshots were opened and
+inspected. They contain the expected application and gallery content, without
+an observed blank or displaced-content regression. The diagnostic frame path
+still displays its documented square corners and simplified material effects.
+Image inspection does not establish native SwiftUI parity, live D3D11 frame
+delivery, measured contrast, Narrator behavior, or hardware timing.
+
+The three Windows RGB reports from `41f8366` also passed a separate read-only
+packet audit: 240 archived files, 167 source entries, and all 300 measured Float
+components agree with the packet hashes and recorded bit patterns. Pairwise
+Windows repetitions have no numeric or bit differences. The sealed audit is
+`AUDIT.json` under the owned Temp directory
+`swift-windowsui-rgb-windows-audit-41f8366-c9179701be0e4309be5b4b80712f46b7`,
+SHA-256 `855fbb00801e0451d8ece72401340193c775fb750567c9f1aad102a420e1325b`.
+This still provides no native pair and cannot be attributed to a newer commit.
+After this ledger-only commit, a fresh Windows packet must be captured at the
+final fifth-batch revision and compared with that revision's native CI packet.
+
+### Foundation F8: linker forwarding confirmed, cohort still incomplete
+
+The separately authorized F8 build reused the frozen sources, SDK view, native
+dependencies, compiler, and feature selection. Its only new build options were
+the public CMP0181 policy and `LINKER:` forms of the two shared-linker flags.
+Configuration and independent generated-command review passed: all 586 compile
+commands retained their prior semantics, and exactly five Swift DLL links gained
+the required `-Xlinker` forwarding. The actual failed launch confirms those
+arguments reached the link command, and the earlier flag-as-path failures did
+not recur.
+
+The one build then stopped at its first FoundationEssentials DLL link with
+`LNK1104: cannot open file 'lib_FoundationCollections.lib'`. Passive object-file
+inspection found that exact default-library request in all 209 emitted
+FoundationEssentials objects. The produced archive is instead
+`_FoundationCollections.lib`, already present explicitly in the link response
+file. This records the observed naming mismatch; it does not imply a completed
+Foundation runtime or justify copying a file under an alias.
+
+The F8 phase is sealed in the existing owned Foundation workspace at
+`builds/foundation-f8-build/frozen-f8-phase-manifest.json`, SHA-256
+`495aa44d1c82fabc4e43d3eb413026d24d0070cfbac4fd262a750e4397666bad`:
+2,093 listed files and 377,701,624 bytes. The build returned one, with no resource
+abort or retry. There are 589 successful primary outputs out of 597, but none
+of the five Swift Foundation DLLs. All 279 observed owned process identities
+had exited, and the recorded prior manifests, tools, sources, SDK files, and
+native inputs rehashed unchanged. No installed toolchain, OS setting, candidate
+activation, native application, or real test-framework build was involved.
+Follow-up is a separately reviewed naming diagnosis and build-recipe proposal.
+
+The next dialog/native-close increment is still isolated from this tested
+checkout. Its source work includes late build-history invalidation, actual
+GeometryReader slot settlement, provisional cleanup rendering, and fail-closed
+document ownership checks. Its 259 authored tests have not yet been compiled or
+executed; source review and lint are not substitutes for that integration work.
+This remains part of the original state, presentation, and document requirements.
+
+The fifth-batch delivery commit following `580718b` changes only this ledger.
+The code validation above belongs to `580718b`, and hosted CI must run against
+the exact delivered commit before any current hosted result is claimed. The
+original sections 1–9, their fingerprint, all nine open completion gates, the
+pinned API baseline, and the published performance targets remain unchanged.

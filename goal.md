@@ -3919,3 +3919,67 @@ external coordination, and large-document responsiveness remain unqualified.
 Full, Quick, raw retained screenshots, gallery/reference checks, and hosted
 validation remain pending for this batch. No original scope or acceptance
 criterion has changed, and all nine original product gates remain open.
+
+### Sixth batch: public compiler characterization and overlay discovery tools
+
+The compiler-characterization tools now preserve the distinction between a
+synthetic protocol check, an observed public SDK declaration, a compiler
+invocation, and behavior evidence. The StateObject increment adds 24 public
+source fixtures, a 42-cell paired matrix, bounded process/capture helpers, and a
+manual workflow with separately reviewed metadata and case phases. It does not
+change production StateObject or execute generated SIL. Native compiler cases,
+their negative controls, Windows source comparison, and actual SDK/runner
+qualification remain outstanding.
+
+Overlay discovery adds bounded source occurrence and filesystem/parser tools.
+Every identifier occurrence remains available for audit instead of being
+collapsed into an inferred declaration or compatibility claim. Missing,
+unsupported, and unreviewed observations remain explicit. The tools do not
+establish an atomic observation of a whole installation, a complete Darwin
+census, Stage B acquisition, or behavioral equivalence. The recorded SDK source
+fixture is read only; no SDK is installed or exported by these tests.
+
+Fresh root validation runs all ten standalone suites serially on unchanged
+staged tree `ea5ff4d71633cb02bd518f9b31b07bd762caeddb` over `d0336f9`:
+
+| Synthetic suite | PowerShell 5.1 assertions | PowerShell 7.6.4 assertions |
+| --- | ---: | ---: |
+| StateObject public fixture integrity | 1,339 | 1,339 |
+| StateObject process protocol | 26 unsupported-host checks | 194 |
+| StateObject isolation protocol | 412 | 444 |
+| StateObject capture protocol | 525 | 614 |
+| Overlay discovery | 1,570 | 1,570 |
+
+All ten direct processes and both aggregate launchers return zero, with no
+timeout or cleanup intervention. These are assertion counts, not product XCTest
+counts. PowerShell 5.1 does not run the PowerShell 7 process cases, and its
+isolation suite reports unavailable file-symlink creation explicitly. The
+PowerShell 7 capture suite additionally verifies eleven pinned SDK source files;
+neither host runs a native SwiftUI compiler or app. Each overlay run covers 139
+synthetic fixtures and produces 17 unreviewed sample identifier records.
+
+The StateObject run finishes at 2026-08-28 14:05:26 UTC and the overlay run at
+14:06:44 UTC. Results and raw per-suite logs are under
+`artifacts/goal-sixth-stateobject-joined-v1` and
+`artifacts/goal-sixth-overlay-joined-v1`. Their result JSON SHA-256 values are
+`7fbb86c3d8e82cab11c2823ba5d91531a94a7765f19bc311a4177112340367c6`
+and `479115f40439b268faa2b55327acfd818b8759130eb088b4e242bdbb956f2821`.
+Before/after checks preserve tracked file bytes, HEAD, staged tree, real index,
+the selected SDK fixture files, PowerShell executables, and the launcher. Only
+the PowerShell 5.1 child's inherited PSModulePath is removed; the user's
+environment is unchanged. Contracts and strict lint of all 24 new Swift fixture
+files also pass on the joined root source.
+
+The earlier embedded-runner limitations and failed CRLF fixture/proof attempts
+remain historical evidence, not converted into successful runs. Standalone
+success does not qualify the manual hosted workflow or repair every embedded
+caller. The existing 61-record/179-probe API audit, its 67 unrun probes, the
+public baseline, and compatibility approval remain unchanged.
+
+Compatibility, mounted-state, and roadmap text now describe the already
+implemented alert, inherited body-builder, and lazy StateObject factory
+behavior without changing roadmap acceptance or the original goal. The tooling
+and documentation are committed separately. Bitmap diagnostics and the full
+batch's Full/Quick, raw retained rendering, gallery, reference, and hosted
+validation still require their own results. All nine original product gates
+remain open.

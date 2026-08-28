@@ -45,8 +45,8 @@ current toolchain limits, not proof of general compiler-version conformance.
 Outside a mounted host, a State wrapper keeps its seed storage and the
 existing standalone build-context behavior. Initial values are ordinary Swift
 values: copying a reference value into separate cells does not clone the
-referenced object. Inherited `View.body` result-builder compatibility remains
-separate work; installation does not change public builder representation.
+referenced object. Custom `View.body` declarations inherit `@ViewBuilder` from
+`View`; mounted installation does not change public builder representation.
 
 ## StateObject construction and compatibility
 

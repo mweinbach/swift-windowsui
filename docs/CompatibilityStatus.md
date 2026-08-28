@@ -136,7 +136,8 @@ limits still apply; this is not the completed product in `goal.md`.
 | `searchable` | **Partial** | Prepends retained search field; placement chrome differs by placement |
 | `toolbar` / `ToolbarItem` | **Partial** | Compact retained command row; not a native title-bar toolbar |
 | `sheet`, `fullScreenCover`, `popover` | **Partial** | Retained overlays: deferred layering, scrim dismissal, clamped placement, focus restoration (fullScreenCover: layering only); detents approximated; no native presentation |
-| `alert`, `confirmationDialog`, `actionSheet` | **Partial** | Retained modal chrome: deferred layering, Escape/scrim dismissal per SwiftUI semantics, focus restoration |
+| `alert` | **Partial** | Boolean, item, builder, and error overloads share retained chrome. Hosted alerts preserve background identity, use accepted-generation action/reset guards and `presenting:` snapshots, and restore focus only after accepted absence and retained build settlement. Scrim clicks do not dismiss. Raw clients require live attachment and lack hosted lifetime guarantees. Native callback ordering and visual equivalence remain unqualified. See [Retained alerts](RetainedAlerts.md) |
+| `confirmationDialog`, `actionSheet` | **Partial** | Retained modal chrome: deferred layering, Escape/scrim dismissal, and focus restoration; precise native behavior remains unqualified |
 | `contextMenu` | **Partial** | Retained menu overlay: clamped anchor, scrim/Escape dismissal, focus restoration |
 | `ShareLink` | **Partial** | Copies transferable items to clipboard — real file references (CF_HDROP) for file URLs, absolute strings otherwise (not system share sheet) |
 | `PasteButton` | **Partial** | Delivers supported clipboard text and URLs; `.fileURL` and `.url` consume complete Unicode `CF_HDROP` file lists, while overlapping accepted URL/text types are deduplicated. Plain-text web URLs remain `.url`-only |

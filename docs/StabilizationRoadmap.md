@@ -39,12 +39,15 @@ toward that goal; its initial supported subset does not limit the end state.
   `openSettings` and `SettingsLink` open/reactivate one on-demand Settings window.
   Settings-only startup, native menu generation, and persistent restoration
   remain unsupported.
-- Ordinary custom struct views now mount `@State` per typed identity and host,
-  with provisional build/adoption, generation-based retirement, and guarded
-  escaped bindings. Private and nested struct DynamicProperty installation
-  requires reflection metadata. StateObject remains eager and value-owned;
-  other wrappers and complete native lifetime semantics remain open. See
-  [`MountedState.md`](MountedState.md) for the implemented scope and limits.
+- Ordinary custom struct views now mount `@State` and `@StateObject` per typed
+  identity and host, with provisional build/adoption, generation-based
+  retirement, and guarded escaped bindings. StateObject keeps a lazy factory
+  and reuses its mounted object across reconstruction. Private and nested
+  struct DynamicProperty installation requires reflection metadata.
+  App/Scene ownership outside view installation, other wrappers, StateObject
+  initializer/projection compatibility, and complete native lifetime
+  qualification remain open. See [`MountedState.md`](MountedState.md) for the
+  implemented scope and limits.
 - Local validation scripts are strong. `.github/workflows/windows-ci.yml` now
   runs contracts on every change, Quick on pull requests / branch pushes, and
   Full plus screenshot upload on main, schedule, and manual dispatch. Hosted

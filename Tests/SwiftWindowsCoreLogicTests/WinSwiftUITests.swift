@@ -19097,10 +19097,14 @@ final class WinSwiftUITests: XCTestCase {
                     }
             }
 
-            _ = makeNode(observedView(1))
-            _ = makeNode(observedView(1))
-            _ = makeNode(observedView(3))
-            _ = makeNode(observedView(5))
+            var value = 1
+            let host = MountedOnChangeTestHost { AnyView(observedView(value)) }
+            defer { host.close() }
+            host.reload()
+            value = 3
+            host.reload()
+            value = 5
+            host.reload()
 
             XCTAssertEqual(changes.map(\.0), [1, 3])
             XCTAssertEqual(changes.map(\.1), [3, 5])
@@ -19119,9 +19123,12 @@ final class WinSwiftUITests: XCTestCase {
                     }
             }
 
-            _ = makeNode(observedView("alpha"))
-            _ = makeNode(observedView("alpha"))
-            _ = makeNode(observedView("beta"))
+            var value = "alpha"
+            let host = MountedOnChangeTestHost { AnyView(observedView(value)) }
+            defer { host.close() }
+            host.reload()
+            value = "beta"
+            host.reload()
 
             XCTAssertEqual(values, ["alpha", "beta"])
         }
@@ -19139,10 +19146,14 @@ final class WinSwiftUITests: XCTestCase {
                     }
             }
 
-            _ = makeNode(observedView(1))
-            _ = makeNode(observedView(1))
-            _ = makeNode(observedView(2))
-            _ = makeNode(observedView(3))
+            var value = 1
+            let host = MountedOnChangeTestHost { AnyView(observedView(value)) }
+            defer { host.close() }
+            host.reload()
+            value = 2
+            host.reload()
+            value = 3
+            host.reload()
 
             XCTAssertEqual(changeCount, 3)
         }

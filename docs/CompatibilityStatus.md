@@ -160,6 +160,14 @@ limits still apply; this is not the completed product in `goal.md`.
 
 ---
 
+Mounted `onChange` also uses the host's typed view identity and retires its
+history on removal. Its accepted actions run after tree adoption under the
+captured transaction; discarded candidates do not publish observations. Raw
+components without a mount coordinator do not provide this lifetime. Native
+scheduling parity remains unqualified, and the separate preference/task-ID
+adapters still use their older bookkeeping. See
+[MountedOnChange.md](MountedOnChange.md).
+
 ## Partial (usable, but not SwiftUI-complete)
 
 Use these when you accept retained approximations.

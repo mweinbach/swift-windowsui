@@ -4529,3 +4529,90 @@ An additive bounded projection of path-error inner exceptions is a proposed
 follow-up, not a demonstrated publication repair. This standalone fixture is
 not yet part of Quick or Full. All prior failures and the original nine open
 completion gates remain unchanged.
+
+### Seventh batch mounted change observation integration
+
+`onChange` no longer stores comparison history in a process-wide source-location
+dictionary. Its zero-argument, one-value, and old/new-value overloads now stage
+typed observation records on the containing host's existing mounted identity.
+Separate hosts, sibling occurrences, nested modifiers, keyed rows, and explicit
+identities retain distinct histories. Removing an occurrence retires its
+history; a later mount begins with a fresh baseline. Optional `nil` is an
+observed value, not an uninitialized record.
+
+Only materialized, accepted builds commit observation baselines. Unused
+components, abandoned construction, and rejected measured candidates do not
+advance history or call actions. The adopted batch commits its proposed values
+before application equality and action code. Delivery and displaced-capture
+cleanup finish under the existing retained-build guard and captured transaction,
+so reentrant reloads queue behind the batch. Explicit nil animation remains
+distinct from an absent transaction. Equality reentry rechecks the owner and
+delivery token; closing the host revokes later delivery. The existing Windows
+equal-value baseline policy is preserved, without claiming native equivalence.
+
+The frozen nine-path implementation patch is
+`a84a8b1d9b662a3c1c5b222a86d01cb45f9e384af145a7566961d213303bff18`.
+Before root application, all 41 source-packet members and all 12 execution-packet
+members were verified and copied into
+`artifacts/goal-seventh-mounted-onchange-intake-v1`. The isolated candidate at
+`1ce6b9a` with staged tree `14ca024c128a013820cb4f14aae10049049064e3`
+passed **691 distinct XCTest methods**, including all 38 new methods, all 575
+methods of `WinSwiftUITests`, and 78 preservation methods. Three existing
+`onChange` fixture bodies now use a real mounted host; their original value
+assertions remain intact. That isolated result is separate from root validation.
+
+Root intake applied the patch without conflicts at commit
+`49c50c89a2205cdf208fde9c11d64f7cd6b521ac`, producing staged tree
+`cf75aa82b49d64d83cd393a4df685d10313a728e`. All eight changed Swift files
+matched the frozen source bytes exactly; the new documentation differed only
+in checkout line endings. Root contracts and strict lint of those eight files
+passed with natural PowerShell exit **0**, PID 27888, in 18.187 seconds. Its
+receipt is under the intake directory's `static-root-v1`; the 70-byte log has
+SHA256 `c3f98e398e179674e879dd9b71c4cf9dafbb3d1a307abbaa83221de7ad864175`.
+
+The subsequent root sequence, `goal-seventh-mounted-onchange-root-v1`, passed
+**691 distinct XCTest methods with zero failures or skips**. Its selected
+registry and observed start/pass IDs match the source-verified isolated
+inventory exactly:
+
+| Root coverage | Distinct passing methods |
+| --- | ---: |
+| Mounted change admission, isolation, lifecycle, and transactions | 38 |
+| Existing WinSwiftUI compatibility class, including the three fixture migrations | 575 |
+| Mounted State lifecycle/epochs/declarations, Binding transactions, ScrollViewReader, and presentation activity | 78 |
+
+The unmodified stock sharded test script completed 27 serial SwiftPM
+invocations. Each performed a build check; these were not `--skip-build`
+invocations. The first build reported 310.87 seconds. Each invocation also
+reported a separate zero-test Swift Testing tail; these tails are not 27 extra
+passing tests. The direct PowerShell child, PID 29212, and the outer runner both
+exited naturally with **0**, with no timeout, termination, or retry. The source
+and finish receipts span approximately 380 seconds. All 748 recorded input
+files, the gitlink, status, staged tree, and real index bytes remained unchanged.
+Complete descendant closure is not attested by this direct-child helper.
+
+The root log is 1,366,899 bytes, SHA256
+`7c2fe257b7cbbcbfc09736718598ce869bb40bc1a7442ed2f33b53d0ec71be31`.
+The exit receipt has SHA256
+`766db0906a2f707259860ff03d7aa7a167f9d3aee896bdf375f3a681d47a90e0`.
+The generated registry matches the isolated registry bytes, SHA256
+`c463693deba5ac802af890e82199030f9d745f2c75e0b579159189816eb28de3`.
+The root census is `artifacts/goal-seventh-mounted-onchange-root-v1-audit.json`,
+SHA256 `c792fe877fe0e347390057b51d1012eb264c937224dc13a7c4a2ae4ceba93e95`.
+All 536 Swift inputs match the prior source-verified staged blobs after CRLF
+normalization; 500 also match raw bytes. The first read-only audit stopped on
+an overly strict comparison of raw bytes across checkouts. Its script and
+failure receipt remain in the intake directory; the corrected audit distinguishes
+36 line-ending differences from source changes. No test was rerun or altered
+to repair that audit assumption. Compiler warnings remain in the captured log;
+no concurrency or warning flags were weakened.
+
+`docs/MountedOnChange.md`, the compatibility status, and the API guide describe
+the supported lifetime and remaining limits. Raw components without a mount
+coordinator do not acquire global fallback history. The separate
+`onPreferenceChange` and `task(id:)` legacy registries are still pending work.
+Native macOS scheduling, public actor-isolation equivalence, exact appearance
+and task ordering, callback-loop policy, and presented pixels remain
+unqualified. List/data-browser integration and a combined root Full/Quick run
+are still required. These results do not complete any of the original nine
+product gates or change the pinned scope, timing targets, or visual tolerances.

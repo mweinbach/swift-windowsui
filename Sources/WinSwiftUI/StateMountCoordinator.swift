@@ -118,8 +118,27 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
         guard let build = currentBuild else { return }
         build.activity.discardSubtree(at: prefix) { self.isCurrent(build) && build.canAdopt }
         guard isCurrent(build), build.canAdopt else { return }
+        build.discardOnChangeUpdates(at: prefix) { self.isCurrent(build) && build.canAdopt }
+        guard isCurrent(build), build.canAdopt else { return }
         build.epoch.discardUnadoptedSubtree(at: prefix, preserveCommitted: preserveCommitted)
         build.observations = build.observations.filter { !$0.key.segments.starts(with: prefix.segments) }
+    }
+
+    /// Materialized modifiers stage work on this build, not on a source value
+    /// or a process-wide callsite. Equality and actions wait for adoption.
+    func stageOnChange(
+        at identity: RetainedViewIdentity, makeUpdate: (StateMountOwner) -> any MountedOnChangeUpdate
+    ) {
+        guard let build = currentBuild, build.canAdopt,
+            let owner = build.epoch.owner(at: identity), isCurrent(build), build.canAdopt,
+            owner.isInstallationActive, build.canAdopt,
+            isCurrent(build), !build.constructionWasSuperseded
+        else { return }
+        let update = makeUpdate(owner)
+        guard isCurrent(build), build.canAdopt, owner.isInstallationActive, build.canAdopt,
+            isCurrent(build), !build.constructionWasSuperseded
+        else { return }
+        build.stageOnChange(update)
     }
 
     func subtreeLease(
@@ -180,6 +199,7 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
     fileprivate func didCommit(_ build: StateMountBuild, visited: Set<RetainedViewIdentity>) {
         guard currentBuild === build, build.epoch.didCommit, !registry.isClosed else { return }
         build.activity.commit()
+        build.commitOnChangeUpdates()
         committedObservations = committedObservations.filter { registry.owner(at: $0.key)?.isLive == true }
         for identity in visited {
             committedObservations[identity] = build.observations[identity] ?? []
@@ -199,6 +219,10 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
         build.activity.finish()
         currentBuild = nil
         registry.finishPendingRetirements()
+        // The runtime's retained-build guard and captured transaction remain
+        // active through these actions and displaced-value/callback cleanup.
+        // Reentrant reloads queue; they cannot replace this batch in place.
+        build.finishOnChangeUpdates()
     }
 
     fileprivate func isCurrent(_ build: StateMountBuild) -> Bool {
@@ -247,6 +271,10 @@ private final class StateMountBuild: RetainedBuildEpoch {
     let replacesRoot: Bool
     let subtreePrefix: RetainedViewIdentity?
     var observations: [RetainedViewIdentity: Set<ObjectIdentifier>] = [:]
+    private var onChangeUpdates: [ObjectIdentifier: any MountedOnChangeUpdate] = [:]
+    private var onChangeOrder: [ObjectIdentifier] = []
+    private var discardedOnChangeUpdates: [any MountedOnChangeUpdate] = []
+    private(set) var constructionWasSuperseded = false
     private var hasFinished = false
 
     init(
@@ -264,7 +292,63 @@ private final class StateMountBuild: RetainedBuildEpoch {
     var canAdopt: Bool { epoch.canAdopt && activity.canConstruct }
     var canComplete: Bool { epoch.didCommit && coordinator?.registry.isClosed == false }
 
-    func supersede() { epoch.supersede() }
+    func stageOnChange(_ update: any MountedOnChangeUpdate) {
+        let key = ObjectIdentifier(update.owner)
+        if let previous = onChangeUpdates.updateValue(update, forKey: key) {
+            // A measured or repeated materialization can be replaced. Keep its
+            // application captures until the guarded build finish, without an
+            // action or baseline change from the discarded proposal.
+            discardedOnChangeUpdates.append(previous)
+        } else {
+            onChangeOrder.append(key)
+        }
+    }
+
+    func discardOnChangeUpdates(at prefix: RetainedViewIdentity, isCurrent: () -> Bool) {
+        let updates = Array(onChangeUpdates.values)
+        var removed: Set<ObjectIdentifier> = []
+        for update in updates {
+            let matches = update.owner.identity.segments.starts(with: prefix.segments)
+            // Explicit identity equality can run application code.
+            guard isCurrent() else { return }
+            if matches { removed.insert(ObjectIdentifier(update.owner)) }
+        }
+        for key in removed {
+            if let update = onChangeUpdates.removeValue(forKey: key) {
+                discardedOnChangeUpdates.append(update)
+            }
+        }
+        onChangeOrder.removeAll { removed.contains($0) }
+    }
+
+    func commitOnChangeUpdates() {
+        guard canComplete else { return }
+        // Every adopted value is published before the first comparator or
+        // action. These commits retain displaced values and run no app code.
+        for key in onChangeOrder { onChangeUpdates[key]?.commit() }
+    }
+
+    func finishOnChangeUpdates() {
+        let updates = onChangeOrder.compactMap { onChangeUpdates[$0] }
+        let discarded = discardedOnChangeUpdates
+        onChangeUpdates = [:]
+        onChangeOrder = []
+        discardedOnChangeUpdates = []
+        if canComplete {
+            for update in updates { update.deliver() }
+        }
+        // Release both accepted and abandoned captures outside property
+        // mutation, while the enclosing retained build still serializes work.
+        withExtendedLifetime((updates, discarded)) {}
+    }
+
+    func supersede() {
+        // The final staging check must not invoke user Hashable code again.
+        // This local receipt mirrors the existing construction cancellation;
+        // it does not revoke a build's already-adopted completion.
+        constructionWasSuperseded = true
+        epoch.supersede()
+    }
     func willAdopt() -> Bool {
         guard let coordinator,
             activity.prepare(isCurrent: { coordinator.isCurrent(self) && self.epoch.canAdopt })
@@ -291,6 +375,7 @@ private final class StateMountBuild: RetainedBuildEpoch {
             coordinator.didFinish(self)
         } else {
             activity.finish()
+            finishOnChangeUpdates()
         }
     }
 }

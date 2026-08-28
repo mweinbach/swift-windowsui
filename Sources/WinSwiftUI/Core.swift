@@ -19634,29 +19634,144 @@ private func aspectRatioPreferredSize(
             : Size(width: baseSize.width, height: baseSize.width / ratio)
     }
 }
+// These legacy preference/task adapters still use their existing callsite
+// bookkeeping. Mounted onChange does not read or write this registry.
 @MainActor
 private final class OnChangeObservationRegistry {
     static let shared = OnChangeObservationRegistry()
 
     private var values: [String: Any] = [:]
 
-    func observe<Value: Equatable>(
-        value: Value,
-        key: String,
-        initial: Bool
-    ) -> (oldValue: Value, newValue: Value)? {
+    func observe<Value: Equatable>(value: Value, key: String, initial: Bool)
+        -> (oldValue: Value, newValue: Value)?
+    {
         if let previous = values[key] as? Value {
-            guard previous != value else {
-                return nil
-            }
-
+            guard previous != value else { return nil }
             values[key] = value
             return (previous, value)
         }
-
         values[key] = value
         return initial ? (value, value) : nil
     }
+}
+
+@MainActor
+protocol MountedOnChangeUpdate: AnyObject {
+    var owner: StateMountOwner { get }
+    func commit()
+    func deliver()
+}
+
+private final class OnChangeDeliveryIdentity {}
+
+/// A box distinguishes an unobserved mount from an observed Optional.none.
+/// Values retain their ordinary reference semantics; this is not a deep copy.
+@MainActor
+private final class OnChangeObservedValue<Value> {
+    let value: Value
+
+    init(_ value: Value) { self.value = value }
+}
+
+@MainActor
+private final class OnChangeObservation<Value> {
+    var value: OnChangeObservedValue<Value>?
+    var delivery: OnChangeDeliveryIdentity?
+}
+
+/// A build owns its proposed value and latest action. The mount owns only its
+/// comparison baseline, so neither a discarded build nor an escaped old action
+/// can move the next comparison to another occurrence's value.
+@MainActor
+private final class OnChangeUpdate<Value: Equatable>: MountedOnChangeUpdate {
+    let owner: StateMountOwner
+    private let cell: MountedStateCell<OnChangeObservation<Value>>
+    private let value: OnChangeObservedValue<Value>
+    private let initial: Bool
+    private let action: (Value, Value) -> Void
+    private let delivery = OnChangeDeliveryIdentity()
+    private var previous: OnChangeObservedValue<Value>?
+    private var didCommit = false
+    private var didDeliver = false
+
+    init(
+        owner: StateMountOwner, cell: MountedStateCell<OnChangeObservation<Value>>,
+        value: Value, initial: Bool, action: @escaping (Value, Value) -> Void
+    ) {
+        self.owner = owner
+        self.cell = cell
+        self.value = OnChangeObservedValue(value)
+        self.initial = initial
+        self.action = action
+    }
+
+    func commit() {
+        guard !didCommit, owner.isLive, cell.isWritable else { return }
+        didCommit = true
+        let observation = cell.readValue()
+        // Pin the displaced Value before replacing storage. Its destructor
+        // must not reenter while this adopted batch is still being published.
+        previous = observation.value
+        observation.delivery = delivery
+        observation.value = value
+    }
+
+    private var isCurrent: Bool {
+        owner.isLive && cell.isWritable && cell.readValue().delivery === delivery
+    }
+
+    func deliver() {
+        guard didCommit, !didDeliver, isCurrent else { return }
+        // Equality is application code too. Claim the delivery before calling
+        // it, and recheck ownership if it closes or replaces this occurrence.
+        didDeliver = true
+        if let previous {
+            let changed = previous.value != value.value
+            guard isCurrent else { return }
+            if !changed {
+                // Keep the existing value policy when Equatable ignores a
+                // payload field. Reentry must not restore over a newer token.
+                // Both boxes remain pinned until this batch finishes cleanup.
+                cell.readValue().value = previous
+                return
+            }
+            action(previous.value, value.value)
+        } else if initial, isCurrent {
+            action(value.value, value.value)
+        }
+    }
+}
+
+@MainActor
+private func stageOnChangeObservation<Value: Equatable>(
+    value: Value, initial: Bool, action: @escaping (Value, Value) -> Void, context: ViewBuildContext
+) {
+    let type = ObjectIdentifier(OnChangeObservation<Value>.self)
+    context.stateMountCoordinator?.stageOnChange(at: context.retainedViewIdentity.appending(.view(type))) { owner in
+        let cell = owner.resolve(at: StatePropertySlot(concreteTypes: [type])) { OnChangeObservation<Value>() }
+        return OnChangeUpdate(owner: owner, cell: cell, value: value, initial: initial, action: action)
+    }
+}
+
+@MainActor
+private func observingChanges<Value: Equatable>(
+    in component: Component, value: Value, initial: Bool,
+    action: @escaping (Value, Value) -> Void, context: ViewBuildContext
+) -> Component {
+    // A raw Component has no mounted lifetime or adoption receipt. In
+    // particular it must not borrow history from another runtime or callsite.
+    guard context.stateMountCoordinator != nil else { return component }
+    let makeNode: @MainActor (RetainedViewRuntime) -> ViewNode = { runtime in
+        stageOnChangeObservation(value: value, initial: initial, action: action, context: context)
+        return component.makeNode(runtime: runtime)
+    }
+    guard component.hasStructuralChildren else { return Component(makeViewNode: makeNode) }
+    return Component(
+        makeViewNode: makeNode,
+        appendStructuralChildren: { runtime, nodes in
+            stageOnChangeObservation(value: value, initial: initial, action: action, context: context)
+            component.appendChildNodes(runtime: runtime, to: &nodes)
+        })
 }
 @MainActor
 private final class OnReceiveSubscription<Source: Publisher> {
@@ -29819,13 +29934,13 @@ extension View {
         line: Int = #line,
         column: Int = #column
     ) -> some View {
-        let key = "\(fileID):\(line):\(column):\(Value.self)"
+        // Keep the existing source-compatible location parameters; mounted
+        // structural identity, rather than a source line, owns the observation.
+        _ = (fileID, line, column)
         return ModifiedView(content: self) { content, context in
-            if let change = OnChangeObservationRegistry.shared.observe(value: value, key: key, initial: initial) {
-                action(change.oldValue, change.newValue)
-            }
-
-            return content.makeComponent(context: context)
+            observingChanges(
+                in: content.makeComponent(context: context), value: value,
+                initial: initial, action: action, context: context)
         }
     }
 

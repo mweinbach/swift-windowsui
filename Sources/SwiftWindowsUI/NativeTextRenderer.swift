@@ -100,6 +100,7 @@ public enum NativeTextRenderer {
     struct TestingOverrides {
         var measure: ((String, PixelTextStyle, Double, Double?) -> Size?)?
         var layout: ((String, PixelTextStyle, Double, Double?) -> NativeTextLayoutResult?)?
+        var editingLine: ((String, PixelTextStyle, Double) -> NativeTextEditingLine?)?
         var appendCommands: ((String, Rect, PixelTextStyle, Double, Rect?, inout [RenderCommand]) -> Bool)?
         var rasterize: ((String, PixelTextStyle, Double) -> BitmapSurface?)?
         var rasterizeGlyphForCharacter: ((Character, PixelTextStyle, Double) -> NativeGlyphBitmap?)?
@@ -131,6 +132,160 @@ public enum NativeTextRenderer {
             return override(text, style, scaleFactor, maxWidth)
         }
         return DirectWriteTextRenderer.layout(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)
+    }
+
+    /// Only editor snapshots ask for native caret and selection geometry.
+    /// Existing layout overrides remain authoritative, so a synthetic editor
+    /// fixture never accidentally consults the machine's installed fonts.
+    static func editingLine(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> NativeTextEditingLine? {
+        if let override = testingOverrides.editingLine {
+            return override(text, style, scaleFactor)
+        }
+        if let override = testingOverrides.layout {
+            if let layout = override(text, style, scaleFactor, nil) {
+                return editingLineFromSyntheticLayout(layout, text: text, style: style)
+            }
+            if let size = unshapedEditingLineSize(text, style: style, scaleFactor: scaleFactor) {
+                return NativeTextEditingLine(
+                    text: text, width: size.width, height: size.height, carets: [], selectionRegions: [])
+            }
+            return pixelEditingLine(text, style: style)
+        }
+        if let line = DirectWriteTextRenderer.editingLine(text, style: style, scaleFactor: scaleFactor) {
+            return line
+        }
+        // A failed native caret extraction is not permission to place pixel
+        // carets over native glyphs. Keep exact drawable line metrics and make
+        // the missing geometry explicit to the snapshot consumer.
+        if let native = layout(text.isEmpty ? " " : text, style: style, scaleFactor: scaleFactor)?.lines.first {
+            return NativeTextEditingLine(
+                text: text, width: text.isEmpty ? 0 : native.width, height: native.height,
+                carets: [], selectionRegions: [], lineSpacing: min(style.lineSpacing, 0))
+        }
+        if let size = unshapedEditingLineSize(text, style: style, scaleFactor: scaleFactor) {
+            return NativeTextEditingLine(
+                text: text, width: size.width, height: size.height, carets: [], selectionRegions: [])
+        }
+        return pixelEditingLine(text, style: style)
+    }
+
+    /// Wrapping probes need whole-fragment widths, not a native hit-test walk
+    /// at every candidate prefix. The final chosen fragments request carets.
+    static func editingLineSize(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> Size? {
+        if let override = testingOverrides.editingLine {
+            guard let line = override(text, style, scaleFactor) else { return nil }
+            return Size(width: line.width, height: line.height)
+        }
+        if let override = testingOverrides.layout {
+            if let native = override(text, style, scaleFactor, nil)?.lines.first {
+                return Size(width: text.isEmpty ? 0 : native.width, height: native.height)
+            }
+            return unshapedEditingLineSize(text, style: style, scaleFactor: scaleFactor)
+                ?? pixelEditingLineSize(text, style: style)
+        }
+        if let native = layout(text.isEmpty ? " " : text, style: style, scaleFactor: scaleFactor)?.lines.first {
+            return Size(width: text.isEmpty ? 0 : native.width, height: native.height)
+        }
+        return unshapedEditingLineSize(text, style: style, scaleFactor: scaleFactor)
+            ?? pixelEditingLineSize(text, style: style)
+    }
+
+    private static func unshapedEditingLineSize(
+        _ text: String, style: PixelTextStyle, scaleFactor: Double
+    ) -> Size? {
+        // The normal frame path can still paint native text through GDI when
+        // DirectWrite glyph layout is unavailable. Its measured size permits
+        // faithful whole-line painting, but supplies no native caret stops.
+        // An injected layout may consult only an explicitly injected measure
+        // fallback; never discover machine fonts behind a synthetic fixture.
+        guard testingOverrides.layout == nil || testingOverrides.measure != nil,
+            let size = measure(text.isEmpty ? " " : text, style: style, scaleFactor: scaleFactor)
+        else { return nil }
+        return Size(width: text.isEmpty ? 0 : size.width, height: size.height)
+    }
+
+    private static func editingLineFromSyntheticLayout(
+        _ layout: NativeTextLayoutResult, text: String, style: PixelTextStyle
+    ) -> NativeTextEditingLine? {
+        guard layout.lines.count == 1, let line = layout.lines.first, line.text == text else { return nil }
+        if text.isEmpty {
+            return NativeTextEditingLine(
+                text: text, width: 0, height: line.height,
+                carets: [NativeTextEditingCaret(characterOffset: 0, affinity: .downstream, x: 0)],
+                selectionRegions: [], lineSpacing: layout.lineSpacing)
+        }
+        let count = text.count
+        // The original synthetic seam supplies one LTR glyph per Character.
+        // More complex fixtures supply explicit editor geometry instead of
+        // asking this adapter to invent cluster or bidi behavior.
+        let indices = line.glyphs.compactMap(\.sourceIndex)
+        var previousRight = 0.0
+        let hasOrderedCells = line.glyphs.allSatisfy { glyph in
+            let right = glyph.origin.x + glyph.advance
+            guard glyph.origin.x.isFinite, glyph.origin.y.isFinite,
+                glyph.advance.isFinite, glyph.advance >= 0, right.isFinite,
+                glyph.origin.x >= previousRight
+            else { return false }
+            previousRight = right
+            return true
+        }
+        guard indices == Array(0..<count), line.glyphs.count == count, hasOrderedCells else {
+            return NativeTextEditingLine(
+                text: text, width: line.width, height: line.height, carets: [], selectionRegions: [],
+                lineSpacing: layout.lineSpacing)
+        }
+        var carets: [NativeTextEditingCaret] = []
+        var regions: [NativeTextEditingRegion] = []
+        for glyph in line.glyphs {
+            guard let offset = glyph.sourceIndex else { continue }
+            let leading = glyph.origin.x
+            let trailing = leading + glyph.advance
+            carets.append(NativeTextEditingCaret(characterOffset: offset, affinity: .downstream, x: leading))
+            carets.append(NativeTextEditingCaret(characterOffset: offset + 1, affinity: .upstream, x: trailing))
+            regions.append(
+                NativeTextEditingRegion(
+                    characterRange: offset..<(offset + 1),
+                    rect: Rect(x: min(leading, trailing), y: 0, width: abs(trailing - leading), height: line.height)))
+        }
+        return NativeTextEditingLine(
+            text: text, width: line.width, height: line.height, carets: carets, selectionRegions: regions,
+            lineSpacing: layout.lineSpacing)
+    }
+
+    private static func pixelEditingLineSize(_ text: String, style: PixelTextStyle) -> Size {
+        let scale = max(style.scale, 0.01)
+        return Size(
+            width: PixelFont.rawLineWidth(text.uppercased(), letterSpacing: style.letterSpacing) * scale,
+            height: Double(PixelFont.glyphHeight) * scale)
+    }
+
+    private static func pixelEditingLine(_ text: String, style: PixelTextStyle) -> NativeTextEditingLine {
+        let size = pixelEditingLineSize(text, style: style)
+        let scale = max(style.scale, 0.01)
+        let spacing = style.lineSpacing * scale
+        // Pixel painting uppercases its input. A source-expanding transform
+        // cannot supply one caret per source Character from a fixed advance.
+        guard text.allSatisfy({ String($0).uppercased().count == 1 }) else {
+            return NativeTextEditingLine(
+                text: text, width: size.width, height: size.height, carets: [], selectionRegions: [],
+                lineSpacing: spacing)
+        }
+        var carets = [NativeTextEditingCaret(characterOffset: 0, affinity: .downstream, x: 0)]
+        var regions: [NativeTextEditingRegion] = []
+        let count = text.count
+        for offset in 0..<count {
+            let leading = Double(offset) * (Double(PixelFont.glyphWidth) + style.letterSpacing) * scale
+            let trailing = leading + Double(PixelFont.glyphWidth) * scale
+            carets.append(NativeTextEditingCaret(characterOffset: offset, affinity: .downstream, x: leading))
+            carets.append(NativeTextEditingCaret(characterOffset: offset + 1, affinity: .upstream, x: trailing))
+            regions.append(
+                NativeTextEditingRegion(
+                    characterRange: offset..<(offset + 1),
+                    rect: Rect(x: min(leading, trailing), y: 0, width: abs(trailing - leading), height: size.height)))
+        }
+        return NativeTextEditingLine(
+            text: text, width: size.width, height: size.height, carets: carets, selectionRegions: regions,
+            lineSpacing: spacing)
     }
 
     static func appendCommands(

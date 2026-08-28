@@ -19,6 +19,12 @@ enum DirectWriteTextRenderer {
         layout(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)?.measuredSize
     }
 
+    /// Editor geometry is captured only on request, from the same whole-line
+    /// layout used to paint a clipped label. Ordinary labels do not hit-test.
+    static func editingLine(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> NativeTextEditingLine? {
+        DirectWriteSystem.shared?.editingLine(text, style: style, scaleFactor: scaleFactor)
+    }
+
     /// Test seam: the per-line width wrapping decisions are taken from,
     /// which must agree with the line width `layout` reports.
     static func measuredLineWidthForTesting(_ text: String, style: PixelTextStyle) -> Double? {
@@ -154,6 +160,44 @@ private struct DirectWriteParagraphLineMetrics {
     var height: Double
     var baseline: Double
 }
+
+private struct DirectWriteEditingRegion {
+    var sourceRange: Range<UINT32>
+    var rect: Rect
+}
+
+private struct DirectWriteEditingHit {
+    var x: Double
+    var region: DirectWriteEditingRegion
+
+    var sourceRange: Range<UINT32> { region.sourceRange }
+}
+
+/// A native cluster whose advance cell corresponds to exactly one captured
+/// glyph. Native offsets inside that cell translate with the glyph; its right
+/// edge also receives the gap that `applyLetterSpacing` adds to the advance.
+private struct DirectWriteEditingTrackedGlyph {
+    var sourceRange: Range<UINT32>
+    var originalLeft: Double
+    var originalRight: Double
+    var translation: Double
+    var followingGap: Double
+
+    static let tolerance = 0.0001
+
+    func mappedX(_ x: Double) -> Double? {
+        guard x >= originalLeft - Self.tolerance, x <= originalRight + Self.tolerance else { return nil }
+        let gap = abs(x - originalRight) <= Self.tolerance ? followingGap : 0
+        let result = x + translation + gap
+        return result.isFinite ? result : nil
+    }
+}
+
+private typealias DWEditingHitTestTextRangeProc =
+    @convention(c) (
+        UnsafeMutableRawPointer?, UINT32, UINT32, FLOAT, FLOAT, UnsafeMutableRawPointer?, UINT32,
+        UnsafeMutablePointer<UINT32>?
+    ) -> HRESULT
 
 struct CapturedGlyphRasterMetrics: Equatable, Sendable {
     var renderScale: Double
@@ -367,6 +411,320 @@ private final class DirectWriteSystem {
 
     func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> Size? {
         layout(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)?.measuredSize
+    }
+
+    func editingLine(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> NativeTextEditingLine? {
+        guard scaleFactor.isFinite, scaleFactor > 0, style.nativeFontPixelSize.isFinite,
+            style.nativeFontPixelSize > 0, style.lineSpacing.isFinite,
+            (style.nativeLetterSpacing ?? 0).isFinite,
+            !text.contains(where: { $0 == "\n" || $0 == "\r" || $0 == "\r\n" }),
+            let utf16Count = UInt32(exactly: text.utf16.count)
+        else { return nil }
+
+        var lineStyle = style
+        lineStyle.alignment = .leading
+        lineStyle.verticalAlignment = .top
+        lineStyle.lineBreakMode = .clip
+        lineStyle.maximumNumberOfLines = 1
+        lineStyle.minimumScaleFactor = 1
+        let paragraphMetrics = expandedSpanLineMetrics(for: text, style: lineStyle)
+        let lineSpacing = paragraphMetrics == nil && lineStyle.lineSpacing < 0 ? lineStyle.lineSpacing : 0
+        guard !text.isEmpty else {
+            let height =
+                paragraphMetrics?.height
+                ?? max(lineStyle.nativeFontPixelSize + max(lineStyle.lineSpacing, 0), 1)
+            guard height.isFinite, height > 0 else { return nil }
+            return NativeTextEditingLine(
+                text: text, width: 0, height: height,
+                carets: [
+                    NativeTextEditingCaret(characterOffset: 0, affinity: .downstream, x: 0),
+                    NativeTextEditingCaret(characterOffset: 0, affinity: .upstream, x: 0),
+                ],
+                selectionRegions: [], lineSpacing: lineSpacing
+            )
+        }
+
+        // The ordinary fallback paints isolated characters rather than the
+        // native shaped run. Its native hit regions are not faithful geometry.
+        guard NativeTextRenderer.isGlyphShapingEnabled,
+            let format = createTextFormat(
+                style: lineStyle, wrapping: dwriteWordWrappingNoWrap, paragraphMetrics: paragraphMetrics)
+        else { return nil }
+        defer {
+            var releasableFormat: UnsafeMutablePointer<IDWriteTextFormat>? = format
+            releaseDirectWriteCOM(&releasableFormat)
+        }
+        guard
+            let layout = createTextLayout(
+                text: text, format: format, size: Size(width: 4096, height: 4096), style: lineStyle)
+        else { return nil }
+        defer {
+            var releasableLayout: UnsafeMutablePointer<IDWriteTextLayout>? = layout
+            releaseDirectWriteCOM(&releasableLayout)
+        }
+        var metrics = DWRITE_TEXT_METRICS()
+        let metricsHR = withUnsafeMutablePointer(to: &metrics) {
+            layout.pointee.lpVtbl!.pointee.GetMetrics(UnsafeMutableRawPointer(layout), UnsafeMutableRawPointer($0))
+        }
+        guard isSuccess(metricsHR), metrics.lineCount == 1,
+            let bounds = textBounds(for: layout), bounds.width.isFinite, bounds.height.isFinite,
+            let glyphs = captureGlyphLayouts(from: layout, text: text, style: lineStyle), !glyphs.isEmpty,
+            glyphs.allSatisfy({ $0.origin.x.isFinite && $0.origin.y.isFinite && $0.advance.isFinite })
+        else { return nil }
+
+        var boundaries = utf16CharacterOffsets(for: text)
+        boundaries.append(utf16Count)
+        var leadingHits: [DirectWriteEditingHit] = []
+        var trailingHits: [DirectWriteEditingHit] = []
+        leadingHits.reserveCapacity(boundaries.count - 1)
+        trailingHits.reserveCapacity(boundaries.count - 1)
+        for index in 0..<(boundaries.count - 1) {
+            guard
+                let leading = editingHit(
+                    layout: layout, textPosition: boundaries[index], isTrailingHit: false, textLength: utf16Count),
+                let trailing = editingHit(
+                    layout: layout, textPosition: boundaries[index + 1] - 1,
+                    isTrailingHit: true, textLength: utf16Count)
+            else { return nil }
+            leadingHits.append(leading)
+            trailingHits.append(trailing)
+        }
+
+        let tracking = lineStyle.nativeLetterSpacing ?? 0
+        let trackedGlyphs: [DirectWriteEditingTrackedGlyph]?
+        if tracking == 0 {
+            trackedGlyphs = nil
+        } else {
+            guard
+                let mapped = editingTrackedGlyphs(
+                    glyphs: glyphs, boundaries: boundaries, leadingHits: leadingHits, tracking: tracking)
+            else { return nil }
+            trackedGlyphs = mapped
+        }
+
+        var carets: [NativeTextEditingCaret] = []
+        carets.reserveCapacity(boundaries.count * 2)
+        for index in leadingHits.indices {
+            let leading = leadingHits[index]
+            // DirectWrite can snap a requested position to the containing
+            // cluster. Only its actual edge at a Swift Character boundary is
+            // a native stop; do not invent positions inside ligatures.
+            if leading.sourceRange.lowerBound == boundaries[index] {
+                guard let x = editingX(for: leading, trackedGlyphs: trackedGlyphs) else { return nil }
+                carets.append(NativeTextEditingCaret(characterOffset: index, affinity: .downstream, x: x))
+            }
+            let trailing = trailingHits[index]
+            if trailing.sourceRange.upperBound == boundaries[index + 1] {
+                guard let x = editingX(for: trailing, trackedGlyphs: trackedGlyphs) else { return nil }
+                carets.append(NativeTextEditingCaret(characterOffset: index + 1, affinity: .upstream, x: x))
+            }
+        }
+        guard let first = carets.first(where: { $0.characterOffset == 0 && $0.affinity == .downstream }),
+            let last = carets.first(where: {
+                $0.characterOffset == boundaries.count - 1 && $0.affinity == .upstream
+            })
+        else { return nil }
+        carets.append(NativeTextEditingCaret(characterOffset: 0, affinity: .upstream, x: first.x))
+        carets.append(
+            NativeTextEditingCaret(characterOffset: boundaries.count - 1, affinity: .downstream, x: last.x))
+
+        var selectionRegions: [NativeTextEditingRegion] = []
+        for index in leadingHits.indices {
+            guard
+                let regions = editingHitRegions(
+                    layout: layout, textPosition: boundaries[index],
+                    textLength: boundaries[index + 1] - boundaries[index], layoutTextLength: utf16Count)
+            else { return nil }
+            for region in regions {
+                guard let rects = editingRects(for: region, trackedGlyphs: trackedGlyphs) else { return nil }
+                selectionRegions.append(
+                    contentsOf: rects.map { NativeTextEditingRegion(characterRange: index..<(index + 1), rect: $0) })
+            }
+        }
+
+        let width = max(0, bounds.width + Double(max(glyphs.count - 1, 0)) * tracking)
+        let height = max(bounds.height, paragraphMetrics?.height ?? lineStyle.nativeFontPixelSize)
+        guard width.isFinite, height.isFinite, height > 0 else { return nil }
+        return NativeTextEditingLine(
+            text: text, width: width, height: height, carets: carets,
+            selectionRegions: selectionRegions, lineSpacing: lineSpacing
+        )
+    }
+
+    private func editingHit(
+        layout: UnsafeMutablePointer<IDWriteTextLayout>, textPosition: UINT32,
+        isTrailingHit: Bool, textLength: UINT32
+    ) -> DirectWriteEditingHit? {
+        guard let rawProc = layout.pointee.lpVtbl!.pointee.HitTestTextPosition else { return nil }
+        let proc = unsafeBitCast(rawProc, to: DWHitTestTextPositionProc.self)
+        var x: FLOAT = 0
+        var y: FLOAT = 0
+        var metrics = DWRITE_HIT_TEST_METRICS()
+        let hr = withUnsafeMutablePointer(to: &metrics) {
+            proc(
+                UnsafeMutableRawPointer(layout), textPosition, WindowsBool(isTrailingHit),
+                &x, &y, UnsafeMutableRawPointer($0))
+        }
+        guard isSuccess(hr), x.isFinite, y.isFinite,
+            let region = editingRegion(from: metrics, textLength: textLength)
+        else { return nil }
+        return DirectWriteEditingHit(x: Double(x), region: region)
+    }
+
+    private func editingHitRegions(
+        layout: UnsafeMutablePointer<IDWriteTextLayout>, textPosition: UINT32,
+        textLength: UINT32, layoutTextLength: UINT32
+    ) -> [DirectWriteEditingRegion]? {
+        guard let rawProc = layout.pointee.lpVtbl!.pointee.HitTestTextRange else { return nil }
+        let proc = unsafeBitCast(rawProc, to: DWEditingHitTestTextRangeProc.self)
+        var count: UINT32 = 0
+        let queryHR = proc(UnsafeMutableRawPointer(layout), textPosition, textLength, 0, 0, nil, 0, &count)
+        let insufficientBuffer = HRESULT(bitPattern: 0x8007_007A)
+        guard isSuccess(queryHR) || queryHR == insufficientBuffer, count <= layoutTextLength else { return nil }
+        guard count > 0 else { return isSuccess(queryHR) ? [] : nil }
+
+        let capacity = count
+        var storage = [DWRITE_HIT_TEST_METRICS](repeating: DWRITE_HIT_TEST_METRICS(), count: Int(capacity))
+        let readHR = storage.withUnsafeMutableBufferPointer {
+            proc(
+                UnsafeMutableRawPointer(layout), textPosition, textLength, 0, 0,
+                UnsafeMutableRawPointer($0.baseAddress), capacity, &count)
+        }
+        guard isSuccess(readHR), count <= capacity else { return nil }
+        var regions: [DirectWriteEditingRegion] = []
+        regions.reserveCapacity(Int(count))
+        for metrics in storage.prefix(Int(count)) {
+            guard let region = editingRegion(from: metrics, textLength: layoutTextLength) else { return nil }
+            regions.append(region)
+        }
+        return regions
+    }
+
+    private func editingRegion(from metrics: DWRITE_HIT_TEST_METRICS, textLength: UINT32)
+        -> DirectWriteEditingRegion?
+    {
+        let (end, overflow) = metrics.textPosition.addingReportingOverflow(metrics.length)
+        guard !overflow, end <= textLength, !metrics.isTrimmed.boolValue,
+            metrics.left.isFinite, metrics.top.isFinite, metrics.width.isFinite, metrics.height.isFinite,
+            metrics.width >= 0, metrics.height >= 0
+        else { return nil }
+        let rect = Rect(
+            x: Double(metrics.left), y: Double(metrics.top),
+            width: Double(metrics.width), height: Double(metrics.height))
+        guard rect.maxX.isFinite, rect.maxY.isFinite else { return nil }
+        return DirectWriteEditingRegion(sourceRange: metrics.textPosition..<end, rect: rect)
+    }
+
+    /// Manual tracking spaces painted glyphs, including glyphs inside a
+    /// native cluster. A cluster containing several independently moved
+    /// glyphs has no single native hit rectangle that can be translated
+    /// faithfully. Decline that geometry without changing the painted text.
+    private func editingTrackedGlyphs(
+        glyphs: [NativeTextGlyphLayout], boundaries: [UINT32],
+        leadingHits: [DirectWriteEditingHit], tracking: Double
+    ) -> [DirectWriteEditingTrackedGlyph]? {
+        let visualOrder = glyphs.indices.sorted {
+            if glyphs[$0].origin.x == glyphs[$1].origin.x { return $0 < $1 }
+            return glyphs[$0].origin.x < glyphs[$1].origin.x
+        }
+        var mapped: [DirectWriteEditingTrackedGlyph] = []
+        mapped.reserveCapacity(glyphs.count)
+        var previousRight: Double?
+        let tolerance = DirectWriteEditingTrackedGlyph.tolerance
+        for (rank, glyphIndex) in visualOrder.enumerated() {
+            let glyph = glyphs[glyphIndex]
+            guard let sourceIndex = glyph.sourceIndex, leadingHits.indices.contains(sourceIndex),
+                glyph.origin.x.isFinite, glyph.advance.isFinite, glyph.advance > 0
+            else { return nil }
+            let region = leadingHits[sourceIndex].region
+            guard region.sourceRange.lowerBound == boundaries[sourceIndex], !region.sourceRange.isEmpty,
+                abs(glyph.origin.x - region.rect.minX) <= tolerance,
+                abs(glyph.advance - region.rect.size.width) <= tolerance
+            else { return nil }
+            if let previousRight, abs(region.rect.minX - previousRight) > tolerance { return nil }
+            previousRight = region.rect.maxX
+            let translation = Double(rank) * tracking
+            let gap = rank < glyphs.count - 1 ? tracking : 0
+            guard translation.isFinite, (glyph.advance + gap).isFinite, glyph.advance + gap >= 0,
+                (region.rect.minX + translation).isFinite,
+                (region.rect.maxX + translation + gap).isFinite
+            else { return nil }
+            mapped.append(
+                DirectWriteEditingTrackedGlyph(
+                    sourceRange: region.sourceRange,
+                    originalLeft: region.rect.minX, originalRight: region.rect.maxX,
+                    translation: translation, followingGap: gap))
+        }
+        mapped.sort { $0.sourceRange.lowerBound < $1.sourceRange.lowerBound }
+        var nextPosition: UINT32 = 0
+        for glyph in mapped {
+            guard glyph.sourceRange.lowerBound == nextPosition else { return nil }
+            nextPosition = glyph.sourceRange.upperBound
+        }
+        guard nextPosition == boundaries[boundaries.count - 1] else { return nil }
+        return mapped
+    }
+
+    private func editingTrackedGlyphIndex(
+        at position: UINT32, in glyphs: [DirectWriteEditingTrackedGlyph]
+    ) -> Int? {
+        var lower = 0
+        var upper = glyphs.count
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if glyphs[middle].sourceRange.upperBound <= position {
+                lower = middle + 1
+            } else {
+                upper = middle
+            }
+        }
+        guard glyphs.indices.contains(lower), glyphs[lower].sourceRange.contains(position) else { return nil }
+        return lower
+    }
+
+    private func editingX(for hit: DirectWriteEditingHit, trackedGlyphs: [DirectWriteEditingTrackedGlyph]?) -> Double? {
+        guard let trackedGlyphs else { return hit.x }
+        guard let index = editingTrackedGlyphIndex(at: hit.sourceRange.lowerBound, in: trackedGlyphs),
+            hit.sourceRange.upperBound <= trackedGlyphs[index].sourceRange.upperBound
+        else { return nil }
+        return trackedGlyphs[index].mappedX(hit.x)
+    }
+
+    private func editingRects(
+        for region: DirectWriteEditingRegion, trackedGlyphs: [DirectWriteEditingTrackedGlyph]?
+    ) -> [Rect]? {
+        guard let trackedGlyphs else { return [region.rect] }
+        guard let firstIndex = editingTrackedGlyphIndex(at: region.sourceRange.lowerBound, in: trackedGlyphs)
+        else { return nil }
+        if region.rect.size.width == 0 {
+            guard let x = trackedGlyphs[firstIndex].mappedX(region.rect.minX) else { return nil }
+            return [Rect(x: x, y: region.rect.minY, width: 0, height: region.rect.size.height)]
+        }
+        var rects: [Rect] = []
+        var originalWidth = 0.0
+        var index = firstIndex
+        while index < trackedGlyphs.count,
+            trackedGlyphs[index].sourceRange.lowerBound < region.sourceRange.upperBound
+        {
+            let glyph = trackedGlyphs[index]
+            let left = max(region.rect.minX, glyph.originalLeft)
+            let right = min(region.rect.maxX, glyph.originalRight)
+            if right > left {
+                guard let mappedLeft = glyph.mappedX(left), let mappedRight = glyph.mappedX(right),
+                    mappedRight >= mappedLeft
+                else { return nil }
+                originalWidth += right - left
+                rects.append(
+                    Rect(
+                        x: mappedLeft, y: region.rect.minY,
+                        width: mappedRight - mappedLeft, height: region.rect.size.height))
+            }
+            index += 1
+        }
+        guard abs(originalWidth - region.rect.size.width) <= DirectWriteEditingTrackedGlyph.tolerance else {
+            return nil
+        }
+        return rects
     }
 
     /// `IDWriteFontCollection.FindFamilyName` against the system collection.

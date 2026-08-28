@@ -1,9 +1,6 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
-
 import WinSDK
 
 /// Text retained by wrapping or truncation, with exact offsets into the source.
@@ -412,6 +409,31 @@ struct NativeTextLayoutResult: Equatable, Sendable {
     var contentSize: Size
     var measuredSize: Size
 }
+
+/// Editor-only geometry, copied out while the native layout is alive. These
+/// values contain no COM object and use grapheme offsets into one whole line.
+struct NativeTextEditingCaret: Equatable, Sendable {
+    var characterOffset: Int
+    var affinity: RetainedTextSelectionAffinity
+    var x: Double
+}
+
+struct NativeTextEditingRegion: Equatable, Sendable {
+    var characterRange: Range<Int>
+    var rect: Rect
+}
+
+struct NativeTextEditingLine: Equatable, Sendable {
+    var text: String
+    var width: Double
+    var height: Double
+    var carets: [NativeTextEditingCaret]
+    var selectionRegions: [NativeTextEditingRegion]
+    /// Native positive leading is already part of height. The pixel fallback
+    /// keeps its separate inter-line spacing here, without adding it twice.
+    var lineSpacing: Double = 0
+}
+
 struct NativeGlyphBitmap: Equatable, Sendable {
     var surface: BitmapSurface
     var bearingX: Float

@@ -299,7 +299,7 @@ if ($Full) {
         & $testScript -Sharded -Filter "ViewBuildContextScopeTests|TraversalStackHeadroomTests"
     }
     Invoke-Step "undo ownership and bitmap stretch" {
-        & $testScript -Sharded -Filter "UndoManagerTests|TextInputUndoTests|TextInputUndoSessionTests|TextInputConstructionLifetimeTests|TextSelectionIndexSafetyTests|SheetContentIdentityTests|WinSwiftUIBitmapStretchTests"
+        & $testScript -Sharded -Filter "UndoManagerTests|TextInputUndoTests|TextInputUndoSessionTests|TextInputConstructionLifetimeTests|TextSelectionIndexSafetyTests|SheetContentIdentityTests|ItemSheetStateIdentityTests|WinSwiftUIBitmapStretchTests"
     }
     Invoke-Step "sheet dismissal and host environment notifications" {
         & $testScript -Filter "WinSwiftUITests/(testSheetIsPresentedComposesRetainedModalAndDismisses|testSheetItemRendersSelectedItemAndClearsOnDismiss)|WinSwiftUIWindowHostTests/testHostActiveAndVisibilityStateDriveEnvironmentValues"
@@ -317,7 +317,7 @@ if ($Full) {
         & $testScript -Sharded -Filter "D3D11GPUFrameTimingCollectorTests|D3D11GPUFrameTimingNativeTests|LiveGPUFrameTimingHostTests|LiveGPUFrameTimingReportTests"
     }
     Invoke-Step "public API, input, document, window and diagnostic regressions" {
-        & $testScript -Sharded -Filter "WinSwiftUIColorInitializerTests|WinSwiftUIScaleOverloadTests|RetainedLongPressGestureTests|DemoLongPressWindowStateTests|TextEditorReconciliationTests|TextInputLayoutGeometryTests|FileDocumentExportTests|FileDialogIntegrationTests|Win32WindowCloseRequestTests|WindowDismissBehaviorTests|LiveDiagnosticsAccountingTests|LiveDiagnosticsReportTests"
+        & $testScript -Sharded -Filter "WinSwiftUIColorInitializerTests|WinSwiftUIColorSpaceConversionTests|WinSwiftUIScaleOverloadTests|RetainedLongPressGestureTests|DemoLongPressWindowStateTests|TextEditorReconciliationTests|TextInputLayoutGeometryTests|FileDocumentExportTests|FileDialogIntegrationTests|Win32WindowCloseRequestTests|WindowDismissBehaviorTests|LiveDiagnosticsAccountingTests|LiveDiagnosticsReportTests"
     }
     # Optional retained capabilities must stay genuinely sparse; rebuilding
     # controls must preserve their IME composition and caret callbacks.

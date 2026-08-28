@@ -2294,3 +2294,110 @@ changed HEAD and correctly tripped the repository-immutability assertion.
 Repeating that suite with files and Git state frozen passed all 1,575 checks.
 No failure log, budget, audit record, or native qualification was discarded or
 silently relaxed to obtain these results.
+
+### Typed builder candidate: preserved, not delivered
+
+The native-first typed-builder candidate compiled its production sources, but
+the repository test module did not compile. Three loop sites containing opaque
+view-modifier results exposed Swift's synthesized for-in accumulator inference
+limit; a separate minimal module/client probe reproduced it. Four additional
+new metadata assertions needed explicit optional map-result types. No new
+builder tests executed, so the candidate is not a validated implementation.
+
+Its complete integrated patch, including the small fixture corrections, is
+preserved against `50c7ed8` under
+`artifacts/goal-fifth-typed-builder-held-50c7ed8/`, SHA-256
+`7974804d1c32970d2741a24c00d0b8165a294809beb7a3ba90071b6f4dd224b0`.
+The original agent bundles and failed compile log remain unchanged. The
+unfinished candidate was removed from the active build inputs so independent
+runtime, color, identity, and document work can continue validating. The
+delivered public builder still has its existing array representation.
+
+The pinned native ViewBuilder interface has no `buildArray`; for-in support is
+a Windows extension. A separate explicit legacy array builder is a possible
+migration design, not an implemented fix or permission to hide the failing
+cases. Native concrete-body inference, typed tuples, metadata, State identity,
+and the existing shared-source goal still require completion and verification.
+No original acceptance criterion or failing behavior assertion was removed.
+
+### Fifth color, identity, and lifecycle integration checks
+
+The first focused run of the combined independent fixes now passes 123 XCTest
+cases across nine targets and seven serial SwiftPM invocations, with no failure
+or skip. Its log is
+`artifacts/goal-fifth-color-identity-lifecycle-focused-v3.log`, SHA-256
+`7e68e674535e06869d2ddecc7d44c430c009321e18ab1e93f527ffd158f168f9`.
+Strict lint passes all nine changed Swift files. Broader state, editor, color,
+and lifecycle regressions and the next Full/Quick batch remain pending.
+
+The canonical RGB constructor now converts linear sRGB and Display P3 into
+the retained encoded extended-sRGB components, keeping representable negative
+and above-one RGB values. Forty-three new tests distinguish transfer/matrix
+math, finite storage policy, alpha, and the existing renderer clamp. This does
+not establish native color resolution, wider-gamut output, white-initializer
+behavior, or renderer working-space parity. The paired native observer is
+separate work; no native result is implied by these standards-derived tests.
+
+Item sheets key their presentation content by the selected item's typed ID.
+Three new mounted cases retain state for a same-ID payload change, retire it
+on accepted identity changes or dismissal/reopening, reject retired binding
+writes, and preserve the background editor and its undo/selection. A separate
+single-child reconciliation path uses the existing matching rules without
+building key lookup tables. Six new cases cover typed/tag/layout precedence,
+180 legacy tag/layout pairs, colliding keys, other child counts, focus, and
+editor retirement. Hash-call counts are structural evidence, not measured
+allocation savings or frame-performance qualification.
+
+The lifecycle change is test-only: positive starts now acknowledge the actual
+recorded task start through a bounded expectation. Existing negative deferral,
+once-only, and callback-order checks remain. This improves the readiness check
+that failed in hosted CI; it does not fix the native Windows MainActor loop.
+
+Two failed compile attempts remain preserved with zero executed cases. The
+original item-sheet patch was correct in its frozen source, but its short,
+identical context initially matched the Boolean overload in the newer checkout.
+Root moved that line explicitly into the item overload; the original patch is
+unchanged. The next compiler run rejected seven new singleton-test accesses to
+a fileprivate runtime reference. Tests now observe the existing runtime-backed
+clock accessor with a temporary counting clock, restored synchronously in
+`defer`; production visibility is unchanged. Parent, focus, controller, and
+retirement assertions remain. Logs are
+`goal-fifth-color-identity-lifecycle-focused.log` (SHA-256
+`9ec7e8a1ea0368c2c1ec0e51e8b7eaf714cb3f4e1572c12af309450373f3df35`)
+and `goal-fifth-color-identity-lifecycle-focused-v2.log` (SHA-256
+`843bfef0f08781a5d06681014b6b87bdb7a19e77bd2fda4f160fc208b96e7c6d`)
+under `artifacts/`. A test closure-formatting failure was also corrected without
+changing its behavior. No baseline, tolerance, original goal gate, or failing
+runtime assertion was removed to obtain the passing run.
+
+The broader follow-up now passes another 360 cases across 28 targets and 18
+serial invocations; ten selected public color/sheet/cover cases also pass.
+Together these runs cover 493 distinct XCTest cases. Five additional fresh
+PowerShell/SwiftPM invocations each pass all 16 lifecycle cases (80 repeated
+passes, not 80 additional distinct cases). The completed record is
+`artifacts/goal-fifth-color-identity-validation.json`, SHA-256
+`fb9c25d3099741c8c9500e02d7aba385fc5f6c2df533c51eabe8067853c5c60d`.
+It seals the tested working-source hashes, all eight successful logs, retained
+failures, strict lint, and post-edit contracts. These are focused checks;
+Full, Quick, visual review, and hosted validation for the fifth batch are still
+required before delivery. Quick now explicitly includes both new color-space
+and item-sheet suites.
+
+### StateObject isolation experiment rejected
+
+A standalone Swift 6.3 experiment tested the proposed private MainActor
+factory/seed carrier behind a nonisolated plain-autoclosure initializer.
+The separate-module client emitted SIL for an unsafe mutable deferred capture
+without a diagnostic under complete strict concurrency and warnings as errors.
+The direct mutable-capture control correctly produced a sending/data-race
+diagnostic; immutable and ordinary positive controls compiled. No unsafe
+program was linked or executed. Successful code generation is the observation,
+not proof that a race occurred at runtime.
+
+That result triggered the experiment's rejection gate. Remaining authored
+families were not run, no production isolation change was applied, and no
+unchecked Sendable or stronger public-parameter workaround was substituted.
+The owned source, flags, logs, and SIL are retained under
+`C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-state-object-isolation-probe-1bd182277aa047918327010b93c69a39/`.
+The current MainActor initializer restriction and its native declaration gap
+remain explicit. A safe replacement still needs design and native comparison.

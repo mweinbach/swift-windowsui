@@ -61,6 +61,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   a reused process containing unrelated suites' earlier allocation peaks.
 - Use `async` test methods in `@MainActor` XCTest classes. With the current Windows toolchain, synchronous actor-isolated methods can compile but crash SwiftPM's test discovery when it casts them to nonisolated callbacks, before a filter executes. A standalone XCTest entrypoint does not validate that discovery path.
 - Quick includes `RetainedViewIdentityTests`, `WinSwiftUIStructuralIdentityTests`, and `ViewIdentityRoleTests` for typed keys, structural branches and slots, erased fragments, and auxiliary builder roles. These check retained-node identity, not mounted `State` or `StateObject` storage.
+  The identity suite also covers singleton tag/layout precedence, retained focus
+  and callbacks, recursive editor departure ordering, and child-count boundaries.
+  Local `Hashable` counters check omitted singleton key hashing without production
+  instrumentation; they do not measure allocations, elapsed time, or frame pacing.
+- Quick includes `WinSwiftUIColorInitializerTests` and
+  `WinSwiftUIColorSpaceConversionTests` for the canonical RGB constructor's
+  signed transfer curves, P3 primaries, finite storage policy, alpha handling,
+  and distinction between extended stored values and clamped renderer output.
+  These mathematical and retained-output checks do not establish native
+  color resolution, wide-gamut output, or white-initializer conformance.
 - Quick also includes `StructuralComponentTests`,
   `StructuralCompositionIdentityTests`, and `StructuralComponentMountedTests`.
   They check direct stack children, empty compositions, opaque decorated
@@ -89,10 +99,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   counts, including accidental suffix matches such as `GeometryTests`.
 - `UndoManagerTests`, `TextInputUndoTests`, `TextInputUndoSessionTests`,
   `TextInputConstructionLifetimeTests`, `TextSelectionIndexSafetyTests`, and
-  `SheetContentIdentityTests` gate Quick, covering target/replay lifetime,
+  `SheetContentIdentityTests` and `ItemSheetStateIdentityTests` gate Quick, covering target/replay lifetime,
   automatic editor history, and background editor identity through Boolean and
   item sheet presentation, fresh versus retired editor adoption, and safe
-  selection handling after the bound text changes. `WinSwiftUIBitmapStretchTests` covers ordinary bitmap
+  selection handling after the bound text changes. Item-sheet cases also check
+  same-ID state retention, changed-ID and dismissal/reopening retirement, and
+  escaped bindings without conflating presentation identity with description tags.
+  `WinSwiftUIBitmapStretchTests` covers ordinary bitmap
   stretch through layout, CPU scene/frame output, and D3D11. Full includes them all.
 - Quick and Full run the material diagnostic classifier's synthetic self-tests through `macos-reference-renderer`. These do not render native material on Windows or replace macOS capture, reviewed comparisons, or the unresolved material-backdrop regression.
 - Quick and Full also run the API audit intake, ledger, default bounded
@@ -134,6 +147,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   task cancellation after State/editor revocation during close and host release.
   Task cases cover latest deferred declarations, duplicate-key suppression,
   ordinary node reinsertion, and rejected launches from close cancellation.
+  Positive starts acknowledge the actual probe record with a bounded XCTest
+  expectation; a fixed number of cooperative yields is not a readiness barrier.
+  Negative deferral and exactly-once assertions remain separate.
   They execute under a cooperative test executor. They do not qualify task
   progress inside the native Win32 message loop, which currently leaves the
   installed Swift 6.3 MainActor queue unserviced. The separate native loop

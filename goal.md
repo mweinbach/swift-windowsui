@@ -4183,3 +4183,264 @@ thresholds, renderer, or the original failed validation result.
 Full, Quick, new raw renders, and same-commit diagnostic comparisons remain
 pending after this focused pass. All original goal requirements and nine open
 completion gates remain unchanged.
+
+
+### Sixth batch second Full failure and diagnostic rerun
+
+The next clean-root Full attempt used commit
+`1ce6b9a0fa478fc5e636a146073b58dfd6ad9201`, after the 575-case facade pass.
+It stopped before SwiftPM, XCTest, Swift Testing, builds, screenshots, or
+gallery comparison. Six preliminary tooling steps passed. The synthetic API
+audit ledger fixture then failed while publishing its second output directory:
+`System.IO.Directory.Move` reported access denied for the owned staging
+directory. The earlier all-queues output existed; image-queue was not
+published. Existing failure cleanup removed the staging directory, so its
+failure-time attributes, open handles, and inner HRESULT cannot be recovered
+from that formatted log.
+
+PowerShell PID 50332 and the runner exited naturally with 1 after 25.547
+seconds, with no timeout or termination. HEAD, all recorded source inputs,
+status, and the raw index remained unchanged. The 3,010-byte raw log is
+`artifacts/goal-sixth-full-v2-caed57ce124b4015849aad22abd78db1/raw.log`, SHA256
+`7b0535fd5a4964e710992b8186d72c6c47b01662e566fdf84789bb1a09b47fbc`.
+The corrected archive collector preserved the failure and existing outputs in
+`artifacts/goal-sixth-full-1ce6b9a-failure-v2/failure.json`, SHA256
+`6146a89a55c8cdebc68552bd7e40fac515feeb486934c6f9e3e2703710edab9c`.
+Those existing images remain historical artifacts, not new renders from this
+failed attempt. The collector's Windows path normalization corrects its own
+`Tests`/`tests` source-binding lookup; it changes no baseline, pixel threshold,
+or validation outcome.
+
+Static inspection found no deterministic undisposed stream in the successful
+audit-writing and merge paths. One separately bounded diagnostic invocation
+of the unchanged ledger fixture then passed all 391 assertions in a fresh
+owned output directory, with natural PowerShell exit 0 and no retry or cleanup
+intervention. It preserved the root inputs and all 40 available original
+fixture files. This means **not reproduced; cause unresolved**. It does not
+establish that an antivirus, transient lock, or permission policy caused the
+earlier failure, and it does not turn that Full attempt into a pass.
+
+The diagnostic receipt is under
+`C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-audit-publication-diagnostic-0a1ca23095594a8d8ff2c4f1526cfdd0/`,
+with `reproduction.json` SHA256
+`542744b71fd8bca6409bc9380a8fe62e78495c29a5cdf0013ca4551df7428157`.
+Read it with `correction-index.json`, SHA256
+`ec61343ca9090612ad0f497ad4df045fcb0b2b68c70bfa0c4bd7e825de3c61e9`:
+the parent's RGB run was planned but had not launched during this diagnostic.
+Other concurrent activity was not qualified, so its duration is not an
+isolated performance measurement. No move retry, ACL change, alternate
+publication path, or production correction was used for this rerun.
+
+### Sixth batch current Windows RGB constructor evidence
+
+The existing Windows RGB collector completed on the same clean `1ce6b9a`
+commit and tree `e11c8b3567039e396178faf85b0d4745618a0a89`. It built the
+release observer successfully and ran it in three fresh processes, each with
+natural exit 0. The 25 distinct constructor cases comprise 23 required finite
+cases and two exploratory Display P3 cases. Each process reports one
+observation per case: **75 case observations and 300 float components in
+total**, not 75 distinct constructor cases. All three complete case payloads
+agree exactly, including encoded component bit patterns. The observer controls
+are healthy, and the source, tool, and executable integrity checks passed.
+
+Evidence is in `artifacts/goal-sixth-rgb-windows-1ce6b9a/`. The capture manifest
+SHA256 is `8752ae2b06bc11fd2afc84cbdd94d86398a00ab774d416696a750c4e1366ccad`;
+the independent count/PID/report audit is
+`artifacts/goal-sixth-rgb-windows-1ce6b9a-case-audit.json`, SHA256
+`69662feb9ed97672e97a528588709d90ca95e042f4c0327911b3c331457bac73`.
+The executable is 41,268,736 bytes, SHA256
+`916f56ee3389e3501ea129aa78b468da662a36d0170c6f995589c8b9f1f179b8`.
+Observer PIDs 39416, 49672, and 43884 match their individual command and report
+records. The outer PowerShell process also exited naturally with 0 after
+294.985 seconds, including compilation and collection. There was no timeout,
+termination, source/index change, visible window, or system-setting change.
+The wrapper changed only its child environment: it removed `PSModulePath`
+and set `GIT_OPTIONAL_LOCKS=0` to avoid incidental index refreshes.
+
+This is a **captured candidate**, not a pinned macOS comparison or declaration,
+source, behavior, GPU, or release qualification. No Apple reference was run,
+no compatibility status was promoted, and no tolerance or baseline changed.
+The original requirements and all nine open completion gates remain intact.
+
+### Sixth batch clean-root Full and Quick outcomes
+
+The later Full run passed on clean commit
+`1ce6b9a0fa478fc5e636a146073b58dfd6ad9201`, tree
+`e11c8b3567039e396178faf85b0d4745618a0a89`. Its log records **4,991 distinct
+XCTest methods: 4,990 passed and one skipped**, with no failures or duplicate
+identifiers. The skip is the existing
+`RenderPassAbstractionTests.testMaterialInsideADrawingGroupBlursNothing`
+limitation, not a new hardware skip. Swift Testing completion reports total
+**134 passing tests** across nine nonzero reports; footer totals do not prove
+every individual parameterized argument identity. The direct PowerShell
+process, PID 21328, and validation runner both exited naturally with 0.
+The recorded child wait and cleanup interval was **996.344 seconds**
+(about 16 minutes 36 seconds), with no timeout or termination intervention.
+
+The run produced five fresh 1280-by-720 raw retained captures:
+`demo-screenshot.png`, `demo-screenshot-frame.png`,
+`demo-screenshot-gallery.png`, `demo-screenshot-gallery-light.png`, and
+`demo-screenshot-gallery-frame.png`. The gallery command separately rendered
+and compared **85 selected fixtures; all 85 passed**. These are not 144
+fresh gallery fixtures. The thresholds remain 0.5 percent changed pixels,
+channel tolerance 8, and maximum channel delta 64. The archive also records
+an independent RGBA comparison of the copied files. Passing is not blanket
+byte identity: `state-toggle-hover` has maximum channel delta 8, with zero
+pixels above the channel tolerance. No baseline or tolerance was changed.
+
+The parent inspected all five archived raw images and recorded no new
+visible blocker in `artifacts/goal-sixth-full-v3-visual-review.json`, SHA256
+`3893131f63c50852d184177936b7979016ad45cd9545cd6b7ade918d09d4d4f6`.
+The review retains the frame output's square-corner and simpler-material
+fallback limits, and the lack of coverage below the captured 720-pixel
+viewport. It is a review of raw retained output, not live GPU presentation,
+pinned macOS parity, Narrator, or full interaction coverage.
+
+The complete Full archive lists 193 files at
+`artifacts/goal-sixth-full-1ce6b9a-pass-v3/validation-full.json`, SHA256
+`f8568b43012b798e89a4382ae1fc841db9fa26cb6d11c922227e0e58ce56176f`.
+Its 1,691,293-byte `run/raw.log` has SHA256
+`ff5055b9543f79bff959c614b79c809e04ff9e347666d91109d5f7531e3ea3e1`.
+The earlier Full failures and their separate diagnostic results remain
+preserved; this successful later run does not rewrite those attempts.
+
+Quick then passed on the same unchanged commit. It records **2,651 distinct
+XCTest methods: 2,650 passed and the same one known skip**, plus **nine Swift
+Testing cases**, each observed starting and passing once. The independent
+source/log audit matches all 92 step starts and passes in source order, all
+166 emitted filters, and the expected 2,651 method IDs across 185 classes.
+The main selection contributes 2,634 XCTest methods and the portable
+selection contributes 17. Missing, extra, duplicate, and misordered outcomes
+are empty. The 974,722-byte log has SHA256
+`38d8353d9ca874ded9831fe15b7f9f44a0cc87da70e3fee174851bd7b22d50a7`.
+
+Direct PowerShell PID 46956 and the Quick runner both exited naturally with
+0. The measured interval was **904.469 seconds** (about 15 minutes 4 seconds),
+inside that runner's recorded 3,600-second limit. It remains **above the
+unchanged approximately-ten-minute Quick target**; a passing validation run
+does not satisfy that timing target. This is an observed run duration, not
+an isolated performance benchmark. Plain Quick selected no screenshot,
+gallery-comparison, or release-build gate.
+
+The first Quick archive invocation supplied an absolute `--full-manifest`
+path to a helper that requires a root-relative path. It stopped after copying
+12 files and left an incomplete, unverified archive at
+`artifacts/goal-sixth-quick-1ce6b9a-pass-v1/failure.json`, SHA256
+`ecfd64f8f61a2f075d06c9769e1e06164403bebdf5884e3cbbc395e1f5735937`.
+The helper's generic `RuntimeError` record is not a Quick test failure.
+A separate invocation of the unchanged helper used the root-relative
+argument and a fresh destination. The resulting complete 13-file archive is
+`artifacts/goal-sixth-quick-1ce6b9a-pass-v2/validation-quick.json`, SHA256
+`5be3f09f1fd8d1619241cb56e7cb1fb44f09ee5b685724143806326bc0666f73`.
+All listed member bytes and the Full-manifest digest reference were checked.
+The first archive remains unverified and untouched; Quick neither overwrites
+nor refreshes the sealed Full image evidence.
+
+Both validation runs preserve the recorded 740 tracked inputs, HEAD, status,
+and raw index at their observation endpoints. The independent Quick audit
+and original-argument diagnosis are retained at
+`C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-quick-archive-independent-audit-1ce6b9a-f176a5dbcf7fe8.json`,
+SHA256 `dcbe76b74ea5cc6c3ba93e3c744a4e5036336877dd380ff830d8d3aab79f446b`.
+These endpoint checks do not prove continuous immutability, binary source
+embedding, or complete process-descendant closure.
+
+### Sixth batch bitmap/font collection failures remain separate
+
+The first native bitmap/font collection request stopped during Git preflight.
+`artifacts/goal-sixth-bitmap-preflight-failure-v1.json`, SHA256
+`bcd7ecb5ec3ac1cc82f8bd3ccb92e16d118b6377279bf77393482b70739e3ef4`,
+records controller/tool exit 1, `git-read-failed`, and a separate read-only
+Git reproduction exit 128: global literal pathspec handling was unsupported
+by `git check-ignore`. The requested `goal-sixth-bitmap-native-1ce6b9a-v1`
+output directory was not created, and no gallery invocation or PowerShell
+workload child was dispatched. This receipt preserves transcribed tool
+output and source ordering, not retained raw stdout bytes. That first
+attempt remains a failure, distinct from the later collection's internal
+schema-v1 mode.
+
+The fresh collection at `artifacts/goal-sixth-bitmap-native-1ce6b9a-v2` ran
+the two fixed fixtures, `stepper` and `symbol-palette`, in instrumentation-off,
+schema-v1, and schema-v2 modes. All three child mode records report one
+gallery command and wrapper-reported natural gallery exit 0. The direct
+PowerShell exits are separately **0, 0, and 90**. Schema-v2 postprocessing
+records `NORMALIZED_WRITE_FAILED`; the collector/controller returns **1**.
+The parent tool observation separately records completed session 72413 with
+tool exit **1**. It is a decoded tool observation, not a separately retained
+Python process handle or raw outer stdout capture. The collector counts only
+two validated gallery invocations and leaves
+`galleryInvocationCountComplete:false`; three reported renderer exits do not
+make the third mode's validation complete.
+
+The six retained PNGs form **two matching triplets**, not six copies of one
+image. Each mode's 200-by-200, 160,278-byte `stepper` PNG matches the pinned
+Full `stepper` bytes, SHA256
+`0abed55cb0c8cc1d66b9475855338ea640874224429e0ee05b1af0adcd5bbc45`.
+Each mode's 320-by-240, 307,528-byte `symbol-palette` PNG likewise matches
+that Full fixture, SHA256
+`6caba719d07b2f307e3635c1d13a979966af7a1849b8c622e8c5659873c206b0`.
+This exact file comparison concerns only those two fixtures; the collection
+does not supply a new whole-gallery or font-attribution qualification.
+
+Both schema-v2 raw native reports remain `partial`. Each retains a failed
+`open-local-file` observation in the `win32` domain with code **87**, with
+zero requested/read bytes for that failed observation. Loaded font bytes
+and visible-pixel ownership remain `not-observed`; ordinary text and atlas
+coverage remain `not-instrumented`. A saved 5,173-byte normalized stepper
+file exists, while normalized symbol-palette is absent. Retained partial
+files and incomplete processing counters are not completed normalization.
+
+The collection's final authority is `controller-exit.json`, SHA256
+`da66806be3c278caec1cf996a85ddf41983be619c6f432fbe5efd83b7b46db82`,
+bound to `result.json`, SHA256
+`bc9b0b715d4892d171db9472b8f7a99de13ae525608504ae88337831ebbd1eb9`,
+and `manifest.json`, SHA256
+`0b1e18f97a2e86db6672f5bd931f5bcb9f247e63c7dfe8457e1a1820ca096554`.
+The parent observation is
+`artifacts/goal-sixth-bitmap-native-1ce6b9a-v2-parent-tool-observation.json`,
+SHA256 `5ab62af318876a8f9d76e5dfff1ce913c37829192d9c4449da96426d2d7aa7f1`.
+The recorded collection interval through seal verification is 11.843 seconds.
+The receipts preserve `integrityComplete:false`, `qualification:unqualified`,
+`shareableNativePayloads:false`, `descendantClosureVerified:false`, and
+**`requiresOperatorCleanupBeforeAnotherRun:true`**. No automatic retry or
+timeout is recorded. Endpoint preservation checks do not clear that cleanup
+flag or establish descendant closure.
+
+### Sixth batch offline font-postprocessing reproduction
+
+One separately bounded offline PowerShell 5.1 reproduction used only the
+saved reports and parser. The launcher observed PID 34404 exit naturally
+with 0, with 0.985 seconds recorded before its exit receipt; the outer tool
+also returned 0. Exactly three top-level strict V2 converter calls and one
+missing-property getter control ran. There were no native/product, native
+helper, or `Add-Type` invocations.
+
+The raw stepper and symbol-palette reports were accepted. Regeneration
+produced the same 5,173-byte stepper JSON as the saved failed collection,
+SHA256 `f9189f93e8532ece487e9b62b0ddc5ba5cf72fab14d9b3abde5a724e39148ea2`.
+Strict reparsing rejected that generated JSON as `invalid-native-schema-v2`.
+This reproduces the normalization/serialization boundary defect from saved
+inputs; it is not a successful native collection or a production correction.
+The six null-identity observations, including the explicit-null control,
+all reported both `actualNull` and `automationNull` true. Those observations
+do **not** distinguish the underlying sentinel identity.
+
+The parent observation is
+`artifacts/goal-sixth-bitmap-offline-v1-parent-observation.json`, SHA256
+`ab7eb011b9949616d8bec50f97e58c0b6282b70019a6f2cca6480c2e252fd25b`.
+The offline result is under
+`C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-bitmap-v2-postprocess-audit-1ce6b9a-c5bfe34ea1d9/offline-repro-output-v1/offline-result.json`,
+SHA256 `1fb03ec61c6027e92ca3d5597cca2fe08bd89d5a9c80081f0b7f098eb5cf83d4`;
+its `offline-repro-launch-v1/exit.json` has SHA256
+`56b267da2479bffed5742cdd56d9c49043e39e15c510f781d53078772f262825`.
+The launcher records process completion and input preservation, not semantic
+reproduction by exit code alone; the separately inspected child report and
+generated bytes support the reproduction finding. A tracked correction and
+its validation remain pending. The original native failure and its cleanup
+flag are unchanged.
+
+No GPU, pinned macOS, Narrator, original-loaded-font-byte, hosted-gallery, or
+complete descendant qualification is promoted by these results. The existing
+Full failures, first Quick archive failure, both native collection attempts,
+and all earlier evidence remain preserved. No original requirement, timing
+target, baseline, tolerance, or one of the nine open product completion gates
+has been removed, relaxed, or marked complete.

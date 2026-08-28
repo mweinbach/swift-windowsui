@@ -4616,3 +4616,77 @@ and task ordering, callback-loop policy, and presented pixels remain
 unqualified. List/data-browser integration and a combined root Full/Quick run
 are still required. These results do not complete any of the original nine
 product gates or change the pinned scope, timing targets, or visual tolerances.
+
+### 2026-08-28: tested deferred-List metadata foundation; public construction remains eager
+
+This implementation advances the unchanged deferred-construction requirements
+in sections 3 and 7 without claiming that either requirement is complete.
+`RetainedLazyListProvider.swift` and `RetainedLazyListExtentIndex.swift` are
+package-only foundations. No public `List`, `ForEach`, `LazyVStack`, retained
+runtime, renderer, or demo path is connected to them in this commit.
+
+The provider snapshots collection metadata without invoking row factories.
+Opaque source-scoped row tokens preserve surviving typed-key occurrences
+through reorder, while replacement, removal/reinsertion, ID drift, or close
+invalidates old requests. Materialization consumes an explicit shared budget
+and checks the generation across authored collection, hash/equality, factory,
+and payload-destruction callbacks. Returned row content is not cached. This
+still requires O(data count) model and metadata storage and does not bound
+arbitrary application-owned payloads.
+
+The extent index represents unmeasured estimates and measured zero, one, or
+multiple leaves without inventing visual wrappers. It validates finite
+extents and measurement contexts, rejects overflowing updates atomically,
+and supports prefix/window/anchor operations with a segment tree. Queries and
+unique-storage point updates are O(log data count); updating a shared value
+can incur O(data count) array copy-on-write. Anchors preserve logical tokens
+and clamp after size changes; removed tokens have no invented fallback.
+`docs/DeferredListConstruction.md` records these contracts and the remaining
+runtime, state, focus, accessibility, and viewport integration boundary.
+
+The first isolated compile failed before executing any tests because five new
+test closures captured non-Sendable `self`. That failure remains intact in
+`artifacts/goal-seventh-lazy-list-stage1-intake-v1/first-failure`, whose manifest
+has SHA256
+`cad4f8a3173baad4e7426a2f63aa5d3e708d51ebc34f3cdbc4b550647942b7c2`.
+The correction changes only those five capture lists; no production behavior,
+assertion, concurrency flag, or unchecked-Sendable declaration was changed.
+The corrected isolated run passed 55 distinct methods, and its source and
+execution packets were copied and verified before root intake. The complete
+five-file patch has SHA256
+`204431602c22f7eb24a137f4adf957d0d4b85a644331c63bf6f116c5261d415a`.
+
+In the main checkout, the patch applied at commit
+`44e8d30cb6d11e4907e9f56d49ad315f64f49a13`, producing staged tree
+`6d10c5b7bb39bf08712c7b9a06d7705bff3c94bb`. Contracts and strict formatting
+checks on all four added Swift files passed. The root focused run
+`artifacts/goal-seventh-lazy-list-stage1-root-v1` then passed **all 55 distinct
+XCTest methods: 26 extent-index cases and 29 provider cases, zero failures and
+zero skips**. Declared methods, the two generated registration extensions,
+and observed start/pass IDs agree exactly with the corrected isolated run.
+The complete generated file differs because root also contains the separately
+tested mounted-change work; that unrelated difference is not treated as a
+test mismatch.
+
+The unmodified stock sharded script performed four serial SwiftPM build/test
+invocations, not `--skip-build`. The initial build reported 277.10 seconds;
+the remaining build checks reported 0.26-0.27 seconds. Four separate zero-test
+Swift Testing tails are not additional passing cases. PowerShell PID 43492
+and the runner exited naturally with **0**, with no timeout, termination, or
+retry. The recorded interval was 2026-08-28 18:39:43-18:44:33 UTC, approximately
+291 seconds. All 753 input files, the gitlink, status, staged tree, and real
+index bytes remained unchanged. The helper does not attest complete
+descendant closure.
+
+The root log is 1,184,165 bytes, SHA256
+`0458e92e2dd6ca1f6176c0b0a02e161903317a748ccb7f4159ed1240daba566f`.
+The exit receipt has SHA256
+`35fa53c9dfa6392f8aedf954926d9cd1ae034a1103d2d207ddf1c98f4ddd6df8`.
+The exact root audit is
+`artifacts/goal-seventh-lazy-list-stage1-root-v1-audit.json`, SHA256
+`764eeedd9258a522bcd49857550b786271245c7aa3911c537d04ad80de2afbb9`.
+Public viewport construction, mounted-state retention across eviction,
+programmatic reveal, native keyboard/UIA behavior, large-list frame time and
+resource limits, combined Full/Quick validation, and macOS parity remain
+required. All nine original gates, performance targets, pinned scope, and
+visual tolerances remain unchanged and open.

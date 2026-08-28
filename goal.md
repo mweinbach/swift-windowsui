@@ -3399,3 +3399,53 @@ Enter/Space character routing, UI Automation modal isolation, COM provider
 teardown, document IO or unsaved-close decisions, native visual equivalence,
 Narrator, or a complete template workflow. Those remain separate integrations.
 All nine original product acceptance gates remain open.
+
+### Sixth batch: RGB synthetic temp-root identity and retained CI diagnostics
+
+The RGB synthetic suite now canonicalizes its owned UUID temporary root before
+creating fixtures. The production capture already canonicalizes its repository;
+the suite's mismatched logical/physical paths caused the pinned SDK workflow's
+synthetic preflight to fail before any native export. The frozen reproduction
+used an actual owned Windows junction and preserved the original 126-case
+failure. The patch retains all original 155 RGB assertion commands, case order,
+plus-name source selection, cleanup containment, and outside-path rejection.
+It adds explicit root/child identity and sibling-prefix rejection checks.
+No production capture, path-containment policy, font, baseline, or tolerance is
+changed. This fixes tooling preparation, not native RGB or API qualification.
+
+The SDK workflow writes RGB synthetic summaries to a sibling diagnostic folder
+and uploads it separately when that step actually ran. The original candidate
+directory must still be absent before export. The existing candidate upload,
+runner, SDK/toolchain pins, timeout, and failure gates remain unchanged. A
+summary written before a later cleanup failure cannot override the actual
+step outcome; the new diagnostic upload does not turn that failure into success.
+It does not promise raw mutable fixture retention or a summary before the
+suite's protected body begins.
+
+Fresh root validation runs the RGB and workflow suites serially on PowerShell
+5.1.26100.9223 and 7.6.4. RGB passes all 126 cases with 498 and 505 assertions
+respectively; workflow guards pass 408 assertions on each runtime. All four
+processes exit zero with no timeout or changes to any recorded tracked regular
+file, HEAD, staged tree, index bytes, status, or runtime executable bytes.
+The tested joined tree is `62fedf97e2649fe2fa024c8e35a2f178b409a0a8`
+over `dbd6b9e`; the still-uncommitted modal accessibility work is not qualified
+by these synthetic tooling runs. The result receipt is
+`artifacts/goal-sixth-rgb-tooling-v2/result.json`, SHA-256
+`c52df914ab15bb00fa37535f54b8386dd7269fdff5b58013d9ebf14f5de2fa1d`.
+
+The first root launcher attempt exited one before cases because its Python
+intermediate process passed PowerShell 7 module paths into Windows PowerShell,
+preventing Get-FileHash from loading. Its evidence remains unchanged. The new
+launcher removes only PSModulePath from the PS5 child environment so that
+Windows PowerShell constructs its own standard startup paths; no suite,
+production source, or user/machine setting changed. PowerShell 7 is unchanged.
+[Microsoft documents the startup path construction](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_psmodulepath?view=powershell-7.6).
+
+All four integrated files match the frozen patch canonically, and its nine
+production dependency files remain unchanged. Fresh contracts pass. The
+earlier sealed agent evidence additionally passes both standalone and
+Actions-shaped callers with aliased TEMP on both runtimes, eight serial runs;
+those are local synthetic reproductions, not hosted or macOS execution. The
+new workflow still needs an actual hosted run. Same-commit native RGB pairing,
+pinned API export, behavioral conformance, and all nine original product gates
+remain open.

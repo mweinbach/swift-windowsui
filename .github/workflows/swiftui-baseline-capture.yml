@@ -77,7 +77,8 @@ jobs:
         run: ./scripts/test-swiftui-material-reference.ps1
 
       - name: Verify RGB source and observation provenance fixtures
-        run: ./scripts/test-swiftui-color-rgb-reference.ps1
+        id: rgb-fixtures
+        run: ./scripts/test-swiftui-color-rgb-reference.ps1 -EvidenceDirectory (Join-Path $env:GITHUB_WORKSPACE "artifacts/swiftui-baseline/color-rgb-synthetic")
 
       - name: Export pinned SDK candidate with CI provenance
         id: sdk-export
@@ -242,6 +243,15 @@ jobs:
         env:
           SWIFTUI_CAPTURE_ROOT: ${{ steps.sdk-export.outputs.capture-root }}
         run: ./scripts/capture-swiftui-color-rgb-reference.ps1 -Platform Native -CaptureRoot $env:SWIFTUI_CAPTURE_ROOT -OutputPath (Join-Path $env:GITHUB_WORKSPACE "artifacts/swiftui-baseline/github-actions/color-rgb-native")
+
+      - name: Upload RGB synthetic test diagnostics
+        if: ${{ always() && steps.rgb-fixtures.outcome != '' && steps.rgb-fixtures.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: swiftui-color-rgb-synthetic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/swiftui-baseline/color-rgb-synthetic/
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload candidate evidence and failure diagnostics
         if: always()

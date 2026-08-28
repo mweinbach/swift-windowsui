@@ -15,7 +15,9 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $RepositoryRoot "scripts/swiftui-color-rgb-reference-common.ps1")
 $script:RGBTestAssertions = 0; $script:RGBTestCases = 0
 $script:RGBTestUTF8 = [Text.UTF8Encoding]::new($false)
-$script:RGBTestRoot = Join-Path ([IO.Path]::GetTempPath()) ("swiftui-color-rgb-tests-" + [Guid]::NewGuid().ToString("N"))
+# Temp ancestors can be aliases, including /var on macOS. Establish one physical
+# fixture root before creation for both source snapshots and strict cleanup.
+$script:RGBTestRoot = Resolve-SwiftUIBaselineFileSystemPath -Path (Join-Path ([IO.Path]::GetTempPath()) ("swiftui-color-rgb-tests-" + [Guid]::NewGuid().ToString("N")))
 if (Test-Path -LiteralPath $script:RGBTestRoot) { throw "Test directory already exists." }
 [void][IO.Directory]::CreateDirectory($script:RGBTestRoot)
 $script:RGBTestFailures = [System.Collections.Generic.List[string]]::new()
@@ -727,6 +729,10 @@ try {
             $savedVariables[$name] = [pscustomobject]@{ existed = ($null -ne $variable); value = $(if ($null -ne $variable) { $variable.Value } else { $null }) }
         }
         try {
+            Assert-RGBTest ($script:RGBTestRoot -ceq (Resolve-SwiftUIBaselineFileSystemPath $script:RGBTestRoot)) 'the owned synthetic root is physical before snapshot fixtures use it'
+            $physicalTemp = Resolve-SwiftUIBaselineFileSystemPath ([IO.Path]::GetTempPath())
+            Assert-RGBTest ((Get-SwiftUIBaselineRelativePath -Root $physicalTemp -Path $script:RGBTestRoot) -ceq (Split-Path -Leaf $script:RGBTestRoot)) 'the cleanup root remains one owned UUID child of the physical temp directory'
+            Assert-RGBTestThrows { Get-SwiftUIBaselineRelativePath -Root $script:RGBTestRoot -Path ($script:RGBTestRoot + '-sibling/child') } 'not contained' 'strict containment still rejects a sibling sharing the fixture prefix'
             $plusName = 'Sources/SwiftWindowsApp/FoundationApp+DefaultRenderer.swift'
             $plusBytes = [IO.File]::ReadAllBytes((Join-Path $RepositoryRoot $plusName))
             $plusHash = Get-SwiftUIColorRGBHash (Join-Path $RepositoryRoot $plusName)

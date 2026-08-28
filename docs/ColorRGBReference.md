@@ -197,3 +197,22 @@ rejection, the fixed comparison bounds, negative controls, and separate
 outcomes using synthetic files under PowerShell 5.1 and 7. These are tooling
 tests; they do not compile Swift, execute a native color constructor, or
 provide native color evidence.
+
+The synthetic suite resolves its UUID temporary root before creating fixtures.
+This keeps the snapshot helper's physical source paths and the strict cleanup
+boundary consistent when the operating system exposes a temporary directory
+through an alias. The production source and evidence containment guards remain
+unchanged. The original plus-named source checks still use the actual snapshot
+helpers with six synthetic Git replies; they do not execute Git or Swift.
+
+The pinned SDK workflow writes RGB synthetic parser identity and per-case
+results to `artifacts/swiftui-baseline/color-rgb-synthetic/` and uploads them as
+a separate `swiftui-color-rgb-synthetic-<run>-<attempt>` artifact after an
+attempted RGB test step, including failure. This sibling directory does not
+create the candidate's `github-actions/` root before export, and the candidate
+artifact layout, freshness checks, and failure behavior remain unchanged.
+The diagnostic artifact contains the parser identity and test summary, not
+the raw failed UUID-temp fixtures. Failures before the suite's `try` block may
+produce no summary, and cleanup can fail after a passing summary was written.
+The actual workflow step outcome remains authoritative; diagnostic upload does
+not suppress a test failure or qualify native color behavior.

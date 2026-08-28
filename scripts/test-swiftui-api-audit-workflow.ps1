@@ -479,16 +479,22 @@ function Get-WorkflowAuditStep {
     return $matching[0]
 }
 $checkoutStep = Get-WorkflowAuditStep 'uses: actions/checkout@'
-$rgbFixtureStep = Get-WorkflowAuditStep '(?m)^ {8}run: \./scripts/test-swiftui-color-rgb-reference\.ps1\r?$'
+$rgbFixtureStep = Get-WorkflowAuditStep '(?m)^ {8}run: \./scripts/test-swiftui-color-rgb-reference\.ps1 -EvidenceDirectory \(Join-Path \$env:GITHUB_WORKSPACE "artifacts/swiftui-baseline/color-rgb-synthetic"\)\r?$'
 $exportStep = Get-WorkflowAuditStep '(?m)^\s+id: sdk-export\s*$'
 $materialStep = Get-WorkflowAuditStep 'run: \./scripts/capture-swiftui-material-reference\.ps1'
 $ledgerStep = Get-WorkflowAuditStep '\./scripts/build-swiftui-api-audit-candidate\.ps1'
 $rgbStep = Get-WorkflowAuditStep 'run: \./scripts/capture-swiftui-color-rgb-reference\.ps1'
-$uploadStep = Get-WorkflowAuditStep 'uses: actions/upload-artifact@'
+$uploadStep = Get-WorkflowAuditStep '(?m)^ {6}- name: Upload candidate evidence and failure diagnostics\r?$'
+$rgbFixtureUploadStep = Get-WorkflowAuditStep '(?m)^ {6}- name: Upload RGB synthetic test diagnostics\r?$'
+Assert-WorkflowAudit (@($steps | Where-Object { $_.Value -match 'uses: actions/upload-artifact@' }).Count -eq 2) 'only the candidate and separate RGB synthetic diagnostic uploads are present'
 Assert-WorkflowAudit ($checkoutStep.Value -cmatch '(?m)^ {8}uses: actions/checkout@v4\r?$') 'checkout retains its existing action version'
 Assert-WorkflowAudit ($checkoutStep.Value -cmatch '(?m)^ {10}ref: \$\{\{ github\.sha \}\}\r?$') 'checkout explicitly selects the exact event commit for both RGB observers'
 Assert-WorkflowAudit ($checkoutStep.Value -cmatch '(?m)^ {10}persist-credentials: false\r?$' -and
     $checkoutStep.Value -cmatch '(?m)^ {10}submodules: false\r?$') 'checkout retains both credential and submodule safety options'
+Assert-WorkflowAudit ($rgbFixtureStep.Value -cmatch '(?m)^ {8}id: rgb-fixtures\r?$') 'RGB synthetic fixtures expose their own actual step outcome'
+$rgbFixtureRunLines = @([regex]::Matches($rgbFixtureStep.Value, '(?m)^ {8}run: (?<code>[^\r\n]+)\r?$'))
+Assert-WorkflowAudit ($rgbFixtureRunLines.Count -eq 1 -and $rgbFixtureRunLines[0].Groups['code'].Value -ceq './scripts/test-swiftui-color-rgb-reference.ps1 -EvidenceDirectory (Join-Path $env:GITHUB_WORKSPACE "artifacts/swiftui-baseline/color-rgb-synthetic")') 'RGB synthetic fixtures retain the original caller and write diagnostics outside the fresh SDK candidate root'
+Assert-WorkflowAudit ($rgbFixtureStep.Value -cnotmatch '(?m)^ {8}(?:if|shell):') 'RGB synthetic fixtures retain the original default step gate and PowerShell caller'
 Assert-WorkflowAudit ($checkoutStep.Index -lt $rgbFixtureStep.Index -and $rgbFixtureStep.Index -lt $exportStep.Index) 'exactly one RGB synthetic suite runs before any SDK export'
 Assert-WorkflowAudit ($exportStep.Index -lt $materialStep.Index -and $materialStep.Index -lt $ledgerStep.Index -and $ledgerStep.Index -lt $uploadStep.Index) 'ledger follows material capture and precedes the always-upload step'
 Assert-WorkflowAudit ($ledgerStep.Index -lt $rgbStep.Index -and $rgbStep.Index -lt $uploadStep.Index) 'native RGB collection follows the complete audit and precedes the existing upload'
@@ -563,6 +569,7 @@ foreach ($path in @('Sources/swiftui-color-rgb-reference/**', 'scripts/capture-s
     Assert-WorkflowAudit ($entries.Count -eq 1) "the push filter includes exactly one RGB input path: $path"
 }
 Assert-WorkflowAudit ($workflow -cmatch '(?m)^\s+run: \./scripts/test-swiftui-api-audit-workflow\.ps1\s*$') 'workflow executes this portable synthetic handoff test'
+Assert-WorkflowAudit ($uploadStep.Value -cmatch '(?m)^ {8}uses: actions/upload-artifact@v4\r?$') 'the original candidate upload keeps its action and exact step identity'
 Assert-WorkflowAudit ($uploadStep.Value -cmatch 'if:\s*(?:\$\{\{\s*)?always\(\)') 'raw capture and diagnostics upload after any step failure'
 Assert-WorkflowAudit ($uploadStep.Value -cmatch '(?m)^ {8}if: always\(\)\r?$') 'the original always-upload condition has no additional gate'
 Assert-WorkflowAudit ($uploadStep.Value -cmatch '(?m)^\s+include-hidden-files: true\s*$') 'upload retains hidden evidence files'
@@ -573,6 +580,32 @@ $uploadPaths = [regex]::Match($uploadStep.Value, '(?ms)^ {10}path:\s*\|\s*\r?\n(
 $pathEntries = @($uploadPaths -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_.Length -gt 0 })
 Assert-WorkflowAudit ($pathEntries.Count -eq 2 -and $pathEntries -ccontains 'artifacts/swiftui-baseline/github-actions/' -and
     $pathEntries -ccontains '!artifacts/swiftui-baseline/github-actions/capture/module-cache/**') 'the complete raw capture and all ledger records upload; only module cache is excluded'
+
+Assert-WorkflowAudit ($rgbStep.Index -lt $rgbFixtureUploadStep.Index -and $rgbFixtureUploadStep.Index -lt $uploadStep.Index) 'separate RGB synthetic diagnostics upload after native stages without changing the candidate upload'
+Assert-WorkflowAudit ($rgbFixtureUploadStep.Value -cmatch '(?m)^ {8}uses: actions/upload-artifact@v4\r?$') 'RGB synthetic diagnostics use the existing upload action version'
+$rgbFixtureUploadConditions = @([regex]::Matches($rgbFixtureUploadStep.Value, '(?m)^ {8}if: \$\{\{ (?<condition>[^\r\n]+) \}\}\r?$'))
+Assert-WorkflowAudit ($rgbFixtureUploadConditions.Count -eq 1) 'RGB synthetic diagnostics have one explicit upload condition'
+$rgbFixtureUploadCondition = $rgbFixtureUploadConditions[0].Groups['condition'].Value
+Assert-WorkflowAudit ($rgbFixtureUploadCondition -ceq "always() && steps.rgb-fixtures.outcome != '' && steps.rgb-fixtures.outcome != 'skipped'") 'RGB synthetic diagnostics upload after any started fixture outcome without treating skipped fixtures as evidence'
+$rgbFixtureUploadCode = $rgbFixtureUploadCondition.Replace('always()', '$true').
+    Replace('steps.rgb-fixtures.outcome', '$Outcome').
+    Replace(' != ', ' -ne ').Replace(' && ', ' -and ')
+$rgbFixtureUploadBlock = [scriptblock]::Create('param([string]$Outcome)' + [Environment]::NewLine + $rgbFixtureUploadCode)
+foreach ($uploadCase in @(
+    @{ outcome = ''; expected = $false },
+    @{ outcome = 'skipped'; expected = $false },
+    @{ outcome = 'success'; expected = $true },
+    @{ outcome = 'failure'; expected = $true },
+    @{ outcome = 'cancelled'; expected = $true }
+)) {
+    $actual = & $rgbFixtureUploadBlock $uploadCase.outcome
+    Assert-WorkflowAudit ($actual -eq $uploadCase.expected) ("actual RGB synthetic upload condition handles outcome '" + $uploadCase.outcome + "'")
+}
+Assert-WorkflowAudit ($rgbFixtureUploadStep.Value -cmatch '(?m)^ {10}name: swiftui-color-rgb-synthetic-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\r?$') 'RGB synthetic diagnostics use a distinct artifact name for the run and attempt'
+$rgbFixtureUploadPaths = @([regex]::Matches($rgbFixtureUploadStep.Value, '(?m)^ {10}path: (?<path>[^\r\n]+)\r?$'))
+Assert-WorkflowAudit ($rgbFixtureUploadPaths.Count -eq 1 -and $rgbFixtureUploadPaths[0].Groups['path'].Value -ceq 'artifacts/swiftui-baseline/color-rgb-synthetic/') 'RGB synthetic diagnostics upload only their fixed sibling directory without changing candidate ZIP paths'
+Assert-WorkflowAudit ($rgbFixtureUploadStep.Value -cmatch '(?m)^ {10}if-no-files-found: error\r?$') 'a started RGB fixture with no diagnostic files is an upload error'
+Assert-WorkflowAudit ($rgbFixtureUploadStep.Value -cmatch '(?m)^ {10}retention-days: 30\r?$') 'RGB synthetic diagnostics retain the existing 30-day evidence policy'
 
 $preflightMatch = [regex]::Match($workflow, '(?ms)^ {10}# Candidate path preflight\.\r?\n(?<code>.*?)^ {10}# End candidate path preflight\.')
 Assert-WorkflowAudit $preflightMatch.Success 'workflow provides a separately testable filesystem preflight'
@@ -597,6 +630,14 @@ function New-WorkflowAuditWorkspace {
 $workspace = New-WorkflowAuditWorkspace 'new'
 Invoke-WorkflowAuditPreflight $workspace
 Assert-WorkflowAudit $true 'preflight accepts a new contained candidate location'
+$workspace = New-WorkflowAuditWorkspace 'rgb-synthetic-sibling'
+$rgbDiagnosticRoot = Join-Path $workspace 'artifacts/swiftui-baseline/color-rgb-synthetic'
+[void][IO.Directory]::CreateDirectory($rgbDiagnosticRoot)
+[IO.File]::WriteAllText((Join-Path $rgbDiagnosticRoot 'test-summary.json'), '{"schemaVersion":1,"evidenceKind":"synthetic-color-rgb-tooling-tests","passed":false}', $utf8)
+$rgbDiagnosticBefore = Get-WorkflowAuditTreeHash $rgbDiagnosticRoot
+Invoke-WorkflowAuditPreflight $workspace
+Assert-WorkflowAudit ((Get-WorkflowAuditTreeHash $rgbDiagnosticRoot) -ceq $rgbDiagnosticBefore) 'SDK preflight accepts and preserves separate failed RGB synthetic diagnostics'
+Assert-WorkflowAudit (-not (Test-Path -LiteralPath (Join-Path $workspace 'artifacts/swiftui-baseline/github-actions'))) 'RGB synthetic diagnostics leave the complete SDK candidate directory absent for its fresh export'
 $workspace = New-WorkflowAuditWorkspace 'existing-empty'
 [void][IO.Directory]::CreateDirectory((Join-Path $workspace 'artifacts/swiftui-baseline/github-actions'))
 $caught = $null

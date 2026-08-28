@@ -2634,3 +2634,107 @@ time/output/memory limits. No installed SDK, runtime, source semantics, or OS
 setting was changed. Compilation, module-origin verification, a complete
 runtime/test-library cohort, and native activation remain separate unfinished
 steps; the MainActor/Unicode failure is not yet resolved.
+
+### Accepted sheet dismissal activity
+
+The separately reviewed sheet activity change is now integrated after the
+typed-builder commit. Its seven-file increment applies without conflict and
+preserves the existing typed item identity and stable base-content shell.
+Dismissal authority now belongs to an accepted, materialized presentation
+generation, separately from State that may remain retained in an inactive tab.
+Provisional or discarded candidates cannot borrow a live dismissal, accepted
+absence permanently retires the earlier generation, and deferred GeometryReader
+adoption updates only its covered scope. Close revokes activity before releasing
+application payloads. The raw construction path retains its documented behavior.
+
+Fourteen ledger and twelve host/raw XCTest cases are authored but not yet run
+against the root integration. They cover latest accepted configuration, copied
+actions, getter/focus reentry, item replacement, tab inactivity, discarded
+construction, deferred adoption, and teardown ordering. Quick now selects both
+new classes. Custom Binding setters still have their ordinary semantics; this
+does not claim an atomic compare-and-set or detect an unobserved coalesced
+false/true interval. Full/Quick and native comparisons remain pending.
+
+F6 has now stopped at its first actual Foundation compiler failure. The
+installed SDK and candidate source both supply a `_FoundationCShims` module
+map, producing a redefinition while compiling FoundationEssentials and
+subsequent import errors. Partial build output and the original log are being
+sealed; no retry or installed-toolchain replacement was performed. This is a
+new observed module-search boundary, not a successful Foundation replacement
+or resolution of the native event-loop failure.
+
+The initial sheet test build failed before executing any case: Swift reported
+that it could not produce a diagnostic for the nested configuration expression
+in the new recursion fixture. The log
+`artifacts/goal-fifth-sheet-activity-new-tests.log`, SHA-256
+`d27968c95316ecf4768fc6bb0832cf006366c274b823304ae0cacdfeb11946ad`,
+and the exact failing fixture are retained. The optional focus rollback now
+uses an ordinary guard and closure return rather than a ternary closure.
+Independent review also bounded the fixture's deliberately recursive calls,
+so a future missing production recursion guard produces assertion failures
+instead of a stack overflow. All expected event sequences and production
+behavior remain unchanged; the corrected test build must still pass.
+
+That corrected build compiled successfully, then exposed a production Swift
+exclusivity trap during close cleanup after seven cases had passed. A released
+configuration capture called an escaped dismissal while the same configuration
+property was still being assigned nil. Symbolication identifies the write at
+`PresentationActivity.swift:198` and the premature read at line 62 in that
+candidate. The crash log has SHA-256
+`f96290f04a3c05cb6e154da81c860e210fb696293ea9083798c6a43ffdb59f0e`;
+`artifacts/goal-fifth-sheet-exclusivity-failure/failure.json` records the exact
+source copies, binary digest, and symbolication, SHA-256
+`a6c5f7e3e3d5774f6a9019ec697ce20d71a3513ae1e1f28ce094a571625b0161`.
+Seven completed cases do not make this interrupted invocation a passing run.
+
+The repair rejects retired sessions before configuration reads and retains an
+outgoing configuration until its stored-property write ends. Ledger cleanup
+pins both sessions and anchors; build cleanup first detaches all six stored
+collections and only then releases their captured payloads. Normal finish uses
+the same safe drain without clearing accepted configurations. Two additional
+bounded regressions exercise destructor-driven close during provisional,
+discarded, and committed-but-unfinished cleanup. The original crashing test
+and its expectations remain unchanged. There are now 28 new sheet-activity
+cases to validate, and no production acceptance claim precedes that rerun.
+
+The Foundation F6 failure is now sealed at
+`builds/foundation-f6-build/frozen-f6-phase-manifest.json` in the existing owned
+Foundation workspace, SHA-256
+`f0d577d0c40d0b5b64a247ecc02e7df9d4e79e5f831926c8bba7f87ead5e41bb`.
+It retains 1,483 files and 307,837,613 bytes. Three of eleven targets completed;
+FoundationEssentials, the five Foundation DLLs, and the modified CFRunLoop
+object did not. The two conflicting CShims maps contain identical bytes at
+different paths. This identifies an SDK search-path collision, not a proven
+upstream source or compiler defect. Follow-up is limited to source inspection
+and an explicitly reviewed isolated SDK plan; no new build or activation has
+been authorized at this point.
+
+The repaired sheet integration now passes 281 distinct XCTest cases with no
+failures or skips: 35 focused cases, including all 28 new ledger/host cases,
+plus 246 broader mounted-State, StateObject, deferred-build, editor ownership,
+and host/lifecycle regressions. The two runs cover 24 classes in seventeen
+serial invocations without overlapping test identifiers. Six changed Swift
+files pass strict lint, pre/post architecture checks pass, and independent
+review confirms the original crashing test and already-safe commit path were
+not altered to make the failure disappear.
+
+`artifacts/goal-fifth-sheet-activity-validation.json`, SHA-256
+`aeed34ad0e684e18f6f0441bc260508fb7514de176ae4f7c3893b1a06861d32f`,
+seals the current working source, passing logs, two preserved failed attempts,
+symbolication, and exact failed source snapshots. The earlier seven partial
+passes are excluded from the passing totals. This is focused retained-host
+evidence, not native SwiftUI, real-window, or hardware-performance qualification.
+The fifth batch is ready to be committed and frozen for complete Full/Quick
+validation; no accumulated commit has been pushed yet.
+
+The reviewed Foundation SDK-isolation plan is now authorized for one fresh F7
+attempt. It copies exactly 274 declared input files (116,215,802 bytes) into an
+owned regular-file SDK/Dispatch view, omitting only the listed Foundation-owned
+headers, modules, and libraries while retaining the standard Swift/WinSDK shims.
+Public `-sdk` selection and matching child `SDKROOT` replace the target SDK path;
+new owned Dispatch metadata removes its explicit old SDK include paths. The
+installed SDK, pinned sources, host tools/macros, native dependencies, and build
+features remain unchanged. Public target-info inspection and an independent
+generated-command review gate compilation. The same resource limits and
+first-failure stop apply. No installation, candidate activation, real test-library
+build, or native application run is included in this authorization.

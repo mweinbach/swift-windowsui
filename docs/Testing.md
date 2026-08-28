@@ -125,6 +125,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   selection handling after the bound text changes. Item-sheet cases also check
   same-ID state retention, changed-ID and dismissal/reopening retirement, and
   escaped bindings without conflating presentation identity with description tags.
+  `PresentationActivityTests` and `SheetDismissActivityTests` separately gate
+  accepted dismissal authority, inactive and provisional presentations, deferred
+  GeometryReader adoption, reentrant getters/focus, and close-time revocation.
+  These headless checks distinguish retained State from active presentation
+  authority; they do not establish native window or SwiftUI lifetime parity.
   `WinSwiftUIBitmapStretchTests` covers ordinary bitmap
   stretch through layout, CPU scene/frame output, and D3D11. Full includes them all.
 - Quick and Full run the material diagnostic classifier's synthetic self-tests through `macos-reference-renderer`. These do not render native material on Windows or replace macOS capture, reviewed comparisons, or the unresolved material-backdrop regression.

@@ -324,6 +324,9 @@ if ($Full) {
     Invoke-Step "typed ViewBuilder and array compatibility" {
         & $testScript -Sharded -Filter "CanonicalViewBuilderPublicTests|CanonicalViewBuilderMountedTests|CanonicalViewBuilderMetadataTests|CanonicalViewBuilderArrayCompatibilityTests|ViewListProjectionTests|WindowsArrayViewBuilderTests|WindowsArrayViewBuilderMountedTests|WindowsArrayViewBuilderMetadataTests"
     }
+    Invoke-Step "accepted sheet dismissal activity" {
+        & $testScript -Sharded -Filter "PresentationActivityTests|SheetDismissActivityTests"
+    }
     Invoke-Step "structural stack children" {
         & $testScript -Sharded -Filter "StructuralComponentTests|StructuralCompositionIdentityTests|StructuralComponentMountedTests"
     }

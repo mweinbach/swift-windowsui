@@ -1,0 +1,561 @@
+{
+  "schemaVersion": 1,
+  "syntheticFixture": true,
+  "parserProfile": "swiftcrossimport-canonical-v1",
+  "plannedGroup": "definition-parser",
+  "cases": [
+    {
+      "id": "canonical-lf",
+      "plannedCaseId": "canonical-v1",
+      "text": "version: 1\nmodules:\n  - name: _Overlay\n",
+      "expectedStatus": "parsed-canonical-v1",
+      "expectedNames": [
+        "_Overlay"
+      ],
+      "explanation": "The canonical two-space block item uses LF and a final newline."
+    },
+    {
+      "id": "canonical-no-final-newline",
+      "plannedCaseId": "canonical-v1",
+      "text": "version: 1\nmodules:\n  - name: _Overlay",
+      "expectedStatus": "parsed-canonical-v1",
+      "expectedNames": [
+        "_Overlay"
+      ],
+      "explanation": "A complete final physical line does not require a terminating newline."
+    },
+    {
+      "id": "canonical-crlf",
+      "plannedCaseId": "canonical-v1",
+      "text": "version: 1\r\nmodules:\r\n  - name: _Overlay\r\n",
+      "expectedStatus": "parsed-canonical-v1",
+      "expectedNames": [
+        "_Overlay"
+      ],
+      "explanation": "CRLF line endings preserve the same name occurrence."
+    },
+    {
+      "id": "canonical-bom-directive-comments",
+      "plannedCaseId": "canonical-v1",
+      "text": "\ufeff%YAML 1.2\r\n---\r\n# Synthetic comment: caf\u00e9\r\n\r\nversion: 1\r\nmodules:\r\n  # First name follows.\r\n  - name: _Overlay\r\n\r\n  - name: Overlay2\r\n# Final comment.\r\n",
+      "expectedStatus": "parsed-canonical-v1",
+      "expectedNames": [
+        "_Overlay",
+        "Overlay2"
+      ],
+      "explanation": "An initial UTF-8 BOM, the supported directive, one document marker, CRLF, blank lines and comments are canonical; non-ASCII comment bytes are not module names."
+    },
+    {
+      "id": "canonical-document-marker",
+      "plannedCaseId": "canonical-v1",
+      "text": "---\nversion: 1\nmodules:\n  - name: _Overlay\n",
+      "expectedStatus": "parsed-canonical-v1",
+      "expectedNames": [
+        "_Overlay"
+      ],
+      "explanation": "One initial document marker is permitted without a YAML directive."
+    },
+    {
+      "id": "canonical-inline-comments",
+      "plannedCaseId": "canonical-v1",
+      "text": "version: 1 # supported schema\nmodules: # ordered occurrences\n  - name: _Overlay # first occurrence\n  - name: Overlay2 # second occurrence\n",
+      "expectedStatus": "parsed-canonical-v1",
+      "expectedNames": [
+        "_Overlay",
+        "Overlay2"
+      ],
+      "explanation": "Whitespace-separated trailing comments do not alter scalar values or names."
+    },
+    {
+      "id": "canonical-reordered-mapping",
+      "plannedCaseId": "canonical-v1",
+      "text": "modules:\n  - name: _First\n  - name: Second\nversion: 1\n",
+      "expectedStatus": "parsed-canonical-v1",
+      "expectedNames": [
+        "_First",
+        "Second"
+      ],
+      "explanation": "The two required mapping keys may occur in either order; block occurrence order remains unchanged."
+    },
+    {
+      "id": "canonical-explicit-empty",
+      "plannedCaseId": "canonical-empty",
+      "text": "version: 1\nmodules: []\n",
+      "expectedStatus": "parsed-canonical-v1",
+      "expectedNames": [],
+      "explanation": "Only an explicit empty sequence with the required version is a successful empty definition."
+    },
+    {
+      "id": "canonical-explicit-empty-reordered",
+      "plannedCaseId": "canonical-empty",
+      "text": "modules: [] # explicitly empty\nversion: 1\n",
+      "expectedStatus": "parsed-canonical-v1",
+      "expectedNames": [],
+      "explanation": "An explicit empty sequence also permits the required version key afterwards."
+    },
+    {
+      "id": "repeated-ordered-occurrences",
+      "plannedCaseId": "repeated-nonunderscore",
+      "text": "version: 1\nmodules:\n  - name: Overlay\n  - name: _Overlay\n  - name: Overlay\n  - name: _Overlay\n",
+      "expectedStatus": "parsed-canonical-v1",
+      "expectedNames": [
+        "Overlay",
+        "_Overlay",
+        "Overlay",
+        "_Overlay"
+      ],
+      "explanation": "Repeated sequence values are occurrences, not duplicate mapping keys; preserve every occurrence in source order."
+    },
+    {
+      "id": "nonunderscore-and-case-preservation",
+      "plannedCaseId": "repeated-nonunderscore",
+      "text": "version: 1\nmodules:\n  - name: Overlay\n  - name: overlay\n  - name: Overlay2\n  - name: _Overlay_2\n",
+      "expectedStatus": "parsed-canonical-v1",
+      "expectedNames": [
+        "Overlay",
+        "overlay",
+        "Overlay2",
+        "_Overlay_2"
+      ],
+      "explanation": "Do not filter non-underscore names, fold case, or alter valid plain ASCII identifier spelling."
+    },
+    {
+      "id": "unknown-root-key",
+      "plannedCaseId": "unknown-or-duplicate-key",
+      "text": "version: 1\nextra: true\nmodules: []\n",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "An unknown mapping key is invalid to this profile, not ignored."
+    },
+    {
+      "id": "unknown-root-key-after-name",
+      "plannedCaseId": "unknown-or-duplicate-key",
+      "text": "version: 1\nmodules:\n  - name: _Overlay\nextra: true\n",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "A later unknown key invalidates the definition; a previously recognized name must not escape as a partial result."
+    },
+    {
+      "id": "duplicate-version-key",
+      "plannedCaseId": "unknown-or-duplicate-key",
+      "text": "version: 1\nversion: 1\nmodules: []\n",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "Repeated version keys are ambiguous even when their scalar values match."
+    },
+    {
+      "id": "duplicate-modules-key",
+      "plannedCaseId": "unknown-or-duplicate-key",
+      "text": "version: 1\nmodules: []\nmodules: []\n",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "Repeated modules mapping keys are invalid even when both sequences are explicitly empty."
+    },
+    {
+      "id": "duplicate-name-key",
+      "plannedCaseId": "unknown-or-duplicate-key",
+      "text": "version: 1\nmodules:\n  - name: _First\n    name: _Second\n",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "A repeated name key within one sequence mapping is not a second name occurrence."
+    },
+    {
+      "id": "unknown-item-key",
+      "plannedCaseId": "unknown-or-duplicate-key",
+      "text": "version: 1\nmodules:\n  - name: _Overlay\n    extra: true\n",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "Unknown fields within an otherwise canonical item invalidate the entire definition."
+    },
+    {
+      "id": "case-variant-root-key",
+      "plannedCaseId": "unknown-or-duplicate-key",
+      "text": "Version: 1\nmodules: []\n",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "Mapping keys are exact and case sensitive; Version must not be accepted as version."
+    },
+    {
+      "id": "case-variant-item-key",
+      "plannedCaseId": "unknown-or-duplicate-key",
+      "text": "version: 1\nmodules:\n  - Name: _Overlay\n",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "Name must not be accepted as the required lower-case name mapping key."
+    },
+    {
+      "id": "empty-definition",
+      "plannedCaseId": "missing-required-field",
+      "text": "",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "A zero-byte input has no required mapping and cannot mean an empty overlay list."
+    },
+    {
+      "id": "comments-only-definition",
+      "plannedCaseId": "missing-required-field",
+      "text": "# Synthetic definition without a mapping.\n\n",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "Comments and blank lines alone do not supply either required mapping key."
+    },
+    {
+      "id": "bom-only-definition",
+      "plannedCaseId": "missing-required-field",
+      "text": "\ufeff",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "A valid UTF-8 BOM without a document is still missing the required mapping."
+    },
+    {
+      "id": "missing-version-key",
+      "plannedCaseId": "missing-required-field",
+      "text": "modules: []\n",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "An explicit empty sequence does not excuse the missing version key."
+    },
+    {
+      "id": "missing-modules-key",
+      "plannedCaseId": "missing-required-field",
+      "text": "version: 1\n",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "A version without modules cannot imply an empty sequence."
+    },
+    {
+      "id": "missing-item-name",
+      "plannedCaseId": "missing-required-field",
+      "text": "version: 1\nmodules:\n  -\n",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "An empty block item is missing its required name mapping."
+    },
+    {
+      "id": "version-zero",
+      "plannedCaseId": "noncanonical-native-possible",
+      "text": "version: 0\nmodules:\n  - name: _Overlay\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "Version zero is outside this auditor profile; the tagged compiler only explicitly rejects versions above one, so this is not a native-invalid claim."
+    },
+    {
+      "id": "quoted-version",
+      "plannedCaseId": "noncanonical-native-possible",
+      "text": "version: \"1\"\nmodules: []\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "A quoted version scalar is outside the deliberately plain canonical profile; do not coerce it."
+    },
+    {
+      "id": "null-modules",
+      "plannedCaseId": "noncanonical-native-possible",
+      "text": "version: 1\nmodules: null\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "The LLVM YAML reader can treat null as an empty sequence, but this auditor requires explicit [] for a successful empty definition."
+    },
+    {
+      "id": "implicit-null-modules",
+      "plannedCaseId": "noncanonical-native-possible",
+      "text": "version: 1\nmodules:\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "A missing modules value is implicit YAML null, not the profile's explicit empty sequence."
+    },
+    {
+      "id": "single-quoted-name",
+      "plannedCaseId": "noncanonical-native-possible",
+      "text": "version: 1\nmodules:\n  - name: '_Overlay'\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "Quoted names may be meaningful YAML but are not decoded by the plain-identifier profile."
+    },
+    {
+      "id": "double-quoted-name",
+      "plannedCaseId": "noncanonical-native-possible",
+      "text": "version: 1\nmodules:\n  - name: \"_Overlay\"\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "Do not remove double quotes to manufacture a canonical name."
+    },
+    {
+      "id": "escaped-quoted-name",
+      "plannedCaseId": "noncanonical-native-possible",
+      "text": "version: 1\nmodules:\n  - name: \"_Over\\u006cay\"\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "Do not evaluate YAML escape sequences; preserve the original bytes for review."
+    },
+    {
+      "id": "flow-root-mapping",
+      "plannedCaseId": "noncanonical-native-possible",
+      "text": "{version: 1, modules: [{name: _Overlay}]}\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "The tagged YAML reader accepts flow containers, but the auditor's root mapping profile does not."
+    },
+    {
+      "id": "flow-module-sequence",
+      "plannedCaseId": "noncanonical-native-possible",
+      "text": "version: 1\nmodules: [{name: _Overlay}]\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "Only explicit [] is supported as a flow sequence; nonempty flow values remain unsupported."
+    },
+    {
+      "id": "unicode-module-name",
+      "plannedCaseId": "noncanonical-native-possible",
+      "text": "version: 1\nmodules:\n  - name: Caf\u00e9Overlay\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "The byte sequence is valid UTF-8, but the canonical module-name profile is ASCII only; do not normalize or transliterate it."
+    },
+    {
+      "id": "indentless-block-sequence",
+      "plannedCaseId": "noncanonical-native-possible",
+      "text": "version: 1\nmodules:\n- name: _Overlay\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "Indentless YAML sequences are outside the approved fixed two-space item profile."
+    },
+    {
+      "id": "four-space-block-sequence",
+      "plannedCaseId": "noncanonical-native-possible",
+      "text": "version: 1\nmodules:\n    - name: _Overlay\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "A differently indented sequence is unsupported, not silently reindented."
+    },
+    {
+      "id": "version-two",
+      "plannedCaseId": "future-version",
+      "text": "version: 2\nmodules:\n  - name: _Overlay\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "An unsupported newer schema version must not yield names parsed using version-one assumptions."
+    },
+    {
+      "id": "version-forty-two",
+      "plannedCaseId": "future-version",
+      "text": "version: 42\nmodules: []\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "An explicit empty sequence cannot turn a future schema version into a successful empty definition."
+    },
+    {
+      "id": "yaml-anchor",
+      "plannedCaseId": "yaml-features",
+      "text": "version: 1\nmodules: &overlays\n  - name: _Overlay\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "Anchors are outside the canonical subset and are not registered or evaluated."
+    },
+    {
+      "id": "yaml-alias",
+      "plannedCaseId": "yaml-features",
+      "text": "version: 1\nmodules: *overlays\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "Aliases are never expanded; this status does not claim the alias is valid native YAML."
+    },
+    {
+      "id": "yaml-tag",
+      "plannedCaseId": "yaml-features",
+      "text": "version: 1\nmodules:\n  - name: !!str _Overlay\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "Explicit YAML tags are not interpreted."
+    },
+    {
+      "id": "multiple-documents",
+      "plannedCaseId": "yaml-features",
+      "text": "---\nversion: 1\nmodules: []\n---\nversion: 1\nmodules:\n  - name: _Overlay\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "Do not accept the first document and discard the later document."
+    },
+    {
+      "id": "tab-indentation",
+      "plannedCaseId": "yaml-features",
+      "text": "version: 1\nmodules:\n\t- name: _Overlay\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "Tabs are outside the profile; do not substitute spaces."
+    },
+    {
+      "id": "unsupported-yaml-directive",
+      "plannedCaseId": "yaml-features",
+      "text": "%YAML 1.1\n---\nversion: 1\nmodules:\n  - name: _Overlay\n",
+      "expectedStatus": "unsupported-format",
+      "expectedNames": [],
+      "explanation": "Only the approved optional %YAML 1.2 directive is recognized."
+    },
+    {
+      "id": "invalid-utf8-leading-byte",
+      "plannedCaseId": "malformed-encoding",
+      "base64": "/w==",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "A byte that cannot begin any UTF-8 code point must cause strict decoding failure."
+    },
+    {
+      "id": "invalid-utf8-overlong",
+      "plannedCaseId": "malformed-encoding",
+      "base64": "wK8=",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "An overlong UTF-8 sequence must not be accepted or replaced."
+    },
+    {
+      "id": "invalid-utf8-surrogate",
+      "plannedCaseId": "malformed-encoding",
+      "base64": "7aCA",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "UTF-8 encoding of a surrogate code point is invalid, even though the input is three bytes long."
+    },
+    {
+      "id": "invalid-utf8-continuation",
+      "plannedCaseId": "malformed-encoding",
+      "base64": "4iih",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "A non-continuation byte inside a multibyte sequence is invalid."
+    },
+    {
+      "id": "invalid-utf8-in-trailing-comment",
+      "plannedCaseId": "malformed-encoding",
+      "base64": "dmVyc2lvbjogMQptb2R1bGVzOiBbXQojIHRydW5jYXRlZDog4oI=",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "Strict decoding covers comment bytes and the final incomplete code point; do not return the earlier explicit empty sequence as success."
+    },
+    {
+      "id": "utf16-input-not-utf8",
+      "plannedCaseId": "malformed-encoding",
+      "base64": "//52AGUA",
+      "expectedStatus": "invalid-to-profile",
+      "expectedNames": [],
+      "explanation": "A UTF-16 BOM is not a supported encoding alternative; no automatic encoding detection is allowed."
+    },
+    {
+      "id": "definition-byte-budget-at-limit",
+      "plannedCaseId": "large-repeated-identifier",
+      "text": "version: 1\nmodules:\n  - name: _Overlay\n",
+      "expectedStatus": "parsed-canonical-v1",
+      "expectedNames": [
+        "_Overlay"
+      ],
+      "explanation": "The total byte budget counts every UTF-8 byte, including line terminators. The exact limit is accepted.",
+      "limits": {
+        "maximumBytes": 39
+      }
+    },
+    {
+      "id": "definition-byte-budget-over-limit",
+      "plannedCaseId": "large-repeated-identifier",
+      "text": "version: 1\nmodules:\n  - name: _Overlay\n",
+      "expectedStatus": "limit-reached",
+      "expectedNames": [],
+      "explanation": "The total byte budget counts every UTF-8 byte, including line terminators. One byte or occurrence over the configured limit must fail without partial names.",
+      "limits": {
+        "maximumBytes": 38
+      }
+    },
+    {
+      "id": "definition-bom-byte-budget-at-limit",
+      "plannedCaseId": "large-repeated-identifier",
+      "text": "\ufeffversion: 1\nmodules: []\n",
+      "expectedStatus": "parsed-canonical-v1",
+      "expectedNames": [],
+      "explanation": "The total byte budget includes the three bytes of the optional UTF-8 BOM. The exact limit is accepted.",
+      "limits": {
+        "maximumBytes": 26
+      }
+    },
+    {
+      "id": "definition-bom-byte-budget-over-limit",
+      "plannedCaseId": "large-repeated-identifier",
+      "text": "\ufeffversion: 1\nmodules: []\n",
+      "expectedStatus": "limit-reached",
+      "expectedNames": [],
+      "explanation": "The total byte budget includes the three bytes of the optional UTF-8 BOM. One byte or occurrence over the configured limit must fail without partial names.",
+      "limits": {
+        "maximumBytes": 25
+      }
+    },
+    {
+      "id": "identifier-line-byte-budget-at-limit",
+      "plannedCaseId": "large-repeated-identifier",
+      "text": "version: 1\nmodules:\n  - name: OverlayOverlayOverlayOverlay\n",
+      "expectedStatus": "parsed-canonical-v1",
+      "expectedNames": [
+        "OverlayOverlayOverlayOverlay"
+      ],
+      "explanation": "A repeated identifier is bounded by its physical line's UTF-8 bytes, excluding its LF terminator. The exact limit is accepted.",
+      "limits": {
+        "maximumLineBytes": 38
+      }
+    },
+    {
+      "id": "identifier-line-byte-budget-over-limit",
+      "plannedCaseId": "large-repeated-identifier",
+      "text": "version: 1\nmodules:\n  - name: OverlayOverlayOverlayOverlay\n",
+      "expectedStatus": "limit-reached",
+      "expectedNames": [],
+      "explanation": "A repeated identifier is bounded by its physical line's UTF-8 bytes, excluding its LF terminator. One byte or occurrence over the configured limit must fail without partial names.",
+      "limits": {
+        "maximumLineBytes": 37
+      }
+    },
+    {
+      "id": "unicode-comment-line-byte-budget-at-limit",
+      "plannedCaseId": "large-repeated-identifier",
+      "text": "version: 1\nmodules: []\n# \u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\n",
+      "expectedStatus": "parsed-canonical-v1",
+      "expectedNames": [],
+      "explanation": "Comment lines also count against the line byte budget; eight non-ASCII characters use sixteen UTF-8 bytes. The exact limit is accepted.",
+      "limits": {
+        "maximumLineBytes": 18
+      }
+    },
+    {
+      "id": "unicode-comment-line-byte-budget-over-limit",
+      "plannedCaseId": "large-repeated-identifier",
+      "text": "version: 1\nmodules: []\n# \u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\n",
+      "expectedStatus": "limit-reached",
+      "expectedNames": [],
+      "explanation": "Comment lines also count against the line byte budget; eight non-ASCII characters use sixteen UTF-8 bytes. One byte or occurrence over the configured limit must fail without partial names.",
+      "limits": {
+        "maximumLineBytes": 17
+      }
+    },
+    {
+      "id": "name-occurrence-budget-at-limit",
+      "plannedCaseId": "large-repeated-identifier",
+      "text": "version: 1\nmodules:\n  - name: Overlay\n  - name: Overlay\n  - name: Overlay\n",
+      "expectedStatus": "parsed-canonical-v1",
+      "expectedNames": [
+        "Overlay",
+        "Overlay",
+        "Overlay"
+      ],
+      "explanation": "The name budget counts repeated occurrences, not unique names. The exact limit is accepted.",
+      "limits": {
+        "maximumNames": 3
+      }
+    },
+    {
+      "id": "name-occurrence-budget-over-limit",
+      "plannedCaseId": "large-repeated-identifier",
+      "text": "version: 1\nmodules:\n  - name: Overlay\n  - name: Overlay\n  - name: Overlay\n",
+      "expectedStatus": "limit-reached",
+      "expectedNames": [],
+      "explanation": "The name budget counts repeated occurrences, not unique names. One byte or occurrence over the configured limit must fail without partial names.",
+      "limits": {
+        "maximumNames": 2
+      }
+    }
+  ]
+}

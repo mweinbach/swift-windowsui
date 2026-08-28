@@ -10,9 +10,14 @@ on:
       - ".github/workflows/swiftui-baseline-capture.yml"
       - "Package.swift"
       - "Sources/macos-reference-renderer/**"
+      - "Sources/swiftui-color-rgb-reference/**"
       - "scripts/capture-swiftui-material-reference.ps1"
       - "scripts/swiftui-material-reference-common.ps1"
       - "scripts/test-swiftui-material-reference.ps1"
+      - "scripts/capture-swiftui-color-rgb-reference.ps1"
+      - "scripts/swiftui-color-rgb-reference-common.ps1"
+      - "scripts/compare-swiftui-color-rgb-reference.ps1"
+      - "scripts/test-swiftui-color-rgb-reference.ps1"
       - "scripts/export-swiftui-baseline.ps1"
       - "scripts/swiftui-baseline-common.ps1"
       - "scripts/swiftui-baseline-streaming.ps1"
@@ -46,6 +51,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
           submodules: false
 
@@ -69,6 +75,9 @@ jobs:
 
       - name: Verify material capture provenance fixtures
         run: ./scripts/test-swiftui-material-reference.ps1
+
+      - name: Verify RGB source and observation provenance fixtures
+        run: ./scripts/test-swiftui-color-rgb-reference.ps1
 
       - name: Export pinned SDK candidate with CI provenance
         id: sdk-export
@@ -218,12 +227,21 @@ jobs:
         run: ./scripts/capture-swiftui-material-reference.ps1 -CaptureRoot $env:SWIFTUI_CAPTURE_ROOT -HostingContextExperiment
 
       - name: Build complete unreviewed API audit ledger
+        id: api-audit
         if: ${{ !cancelled() && steps.sdk-export.outcome == 'success' && steps.sdk-export.outputs.capture-status == 'exported-awaiting-review' }}
         timeout-minutes: 20
         env:
           SWIFTUI_EXPORT_RESULT_PATH: ${{ steps.sdk-export.outputs.export-result-path }}
         run: |
           ./scripts/build-swiftui-api-audit-candidate.ps1 -ExportResultPath $env:SWIFTUI_EXPORT_RESULT_PATH -EvidenceRoot (Join-Path $env:GITHUB_WORKSPACE "artifacts/swiftui-baseline/github-actions")
+
+      - name: Capture native RGB constructor candidate
+        id: rgb-native
+        if: ${{ !cancelled() && steps.sdk-export.outcome == 'success' && steps.sdk-export.outputs.capture-status == 'exported-awaiting-review' && steps.api-audit.outcome == 'success' }}
+        timeout-minutes: 32
+        env:
+          SWIFTUI_CAPTURE_ROOT: ${{ steps.sdk-export.outputs.capture-root }}
+        run: ./scripts/capture-swiftui-color-rgb-reference.ps1 -Platform Native -CaptureRoot $env:SWIFTUI_CAPTURE_ROOT -OutputPath (Join-Path $env:GITHUB_WORKSPACE "artifacts/swiftui-baseline/github-actions/color-rgb-native")
 
       - name: Upload candidate evidence and failure diagnostics
         if: always()

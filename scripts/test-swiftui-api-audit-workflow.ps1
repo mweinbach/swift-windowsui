@@ -2,8 +2,9 @@
 .SYNOPSIS
 Tests the post-export workflow handoff with explicitly synthetic captures.
 .DESCRIPTION
-No native SDK export, SwiftPM command, or Swift compiler runs. The only workflow
-code executed is its marked filesystem preflight in an owned synthetic checkout.
+No native SDK export, SwiftPM command, or Swift compiler runs. Workflow run
+commands execute only in the marked filesystem preflight in an owned synthetic
+checkout. The exact RGB condition is evaluated with synthetic step outcomes.
 #>
 param(
     [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
@@ -477,21 +478,75 @@ function Get-WorkflowAuditStep {
     Assert-WorkflowAudit ($matching.Count -eq 1) "workflow has exactly one step matching $Pattern"
     return $matching[0]
 }
+$checkoutStep = Get-WorkflowAuditStep 'uses: actions/checkout@'
+$rgbFixtureStep = Get-WorkflowAuditStep '(?m)^ {8}run: \./scripts/test-swiftui-color-rgb-reference\.ps1\r?$'
 $exportStep = Get-WorkflowAuditStep '(?m)^\s+id: sdk-export\s*$'
 $materialStep = Get-WorkflowAuditStep 'run: \./scripts/capture-swiftui-material-reference\.ps1'
 $ledgerStep = Get-WorkflowAuditStep '\./scripts/build-swiftui-api-audit-candidate\.ps1'
+$rgbStep = Get-WorkflowAuditStep 'run: \./scripts/capture-swiftui-color-rgb-reference\.ps1'
 $uploadStep = Get-WorkflowAuditStep 'uses: actions/upload-artifact@'
+Assert-WorkflowAudit ($checkoutStep.Value -cmatch '(?m)^ {8}uses: actions/checkout@v4\r?$') 'checkout retains its existing action version'
+Assert-WorkflowAudit ($checkoutStep.Value -cmatch '(?m)^ {10}ref: \$\{\{ github\.sha \}\}\r?$') 'checkout explicitly selects the exact event commit for both RGB observers'
+Assert-WorkflowAudit ($checkoutStep.Value -cmatch '(?m)^ {10}persist-credentials: false\r?$' -and
+    $checkoutStep.Value -cmatch '(?m)^ {10}submodules: false\r?$') 'checkout retains both credential and submodule safety options'
+Assert-WorkflowAudit ($checkoutStep.Index -lt $rgbFixtureStep.Index -and $rgbFixtureStep.Index -lt $exportStep.Index) 'exactly one RGB synthetic suite runs before any SDK export'
 Assert-WorkflowAudit ($exportStep.Index -lt $materialStep.Index -and $materialStep.Index -lt $ledgerStep.Index -and $ledgerStep.Index -lt $uploadStep.Index) 'ledger follows material capture and precedes the always-upload step'
+Assert-WorkflowAudit ($ledgerStep.Index -lt $rgbStep.Index -and $rgbStep.Index -lt $uploadStep.Index) 'native RGB collection follows the complete audit and precedes the existing upload'
+Assert-WorkflowAudit ($ledgerStep.Value -cmatch '(?m)^ {8}id: api-audit\r?$') 'the complete ledger exposes its actual outcome as api-audit'
 $condition = [regex]::Match($ledgerStep.Value, '(?ms)^ {8}if:\s*(?<condition>.*?)(?=^ {8}(?:env|run|timeout-minutes|with):|\z)').Groups['condition'].Value
 Assert-WorkflowAudit ($condition -cmatch '!cancelled\(\)') 'ledger gate explicitly skips cancellation without the implicit previous-step success rule'
 Assert-WorkflowAudit ($condition -cmatch 'steps\.sdk-export\.outcome\s*==\s*''success''') 'ledger requires the actual SDK export step to succeed'
 Assert-WorkflowAudit ($condition -cmatch 'steps\.sdk-export\.outputs\.capture-status\s*==\s*''exported-awaiting-review''') 'ledger requires the exact successful candidate status output'
 Assert-WorkflowAudit ($condition -cnotmatch '(?<![A-Za-z])success\s*\(') 'an independent material failure cannot suppress a valid SDK ledger'
+$expectedExportGate = "!cancelled() && steps.sdk-export.outcome == 'success' && steps.sdk-export.outputs.capture-status == 'exported-awaiting-review'"
+Assert-WorkflowAudit ($condition.Trim() -ceq ('${{ ' + $expectedExportGate + ' }}')) 'the existing complete-audit condition remains unchanged'
+$rgbConditions = @([regex]::Matches($rgbStep.Value, '(?m)^ {8}if: \$\{\{ (?<condition>[^\r\n]+) \}\}\r?$'))
+Assert-WorkflowAudit ($rgbConditions.Count -eq 1) 'native RGB collection has one explicit workflow condition'
+$rgbCondition = $rgbConditions[0].Groups['condition'].Value
+Assert-WorkflowAudit ($rgbCondition -ceq ($expectedExportGate + " && steps.api-audit.outcome == 'success'")) 'RGB requires a complete SDK export and audit without default-success or material-success gates'
+Assert-WorkflowAudit ($workflow -cnotmatch '(?m)^\s+continue-on-error:') 'material, audit, and RGB failures keep their original step and job outcomes'
+# Translate only the exact expression asserted above, never arbitrary workflow
+# code. These cases exercise the checked-in predicate rather than a second gate.
+$rgbGateCode = $rgbCondition.Replace('!cancelled()', '(-not $State.cancelled)').
+    Replace('steps.sdk-export.outcome', '$State.exportOutcome').
+    Replace('steps.sdk-export.outputs.capture-status', '$State.captureStatus').
+    Replace('steps.api-audit.outcome', '$State.auditOutcome').
+    Replace(' == ', ' -eq ').Replace(' && ', ' -and ')
+$rgbGateBlock = [scriptblock]::Create('param($State)' + [Environment]::NewLine + $rgbGateCode)
+foreach ($gateCase in @(
+    @{ name = 'successful export and audit'; expected = $true },
+    @{ name = 'cancelled job'; cancelled = $true; expected = $false },
+    @{ name = 'failed SDK export'; exportOutcome = 'failure'; expected = $false },
+    @{ name = 'wrong SDK capture status'; captureStatus = 'failed'; expected = $false },
+    @{ name = 'failed audit'; auditOutcome = 'failure'; expected = $false },
+    @{ name = 'skipped audit'; auditOutcome = 'skipped'; expected = $false },
+    @{ name = 'material failure after successful SDK export'; materialOutcome = 'failure'; expected = $true }
+)) {
+    $state = @{
+        cancelled = $false; exportOutcome = 'success'; captureStatus = 'exported-awaiting-review'
+        auditOutcome = 'success'; materialOutcome = 'success'
+    }
+    foreach ($key in $gateCase.Keys) {
+        if ($state.ContainsKey($key)) { $state[$key] = $gateCase[$key] }
+    }
+    $actual = & $rgbGateBlock ([pscustomobject]$state)
+    Assert-WorkflowAudit ($actual -eq $gateCase.expected) ("actual RGB condition handles " + $gateCase.name)
+}
 $resultParameter = [regex]::Match($ledgerStep.Value, '-ExportResultPath\s+\$env:(?<name>[A-Za-z_][A-Za-z_0-9]*)')
 Assert-WorkflowAudit ($resultParameter.Success) 'ledger takes the explicit result file through an environment argument'
 Assert-WorkflowAudit ($ledgerStep.Value -cmatch ('(?m)^\s+' + [regex]::Escape($resultParameter.Groups['name'].Value) + ':\s*\$\{\{\s*steps\.sdk-export\.outputs\.export-result-path\s*\}\}')) 'result argument is bound to the successful export step output'
 Assert-WorkflowAudit ($ledgerStep.Value.Contains('artifacts/swiftui-baseline/github-actions') -and $ledgerStep.Value.Contains('-EvidenceRoot')) 'ledger evidence root is explicit and fixed under repository artifacts'
 Assert-WorkflowAudit ($ledgerStep.Value -cmatch '(?m)^\s+timeout-minutes: 20\s*$') 'ledger retains its explicit 20-minute step budget'
+$ledgerRun = [regex]::Match($ledgerStep.Value, '(?ms)^ {8}run: \|\r?\n(?<code>.*)\z').Groups['code'].Value.Trim()
+Assert-WorkflowAudit ($ledgerRun -ceq './scripts/build-swiftui-api-audit-candidate.ps1 -ExportResultPath $env:SWIFTUI_EXPORT_RESULT_PATH -EvidenceRoot (Join-Path $env:GITHUB_WORKSPACE "artifacts/swiftui-baseline/github-actions")') 'the complete-audit command remains unchanged without outcome suppression'
+Assert-WorkflowAudit ($materialStep.Value -cmatch '(?m)^ {8}timeout-minutes: 15\r?$') 'material capture retains its 15-minute step budget'
+Assert-WorkflowAudit ($materialStep.Value -cnotmatch '(?m)^ {8}if:') 'material capture retains its original default workflow gate'
+Assert-WorkflowAudit ($materialStep.Value -cmatch '(?m)^ {8}run: \./scripts/capture-swiftui-material-reference\.ps1 -CaptureRoot \$env:SWIFTUI_CAPTURE_ROOT -HostingContextExperiment\r?$') 'the existing material hosting experiment invocation remains unchanged'
+Assert-WorkflowAudit ($rgbStep.Value -cmatch '(?m)^ {8}id: rgb-native\r?$' -and
+    $rgbStep.Value -cmatch '(?m)^ {8}timeout-minutes: 32\r?$') 'native RGB collection has an independent identity and a 32-minute step budget'
+Assert-WorkflowAudit ($rgbStep.Value -cmatch '(?m)^ {10}SWIFTUI_CAPTURE_ROOT: \$\{\{ steps\.sdk-export\.outputs\.capture-root \}\}\r?$') 'native RGB uses the explicit successful SDK capture output'
+$rgbRunLines = @([regex]::Matches($rgbStep.Value, '(?m)^ {8}run: (?<code>[^\r\n]+)\r?$'))
+Assert-WorkflowAudit ($rgbRunLines.Count -eq 1 -and $rgbRunLines[0].Groups['code'].Value -ceq './scripts/capture-swiftui-color-rgb-reference.ps1 -Platform Native -CaptureRoot $env:SWIFTUI_CAPTURE_ROOT -OutputPath (Join-Path $env:GITHUB_WORKSPACE "artifacts/swiftui-baseline/github-actions/color-rgb-native")') 'RGB collects Native into a new sibling without precreation, retry, fallback, or exit translation'
 foreach ($name in @('capture-status', 'capture-root', 'export-result-path')) {
     Assert-WorkflowAudit ($exportStep.Value -cmatch ('[''"]' + [regex]::Escape($name) + '[''"]\s*=')) "export declares the explicit $name workflow output"
 }
@@ -500,10 +555,20 @@ Assert-WorkflowAudit ($workflow -cmatch '(?m)^\s+runs-on: macos-26-intel\s*$') '
 Assert-WorkflowAudit ($workflow -cmatch '(?m)^\s+DEVELOPER_DIR: /Applications/Xcode_26\.6\.app/Contents/Developer\s*$') 'native Xcode pin cannot silently move'
 Assert-WorkflowAudit ($workflow -cmatch '(?m)^ {4}timeout-minutes: 90\s*$') 'whole job budget remains explicit'
 Assert-WorkflowAudit ($workflow.Contains('"scripts/build-swiftui-api-audit-candidate.ps1"')) 'candidate runtime changes trigger a new workflow run'
+$pushPaths = [regex]::Match($workflow, '(?ms)^ {2}push:\r?\n.*?^ {4}paths:\r?\n(?<paths>(?:^ {6}- [^\r\n]+\r?\n)+)').Groups['paths'].Value
+foreach ($path in @('Sources/swiftui-color-rgb-reference/**', 'scripts/capture-swiftui-color-rgb-reference.ps1',
+    'scripts/swiftui-color-rgb-reference-common.ps1', 'scripts/compare-swiftui-color-rgb-reference.ps1',
+    'scripts/test-swiftui-color-rgb-reference.ps1')) {
+    $entries = @([regex]::Matches($pushPaths, ('(?m)^ {6}- "' + [regex]::Escape($path) + '"\r?$')))
+    Assert-WorkflowAudit ($entries.Count -eq 1) "the push filter includes exactly one RGB input path: $path"
+}
 Assert-WorkflowAudit ($workflow -cmatch '(?m)^\s+run: \./scripts/test-swiftui-api-audit-workflow\.ps1\s*$') 'workflow executes this portable synthetic handoff test'
 Assert-WorkflowAudit ($uploadStep.Value -cmatch 'if:\s*(?:\$\{\{\s*)?always\(\)') 'raw capture and diagnostics upload after any step failure'
+Assert-WorkflowAudit ($uploadStep.Value -cmatch '(?m)^ {8}if: always\(\)\r?$') 'the original always-upload condition has no additional gate'
 Assert-WorkflowAudit ($uploadStep.Value -cmatch '(?m)^\s+include-hidden-files: true\s*$') 'upload retains hidden evidence files'
 Assert-WorkflowAudit ($uploadStep.Value -cmatch '(?m)^\s+if-no-files-found: error\s*$') 'an entirely missing evidence root fails upload'
+Assert-WorkflowAudit ($uploadStep.Value -cmatch '(?m)^ {10}retention-days: 30\r?$') 'candidate evidence retains the existing 30-day upload retention'
+Assert-WorkflowAudit ($uploadStep.Value -cmatch '(?m)^ {10}name: swiftui-macos-26\.5-xcode-26\.6-candidate-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\r?$') 'the evidence artifact remains tied to its explicit workflow run and attempt'
 $uploadPaths = [regex]::Match($uploadStep.Value, '(?ms)^ {10}path:\s*\|\s*\r?\n(?<paths>(?:^ {12}[^\r\n]*\r?\n?)+)').Groups['paths'].Value
 $pathEntries = @($uploadPaths -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_.Length -gt 0 })
 Assert-WorkflowAudit ($pathEntries.Count -eq 2 -and $pathEntries -ccontains 'artifacts/swiftui-baseline/github-actions/' -and

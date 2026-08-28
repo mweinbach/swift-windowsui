@@ -88,14 +88,19 @@ and Xcode builds, source commit, and runtime provenance remain separate checks.
 The [SwiftUI baseline candidate capture workflow](../.github/workflows/swiftui-baseline-capture.yml)
 can be dispatched manually. It also runs on pushes to `main` that match its
 path filter: the workflow or `.gitmodules`, `Package.swift`,
-`Sources/macos-reference-renderer/**`, the SDK export/inventory scripts and
-benchmark, audit builder/candidate/helper scripts and tests, material capture
-scripts and tests, baseline fixture data, `scripts/test-checkout-metadata.ps1`,
+`Sources/macos-reference-renderer/**`, `Sources/swiftui-color-rgb-reference/**`,
+the SDK export/inventory scripts and benchmark, audit builder/candidate/helper
+scripts and tests, material capture scripts and tests, the RGB capture/common/
+compare/test scripts, baseline fixture data, `scripts/test-checkout-metadata.ps1`,
 or `docs/swiftui-baseline.json`. Checkout and synthetic provenance/inventory/
-audit fixtures run before the SDK export. Swift source changes outside the
-listed macOS reference target do not trigger this workflow by themselves.
+audit/RGB fixtures run before the SDK export. The RGB fixtures use their own
+temporary directory; they must not create the candidate evidence root before
+the export preflight. Other Windows-source-only changes do not trigger this
+workflow by themselves; select a run explicitly when a new same-commit native
+candidate is needed.
 
-Checkout keeps `persist-credentials: false` and `submodules: false`. The
+Checkout explicitly selects `${{ github.sha }}` and keeps
+`persist-credentials: false` and `submodules: false`. The
 read-only `extern/zed` gitlink has its verified upstream mapping in
 `.gitmodules`; the capture job never initializes or builds that reference.
 `scripts/test-checkout-metadata.ps1` reproduces the missing-mapping failure
@@ -112,9 +117,10 @@ The job has a 90-minute limit and runs the exporter's four module/architecture
 combinations serially. The SDK export and API ledger do not invoke SwiftPM.
 The following material-candidate step does: it builds and runs
 `macos-reference-renderer` with the exported compiler and SDK, using its own
-temporary SwiftPM scratch directory and a 15-minute step limit. The workflow
-does not install another toolchain or change the separate macOS
-reference-render workflow.
+temporary SwiftPM scratch directory and a 15-minute step limit. Its current
+`-HostingContextExperiment` opt-in preserves the canonical material run and
+the separate hosting observations and failures. The workflow does not install
+another toolchain or change the separate macOS reference-render workflow.
 
 Before native export, the workflow rejects artifact/evidence/capture paths
 redirected through filesystem aliases and refuses an existing evidence
@@ -125,16 +131,37 @@ publishes explicit absolute result/capture paths and the
 `-ExportResultPath` argument must be absolute; paths stored inside the result
 file remain portable relative paths from the evidence root. After the
 material-candidate step, a separate
-20-minute step calls `build-swiftui-api-audit-candidate.ps1` with that result
-path and the evidence root. It writes the complete, unreviewed stage-1 ledger
+20-minute `api-audit` step calls `build-swiftui-api-audit-candidate.ps1` with
+that result path and the evidence root. It writes the complete, unreviewed stage-1 ledger
 to sibling `audit/` and a small `audit-context.json` with status, hashes, and
 counts; the source `capture/` is unchanged.
 
 The ledger requires a successful SDK export with `exported-awaiting-review`
 and a job that has not been cancelled. It can still run when the independent
-material-candidate step fails. Material or ledger failure is not converted
-into success, and neither step promotes SDK identity or compatibility review.
-The existing 90-minute job limit still applies to the complete sequence.
+material-candidate step fails. After a successful complete audit, `rgb-native`
+calls the existing RGB collector with that export's explicit capture root and
+a new sibling `color-rgb-native/` output directory. Its explicit `!cancelled()`
+gate requires the successful SDK export/status and `api-audit` outcome, so it
+can also run after a material failure. No material, ledger, or RGB failure is
+converted into success. A failed or skipped audit prevents RGB collection.
+
+The RGB collector uses the same Mac and exact exported compiler/SDK, checks
+both pinned target architectures, and builds for the actual native hardware.
+Execution requires a compatible nontranslated macOS 26.5-or-later runtime;
+the runner label and cross-architecture typechecks do not establish that
+execution coverage. It creates no application or window and requests no
+screen permission.
+Its module caches are separate from the material scratch directory and
+repository `.build`. Cases, repetitions, Float tolerances, primary resolved
+observations, and separate AppKit diagnostics remain as specified in
+[ColorRGBReference.md](ColorRGBReference.md).
+
+The RGB step has a 32-minute limit around the collector's existing 30-minute
+deadline. The existing 90-minute job limit still applies to the complete
+sequence and does not reserve that time for RGB: the four serial exporter
+commands alone permit up to 80 minutes. A slow export/audit, cancellation,
+or outer timeout may interrupt RGB before its final seal or the upload.
+That is incomplete evidence, not an unsupported observer or a candidate.
 
 Download the run's
 `swiftui-macos-26.5-xcode-26.6-candidate-<run-id>-<attempt>` artifact before
@@ -143,15 +170,35 @@ checked-out commit, requested manifest hash, workflow/run/attempt, runner
 image and architecture, selected developer directory, and capture outcome.
 The upload retains the whole evidence root: the complete `capture/` raw graphs,
 inventory, interfaces and metadata; `export-result.json`; material evidence
-when produced; and the complete `audit/` NDJSON records, copied source metadata,
-sealed manifest and `audit-context.json` when produced. The small context and
-manifest files do not replace the full capture and ledger. The upload step
+when produced; the complete `audit/` NDJSON records, copied source metadata,
+sealed manifest and `audit-context.json` when produced; and the entire RGB
+candidate directory, including source snapshots, binary, reports, logs, seals,
+and failure/unsupported records. The small context and manifest files do not
+replace the full capture and ledger. The upload step
 uses `always()` and excludes only the disposable `capture/module-cache/`;
 it never converts a failed capture into success. A missing installation or
 wrong version fails the job without substituting another SDK. Early failures
 can leave only context files, while interrupted or failed captures are not
 complete evidence. See [SwiftUIAPIAudit.md](SwiftUIAPIAudit.md#candidate-ledger-in-github-actions)
 for the explicit handoff and ledger boundaries.
+
+Preserve collector exit 0 (`captured-candidate`), 2 (`unsupported`), or 1
+(`failure`/invalid evidence), including the original per-observer outcomes.
+Download the explicit run ID and attempt even if material or AppKit left the
+job red; do not select only successful jobs or aggregate RGB captures. The
+unchanged comparator can retain a valid primary candidate alongside a failed
+or unsupported AppKit diagnostic only when its global provenance checks pass.
+
+Windows collection must use the same clean full commit/tree recorded by the
+native capture and CI context, with identical physical bytes for all five
+shared Swift files. Commit all fixture/tooling/production changes first,
+reserve that Windows checkout's `.build` directory for serial collection,
+and use new explicit capture and comparison directories. Follow the local
+commands in [ColorRGBReference.md](ColorRGBReference.md#collection-and-provenance)
+with the downloaded `color-rgb-native/` path. Comparison executes no Swift and
+does not edit the original SDK capture, audit ledger, or either candidate.
+Declaration, source, behavior, and release qualification remain unverified,
+including when the primary comparison reports `match-candidate`.
 
 The workflow deliberately creates an **unreviewed candidate** and does not
 pass `-RequireReviewedIdentity` while initial identity review is pending.

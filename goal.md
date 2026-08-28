@@ -2152,3 +2152,41 @@ explicit Windows compatibility extensions. App/Scene ownership, inactive
 opaque content, complete wrapper support, and paired native lifetime and
 transaction behavior remain open. [MountedState.md](docs/MountedState.md)
 records these boundaries; this slice does not close an original product gate.
+
+### Fifth batch: structural children in the basic stacks
+
+`VStack` and `HStack` now accept the direct children of a pure composition.
+A custom view's explicitly annotated builder body can contribute two distinct
+stack children, and an empty body contributes no spacing. `Component` carries
+an optional package append operation; its public single-node constructor is
+unchanged. Keys and node-decorating wrappers keep an aggregate boundary.
+`Group`, `ForEach`, arrays, optional/conditional content, and erasure preserve
+their selected structural content and captured identity/environment scope.
+No body is evaluated merely to discover inactive children.
+
+The integrated change passes 356 focused XCTest cases across 32 targets and
+19 serial invocations, with no failures or skips. This includes all 34 new
+construction, identity, and mounted-host cases; ten unchanged context and
+stack-headroom cases, including the original 60-level construction fixture;
+278 existing State, StateObject, identity, list, layout, transaction, and demo
+cases; and 34 existing public stack/list/ForEach cases. The successful logs are
+`artifacts/goal-fifth-structural-new-tests-v3.log` (SHA-256
+`e82dd478dc99365689fb88226fd0f3cef928331741713c2fe7fa1a92226185c0`),
+`artifacts/goal-fifth-structural-regressions.log`, and
+`artifacts/goal-fifth-structural-public-regressions.log`.
+
+Two unsuccessful fixture attempts are retained. The first did not compile
+because 15 new identity-test contexts omitted required initializer arguments;
+they now supply an explicit zero-size provider and no-op invalidator. The next
+executed 22 cases and failed one because it looked for edit metadata on List's
+outer selection wrapper. The corrected fixture keeps selection on that wrapper
+and verifies the index/delete action on its sole content child. All original
+behavior assertions remain; no production List behavior or recursion depth was
+changed to satisfy those assumptions.
+
+Quick includes the three new suites. Contracts and strict Swift lint pass.
+This does not flatten every container or modifier, change the public builder's
+array representation, complete aggregate layout, establish native SwiftUI
+behavior, or qualify the fifth batch's full visual/build gates.
+[StructuralComposition.md](docs/StructuralComposition.md) records the precise
+producer/consumer boundaries. All nine original completion gates remain open.

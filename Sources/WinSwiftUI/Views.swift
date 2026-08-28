@@ -3779,7 +3779,8 @@ public struct Group: View, StateMountDeclarationView {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let context = context.withViewIdentityType(Self.self)
         return preservingViewIdentity(
-            of: composeComponent(from: content, context: context.withViewIdentityRole(.content)), context: context)
+            of: composeStructuralComponent(from: content, context: context.withViewIdentityRole(.content)),
+            context: context)
     }
 
     func declaredStateMountScopes(context: ViewBuildContext) -> [StateMountDeclarationScope] {
@@ -5414,7 +5415,8 @@ public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View, StateMo
     public func makeComponent(context: ViewBuildContext) -> Component {
         let context = context.withViewIdentityType(Self.self)
         return preservingViewIdentity(
-            of: composeComponent(from: contentViews, context: context.withViewIdentityRole(.content)), context: context)
+            of: composeStructuralComponent(from: contentViews, context: context.withViewIdentityRole(.content)),
+            context: context)
     }
 
     func declaredStateMountScopes(context: ViewBuildContext) -> [StateMountDeclarationScope] {
@@ -8269,15 +8271,18 @@ public struct VStack: View {
         let context = context.withViewIdentityType(Self.self)
         return Component { runtime in
             let childContext = context.withViewIdentityRole(.content).withStackAxis(.vertical)
+            var children: [ViewNode] = []
+            children.reserveCapacity(content.count)
+            for view in viewIdentityOccurrences(content) {
+                view.makeComponent(context: childContext).appendChildNodes(runtime: runtime, to: &children)
+            }
             return Controls.stackPanel(
                 stackLayout: .vertical(
                     spacing: spacing,
                     alignment: alignment.stackAlignment(layoutDirection: context.layoutDirection)
                 ),
                 isHitTestVisible: false,
-                children: viewIdentityOccurrences(content).map {
-                    $0.makeComponent(context: childContext).makeNode(runtime: runtime)
-                }
+                children: children
             )
         }
     }
@@ -8304,12 +8309,15 @@ public struct HStack: View {
         let context = context.withViewIdentityType(Self.self)
         return Component { runtime in
             let childContext = context.withViewIdentityRole(.content).withStackAxis(.horizontal)
+            var children: [ViewNode] = []
+            children.reserveCapacity(content.count)
+            for view in viewIdentityOccurrences(content) {
+                view.makeComponent(context: childContext).appendChildNodes(runtime: runtime, to: &children)
+            }
             return Controls.stackPanel(
                 stackLayout: .horizontal(spacing: spacing, alignment: alignment.stackAlignment),
                 isHitTestVisible: false,
-                children: viewIdentityOccurrences(content).map {
-                    $0.makeComponent(context: childContext).makeNode(runtime: runtime)
-                }
+                children: children
             )
         }
     }

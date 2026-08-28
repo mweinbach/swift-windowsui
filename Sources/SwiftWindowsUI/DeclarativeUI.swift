@@ -7,6 +7,7 @@ import SwiftWindowsLayout
 @MainActor
 public struct Component {
     private let makeViewNode: (RetainedViewRuntime) -> ViewNode
+    private var appendStructuralViewNodes: (@MainActor (RetainedViewRuntime, inout [ViewNode]) -> Void)?
 
     /// Optional stable key for identity-based reconciliation.  When building
     /// child components from arrays or loops, assign a unique key so the
@@ -20,6 +21,21 @@ public struct Component {
     ) {
         self.key = key
         self.makeViewNode = makeViewNode
+        self.appendStructuralViewNodes = nil
+    }
+
+    /// Supply an optional composition path for parents that lay out structural
+    /// children directly. The append closure must preserve the existing prefix
+    /// of its destination and may append no nodes for an empty composition.
+    /// Only the selected construction path runs for each request.
+    package init(
+        key: String? = nil,
+        makeViewNode: @escaping @MainActor (RetainedViewRuntime) -> ViewNode,
+        appendStructuralChildren: @escaping @MainActor (RetainedViewRuntime, inout [ViewNode]) -> Void
+    ) {
+        self.key = key
+        self.makeViewNode = makeViewNode
+        self.appendStructuralViewNodes = appendStructuralChildren
     }
 
     public func makeNode(runtime: RetainedViewRuntime) -> ViewNode {
@@ -30,6 +46,30 @@ public struct Component {
             node.nodeTag = key
         }
         return node
+    }
+
+    /// A key belongs to one aggregate node, so keyed components never expand
+    /// into multiple children, even when a structural constructor is present.
+    package var hasStructuralChildren: Bool {
+        key == nil && appendStructuralViewNodes != nil
+    }
+
+    /// Append the structural children when supported, or construct one node
+    /// through the existing path. Ordinary leaves need no temporary arrays.
+    package func appendChildNodes(runtime: RetainedViewRuntime, to nodes: inout [ViewNode]) {
+        if key == nil, let appendStructuralViewNodes {
+            appendStructuralViewNodes(runtime, &nodes)
+        } else {
+            nodes.append(makeNode(runtime: runtime))
+        }
+    }
+
+    /// Keep this component as one node when a layout or decoration owns the
+    /// aggregate. Clearing a key later does not remove this boundary.
+    package func asSingleNode() -> Component {
+        var copy = self
+        copy.appendStructuralViewNodes = nil
+        return copy
     }
 
     /// Return a copy of this component with the given reconciliation key.

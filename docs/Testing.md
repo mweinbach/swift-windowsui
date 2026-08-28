@@ -53,6 +53,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
 - Do not run multiple SwiftPM test/build commands against this checkout in parallel; they share `.build/build.db`.
 - Use `async` test methods in `@MainActor` XCTest classes. With the current Windows toolchain, synchronous actor-isolated methods can compile but crash SwiftPM's test discovery when it casts them to nonisolated callbacks, before a filter executes. A standalone XCTest entrypoint does not validate that discovery path.
 - Quick includes `RetainedViewIdentityTests`, `WinSwiftUIStructuralIdentityTests`, and `ViewIdentityRoleTests` for typed keys, structural branches and slots, erased fragments, and auxiliary builder roles. These check retained-node identity, not mounted `State` or `StateObject` storage.
+- Quick also includes `StructuralComponentTests`,
+  `StructuralCompositionIdentityTests`, and `StructuralComponentMountedTests`.
+  They check direct stack children, empty compositions, opaque decorated
+  boundaries, captured context, raw and mounted identity, and retained row
+  metadata. The unchanged construction/headroom suites remain a separate gate.
+  See [StructuralComposition.md](StructuralComposition.md) for the deliberately
+  limited consumers and the remaining native compatibility boundaries.
 - Quick separately includes `DynamicPropertyInstallationTests`,
   `StateMountRegistryTests`, `RetainedBuildLifecycleTests`, the seven
   `MountedState`/`MountedOutlineGroup` suites, and

@@ -10900,7 +10900,7 @@ extension Array: View where Element == AnyView {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        composeComponent(from: self, context: context)
+        composeStructuralComponent(from: self, context: context)
     }
 }
 extension Optional: View where Wrapped: View {
@@ -11076,9 +11076,10 @@ public struct EmptyView: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        Component { _ in
-            Controls.panel(preferredSize: .zero, isHitTestVisible: false)
-        }
+        Component(
+            makeViewNode: { _ in Controls.panel(preferredSize: .zero, isHitTestVisible: false) },
+            appendStructuralChildren: { _, _ in }
+        )
     }
 }
 public struct ConditionalContent<TrueContent: View, FalseContent: View>: View {
@@ -18039,18 +18040,50 @@ func composeComponent(
     fallbackLayout: ViewLayoutMode = .absolute,
     isHitTestVisible: Bool = false
 ) -> Component {
+    makeCompositionComponent(
+        from: views, context: context, fallbackLayout: fallbackLayout,
+        isHitTestVisible: isHitTestVisible, allowsStructuralChildren: false)
+}
+
+/// Only pure composition producers opt into child expansion. Other callers
+/// retain their existing single-node boundary, including the one-child case.
+@MainActor
+func composeStructuralComponent(from views: [AnyView], context: ViewBuildContext) -> Component {
+    makeCompositionComponent(
+        from: views, context: context, fallbackLayout: .absolute,
+        isHitTestVisible: false, allowsStructuralChildren: true)
+}
+
+@MainActor
+private func makeCompositionComponent(
+    from views: [AnyView],
+    context: ViewBuildContext,
+    fallbackLayout: ViewLayoutMode,
+    isHitTestVisible: Bool,
+    allowsStructuralChildren: Bool
+) -> Component {
     let views = viewIdentityOccurrences(views)
     if views.count == 1, let view = views.first {
-        return view.makeComponent(context: context)
+        let component = view.makeComponent(context: context)
+        return allowsStructuralChildren ? component : component.asSingleNode()
     }
 
-    return Component { runtime in
+    let makeNode: @MainActor (RetainedViewRuntime) -> ViewNode = { runtime in
         Controls.panel(
             layoutMode: fallbackLayout,
             isHitTestVisible: isHitTestVisible,
             children: views.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
         )
     }
+    guard allowsStructuralChildren else { return Component(makeViewNode: makeNode) }
+    return Component(
+        makeViewNode: makeNode,
+        appendStructuralChildren: { runtime, nodes in
+            for view in views {
+                view.makeComponent(context: context).appendChildNodes(runtime: runtime, to: &nodes)
+            }
+        }
+    )
 }
 extension HorizontalAlignment {
     func resolved(for layoutDirection: LayoutDirection) -> HorizontalAlignment {

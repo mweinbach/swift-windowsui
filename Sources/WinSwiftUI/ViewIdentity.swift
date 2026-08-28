@@ -156,13 +156,36 @@ func withInstalledViewValue<Value>(
 /// identity instead of replacing it with a parent path that omits a branch.
 @MainActor
 func preservingViewIdentity(of component: Component, context: ViewBuildContext) -> Component {
-    Component { runtime in
+    let makeNode: @MainActor (RetainedViewRuntime) -> ViewNode = { runtime in
         let node = ViewBuildContextScope.withCurrent(context) { component.makeNode(runtime: runtime) }
         if node.retainedViewIdentity == nil {
             node.retainedViewIdentity = context.retainedViewIdentity
         }
         return node
     }
+    guard component.hasStructuralChildren else {
+        return Component(makeViewNode: makeNode)
+    }
+    return Component(
+        makeViewNode: makeNode,
+        appendStructuralChildren: { runtime, nodes in
+            let firstNewIndex = nodes.count
+            ViewBuildContextScope.withCurrent(context) {
+                component.appendChildNodes(runtime: runtime, to: &nodes)
+            }
+            for index in firstNewIndex..<nodes.count where nodes[index].retainedViewIdentity == nil {
+                // Raw structural producers retain their keys within this
+                // owner. Untagged children keep their local positional slot;
+                // existing typed child identities never pass through here.
+                let scope = context.retainedViewIdentity.appending(.role(.content))
+                if let tag = nodes[index].nodeTag {
+                    nodes[index].retainedViewIdentity = scope.appending(.keyed(.init(tag)))
+                } else {
+                    nodes[index].retainedViewIdentity = scope.appending(.slot(index - firstNewIndex))
+                }
+            }
+        }
+    )
 }
 
 extension AnyView {

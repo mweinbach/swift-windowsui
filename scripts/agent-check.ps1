@@ -288,6 +288,9 @@ if ($Full) {
     Invoke-Step "typed retained view identity" {
         & $testScript -Sharded -Filter "RetainedViewIdentityTests|WinSwiftUIStructuralIdentityTests|ViewIdentityRoleTests"
     }
+    Invoke-Step "structural stack children" {
+        & $testScript -Sharded -Filter "StructuralComponentTests|StructuralCompositionIdentityTests|StructuralComponentMountedTests"
+    }
     Invoke-Step "construction context and traversal stack headroom" {
         & $testScript -Sharded -Filter "ViewBuildContextScopeTests|TraversalStackHeadroomTests"
     }

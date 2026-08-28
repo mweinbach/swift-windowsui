@@ -1156,6 +1156,15 @@ still resolves size from its actual layout slot; its content build carries the
 structural context independently of that measurement. Built-in modifier-kind
 erasure and specialized-container lifetime semantics remain incomplete.
 
+`VStack` and `HStack` also accept structural children from the existing array,
+Group, and ForEach composition path, including a custom explicitly annotated
+`@ViewBuilder` body. Empty compositions contribute no stack spacing. Keyed or
+node-decorating aggregates keep their single-node boundary; other containers
+and the public builder signatures are unchanged. See
+[StructuralComposition.md](StructuralComposition.md) for the construction and
+State ownership rules, metadata boundaries, and remaining inherited-builder
+and typed-tuple work.
+
 This identity path owns ordinary `@State` and `@StateObject` cells per mounted view and host.
 Reconstruction and keyed reordering preserve surviving values; separate mounted
 occurrences get separate cells, and removal or close retires that generation.

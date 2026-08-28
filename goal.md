@@ -1900,3 +1900,93 @@ selected the actual `CacheComplexityAndReclamationTests` and
 The broader read-only test audit found no additional assertions depending on
 the old appearance/paint ordering. This focused result still requires a fresh
 complete Full run.
+
+### Fourth Full retry: construction stack headroom
+
+The clean `9e4a0cf` retry passed both earlier failures and stopped at shard
+141 of 190. It recorded 2,803 passing XCTest cases, one existing skip, and
+118 passing Swift Testing cases before the test process crashed. There was
+no failed assertion: `testDeeplyNestedSwiftUIHierarchyStillEmitsItsLeaf`
+started without returning a result. Product builds, screenshots, and gallery
+comparison were not reached. The log is
+`artifacts/goal-fourth-full-9e4a0cf.log`, SHA-256
+`f34a768c3b8fcce1247b973c7027e0f6a078de8ed254258c5fefa11dcecd078c`.
+
+An unchanged single-case rerun reproduced the crash. Windows Error Reporting
+identified exception `0xc00000fd` (stack overflow). The dump backtrace in
+`artifacts/goal-fourth-depth-dump-backtrace.log` shows typed component
+construction and repeated deferred identity/context scopes through VStack
+and padding; it does not show painting or lifecycle traversal. The snapshot
+does not install a State coordinator, so registry installation is not on
+this failing path. The debugger also emitted type-reconstruction diagnostics;
+those are separate from the recorded process exception.
+
+Each nested scope previously saved a complete ViewBuildContext across child
+construction. The narrow correction under test stores the current context in
+a private immutable box, saving and restoring references while keeping the
+existing synchronous, main-actor, value-returning scope API. It must preserve
+environment reads, identity, nesting, reentry, and payload release. This adds
+a small allocation per scope; no timing or allocation improvement is claimed.
+The existing 60-level hierarchy, leaf-glyph assertion, traversal depth limit,
+and executable/thread stack settings remain unchanged. Focused scope and
+headroom tests and a new complete Full run are still required.
+
+The storage-only correction now passes the original crashing case without a
+reference-taking overload or changes to deferred identity wrappers. Across
+five serial invocations, 75 cases in twelve targets passed with no failures
+or skips: 17 traversal/identity/dispatch/Canvas-sampling cases, 54 environment
+and Canvas cases, and four new scope regressions. The separate first rerun of
+the crashing case is additional reproduction evidence, not an extra distinct
+case in that count. The logs are
+`artifacts/goal-fourth-context-scope-regressions.log`,
+`artifacts/goal-fourth-context-environment-regressions.log`, and
+`artifacts/goal-fourth-context-scope-new-tests.log` (SHA-256
+`380791ff9a62393aef5d7b4acb7cb5684542c25c1fa7256ec40c94b03a2f6bcd`).
+Contracts and strict lint of both changed Swift files passed. Independent
+source review confirmed scope restoration and immutable value-copy semantics.
+Quick now includes both scope and traversal-headroom suites. A fresh Full
+run is required before pushing the accumulated fourth batch.
+
+### Native main-actor scheduling: isolated functional evidence
+
+A standalone probe using the installed Swift 6.3 Windows runtime confirms a
+live-host gap: the current GetMessage/TranslateMessage/DispatchMessage loop
+delivered native messages but did not start or resume the queued MainActor
+task before exit. A Foundation RunLoop variant delivered the same native
+messages and both task phases on the HWND owner's thread. Each variant was
+run twice from the same optimized executable and returned the requested
+WM_QUIT code 73. Only a hidden message-only window was created; no visible
+application, user setting, or project runtime was changed.
+
+The experiment uses a thread-local WH_GETMESSAGE hook to retain the quit
+result. Foundation removed WM_QUIT with flags 3 (PM_REMOVE plus PM_NOYIELD),
+so the removal check must test the PM_REMOVE bit rather than equality with
+1. The earlier equality-only probe hung and was terminated by its owned
+process watchdog; that failed evidence is preserved separately. Final source
+SHA-256 is
+`fc3626e67508031bc05fd0e4e9cad0948c5ec42b0928c44475169fbb7bfd1df3`,
+and executable SHA-256 is
+`4a05cb38c885adb85386d16c0575514e27de43d5534c75a6b7f6679803ee0b6e`.
+Compiler arguments and loaded-library paths/hashes accompany the four result
+records in the owned temporary native-scheduling probe directory.
+
+Stable outer-loop counters and an observed waiting thread are narrow idle
+witnesses, not CPU, latency, or frame-pacing qualification. The production
+host, nested/modal loops, UI Automation's main-queue calls, callback lifetime,
+hook installation failure, and shutdown still require implementation and
+validation. Async XCTest success alone does not establish native app task
+progress, and this standalone result does not close the lifecycle or native
+smoke-test gates.
+
+A subsequent queued-character probe rejects adopting the plain Foundation
+loop. With a Unicode window and ANSI code page 1252, successful PostMessageW
+calls queued UTF-16 units `0041`, `00E9`, `6F22`, `D83D`, and `DE00`.
+GetMessageW delivered all five unchanged. Foundation's retrieval hook also
+observed all five originals, but its dispatch delivered `0041`, `00E9`, and
+three `003F` question marks to the Unicode window procedure. Native messages,
+quit code, and task progress still passed, so those checks alone would have
+missed the text corruption. Separate Unicode source, executable, reports,
+and logs preserve this failure without altering the earlier four results.
+Any scheduling correction must preserve Unicode input and native modal
+routing as well as task progress; the Foundation loop is not yet a usable
+production replacement.

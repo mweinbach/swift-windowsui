@@ -295,13 +295,23 @@ hardcoded user or example save destinations; migrate them before enabling a
 new write path. See [FileDocument export](FileDocumentExport.md) for the
 implemented boundary and remaining parity work.
 
-`TraversalStackHeadroomTests` is the one suite whose failure mode is not a
-failed assertion: it renders a tree at `ViewNode.maximumTraversalDepth` (256),
-so if a traversal's stack frame grows past its budget the *test process*
-disappears with exit code 1 and no output — the same signature the regression
-it pins produced. Run it after any change to `layoutSubtree`, `sizeThatFits`,
-`appendPrepaintState` or `appendCommands`, and treat a silent abort there as a
-stack-frame regression, not a flake.
+`TraversalStackHeadroomTests` covers construction and retained traversal: it
+builds a 60-level public VStack/padding hierarchy and renders a retained tree
+at `ViewNode.maximumTraversalDepth` (256). If a frame grows past the native
+stack budget, the test process can exit with code 1 after a case starts,
+without reporting an assertion failure. Windows Error Reporting or a crash
+dump can confirm exception `0xc00000fd` (stack overflow). Run this suite after
+changes to component construction, context scopes, `layoutSubtree`,
+`sizeThatFits`, `appendPrepaintState`, or `appendCommands`; a silent abort is
+not a passing or flaky test. Do not reduce the depth or enlarge the executable
+stack to hide a regression.
+
+`ViewBuildContextScopeTests` checks synchronous nested/reentrant restoration,
+value-copy isolation, and provider-payload release. Context scopes retain
+private immutable boxes so nested construction saves references instead of
+complete context values. The API remains main-actor, synchronous, and
+nonthrowing; this storage choice adds an allocation per scope and is not a
+performance qualification. Quick runs both suites together.
 
 On Swift for Windows, filtering the very large `WinSwiftUITests` XCTest class can fail in the runner with Windows error 206 (`NSCocoaErrorDomain Code=258`). Use full `swift test` for that coverage, or filter narrower XCTest classes such as `WindowGroupInitTests`, `CommandsAndSceneTests`, or `ClipboardButtonTests`.
 

@@ -10726,15 +10726,25 @@ func resolvedRetainedContentShapeStyle<S: Shape>(for shape: S) -> SwiftWindowsUI
 }
 @MainActor
 enum ViewBuildContextScope {
-    private static var currentContext: ViewBuildContext?
+    private final class ContextBox {
+        let context: ViewBuildContext
+
+        init(_ context: ViewBuildContext) {
+            self.context = context
+        }
+    }
+
+    // Deferred component construction nests these scopes. Save a reference,
+    // rather than a full context, in every active construction frame.
+    private static var currentContext: ContextBox?
 
     static var current: ViewBuildContext? {
-        currentContext
+        currentContext?.context
     }
 
     static func withCurrent<Result>(_ context: ViewBuildContext, _ body: () -> Result) -> Result {
         let previous = currentContext
-        currentContext = context
+        currentContext = ContextBox(context)
         defer {
             currentContext = previous
         }

@@ -808,6 +808,13 @@ struct PathGradientSpace: Equatable, Sendable {
     }
 }
 
+/// The rule used to decide which parts of a filled path are inside.
+/// Stroke outlines always use their non-zero union independently of this rule.
+public enum PathFillRule: Equatable, Sendable {
+    case nonZero
+    case evenOdd
+}
+
 /// A CPU-rasterized path with fill and/or stroke. Not designed for D3D11
 /// structured buffers; the D3D11 backend tessellates or skips paths.
 public struct PathPrimitive: Equatable, Sendable {
@@ -818,6 +825,9 @@ public struct PathPrimitive: Equatable, Sendable {
     /// bounds. Its stops supersede `fillColor`, which remains the frame-path
     /// fallback and preserves compatibility with existing producers.
     public var fillGradient: LinearGradient?
+    /// Defaults to the non-zero winding rule used by existing path producers.
+    /// Even-odd counts crossings without depending on contour direction.
+    public var fillRule: PathFillRule
     public var strokeColor: Color
     /// Optional piecewise-linear stroke sampled in the same coordinate frame
     /// as `fillGradient` rather than separately for each flattened segment.
@@ -857,6 +867,7 @@ public struct PathPrimitive: Equatable, Sendable {
         bounds: Rect,
         fillColor: Color = .clear,
         fillGradient: LinearGradient? = nil,
+        fillRule: PathFillRule = .nonZero,
         strokeColor: Color = .clear,
         strokeGradient: LinearGradient? = nil,
         lineWidth: Double = 0,
@@ -870,6 +881,7 @@ public struct PathPrimitive: Equatable, Sendable {
         self.bounds = bounds
         self.fillColor = fillColor
         self.fillGradient = fillGradient
+        self.fillRule = fillRule
         self.strokeColor = strokeColor
         self.strokeGradient = strokeGradient
         self.lineWidth = lineWidth
@@ -950,6 +962,7 @@ public struct PathPrimitive: Equatable, Sendable {
         hasher.combine(miterLimit)
         Self.combine(color: fillColor, into: &hasher)
         Self.combine(gradient: fillGradient, into: &hasher)
+        hasher.combine(fillRule == .evenOdd)
         Self.combine(color: strokeColor, into: &hasher)
         Self.combine(gradient: strokeGradient, into: &hasher)
         let originX = bounds.origin.x
@@ -983,6 +996,7 @@ public struct PathPrimitive: Equatable, Sendable {
             miterLimit == other.miterLimit,
             fillColor == other.fillColor,
             fillGradient == other.fillGradient,
+            fillRule == other.fillRule,
             strokeColor == other.strokeColor,
             strokeGradient == other.strokeGradient,
             bounds.size.width == other.bounds.size.width,
@@ -1206,6 +1220,7 @@ public struct PathPrimitive: Equatable, Sendable {
             bounds: translatedBounds,
             fillColor: fillColor,
             fillGradient: fillGradient,
+            fillRule: fillRule,
             strokeColor: strokeColor,
             strokeGradient: strokeGradient,
             lineWidth: lineWidth,
@@ -1263,6 +1278,7 @@ public struct PathPrimitive: Equatable, Sendable {
             bounds: bounds.scaled(by: factor),
             fillColor: fillColor,
             fillGradient: fillGradient,
+            fillRule: fillRule,
             strokeColor: strokeColor,
             strokeGradient: strokeGradient,
             lineWidth: lineWidth * factor,
@@ -1353,6 +1369,7 @@ public struct PathPrimitive: Equatable, Sendable {
             ),
             fillColor: fillColor,
             fillGradient: fillGradient,
+            fillRule: fillRule,
             strokeColor: strokeColor,
             strokeGradient: strokeGradient,
             lineWidth: lineWidth,

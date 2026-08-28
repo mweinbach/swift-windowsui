@@ -1,5 +1,4 @@
 import Foundation
-
 import SwiftWindowsCore
 
 /// Backend-neutral display list for a single frame.
@@ -1062,6 +1061,7 @@ public struct FillPathCommand: Equatable, Sendable {
     public var transform: AffineTransform
     public var blendMode: BlendMode
     public var clipRect: Rect?
+    public var fillRule: PathFillRule
 
     public init(
         path: RenderPath,
@@ -1069,7 +1069,8 @@ public struct FillPathCommand: Equatable, Sendable {
         gradient: GradientType? = nil,
         transform: AffineTransform = .identity,
         blendMode: BlendMode = .normal,
-        clipRect: Rect? = nil
+        clipRect: Rect? = nil,
+        fillRule: PathFillRule = .nonZero
     ) {
         self.path = path
         self.color = color
@@ -1077,6 +1078,7 @@ public struct FillPathCommand: Equatable, Sendable {
         self.transform = transform
         self.blendMode = blendMode
         self.clipRect = clipRect
+        self.fillRule = fillRule
     }
 }
 public struct StrokePathCommand: Equatable, Sendable {

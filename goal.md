@@ -5241,3 +5241,166 @@ It does not establish external UIA/Narrator behavior, all SDK APIs, native macOS
 parity, root Full/Quick or gallery results on this tree, hardware frame budgets,
 hosted release success, or clean-machine qualification. All nine original gates
 remain open, and commits containing later additions require fresh validation.
+
+### Seventh batch: document publication failures and native runner evidence
+
+This entry adds evidence without replacing earlier failures, changing sections 1 through 9, or
+closing any of their nine original completion gates. These observations are from 2026-08-28. All
+paths below are relative to `C:/Users/maxw6/AppData/Local/Temp`. None of these isolated outcomes
+is current-root Full, Quick, release-commit, native-client, performance or clean-machine
+qualification.
+
+The first execution of the 571-case document selection used source tree
+`62faf2eb4a3bbb220abc4ee200bed05b2920bdaf` and stopped at batch 15 of 33. Independent accounting
+confirms 273 distinct starts: 270 passed, three failed, none skipped and 298 remained unrun.
+Among the 90 new cases, 27 started, 24 passed, three failed and 63 were unrun; 246 of the 481
+preservation cases passed and 235 were unrun. All four direct host/decoder key-channel cases now
+passed, separately from the earlier four setup failures. They do not qualify native
+TranslateMessage or visible keyboard workflows. The failures are new publication fixtures for
+independent transaction/legacy slots, ordinary binding animation, and undo/status close setup:
+eight assertion diagnostics and one unexpected missing-wake throw. All six new editor/native
+regressions and eleven remaining publication cases were unrun. Driver PID 39556 naturally
+returned 1 in 62.191 seconds; the failed batch's stock Swift and PS5 exits and the observed
+outer tool exit were also 1. Closed parent streams and no timeout/capture failure do not prove
+complete descendant closure.
+
+The immutable document result is
+`swift-windowsui-native-document-activation-a6b9f66071fe4dee8f485400a61b217c/focused-third-run-failure-v1/FIRST-FAILURE.json`,
+SHA256 `1190cf9e7f405fa83306f72274e283bdc2123497d8b4bc5a897eb514455462d4`. Its 87-member
+manifest, including 80 unchanged raw copies, has SHA256
+`dffd9214f3816b9cc89187e894c51021bb311a7eaafda6130ba4b84852cae18c`. The separate independent
+audit has SHA256 `e100cfa0fddeada599da704f5122a571b1eb49046eb83989e16c818977bcbbf5` and confirms
+the counts, raw copies and 51 live input pins without identifying the runtime cause.
+Owner-reported source tracing separately identifies fixture mismatches involving transaction
+precedence and clock advancement; a distinct layout/settlement finding in undo/status setup
+remains unresolved. Those explanations are not corrected execution evidence. The earlier parser
+failure and 487-case setup failure remain separate records, and no retry or source change
+occurred within this failed attempt.
+
+The exploratory P6 F9 attempt failed its controller gate. The controller and actual outer tool
+returned 1; the passive validator was never invoked and has no actual exit value. The controller
+observed watchdog exit 0, the watchdog recorded supervisor exit 0, and the supervisor recorded
+probe and pinned console host exit 0, completed kernel shutdown and empty owned Jobs without
+intervention. These retained receipts do not override the failed controller: native acceptance
+and cleanup-qualification flags remain false. The probe's self-report claims task completion,
+quit code 73 and three module checkpoints, but it was not accepted by the frozen validator. No
+ordinary-execution equivalence, continuous module identity, general ABI compatibility or
+complete causal process tree is established.
+
+Independent read-only inspection identifies the controller's first stop at line 981:
+case-sensitive `-ceq` compared the watchdog's lowercase SHA256 text with the catalog's uppercase
+text. Both strict 64-hex strings encode the same 32 digest bytes; the other exit,
+executable-path and deadline predicates match. This is a source-and-receipt diagnosis, not a
+repaired controller result. The immutable phase is
+`swift-windowsui-native-supervisor-prototype-1787947067718/f9-contained-runtime-1787954316329`.
+Its `frozen-failed-runtime-phase-manifest.json` has SHA256
+`f4ce3ab325ab5ee1512009c23c684744ba4ddd7e57246da0b247b4f8836396b6` and binds 42 members,
+including the seventeen staged payloads. The final failure-preservation receipt has SHA256
+`5835f5a95b4a400d9adc1ee0ee83794b2f2eb42a912929891f04d89d47def3f6` and records completion within
+the original 600-second deadline. Source and input pins remained unchanged; no native retry or
+validator run occurred in that attempt. The historical F9 compiler-success/collector-failure
+audit also remains failed. A separate failed passive metadata diagnostic was preserved and is
+not the cause of this native/controller attempt's failure.
+
+A separate single startup-environment observation completed with actual parent, child and outer
+tool exits 0. All twelve named Boolean predicates matched. The child took 0.509 seconds; the
+measured tool boundary took 3.013 seconds within the fixed thirty-second envelope. Later copying
+and audits are outside that observation interval. Under the pinned child launch, PS7 prepended
+exactly one pinned PS7 directory before the supplied PATH; the first two segments were PS7 then
+PS5. Get-Command resolved one Application at the pinned PS5 path, without invoking that resolved
+application, and the child's GIT_OPTIONAL_LOCKS value was 0. The parent environment stayed
+unchanged. Both relevant PATH digests match the historical dispatch receipts, but that
+establishes neither a complete historical environment replay nor which predicate the failed old
+worker evaluated.
+
+The observation audit is
+`swift-windowsui-startup-observation-audit-ec51986bf9784fe1bb15ac7c9e2cff23`; its
+`pin-and-evidence-checks.json` has SHA256
+`df000b4c9580f7b3feebad9d8aa694a20b4f2f4e42f5110cf710b48cffc987c1`. Its final 35-member audit
+seal, `AUDIT-SEAL.json`, has SHA256
+`2ce884166ca4545ad14b81f9f28ee1f835422a618823c866523d02f06c7a2227`. All 21 selected before/after
+pin rows matched and were rehashed, and all 24 original observation files were copied without
+byte changes. This did not repeat the older 374-pin or 4,453-file audits. Original Stage A
+remains failed, with all 61 cases unrun and its full 4,453-file after-preservation unknown. At this startup-observation boundary, the
+proposed attribute-lookup controls were still unrun; any later control attempt is separate evidence. This observation supplies no DirectRunner,
+Stage B/C, Swift-product, speed or Quick qualification and no complete runtime dependency or
+descendant-closure proof. The independent audit passed 38 checks after separately preserving a
+mistaken expected-digest transcription and a command-length 206 failure during audit writing.
+Neither changed evidence or reran the observation; the earlier source-writing OS error 5 remains
+preserved as well.
+
+### Seventh batch: Canvas winding, finite scanlines and stored Shape fill rules
+
+The root candidate at HEAD `798cddb80434975acdc9f7761cfc0b6476c66488`, staged tree
+`39ebce5b7d9a55cff4d195b5dfcebbaeccd5e914`, now preserves authored non-zero or
+even-odd Canvas fill rules through solid and gradient operations, scene replay,
+CPU coverage, cached D3D11 paths and legacy frame degradation. Stroke union,
+draw order, blending and default non-zero behavior are unchanged. Conservative
+topology checks admit supported simple even-odd shapes to existing GPU quad
+routes and keep ambiguous, compound or unsupported geometry on the bounded path
+route. Cache equality and hashing include the rule. This is not a new whole-window
+software renderer, an antialiasing implementation, or complete Shape API parity.
+
+Both scanline loops now have finite iteration counts and verify that advancing a
+scanline actually advances its floating-point coordinate. Extreme coordinates
+that cannot progress safely reject the entire promotion and use the existing
+fallback. The old limits, clip arithmetic and comparison tolerances remain.
+Separately, Shape scene and frame producers now carry their own stored
+`clipFillStyle.eoFill`; an ancestor's style is not inherited into an unrelated
+shape. Producer gaps involving erased/inset/trimmed shapes and Arc geometry
+remain separate work. The 19-path candidate contains 81 new methods across five
+test files: 53 Canvas/backend cases, 18 scanline cases and ten Shape cases.
+All previously existing test files were preserved by the two intake checks.
+
+Contracts passed before intake. Contracts and strict formatting on all sixteen
+changed Swift files passed after intake with PS5 PID 16032, natural exit 0,
+21.734 seconds. The receipt is
+`artifacts/goal-seventh-shape-fillrule-intake-v1/root-static-v1/result.json`.
+The exact root selection then ran fifteen stock, serial, nonsharded invocations
+without skip-build. It recorded 286 distinct starts and 286 passed terminals:
+255 XCTest and 31 Swift Testing methods, including all 81 additions and 205
+preservation cases. No cases failed, skipped, duplicated, remained incomplete,
+were missing or were unexpected. All fifteen retained PS5 exits were 0, and the
+actual supervisor exit was 0 (closed session 98237, tool result `97dfc6`).
+Elapsed time was 410.937 seconds, finishing at 22:40:44Z on 2026-08-28, within
+the unchanged 1,800-second aggregate acceptance envelope. No finalization-overrun
+marker was present. The overall exit receipt has SHA256
+`98fd3ed5fecf318be9cc22890f3d8f4308fba9d75b05f3dddf54082d2de7bb8e`.
+
+Independent raw parsing and generated-registration inspection agree with the
+result. The compiled XCTest registry contains 5,331 unique methods (5,314 Core
+and seventeen Portable); all 255 selected XCTest IDs appear once, with 179 async
+wrappers and 76 synchronous references. The 134-method full Swift Testing count
+is a source inventory, not a fresh executable listing or full run. The copied
+test binary is 429,803,008 bytes, SHA256
+`879696739123744443c095cc5fe232132f2ffe2853ededf605737d58d0d01703`.
+The independent audit has SHA256
+`2c981a6096858531307d00ba988870dc731ff290a7c611590902358db884f74a`;
+its seal is `d003578ae25cd3d593b7ba17f274750fc2b88288aee5e7f5f81126cc6ec4f82e`.
+The runner preserved all 778 tracked regular inputs, index bytes, HEAD and gitlink.
+The auditor separately checked index/source registration and explicitly did not
+rehash all 778 working files. Native test-process exits and complete descendant
+closure were not independently observed. Metadata-only capture/receipt mistakes
+are retained in the audit; none reran or changed the product tests.
+
+A subsequent stock raw scene screenshot on this same source tree completed with
+PS5 PID 49352 and actual tool exit 0 in 8.609 seconds. The 1280 by 720 dark
+dashboard used 772 scene primitives, 182 frame commands and one layer. The parent
+opened and inspected `artifacts/goal-seventh-canvas-demo-v1/demo-screenshot.png`,
+SHA256 `b2a4b1a3b26716dfde1771f5845abbe6c7af5908f690dc916336aabdc4196508`.
+Navigation, panels, text, gradient and chart remained aligned and legible, with no
+obvious new corruption in this viewport. The Activity panel extends below its
+bottom edge. This was not a previous-image pixel comparison or interaction test.
+The displayed D3D11 badge and frame-time numbers are demo contents, not measured
+hardware evidence. The separate visual-inspection record has SHA256
+`81e705444918926bbcef25f6d7e53daab3b5edee288ec6bcd4c2eedf785f50d2`;
+the historical render receipt's then-pending inspection field was not rewritten.
+
+Root evidence copies and verified external binary references are retained in
+`artifacts/goal-seventh-canvas-completion-intake-v1/intake.json`, SHA256
+`eff36d0b85ecdf09c72de5706acf9f0829ce89c0e67b387adb77d9f0d121d587`.
+The original owned Canvas failures and later owned 258-case pass remain separate
+history; this root 286-case result does not retroactively change them. Fresh
+root Quick/Full, whole-gallery comparison, native SwiftUI conformance, physical
+hardware frame budgets, hosted release success and clean-machine qualification
+remain outstanding. All nine original acceptance gates remain open.

@@ -3,6 +3,7 @@ import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsLayout
 import SwiftWindowsUI
+
 // Expose the original wrapper so both import paths resolve the same Binding
 // declaration, including in public generic signatures.
 @_exported import struct SwiftWindowsCore.Binding
@@ -1505,7 +1506,6 @@ public struct GraphicsContext {
     // MARK: Path / rect fill
 
     public mutating func fill(_ path: Path, with shading: Shading, style: FillStyle = FillStyle()) {
-        _ = style
         let transformed = transformedPath(path)
         underlying.fill(
             transformed,
@@ -1513,7 +1513,8 @@ public struct GraphicsContext {
                 opacity: currentOpacityMultiplier,
                 transform: transform,
                 preservesGradientGeometry: true
-            )
+            ),
+            style: style
         )
     }
 

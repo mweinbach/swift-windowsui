@@ -1199,6 +1199,14 @@ frame that the clip then discarded, and a finite-but-huge coordinate
 (`1e300`) trapped at `Int(_:)`; the row count now saturates via
 `GPUISceneValue.int` (`PathTessellationBudgetTests`).
 
+Both scanline loops iterate over that bounded row count and require `y + 1`
+to be finite and exactly one unit beyond `y` before sampling a row. Finite
+coordinates such as `1e19` cannot represent that step even with a small vertical
+extent. The helper discards any partial strips and leaves the whole path to
+the existing fallback and scene sanitation. It does not convert an absolute
+row origin to `Int` or extend the supported coordinate domain
+(`PathScanlineProgressTests`).
+
 Curves (`quadraticCurveTo`, `cubicCurveTo`, `arc`) inside stroked paths
 are adaptively subdivided into 16 line segments first. Each segment
 becomes a `QuadPrimitive`: axis-aligned segments emit unrotated quads
@@ -2353,10 +2361,35 @@ composite with a **single blend per pixel**. Four things that buys:
 - **SwiftUI fill semantics.** Every subpath is implicitly closed for
   filling (a three-point triangle without `.close` used to be *invisible*:
   most scanlines produced one crossing and the pairing loop discarded it)
-  but not for stroking, and the fill rule is **non-zero**, matching
-  SwiftUI and this stack's own `Path.contains(_:eoFill: false)`. Even-odd
-  filled a star or a figure-eight with holes its own hit testing called
-  solid.
+  but not for stroking. The default fill rule remains **non-zero**, matching
+  this stack's own `Path.contains(_:eoFill: false)`; the earlier unconditional
+  even-odd rule incorrectly punched holes in default self-overlapping fills.
+  Canvas's authored `FillStyle(eoFill:)` now travels through solid/gradient
+  operations into `PathPrimitive.fillRule`. The scanline coverage walk switches
+  to crossing parity only for an explicit even-odd fill. Stroke outline unions
+  remain non-zero. Copies, placement, replay, path-cache hashes and structural
+  comparisons preserve the rule, as do `FillPathCommand`, the scene bridge and
+  the legacy bitmap-degradation route. Simple even-odd footprints retain GPU
+  promotion; bounded topology checks keep self-intersections and uncertain
+  geometry on the existing cached coverage path. No GPU structured-buffer ABI, draw order,
+  antialiasing ramp or pixel tolerance changes. See
+  [Canvas fill rules](CanvasFillRules.md) for the promotion limits and the
+  separate unimplemented antialiasing/shape/clip semantics.
+- **Local retained shape fill rules.** When a public shape stores its authored
+  fill style on its background-path node, `ScenePainter` and the legacy frame
+  painter pass that node's `clipFillStyle.eoFill` to the existing path fill
+  rule; absent or false metadata remains non-zero. The rule is local to the
+  painted node, not inherited from an ancestor clip wrapper. Existing paint
+  invalidation and component reconciliation retain rule changes on reused
+  nodes. `ShapeFillRuleTests` covers public compound-shape pixels, inherited
+  foreground paint, direct inset builders, placement, rectangular clipping,
+  frame degradation and software-adapter cache alternation. Shape-path
+  gradients keep their existing first-stop fallback; strokes, promotion,
+  draw order, antialiasing and pixel tolerances are unchanged. Producer gaps
+  remain separate: `TrimmedShape` ignores stored fill/stroke fields, erased
+  inset shapes can style a padding root, and erased Arc styles can be
+  overwritten during layout. Those combinations, trim geometry and general
+  shape clipping are not qualified by this propagation.
 
 ## 8. Stress / robustness invariants
 

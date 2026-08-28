@@ -927,7 +927,8 @@ private struct RasterTarget {
 
         if fillGradient?.hasVisibleStops ?? (fillColor.alpha > 0) {
             var coverage = [Float](repeating: 0, count: bounds.width * bounds.height)
-            PathCoverageRasterizer.accumulate(edges: flattened.fillEdges, bounds: bounds, into: &coverage)
+            PathCoverageRasterizer.accumulate(
+                edges: flattened.fillEdges, bounds: bounds, fillRule: path.fillRule, into: &coverage)
             blendCoverage(coverage, bounds: bounds, color: fillColor, gradient: fillGradient, clip: clip)
         }
 

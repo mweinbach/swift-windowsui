@@ -6921,7 +6921,8 @@ public final class ViewNode {
                         FillPathCommand(
                             path: scaledPath,
                             color: resolvedBackgroundColor,
-                            clipRect: effectiveClipRect
+                            clipRect: effectiveClipRect,
+                            fillRule: clipFillStyle?.eoFill == true ? .evenOdd : .nonZero
                         )
                     )
                 )

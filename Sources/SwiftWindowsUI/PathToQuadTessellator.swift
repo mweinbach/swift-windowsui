@@ -1,5 +1,4 @@
 import Foundation
-
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 
@@ -98,6 +97,10 @@ enum PathToQuadTessellator {
         // self-intersecting or otherwise pathological paths still
         // fall through.
         if path.fillColor.alpha > 0, path.strokeColor.alpha == 0 || path.lineWidth <= 0 {
+            // These quad routes describe one contour. A close followed by
+            // more drawing, or a second move, must retain the full coverage
+            // path when its crossings decide an even-odd hole.
+            if path.fillRule == .evenOdd, !hasOneFillContour(path.elements) { return nil }
             if let rectQuads = rectFill(for: path) {
                 return Result(quads: rectQuads, residualPath: nil)
             }
@@ -107,6 +110,11 @@ enum PathToQuadTessellator {
             if let triQuads = triangleFill(for: path) {
                 return Result(quads: triQuads, residualPath: nil)
             }
+            // Equal turn signs alone do not prove a simple polygon: a
+            // pentagram passes that test. Keep bounded, provably simple
+            // straight polygons on the existing GPU routes; ambiguous curves
+            // and intersecting contours use the shared cached coverage path.
+            if path.fillRule == .evenOdd, !hasSimpleStraightFillBoundary(path.elements) { return nil }
             if let polyQuads = convexPolygonFill(for: path) {
                 return Result(quads: polyQuads, residualPath: nil)
             }
@@ -125,6 +133,69 @@ enum PathToQuadTessellator {
         }
 
         return nil
+    }
+
+    private static func hasOneFillContour(_ elements: [PathElement]) -> Bool {
+        guard case .moveTo? = elements.first else { return false }
+        for index in elements.indices {
+            switch elements[index] {
+            case .moveTo where index != elements.startIndex:
+                return false
+            case .close where index != elements.endIndex - 1:
+                return false
+            default:
+                break
+            }
+        }
+        return true
+    }
+
+    /// The proof budget is the existing ear-clip vertex limit. No topology
+    /// test may turn a large authored path into an unbounded pairwise walk.
+    private static func hasSimpleStraightFillBoundary(_ elements: [PathElement]) -> Bool {
+        guard elements.count <= maxEarClipVertices + 2 else { return false }
+        for element in elements {
+            switch element {
+            case .moveTo, .lineTo, .close:
+                break
+            case .quadraticCurveTo, .cubicCurveTo, .arc:
+                return false
+            }
+        }
+        guard let points = sampleClosedFillBoundary(elements: elements),
+            points.count >= 3, points.count <= maxEarClipVertices
+        else { return false }
+
+        func orientation(_ a: Point, _ b: Point, _ c: Point) -> Double {
+            (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+        }
+
+        for first in points.indices {
+            let a = points[first]
+            let b = points[(first + 1) % points.count]
+            guard a != b else { return false }
+            for second in (first + 1)..<points.count {
+                if second == first + 1 || (first == 0 && second == points.count - 1) { continue }
+                let c = points[second]
+                let d = points[(second + 1) % points.count]
+                if max(a.x, b.x) < min(c.x, d.x) || max(c.x, d.x) < min(a.x, b.x)
+                    || max(a.y, b.y) < min(c.y, d.y) || max(c.y, d.y) < min(a.y, b.y)
+                {
+                    continue
+                }
+                let abC = orientation(a, b, c)
+                let abD = orientation(a, b, d)
+                let cdA = orientation(c, d, a)
+                let cdB = orientation(c, d, b)
+                guard abC.isFinite, abD.isFinite, cdA.isFinite, cdB.isFinite else { return false }
+                if ((abC <= 0 && abD >= 0) || (abC >= 0 && abD <= 0))
+                    && ((cdA <= 0 && cdB >= 0) || (cdA >= 0 && cdB <= 0))
+                {
+                    return false
+                }
+            }
+        }
+        return true
     }
 
     /// Scanline-tessellates a triangle fill into a series of 1-pixel-tall
@@ -216,7 +287,8 @@ enum PathToQuadTessellator {
     /// One horizontal strip per row between the polygon's outermost edge
     /// crossings. Same budget rules as `scanlineFillTriangle`: an empty
     /// array for a fully-clipped or degenerate polygon, `nil` past the row
-    /// budget so the caller abandons GPU promotion for the whole path.
+    /// budget or when unit row steps are not representable so the caller
+    /// abandons GPU promotion for the whole path.
     private static func scanlineFillConvexPolygon(
         _ vertices: [Point], color: Color, clip: Rect?, clipCornerRadius: Double = 0
     ) -> [QuadPrimitive]? {
@@ -240,7 +312,9 @@ enum PathToQuadTessellator {
         var quads: [QuadPrimitive] = []
         quads.reserveCapacity(rowCount + 1)
         var y = minY
-        while y < maxY {
+        for _ in 0..<rowCount {
+            let nextY = y + 1
+            guard nextY.isFinite, nextY - y == 1 else { return nil }
             let scanY = y + 0.5
             var left = Double.infinity
             var right = -Double.infinity
@@ -258,7 +332,7 @@ enum PathToQuadTessellator {
                 quads.append(
                     quad(for: Rect(x: left, y: y, width: right - left, height: 1), color: color, clip: clip))
             }
-            y += 1
+            y = nextY
         }
         return quads
     }
@@ -496,9 +570,10 @@ enum PathToQuadTessellator {
     /// fan triangulation.
     ///
     /// Returns an empty array for a degenerate (zero-area, or entirely clipped
-    /// out) triangle, and `nil` when the triangle exceeds the row budget — in
-    /// which case the caller abandons GPU promotion for the whole path and
-    /// falls back to CPU rasterization.
+    /// out) triangle, and `nil` when the triangle exceeds the row budget or
+    /// cannot advance by representable unit row steps — in which case the
+    /// caller abandons GPU promotion for the whole path and falls back to CPU
+    /// rasterization.
     private static func scanlineFillTriangle(
         v0: Point, v1: Point, v2: Point, color: Color, clip: Rect?, clipCornerRadius: Double = 0
     ) -> [QuadPrimitive]? {
@@ -523,7 +598,9 @@ enum PathToQuadTessellator {
         var quads: [QuadPrimitive] = []
         quads.reserveCapacity(rowCount + 1)
         var y = minY
-        while y < maxY {
+        for _ in 0..<rowCount {
+            let nextY = y + 1
+            guard nextY.isFinite, nextY - y == 1 else { return nil }
             let scanY = y + 0.5
             var hits: [Double] = []
             for (a, b) in edges {
@@ -536,7 +613,7 @@ enum PathToQuadTessellator {
                 let rect = Rect(x: hits[0], y: y, width: hits[1] - hits[0], height: 1)
                 quads.append(quad(for: rect, color: color, clip: clip))
             }
-            y += 1
+            y = nextY
         }
         return quads
     }
@@ -618,6 +695,15 @@ enum PathToQuadTessellator {
         // The subpath starts on the top edge, just past the first corner.
         guard abs(start.y - rect.minY) < 0.001, abs(start.x - (cornerMinX)) < 0.001 else { return nil }
 
+        if path.fillRule == .evenOdd {
+            // Matching corner centres alone does not establish coverage:
+            // reordered or multi-turn arcs can change crossing parity. Only
+            // the canonical quarter-arc contour takes this special case.
+            var canonical = Path()
+            canonical.addRoundedRect(rect, cornerRadius: r)
+            guard elements.elementsEqual(canonical.elements.dropLast()) else { return nil }
+        }
+
         return [
             quad(
                 for: rect,
@@ -655,6 +741,7 @@ enum PathToQuadTessellator {
             points.removeLast()
         }
         guard points.count == 4 else { return nil }
+        if path.fillRule == .evenOdd, !hasSimpleStraightFillBoundary(path.elements) { return nil }
 
         let xs = points.map(\.x)
         let ys = points.map(\.y)

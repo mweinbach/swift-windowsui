@@ -1,5 +1,4 @@
 import Foundation
-
 import SwiftWindowsCore
 
 /// Frame-fallback path degradation (Phase 6 — frame fallback policy).
@@ -42,6 +41,7 @@ public enum FramePathDegradation {
                 if let bitmapCommand = degradedDrawBitmap(
                     path: fill.path,
                     fillColor: fill.color,
+                    fillRule: fill.fillRule,
                     strokeColor: .clear,
                     strokeStyle: StrokeStyle(lineWidth: 0),
                     clipRect: fill.clipRect,
@@ -54,6 +54,7 @@ public enum FramePathDegradation {
                 if let bitmapCommand = degradedDrawBitmap(
                     path: stroke.path,
                     fillColor: .clear,
+                    fillRule: .nonZero,
                     strokeColor: stroke.color,
                     strokeStyle: stroke.style,
                     clipRect: stroke.clipRect,
@@ -90,6 +91,7 @@ public enum FramePathDegradation {
     private static func degradedDrawBitmap(
         path: RenderPath,
         fillColor: Color,
+        fillRule: PathFillRule,
         strokeColor: Color,
         strokeStyle: StrokeStyle,
         clipRect: Rect?,
@@ -128,6 +130,7 @@ public enum FramePathDegradation {
             elements: elements,
             bounds: logicalBounds.scaled(by: scaleFactor),
             fillColor: fillColor,
+            fillRule: fillRule,
             strokeColor: strokeColor,
             lineWidth: lineWidth * scaleFactor,
             lineCap: strokeStyle.lineCap,

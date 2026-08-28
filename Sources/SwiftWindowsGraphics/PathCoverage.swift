@@ -46,9 +46,14 @@ enum PathCoverageRasterizer {
     /// for everything except a pathological axis-aligned half-pixel edge.
     static let subsamplesPerRow = 8
 
-    /// Accumulates the non-zero-winding coverage of `edges` into a
-    /// `bounds.width * bounds.height` buffer of `[0, 1]` values.
-    static func accumulate(edges: [CoverageEdge], bounds: PixelBounds, into coverage: inout [Float]) {
+    /// Accumulates coverage under the requested fill rule into a
+    /// `bounds.width * bounds.height` buffer of `[0, 1]` values. Callers that
+    /// build stroke outlines keep the default non-zero rule so overlapping
+    /// segments, joins and caps remain one filled union.
+    static func accumulate(
+        edges: [CoverageEdge], bounds: PixelBounds, fillRule: PathFillRule = .nonZero,
+        into coverage: inout [Float]
+    ) {
         let width = bounds.width
         let height = bounds.height
         guard width > 0, height > 0, !edges.isEmpty else { return }
@@ -118,11 +123,13 @@ enum PathCoverageRasterizer {
             let pixelRow = row / subsamples
             let rowOffset = pixelRow * width
             var winding: Double = 0
+            var parity = false
             var spanStart: Double = 0
             for crossing in crossings {
-                let wasInside = winding != 0
+                let wasInside = fillRule == .evenOdd ? parity : winding != 0
                 winding += crossing.winding
-                let isInside = winding != 0
+                parity.toggle()
+                let isInside = fillRule == .evenOdd ? parity : winding != 0
                 if !wasInside, isInside {
                     spanStart = crossing.x
                 } else if wasInside, !isInside {

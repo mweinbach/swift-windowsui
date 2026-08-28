@@ -168,6 +168,7 @@ extension GPUIScene {
                     },
                     bounds: cmd.path.segments.boundingRect ?? effectiveClip,
                     fillColor: cmd.color,
+                    fillRule: cmd.fillRule,
                     clipBounds: effectiveClip
                 )
                 self.addPath(path, toLayer: 0)

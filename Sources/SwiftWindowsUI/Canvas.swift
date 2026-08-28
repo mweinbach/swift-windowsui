@@ -18,6 +18,10 @@ public struct CanvasGraphicsContext {
     public enum Operation {
         case fillPath(RenderPath, Color)
         case fillPathGradient(RenderPath, LinearGradient, startPoint: Point?, endPoint: Point?)
+        // Keep the existing public case payloads as the non-zero spelling.
+        case fillPathWithRule(RenderPath, Color, fillRule: PathFillRule)
+        case fillPathGradientWithRule(
+            RenderPath, LinearGradient, startPoint: Point?, endPoint: Point?, fillRule: PathFillRule)
         case strokePath(RenderPath, Color, StrokeStyle)
         case strokePathGradient(RenderPath, LinearGradient, StrokeStyle, startPoint: Point?, endPoint: Point?)
         case fillRect(Rect, Color)
@@ -28,6 +32,15 @@ public struct CanvasGraphicsContext {
         case drawSymbol(CanvasSymbolSource, Rect, CGAffineTransform, Float)
         case pushClip(Rect)
         case popClip
+
+        var pathFillRule: PathFillRule {
+            switch self {
+            case .fillPathWithRule(_, _, let rule), .fillPathGradientWithRule(_, _, _, _, let rule):
+                return rule
+            default:
+                return .nonZero
+            }
+        }
     }
 
     /// Copies of a graphics context share a drawing destination, while each
@@ -46,16 +59,28 @@ public struct CanvasGraphicsContext {
 
     // MARK: - Path drawing
 
-    public mutating func fill(_ path: Path, with shading: Shading) {
+    /// Honors the fill rule for solid and gradient paths. The antialiasing
+    /// switch is not implemented; both rules retain the shared coverage ramp.
+    public mutating func fill(_ path: Path, with shading: Shading, style: FillStyle = FillStyle()) {
         let renderPath = path.asRenderPath()
+        let rule: PathFillRule = style.isEOFilled ? .evenOdd : .nonZero
         switch shading {
         case .color(let color):
-            record(.fillPath(renderPath, color))
+            record(
+                rule == .nonZero
+                    ? .fillPath(renderPath, color)
+                    : .fillPathWithRule(renderPath, color, fillRule: rule))
         case .gradient(let gradient):
-            record(.fillPathGradient(renderPath, gradient, startPoint: nil, endPoint: nil))
+            record(
+                rule == .nonZero
+                    ? .fillPathGradient(renderPath, gradient, startPoint: nil, endPoint: nil)
+                    : .fillPathGradientWithRule(renderPath, gradient, startPoint: nil, endPoint: nil, fillRule: rule))
         case .positionedGradient(let gradient, let startPoint, let endPoint):
             record(
-                .fillPathGradient(renderPath, gradient, startPoint: startPoint, endPoint: endPoint))
+                rule == .nonZero
+                    ? .fillPathGradient(renderPath, gradient, startPoint: startPoint, endPoint: endPoint)
+                    : .fillPathGradientWithRule(
+                        renderPath, gradient, startPoint: startPoint, endPoint: endPoint, fillRule: rule))
         }
     }
 
@@ -196,10 +221,16 @@ public struct CanvasGraphicsContext {
             switch operation {
             case .fillPath(let path, let color):
                 return .fillPath(path.scaled(to: pathScale), color)
+            case .fillPathWithRule(let path, let color, let rule):
+                return .fillPathWithRule(path.scaled(to: pathScale), color, fillRule: rule)
             case .fillPathGradient(let path, let gradient, let start, let end):
                 return .fillPathGradient(
                     path.scaled(to: pathScale), gradient,
                     startPoint: start?.scaled(by: factor), endPoint: end?.scaled(by: factor))
+            case .fillPathGradientWithRule(let path, let gradient, let start, let end, let rule):
+                return .fillPathGradientWithRule(
+                    path.scaled(to: pathScale), gradient,
+                    startPoint: start?.scaled(by: factor), endPoint: end?.scaled(by: factor), fillRule: rule)
             case .strokePath(let path, let color, let style):
                 return .strokePath(path.scaled(to: pathScale), color, Self.scaled(style, by: factor))
             case .strokePathGradient(let path, let gradient, let style, let start, let end):
@@ -319,7 +350,7 @@ extension CanvasGraphicsContext {
 
         for operation in operationsScaled(by: coordinateScale) {
             switch operation {
-            case .fillPath(let path, let color):
+            case .fillPath(let path, let color), .fillPathWithRule(let path, let color, _):
                 let effectiveColor = color.multipliedAlpha(by: opacity)
                 guard effectiveColor.alpha > 0 else { continue }
                 commands.append(
@@ -327,10 +358,12 @@ extension CanvasGraphicsContext {
                         FillPathCommand(
                             path: path.translated(by: origin),
                             color: effectiveColor,
-                            clipRect: currentClip
+                            clipRect: currentClip,
+                            fillRule: operation.pathFillRule
                         )))
 
-            case .fillPathGradient(let path, let gradient, _, _):
+            case .fillPathGradient(let path, let gradient, _, _),
+                .fillPathGradientWithRule(let path, let gradient, _, _, _):
                 // RenderFrame has no gradient-bearing path command. Preserve
                 // its documented first-stop fallback while the default scene
                 // path carries the complete retained gradient.
@@ -341,7 +374,8 @@ extension CanvasGraphicsContext {
                         FillPathCommand(
                             path: path.translated(by: origin),
                             color: effectiveColor,
-                            clipRect: currentClip
+                            clipRect: currentClip,
+                            fillRule: operation.pathFillRule
                         )))
 
             case .strokePath(let path, let color, let style):

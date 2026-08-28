@@ -115,6 +115,24 @@ limits still apply; this is not the completed product in `goal.md`.
 | `Canvas` + `GraphicsContext` | **Partial** | Scene-path drawing; `Path(_:)` / `Path(roundedRect:cornerRadius:)` / `Path(ellipseIn:)` build a fillable path without a `Shape`, and a convex fill is emitted as one unbroken span per row. Multistop linear-gradient path fills **and strokes** preserve authored stops, inset or diagonal endpoint vectors, and context transforms on the CPU and D3D11 scene paths; rectangle and rounded-rectangle gradient fills promote directly to instanced GPU quads while retaining diagonal/inset/transformed endpoints, rounded coverage, hard stops, transparency, and clips. Complex fills and gradient strokes retain the bounded cached CPU-path lane; the legacy `RenderFrame` fallback uses the first stop for gradient-shaded paths. Tagged `symbols:` resolve in the inherited environment and draw through scene-backed images; copied contexts share draw order with independent graphics state, and authored symbol affine placement is retained. See [Canvas symbols](CanvasSymbols.md) for bounds and unqualified native semantics. Full blend/filter/layer behavior, `withCGContext`, and radial/conic path gradients remain unsupported |
 | `ContentUnavailableView` | **Implemented** | Retained empty-state chrome |
 
+Canvas path fills honor the `FillStyle(eoFill:)` rule for solid and linear-gradient
+paint, including retained placement and legacy frame degradation. The
+`antialiased` flag and general shape/clip fill-style semantics remain incomplete;
+see [Canvas fill rules](CanvasFillRules.md) for GPU promotion, cache behavior and
+the precise limits.
+
+Public `Shape.fill(_:style:)` also preserves `eoFill` when the authored style
+is stored on the retained node that owns the background path: direct custom
+shapes, leaf `AnyShape` wrappers and direct inset builders use the same scene,
+CPU, cached D3D11 and legacy frame fill-rule routes. Ancestor `clipShape` style
+metadata does not override the child's fill rule. Shape-path gradients still
+use their existing first-stop color fallback; antialiasing is unchanged.
+Three producer defects remain open: `TrimmedShape` ignores its stored fill and
+stroke fields, `AnyShape(InsetShape(...)).fill(...)` styles the padding root
+instead of the path child, and `AnyShape(Arc(...)).fill(...)` can be overwritten
+by Arc layout. This fill-rule propagation does not qualify those combinations,
+general path clipping, trim geometry or native rendering parity.
+
 ### Controls — Implemented / Partial
 
 | API | Status | Notes |

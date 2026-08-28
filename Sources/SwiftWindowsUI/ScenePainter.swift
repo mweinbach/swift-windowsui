@@ -1162,6 +1162,7 @@ public enum ScenePainter {
                             },
                             bounds: localBounds,
                             fillColor: bg,
+                            fillRule: node.clipFillStyle?.eoFill == true ? .evenOdd : .nonZero,
                             clipBounds: effectiveClipRect,
                             clipCornerRadius: effectiveClip.resolvedCornerRadius(forQuadRect: pathBounds)
                         ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
@@ -3414,7 +3415,7 @@ public enum ScenePainter {
         }
 
         switch operation {
-        case .fillPath(let path, let color):
+        case .fillPath(let path, let color), .fillPathWithRule(let path, let color, _):
             let effectiveColor = color.multipliedAlpha(by: opacity)
             guard effectiveColor.alpha > 0 else { return }
             let translated = path.translated(by: origin)
@@ -3425,12 +3426,14 @@ public enum ScenePainter {
                     elements: pathElements(from: translated.segments),
                     bounds: bounds,
                     fillColor: effectiveColor,
+                    fillRule: operation.pathFillRule,
                     clipBounds: currentClip,
                     clipCornerRadius: clipRadius(bounds)
                 ), into: &scene, layerIndex: layerIndex, displayScale: displayScale,
                 placement: placement)
 
-        case .fillPathGradient(let path, let gradient, let startPoint, let endPoint):
+        case .fillPathGradient(let path, let gradient, let startPoint, let endPoint),
+            .fillPathGradientWithRule(let path, let gradient, let startPoint, let endPoint, _):
             guard opacity > 0, gradient.stops.contains(where: { $0.color.alpha > 0 }) else {
                 return
             }
@@ -3443,6 +3446,7 @@ public enum ScenePainter {
                 bounds: bounds,
                 fillColor: effectiveGradient.startColor,
                 fillGradient: effectiveGradient,
+                fillRule: operation.pathFillRule,
                 clipBounds: currentClip,
                 clipCornerRadius: clipRadius(bounds)
             )

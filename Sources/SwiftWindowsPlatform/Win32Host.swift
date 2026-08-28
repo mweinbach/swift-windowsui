@@ -1,3 +1,4 @@
+import CUIAInterop
 import SwiftWindowsCore
 import Synchronization
 import WinSDK
@@ -521,6 +522,24 @@ public final class Win32Window: PlatformWindow {
     /// technology.
     public var accessibilityProvider: (any Win32WindowAccessibilityProvider)?
 
+    /// Per-window native boundaries keep destruction/reentry fixtures local.
+    /// A cleanup request has no success result: the documented native call
+    /// returns zero even when it releases raised-event-map references.
+    package var requestUIAEventMapCleanup: @MainActor (HWND) -> Void = { handle in
+        _ = SWU_UIAReturnRawElementProvider(UnsafeMutableRawPointer(handle), 0, 0, nil)
+    }
+    package var accessibilityDefaultGetObject: @MainActor (HWND?, WPARAM, LPARAM) -> LRESULT = {
+        handle, wParam, lParam in
+        DefWindowProcW(handle, UINT(WM_GETOBJECT), wParam, lParam)
+    }
+
+    /// Consumed by the next create call, then bound only to its admitted
+    /// lifetime. Returning zero from that owned WM_NCCREATE exercises the
+    /// real native NCDESTROY-only creation-failure path without fake messages.
+    package var rejectNextNativeCreationForTesting = false
+    private var rejectedNativeCreationLifetime: Win32CloseLifetime?
+    private var accessibilityCleanupLifetime: Win32CloseLifetime?
+
     /// When true (the default), `WM_DESTROY` posts `PostQuitMessage`,
     /// preserving the historical single-window quit behavior. Multi-window
     /// coordinators set this to false and post the quit message themselves
@@ -635,6 +654,10 @@ public final class Win32Window: PlatformWindow {
     /// Whether this window still owns the `+1` its `GWLP_USERDATA` self
     /// reference took at creation. Released exactly once, in `WM_NCDESTROY`.
     private var ownsRetainedSelfReference = false
+    /// An inner native destruction can consume that reference while an outer
+    /// NC dispatch is still unwinding. Keep recreation closed through the
+    /// outer thunk's ownership release, not just through its message handler.
+    private var isHandlingNonClientDestruction = false
     internal var testScaleFactorOverride: Double?
     internal var testMonitorRefreshRateOverride: UINT? {
         didSet {
@@ -1038,15 +1061,22 @@ public final class Win32Window: PlatformWindow {
     }
 
     public func create() throws {
-        guard hwnd == nil else {
+        let rejectsNativeCreation = rejectNextNativeCreationForTesting
+        rejectNextNativeCreationForTesting = false
+        // During early creation and NC teardown, the native backpointer can
+        // still own this object while the published handle is nil. A native
+        // cleanup call may reenter; it must not create a replacement there.
+        guard hwnd == nil, !ownsRetainedSelfReference, !isHandlingNonClientDestruction else {
             return
         }
 
         hasDeliveredWillClose = false
         windowLifetimeGeneration &+= 1
         let closeLifetime = closeControl.beginLifetime(generation: windowLifetimeGeneration)
+        if rejectsNativeCreation { rejectedNativeCreationLifetime = closeLifetime }
         var finishedNativeCreation = false
         defer {
+            if rejectedNativeCreationLifetime === closeLifetime { rejectedNativeCreationLifetime = nil }
             if !finishedNativeCreation { closeControl.creationFailed(closeLifetime) }
         }
 
@@ -1922,18 +1952,57 @@ public final class Win32Window: PlatformWindow {
 
     // MARK: - Message handling
 
+    /// An early creation failure has no published handle or live close ticket.
+    /// Its retained native backpointer and exact lifetime still own cleanup.
+    private func ownsAccessibilityWindow(_ handle: HWND?, lifetime: Win32CloseLifetime) -> Bool {
+        guard let handle, closeControl.lifetime === lifetime, ownsRetainedSelfReference,
+            hwnd == nil || hwnd == handle,
+            lifetime.handle == nil || lifetime.handle == UInt(bitPattern: handle)
+        else { return false }
+        let expected = LONG_PTR(Int(bitPattern: Unmanaged.passUnretained(self).toOpaque()))
+        return GetWindowLongPtrW(handle, GWLP_USERDATA) == expected
+    }
+
+    private func permitsAccessibilityGetObject(_ handle: HWND?, lifetime: Win32CloseLifetime) -> Bool {
+        !hasDeliveredWillClose && !lifetime.destructionStarted && !lifetime.destructionCompleted
+            && !lifetime.creationFailed && accessibilityCleanupLifetime !== lifetime
+            && ownsAccessibilityWindow(handle, lifetime: lifetime)
+    }
+
+    private func requestAccessibilityCleanup(_ handle: HWND?, lifetime: Win32CloseLifetime?) {
+        guard let lifetime, let handle, accessibilityCleanupLifetime !== lifetime,
+            ownsAccessibilityWindow(handle, lifetime: lifetime)
+        else { return }
+        // Claim at the last callback-free boundary, after ordinary teardown.
+        // A native release may reenter this HWND. Do not write cleanup state
+        // after the call, since the old lifetime may no longer be current.
+        accessibilityCleanupLifetime = lifetime
+        requestUIAEventMapCleanup(handle)
+    }
+
     private func handleMessage(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT {
         switch message {
+        case UINT(WM_NCCREATE):
+            if let lifetime = closeControl.lifetime, rejectedNativeCreationLifetime === lifetime,
+                ownsAccessibilityWindow(hwnd, lifetime: lifetime)
+            {
+                rejectedNativeCreationLifetime = nil
+                return 0
+            }
+            return DefWindowProcW(hwnd, message, wParam, lParam)
+
         case UINT(WM_ERASEBKGND):
             return 1
 
         case UINT(WM_GETOBJECT):
-            if let provider = accessibilityProvider,
-                let result = provider.handleAccessibilityGetObject(hwnd: hwnd, wParam: wParam, lParam: lParam)
-            {
-                return result
+            guard let lifetime = closeControl.lifetime, permitsAccessibilityGetObject(hwnd, lifetime: lifetime) else {
+                return 0
             }
-            return DefWindowProcW(hwnd, message, wParam, lParam)
+            let result = accessibilityProvider?.handleAccessibilityGetObject(hwnd: hwnd, wParam: wParam, lParam: lParam)
+            guard permitsAccessibilityGetObject(hwnd, lifetime: lifetime) else { return 0 }
+            if let result { return result }
+            let defaultResult = accessibilityDefaultGetObject(hwnd, wParam, lParam)
+            return permitsAccessibilityGetObject(hwnd, lifetime: lifetime) ? defaultResult : 0
 
         case UINT(WM_SIZE):
             // The cache always mirrors the OS. Skipping it while minimized
@@ -2278,13 +2347,15 @@ public final class Win32Window: PlatformWindow {
 
         case UINT(WM_DESTROY):
             guard !hasDeliveredWillClose else { return 0 }
+            let closeLifetime = closeControl.lifetime
             let workPin = closeControl.pinDeferredWork()
             defer { withExtendedLifetime(workPin) {} }
             hasDeliveredWillClose = true
-            if let lifetime = closeControl.lifetime { closeControl.beginDestruction(lifetime) }
+            if let closeLifetime { closeControl.beginDestruction(closeLifetime) }
             setAnimationTimerEnabled(false)
             cancelCloseWatchdogIfNeeded()
             delegate?.windowWillClose(self)
+            requestAccessibilityCleanup(hwnd, lifetime: closeLifetime)
             if postsQuitMessageOnDestroy {
                 PostQuitMessage(0)
             }
@@ -2299,13 +2370,19 @@ public final class Win32Window: PlatformWindow {
             // of the self reference happens in `windowProc`, after this frame
             // has returned.
             let closeLifetime = closeControl.lifetime
+            // Failed WM_NCCREATE can reach only this destruction message.
+            // Normal teardown already claimed cleanup after windowWillClose.
+            requestAccessibilityCleanup(hwnd, lifetime: closeLifetime)
+            guard let closeLifetime, ownsAccessibilityWindow(hwnd, lifetime: closeLifetime) else { return 0 }
             let result = DefWindowProcW(hwnd, message, wParam, lParam)
+            guard ownsAccessibilityWindow(hwnd, lifetime: closeLifetime) else { return result }
             setAnimationTimerEnabled(false)
+            guard ownsAccessibilityWindow(hwnd, lifetime: closeLifetime) else { return result }
             if let hwnd {
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0)
             }
             self.hwnd = nil
-            if let closeLifetime { closeControl.completeDestruction(closeLifetime) }
+            closeControl.completeDestruction(closeLifetime)
             return result
 
         case UINT(WM_DROPFILES):
@@ -2655,6 +2732,15 @@ public final class Win32Window: PlatformWindow {
 
     private static let windowProc: WNDPROC = {
         (hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT in
+        var nonClientDestructionWindow: Win32Window?
+        var wasHandlingNonClientDestruction = false
+        defer {
+            if let window = nonClientDestructionWindow {
+                MainActor.assumeIsolated {
+                    window.isHandlingNonClientDestruction = wasHandlingNonClientDestruction
+                }
+            }
+        }
         return Win32DispatchScope.withWindowDispatch {
             if message == UINT(WM_NCCREATE) {
                 let createStructure = UnsafeMutableRawPointer(bitPattern: Int(lParam))?.assumingMemoryBound(
@@ -2671,12 +2757,18 @@ public final class Win32Window: PlatformWindow {
                 let unmanaged = Unmanaged<Win32Window>.fromOpaque(rawSelf)
                 let window = unmanaged.takeUnretainedValue()
                 return withExtendedLifetime(window) {
+                    let isNonClientDestruction = message == UINT(WM_NCDESTROY)
+                    if isNonClientDestruction {
+                        wasHandlingNonClientDestruction = window.isHandlingNonClientDestruction
+                        nonClientDestructionWindow = window
+                        window.isHandlingNonClientDestruction = true
+                    }
                     let result = window.handleMessage(hwnd: hwnd, message: message, wParam: wParam, lParam: lParam)
 
                     // WM_CLOSE can destroy the HWND synchronously. Keep the Swift
                     // window alive until every enclosing wndproc frame returns,
                     // even when the coordinator drops it during WM_DESTROY.
-                    if message == UINT(WM_NCDESTROY), window.consumeRetainedSelfReferenceOwnership() {
+                    if isNonClientDestruction, window.consumeRetainedSelfReferenceOwnership() {
                         unmanaged.release()
                     }
 

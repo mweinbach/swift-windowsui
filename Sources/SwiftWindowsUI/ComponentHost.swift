@@ -1347,6 +1347,9 @@ public final class ComponentHost {
             target.scrollSizeChangeAnchor = source.scrollSizeChangeAnchor
         }
         if target.isFocusable != source.isFocusable { target.isFocusable = source.isFocusable }
+        // Positional reuse can turn a caret into a label or vice versa.
+        // The marker belongs to the incoming chrome, not the retained slot.
+        if target.isTextInputCaret != source.isTextInputCaret { target.isTextInputCaret = source.isTextInputCaret }
         if target.isHitTestVisible != source.isHitTestVisible { target.isHitTestVisible = source.isHitTestVisible }
         if target.allowsAutomaticWindowDecorations != source.allowsAutomaticWindowDecorations {
             target.allowsAutomaticWindowDecorations = source.allowsAutomaticWindowDecorations

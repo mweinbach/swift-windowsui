@@ -849,7 +849,10 @@ void SWU_UIAReleaseProvider(void *provider) {
 }
 
 intptr_t SWU_UIAReturnRawElementProvider(void *hwnd, uintptr_t wParam, intptr_t lParam, void *provider) {
-    if (provider == nullptr) return 0;
+    if (provider == nullptr) {
+        if (hwnd == nullptr || wParam != 0 || lParam != 0) return 0;
+        return static_cast<intptr_t>(UiaReturnRawElementProvider(static_cast<HWND>(hwnd), 0, 0, nullptr));
+    }
     COMCallPin pin(asSimple(provider));
     if (!asProvider(provider)->isAvailable()) return 0;
     // This call borrows the provider. The temporary reference is balanced even

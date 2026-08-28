@@ -357,6 +357,24 @@ public enum AccessibilityProjection {
         AccessibilityActionScope(root: runtime.root, runtime: runtime).invokeDefaultAction(on: node, intent: intent)
     }
 
+    /// A mutating scroll request resolves the original attachment, not a
+    /// replacement with the same identifier. Synthetic representation nodes
+    /// have no physical scroll owner and cannot qualify through this route.
+    package static func mutationElement(
+        for target: RetainedAccessibilityTarget, in runtime: RetainedViewRuntime,
+        during mutation: RetainedAccessibilityMutation, resolvingLayout: Bool
+    ) -> AccessibilityElementProjection? {
+        guard runtime.isAccessibilityTargetCurrent(target, during: mutation),
+            !resolvingLayout || runtime.prepareAccessibilityMutation(mutation),
+            runtime.isAccessibilityTargetCurrent(target, during: mutation),
+            case .settled = runtime.layoutSettlementStatus, runtime.hasCurrentAccessibilityPrepaint,
+            let node = target.node,
+            let element = project(runtime: runtime)?.flattened().first(where: { $0.sourceNode === node }),
+            element.isEnabled, element.permitsModalActions
+        else { return nil }
+        return element
+    }
+
     // MARK: - Trait → control type mapping table
     //
     // First match wins, in the order listed. Traits not listed here have no

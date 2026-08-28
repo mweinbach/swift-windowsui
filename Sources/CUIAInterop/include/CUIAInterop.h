@@ -155,6 +155,9 @@ void SWU_UIAAddRefProvider(void *provider);
 void SWU_UIAReleaseProvider(void *provider);
 
 // UIA entry points (wrap uiautomationcore.lib).
+// A non-null HWND with zero parameters and a null provider forwards the
+// documented window raised-event-map cleanup request. Its zero return is not
+// a success report. Other null-provider inputs remain no-ops.
 intptr_t SWU_UIAReturnRawElementProvider(void *hwnd, uintptr_t wParam, intptr_t lParam, void *provider);
 int SWU_UIAClientsAreListening(void);
 void SWU_UIARaiseAutomationFocusChanged(void *provider);

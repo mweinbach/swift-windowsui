@@ -96,10 +96,60 @@ Narrator behavior. It does not change the runtime projection's modal or command
 admission policy. Native UIA may retain an inert provider after disconnect
 failure; that retained object must not retain the bridge, host, or runtime.
 
-The existing null-provider shortcut in `SWU_UIAReturnRawElementProvider` is
-unchanged. It does not forward Windows' documented `WM_DESTROY` event-map
-cleanup call with a null provider. That native cleanup remains separate from
-the shared context's local revocation and memory safety.
+An owned `Win32Window` also requests Windows' raised-event-map cleanup with
+`UiaReturnRawElementProvider(hwnd, 0, 0, NULL)`. The C wrapper forwards exactly
+that null-provider shape when the HWND is non-null; other null-provider inputs
+remain no-ops. Its non-null-provider path and public C signature are unchanged.
+The documented return is zero, not an HRESULT or proof that any particular
+provider reference was released. [Microsoft's cleanup contract](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationcoreapi/nf-uiautomationcoreapi-uiareturnrawelementprovider)
+
+The normal request follows `windowWillClose` in `WM_DESTROY`, before the
+existing optional quit message. `WM_NCDESTROY` provides a fallback before the
+default procedure and backpointer removal. Cleanup does not depend on a current
+provider, a listening client, or an already-published live handle: partial
+creation can own an HWND while `nativeHandle` is still nil. Admission checks
+the captured close-lifetime identity, the incoming HWND, the retained native
+ownership, and its exact backpointer. It claims that lifetime immediately
+before the native request and performs no cleanup-state writes afterward.
+The normal and fallback routes therefore share one request per owned lifetime,
+including native reentry and recreation of the same Swift window object.
+
+`WM_GETOBJECT` rejects destruction before invoking a provider, then rechecks
+the same lifetime and ownership after provider and default-procedure callbacks.
+A nil provider result cannot fall through on a destroyed or replaced HWND.
+The claim also prevents publication during an NC-only fallback. `create()`
+rejects reentry while the native retained-self ownership is outstanding, even
+when the published handle is nil. No outbound COM cleanup was added to a
+destructor, and these HWND rules do not replace a bridge's sticky local
+revocation or change the existing main-thread callback dispatch.
+
+Native destruction can recurse. A saved and restored NC-dispatch scope also
+blocks recreation through the outer window-procedure thunk's retained-self
+release and dispatch-exit completion callbacks, even if an inner destruction
+already consumed that reference. A scoped strong window pin and the guard end
+only after the existing dispatch scope returns. This denies recreation of the
+same `Win32Window` during its teardown; unrelated windows remain independent.
+The NC handler rechecks exact ownership after each cleanup/default-procedure
+or timer-stop boundary before touching a potentially replaced HWND. This is
+a per-window synchronous scope, not a new queue or dispatch mechanism.
+[Microsoft's recursive destruction example](https://devblogs.microsoft.com/oldnewthing/20050727-16/?p=34793).
+
+`Win32UIAWindowCleanupTests` uses per-window cleanup and `WM_GETOBJECT` default
+procedure adapters. A one-shot package creation-rejection flag is consumed by
+the next `create()` call and bound to its admitted lifetime; it cannot carry
+over from a failed attempt. The owned `WM_NCCREATE` handler can then reject
+that attempt after the backpointer is installed. Microsoft documents that
+this produces a real `WM_NCDESTROY` without `WM_DESTROY`. The fixtures do not
+send synthetic destruction messages or show their owned windows.
+[Creation/destruction ordering](https://devblogs.microsoft.com/oldnewthing/20050726-00/?p=34803),
+[WM_NCCREATE result contract](https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-nccreate).
+
+The authored fixtures distinguish cleanup-request ordering from native map
+release. An injected recorder proves the requested HWND and call count, not
+that the C wrapper reached Windows or that a real accessibility client released
+its references. Actual creation-failure message ordering, map-reference release,
+and real Narrator behavior require separate execution evidence; source review,
+contracts, and formatting do not establish those outcomes.
 
 The relevant external contracts are Microsoft's
 [static QueryInterface rules](https://learn.microsoft.com/en-us/windows/win32/com/rules-for-implementing-queryinterface),

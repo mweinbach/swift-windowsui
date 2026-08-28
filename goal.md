@@ -4812,3 +4812,432 @@ sparkle remains vector output. No loaded-font-byte identity, successful native
 V2 collection, clean native closure, hosted result, macOS parity, or final
 visual qualification follows from this parser fix. Combined root Full/Quick
 validation and all nine original product gates remain required and unchanged.
+
+### 2026-08-28 seventh batch: composed accessibility source, first root failure, and exact hosted c7 audit
+
+This entry adds evidence to the existing acceptance criteria; it closes none of
+the nine original gates. The root accessibility composition is still staged,
+not qualified for a passing commit or push. Its failed run is preserved below
+and must not be replaced by a later successful correction.
+
+The 29-path accessibility composition applies the previously reviewed cleanup,
+focus, Realize, atomic text replacement, value adapter, field-chrome, and caret
+corrections. The frozen combined patch has SHA256
+`5cd59016b385fbd516eaff042232d5a0d4067926aac9d0b366634bcff363fcaf`;
+its source manifest and seal have SHA256
+`39cee8b6d477f1e13bdd24e4b441221bff5d8e17e0d4b58c6ffe0d35998588ee`
+and `f9d3237a1b0e3974d1c7d6c2f83bfaff4ed1d6592ef04c67db24ad7835041d8e`.
+Root verified and copied all 74 manifest members, plus the manifest and seal,
+under `artifacts/goal-seventh-uia-intake-v1/final-source-packet`.
+The source composition adds 156 test methods; prior 169-case and separate
+18-case cleanup results remain results for their older owned trees.
+
+The root at HEAD `11d02b18e587640790f4d8d3ce3273cac6c90d58` applied that
+source to staged tree `06accadc1e5f99817109258546403b6082ec14b5`.
+Root contracts and strict formatting of all 20 changed Swift files passed with
+actual PS5 exit 0, PID 59044, in 12.625 seconds. The raw static log has SHA256
+`b67701706142289b5dad6b16e6f76ac6975ed4018da1017f8a741b393edde507`.
+These static checks did not establish runtime correctness.
+
+The frozen focused plan has SHA256
+`efe57427bf89b77c125c92593fac0a7f5ddfb382a3d6624edb1b2226b6e604a0`.
+It selects 1,240 methods through 69 stock shards, including eight explicit
+Geometry collateral methods, then three separately anchored legacy methods
+without `-Sharded`: 1,243 unique planned methods. Current generated discovery
+contains all 1,243 exactly once, within 5,240 XCTest registrations (5,223 Core
+and 17 Portable). This is not a claim that all registered tests executed.
+
+The first root run, `artifacts/goal-seventh-uia-root-main-v1`, stopped at shard
+43/69 with actual PS5 and wrapper exit 1. PID 59420 was observed launched at
+19:54:00.295294Z; its final receipt was written at 20:01:27.980614Z. The first
+build completed in 332.35 seconds. All 43 invoked shards retained their normal
+SwiftPM build checks. There were 789 distinct starts and terminals: 788 passes,
+one failure, zero skips, and no duplicate, extra, or incomplete case events.
+The remaining 451 main methods and all three legacy methods were unrun.
+
+The unchanged existing test
+`UIAAdvancedPatternTests.testRealTextFieldValuePatternMutatesBindingWithoutExposingSecureField`
+failed at line 424: the binding accepted `Grace 東京`, but an immediate real COM
+Value-pattern read returned `Ada`. Source tracing confirms that the old adapter
+published the retained accessibility value after editing; the new atomic path
+omitted that publication. This legitimate no-op-invalidation fixture exposes
+stale retained metadata, not an obsolete test expectation or a COM cache that
+can be repaired by adding a render to the test. A narrowly scoped production
+correction and additional regressions are being prepared; none has run yet.
+
+The failed raw log is 1,524,365 bytes, SHA256
+`091bc82806e31497b82fd7eee68114d7d4b04461cf0746e8aa5c734893f10e0c`.
+Its exit receipt has SHA256
+`510786c608735ee32c879233c0430ca84e60d54732a5ab2264504ab601cf44f8`.
+Independent partial audit SHA256
+`7cf128f67a07ae0fad07a814ab8152e6da0f5b6f42e8d6c8b879b10ee464e4d8`
+reconciles the generated catalog, exact filters and case events. Root reverified
+and copied its nine sealed members to
+`artifacts/goal-seventh-uia-intake-v1/first-root-failure`.
+All 771 tracked regular inputs, gitlink OIDs, status, staged tree and index bytes
+were preserved. The process exited naturally without timeout, termination or
+capture error; complete descendant closure remains unclaimed. No legacy test
+run, automatic retry, assertion weakening, Full/Quick pass, native Narrator
+qualification or push follows from this failed attempt.
+
+The completed hosted audit is separately bound to GitHub Actions run
+`33195239563`, attempt 1, Full job `98930667586`, at exact pushed commit
+`c7e7987b4eb94becabee51b816ef60116069d838`. That run failed. Contracts passed;
+the Full step ran 17:36:14Z through 18:41:47Z; Quick was skipped. Successful
+artifact and advisory diagnostic steps do not turn the Full result into a pass.
+
+Its gallery report records 85 comparisons: 18 pass and 67 fail, all with numeric
+pixel-comparison results rather than missing-image or size-mismatch errors.
+All 67 exceed the maximum channel delta; 20 also exceed changed percentage.
+Thresholds remain 0.5 percent, channel tolerance 8, and maximum delta 64.
+These are verified producer-report counts, not an independent pixel rerender.
+The exact 1,084,450-byte artifact has SHA256
+`dd3cbd8a36145066184489ff04da84ea99981e65fc4e49e56296690826dd2dce`;
+its ordinary report has SHA256
+`344b78aaf8ae586eba48721dbbdeb9e2b9e7bf03f8ebae5cc1f14044636c5bae`.
+
+Saved observations establish actual font-environment differences: the hosted
+queries lack the three Segoe UI Variable families and Segoe Fluent Icons that
+the local Full profile reports present. Selected hosted bitmap symbols use
+Segoe MDL2 Assets where local V1 observes Segoe Fluent Icons. Saved disk versions
+and hashes of classic Segoe UI and MDL2 also differ. These observations do not
+establish the cause of every pixel mismatch, the bytes consumed by rasterization,
+general text glyph ownership, or historical baseline font identity. No font was
+copied, installed or downloaded, and no baseline or tolerance was changed.
+
+The exact workflow supplied no aggregate XCTest/JUnit summary in the audited
+artifacts. Current hosted XCTest counts and skips therefore remain unknown;
+earlier runs' counts cannot fill that gap. The audit's digest-verified transfer
+completed with HTTPS 200 and zero redirects; its documented blocking-transport
+and incomplete archive-payload-verification limits remain explicit.
+Root verified and copied all 20 audit members and manifest to
+`artifacts/goal-seventh-hosted-c7-audit-intake-v1/packet`; manifest SHA256 is
+`86f8185b5dd61eac10fcd52a7ee51ab4eebee8c35c24ce3c0d540a664650c4c7`.
+The historical local native font failure and cleanup flag remain unchanged.
+Exact release-commit CI, visual, runtime and native acceptance remain required.
+
+### Seventh batch: second UIA failure and qualified isolated Canvas tests
+
+The original sections 1 through 9, their nine unchecked completion gates, and
+all prior evidence remain unchanged. This entry records a second failed root
+UIA attempt and a successful, separately scoped Canvas attempt. Neither is a
+Full, Quick, release-commit, hardware, native-client, or clean-machine pass.
+
+The root first applied the separately reviewed accessibility-value publication
+increment, patch SHA256
+`2137bc8a989e2e980009f451b1f05a8096b98da20e23b210f72aca9c428aadfb`.
+It changes five production lines, adds eight async regression methods, and adds
+adapter documentation. The original failing UIAAdvancedPatternTests method is
+unchanged. Root verified and copied 30 source-packet members and preserved 769
+other previously tracked inputs. With the existing ledger included, the staged
+tree became `8d896c668e80dbbf9ef5e08a6b355ad454b133ab` at committed HEAD
+`11d02b18e587640790f4d8d3ce3273cac6c90d58`. Before/after contracts and strict lint
+on the two changed Swift paths passed; the postcheck used PS5 PID 45572, natural
+exit 0, 7.031 seconds, with source/index bytes unchanged. These static checks did
+not qualify execution.
+
+The corrected selection retained all previous planned cases and added those
+eight methods: 1,248 main cases across 70 stock shards plus three separately
+selected, nonsharded legacy methods. The exact plan has SHA256
+`94387480d25da3b70bad6b8949a33007ea26883fd606b3ccf66eda52afcf4d95`.
+Root invoked the unchanged bounded 885290 runner, with the ordinary stock
+incremental build check on each shard, as `goal-seventh-uia-root-main-v2`.
+Its retained PS5 child PID 52544 was observed at 20:39:12.543810Z and the failed
+exit receipt was completed at 20:45:34.126665Z on 2026-08-28. The actual child,
+runner and observed outer tool exited 1 naturally. There was no timeout,
+termination, capture error or outstanding operator-cleanup flag. Tracked source,
+staged tree, real index bytes, status and gitlink IDs were preserved; descendant
+closure remains unverified rather than inferred from that parent exit.
+
+The run stopped at shard 53 of 70. Independent exact-ID accounting found 945
+distinct starts and terminals: 944 passed, one failed, none skipped, duplicated,
+unexpected or incomplete. Another 303 main cases and all three legacy cases were
+unrun. The generated XCTest registry contains 5,231 core and 17 portable cases;
+all 1,251 selected methods occur once, with 1,243 async and eight synchronous
+entries. Generated registration is not execution of the unrun cases.
+
+The original stale-readback method now passed. Of the eight new publication
+methods, seven passed. Only
+`UIAValuePublicationTests.testRawControlsPublishUnicodeEqualAndEmptyValuesForImmediateCOMReadback`
+failed, producing eleven assertion diagnostics. Its second and fourth SetValue
+calls were refused before the expected setter and invalidation, although stored
+metadata, actual text and immediate readback assertions passed. The sequence
+remains Unicode, equal Unicode, empty, equal empty; all four expected accepted
+writes remain unchanged. The existing capability and prior adapter tests require
+same-value writes, so refusal is not reclassified as the desired behavior.
+
+Read-only tracing identifies a concrete Field chrome/layout candidate: raw
+no-op binding invalidation retains old field chrome; COM value snapshots read
+stored projection rather than settling layout. The next checked focus query can
+replace field children during its layout pass, leaving no unmutated settlement
+proof and refusing the edit. The raw run did not label which control iteration
+failed, so this attribution is source inference, not a sampled runtime branch.
+A separate current-owner, weak after-layout correction is being prepared. It
+must preserve the existing focus/settlement guards, incoming-field one-pass
+tests and every accepted-write assertion. No extra test render or synchronous
+getter at atomic completion is an acceptable substitute.
+
+The 335,975-byte failed raw log has SHA256
+`86354231e91f09c42a418b1aafb29cc82028e21a4b21505079e9f4fd6e00f91b`.
+The independent audit has SHA256
+`bfd1e7dd6efca0301c3b3a69db3384a824043a2c4737c4ff2bacbd57dcaa9f6a`
+and its seal has SHA256
+`d52bf193fb538b9ba55ee4569955704811b5342595eabfce29abe4eef44afe3b`.
+Root copied the closed audit and raw/generated evidence to
+`artifacts/goal-seventh-followup-evidence-intake-v1/uia-failed-root-v2`.
+The fresh legacy runner remains blocked and unexecuted; the first root failure,
+both source versions and both plans remain available without replacement.
+
+Separately, the frozen Canvas even-odd slice at tree
+`bce841e7b9ad8b4765e5af44947ed3c805bad36b`, based on `49c50c8`, completed
+its selected isolated execution. Source patch SHA256 is
+`3f0f5602f55e75e99eeee62d3bd3e8e515db3c4816a6ebe3f5dcdb85244aabb3`.
+Its first attempt still records a successful 569.203-second build followed by
+a failed listing with unknown direct native exit, empty output and outer exit
+96; no test partitions ran in that attempt. This history was not relabeled.
+
+The approved second phase reused those exact ten built-product pins, without a
+standalone rebuild. Its tiny direct-process bootstrap successfully listed the
+compiled Swift Testing methods: native PID 50632, actual native exit 0, 3.828
+seconds within the 60-second listing envelope. Session 60705 and the controller
+exited 0. Admission, thirteen serial nonsharded stock test calls, and final input
+preservation took 191.094 seconds within the 900-second workload budget. Final
+artifact sealing is separately labeled outside that quiescent workload budget.
+
+Independent raw lifecycle accounting establishes 227 XCTest and 31 Swift Testing
+methods, each started and passed exactly once, without skipped, failed, missing,
+duplicate or extra cases. All 53 new methods passed. Both WARP comparisons ran
+with an asserted software adapter and unchanged pixel tolerance 4, match ratio
+greater than 0.995 and alpha accuracy 1. The fourteen required listing/test
+stages had natural-zero direct leaf, environment-wrapper and outer exits,
+complete captures, empty owned Jobs and no intervention. Sampled descendant
+records still include two test-product exits 1168, cmd/reg exits 1 and unknown
+images; their exact roles were not captured and no all-descendants-zero or
+complete execution-history claim is made.
+
+All 148 result members, 82 proposal payloads, 746 source inputs, 217 tool pins,
+five metadata pins, 150 source-freeze pins, 106 historical pins and ten product
+pins were independently checked unchanged. The result manifest SHA256 is
+`64b5c61112842f5b67f297251786e3ac24bd429f4dc09cf3c8d498d14126dfaa`;
+the combined review SHA256 is
+`7af13a267eaf7438a796160c1a75c478fcf948e9eaa6d7636fbb86d8ebc1e203`.
+Root verified and copied all result members and the review under
+`artifacts/goal-seventh-followup-evidence-intake-v1`.
+The first passive intake rejected a 65-character transcribed review digest
+after copying the two evidence sets. Its script and failure remain preserved;
+a fresh completion reverified every source/copy and the actual 64-character
+digest. No product workload or source change occurred during that correction.
+This is selected offscreen rendering evidence, not the whole 5,044-XCTest
+candidate, hardware/performance, screenshots/gallery, or current-root
+integration. A separate source-identified floating scanline progress defect is
+being corrected in a new checkout; its old hanging counterexample was never
+executed. No original rendering requirement, budget or tolerance was reduced.
+
+### Seventh batch: owned execution failures and narrower passing evidence
+
+This additive entry preserves sections 1 through 9, all nine unchecked original completion
+gates, and every earlier failed or pending record. These are separate owned-checkout results,
+not a current-root Full, Quick, release or native-client pass. Evidence paths below are relative
+to `C:/Users/maxw6/AppData/Local/Temp`.
+
+The second 487-case document attempt used source tree
+`56df019e592c796e029523e6ecc059f929eb5443`. It stopped in batch 14 of 28: 250 distinct cases
+started: 246 passed, four failed, none skipped; 237 remained unrun. The retained driver PID 4388
+exited naturally with 1 in 52.403 seconds; the failed stock Swift invocation and its retained
+PS5 parent also returned 1. All four NativeDocumentKeyRoutingTests failed shared setup,
+producing sixteen assertion diagnostics before Save-key activation or decoded-character
+delivery. They therefore establish no Return/Space routing or native document-close result. An
+empty-range caret expectation conflicts with the existing insertion-point representation;
+missing prompt/close-intent readiness is a separate defect. The frozen result is
+`swift-windowsui-native-document-activation-a6b9f66071fe4dee8f485400a61b217c/focused-second-run-failure-v1/FIRST-FAILURE.json`;
+its SHA256 is `0ff8c801d4e379e910960bd7f748baf1d57af9f6fce00a1e73c4e1176cb5d491`. The 77-member
+failure manifest has SHA256 `8af30eea058b0afe10d14cd7197ea952ee829cfab2c9f4676d8f9ead45ed781c`.
+The independent audit checked 75 copied raw members and 44 selected input pins; its SHA256 is
+`636c7188f4f5bc9805f91d54ae7c65589cc12aa7ab94a654116a228b0667e4e0`. Closed parent streams and no
+timeout do not establish complete descendant closure.
+
+Later document tree `62faf2eb4a3bbb220abc4ee200bed05b2920bdaf` compiled with PS5 PID 31092
+naturally returning 0 in 486.290 seconds. The same arena's
+`compile-editor-qualification-v1/QUALIFICATION.json`, SHA256
+`7e0561ed5075c0c363d509aa803041f3655c86291e2d52bf76c0142820afbaa8`, finds all 571 selected IDs
+once in 5,081 generated registrations. That build ran no tests or native document workflow and
+does not requalify the failed setup.
+
+The corrected 685-case observer/preference attempt at tree
+`d720bcc2f9ecc5b914071dbf73d9e52c2ed5d33a` built, then hit a runtime exclusivity trap. Source
+tracing points to an authored anchor hash during a live registry lookup. Ten cases started and
+nine passed; one lacked a terminal, and 675 never started. This is a fatal run, not zero
+failures inferred from absent assertion diagnostics. Its frozen summary remains in
+`swift-windowsui-mounted-preference-44e8d30-5f13ee0cb333/artifacts/mounted-preference-runtime-failure-dcb94d5cdd8b/SUMMARY.json`.
+The earlier two-fixture compilation failure is also preserved. The later observer-only
+correction snapshots lookup state before authored callbacks and rechecks authority after
+cleanup; ordinary State and task(id:) paths are not thereby qualified or migrated. One later
+attempt at tree `e3af569e1cf73ebc073d05e5be9937ee7d22da95` completed 689 distinct starts and 689
+passes across eleven classes and 26 stock shards, with no failed, skipped, missing, duplicate or
+unexpected cases. Retained PS5 PID 48188 ran 21:21:58Z through 21:28:06Z and exited naturally
+with 0. The run is `artifacts/mounted-preference-anchored-1a04a3e678c` in that same checkout.
+Its raw log SHA256 is `5457325d8c6ab6ffb421a18b68dbb49e6b232312e8ad89c2b960194d1bf6c3bf`; the
+corrected counts receipt SHA256 is
+`2d460897aeaefbe9426132efd16f7657920402daf366c7abf7b3fc2f9f138965`. All 689 selections occur
+once in the 5,088-entry generated registry. Counts V1 remains: V2 adds the stock package path to
+reconstructed command arrays, not OS argv captures. Independent pass review is clear;
+`artifacts/mounted-preference-pass-1a04a49eee7/SEAL.json` has SHA256
+`9e55354cac832e412fbecfbbdc634123e3fbf687652ea04d45e90cf16123747b`. This is focused headless
+debug evidence; another 136 State/component cases, Full validation, native macOS scheduling and
+presentation remain unqualified.
+
+Dormant lazy-list Stage 2 has two compilation failures, both with zero XCTest starts or
+terminals. The first selected 210 methods at tree `18c52d113040ce75bed05e96950f3b28df3b4344`;
+PS5 PID 28636 naturally returned 1 after its first of fourteen planned shards. Runtime.swift
+lines 16474 and 16477 rejected conversion of two non-Sendable callbacks to main-actor Sendable
+closures. The second selected 223 methods at tree `60c05ff43deabee5a8cc0b4ee8b83202da6960b1`;
+PS5 PID 46656 naturally returned 1 after its first of fifteen planned shards. The original
+callback diagnostics were absent. Two distinct new diagnostics, each repeated eleven times,
+identify `RetainedLazyListRuntimeIntegrationTests.swift` at 112:61 and 555:61: optional
+`contentSize` must be unwrapped before `.height`. The second result is
+`swift-windowsui-lazy-list-corrections-08f2334dc5e94857b22708f8d41ebdd3/worktree/artifacts/lazy-list-stage2-corrected-v1-compile-failure-6e3e7412e8524c56af0fefda3149a911/OUTCOME.json`;
+its SHA256 is `e92fdf9d5aefce54d437fb86e7a5db4b3ab4438911508e5e72b16416dad6bf5f`. Its 27-member
+manifest SHA256 is `49ff63a8dc30ebcd5b1946b5d0a2351cee13dc5060e9fc7c2bdae518a9bdcc8b`. All 754
+source inputs and index/helper pins were preserved during that attempt. A separate two-line
+XCTUnwrap correction retains expected heights 50 and 85; no later outcome is assigned here.
+Public List construction, state preservation, bounded resource use and performance remain open
+requirements.
+
+The OpenFileById substitution compiled two CDirect2DInterop translation units: owned PS5 PID
+56952 naturally returned 0 in 11.704 seconds. Source SHA256 is
+`daffb9ce34bb4f4164261aad0ef0c07b59cbaa8ed032198ec295bebbe07bffc2`. The target compile packet is
+`swift-windowsui-openbyid-cpp-proposal-1787944128324/completed-checks-packet-v2.json`, SHA256
+`7cc47ddc602fb51d18e75aee5b2e226ce19369236e201494321c3656a7671122`. A separate single stock
+invocation passed exactly six POD-projection cases: two new and four existing. PS5 PID 53828,
+stock return and outer tool were all 0; 389.485 seconds included a reported 384.39-second build.
+Swift Testing ran zero cases. All six selected methods occur once in the 5,086-registration
+generated catalog. The 65-member result packet in the same arena is
+`pod-tests-preparation-1/completed-six-method-test-packet.json`, SHA256
+`cc04cb65663a6ed7cbfcae872f7932e15394e161bd75487f130e77f3bff44b5a`. All 41 selected inputs, 354
+test-source pins and 35 preparation members matched; eight earlier generated files were
+preserved before the permitted build reuse. These projection tests do not execute production
+LocalFileGuard or native font reads. The old collector's failure and cleanup flag remain; opaque
+DirectWrite stream identity, full native ABI/SDK coverage and complete descendant history are
+unproven.
+
+DirectRunner Stage A failed before its fixture launched: 61 cases and 3,524 projected assertions
+were unrun. A combined PATH/Git admission guard failed, but it recorded no receipt identifying
+which environment predicate was false. The before inventory contained 374 fixed pins, 4,453
+prior-data files and two junctions. Its write at 197.204 seconds included setup/serialization,
+not isolated preservation timing. The helper reached its 287-second cap and terminated its
+retained coordinator process; the dispatcher returned 1 and the actual tool completed in 289.719 seconds. No
+after inventory, phase result or worker seal completed. A fresh audit verified 374 fixed pins,
+not complete preservation of all 4,453 files. Its frozen fifteen-member seal is
+`swift-windowsui-stage-a-failure-audit-e882aa11724b4267a6aa1b3d2e6451cb/AUDIT-SEAL.json`, SHA256
+`abb5ac162061a18de54255624e9492cfc03a26920d6ed2c4817b1a6873ce03c0`. Earlier pure passes supply
+no Stage B/C, real Swift-runner, speed or Quick-budget qualification here; descendant closure is
+not inferred.
+
+The six-file CI test-evidence candidate, tree `a7c530b0f7670884b9f1765ffde888968ea37183`, failed
+both initial synthetic runs. Each executed 133 PowerShell fixture cases: PS5 passed 113 and
+failed 20; PS7 passed 108 and failed 25. Their observed assertion counts were 359 and 349, not
+the planned 371 each. PIDs 51076 and 14432 naturally returned 1 in 3.718 and 2.441 seconds; the
+outer tool returned 1. The fixture forbidden-operation count was zero, and the frozen
+source/index pins remained unchanged. The assessment is
+`swift-windowsui-test-evidence-packet-11d02b18-6658394b857e492f9c255be7f1ea407f/first-failure-assessment.json`,
+SHA256 `808a6f161a86ba704a3d2a5699b19053c009b7566c34abd1444dee02dafa7649`. The twenty shared
+failures and five additional PS7 boundary failures require diagnosis; this candidate supplies no
+production observer or hosted test evidence. It does not supply the missing hosted XCTest counts
+or prove runtime compiler identity.
+
+The P6 supervisor completed only its fixed two-command compile/link phase in
+`swift-windowsui-native-supervisor-prototype-1787947067718/compile-f9-supervisor-1787952052629`.
+Retained clang and linker exits, collector exit, outer tool and final seal were all 0 within the
+original 600-second envelope, including its 120-second reserve. The 23-member phase manifest has
+SHA256 `865b38326c9b8229d6732af03d8857fd38b261cccb88d5fee1cd4b18649e4412`; the final actual seal
+receipt has SHA256 `fa8b234d3281632f00a4defa1b5f28919a4752b43f43b41bf61dc44cb72c5974`. Passive
+inspection found x64 COFF and PE32+ outputs; 410 include records name 333 unique headers. All
+141 selected source files and three tool pins matched. This does not identify every linked
+library or establish loaded-module/ABI closure. No compiled output or F9 framework workload ran;
+no F9 payload or watchdog was staged in that compile phase. The historical F9
+compiler-success/collector-failure audit remains failed; no runtime, performance or
+clean-machine gate is closed here.
+
+A later lazy-list attempt at tree `8e22bee0d77ecc217389ebc983f52bc1095d1e26`
+compiled and reached 222 of 223 selected methods. It recorded 221 passes and one
+failed case, with no skips; the last shard's one case remained unrun. The two
+assertions in `testScrollingThroughCleanAncestorsPreservesOverlappingPhysicalRows`
+failed its clean-ancestor precondition before the scroll. Its subsequent physical
+row identity and bounded factory/consumption checks passed, which does not prove
+the intended clean-ancestor path. Both prior compilation failures remain above.
+PS5 PID 52144 and the runner exited naturally with 1 at 21:40:11Z; source/index
+and helper pins were unchanged and no timeout or cleanup was requested. The raw
+log SHA256 is `f485cba08d6e1408a9c3b0c57cb519a88b873574dcf7ddcdd2c2ed9320065437`.
+The 51-member failure packet is
+`C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-lazy-list-content-size-ac0f7ef5c0d648edae73da0e08b1719c/worktree/artifacts/lazy-list-stage2-content-size-runtime-failure-4fbca2e59a9d43afa6dc77758bf8933c`;
+its outcome SHA256 is `be527a4175a1c1e812dc5a7aac4a9ef55477a2587131372d02d833ab96a9ba52`.
+Source tracing identifies intentional end-of-render invalidation retention; a
+fixed quiet setup frame with additional no-work and identity assertions is a
+proposed fixture correction, not a passing rerun or a runtime-policy change.
+
+### Seventh batch: root UIA value and layout corrections pass focused validation
+
+The third root UIA attempt and its separate legacy invocation passed on HEAD
+`11d02b18e587640790f4d8d3ce3273cac6c90d58`, staged tree
+`914f10292e36dc879db48d639f32fce47ec151a7`. This adds later evidence without
+removing the first root failure (788 passes and one failure) or the second
+(944 passes and one failure), their unrun cases, or any original completion gate.
+
+The current source includes the reviewed UIA composition, the conditional text
+value publication correction, and the separate Field layout correction. A
+validated binding result is published to the same current input node before
+returning. A Field label or editing-chrome change during layout requests the
+existing bounded follow-up pass through a distinct, weakly captured action.
+Both queue admission and delivery validate the current attached controller,
+exact physical child membership and a cycle-checked path to the intended runtime
+root. Unchanged chrome adds no follow-up; a redundant inactive visibility setter
+is avoided. The correction adds no binding getter, UIA retry, caret reveal,
+scroll operation, or new public API. The separate TextEditor correction is not
+included in this tested root tree.
+
+The original failing write assertions remain unchanged. Four messages now name
+the control and loop index; two new tests cover authored Unicode selection and
+moving a Field to another runtime. The old test comment about a COM read querying
+layout remains historical wording: Value-pattern readback actually uses the
+stored accessibility projection and does not resolve layout. Both earlier
+failing method IDs and all ten publication methods passed in the new main run.
+
+`artifacts/goal-seventh-uia-root-main-v3` recorded 1,250 distinct starts and
+1,250 passed terminals across 84 target classes and 70 stock serial invocations.
+There were no failures, skips, missing, duplicate or unexpected cases. The
+retained PS5 PID was 43760; launch was observed at 21:30:26Z and natural exit 0
+at 21:38:59Z on 2026-08-28. Its 1,700,611-byte raw log has SHA256
+`1d818ea1a51a0016e2d8f7d62a2e5d0cf91c059698652d7949491d8ed6401496`.
+The independent main audit is
+`C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-field1253-main-v3-audit-nfjgg5vn/AUDIT.json`,
+SHA256 `238251d40342c5a0ee3070e08c0e3617219cc34a8989c8b7b52282f00da7c5ba`.
+
+`artifacts/goal-seventh-uia-root-legacy3-v3` then selected exactly the three
+anchored legacy onChange methods without sharding or skip-build. All three
+started and passed; PS5 and the runner returned 0 naturally in 6.125 seconds,
+within the unchanged 180-second envelope. Its 2,118-byte raw log has SHA256
+`fe9630716006619e7176ce273b6d02f29a2bf8d54322945e45fcac34f38bc263`.
+Together these runs cover 1,253 unique passing methods. Generated registration
+contains 5,250 XCTest IDs, with each selected ID registered once (1,245 async
+and eight synchronous). The copied test binary is 425,853,440 bytes, SHA256
+`e2d048a99043d1439a9eb1d87f0b7d044be87b5d44e235b330e70c5144a5ccc6`;
+it and the generated files remained identical after the legacy invocation.
+The final combined audit is
+`C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-field1253-joined-v3-audit-ns849w9f/JOINED-AUDIT.json`,
+SHA256 `9a24239a1063621010b884d915f456980d16b82fd5f316d05a097aa75c86ef95`,
+with seal `8cfa87d2868f7419b695223804a36145b04e592d228da70a0ba5b880dc54e08e`.
+
+Both runs preserved tracked bytes, HEAD, index, status and gitlink IDs; neither
+required termination or reported capture/cleanup failure. The stock wrappers
+observe their retained PS5 process, not complete compiler/test descendants or
+loaded-module identity. Source and plan copies are in
+`artifacts/goal-seventh-uia-field-intake-v1`. Contracts and strict lint on all
+21 changed Swift files subsequently passed with PS5 PID 57704, exit 0 in
+12.938 seconds, without source/index changes; the receipt is
+`artifacts/goal-seventh-uia-precommit-static-v1/result.json`.
+
+This closes the two reported root regressions for the selected source and cases.
+It does not establish external UIA/Narrator behavior, all SDK APIs, native macOS
+parity, root Full/Quick or gallery results on this tree, hardware frame budgets,
+hosted release success, or clean-machine qualification. All nine original gates
+remain open, and commits containing later additions require fresh validation.

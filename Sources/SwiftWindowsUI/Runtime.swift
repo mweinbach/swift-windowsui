@@ -1795,6 +1795,7 @@ private final class ViewNodeChartMetadata {
 @MainActor
 public final class ViewNode {
     private var interactionHandlers: ViewNodeInteractionHandlers?
+    fileprivate var storedAccessibilityAttachmentIdentity: RetainedAccessibilityIdentity?
     private var dropHandlers: ViewNodeDropHandlers?
     private var lifecycleHandlers: ViewNodeLifecycleHandlers?
     private var chartMetadata: ViewNodeChartMetadata?
@@ -1818,6 +1819,13 @@ public final class ViewNode {
             handlers[keyPath: keyPath] = value
             interactionHandlers = handlers
         }
+    }
+
+    fileprivate var accessibilityAttachmentIdentity: RetainedAccessibilityIdentity {
+        if let identity = storedAccessibilityAttachmentIdentity { return identity }
+        let identity = RetainedAccessibilityIdentity()
+        storedAccessibilityAttachmentIdentity = identity
+        return identity
     }
 
     @inline(__always)
@@ -3634,7 +3642,11 @@ public final class ViewNode {
     private var lifecycleTasks: [String: Task<Void, Never>] = [:]
     private var acceptsLifecycleTasks = true
 
-    public private(set) weak var parent: ViewNode?
+    public private(set) weak var parent: ViewNode? {
+        didSet {
+            if parent !== oldValue { storedAccessibilityAttachmentIdentity = nil }
+        }
+    }
     public private(set) var children: [ViewNode]
 
     fileprivate weak var runtime: RetainedViewRuntime?
@@ -4614,6 +4626,7 @@ public final class ViewNode {
 
     fileprivate func setRuntime(_ runtime: RetainedViewRuntime?, hasRevokedTextInputOwnership: Bool = false) {
         let didChangeRuntime = self.runtime !== runtime
+        if didChangeRuntime { storedAccessibilityAttachmentIdentity = nil }
         let isLeavingRuntime = self.runtime != nil && self.runtime !== runtime
         if isLeavingRuntime, !hasRevokedTextInputOwnership {
             revokeTextInputOwnership()
@@ -9113,12 +9126,169 @@ package final class RetainedPresentationFocusRequest {
     }
 }
 
+/// These identities never retain nodes, callbacks, bindings, or application
+/// payloads. An admitted operation keeps the old identity alive until it ends.
+@MainActor
+package final class RetainedAccessibilityIdentity {}
+
+/// A single synchronous UIA mutation. The runtime owns admission so different
+/// adapters for the same runtime cannot reenter one another.
+@MainActor
+package final class RetainedAccessibilityMutation {
+    package private(set) var revision: UInt64 = 0
+    package private(set) var isExhausted = false
+
+    fileprivate func recordMutation() {
+        guard !isExhausted else { return }
+        let next = revision.addingReportingOverflow(1)
+        guard !next.overflow else {
+            isExhausted = true
+            return
+        }
+        revision = next.partialValue
+    }
+}
+
+/// The exact physical attachment admitted before a layout query. No retained
+/// owner is pinned by the witness; detach/reparent and reattach cannot revive it.
+@MainActor
+package final class RetainedAccessibilityTarget {
+    fileprivate struct Link {
+        weak var node: ViewNode?
+        let identity: RetainedAccessibilityIdentity
+    }
+
+    package private(set) weak var node: ViewNode?
+    fileprivate let path: [Link]
+
+    fileprivate init(node: ViewNode, path: [Link]) {
+        self.node = node
+        self.path = path
+    }
+
+    fileprivate func isCurrent(in runtime: RetainedViewRuntime) -> Bool {
+        guard node != nil, path.first?.node === node, path.last?.node === runtime.root else { return false }
+        for (index, link) in path.enumerated() {
+            guard let current = link.node, current.runtime === runtime,
+                current.storedAccessibilityAttachmentIdentity === link.identity
+            else { return false }
+            if index + 1 < path.count {
+                guard let parent = path[index + 1].node, current.parent === parent,
+                    parent.children.contains(where: { $0 === current })
+                else { return false }
+            }
+        }
+        return true
+    }
+}
+
+@MainActor
+private final class RetainedAccessibilityScrollContinuation {
+    let mutation: RetainedAccessibilityMutation
+    let attachment: RetainedAccessibilityTarget
+    weak var target: ViewNode?
+    weak var container: ViewNode?
+    let axis: ScrollAxis
+    var geometryRevision: UInt64
+    var expectedOffset: Double
+    var expectedRevision: UInt64
+    var pointerSequence: UInt64
+    var completionRevision: UInt64?
+
+    init(
+        mutation: RetainedAccessibilityMutation, attachment: RetainedAccessibilityTarget,
+        target: ViewNode, container: ViewNode, axis: ScrollAxis,
+        geometryRevision: UInt64, expectedOffset: Double, pointerSequence: UInt64
+    ) {
+        self.mutation = mutation
+        self.attachment = attachment
+        self.target = target
+        self.container = container
+        self.axis = axis
+        self.geometryRevision = geometryRevision
+        self.expectedOffset = expectedOffset
+        self.expectedRevision = mutation.revision
+        self.pointerSequence = pointerSequence
+    }
+}
+
+/// The focus authority never reuses an admitted intent after exhaustion.
+/// Kept separate from callback delivery so its boundary is deterministic.
+struct RetainedFocusRevision {
+    private(set) var value: UInt64
+    private(set) var isExhausted = false
+
+    init(value: UInt64 = 0) {
+        self.value = value
+    }
+
+    mutating func advance() -> UInt64? {
+        guard !isExhausted else { return nil }
+        let next = value.addingReportingOverflow(1)
+        guard !next.overflow else {
+            isExhausted = true
+            return nil
+        }
+        value = next.partialValue
+        return value
+    }
+}
+
+@MainActor
+private final class RetainedFocusEntry {
+    weak var target: ViewNode?
+    let beganAttached: Bool
+    var reaffirmation: RetainedFocusReaffirmation?
+
+    init(target: ViewNode, beganAttached: Bool) {
+        self.target = target
+        self.beganAttached = beganAttached
+    }
+}
+
+private enum RetainedFocusOrigin {
+    case ordinary
+    case accessibility
+    case cleanup
+}
+
+private struct RetainedFocusReaffirmation {
+    let revision: UInt64
+    let origin: RetainedFocusOrigin
+    let beganAttached: Bool
+    let mutationWitness: UInt64
+}
+
+@MainActor
+private final class RetainedFocusOperation {
+    weak var target: ViewNode?
+    let hasTarget: Bool
+    var origin: RetainedFocusOrigin
+    var beganAttached: Bool
+    var revision: UInt64?
+    var mutationWitness: UInt64
+    var remainingQualificationQueries = 4
+
+    init(
+        target: ViewNode?, origin: RetainedFocusOrigin, beganAttached: Bool,
+        revision: UInt64?, mutationWitness: UInt64
+    ) {
+        self.target = target
+        self.hasTarget = target != nil
+        self.origin = origin
+        self.beganAttached = beganAttached
+        self.revision = revision
+        self.mutationWitness = mutationWitness
+    }
+}
+
 @MainActor
 public final class RetainedViewRuntime {
     private static let buttonRepeatInitialDelay = 0.45
     private static let buttonRepeatInterval = 0.08
 
     public let root: ViewNode
+    private var activeAccessibilityMutation: RetainedAccessibilityMutation?
 
     public var displayScale: Double {
         didSet {
@@ -9298,8 +9468,7 @@ public final class RetainedViewRuntime {
     private var presentationKeyDispatchDepth = 0
     private var pendingPresentationFocusRequests: [RetainedPresentationFocusRequest] = []
     private var isDrainingPresentationFocusRequests = false
-    private weak var presentationFocusEntryTarget: ViewNode?
-    private var presentationFocusEntryReaffirmation: UInt64?
+    private weak var currentFocusEntry: RetainedFocusEntry?
     private var isWaitingForPresentationBuildSettlement = false
     private let presentationBuildSettlementOwner = NSObject()
     private var afterLayoutGeometryInvalidations: [WeakViewNodeRef] = []
@@ -9603,7 +9772,8 @@ public final class RetainedViewRuntime {
     public private(set) weak var focusedNode: ViewNode?
     /// Every admitted focus intent counts, including a request for the target
     /// that already has focus. A deferred restoration must not override it.
-    package private(set) var presentationFocusRevision: UInt64 = 0
+    private var focusRevision = RetainedFocusRevision()
+    package var presentationFocusRevision: UInt64 { focusRevision.value }
     /// Accessibility integration hook (UI Automation, Phase 2): called on the
     /// main actor after the focused node changes. Additive only — no effect
     /// on focus behavior itself.
@@ -10752,7 +10922,7 @@ public final class RetainedViewRuntime {
             finishLongPress(attempt, recognized: false)
         }
         guard pointerSequence == sequence else { return }
-        updateFocusTarget(to: nil)
+        updateFocusTarget(to: nil, origin: .cleanup)
     }
 
     /// Routes an IME composition event to the focused text input. Nodes
@@ -10784,27 +10954,27 @@ public final class RetainedViewRuntime {
     }
 
     public func requestFocus(_ node: ViewNode?) {
-        guard let node else {
-            updateFocusTarget(to: nil)
-            return
-        }
-
-        guard node.isFocusable, !Self.hasHiddenAncestor(node) else {
-            return
-        }
-
         // FocusState builds its destination before the new subtree is
         // attached, so detached candidates must remain eligible. Attached
-        // background controls, including accessibility SetFocus requests,
-        // cannot steal focus from the topmost modal presentation.
-        if let modal = activeModalPresentationNode,
-            Self.isInteractionTarget(node, within: root),
-            !Self.isInteractionTarget(node, within: modal)
-        {
-            return
-        }
-
+        // background controls cannot steal focus from the current modal.
+        // External accessibility entry has its own stricter layout authority.
         updateFocusTarget(to: node)
+    }
+
+    /// External focus needs an actually attached, currently projected owner.
+    /// False can follow a callback that already changed focus; it is never a
+    /// request to retry the operation or undo a newer accepted focus choice.
+    package func requestAccessibilityFocus(_ node: ViewNode) -> Bool {
+        guard permitsRenderLifecycleCallbacks, !focusRevision.isExhausted,
+            canReadLayoutSettlement, node.isFocusable, isPresentationNodeAvailable(node)
+        else { return false }
+        let revision = presentationFocusRevision
+        guard queryFocusLayout(usingFrameQuery: true),
+            permitsRenderLifecycleCallbacks, !focusRevision.isExhausted,
+            presentationFocusRevision == revision,
+            accessibilityFocusContextIsCurrent(for: node)
+        else { return false }
+        return updateFocusTarget(to: node, origin: .accessibility)
     }
 
     /// Stored admission only: construction and retained callbacks must finish
@@ -10850,7 +11020,7 @@ public final class RetainedViewRuntime {
     }
 
     package func schedulePresentationFocusRestoration(_ request: RetainedPresentationFocusRequest) {
-        guard permitsRenderLifecycleCallbacks, !request.isRevoked else {
+        guard permitsRenderLifecycleCallbacks, !focusRevision.isExhausted, !request.isRevoked else {
             request.finish()
             return
         }
@@ -10871,11 +11041,11 @@ public final class RetainedViewRuntime {
     }
 
     private var presentationFocusCanRun: Bool {
-        presentationActionsAreAvailable && presentationKeyDispatchDepth == 0
+        !focusRevision.isExhausted && presentationActionsAreAvailable && presentationKeyDispatchDepth == 0
     }
 
     private func waitForPresentationBuildSettlementIfNeeded() {
-        guard permitsRenderLifecycleCallbacks, !pendingPresentationFocusRequests.isEmpty,
+        guard permitsRenderLifecycleCallbacks, !focusRevision.isExhausted, !pendingPresentationFocusRequests.isEmpty,
             !isWaitingForPresentationBuildSettlement
         else { return }
         let coordinator = retainedBuildCoordinator
@@ -10905,7 +11075,7 @@ public final class RetainedViewRuntime {
         // settlement opportunity, never another iteration of this drain.
         let requests = pendingPresentationFocusRequests
         if !layoutIsFresh || presentationPrepaintRevision != presentationMutationRevision {
-            updateResolvedLayout()
+            _ = queryFocusLayout(usingFrameQuery: false)
         }
         for request in requests {
             guard pendingPresentationFocusRequests.contains(where: { $0 === request }) else { continue }
@@ -10915,7 +11085,9 @@ public final class RetainedViewRuntime {
                 finishPresentationFocusRequest(request)
                 continue
             }
-            if presentationPrepaintRevision != presentationMutationRevision { updateResolvedLayout() }
+            if presentationPrepaintRevision != presentationMutationRevision {
+                _ = queryFocusLayout(usingFrameQuery: false)
+            }
             guard presentationFocusCanRun else { return }
             restorePresentationFocus(request)
             guard permitsRenderLifecycleCallbacks else { return }
@@ -10979,7 +11151,9 @@ public final class RetainedViewRuntime {
         _ request: RetainedPresentationFocusRequest, revision: UInt64, base: ViewNode, target: ViewNode? = nil
     ) -> Bool {
         guard presentationFocusRequestIsCurrent(request, revision: revision) else { return false }
-        if presentationPrepaintRevision != presentationMutationRevision { updateResolvedLayout() }
+        if presentationPrepaintRevision != presentationMutationRevision {
+            _ = queryFocusLayout(usingFrameQuery: false)
+        }
         guard presentationFocusRequestIsCurrent(request, revision: revision),
             presentationPrepaintRevision == presentationMutationRevision,
             isPresentationNodeAvailable(base),
@@ -11006,30 +11180,47 @@ public final class RetainedViewRuntime {
         }
         guard let target = preferred ?? fallback, focusedNode !== target else { return }
 
-        presentationFocusRevision &+= 1
-        let revision = presentationFocusRevision
-        let previous = focusedNode
+        guard let revision = advanceFocusRevision() else { return }
+        var previous = focusedNode
+        var previousTimestamp = 0.0
+        if previous?.interactionSurface != nil {
+            previousTimestamp = sampleFocusClock()
+            guard presentationFocusContextIsCurrent(request, revision: revision, base: base, target: target) else {
+                return
+            }
+        }
         // An exit callback can request focus itself. Remove the old pointer
         // first so that nested ordinary request does not re-enter this exit.
         focusedNode = nil
         previous?.isFocused = false
-        applyInteractionChrome(to: previous)
+        applyInteractionChrome(to: previous, at: previousTimestamp)
         guard presentationFocusRequestIsCurrent(request, revision: revision) else { return }
-        previous?.onFocusExit?()
+        deliverFocusExit(previous)
+        previous = nil
         guard presentationFocusContextIsCurrent(request, revision: revision, base: base, target: target) else { return }
 
         focusedNode = target
         target.isFocused = true
-        presentationFocusEntryTarget = target
-        presentationFocusEntryReaffirmation = nil
-        target.onFocusEnter?()
-        let reaffirmation = presentationFocusEntryReaffirmation
-        presentationFocusEntryTarget = nil
-        presentationFocusEntryReaffirmation = nil
-        if let reaffirmation, reaffirmation == presentationFocusRevision {
-            // A same-target request made from enter is a newer explicit intent.
-            // Complete it once, without borrowing the old removal's authority.
-            completeReaffirmedPresentationFocus(target, revision: reaffirmation)
+        let entry = RetainedFocusEntry(target: target, beganAttached: true)
+        currentFocusEntry = entry
+        defer { clearFocusEntry(entry) }
+        deliverFocusEnter(target)
+        if let reaffirmation = takeFocusReaffirmation(entry) {
+            // Complete the newer intent under its own policy, without
+            // borrowing the old removal's authority or its build restrictions.
+            completeReaffirmedPresentationFocus(target, entry: entry, reaffirmation: reaffirmation)
+            return
+        }
+        guard presentationFocusContextIsCurrent(request, revision: revision, base: base, target: target),
+            focusedNode === target
+        else {
+            withdrawInterruptedPresentationFocus(target, revision: revision)
+            return
+        }
+        let timestamp = target.interactionSurface == nil ? 0 : sampleFocusClock()
+        if let reaffirmation = takeFocusReaffirmation(entry) {
+            completeReaffirmedPresentationFocus(
+                target, entry: entry, reaffirmation: reaffirmation, at: timestamp)
             return
         }
         guard presentationFocusContextIsCurrent(request, revision: revision, base: base, target: target),
@@ -11039,7 +11230,7 @@ public final class RetainedViewRuntime {
             return
         }
         resetCaretBlink()
-        applyInteractionChrome(to: target)
+        applyInteractionChrome(to: target, at: timestamp)
         guard presentationFocusContextIsCurrent(request, revision: revision, base: base, target: target),
             focusedNode === target
         else {
@@ -11047,35 +11238,18 @@ public final class RetainedViewRuntime {
             return
         }
         invalidate(.paint)
-        onAccessibilityFocusChanged?(target)
+        clearFocusEntry(entry)
+        deliverAccessibilityFocusNotification(target)
     }
 
-    private func completeReaffirmedPresentationFocus(_ target: ViewNode, revision: UInt64) {
-        guard reaffirmedPresentationFocusIsCurrent(target, revision: revision) else {
-            withdrawInterruptedPresentationFocus(target, revision: revision)
-            return
-        }
-        resetCaretBlink()
-        applyInteractionChrome(to: target)
-        guard reaffirmedPresentationFocusIsCurrent(target, revision: revision) else {
-            withdrawInterruptedPresentationFocus(target, revision: revision)
-            return
-        }
-        invalidate(.paint)
-        onAccessibilityFocusChanged?(target)
-    }
-
-    private func reaffirmedPresentationFocusIsCurrent(_ target: ViewNode, revision: UInt64) -> Bool {
-        guard presentationFocusCanRun, presentationFocusRevision == revision, focusedNode === target else {
-            return false
-        }
-        if presentationPrepaintRevision != presentationMutationRevision { updateResolvedLayout() }
-        guard presentationFocusCanRun, presentationFocusRevision == revision, focusedNode === target,
-            presentationPrepaintRevision == presentationMutationRevision,
-            target.isFocusable, isPresentationNodeAvailable(target),
-            prepaintState.dispatchNodes.contains(where: { $0.node === target })
-        else { return false }
-        return presentationModalSnapshot.map { Self.isInteractionTarget(target, within: $0) } ?? true
+    private func completeReaffirmedPresentationFocus(
+        _ target: ViewNode, entry: RetainedFocusEntry, reaffirmation: RetainedFocusReaffirmation,
+        at timestamp: Double? = nil
+    ) {
+        let operation = RetainedFocusOperation(
+            target: target, origin: reaffirmation.origin, beganAttached: true,
+            revision: reaffirmation.revision, mutationWitness: reaffirmation.mutationWitness)
+        _ = finishFocusEntry(operation, to: target, entry: entry, at: timestamp)
     }
 
     private func withdrawInterruptedPresentationFocus(_ target: ViewNode, revision: UInt64) {
@@ -11558,12 +11732,174 @@ public final class RetainedViewRuntime {
             to: descendant, anchorX: anchorX, anchorY: anchorY, animation: animation, at: clock())
     }
 
+    /// UIA owns a separate synchronous admission path. Public programmatic
+    /// requests still work from after-layout callbacks and with input disabled.
+    @inline(never)
+    package func realizeAccessibilityTarget(
+        _ attachment: RetainedAccessibilityTarget, during mutation: RetainedAccessibilityMutation
+    ) -> Bool {
+        guard let descendant = attachment.node,
+            let element = AccessibilityProjection.mutationElement(
+                for: attachment, in: self, during: mutation, resolvingLayout: true),
+            element.isVirtualizedPlaceholder,
+            let (target, container) = descendant.nearestScrollTarget(), let axis = container.scrollAxis
+        else { return false }
+        let continuation = RetainedAccessibilityScrollContinuation(
+            mutation: mutation, attachment: attachment, target: target, container: container, axis: axis,
+            geometryRevision: layoutSettlementGeometryRevision, expectedOffset: container.scrollOffset,
+            pointerSequence: pointerSequence)
+        guard permitsAccessibilityScrollCancellation(of: container) else { return false }
+        var transaction = currentTransaction ?? Transaction()
+        if currentTransaction == nil, let animation = currentAnimationTransaction {
+            transaction.animation = Animation(duration: animation.duration, easing: animation.easing)
+        }
+        let animation =
+            transaction.disablesAnimations
+            ? nil
+            : transaction.animation.map {
+                AnimationTransaction(duration: $0.duration, easing: $0.easing)
+            }
+        let timestamp = sampleAccessibilityScrollClock()
+        guard validateAccessibilityScroll(continuation) else { return false }
+        let performed = performProgrammaticScroll(
+            to: descendant, anchorX: nil, anchorY: nil, animation: animation, at: timestamp,
+            accessibility: continuation)
+        // The helper has released its callback/temporary captures. Never run a
+        // query or retry after an offset may already have been applied.
+        return performed && isAccessibilityTargetCurrent(attachment, during: mutation)
+            && continuation.completionRevision == mutation.revision
+            && container.scrollAxis == axis && container.scrollOffset == continuation.expectedOffset
+    }
+
+    @inline(never)
+    private func sampleAccessibilityScrollClock() -> Double { clock() }
+
+    private func validateAccessibilityScroll(_ continuation: RetainedAccessibilityScrollContinuation) -> Bool {
+        guard accessibilityScrollContinuationIsCurrent(continuation),
+            let element = AccessibilityProjection.mutationElement(
+                for: continuation.attachment, in: self, during: continuation.mutation,
+                resolvingLayout: false), element.isVirtualizedPlaceholder
+        else { return false }
+        return true
+    }
+
+    private func accessibilityScrollContinuationIsCurrent(
+        _ continuation: RetainedAccessibilityScrollContinuation
+    ) -> Bool {
+        guard isAccessibilityTargetCurrent(continuation.attachment, during: continuation.mutation),
+            continuation.mutation.revision == continuation.expectedRevision,
+            layoutSettlementGeometryRevision == continuation.geometryRevision,
+            pointerSequence == continuation.pointerSequence,
+            let descendant = continuation.attachment.node, let target = continuation.target,
+            let container = continuation.container, container.scrollAxis == continuation.axis,
+            container.scrollOffset == continuation.expectedOffset,
+            let (currentTarget, currentContainer) = descendant.nearestScrollTarget(),
+            currentTarget === target, currentContainer === container
+        else { return false }
+        return true
+    }
+
+    private func recordOwnedAccessibilityScrollEffects(_ continuation: RetainedAccessibilityScrollContinuation) {
+        continuation.geometryRevision = layoutSettlementGeometryRevision
+        continuation.expectedRevision = continuation.mutation.revision
+    }
+
+    private func permitsAccessibilityScrollCancellation(of container: ViewNode) -> Bool {
+        guard scrollDragState?.node === container || activeScrollIndicatorNode === container else { return true }
+        // Repeated public pointerDown calls can leave mixed ownership. UIA must
+        // not take over the public cancellation contract for another gesture.
+        return nodeDragState == nil && longPressAttempt == nil && pressedNode == nil && buttonRepeatState == nil
+    }
+
+    @inline(never)
+    private func cancelAccessibilityScrollPointer(
+        _ continuation: RetainedAccessibilityScrollContinuation, at timestamp: Double
+    ) -> Bool {
+        guard let container = continuation.container, permitsAccessibilityScrollCancellation(of: container),
+            accessibilityScrollContinuationIsCurrent(continuation)
+        else { return false }
+        let nextSequence = pointerSequence.addingReportingOverflow(1)
+        guard !nextSequence.overflow else { return false }
+        let previousHover = hoveredNode
+        let previousIndicator = hoveredScrollIndicatorNode
+        let activeIndicator = activeScrollIndicatorNode
+        let previousHoverAttachment = previousHover.flatMap { accessibilityTarget(for: $0) }
+        let previousIndicatorAttachment = previousIndicator.flatMap { accessibilityTarget(for: $0) }
+        guard previousHover == nil || previousHoverAttachment != nil,
+            previousIndicator == nil || previousIndicatorAttachment != nil,
+            activeIndicator == nil || activeIndicator === container
+        else { return false }
+
+        // Publish ownership before any callback or capture can be released.
+        // This branch owns only the scroll interaction, never another gesture.
+        pointerSequence = nextSequence.partialValue
+        continuation.pointerSequence = pointerSequence
+        scrollDragState = nil
+        activeScrollIndicatorNode = nil
+        hoveredNode = nil
+        hoveredScrollIndicatorNode = nil
+        previousHover?.isHovered = false
+        recordOwnedAccessibilityScrollEffects(continuation)
+
+        deliverAccessibilityHoverExit(previousHover)
+        guard accessibilityScrollContinuationIsCurrent(continuation),
+            previousHoverAttachment?.isCurrent(in: self) ?? true,
+            previousIndicatorAttachment?.isCurrent(in: self) ?? true
+        else { return false }
+        // These chrome helpers use a previously sampled timestamp and contain
+        // no application callbacks. Do not reopen the clock after cancellation.
+        applyInteractionChrome(to: previousHover, at: timestamp)
+        if let previousIndicator {
+            animateColor(
+                .scrollIndicator, of: previousIndicator, to: previousIndicator.restingScrollIndicatorColor,
+                duration: 0.12, at: timestamp)
+        }
+        recordOwnedAccessibilityScrollEffects(continuation)
+        if let activeIndicator {
+            recordAccessibilityScrollPhase(.idle, for: activeIndicator, continuation: continuation)
+            guard accessibilityScrollContinuationIsCurrent(continuation) else { return false }
+            animateColor(
+                .scrollIndicator, of: activeIndicator, to: activeIndicator.restingScrollIndicatorColor,
+                duration: 0.12, at: timestamp)
+            recordOwnedAccessibilityScrollEffects(continuation)
+        }
+        return accessibilityScrollContinuationIsCurrent(continuation)
+    }
+
+    @inline(never)
+    private func deliverAccessibilityHoverExit(_ node: ViewNode?) { node?.onPointerExit?() }
+
+    @inline(never)
+    private func recordAccessibilityScrollPhase(
+        _ phase: RetainedScrollPhase, for node: ViewNode, continuation: RetainedAccessibilityScrollContinuation
+    ) {
+        // Selecting a changed observation source retires cached Any values.
+        // Pin those payloads until scalar phase bookkeeping has finished, then
+        // release outside its accesses and validate before any further effect.
+        var retiredValues: [Any] = []
+        if let registry = scrollObserverRegistry {
+            for reference in registry.nodes {
+                guard let owner = reference.node, owner.runtime === self,
+                    let storage = owner.scrollObserverStorage, !storage.phase.isEmpty
+                else { continue }
+                for observer in storage.geometry {
+                    if let value = observer.previousValue { retiredValues.append(value) }
+                }
+            }
+        }
+        recordScrollPhase(phase, for: node)
+        recordOwnedAccessibilityScrollEffects(continuation)
+        withExtendedLifetime(retiredValues) {}
+    }
+
+    @inline(never)
     private func performProgrammaticScroll(
         to descendant: ViewNode,
         anchorX: Double?,
         anchorY: Double?,
         animation: AnimationTransaction?,
-        at timestamp: Double
+        at timestamp: Double,
+        accessibility: RetainedAccessibilityScrollContinuation? = nil
     ) -> Bool {
         guard descendant.runtime === self, layoutPassID != 0, !Self.hasHiddenAncestor(descendant) else {
             return false
@@ -11572,11 +11908,20 @@ public final class RetainedViewRuntime {
         guard let (target, scrollContainer) = descendant.nearestScrollTarget(),
             let axis = scrollContainer.scrollAxis,
             !isLayoutInProgress,
-            !hasPendingLayout,
+            // UIA's settled query retains render dirty flags. Its continuation
+            // is validated below; public scrolling still requires no pending layout.
+            accessibility != nil || !hasPendingLayout,
             scrollContainer.cachedLayoutKey != nil,
             scrollContainer.pendingLayoutKey == nil
         else {
             return false
+        }
+
+        if let accessibility {
+            guard accessibility.target === target, accessibility.container === scrollContainer,
+                permitsAccessibilityScrollCancellation(of: scrollContainer),
+                validateAccessibilityScroll(accessibility)
+            else { return false }
         }
 
         let anchor = axis == .horizontal ? anchorX : anchorY
@@ -11598,10 +11943,20 @@ public final class RetainedViewRuntime {
         let presentedOffset = scrollContainer.effectiveScrollOffset
         cancelScrollMomentum(for: scrollContainer)
         cancelScrollPresentedTween(for: scrollContainer)
+        // These cancellations touch only owned scalar/weak-node scroll state.
+        // A later application callback may not rebase this geometry witness.
+        if let accessibility { recordOwnedAccessibilityScrollEffects(accessibility) }
         if scrollDragState?.node === scrollContainer || activeScrollIndicatorNode === scrollContainer {
-            pointerCancelled()
+            if let accessibility {
+                guard cancelAccessibilityScrollPointer(accessibility, at: timestamp),
+                    accessibilityScrollContinuationIsCurrent(accessibility)
+                else { return false }
+            } else {
+                pointerCancelled()
+            }
         }
         _ = scrollContainer.setScrollOffset(requestedOffset)
+        accessibility?.expectedOffset = scrollContainer.scrollOffset
         let delta = presentedOffset - scrollContainer.scrollOffset
         if let animation, animation.duration.isFinite, animation.duration > 0,
             timestamp.isFinite, delta.isFinite, delta != 0
@@ -11618,11 +11973,23 @@ public final class RetainedViewRuntime {
                 scrollLimit: scrollContainer.maxScrollOffset,
                 origin: .programmatic(animation.easing)
             )
-            recordScrollPhase(.animating, for: scrollContainer)
-            invalidate(.paint)
+            if let accessibility {
+                invalidate(.paint)
+                recordOwnedAccessibilityScrollEffects(accessibility)
+                recordAccessibilityScrollPhase(.animating, for: scrollContainer, continuation: accessibility)
+            } else {
+                recordScrollPhase(.animating, for: scrollContainer)
+                invalidate(.paint)
+            }
         } else {
-            recordScrollPhase(.idle, for: scrollContainer)
+            if let accessibility {
+                recordOwnedAccessibilityScrollEffects(accessibility)
+                recordAccessibilityScrollPhase(.idle, for: scrollContainer, continuation: accessibility)
+            } else {
+                recordScrollPhase(.idle, for: scrollContainer)
+            }
         }
+        if let accessibility, !accessibilityScrollContinuationIsCurrent(accessibility) { return false }
 
         // The next explicit request for a container supersedes any older
         // deferred correction. Once its oversized lazy row is realized, an
@@ -11644,6 +12011,8 @@ public final class RetainedViewRuntime {
                 )
             )
         }
+        accessibility?.expectedOffset = scrollContainer.scrollOffset
+        accessibility?.completionRevision = accessibility?.mutation.revision
         return true
     }
 
@@ -11672,7 +12041,7 @@ public final class RetainedViewRuntime {
         }
 
         if Self.isInteractionTarget(focusedNode, within: subtree) {
-            updateFocusTarget(to: nil)
+            updateFocusTarget(to: nil, origin: .cleanup)
         }
     }
 
@@ -12648,6 +13017,104 @@ public final class RetainedViewRuntime {
     /// still be inspected after its host has gone away.
     package var permitsRetainedActionInvocation: Bool { permitsRenderLifecycleCallbacks }
 
+    package func beginAccessibilityMutation() -> RetainedAccessibilityMutation? {
+        guard activeAccessibilityMutation == nil, permitsRenderLifecycleCallbacks,
+            canReadLayoutSettlement, !isUpdatingResolvedLayout, !isResolvingPresentationAction
+        else {
+            return nil
+        }
+        let mutation = RetainedAccessibilityMutation()
+        activeAccessibilityMutation = mutation
+        return mutation
+    }
+
+    package func endAccessibilityMutation(_ mutation: RetainedAccessibilityMutation) {
+        guard activeAccessibilityMutation === mutation else { return }
+        activeAccessibilityMutation = nil
+    }
+
+    /// Admission and continuation are separate from public scrolling and focus.
+    /// Reading this never settles layout or invokes an application callback.
+    package func isAccessibilityMutationCurrent(_ mutation: RetainedAccessibilityMutation) -> Bool {
+        activeAccessibilityMutation === mutation && !mutation.isExhausted
+            && permitsRenderLifecycleCallbacks && canReadLayoutSettlement
+            && !isUpdatingResolvedLayout && !isResolvingPresentationAction
+    }
+
+    package func accessibilityTarget(for node: ViewNode) -> RetainedAccessibilityTarget? {
+        var path: [RetainedAccessibilityTarget.Link] = []
+        var candidate: ViewNode? = node
+        while let current = candidate, path.count < ViewNode.maximumTraversalDepth {
+            guard current.runtime === self else { return nil }
+            path.append(.init(node: current, identity: current.accessibilityAttachmentIdentity))
+            if current === root { return RetainedAccessibilityTarget(node: node, path: path) }
+            guard let parent = current.parent, parent.children.contains(where: { $0 === current }) else { return nil }
+            candidate = parent
+        }
+        return nil
+    }
+
+    package func isAccessibilityTargetCurrent(
+        _ target: RetainedAccessibilityTarget, during mutation: RetainedAccessibilityMutation
+    ) -> Bool {
+        isAccessibilityMutationCurrent(mutation) && target.isCurrent(in: self)
+    }
+
+    /// A callback-free continuation check for an already-admitted editor
+    /// mutation. Every physical modal must enclose the target, deliberately
+    /// refusing sibling modal stacks instead of guessing new paint order.
+    /// This reads stored state only; it never resolves layout or projection.
+    package func permitsConservativeAccessibilityValueTarget(_ node: ViewNode) -> Bool {
+        guard let ancestors = Self.valueAncestorIDs(of: node, root: root) else { return false }
+        return Self.hasNoCompetingValueModal(in: root, ancestors: ancestors)
+    }
+
+    private static func valueAncestorIDs(of node: ViewNode, root: ViewNode) -> Set<ObjectIdentifier>? {
+        var ancestors: Set<ObjectIdentifier> = []
+        var candidate: ViewNode? = node
+        while let current = candidate, ancestors.count < ViewNode.maximumTraversalDepth {
+            guard ancestors.insert(ObjectIdentifier(current)).inserted,
+                !current.isHidden, !current.isAccessibilityHidden, !current.isRemovalOverlay,
+                !current.isLayoutDeferredByVirtualization, current.accessibilityRespondsToUserInteraction != false
+            else { return nil }
+            if current === root { return root.parent == nil ? ancestors : nil }
+            candidate = current.parent
+        }
+        return nil
+    }
+
+    /// A callback can install an accessibility-hidden modal without moving
+    /// focus. The tree-only accessibility projection omits such a modal; the
+    /// input runtime does not. Conservatively require every physical modal to
+    /// enclose this target, including clipped, hidden, and deferred scopes.
+    /// This refuses sibling modal stacks rather than guessing new paint order.
+    private static func hasNoCompetingValueModal(in root: ViewNode, ancestors: Set<ObjectIdentifier>) -> Bool {
+        var pending: [(node: ViewNode, depth: Int)] = [(root, 0)]
+        var visited: Set<ObjectIdentifier> = []
+        while let entry = pending.popLast() {
+            guard entry.depth < ViewNode.maximumTraversalDepth,
+                visited.insert(ObjectIdentifier(entry.node)).inserted
+            else { return false }
+            if entry.node.isModalPresentationScope, !ancestors.contains(ObjectIdentifier(entry.node)) { return false }
+            for child in entry.node.children {
+                guard child.parent === entry.node else { return false }
+                pending.append((child, entry.depth + 1))
+            }
+        }
+        return true
+    }
+
+    /// Callers choose a bounded query point, then recheck their original target
+    /// and handler witnesses. A successful query does not authorize a new node.
+    @inline(never)
+    package func prepareAccessibilityMutation(_ mutation: RetainedAccessibilityMutation) -> Bool {
+        guard isAccessibilityMutationCurrent(mutation), resolvedLayoutFrame(of: root) != nil,
+            isAccessibilityMutationCurrent(mutation), case .settled = layoutSettlementStatus,
+            hasCurrentAccessibilityPrepaint
+        else { return false }
+        return true
+    }
+
     /// Focus restoration can publish callbacks after a query records prepaint.
     /// Read this after the query, before invoking a retained accessibility action.
     var hasCurrentAccessibilityPrepaint: Bool {
@@ -12685,6 +13152,7 @@ public final class RetainedViewRuntime {
     /// An accepted rebuild can retain a node while replacing its callbacks and
     /// geometry. Its old lifecycle snapshot must not run on the new build.
     func invalidateRenderLifecycleCandidates() {
+        activeAccessibilityMutation?.recordMutation()
         presentationMutationRevision &+= 1
         if isDeliveringRenderLifecycleCallbacks { renderLifecycleRevision &+= 1 }
     }
@@ -13816,14 +14284,14 @@ public final class RetainedViewRuntime {
     /// `animated: false` is for a restore rather than an interaction: the
     /// chrome being re-applied was already on screen a frame ago, so it snaps
     /// back instead of replaying the ramp the pointer earned when it arrived.
-    func applyInteractionChrome(to node: ViewNode?, animated: Bool = true) {
+    func applyInteractionChrome(to node: ViewNode?, animated: Bool = true, at timestamp: Double? = nil) {
         guard let node, let surface = node.interactionSurface else {
             return
         }
 
         let phase = interactionPhase(for: node)
         let duration = animated ? surface.duration(intoPhase: phase) : 0
-        let timestamp = clock()
+        let timestamp = timestamp ?? clock()
 
         func applyColor(_ property: AnimatedColorProperty, to color: Color) {
             if !animated, let running = colorAnimations[ColorAnimationKey(node: node, property: property)],
@@ -14006,31 +14474,302 @@ public final class RetainedViewRuntime {
         }
     }
 
-    private func updateFocusTarget(to nextFocusedNode: ViewNode?) {
-        presentationFocusRevision &+= 1
-        guard focusedNode !== nextFocusedNode else {
-            if let nextFocusedNode, presentationFocusEntryTarget === nextFocusedNode {
-                presentationFocusEntryReaffirmation = presentationFocusRevision
-            }
-            return
+    private func advanceFocusRevision() -> UInt64? {
+        if let revision = focusRevision.advance() { return revision }
+        // Revoke before any finished receipt releases application captures.
+        // Terminal/overflow cleanup can still clear an old focus, but no new
+        // intent or deferred restoration can reuse this exhausted authority.
+        currentFocusEntry = nil
+        let retired = pendingPresentationFocusRequests
+        for request in retired { request.revoke() }
+        pendingPresentationFocusRequests.removeAll()
+        for request in retired { request.finish() }
+        return nil
+    }
+
+    private func isAttachedFocusNode(_ node: ViewNode) -> Bool {
+        var candidate: ViewNode? = node
+        var depth = 0
+        while let current = candidate, depth < ViewNode.maximumTraversalDepth {
+            guard current.runtime === self else { return false }
+            if current === root { return true }
+            candidate = current.parent
+            depth += 1
         }
+        return false
+    }
 
-        // A complete newer transition owns its own enter and UIA delivery.
-        // Moving away and back cannot revive the suspended entry's witness.
-        presentationFocusEntryTarget = nil
-        presentationFocusEntryReaffirmation = nil
+    private func focusTargetIsEligible(
+        _ node: ViewNode, origin: RetainedFocusOrigin, beganAttached: Bool
+    ) -> Bool {
+        guard node.isFocusable, !Self.hasHiddenAncestor(node) else { return false }
+        if beganAttached || origin == .accessibility {
+            guard isAttachedFocusNode(node),
+                isPresentationNodeAvailable(node, requiresEnabled: origin == .accessibility)
+            else { return false }
+        } else {
+            // Construction eligibility belongs only to an originally
+            // detached candidate, never a target removed during a callback.
+            var candidate: ViewNode? = node
+            var depth = 0
+            while let current = candidate, depth < ViewNode.maximumTraversalDepth {
+                guard current.runtime == nil || current.runtime === self else { return false }
+                candidate = current.parent
+                depth += 1
+            }
+            guard candidate == nil else { return false }
+        }
+        if origin != .accessibility, isAttachedFocusNode(node), let modal = activeModalPresentationNode {
+            return Self.isInteractionTarget(node, within: modal)
+        }
+        return true
+    }
 
-        let previousNode = focusedNode
+    private func accessibilityFocusContextIsCurrent(for node: ViewNode) -> Bool {
+        guard permitsRenderLifecycleCallbacks, !focusRevision.isExhausted,
+            case .settled = layoutSettlementStatus, hasCurrentAccessibilityPrepaint,
+            node.isFocusable, isAttachedFocusNode(node), isPresentationNodeAvailable(node),
+            let element = AccessibilityProjection.project(runtime: self)?
+                .flattened().first(where: { $0.sourceNode === node })
+        else { return false }
+        return element.isEnabled && element.permitsModalActions
+    }
+
+    private func focusOperationHasAuthority(
+        _ operation: RetainedFocusOperation, expectedFocus: ViewNode?
+    ) -> Bool {
+        let isCleanup = operation.origin == .cleanup && !operation.hasTarget
+        guard permitsRenderLifecycleCallbacks || isCleanup, focusedNode === expectedFocus else { return false }
+        if let revision = operation.revision {
+            guard !focusRevision.isExhausted, presentationFocusRevision == revision else { return false }
+        } else {
+            guard isCleanup, focusRevision.isExhausted else { return false }
+        }
+        guard operation.hasTarget else { return true }
+        guard let target = operation.target else { return false }
+        return focusTargetIsEligible(target, origin: operation.origin, beganAttached: operation.beganAttached)
+    }
+
+    private func validateFocusOperation(
+        _ operation: RetainedFocusOperation, expectedFocus: ViewNode?, mayQuery: Bool
+    ) -> Bool {
+        guard focusOperationHasAuthority(operation, expectedFocus: expectedFocus) else { return false }
+        guard operation.origin == .accessibility else { return true }
+        // Beginning a build or entering a retained callback phase need not
+        // invalidate paint. Check phase admission independently of the owned
+        // mutation witness, without rejecting our own dirty paint/layout bits.
+        guard canReadLayoutSettlement else { return false }
+        guard presentationMutationRevision != operation.mutationWitness else { return true }
+        guard let target = operation.target else { return false }
+
+        if accessibilityFocusContextIsCurrent(for: target) {
+            operation.mutationWitness = presentationMutationRevision
+            return focusOperationHasAuthority(operation, expectedFocus: expectedFocus)
+        }
+        guard mayQuery, operation.remainingQualificationQueries > 0 else { return false }
+        operation.remainingQualificationQueries -= 1
+        // Keep the original intent and expected focus across the query. A
+        // callback cannot rebase this operation onto a newer focus revision.
+        guard queryFocusLayout(usingFrameQuery: true),
+            focusOperationHasAuthority(operation, expectedFocus: expectedFocus),
+            accessibilityFocusContextIsCurrent(for: target)
+        else { return false }
+        operation.mutationWitness = presentationMutationRevision
+        return true
+    }
+
+    /// A layout callback may choose focus, but cannot lend that intent to a
+    /// suspended entry. Preserve the exact existing query API and retire its
+    /// callback frame before conditionally publishing the old entry again.
+    @inline(never)
+    private func queryFocusLayout(usingFrameQuery: Bool) -> Bool {
+        let entry = currentFocusEntry
+        let revision = presentationFocusRevision
+        currentFocusEntry = nil
+        let result = performFocusLayoutQuery(usingFrameQuery: usingFrameQuery)
+        if let entry, currentFocusEntry == nil, permitsRenderLifecycleCallbacks,
+            !focusRevision.isExhausted, presentationFocusRevision == revision,
+            focusedNode === entry.target
+        {
+            currentFocusEntry = entry
+        }
+        return result
+    }
+
+    @inline(never)
+    private func performFocusLayoutQuery(usingFrameQuery: Bool) -> Bool {
+        if usingFrameQuery { return resolvedLayoutFrame(of: root) != nil }
+        updateResolvedLayout()
+        return true
+    }
+
+    private func clearFocusEntry(_ entry: RetainedFocusEntry?) {
+        if let entry, currentFocusEntry === entry { currentFocusEntry = nil }
+    }
+
+    private func takeFocusReaffirmation(_ entry: RetainedFocusEntry?) -> RetainedFocusReaffirmation? {
+        guard let entry, currentFocusEntry === entry, let target = entry.target,
+            focusedNode === target, !focusRevision.isExhausted,
+            let reaffirmation = entry.reaffirmation,
+            reaffirmation.revision == presentationFocusRevision
+        else { return nil }
+        entry.reaffirmation = nil
+        return reaffirmation
+    }
+
+    private func adoptFocusReaffirmation(_ entry: RetainedFocusEntry?, into operation: RetainedFocusOperation) {
+        guard let reaffirmation = takeFocusReaffirmation(entry) else { return }
+        operation.origin = reaffirmation.origin
+        // A same-entry request must not turn a formerly attached target into
+        // a detached construction exception while its entry is incomplete.
+        operation.beganAttached = operation.beganAttached || reaffirmation.beganAttached
+        operation.revision = reaffirmation.revision
+        operation.mutationWitness = reaffirmation.mutationWitness
+        // Keep the suspended operation's remaining query budget unchanged.
+    }
+
+    private func recordOwnedFocusEffects(_ operation: RetainedFocusOperation) {
+        // Only call after the callback-free focus bit, caret, timestamp-fed
+        // chrome, or explicit invalidation writes below. This does not alter
+        // the runtime's global prepaint or layout settlement authority.
+        operation.mutationWitness = presentationMutationRevision
+    }
+
+    // Separate non-inlined frames make callback capture release precede the
+    // caller's next validity check, including a self-replacing callback.
+    @inline(never)
+    private func deliverFocusExit(_ node: ViewNode?) {
+        var callback = node?.onFocusExit
+        callback?()
+        callback = nil
+    }
+
+    @inline(never)
+    private func deliverFocusEnter(_ node: ViewNode?) {
+        var callback = node?.onFocusEnter
+        callback?()
+        callback = nil
+    }
+
+    @inline(never)
+    private func deliverAccessibilityFocusNotification(_ node: ViewNode?) {
+        var callback = onAccessibilityFocusChanged
+        callback?(node)
+        callback = nil
+    }
+
+    @inline(never)
+    private func sampleFocusClock() -> Double {
+        var callback: (@MainActor () -> Double)? = clock
+        let timestamp = callback?() ?? 0
+        callback = nil
+        return timestamp
+    }
+
+    private func withdrawFocusOperation(_ operation: RetainedFocusOperation) {
+        guard let revision = operation.revision, presentationFocusRevision == revision,
+            let target = operation.target, focusedNode === target
+        else { return }
+        focusedNode = nil
+        target.isFocused = false
+    }
+
+    @discardableResult
+    private func updateFocusTarget(to nextFocusedNode: ViewNode?, origin: RetainedFocusOrigin = .ordinary) -> Bool {
+        let isCleanup = origin == .cleanup && nextFocusedNode == nil
+        guard permitsRenderLifecycleCallbacks || isCleanup else { return false }
+        let beganAttached =
+            nextFocusedNode.map {
+                isAttachedFocusNode($0)
+                    || (currentFocusEntry?.target === $0 && currentFocusEntry?.beganAttached == true)
+            } ?? false
+        if let nextFocusedNode {
+            guard focusTargetIsEligible(nextFocusedNode, origin: origin, beganAttached: beganAttached) else {
+                return false
+            }
+        }
+        let revision = advanceFocusRevision()
+        guard revision != nil || isCleanup else { return false }
+        let operation = RetainedFocusOperation(
+            target: nextFocusedNode, origin: origin, beganAttached: beganAttached,
+            revision: revision, mutationWitness: presentationMutationRevision)
+        let completed = performFocusTransition(operation, to: nextFocusedNode)
+        // The inner frame has released its old node and callback captures.
+        // Final notification/cleanup can make an already performed transition
+        // unqualified; do not query, retry, or roll back a newer focus here.
+        let isCurrent = validateFocusOperation(operation, expectedFocus: nextFocusedNode, mayQuery: false)
+        let ownsOriginalIntent = origin != .accessibility || operation.revision == revision
+        return completed && isCurrent && ownsOriginalIntent
+            && (!operation.hasTarget || nextFocusedNode?.isFocused == true)
+    }
+
+    @inline(never)
+    private func performFocusTransition(_ operation: RetainedFocusOperation, to nextFocusedNode: ViewNode?) -> Bool {
+        guard focusedNode !== nextFocusedNode else {
+            if let entry = currentFocusEntry, let nextFocusedNode, entry.target === nextFocusedNode,
+                let revision = operation.revision
+            {
+                entry.reaffirmation = RetainedFocusReaffirmation(
+                    revision: revision, origin: operation.origin, beganAttached: operation.beganAttached,
+                    mutationWitness: operation.mutationWitness)
+            }
+            return true
+        }
+        // Only this entry can consume its same-target reaffirmation. A full
+        // nested away-and-back transition cannot revive an outer witness.
+        currentFocusEntry = nil
+        var previousNode = focusedNode
+        var previousTimestamp = 0.0
+        if previousNode?.interactionSurface != nil, permitsRenderLifecycleCallbacks {
+            previousTimestamp = sampleFocusClock()
+            guard validateFocusOperation(operation, expectedFocus: previousNode, mayQuery: true) else { return false }
+        }
+        focusedNode = nil
         previousNode?.isFocused = false
-        previousNode?.onFocusExit?()
+        applyInteractionChrome(to: previousNode, animated: permitsRenderLifecycleCallbacks, at: previousTimestamp)
+        recordOwnedFocusEffects(operation)
+        deliverFocusExit(previousNode)
+        previousNode = nil
+        guard validateFocusOperation(operation, expectedFocus: nil, mayQuery: true) else { return false }
+
         focusedNode = nextFocusedNode
-        focusedNode?.isFocused = true
-        focusedNode?.onFocusEnter?()
+        nextFocusedNode?.isFocused = true
+        recordOwnedFocusEffects(operation)
+        let entry = nextFocusedNode.map { RetainedFocusEntry(target: $0, beganAttached: operation.beganAttached) }
+        currentFocusEntry = entry
+        defer { clearFocusEntry(entry) }
+        deliverFocusEnter(nextFocusedNode)
+        return finishFocusEntry(operation, to: nextFocusedNode, entry: entry)
+    }
+
+    @inline(never)
+    private func finishFocusEntry(
+        _ operation: RetainedFocusOperation, to nextFocusedNode: ViewNode?, entry: RetainedFocusEntry?,
+        at sampledTimestamp: Double? = nil
+    ) -> Bool {
+        defer { clearFocusEntry(entry) }
+        adoptFocusReaffirmation(entry, into: operation)
+        guard validateFocusOperation(operation, expectedFocus: nextFocusedNode, mayQuery: true) else {
+            withdrawFocusOperation(operation)
+            return false
+        }
         resetCaretBlink()
-        applyInteractionChrome(to: previousNode)
-        applyInteractionChrome(to: nextFocusedNode)
+        recordOwnedFocusEffects(operation)
+        var timestamp = sampledTimestamp ?? 0
+        if sampledTimestamp == nil, nextFocusedNode?.interactionSurface != nil, permitsRenderLifecycleCallbacks {
+            timestamp = sampleFocusClock()
+            adoptFocusReaffirmation(entry, into: operation)
+            guard validateFocusOperation(operation, expectedFocus: nextFocusedNode, mayQuery: true) else {
+                withdrawFocusOperation(operation)
+                return false
+            }
+        }
+        applyInteractionChrome(to: nextFocusedNode, animated: permitsRenderLifecycleCallbacks, at: timestamp)
         invalidate()
-        onAccessibilityFocusChanged?(nextFocusedNode)
+        recordOwnedFocusEffects(operation)
+        clearFocusEntry(entry)
+        deliverAccessibilityFocusNotification(nextFocusedNode)
+        return true
     }
 }
 struct ScrollIndicatorTrack {

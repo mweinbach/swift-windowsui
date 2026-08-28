@@ -22,6 +22,16 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
         }
     }
 
+    /// The effect is already finished when this leaves the dispatch frame.
+    /// No editor or application capture is kept alive by this receipt.
+    private struct ValueCompletion {
+        let result: TextInputAccessibilityValueResult
+        let target: RetainedAccessibilityTarget
+        weak var controller: (any RetainedTextInputController)?
+        let focusRevision: UInt64
+        let mutationRevision: UInt64
+    }
+
     // The host owns its runtime. An accessibility bridge may outlive that
     // owner, so keep the projection source without keeping the view tree alive.
     private weak var runtime: RetainedViewRuntime?
@@ -32,7 +42,6 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
     private var idsByNode: [ObjectIdentifier: UInt64] = [:]
     private var nodesByID: [UInt64: WeakNode] = [:]
     private var nextID: UInt64 = 1
-    private var isInvokingDefaultAction = false
 
     init(runtime: RetainedViewRuntime, screenBoundsMapper: @escaping (Rect) -> Rect = { $0 }) {
         self.runtime = runtime
@@ -67,62 +76,51 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
 
     @discardableResult
     func uiaInvokeDefaultAction(elementID: UInt64) -> Bool {
-        guard let runtime else { return false }
-        defer { withExtendedLifetime(runtime) {} }
-        return invokeDefaultAction(elementID: elementID, in: runtime, intent: .invoke)
+        withMutation { runtime, _ in
+            invokeDefaultAction(elementID: elementID, in: runtime, intent: .invoke)
+        }
     }
 
     func uiaSetFocus(elementID: UInt64) {
-        guard let runtime else { return }
-        defer { withExtendedLifetime(runtime) {} }
-        guard let node = projectedElement(for: elementID)?.sourceNode else {
-            return
+        _ = uiaSetFocusResult(elementID: elementID)
+    }
+
+    /// The legacy source/COM callback remains Void. This internal result is
+    /// true only when the guarded retained transition is still qualified;
+    /// false does not imply its earlier focus callbacks had no effects.
+    func uiaSetFocusResult(elementID: UInt64) -> Bool {
+        withMutation { runtime, _ in
+            setFocusResult(elementID: elementID, in: runtime)
         }
-        runtime.requestFocus(node)
+    }
+
+    @inline(never)
+    private func setFocusResult(elementID: UInt64, in runtime: RetainedViewRuntime) -> Bool {
+        guard runtime.permitsRetainedActionInvocation,
+            let node = elementID == UIAProviderBridge.rootElementID ? runtime.root : nodesByID[elementID]?.node
+        else { return false }
+        return runtime.requestAccessibilityFocus(node)
     }
 
     @discardableResult
     func uiaSetValue(elementID: UInt64, value: String) -> Bool {
-        guard let runtime else { return false }
-        defer { withExtendedLifetime(runtime) {} }
-        guard let element = projectedElement(for: elementID), element.isEnabled,
-            element.controlType == .edit,
-            !element.traits.contains(.isSecureTextInput),
-            let node = element.sourceNode,
-            let keyDown = node.onKeyDown,
-            let commit = node.onIMEComposition
-        else {
-            return false
+        withMutation { runtime, mutation in
+            setValue(elementID: elementID, value: value, in: runtime, during: mutation)
         }
-
-        // The text input owns its Binding and its grapheme-aware replacement
-        // rules. Select-all plus its existing Unicode commit path preserves
-        // those rules rather than mutating presentation-only accessibility
-        // metadata or inventing a second model value.
-        runtime.requestFocus(node)
-        keyDown(KeyboardEvent(keyCode: 0x41, modifiers: .control))
-        if value.isEmpty {
-            keyDown(KeyboardEvent(keyCode: KeyboardKey.backspace.rawValue))
-            node.accessibilityValue = nil
-        } else {
-            commit(IMECompositionEvent(phase: .committed(value)))
-            node.accessibilityValue = value
-        }
-        return true
     }
 
     @discardableResult
     func uiaToggle(elementID: UInt64) -> Bool {
-        guard let runtime else { return false }
-        defer { withExtendedLifetime(runtime) {} }
-        return invokeDefaultAction(elementID: elementID, in: runtime, intent: .toggle)
+        withMutation { runtime, _ in
+            invokeDefaultAction(elementID: elementID, in: runtime, intent: .toggle)
+        }
     }
 
     @discardableResult
     func uiaSelect(elementID: UInt64) -> Bool {
-        guard let runtime else { return false }
-        defer { withExtendedLifetime(runtime) {} }
-        return invokeDefaultAction(elementID: elementID, in: runtime, intent: .select)
+        withMutation { runtime, _ in
+            invokeDefaultAction(elementID: elementID, in: runtime, intent: .select)
+        }
     }
 
     @discardableResult
@@ -132,31 +130,141 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
 
     @discardableResult
     func uiaRemoveFromSelection(elementID: UInt64) -> Bool {
-        guard let runtime else { return false }
-        defer { withExtendedLifetime(runtime) {} }
-        return invokeDefaultAction(elementID: elementID, in: runtime, intent: .removeFromSelection)
+        withMutation { runtime, _ in
+            invokeDefaultAction(elementID: elementID, in: runtime, intent: .removeFromSelection)
+        }
     }
 
     @discardableResult
     func uiaRealizeVirtualizedItem(elementID: UInt64) -> Bool {
-        guard let runtime else { return false }
-        defer { withExtendedLifetime(runtime) {} }
-        guard let element = projectedElement(for: elementID), element.isVirtualizedPlaceholder,
-            let node = element.sourceNode
-        else {
-            return false
+        withMutation { runtime, mutation in
+            realize(elementID: elementID, in: runtime, during: mutation)
         }
-        return runtime.scrollToDescendant(node)
     }
 
+    @inline(never)
+    private func withMutation(
+        _ perform: (RetainedViewRuntime, RetainedAccessibilityMutation) -> Bool
+    ) -> Bool {
+        guard let runtime, let mutation = runtime.beginAccessibilityMutation() else { return false }
+        defer {
+            runtime.endAccessibilityMutation(mutation)
+            withExtendedLifetime(runtime) {}
+        }
+        // Inner helpers release callback captures before admission is opened
+        // again. A false result after an effect never schedules another attempt.
+        return perform(runtime, mutation)
+    }
+
+    @inline(never)
+    private func realize(
+        elementID: UInt64, in runtime: RetainedViewRuntime, during mutation: RetainedAccessibilityMutation
+    ) -> Bool {
+        guard let node = retainedNode(for: elementID, in: runtime),
+            let target = runtime.accessibilityTarget(for: node)
+        else { return false }
+        return runtime.realizeAccessibilityTarget(target, during: mutation)
+    }
+
+    @inline(never)
+    private func setValue(
+        elementID: UInt64, value: String, in runtime: RetainedViewRuntime,
+        during mutation: RetainedAccessibilityMutation
+    ) -> Bool {
+        let completion = dispatchValue(elementID: elementID, value: value, in: runtime, during: mutation)
+        // Retired original controllers can release arbitrary Binding captures
+        // when dispatchValue returns. Admission is still held here. Do not
+        // absorb effects of those destructors into the completed operation.
+        guard let completion, completion.result.didDispatch, completion.result.accepted,
+            completion.mutationRevision == mutation.revision,
+            let controller = completion.controller,
+            completion.target.node?.textInputController === controller
+        else { return false }
+        return Self.valueTargetIsCurrent(
+            completion.target, in: runtime, during: mutation, focusRevision: completion.focusRevision)
+    }
+
+    @inline(never)
+    private func dispatchValue(
+        elementID: UInt64, value: String, in runtime: RetainedViewRuntime,
+        during mutation: RetainedAccessibilityMutation
+    ) -> ValueCompletion? {
+        guard let node = retainedNode(for: elementID, in: runtime),
+            let target = runtime.accessibilityTarget(for: node),
+            let original = node.textInputController as? any TextInputAccessibilityValueReplacing,
+            Self.isWritableValueNode(node)
+        else { return nil }
+        defer { withExtendedLifetime(original) {} }
+        // The capability is the selected handler. Keep that exact controller
+        // before any focus/layout callback; a replacement may not inherit the
+        // request. Raw key and IME handlers are never a fallback.
+        guard runtime.requestAccessibilityFocus(node),
+            runtime.isAccessibilityTargetCurrent(target, during: mutation),
+            node.textInputController === original
+        else { return nil }
+        let focusRevision = runtime.presentationFocusRevision
+        guard Self.valueTargetIsCurrent(target, in: runtime, during: mutation, focusRevision: focusRevision) else {
+            return nil
+        }
+        let result = original.replaceValueForAccessibility(
+            value,
+            validation: TextInputAccessibilityValueValidation(
+                mayDispatch: {
+                    node.textInputController === original
+                        && Self.valueTargetIsCurrent(
+                            target, in: runtime, during: mutation, focusRevision: focusRevision)
+                },
+                isRetainedTargetCurrent: {
+                    Self.valueTargetIsCurrent(
+                        target, in: runtime, during: mutation, focusRevision: focusRevision)
+                }))
+        // A compatible setter rebuild can replace the controller while the
+        // capability preserves the accepted edit. Publish that completion's
+        // weak identity before releasing the original controller's captures.
+        return ValueCompletion(
+            result: result, target: target, controller: node.textInputController,
+            focusRevision: focusRevision, mutationRevision: mutation.revision)
+    }
+
+    private static func isWritableValueNode(_ node: ViewNode) -> Bool {
+        guard AccessibilityProjection.resolveControlType(for: node) == .edit,
+            !node.accessibilityTraits.contains(.isSecureTextInput),
+            let controller = node.textInputController as? any TextInputAccessibilityValueReplacing
+        else { return false }
+        return controller.hasCurrentAccessibilityValueOwnership
+    }
+
+    /// Only stored retained state is read. Normal editor completion deliberately
+    /// dirties layout, so an earlier settled/prepaint receipt cannot authorize
+    /// or reject this semantic check. It never supplies geometry to UIA.
+    private static func valueTargetIsCurrent(
+        _ target: RetainedAccessibilityTarget, in runtime: RetainedViewRuntime,
+        during mutation: RetainedAccessibilityMutation, focusRevision: UInt64
+    ) -> Bool {
+        guard runtime.isAccessibilityTargetCurrent(target, during: mutation), let node = target.node,
+            runtime.focusedNode === node, node.isFocused, node.isFocusable,
+            runtime.presentationFocusRevision == focusRevision, isWritableValueNode(node),
+            runtime.permitsConservativeAccessibilityValueTarget(node),
+            let element = AccessibilityProjection.project(root: runtime.root)?.flattened().first(where: {
+                $0.sourceNode === node
+            }),
+            element.controlType == .edit, element.isEnabled, element.permitsModalActions,
+            !element.isVirtualizedPlaceholder, !element.traits.contains(.isSecureTextInput)
+        else { return false }
+        return true
+    }
+
+    private func retainedNode(for elementID: UInt64, in runtime: RetainedViewRuntime) -> ViewNode? {
+        elementID == UIAProviderBridge.rootElementID ? runtime.root : nodesByID[elementID]?.node
+    }
+
+    @inline(never)
     private func invokeDefaultAction(
         elementID: UInt64, in runtime: RetainedViewRuntime, intent: AccessibilityDefaultActionIntent
     ) -> Bool {
-        guard !isInvokingDefaultAction, runtime.permitsRetainedActionInvocation,
+        guard runtime.permitsRetainedActionInvocation,
             let node = elementID == UIAProviderBridge.rootElementID ? runtime.root : nodesByID[elementID]?.node
         else { return false }
-        isInvokingDefaultAction = true
-        defer { isInvokingDefaultAction = false }
         // Role, selection state, and the handler belong to one post-query
         // element. A pre-query predicate must not authorize a different role
         // or an obsolete selection transition after layout callbacks run.
@@ -212,6 +320,12 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
         let isPassword = element.traits.contains(.isSecureTextInput)
         let supportsValue = element.controlType == .edit && !isPassword
         let isSelected: Bool? = element.traits.contains(.isSelectable) ? element.isSelected : nil
+        let hasWritableCapability: Bool
+        if let node = element.sourceNode {
+            hasWritableCapability = Self.isWritableValueNode(node)
+        } else {
+            hasWritableCapability = false
+        }
 
         list.append(
             UIAElementSnapshot(
@@ -231,7 +345,7 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
                     && (!element.actions.isEmpty || element.sourceNode?.onActivate != nil),
                 isPassword: isPassword,
                 supportsValue: supportsValue,
-                isReadOnly: !element.isEnabled || element.sourceNode?.onIMEComposition == nil,
+                isReadOnly: !element.isEnabled || !hasWritableCapability,
                 toggleState: element.controlType == .checkBox ? (element.isSelected ? .on : .off) : nil,
                 isSelected: isSelected,
                 isVirtualizedPlaceholder: element.isVirtualizedPlaceholder
@@ -241,19 +355,6 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
         for child in element.children {
             appendSnapshots(for: child, parentID: id, rootBounds: rootBounds, into: &list)
         }
-    }
-
-    private func projectedElement(for id: UInt64) -> AccessibilityElementProjection? {
-        guard let runtime, let root = AccessibilityProjection.project(runtime: runtime) else {
-            return nil
-        }
-        if id == UIAProviderBridge.rootElementID {
-            return root
-        }
-        guard let node = nodesByID[id]?.node else {
-            return nil
-        }
-        return root.flattened().first(where: { $0.sourceNode === node })
     }
 
     // MARK: - Stable element ids

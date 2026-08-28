@@ -388,6 +388,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Win
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter ModalAccessibilityActionTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter UIACurrentElementMutationTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter AccessibilityProjectedActionLifetimeTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter RetainedFocusTransitionTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter UIAFocusAdmissionTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter FocusClockCompletionTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIDynamicTypeRangeTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIControlUsabilityTests
 ```
@@ -412,6 +415,30 @@ during layout or the admitted handler. They check temporary retention through
 the handler, terminal rejection through another projection scope, release
 after return, and inert stale repeats. They do not create a UIA source or
 qualify native provider disconnection.
+
+`RetainedFocusTransitionTests`, `UIAFocusAdmissionTests`, and
+`FocusClockCompletionTests` cover ordinary
+focus reentry, checked revisions, exact entry reaffirmation, clock and capture
+release, construction/build/render eligibility, terminal cleanup, strict UIA
+ownership/modal admission, and bounded qualification queries. The UIA result
+checks finish after final callback capture cleanup and do not run another
+layout query or retry after effects. The host fixture uses fake renderers
+without creating an HWND. Native HRESULT transport, provider disconnection,
+Narrator, and visible IME checks remain separate; see
+[retained focus admission](FocusAdmission.md).
+
+`UIAMutationAdmissionTests` checks the shared runtime gate across live UIA
+adapters, callback/build/terminal rejection, legacy Void focus, capture cleanup,
+and the temporary runtime pin. `UIARealizeAdmissionTests` covers the checked lazy
+row scroll path, clock and pointer reentry, mixed gesture ownership, and cached
+scroll-observation value destruction. These retained source suites create no
+HWND or COM provider and do not qualify the separate SetValue atomic editor
+continuation. See [accessibility mutation admission](AccessibilityMutationAdmission.md).
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter UIAMutationAdmissionTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter UIARealizeAdmissionTests
+```
 
 `FileDocumentExportTests` performs real filesystem writes in unique test-owned
 temporary directories. It checks document round trips, atomic replacement,

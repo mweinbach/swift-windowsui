@@ -13863,7 +13863,7 @@ extension ControlSize {
 /// In-flight callbacks resolve `current` after calling application code, so a
 /// synchronous rebuild can replace bindings and a removal can end the operation.
 @MainActor
-private final class TextInputInteractionController: RetainedTextInputController, DocumentTextUndoClient {
+private final class TextInputInteractionController: TextInputAccessibilityValueReplacing, DocumentTextUndoClient {
     struct SelectionUpdate {
         var anchor: Int
         var extent: Int
@@ -13877,6 +13877,8 @@ private final class TextInputInteractionController: RetainedTextInputController,
 
     private(set) weak var node: ViewNode?
     private(set) var isAttached = false
+    private weak var constructionNode: ViewNode?
+    private var constructionNodeWasAttached = false
     let characterCount: Int
     let authoredCaret: Int
     let authoredSelection: RetainedTextSelection?
@@ -13886,6 +13888,8 @@ private final class TextInputInteractionController: RetainedTextInputController,
     let isEnabled: Bool
     weak var undoRuntime: RetainedViewRuntime?
     private weak var configuredUndoManager: UndoManager?
+    private let accessibilityValueBinding: Binding<String>
+    private var accessibilityValueOwner = TextInputAccessibilityValueOwner()
     var undoSession: TextInputUndoSession?
     let documentSource: DocumentBindingSource?
     let documentProjection: [AnyKeyPath]?
@@ -13898,6 +13902,7 @@ private final class TextInputInteractionController: RetainedTextInputController,
     var observedDocumentSelection: TextSelection?
     var applySelection: ((SelectionUpdate) -> Bool)?
     var refreshChrome: (() -> Void)?
+    var prepareFieldChromeForAdoption: (@MainActor (ViewNode, TextInputEditingChromeState.EditingState) -> Void)?
     var textPosition: ((Point) -> RetainedTextCaretPosition?)?
     var invalidate: (() -> Void)?
     var writeUndoText: ((String, TextInputUndoSelection) -> Void)?
@@ -13911,10 +13916,11 @@ private final class TextInputInteractionController: RetainedTextInputController,
     init(
         node: ViewNode, characterCount: Int, hasSelectionBinding: Bool,
         isSecure: Bool, allowsNewlines: Bool, isEnabled: Bool,
-        runtime: RetainedViewRuntime, undoManager: UndoManager?,
+        runtime: RetainedViewRuntime, undoManager: UndoManager?, text: Binding<String>,
         documentSource: DocumentBindingSource?, documentProjection: [AnyKeyPath]?
     ) {
         self.node = node
+        constructionNode = node
         self.characterCount = characterCount
         authoredCaret = node.textInputCaretOffset
         authoredSelection = node.textInputSelection
@@ -13924,6 +13930,7 @@ private final class TextInputInteractionController: RetainedTextInputController,
         self.isEnabled = isEnabled
         undoRuntime = runtime
         configuredUndoManager = undoManager
+        accessibilityValueBinding = text
         self.documentSource = documentSource
         self.documentProjection = documentProjection
         if allowsNewlines {
@@ -13939,13 +13946,219 @@ private final class TextInputInteractionController: RetainedTextInputController,
         return current
     }
 
+    var hasCurrentAccessibilityValueOwnership: Bool {
+        current === self && isAttached && accessibilityValueOwner.isValid
+    }
+
+    func replaceValueForAccessibility(
+        _ value: String, validation: TextInputAccessibilityValueValidation
+    ) -> TextInputAccessibilityValueResult {
+        guard current === self, isAttached, isEnabled, !isSecure, !isComposing,
+            let node, node.textInputMarkedText == nil, let runtime = undoRuntime,
+            runtime.focusedNode === node
+        else { return .refused }
+        let owner = accessibilityValueOwner
+        guard let attempt = owner.beginAttempt() else { return .refused }
+        defer { owner.endAttempt(attempt) }
+        let session = undoSession
+        let manager = configuredUndoManager
+        let source = documentSource
+        let endpoint = documentEndpoint
+        let endpointGeneration = endpoint?.generation
+        let sourceRevision = source?.owner?.documentMutationRevision
+        let previousBoundSelection = observedDocumentSelection
+
+        // This proof never invokes a replacement controller's application
+        // closures. A custom Binding still uses the documented retained .id
+        // boundary; equal-text rebinding is not a discoverable document switch.
+        @MainActor func retainedController() -> TextInputInteractionController? {
+            guard owner.isCurrent(attempt), let current = self.current,
+                current.accessibilityValueOwner === owner, current.node === node,
+                current.isAttached, current.isEnabled, !current.isSecure, !current.isComposing,
+                current.allowsNewlines == allowsNewlines, current.undoRuntime === runtime,
+                node.textInputMarkedText == nil, runtime.focusedNode === node
+            else { return nil }
+            if let source {
+                guard current.sharesDocumentLocation(with: self), source.belongs(to: runtime),
+                    current.documentEndpoint === endpoint, endpoint?.isValid == true,
+                    endpoint?.generation == endpointGeneration
+                else { return nil }
+            } else {
+                guard current.documentSource == nil, current.configuredUndoManager === manager,
+                    current.undoSession === session, session?.isValid != false
+                else { return nil }
+            }
+            return current
+        }
+        @MainActor func originalMayDispatch() -> Bool {
+            guard retainedController() === self, validation.mayDispatch() else { return false }
+            return retainedController() === self
+        }
+        guard originalMayDispatch() else { return .refused }
+        let originalText = accessibilityValueBinding.wrappedValue
+        guard originalMayDispatch() else { return .refused }
+        var beforeSelection = TextInputUndoSelection(node: node, text: originalText)
+        if allowsNewlines { beforeSelection.affinity = visualCaretAffinity }
+        let requiresMutation =
+            session != nil && manager?.isUndoRegistrationEnabled == true
+            && manager?.isUndoing == false && manager?.isRedoing == false && originalText != value
+        let mutation = session?.beginEdit(before: originalText, expected: value, selection: beforeSelection)
+        let generation = session?.generation
+        let ticket = source?.beginEdit(
+            before: originalText, proposed: value, selection: beforeSelection, endpoint: endpoint)
+        defer {
+            session?.cancelEdit(mutation)
+            ticket?.cancel()
+        }
+        guard !requiresMutation || mutation != nil else { return .refused }
+        guard source == nil || ticket != nil else { return .refused }
+        @MainActor func historyPermitsDispatch() -> Bool {
+            guard session?.generation == generation, session?.isValid != false else { return false }
+            if let mutation, session?.isCurrent(mutation) != true { return false }
+            return ticket?.permitsWrite != false
+        }
+        @MainActor func mayWrite() -> Bool {
+            guard historyPermitsDispatch(), originalMayDispatch() else { return false }
+            return historyPermitsDispatch()
+        }
+        guard mayWrite() else { return .refused }
+        // History pruning may release arbitrary payloads. Check the original
+        // binding again before staging or submitting the one whole-text write.
+        let currentText = accessibilityValueBinding.wrappedValue
+        guard mayWrite(), currentText.utf8.elementsEqual(originalText.utf8) else { return .refused }
+        let previousPreferredX = preferredVisualX
+        node.textInputCaretOffset = value.count
+        node.textInputSelection = nil
+        preferredVisualX = nil
+        visualCaretAffinity = .downstream
+        owner.stageSelection(for: attempt)
+        // Generated projections consult this predicate around their own
+        // getter/setter work. It lives only for this synchronous submission.
+        accessibilityValueBinding.limitingWrites { mayWrite() }.write(value, mutation: ticket)
+
+        @MainActor func historyPermitsObservation() -> Bool {
+            guard session?.isValid != false else { return false }
+            if session?.generation != generation {
+                // With registration disabled there was no pending Mutation.
+                // A compatible adoption observes the accepted text and clears
+                // its old checkpoint once. Ordinary editing entry points
+                // supersede this attempt, so they cannot use this allowance.
+                guard mutation == nil, let generation,
+                    session?.generation == generation &+ 1, retainedController() !== self
+                else { return false }
+            }
+            if let mutation, session?.isCurrent(mutation) != true { return false }
+            if let ticket {
+                if ticket.receipt != nil { return ticket.permitsCompletion }
+                return source?.isLive == true && source?.owner?.documentMutationRevision == sourceRevision
+            }
+            return true
+        }
+        @MainActor func mayObserveOriginalValue() -> Bool {
+            guard retainedController() != nil, historyPermitsObservation(),
+                validation.isRetainedTargetCurrent()
+            else { return false }
+            return retainedController() != nil && historyPermitsObservation()
+        }
+        guard mayObserveOriginalValue() else { return .interrupted }
+        // Only the originally selected getter can report setter acceptance.
+        // A replacement controller's cached or freshly read text is no proof.
+        let actualText = accessibilityValueBinding.wrappedValue
+        guard mayObserveOriginalValue(), let latest = retainedController() else { return .interrupted }
+        let acceptedValue = actualText.utf8.elementsEqual(value.utf8)
+        var authoredSelectionChanged = false
+        if latest === self, hasSelectionBinding {
+            // A custom setter can author selection without rebuilding. Only
+            // this original getter may observe that override before history
+            // captures it; a replacement controller's getter is never called.
+            let boundSelection = readSelection?()
+            guard mayObserveOriginalValue(), retainedController() === self else { return .interrupted }
+            let verifiedText = accessibilityValueBinding.wrappedValue
+            guard mayObserveOriginalValue(), retainedController() === self,
+                verifiedText.utf8.elementsEqual(actualText.utf8)
+            else { return .interrupted }
+            if boundSelection != previousBoundSelection {
+                authoredSelectionChanged = true
+                node.textInputCaretOffset = boundSelection?.caretOffset(in: actualText) ?? actualText.count
+                node.textInputSelection = boundSelection?.retainedSelection(in: actualText)
+                preferredVisualX = nil
+                visualCaretAffinity = node.textInputSelection?.affinity ?? .downstream
+            }
+        }
+        if !acceptedValue, !authoredSelectionChanged,
+            actualText.utf8.elementsEqual(originalText.utf8),
+            latest.observedDocumentSelection == previousBoundSelection,
+            latest.hasSelectionBinding == hasSelectionBinding,
+            node.textInputCaretOffset == (latest === self ? value.count : min(value.count, actualText.count)),
+            node.textInputSelection == nil, latest.preferredVisualX == nil, latest.visualCaretAffinity == .downstream
+        {
+            // Restore only our still-owned internal staging, never an authored
+            // binding selection. A compatible adoption may have clamped the
+            // staged caret, but has not acquired a different attempt owner.
+            node.textInputCaretOffset = beforeSelection.caret
+            node.textInputSelection = beforeSelection.selection
+            latest.preferredVisualX = previousPreferredX
+            latest.visualCaretAffinity = beforeSelection.affinity
+        }
+        var afterSelection = TextInputUndoSelection(node: node, text: actualText)
+        if latest.allowsNewlines { afterSelection.affinity = latest.visualCaretAffinity }
+        let completionRevision = source?.owner?.documentMutationRevision
+        let completionGeneration = session?.generation
+        let hasDocumentReceipt = source == nil || ticket?.receipt != nil
+        if let ticket {
+            if ticket.permitsCompletion { ticket.finish(text: actualText, selection: afterSelection) }
+        } else {
+            session?.finishEdit(mutation, text: actualText, selection: afterSelection)
+        }
+        @MainActor func finishGenerationMatches() -> Bool {
+            if session?.generation == completionGeneration { return true }
+            guard let completionGeneration, session?.generation == completionGeneration &+ 1 else {
+                return false
+            }
+            // A nonrecording completion clears a changed checkpoint. A
+            // recording completion can also decline registration after
+            // application code disables it. Neither is a newer edit:
+            // every ordinary replacement/replay supersedes this owner.
+            return mutation == nil || actualText != value || manager?.isUndoRegistrationEnabled == false
+        }
+        guard finishGenerationMatches() else { return .interrupted }
+        // The allowance above applies only to the finish we just performed,
+        // never a further reset caused by the final application invalidation.
+        let finishedGeneration = session?.generation
+        @MainActor func completionIsCurrent() -> Bool {
+            guard retainedController() != nil, session?.isValid != false,
+                session?.generation == finishedGeneration,
+                source?.owner?.documentMutationRevision == completionRevision,
+                validation.isRetainedTargetCurrent()
+            else { return false }
+            return retainedController() != nil && session?.generation == finishedGeneration
+                && source?.owner?.documentMutationRevision == completionRevision
+        }
+        guard completionIsCurrent(), let completed = retainedController() else { return .interrupted }
+        if completed === self {
+            // Publish the observed value before the final application callback.
+            // A compatible rebuild already owns its incoming metadata.
+            node.accessibilityValue = actualText.isEmpty ? nil : actualText
+        }
+        runtime.invalidateTextInputLayout(for: node, controller: completed)
+        // Plain custom Bindings need the original build's invalidation. A
+        // synchronous setter rebuild has already done that work. This is the
+        // final application callback; only pure availability checks follow.
+        if completed === self, completionIsCurrent(), retainedController() === self { invalidate?() }
+        return TextInputAccessibilityValueResult(
+            didDispatch: true,
+            accepted: acceptedValue && hasDocumentReceipt && completionIsCurrent())
+    }
+
     func attach(to node: ViewNode) {
+        if node === constructionNode { constructionNodeWasAttached = true }
         self.node = node
         isAttached = true
     }
 
     func detach(from node: ViewNode) {
         if self.node === node {
+            accessibilityValueOwner.invalidate()
             undoSession?.invalidate()
             invalidateDocumentEndpoint()
             editorRevealQueued = false
@@ -13959,6 +14172,7 @@ private final class TextInputInteractionController: RetainedTextInputController,
         // construction parents. Only a live attachment owns history to revoke;
         // attaching a previously retired controller never revives its session.
         if isAttached, self.node === node {
+            accessibilityValueOwner.invalidate()
             undoSession?.markInvalid()
             invalidateDocumentEndpoint()
         }
@@ -13966,6 +14180,7 @@ private final class TextInputInteractionController: RetainedTextInputController,
 
     func willDetach(from node: ViewNode) {
         if self.node === node {
+            accessibilityValueOwner.invalidate()
             undoSession?.invalidate()
             invalidateDocumentEndpoint()
         }
@@ -14061,15 +14276,31 @@ private final class TextInputInteractionController: RetainedTextInputController,
         return old
     }
 
+    private func canTransferAccessibilityValueOwner(from previous: TextInputInteractionController) -> Bool {
+        guard previous.accessibilityValueOwner.isValid, isEnabled, previous.isEnabled,
+            !isSecure, !previous.isSecure, allowsNewlines == previous.allowsNewlines
+        else { return false }
+        if documentSource != nil || previous.documentSource != nil {
+            return sharesDocumentLocation(with: previous)
+        }
+        return configuredUndoManager === previous.configuredUndoManager
+    }
+
     func prepareForReconciliation(from previous: (any RetainedTextInputController)?, onto node: ViewNode) {
         guard let previous = previous as? TextInputInteractionController, previous.node === node else { return }
+        if !canTransferAccessibilityValueOwner(from: previous) { previous.accessibilityValueOwner.invalidate() }
         if let documentSource, !isSecure, previous.isSecure == isSecure, previous.allowsNewlines == allowsNewlines,
             previous.documentEndpoint?.matches(source: documentSource, projection: documentProjection) == true
         {
             return
         }
         if transferableUndoSession(from: previous) == nil {
-            previous.revokeOwnership(from: node)
+            // Nil history does not end a compatible value-replacement attempt.
+            // History still retires before any outgoing application callback.
+            if previous.isAttached {
+                previous.undoSession?.markInvalid()
+                previous.invalidateDocumentEndpoint()
+            }
         }
     }
 
@@ -14110,6 +14341,9 @@ private final class TextInputInteractionController: RetainedTextInputController,
     func reconcile(from previous: (any RetainedTextInputController)?, onto node: ViewNode) {
         self.node = node
         let previous = previous as? TextInputInteractionController
+        if let previous, canTransferAccessibilityValueOwner(from: previous) {
+            accessibilityValueOwner = previous.accessibilityValueOwner
+        }
         // The retained node's controller setter already attached this value
         // when it belongs to a runtime. A slot without a previous controller
         // must retain that attachment even when its child list is unchanged.
@@ -14140,7 +14374,14 @@ private final class TextInputInteractionController: RetainedTextInputController,
             node.textInputMarkedText = nil
         }
 
-        if preservesEditing, !hasSelectionBinding || authoredSelection == node.textInputSelection {
+        let preservesAccessibilitySelection =
+            accessibilityValueOwner.hasStagedSelection
+            && previous?.accessibilityValueOwner === accessibilityValueOwner
+            && previous?.hasSelectionBinding == hasSelectionBinding
+            && previous?.observedDocumentSelection == observedDocumentSelection
+        if preservesEditing,
+            !hasSelectionBinding || authoredSelection == node.textInputSelection || preservesAccessibilitySelection
+        {
             node.textInputCaretOffset = min(max(0, node.textInputCaretOffset), characterCount)
             node.textInputSelection = node.textInputSelection.map { selection in
                 func clamp(_ offset: Int) -> Int { min(max(0, offset), characterCount) }
@@ -14161,7 +14402,28 @@ private final class TextInputInteractionController: RetainedTextInputController,
             preferredVisualX = nil
             visualCaretAffinity = authoredSelection?.affinity ?? .downstream
         }
+
+        // Complete this edit's predictable Field chrome on the incoming
+        // construction tree. ComponentHost adopts those children after this
+        // method returns; refreshing live children here would be overwritten.
+        // The constructor's cached text/style need no replacement getter.
+        if let previous, previous.accessibilityValueOwner === accessibilityValueOwner,
+            accessibilityValueOwner.isValid, accessibilityValueOwner.hasStagedSelection,
+            self.node === node, current === self, isAttached, !isSecure, !allowsNewlines,
+            let constructionNode, constructionNode !== node, !constructionNodeWasAttached,
+            constructionNode.textInputController === self
+        {
+            prepareFieldChromeForAdoption?(
+                constructionNode,
+                TextInputEditingChromeState.EditingState(
+                    caret: node.textInputCaretOffset, selection: node.textInputSelection,
+                    isFocused: node.isFocused,
+                    markedText: node.textInputMarkedText.flatMap { $0.isEmpty ? nil : $0 }))
+        }
     }
+
+    func revokeAccessibilityValueOwnership() { accessibilityValueOwner.invalidate() }
+    func supersedeAccessibilityValueAttempt() { accessibilityValueOwner.supersedeAttempt() }
 }
 
 /// First revoke every closing session without releasing history payloads.
@@ -14180,6 +14442,7 @@ func prepareTextInputUndoForWindowClose(in runtime: RetainedViewRuntime) -> (
         }
     }
     for (_, controller) in controllers {
+        controller.revokeAccessibilityValueOwnership()
         controller.undoSession?.markInvalid()
         controller.invalidateDocumentEndpoint()
     }
@@ -14317,7 +14580,7 @@ private func textInputComponent(
         let controller = TextInputInteractionController(
             node: node, characterCount: currentText.count, hasSelectionBinding: selection != nil,
             isSecure: isSecure, allowsNewlines: allowsNewlines, isEnabled: context.isEnabled,
-            runtime: runtime, undoManager: context.environmentValues.undoManager,
+            runtime: runtime, undoManager: context.environmentValues.undoManager, text: binding,
             documentSource: binding.mutationSource as? DocumentBindingSource,
             documentProjection: binding.mutationProjection)
         node.textInputController = controller
@@ -14350,6 +14613,33 @@ private func textInputComponent(
 
         let caretLineHeight = resolvedFont.resolvedNativeTextSize
         let chromeState = TextInputEditingChromeState()
+        if !allowsNewlines, !isSecure {
+            let constructedLabelStyle = labelNode.textStyle
+            let constructedSelectionColor = context.tint.opacity(0.35)
+            controller.prepareFieldChromeForAdoption = {
+                [weak controller, weak node, weak labelNode] candidate, editing in
+                guard let controller, let node, let labelNode, candidate === node,
+                    let retained = controller.node, retained !== candidate,
+                    controller.current === controller, candidate.textInputController === controller,
+                    chromeState.signature == nil,
+                    candidate.children.count == 1, candidate.children.first === labelNode,
+                    labelNode.parent === candidate, labelNode.children.isEmpty,
+                    labelNode.textInputController == nil, !labelNode.isHidden,
+                    labelNode.text == contentText, labelNode.textStyle == constructedLabelStyle
+                else { return }
+                // Unexpected authored children or a reused candidate remain
+                // untouched. Only these fresh framework rows are appended;
+                // even the original label is never removed and reattached.
+                updateTextInputEditingChrome(
+                    node: candidate, labelNode: labelNode, contentText: contentText,
+                    isShowingPlaceholder: isShowingPlaceholder, caretColor: textColor,
+                    selectionColor: constructedSelectionColor,
+                    caretSize: Size(width: 1.5, height: caretLineHeight),
+                    state: chromeState, editingState: editing, preparingDetachedCandidate: true,
+                    makeSegmentLabel: { makeTextLabel($0) },
+                    makeMarkedSegmentLabel: { makeTextLabel($0, underlined: true) })
+            }
+        }
         @MainActor func refreshChrome() {
             controller.current?.refreshChrome?()
         }
@@ -14383,8 +14673,9 @@ private func textInputComponent(
                 return
             }
             guard let labelNode = node.children.first else { return }
-            if labelNode.text != contentText { labelNode.text = contentText }
-            updateTextInputEditingChrome(
+            let labelChanged = labelNode.text != contentText
+            if labelChanged { labelNode.text = contentText }
+            let changedChrome = updateTextInputEditingChrome(
                 node: node,
                 labelNode: labelNode,
                 contentText: contentText,
@@ -14397,6 +14688,9 @@ private func textInputComponent(
                 makeSegmentLabel: { makeTextLabel($0) },
                 makeMarkedSegmentLabel: { makeTextLabel($0, underlined: true) }
             )
+            if labelChanged || changedChrome != nil {
+                queueTextFieldContentLayout(controller: controller, content: changedChrome ?? labelNode)
+            }
         }
         // Rebuild caret/selection chrome after every layout pass so it tracks
         // focus, caret, and selection changes across runtime rebuilds.
@@ -14673,6 +14967,7 @@ private func textInputComponent(
                 let node = controller.node, let source = controller.documentSource,
                 let runtime = controller.undoRuntime, source.belongs(to: runtime)
             else { return }
+            controller.supersedeAccessibilityValueAttempt()
             let wasAttached = controller.isAttached
             let originalText = binding.wrappedValue
             guard controller.current === controller, controller.node === node,
@@ -14766,6 +15061,7 @@ private func textInputComponent(
                 return
             }
             guard controller.current === controller, let node = controller.node else { return }
+            controller.supersedeAccessibilityValueAttempt()
             let wasAttached = controller.isAttached
             let originalText = binding.wrappedValue
             guard controller.current === controller, controller.node === node,
@@ -14827,6 +15123,7 @@ private func textInputComponent(
             guard let controller, controller.current === controller, let node = controller.node,
                 let session = controller.undoSession, session.isValid
             else { return }
+            controller.supersedeAccessibilityValueAttempt()
             let generation = session.generation
             let previousSelection = controller.readSelection?()
             guard controller.current === controller, controller.node === node,
@@ -15497,6 +15794,13 @@ private func updateTextEditorChrome(
 /// passes only rebuild caret/selection overlay children when the editing
 /// state actually changed (guards against layout/invalidate feedback loops).
 private final class TextInputEditingChromeState {
+    struct EditingState {
+        var caret: Int
+        var selection: RetainedTextSelection?
+        var isFocused: Bool
+        var markedText: String?
+    }
+
     struct Signature: Equatable {
         var contentText: String
         var isShowingPlaceholder: Bool
@@ -15530,6 +15834,41 @@ private func textInputCompositionDisplayState(
     let markedRange = insertion.lowerBound..<(insertion.lowerBound + markedText.count)
     return (text, markedRange.upperBound, nil, markedRange)
 }
+@MainActor
+private func textFieldContentBelongsToRuntime(_ node: ViewNode, runtime: RetainedViewRuntime) -> Bool {
+    guard runtime.root.parent == nil else { return false }
+    var visited = Set<ObjectIdentifier>()
+    var candidate: ViewNode? = node
+    while let current = candidate, visited.insert(ObjectIdentifier(current)).inserted {
+        if current === runtime.root { return true }
+        guard let parent = current.parent, parent.children.contains(where: { $0 === current }) else { return false }
+        candidate = parent
+    }
+    return false
+}
+
+@MainActor
+private func queueTextFieldContentLayout(controller: TextInputInteractionController, content: ViewNode) {
+    guard !controller.allowsNewlines, controller.current === controller, controller.isAttached,
+        let node = controller.node, let runtime = controller.undoRuntime,
+        runtime.isLayoutInProgress, runtime.permitsRetainedActionInvocation,
+        content.parent === node, node.children.contains(where: { $0 === content }),
+        textFieldContentBelongsToRuntime(node, runtime: runtime)
+    else { return }
+    // A live field can refresh without a body rebuild. Settle its changed
+    // chrome through the existing bounded pass, without revealing a caret.
+    runtime.scheduleAfterLayout(key: "text-field-content-layout-\(ObjectIdentifier(node))") {
+        [weak controller, weak runtime, weak node, weak content] in
+        guard let controller, let runtime, let node, let content,
+            !controller.allowsNewlines, controller.current === controller, controller.node === node,
+            controller.isAttached, controller.undoRuntime === runtime, runtime.permitsRetainedActionInvocation,
+            content.parent === node, node.children.contains(where: { $0 === content }),
+            textFieldContentBelongsToRuntime(node, runtime: runtime)
+        else { return }
+        runtime.invalidateTextInputLayout(for: node, controller: controller)
+    }
+}
+
 /// Reconciles the children of a retained text input node so the visible
 /// caret and selection highlight track the node's editing state. In the
 /// inactive state the node keeps exactly its plain label child; in the
@@ -15538,6 +15877,7 @@ private func textInputCompositionDisplayState(
 /// underlined IME marked segment, and a 1.5pt caret) so painting flows
 /// through the regular scene/frame paths.
 @MainActor
+@discardableResult
 private func updateTextInputEditingChrome(
     node: ViewNode,
     labelNode: ViewNode,
@@ -15548,48 +15888,61 @@ private func updateTextInputEditingChrome(
     caretSize: Size,
     markedText: String? = nil,
     state: TextInputEditingChromeState,
+    editingState: TextInputEditingChromeState.EditingState? = nil,
+    preparingDetachedCandidate: Bool = false,
     makeSegmentLabel: @MainActor (String) -> ViewNode,
     makeMarkedSegmentLabel: (@MainActor (String) -> ViewNode)? = nil
-) {
+) -> ViewNode? {
+    if preparingDetachedCandidate {
+        guard node.children.count == 1, node.children.first === labelNode,
+            labelNode.parent === node, labelNode.children.isEmpty
+        else { return nil }
+    }
+    let editing =
+        editingState
+        ?? TextInputEditingChromeState.EditingState(
+            caret: node.textInputCaretOffset, selection: node.textInputSelection,
+            isFocused: node.isFocused, markedText: markedText)
     let baseSelection =
-        isShowingPlaceholder ? nil : node.textInputSelection?.editableCharacterRange(in: contentText)
-    let baseCaret = clampedTextOffset(node.textInputCaretOffset, in: contentText)
+        isShowingPlaceholder ? nil : editing.selection?.editableCharacterRange(in: contentText)
+    let baseCaret = clampedTextOffset(editing.caret, in: contentText)
     let display = textInputCompositionDisplayState(
         contentText: contentText,
         caret: baseCaret,
         selection: baseSelection,
-        markedText: markedText
+        markedText: editing.markedText
     )
     let displayText = display.text
     let selection = display.selection
     let caret = display.caret
     let markedRange = display.markedRange
     let showsHighlight = selection != nil
-    let showsCaret = node.isFocused && selection == nil
+    let showsCaret = editing.isFocused && selection == nil
     let isActive = showsCaret || showsHighlight || markedRange != nil
     let signature = TextInputEditingChromeState.Signature(
         contentText: contentText,
         isShowingPlaceholder: isShowingPlaceholder,
-        isFocused: node.isFocused,
+        isFocused: editing.isFocused,
         caret: caret,
         selectionLower: selection?.lowerBound ?? caret,
         selectionUpper: selection?.upperBound ?? caret,
         isActive: isActive,
-        markedText: markedText ?? ""
+        markedText: editing.markedText ?? ""
     )
     guard signature != state.signature else {
-        return
+        return nil
     }
     state.signature = signature
 
     if !isActive {
-        labelNode.isHidden = false
+        let visibilityChanged = labelNode.isHidden
+        if visibilityChanged { labelNode.isHidden = false }
         guard node.children.count != 1 || node.children.first !== labelNode else {
-            return
+            return visibilityChanged ? labelNode : nil
         }
         node.removeAllChildren()
         node.addChild(labelNode)
-        return
+        return labelNode
     }
 
     @MainActor func makeCaretNode() -> ViewNode {
@@ -15718,9 +16071,12 @@ private func updateTextInputEditingChrome(
     }
 
     labelNode.isHidden = true
-    node.removeAllChildren()
-    node.addChild(labelNode)
+    if !preparingDetachedCandidate {
+        node.removeAllChildren()
+        node.addChild(labelNode)
+    }
     node.addChild(contentNode)
+    return contentNode
 }
 /// Maps a root-space pointer point to a character offset in a retained text
 /// input. Offsets stay in real-character space; secure fields measure their

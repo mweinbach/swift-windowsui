@@ -1011,11 +1011,22 @@ A current selection that already satisfies the request succeeds without an
 application action, but only after the current element passes admission.
 Layout cannot authorize a Toggle on a replacement button role or turn a
 selection request into the opposite transition. These routes share the
-source's reentry guard and do not run a second action query.
+runtime's shared UIA mutation guard and do not run a second action query.
 
-This admission rule does not yet cover SetFocus, SetValue, or
-VirtualizedItem.Realize. Their validation across application callbacks and
-terminal/modal changes remains separate work.
+SetFocus uses its own guarded focus transition and stricter retained entry,
+while ordinary focus keeps construction/build/render support. Its internal
+result can reject a superseded transition after callbacks have already run;
+the legacy native SetFocus callback remains Void. See [retained focus
+admission](FocusAdmission.md) for callback/query bounds and native limits.
+VirtualizedItem.Realize uses a checked physical attachment and current modal
+projection, preserving offscreen lazy placeholders. It checks clock, pointer
+cancellation, and cached-observation cleanup before continuing the original
+scroll request, without a post-effect query or automatic retry. All source
+mutators share admission across adapters for the same runtime; ordinary public
+scrolling keeps its callback and input-disabled behavior. SetValue participates
+in this shared guard, but its atomic editor/undo continuation remains separate
+work. See [accessibility mutation admission](AccessibilityMutationAdmission.md)
+for the exact scope and native limits.
 
 Copied projected actions retain weak tree/runtime references and their original
 list count, slot, name, and kind rather than retaining application handlers.

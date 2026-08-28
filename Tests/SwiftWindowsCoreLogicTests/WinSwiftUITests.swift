@@ -278,7 +278,8 @@ final class WinSwiftUITests: XCTestCase {
         await MainActor.run {
             XCTAssertEqual(Set<Color.RGBColorSpace>([.sRGB, .sRGBLinear, .displayP3]).count, 3)
             assertColor(
-                Color(.displayP3, red: 0.1, green: 0.2, blue: 0.3, opacity: 0.4), red: 0.1, green: 0.2, blue: 0.3,
+                Color(.displayP3, red: 0.1, green: 0.2, blue: 0.3, opacity: 0.4),
+                red: 0.05935608, green: 0.20308941, blue: 0.30873041,
                 alpha: 0.4)
             assertColor(
                 Color(.sRGBLinear, red: 0.25, green: 0.5, blue: 0.75, opacity: 0.6), red: 0.5370987, green: 0.735357,
@@ -287,7 +288,8 @@ final class WinSwiftUITests: XCTestCase {
                 Color(.sRGBLinear, white: 0.35, opacity: 0.65), red: 0.6262097, green: 0.6262097, blue: 0.6262097,
                 alpha: 0.65)
             assertColor(
-                Color(.sRGBLinear, red: -1, green: 2, blue: .nan, opacity: 1.5), red: 0, green: 1, blue: 0, alpha: 1.5)
+                Color(.sRGBLinear, red: -1, green: 2, blue: .nan, opacity: 1.5),
+                red: -1, green: 1.35325605, blue: 0, alpha: 1.5)
             assertColor(
                 Color(.sRGB, red: 1.2, green: -0.2, blue: 0.5, opacity: 1.5), red: 1.2, green: -0.2, blue: 0.5,
                 alpha: 1.5)

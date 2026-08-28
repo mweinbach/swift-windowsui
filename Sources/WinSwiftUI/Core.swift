@@ -18423,10 +18423,12 @@ extension SwiftWindowsCore.Color {
     }
 
     public init(_ colorSpace: RGBColorSpace = .sRGB, red: Double, green: Double, blue: Double, opacity: Double = 1.0) {
+        let components = RetainedColorSpaceConversion.encodedSRGB(
+            from: colorSpace, red: red, green: green, blue: blue)
         self.init(
-            red: Float(retainedColorChannel(red, colorSpace: colorSpace)),
-            green: Float(retainedColorChannel(green, colorSpace: colorSpace)),
-            blue: Float(retainedColorChannel(blue, colorSpace: colorSpace)),
+            red: RetainedColorSpaceConversion.storedFloat(components.red),
+            green: RetainedColorSpaceConversion.storedFloat(components.green),
+            blue: RetainedColorSpaceConversion.storedFloat(components.blue),
             alpha: Float(opacity)
         )
     }
@@ -18811,6 +18813,8 @@ private func clampedUnitInterval(_ value: Double) -> Double {
 
     return min(max(value, 0), 1)
 }
+// White initializers retain their existing bounded behavior in this RGB slice.
+// Their early clamping remains an explicit compatibility gap.
 private func retainedColorChannel(
     _ value: Double,
     colorSpace: SwiftWindowsCore.Color.RGBColorSpace

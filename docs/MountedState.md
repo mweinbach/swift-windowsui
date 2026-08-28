@@ -150,10 +150,20 @@ build skipped during active construction is retried after the guard ends.
 
 ## Containers and retirement
 
+Item sheets include the selected item's typed ID in the presentation content's
+identity. Updating a value with the same ID preserves that content's State;
+selecting another ID retires its old generation and starts from the new seed.
+The stable sheet host and background child retain their existing identities,
+including background editing state. An accepted active nil presentation also
+retires its content before a later presentation starts a fresh generation.
+This does not change StateObject's current eager storage or presentation
+callbacks; native dismissal ordering is not qualified by this ownership change.
+
 Inactive tabs preserve known declarations through modifier, optional,
 conditional, array, Group, and ForEach paths without evaluating custom bodies.
 Opaque inactive bodies and auxiliary builder captures stay unevaluated until
 their next evaluation; deeper native inactive-lifetime behavior is unqualified.
+An inactive sheet's binding guard is likewise deferred until its page evaluates.
 ViewThatFits keeps candidate namespaces disjoint and discards rejected
 provisional candidates without retiring a selected sibling. OutlineGroup uses
 typed hierarchical row identities and parent-local duplicate ordinals, but

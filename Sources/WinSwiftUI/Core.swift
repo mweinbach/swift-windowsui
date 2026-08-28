@@ -21768,6 +21768,7 @@ extension View {
             let sheetContext =
                 context
                 .withViewIdentityRole(.presentation)
+                .withViewIdentityPrefix([.keyed(RetainedViewIdentity.Key(selectedItem.id))])
                 .withEnvironmentValue(\.dismiss, DismissAction(handler: dismiss))
                 .withEnvironmentValue(\.isPresented, true)
             let sheet = composeComponent(

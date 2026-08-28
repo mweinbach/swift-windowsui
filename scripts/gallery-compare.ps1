@@ -36,6 +36,11 @@
     a fresh render; cannot update baselines, skip rendering, or list entries.
     This diagnostic does not qualify a font profile or change the pixel gate.
 
+.PARAMETER BitmapFontAttributionVersion
+    Select native diagnostic schema 1 (the unchanged default) or explicitly
+    opt in to schema 2 copied bitmap glyph runs and local face-file streams.
+    Requires -BitmapFontAttribution even when explicitly selecting version 1.
+
 .PARAMETER List
     List matching baseline entries, appearances, and tiers without building,
     rendering, creating output directories, or loading image-processing tools.
@@ -78,6 +83,8 @@ param(
     [switch] $SkipBuild,
     [switch] $SkipRender,
     [switch] $BitmapFontAttribution,
+    [ValidateSet(1, 2)]
+    [int] $BitmapFontAttributionVersion = 1,
     [switch] $List,
     [string[]] $Entries = @(),
     [string] $Pattern = "",
@@ -94,6 +101,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($PSBoundParameters.ContainsKey('BitmapFontAttributionVersion') -and -not $BitmapFontAttribution) {
+    throw '-BitmapFontAttributionVersion requires -BitmapFontAttribution.'
+}
 
 # Baseline gate subset: Supported-tier control entries only (deterministic
 # renders — no animation-, focus-, or time-dependent entries).
@@ -301,7 +312,7 @@ if ($BitmapFontAttribution) {
     . (Join-Path $PSScriptRoot 'gallery-bitmap-font-attribution.ps1')
     Assert-GalleryBitmapFontAttributionOptions -EntryIds $requestedEntryIds -ExplicitEntries $PSBoundParameters.ContainsKey('Entries') `
         -SkipRender ([bool]$SkipRender) -UpdateBaselines ([bool]$UpdateBaselines) -List ([bool]$List) -WorkDir $WorkDir
-    $bitmapAttributionInvocation = New-GalleryBitmapFontAttributionInvocation -WorkDir $WorkDir -EntryIds $selectedEntryIds -InvocationID ([Guid]::NewGuid().ToString('N'))
+    $bitmapAttributionInvocation = New-GalleryBitmapFontAttributionInvocation -WorkDir $WorkDir -EntryIds $selectedEntryIds -InvocationID ([Guid]::NewGuid().ToString('N')) -Version $BitmapFontAttributionVersion
 }
 
 if ($List) {
@@ -753,6 +764,9 @@ try {
         if ($null -ne $bitmapAttributionInvocation) {
             $galleryRenderArguments += @('--bitmap-font-attribution-dir', $bitmapAttributionInvocation.nativeDirectory,
                 '--bitmap-font-attribution-invocation', $bitmapAttributionInvocation.invocationID)
+            if ($BitmapFontAttributionVersion -eq 2) {
+                $galleryRenderArguments += @('--bitmap-font-attribution-version', '2')
+            }
         }
         & $GalleryExe @galleryRenderArguments
         $galleryFontProvenance.render.exitCode = $LASTEXITCODE

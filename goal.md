@@ -3983,3 +3983,74 @@ and documentation are committed separately. Bitmap diagnostics and the full
 batch's Full/Quick, raw retained rendering, gallery, reference, and hosted
 validation still require their own results. All nine original product gates
 remain open.
+
+### Sixth batch: opt-in bitmap glyph and face-file evidence
+
+Version 2 bitmap diagnostics now record copied display DrawGlyphRun indices,
+their actual retained faces, callback/result information, and bounded bitmap
+receipt associations. Glyph zero, order, multiplicity, distinct face identity,
+replay rejection, cache reuse, partial results, and scene-reference limits are
+preserved explicitly. Metadata probes cannot supply display-glyph ownership.
+The optional native helper reads public Face5 axes and eligible local face-file
+streams through checked, retained read handles. Its digest describes a newly
+observed face-file stream; loadedBytesDigest remains not-observed and does not
+claim to identify the bytes used during an earlier rasterization.
+
+The existing V1 report, strict reader, default CLI behavior, CI selection,
+pixel thresholds, font selection, and regression baselines are unchanged. V2
+requires the existing diagnostic opt-in plus version 2. Its strict reader keeps
+the unchanged attributionV1 payload nested inside the expanded report and
+rejects inconsistent graph references, counts, axes, file states, or privacy
+markers. Font bytes, private paths, reference keys, ordinary/secure text, atlas
+contents, and historical global chronology are not exported by V2.
+
+Bounds remain 128 glyphs per run, 16 callbacks per attempt, 256 runs and 4,096
+copied glyphs per session; 64 faces, eight files and 32 axes per face; 16 MiB per
+stream, 64 MiB requested stream bytes per session, 64 KiB fragments, and 512 KiB
+sidecars. These are requested/returned-byte bounds, not synchronous API deadlines
+or physical IO guarantees. Report-local face IDs do not promise complete graph
+canonicalization or stable identities between independent reports.
+
+The isolated candidate build and its one focused execution passed before root
+intake. Root independently compiles the joined source and passes all 138 distinct
+cases, including all 59 new cases, in five targets and nine serial invocations:
+
+| Suite | Existing passing cases | New passing cases |
+| --- | ---: | ---: |
+| NativeBitmapFontDrawCaptureTests | 11 | 11 |
+| NativeBitmapFontAttributionSessionTests | 28 | 20 |
+| NativeBitmapFontMetadataTests | 30 | 0 |
+| NativeBitmapFontStreamTests | 0 | 28 |
+| BitmapFontAttributionViewTests | 10 | 0 |
+
+There are no duplicate completed identifiers, failures, skips, or timeout. The
+first root build takes 296.22 seconds; the run finishes at 2026-08-28 14:18:13 UTC
+on staged tree `9954c773b376a45cb6eb873a8b301af36b133f31` over `740b761`.
+The raw log SHA-256 is
+`dbdf0e5a75060bd4d85a984ccc9e32dbb88b9d1f09fc28f792947cbf5f62bb20`;
+receipts and the per-class summary are under
+`artifacts/goal-sixth-bitmap-joined-tests-v1*`. Actual child exit is zero and
+recorded source, HEAD, staged tree, status, and real index bytes are unchanged.
+Warnings remain in the raw build log. The two modified existing test files add
+825 and 207 lines without deleting any original lines or assertions; the V1
+42,436-byte test prefix remains unchanged. The joined-source check preserves
+400 other original test/resource paths and the previously documented fixture
+corrections.
+
+The root PowerShell 5.1 and 7.6.4 standalone schema suites each pass 411
+assertions, with zero native/C# compilation, renderer, or SwiftPM calls. Both
+child exits and the aggregate launcher exit are zero, with unchanged tracked
+inputs, index, PowerShell and launcher bytes. The result at
+`artifacts/goal-sixth-bitmap-protocols-v1/result.json` has SHA-256
+`6de353fed8281f48f8e20b55f169fd4fca13014216c6372b07219b3f67da132d`.
+Contracts and strict lint of all nine changed Swift files pass. The earlier
+isolated PSModulePath startup failure and manifest-packaging failure remain
+preserved separately; neither was a successful compiler/test invocation.
+
+This evidence covers headless C/Swift and injected COM/stream fixtures plus
+in-memory retained snapshots. It does not yet qualify real positive Face5,
+filesystem/ReOpenFile, CNG, fragment-failure cleanup, or off/V1/V2 PNG equality.
+Fresh committed-source diagnostic runs remain required for those observations.
+No font profile is qualified and the 67/85 hosted gallery mismatch is not fixed
+by adding instrumentation. Full/Quick, raw retained/gallery/reference checks,
+hosted validation, and all nine original product completion gates remain open.

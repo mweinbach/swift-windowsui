@@ -7,6 +7,10 @@ It does not change font selection, caches, rendering, the pixel thresholds, or
 baseline qualification. The mode is off by default. Enabled runs cannot be used
 as performance qualification samples.
 
+The default diagnostic is **V1**. The explicitly selected V2 described below
+adds actual glyph-run observations for the same fixed bitmap path. Existing
+commands and hosted collection continue to emit and accept V1.
+
 Use a new output directory and an explicit subset of the two supported fixtures:
 
 ```powershell
@@ -136,11 +140,111 @@ read-only sharing, reparse checks, and repeated digests. It does not claim the
 font adapter's pinned-directory protection against a hostile process replacing
 artifact directories. Neither file observation is proof of loaded bytes.
 
-The serialized native schema contains fixed fixture/role identifiers, unordered
+The serialized V1 native schema contains fixed fixture/role identifiers, unordered
 purpose/backend/outcome aggregates, and bounded physical font metadata. It excludes
 text, text hashes, glyph IDs/counts, input strings, secure-field metadata,
 coordinates, timestamps/order of events, raw pointers, opaque reference keys,
 cache keys, and bitmap content tokens. Invalid input is rejected, not echoed.
+
+## Explicit V2 glyph and face-file observations
+
+V2 requires both the existing diagnostic switch and an explicit version:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/gallery-compare.ps1 -BitmapFontAttribution -BitmapFontAttributionVersion 2 -Entries symbol-palette,stepper -WorkDir artifacts/bitmap-font-v2-run-001
+```
+
+Direct gallery callers add `--bitmap-font-attribution-version 2` to the paired
+directory/invocation flags. A version flag alone is invalid. Selecting V2 is
+never inferred from a sidecar: the collector chooses its strict parser from the
+invocation. The existing V1 parser still rejects a V2 envelope, and its schema,
+privacy allowlist, and default output are unchanged. The CI coordinator remains
+V1 only; no workflow or gallery threshold changes accompany V2.
+
+The V2 native report includes the original report as `attributionV1`, plus
+separate `faces`, `glyphRuns`, and `observations` arrays. Only a
+`display-bitmap` callback may contribute a V2 glyph run. The callback forwards
+the original draw exactly once, keeps its HRESULT, and copies its borrowed
+`glyphIndices` while the callback inputs remain valid. Within each run the
+original order and glyph count are preserved, including glyph index zero
+(`.notdef`). An empty run or failed draw is explicit incomplete evidence. An
+oversized or invalid run is rejected as a whole, never exported as a complete
+prefix. No source characters, cluster maps, advances, offsets, bidi levels,
+descriptions, or layout positions are copied into the diagnostic.
+
+Each retained callback face gets a distinct V2 record even if its names or
+unknown metadata equal another face. IDs are assigned after content and bounded
+co-run context sorting and identify records within this report, not globally
+unique or stable font identities. Context refinement runs at most 64 iterations.
+Unresolved equal contexts use unique private ranks from a fixed system-random
+permutation, never a timestamp, address, or encounter-order fallback. Those ranks
+are not serialized. This keeps ambiguous faces separate without publishing their
+callback order; V2 does not promise complete graph canonicalization or stable
+IDs between reports. Identical face/glyph/result runs are aggregated with a count. The
+per-observation `runCounts` array records multiplicity within one raster
+attempt, parallel to `runIDs`; an observation's own count can describe repeated
+acceptance or cache reuse without implying additional draws. There are no
+global event sequence numbers or timestamps.
+
+Private attempt and bitmap receipts link these copied runs to extraction,
+acceptance, known cache reuse, and selected top-level scene references. A capture
+can be consumed only once, by its originating session and fixed role. Receipt
+conflicts, changed bitmap content, or a cache populated before observation leave
+ownership unknown. Probe captures retain their V1 face-only behavior and cannot
+supply display glyph ownership. GDI, vector, and test override paths never
+inherit DirectWrite glyph IDs. A scene reference still does not prove visible
+pixel contribution after clipping, occlusion, or compositing.
+
+An SDK-typed C++ helper queries optional `IDWriteFontFace5` axes and the actual
+held face's file references. Axes can be unsupported, failed, or limited;
+`HasVariations` is separate from the axis array because static faces may also
+have axes. The helper validates exact counts, unique printable OpenType tags,
+and finite values. V1's intentionally unimplemented axes remain unchanged.
+See the [axis count contract](https://learn.microsoft.com/en-us/windows/win32/api/dwrite_3/nf-dwrite_3-idwritefontface5-getfontaxisvaluecount)
+and [axis values contract](https://learn.microsoft.com/en-us/windows/win32/api/dwrite_3/nf-dwrite_3-idwritefontface5-getfontaxisvalues).
+
+For file streams, remote loaders are rejected before any stream or size call.
+The documented built-in local-loader interface and an approved fixed-drive
+path are required; unknown/custom loaders without that interface are rejected.
+This is an API eligibility check, not attestation against hostile in-process
+COM implementations impersonating system interfaces. Held directory/file
+handles reject reparse, short-name, substituted-drive, device, UNC, and alternate
+stream paths. Only direct approved system/user font children are considered.
+The file is held without writer/delete sharing, and its identity and metadata
+are checked before and after stream hashing. Existing servicing hard links are
+not prohibited merely by their link count; no other link names are exported.
+No font is installed, downloaded, copied, or included in an artifact.
+
+The hash is labeled **`face-file-stream-at-observation`**. It comes from a new
+stream created through that face file's exact loader/key while those references
+remain held. This is different from the collector's separately labeled
+post-render disk read, and neither is proof of the original bytes consumed by
+rasterization. `loadedBytesDigest` remains **`not-observed`** in every V2 file
+record and in the report coverage. The API exposes no atomic snapshot tying a
+new stream to earlier DirectWrite caches. Local streams can fail if their
+reference no longer matches. The local gate precedes `GetFileSize` because
+Microsoft documents that a remote asynchronous size query can download a font.
+See [CreateStreamFromKey](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritefontfileloader-createstreamfromkey)
+and [GetFileSize](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritefontfilestream-getfilesize).
+
+The V2 limits are 128 copied glyphs per run, 16 callbacks per raster attempt,
+256 copied runs and 4,096 copied glyphs per session. Faces share V1's 64-face
+retention bound, including probe faces; there are at most eight files and
+32 axes per face. A stream is capped at 16 MiB, with a 64 MiB session budget
+and 64 KiB fragments. Requested fragment bytes are charged before each call;
+returned bytes are counted separately, and failures do not refund requests.
+SHA-256 is emitted only after a complete stream and successful final checks.
+Fragments and owned COM/CNG handles are released on all return paths.
+These counters bound requested/returned stream bytes, not physical operating
+system I/O. Synchronous COM/file APIs have no per-call deadline; any enclosing
+process timeout remains a separate limit. Native and aggregate sidecars retain
+the existing 512 KiB caps.
+
+V2 covers one bitmap icon path. It does not instrument ordinary or secure text,
+atlas glyphs, all fallback decisions, nested render passes, or final visible
+pixels. It does not establish full glyph repertoire coverage, identify the
+fonts used to create historical baselines, qualify a hosted font profile, or
+explain or repair the 67/85 hosted gallery mismatches.
 
 ## Validation boundary
 

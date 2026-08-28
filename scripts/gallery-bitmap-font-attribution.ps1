@@ -35,7 +35,7 @@ function Assert-GalleryBitmapFontAttributionOptions {
 }
 
 function New-GalleryBitmapFontAttributionInvocation {
-    param([string]$WorkDir, [string[]]$EntryIds, [string]$InvocationID)
+    param([string]$WorkDir, [string[]]$EntryIds, [string]$InvocationID, [ValidateSet(1, 2)][int]$Version = 1)
     Assert-GalleryBitmapFontAttributionOptions -EntryIds $EntryIds -ExplicitEntries $true -SkipRender $false -UpdateBaselines $false -List $false -WorkDir $WorkDir
     if ($InvocationID -cnotmatch '^[0-9a-f]{32}$') { throw 'bitmap-invalid-invocation' }
     $root = Resolve-GalleryBitmapPath $WorkDir
@@ -43,7 +43,7 @@ function New-GalleryBitmapFontAttributionInvocation {
     # exist when the paired CLI options are passed to the gallery executable.
     [void][IO.Directory]::CreateDirectory($root)
     [void][IO.Directory]::CreateDirectory((Join-Path $root 'bitmap-font-attribution'))
-    [pscustomobject]@{
+    $invocation = [pscustomobject]@{
         invocationID = $InvocationID
         entries = @($EntryIds)
         workDirectory = $root
@@ -52,6 +52,10 @@ function New-GalleryBitmapFontAttributionInvocation {
         reportPath = Join-Path $root 'bitmap-font-attribution/report.json'
         startedAtUtc = [DateTime]::UtcNow
     }
+    # Absence retains the exact V1 invocation shape. Only an explicit V2
+    # selection may choose the separate V2 reader; sidecar content never does.
+    if ($Version -eq 2) { $invocation | Add-Member NoteProperty nativeSchemaVersion 2 }
+    $invocation
 }
 
 function Test-GalleryBitmapSafeFontBasename {
@@ -546,6 +550,306 @@ function ConvertTo-GalleryBitmapNativeReport {
     }
 }
 
+function Assert-GalleryBitmapUInt64V2 {
+    param($Value)
+    # PowerShell 7 represents JSON integers beyond Int64 as BigInteger;
+    # Windows PowerShell 5 uses exact Decimal values with scale zero. Reject
+    # fractional Decimal and all Double/Float values without rounding them.
+    $exactLargeDecimal = $Value -is [decimal] -and $Value -gt [decimal][long]::MaxValue -and
+        (([decimal]::GetBits($Value)[3] -shr 16) -band 255) -eq 0
+    if ($null -eq $Value -or ($Value -isnot [int] -and $Value -isnot [long] -and
+        $Value -isnot [uint32] -and $Value -isnot [uint64] -and
+        $Value.GetType().FullName -cne 'System.Numerics.BigInteger' -and -not $exactLargeDecimal)) { throw 'invalid-native-schema-v2' }
+    [uint64]$parsed = 0
+    if (-not [uint64]::TryParse($Value.ToString([Globalization.CultureInfo]::InvariantCulture),
+        [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$parsed)) { throw 'invalid-native-schema-v2' }
+}
+
+function Assert-GalleryBitmapAxisTagV2 {
+    param($Value)
+    Assert-GalleryBitmapInteger $Value 4294967295
+    # DirectWrite's tag packs the first OpenType ASCII character in the low
+    # byte. Unknown registered/private tags are allowed; invalid spelling is not.
+    $trailingSpace = $false
+    for ($i = 0; $i -lt 4; $i++) {
+        $unit = ([long]$Value -shr (8 * $i)) -band 255
+        $letter = ($unit -ge 65 -and $unit -le 90) -or ($unit -ge 97 -and $unit -le 122)
+        if ($i -eq 0 -and -not $letter) { throw 'invalid-native-schema-v2' }
+        if ($unit -eq 32) { $trailingSpace = $true }
+        elseif ($trailingSpace -or (-not $letter -and ($unit -lt 48 -or $unit -gt 57))) { throw 'invalid-native-schema-v2' }
+    }
+}
+
+function ConvertTo-GalleryBitmapFaceEvidenceV2 {
+    param($Value)
+    $required = @('axesStatus', 'files', 'filesStatus')
+    Assert-GalleryBitmapObject $Value ($required + @('faceType', 'axes', 'hasVariations')) $required
+    Assert-GalleryBitmapEnum $Value.axesStatus $script:bitmapFontMetadataStatuses
+    Assert-GalleryBitmapEnum $Value.filesStatus $script:bitmapFontMetadataStatuses
+    $faceType = Get-GalleryBitmapOptionalProperty $Value 'faceType'
+    $nativeAxes = Get-GalleryBitmapOptionalProperty $Value 'axes'
+    $hasVariations = Get-GalleryBitmapOptionalProperty $Value 'hasVariations'
+    if ($null -ne $faceType) { Assert-GalleryBitmapInteger $faceType 4294967295 }
+    if ($null -ne $hasVariations -and $hasVariations -isnot [bool]) { throw 'invalid-native-schema-v2' }
+    $axes = $null
+    if ($null -ne $nativeAxes) {
+        Assert-GalleryBitmapArray $nativeAxes 32
+        if ($Value.axesStatus -cne 'observed' -or $null -eq $hasVariations) { throw 'invalid-native-schema-v2' }
+        $axisTags = @{}
+        $axes = @(foreach ($axis in $nativeAxes) {
+            Assert-GalleryBitmapObject $axis @('tag', 'value') @('tag', 'value')
+            Assert-GalleryBitmapAxisTagV2 $axis.tag
+            if (($axis.value -isnot [int] -and $axis.value -isnot [long] -and $axis.value -isnot [double] -and $axis.value -isnot [decimal] -and $axis.value -isnot [float]) -or
+                [double]::IsNaN($axis.value) -or [double]::IsInfinity($axis.value) -or [math]::Abs([double]$axis.value) -gt [float]::MaxValue -or
+                $axisTags.ContainsKey([string]$axis.tag)) { throw 'invalid-native-schema-v2' }
+            $axisTags[[string]$axis.tag] = $true
+            [pscustomobject][ordered]@{ tag = $axis.tag; value = $axis.value }
+        })
+    } elseif ($Value.axesStatus -ceq 'observed') { throw 'invalid-native-schema-v2' }
+    Assert-GalleryBitmapArray $Value.files 8
+    $fileIndices = @{}
+    $operations = @('not-started', 'get-files', 'get-reference-key', 'get-loader', 'query-local-loader', 'get-local-path',
+        'validate-local-path', 'open-local-file', 'verify-local-file', 'create-stream', 'get-stream-size', 'check-byte-budget',
+        'initialize-sha256', 'read-stream-fragment', 'hash-stream-fragment', 'finish-sha256', 'verify-local-file-after', 'complete')
+    $preSizeOperations = @('not-started', 'get-files', 'get-reference-key', 'get-loader', 'query-local-loader', 'get-local-path',
+        'validate-local-path', 'open-local-file', 'verify-local-file', 'create-stream')
+    $files = @(foreach ($file in $Value.files) {
+        $fileRequired = @('index', 'reference', 'status', 'operation', 'codeDomain', 'requestedBytes', 'readBytes', 'observationKind', 'loadedBytesDigest')
+        Assert-GalleryBitmapObject $file ($fileRequired + @('code', 'streamLength', 'sha256')) $fileRequired
+        Assert-GalleryBitmapInteger $file.index 7
+        if ($fileIndices.ContainsKey([string]$file.index)) { throw 'invalid-native-schema-v2' }
+        $fileIndices[[string]$file.index] = $true
+        Assert-GalleryBitmapEnum $file.status $script:bitmapFontMetadataStatuses
+        Assert-GalleryBitmapEnum $file.operation $operations
+        Assert-GalleryBitmapEnum $file.codeDomain @('none', 'hresult', 'win32', 'ntstatus')
+        Assert-GalleryBitmapEnum $file.observationKind @('face-file-stream-at-observation')
+        Assert-GalleryBitmapEnum $file.loadedBytesDigest @('not-observed')
+        $code = Get-GalleryBitmapOptionalProperty $file 'code'
+        $streamLength = Get-GalleryBitmapOptionalProperty $file 'streamLength'
+        $sha256 = Get-GalleryBitmapOptionalProperty $file 'sha256'
+        if ($file.codeDomain -ceq 'none') {
+            if ($null -ne $code) { throw 'invalid-native-schema-v2' }
+        } else { Assert-GalleryBitmapInteger $code 2147483647 -2147483648 }
+        Assert-GalleryBitmapInteger $file.requestedBytes 16777216
+        Assert-GalleryBitmapInteger $file.readBytes 16777216
+        if ($file.readBytes -gt $file.requestedBytes) { throw 'invalid-native-schema-v2' }
+        if ($null -ne $streamLength) {
+            Assert-GalleryBitmapUInt64V2 $streamLength
+            $streamLength = [uint64]::Parse($streamLength.ToString([Globalization.CultureInfo]::InvariantCulture), [Globalization.CultureInfo]::InvariantCulture)
+            if ([uint64]$file.requestedBytes -gt $streamLength) { throw 'invalid-native-schema-v2' }
+        } elseif ($file.requestedBytes -ne 0 -or $file.readBytes -ne 0) { throw 'invalid-native-schema-v2' }
+        Assert-GalleryBitmapObject $file.reference @('status', 'scope', 'basename') @('status')
+        Assert-GalleryBitmapEnum $file.reference.status $script:bitmapFontMetadataStatuses
+        $scope = Get-GalleryBitmapOptionalProperty $file.reference 'scope'
+        $basename = Get-GalleryBitmapOptionalProperty $file.reference 'basename'
+        if ($file.reference.status -ceq 'observed') {
+            Assert-GalleryBitmapEnum $scope @('system-fonts', 'user-fonts')
+            if (-not (Test-GalleryBitmapSafeFontBasename $basename)) { throw 'invalid-native-schema-v2' }
+        } elseif ($null -ne $scope -or $null -ne $basename) { throw 'invalid-native-schema-v2' }
+        if ($file.operation -cin $preSizeOperations -or $file.status -ceq 'nonlocal-or-custom') {
+            if ($null -ne $streamLength -or $file.requestedBytes -ne 0 -or $file.readBytes -ne 0) { throw 'invalid-native-schema-v2' }
+        }
+        if ($file.status -ceq 'observed') {
+            if ($file.operation -cne 'complete' -or $file.codeDomain -cne 'none' -or $file.reference.status -cne 'observed' -or
+                $null -eq $streamLength -or $streamLength -eq 0 -or $streamLength -gt 16777216 -or
+                $file.requestedBytes -ne $streamLength -or $file.readBytes -ne $streamLength -or
+                $sha256 -isnot [string] -or $sha256 -cnotmatch '^[0-9a-f]{64}$') { throw 'invalid-native-schema-v2' }
+        } elseif ($null -ne $sha256 -or $file.operation -ceq 'complete') { throw 'invalid-native-schema-v2' }
+        if ($null -ne $streamLength -and $streamLength -gt 16777216 -and
+            ($file.status -cne 'limit-exceeded' -or $file.operation -cne 'check-byte-budget' -or $file.requestedBytes -ne 0)) { throw 'invalid-native-schema-v2' }
+        [pscustomobject][ordered]@{
+            index = $file.index
+            reference = [pscustomobject][ordered]@{ status = $file.reference.status; scope = $scope; basename = $basename }
+            status = $file.status; operation = $file.operation; codeDomain = $file.codeDomain; code = $code
+            streamLength = $streamLength; requestedBytes = $file.requestedBytes; readBytes = $file.readBytes; sha256 = $sha256
+            observationKind = 'face-file-stream-at-observation'; loadedBytesDigest = 'not-observed'
+        }
+    })
+    if ($Value.filesStatus -ceq 'observed' -and ($files.Count -eq 0 -or @($files | Where-Object { $_.status -cne 'observed' }).Count -gt 0)) { throw 'invalid-native-schema-v2' }
+    [pscustomobject][ordered]@{
+        faceType = $faceType; axes = $axes; axesStatus = $Value.axesStatus; hasVariations = $hasVariations
+        files = $files; filesStatus = $Value.filesStatus
+    }
+}
+
+function ConvertTo-GalleryBitmapNativeReportV2 {
+    param([string]$Json, [string]$InvocationID, [string]$FixtureID)
+    if ((New-Object Text.UTF8Encoding($false, $true)).GetByteCount($Json) -gt 524288) { throw 'native-json-size-limit-v2' }
+    Assert-GalleryBitmapJsonLexicalBounds $Json
+    $envelope = ConvertFrom-Json $Json -ErrorAction Stop
+    $envelopeKeys = @('schemaVersion', 'invocationID', 'fixtureID', 'status', 'runtime', 'pngFileName', 'report')
+    Assert-GalleryBitmapObject $envelope $envelopeKeys $envelopeKeys
+    Assert-GalleryBitmapInteger $envelope.schemaVersion 2 2
+    $report = $envelope.report
+    $reportKeys = @('schemaVersion', 'kind', 'scope', 'fixtureID', 'status', 'qualification', 'attributionV1', 'coverage', 'faces', 'glyphRuns', 'observations', 'limits')
+    Assert-GalleryBitmapObject $report $reportKeys $reportKeys
+    Assert-GalleryBitmapInteger $report.schemaVersion 2 2
+    Assert-GalleryBitmapEnum $report.kind @('native-bitmap-font-attribution-v2')
+    Assert-GalleryBitmapEnum $report.scope @('bitmap-icons')
+    Assert-GalleryBitmapEnum $report.status @('observed', 'partial')
+    Assert-GalleryBitmapEnum $report.qualification @('unqualified')
+    if ($report.fixtureID -isnot [string] -or $report.fixtureID -cne $FixtureID -or $envelope.status -isnot [string] -or $envelope.status -cne $report.status) { throw 'invalid-native-schema-v2' }
+    # Validate the actual nested V1 report, not a V2 object with a downgraded
+    # version. This keeps every V1 privacy/grammar/schema rule authoritative.
+    $legacyEnvelope = [pscustomobject][ordered]@{
+        schemaVersion = 1; invocationID = $envelope.invocationID; fixtureID = $envelope.fixtureID
+        status = Get-GalleryBitmapOptionalProperty $report.attributionV1 'status'
+        runtime = $envelope.runtime; pngFileName = $envelope.pngFileName; report = $report.attributionV1
+    }
+    $legacy = ConvertTo-GalleryBitmapNativeReport -Json ($legacyEnvelope | ConvertTo-Json -Depth 24 -Compress) -InvocationID $InvocationID -FixtureID $FixtureID
+    $coverageKeys = @('bitmapDrawGlyphRuns', 'faceFileStreams', 'sceneReferences', 'atlasGlyphs', 'textLayouts', 'visiblePixels', 'loadedBytesDigest')
+    Assert-GalleryBitmapObject $report.coverage $coverageKeys $coverageKeys
+    foreach ($key in @('bitmapDrawGlyphRuns', 'faceFileStreams', 'sceneReferences')) { Assert-GalleryBitmapEnum $report.coverage.$key @('observed', 'partial') }
+    foreach ($key in @('atlasGlyphs', 'textLayouts')) { Assert-GalleryBitmapEnum $report.coverage.$key @('not-instrumented') }
+    foreach ($key in @('visiblePixels', 'loadedBytesDigest')) { Assert-GalleryBitmapEnum $report.coverage.$key @('not-observed') }
+    $fixedLimits = [ordered]@{
+        maxFaces = 64; maxReceipts = 256; maxObservations = 256; maxGlyphsPerRun = 128; maxRunsPerRaster = 16
+        maxRuns = 256; maxGlyphs = 4096; maxFilesPerFace = 8; maxAxesPerFace = 32
+        maxStreamBytesPerFile = 16777216; maxStreamBytesSession = 67108864; streamFragmentBytes = 65536
+    }
+    $counterLimits = [ordered]@{ copiedRuns = 256; copiedGlyphs = 4096; requestedStreamBytes = 67108864; readStreamBytes = 67108864; dropped = 2147483647 }
+    $limitKeys = @($fixedLimits.Keys) + @($counterLimits.Keys)
+    Assert-GalleryBitmapObject $report.limits $limitKeys $limitKeys
+    foreach ($key in $fixedLimits.Keys) { Assert-GalleryBitmapInteger $report.limits.$key $fixedLimits[$key] $fixedLimits[$key] }
+    foreach ($key in $counterLimits.Keys) { Assert-GalleryBitmapInteger $report.limits.$key $counterLimits[$key] }
+    if ($report.limits.readStreamBytes -gt $report.limits.requestedStreamBytes) { throw 'invalid-native-schema-v2' }
+    Assert-GalleryBitmapArray $report.faces 64
+    $faceIDs = @{}; [long]$requestedBytes = 0; [long]$readBytes = 0
+    $faces = @(foreach ($face in $report.faces) {
+        Assert-GalleryBitmapObject $face @('id', 'metadata', 'evidence') @('id', 'metadata', 'evidence')
+        if ($face.id -isnot [string] -or $face.id -cnotmatch '^draw-face-([1-9][0-9]?)$' -or [int]$Matches[1] -gt 64 -or $faceIDs.ContainsKey($face.id)) { throw 'invalid-native-schema-v2' }
+        $faceIDs[$face.id] = $true
+        $evidence = ConvertTo-GalleryBitmapFaceEvidenceV2 $face.evidence
+        foreach ($file in $evidence.files) { $requestedBytes += [long]$file.requestedBytes; $readBytes += [long]$file.readBytes }
+        [pscustomobject][ordered]@{ id = $face.id; metadata = ConvertTo-GalleryBitmapFaceMetadata $face.metadata; evidence = $evidence }
+    })
+    if ($requestedBytes -gt $report.limits.requestedStreamBytes -or $readBytes -gt $report.limits.readStreamBytes) { throw 'invalid-native-schema-v2' }
+    if ($report.coverage.faceFileStreams -ceq 'observed' -and ($faces.Count -eq 0 -or
+        $requestedBytes -ne $report.limits.requestedStreamBytes -or $readBytes -ne $report.limits.readStreamBytes -or
+        @($faces | Where-Object { $_.evidence.filesStatus -cne 'observed' }).Count -gt 0)) { throw 'invalid-native-schema-v2' }
+    Assert-GalleryBitmapArray $report.glyphRuns 256
+    $runMap = @{}; $runFaces = @{}; [long]$copiedRuns = 0; [long]$copiedGlyphs = 0
+    $glyphRuns = @(foreach ($run in $report.glyphRuns) {
+        $keys = @('id', 'faceID', 'glyphCount', 'glyphIndices', 'drawResult', 'drawStatus', 'count')
+        Assert-GalleryBitmapObject $run $keys $keys
+        if ($run.id -isnot [string] -or $run.id -cnotmatch '^glyph-run-([1-9][0-9]{0,2})$' -or [int]$Matches[1] -gt 256 -or $runMap.ContainsKey($run.id) -or
+            $run.faceID -isnot [string] -or $run.faceID -cnotmatch '^draw-face-[1-9][0-9]?$' -or -not $faceIDs.ContainsKey($run.faceID)) { throw 'invalid-native-schema-v2' }
+        Assert-GalleryBitmapInteger $run.glyphCount 128
+        Assert-GalleryBitmapArray $run.glyphIndices 128
+        if ($run.glyphIndices.Count -ne $run.glyphCount) { throw 'invalid-native-schema-v2' }
+        foreach ($glyph in $run.glyphIndices) { Assert-GalleryBitmapInteger $glyph 65535 }
+        Assert-GalleryBitmapInteger $run.drawResult 2147483647 -2147483648
+        Assert-GalleryBitmapEnum $run.drawStatus @('succeeded', 'failed')
+        if (($run.drawResult -ge 0) -ne ($run.drawStatus -ceq 'succeeded')) { throw 'invalid-native-schema-v2' }
+        Assert-GalleryBitmapInteger $run.count 256 1
+        $copiedRuns += [long]$run.count; $copiedGlyphs += [long]$run.glyphCount * [long]$run.count
+        $normalized = [pscustomobject][ordered]@{
+            id = $run.id; faceID = $run.faceID; glyphCount = $run.glyphCount; glyphIndices = @($run.glyphIndices)
+            drawResult = $run.drawResult; drawStatus = $run.drawStatus; count = $run.count
+        }
+        $runMap[$run.id] = $normalized
+        $runFaces[$run.faceID] = $true
+        $normalized
+    })
+    if ($copiedRuns -gt $report.limits.copiedRuns -or $copiedGlyphs -gt $report.limits.copiedGlyphs) { throw 'invalid-native-schema-v2' }
+    if ($report.coverage.bitmapDrawGlyphRuns -ceq 'observed' -and ($glyphRuns.Count -eq 0 -or
+        $copiedRuns -ne $report.limits.copiedRuns -or $copiedGlyphs -ne $report.limits.copiedGlyphs -or $runFaces.Count -ne $faces.Count)) { throw 'invalid-native-schema-v2' }
+    Assert-GalleryBitmapArray $report.observations 256
+    $observationKeys = @{}; $producedBags = @{}; $acceptedBags = @{}; $drawnRuns = @{}
+    $observationBags = New-Object 'System.Collections.Generic.List[object]'
+    $observations = @(foreach ($observation in $report.observations) {
+        $keys = @('role', 'purpose', 'backend', 'outcome', 'status', 'runIDs', 'runCounts', 'count')
+        Assert-GalleryBitmapObject $observation $keys $keys
+        Assert-GalleryBitmapEnum $observation.role $script:bitmapFontFixtureRoles[$FixtureID]
+        Assert-GalleryBitmapEnum $observation.purpose @('display-bitmap')
+        Assert-GalleryBitmapEnum $observation.backend @('direct-write', 'gdi', 'vector', 'testing-override', 'unknown')
+        Assert-GalleryBitmapEnum $observation.outcome @('draw-produced', 'draw-unavailable', 'bitmap-accepted', 'bitmap-rejected', 'bitmap-cache-hit-known',
+            'bitmap-cache-hit-unobserved', 'scene-referenced', 'not-referenced', 'scene-association-unobserved', 'vector-selected', 'limit-exceeded', 'testing-override')
+        Assert-GalleryBitmapEnum $observation.status @('observed', 'partial', 'not-observed')
+        Assert-GalleryBitmapInteger $observation.count 2147483647 1
+        Assert-GalleryBitmapArray $observation.runIDs 16
+        Assert-GalleryBitmapArray $observation.runCounts 16
+        if ($observation.runIDs.Count -ne $observation.runCounts.Count) { throw 'invalid-native-schema-v2' }
+        $seen = @{}; $runTotal = 0; $allSucceeded = $true
+        $bag = @(for ($i = 0; $i -lt $observation.runIDs.Count; $i++) {
+            $runID = $observation.runIDs[$i]; $runCount = $observation.runCounts[$i]
+            if ($runID -isnot [string] -or $runID -cnotmatch '^glyph-run-[1-9][0-9]{0,2}$' -or -not $runMap.ContainsKey($runID) -or $seen.ContainsKey($runID) -or $observation.backend -cne 'direct-write') { throw 'invalid-native-schema-v2' }
+            Assert-GalleryBitmapInteger $runCount 16 1
+            if ($runCount -gt $runMap[$runID].count) { throw 'invalid-native-schema-v2' }
+            $seen[$runID] = $true; $runTotal += [int]$runCount
+            if ($runMap[$runID].drawStatus -cne 'succeeded' -or $runMap[$runID].glyphCount -eq 0) { $allSucceeded = $false }
+            [pscustomobject]@{ id = $runID; count = $runCount }
+        })
+        if ($runTotal -gt 16 -or ($observation.status -ceq 'not-observed' -and $bag.Count -gt 0) -or
+            ($observation.status -ceq 'observed' -and ($bag.Count -eq 0 -or -not $allSucceeded))) { throw 'invalid-native-schema-v2' }
+        if ($observation.outcome -cin @('bitmap-cache-hit-unobserved', 'scene-association-unobserved', 'vector-selected', 'testing-override', 'limit-exceeded') -and $bag.Count -gt 0) { throw 'invalid-native-schema-v2' }
+        $bag = @($bag | Sort-Object id)
+        $bagKey = (@($bag | ForEach-Object { $_.id + '=' + $_.count }) -join ',')
+        $key = $observation.role + '|' + $observation.backend + '|' + $observation.outcome + '|' + $observation.status + '|' + $bagKey
+        if ($observationKeys.ContainsKey($key)) { throw 'invalid-native-schema-v2' }
+        $observationKeys[$key] = $true
+        if ($bag.Count -gt 0) {
+            if ($observation.outcome -cin @('draw-produced', 'draw-unavailable')) {
+                foreach ($run in $bag) {
+                    # Only these two outcomes consume an actual raster attempt.
+                    # Acceptance, cache reuse, and scene references do not draw.
+                    if (-not $drawnRuns.ContainsKey($run.id)) { $drawnRuns[$run.id] = [long]0 }
+                    $drawnRuns[$run.id] += [long]$run.count * [long]$observation.count
+                    if ($drawnRuns[$run.id] -gt $runMap[$run.id].count) { throw 'invalid-native-schema-v2' }
+                }
+            }
+            if ($observation.outcome -ceq 'draw-produced') {
+                $producedBags[$bagKey] = $producedBags[$bagKey] -eq $true -or $observation.status -ceq 'observed'
+            }
+            if ($observation.outcome -cin @('bitmap-accepted', 'bitmap-cache-hit-known')) {
+                $acceptedKey = $observation.role + '|' + $bagKey
+                $acceptedBags[$acceptedKey] = $acceptedBags[$acceptedKey] -eq $true -or $observation.status -ceq 'observed'
+            }
+        }
+        $normalized = [pscustomobject][ordered]@{
+            role = $observation.role; purpose = 'display-bitmap'; backend = $observation.backend; outcome = $observation.outcome; status = $observation.status
+            runIDs = @($bag | ForEach-Object { $_.id }); runCounts = @($bag | ForEach-Object { $_.count }); count = $observation.count
+        }
+        $observationBags.Add([pscustomobject]@{ observation = $normalized; key = $bagKey })
+        $normalized
+    })
+    foreach ($item in $observationBags) {
+        if ($item.observation.runIDs.Count -eq 0) { continue }
+        if ($item.observation.outcome -cin @('bitmap-accepted', 'bitmap-cache-hit-known') -and
+            (-not $producedBags.ContainsKey($item.key) -or ($item.observation.status -ceq 'observed' -and -not $producedBags[$item.key]))) { throw 'invalid-native-schema-v2' }
+        $acceptedKey = $item.observation.role + '|' + $item.key
+        if ($item.observation.outcome -cin @('scene-referenced', 'not-referenced') -and
+            (-not $acceptedBags.ContainsKey($acceptedKey) -or ($item.observation.status -ceq 'observed' -and -not $acceptedBags[$acceptedKey]))) { throw 'invalid-native-schema-v2' }
+    }
+    foreach ($run in $glyphRuns) {
+        $charged = if ($drawnRuns.ContainsKey($run.id)) { $drawnRuns[$run.id] } else { [long]0 }
+        if ($charged -ne $run.count -and ($report.coverage.bitmapDrawGlyphRuns -ceq 'observed' -or $report.limits.dropped -eq 0)) { throw 'invalid-native-schema-v2' }
+    }
+    if ($report.coverage.bitmapDrawGlyphRuns -ceq 'observed' -and ($observations.Count -eq 0 -or
+        @($observations | Where-Object { $_.status -cne 'observed' }).Count -gt 0 -or $drawnRuns.Count -ne $glyphRuns.Count)) { throw 'invalid-native-schema-v2' }
+    if ($report.coverage.sceneReferences -ceq 'observed' -and @($observations | Where-Object { $_.outcome -ceq 'scene-association-unobserved' }).Count -gt 0) { throw 'invalid-native-schema-v2' }
+    if ($report.status -ceq 'observed' -and ($legacy.status -cne 'observed' -or $report.limits.dropped -ne 0 -or
+        $report.coverage.bitmapDrawGlyphRuns -cne 'observed' -or $report.coverage.faceFileStreams -cne 'observed' -or
+        $report.coverage.sceneReferences -cne 'observed')) { throw 'invalid-native-schema-v2' }
+    $limits = [ordered]@{}
+    foreach ($key in $fixedLimits.Keys) { $limits[$key] = $fixedLimits[$key] }
+    foreach ($key in $counterLimits.Keys) { $limits[$key] = $report.limits.$key }
+    [pscustomobject][ordered]@{
+        schemaVersion = 2; invocationID = $InvocationID; fixtureID = $FixtureID; status = $report.status
+        runtime = $legacy.runtime; pngFileName = "$FixtureID.png"
+        report = [ordered]@{
+            schemaVersion = 2; kind = 'native-bitmap-font-attribution-v2'; scope = 'bitmap-icons'; fixtureID = $FixtureID
+            status = $report.status; qualification = 'unqualified'; attributionV1 = $legacy.report
+            coverage = [ordered]@{
+                bitmapDrawGlyphRuns = $report.coverage.bitmapDrawGlyphRuns; faceFileStreams = $report.coverage.faceFileStreams
+                sceneReferences = $report.coverage.sceneReferences; atlasGlyphs = 'not-instrumented'; textLayouts = 'not-instrumented'
+                visiblePixels = 'not-observed'; loadedBytesDigest = 'not-observed'
+            }
+            faces = $faces; glyphRuns = $glyphRuns; observations = $observations; limits = $limits
+        }
+    }
+}
+
 function Read-GalleryBitmapArtifact {
     param([string]$Path, [long]$MaximumBytes, [switch]$Json)
     $stream = $null; $hash = $null
@@ -660,6 +964,12 @@ function Complete-GalleryBitmapFontAttribution {
         [scriptblock]$FileFingerprinter = { param($scope, $basename, $remaining) Get-GalleryBitmapNativeFileFingerprint $scope $basename $remaining }
     )
     # Invalid library callers must fail before any path construction or output.
+    $nativeSchemaVersion = 1
+    $explicitVersion = Get-GalleryBitmapOptionalProperty $Invocation 'nativeSchemaVersion'
+    if ($null -ne $Invocation.PSObject.Properties['nativeSchemaVersion']) {
+        Assert-GalleryBitmapInteger $explicitVersion 2 2
+        $nativeSchemaVersion = 2
+    }
     if ($Invocation.invocationID -isnot [string] -or $Invocation.invocationID -cnotmatch '^[0-9a-f]{32}$' -or $Invocation.entries -isnot [array] -or $Invocation.entries.Count -lt 1 -or $Invocation.entries.Count -gt 2) { throw 'invalid-invocation' }
     foreach ($id in $Invocation.entries) { if ($id -isnot [string] -or $script:bitmapFontFixtureRoles.Keys -cnotcontains $id) { throw 'invalid-invocation' } }
     if (@($Invocation.entries | Select-Object -Unique).Count -ne $Invocation.entries.Count) { throw 'invalid-invocation' }
@@ -723,20 +1033,42 @@ function Complete-GalleryBitmapFontAttribution {
             # Fresh ownership plus the unguessable per-invocation token is the
             # primary stale-file boundary; timestamps are a conservative check.
             if ($sidecar.lastWriteTimeUtc -lt $Invocation.startedAtUtc.AddSeconds(-2) -or $png.lastWriteTimeUtc -lt $Invocation.startedAtUtc.AddSeconds(-2)) { throw 'stale-artifact' }
-            $native = ConvertTo-GalleryBitmapNativeReport -Json $sidecar.text -InvocationID $Invocation.invocationID -FixtureID $id
+            $native = if ($nativeSchemaVersion -eq 2) {
+                ConvertTo-GalleryBitmapNativeReportV2 -Json $sidecar.text -InvocationID $Invocation.invocationID -FixtureID $id
+            } else {
+                ConvertTo-GalleryBitmapNativeReport -Json $sidecar.text -InvocationID $Invocation.invocationID -FixtureID $id
+            }
             if ($binding -cne 'linked-to-completed-invocation') { throw 'unverified-invocation' }
             $entry.nativeSidecar.status = 'validated'
             $entry.association = 'linked-to-completed-invocation; scene-reference-is-not-visible-contribution'
             $entry.native = $native; $entry.status = $native.status
-            if ($native.runtime.architecture -ceq 'unknown' -or $native.report.limits.dropped -gt 0 -or
-                $native.report.coverage.bitmapIcons -cne 'observed' -or $native.report.coverage.sceneReferences -cne 'observed' -or
-                $native.report.observations.Count -eq 0 -or
-                @($native.report.observations | Where-Object {
+            $legacyReport = if ($nativeSchemaVersion -eq 2) { $native.report.attributionV1 } else { $native.report }
+            if ($native.runtime.architecture -ceq 'unknown' -or $legacyReport.limits.dropped -gt 0 -or
+                $legacyReport.coverage.bitmapIcons -cne 'observed' -or $legacyReport.coverage.sceneReferences -cne 'observed' -or
+                $legacyReport.observations.Count -eq 0 -or
+                @($legacyReport.observations | Where-Object {
                     $_.outcome -cin @('bitmap-cache-hit-unobserved', 'scene-association-unobserved', 'limit-exceeded', 'testing-override') -or $_.backend -cin @('gdi', 'unknown', 'testing-override') -or
                     ($_.backend -ceq 'direct-write' -and $_.outcome -cin @('draw-produced', 'bitmap-accepted', 'bitmap-cache-hit-known', 'scene-referenced') -and $_.faceIDs.Count -eq 0)
                 }).Count -gt 0) { $entry.status = 'partial' }
+            if ($nativeSchemaVersion -eq 2 -and ($native.report.limits.dropped -gt 0 -or
+                $native.report.coverage.bitmapDrawGlyphRuns -cne 'observed' -or $native.report.coverage.faceFileStreams -cne 'observed' -or
+                $native.report.coverage.sceneReferences -cne 'observed' -or $native.report.observations.Count -eq 0 -or
+                @($native.report.observations | Where-Object { $_.status -cne 'observed' }).Count -gt 0)) { $entry.status = 'partial' }
             $references = @{}
-            foreach ($face in $native.report.faces) {
+            $referenceFaces = @($legacyReport.faces)
+            if ($nativeSchemaVersion -eq 2) {
+                # The V2 face-file stream is a separate observation, never a
+                # loaded-byte digest or a substitute for the disk adapter.
+                $referenceFaces += @($native.report.faces)
+                foreach ($face in $native.report.faces) {
+                    if ($face.evidence.filesStatus -cne 'observed' -or @($face.evidence.files | Where-Object { $_.status -cne 'observed' }).Count -gt 0) { $entry.status = 'partial' }
+                    $referenceFaces += [pscustomobject]@{ metadata = [pscustomobject]@{
+                        status = $face.evidence.filesStatus; filesStatus = $face.evidence.filesStatus
+                        files = @($face.evidence.files | ForEach-Object { $_.reference })
+                    } }
+                }
+            }
+            foreach ($face in $referenceFaces) {
                 if ($face.metadata.status -cne 'observed' -or $face.metadata.filesStatus -cne 'observed') { $entry.status = 'partial' }
                 foreach ($file in $face.metadata.files) {
                     if ($file.status -cne 'observed') { $entry.status = 'partial'; continue }
@@ -806,7 +1138,7 @@ function Complete-GalleryBitmapFontAttribution {
     foreach ($entry in $entries) { if ($null -ne $entry.native) { foreach ($reference in $entry.fileReferences) { $retainedReferences[$reference] = $true } } }
     $diskFiles = @($diskFiles | Where-Object { $retainedReferences.ContainsKey($_.reference) })
     $result = [pscustomobject][ordered]@{
-        schemaVersion = 1; kind = 'gallery-bitmap-font-attribution'; status = if ($partial -or $fileLimit) { 'partial' } else { 'observed' }
+        schemaVersion = $nativeSchemaVersion; kind = 'gallery-bitmap-font-attribution'; status = if ($partial -or $fileLimit) { 'partial' } else { 'observed' }
         qualification = [ordered]@{ status = 'unqualified'; acceptedBaselineProfile = $null; pixelGate = 'unchanged'; performanceQualification = 'excluded' }
         invocationID = $Invocation.invocationID; invocationAssociation = $binding; source = $source; executable = $executable
         currentFontProfile = [ordered]@{ path = 'provenance.json'; sha256 = if ($null -ne $profileArtifact) { $profileArtifact.sha256 } else { $null }; observation = 'current-collector-profile; not-actual-loaded-font-bytes' }

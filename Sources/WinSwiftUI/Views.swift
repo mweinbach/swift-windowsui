@@ -3763,7 +3763,7 @@ private func resolvedFill(from style: ForegroundStyle) -> (color: Color, gradien
     }
 }
 @MainActor
-public struct Group: View, StateMountDeclarationView {
+public struct Group: View, StateMountDeclarationView, ViewListProjectionProvider {
     public typealias Body = Never
 
     private let content: [AnyView]
@@ -3788,6 +3788,16 @@ public struct Group: View, StateMountDeclarationView {
         let contentContext = context.withViewIdentityRole(.content)
         return [StateMountDeclarationScope(prefix: context.retainedViewIdentity, excluding: .modifierContent)]
             + viewIdentityOccurrences(content).flatMap { $0.declaredStateMountScopes(context: contentContext) }
+    }
+
+    func viewListProjection() -> ViewListProjection {
+        .scope(
+            .type(ObjectIdentifier(Self.self)), excluding: .modifierContent,
+            children: [
+                .scope(
+                    .prefix([.role(.content)]), excluding: nil,
+                    children: viewIdentityOccurrences(content).map { .value($0) })
+            ])
     }
 }
 @MainActor
@@ -5392,7 +5402,9 @@ public protocol DynamicViewContent<Data>: View {
     var data: Data { get }
 }
 @MainActor
-public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View, StateMountDeclarationView {
+public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View, StateMountDeclarationView,
+    ViewListProjectionProvider
+{
     public typealias Body = Never
 
     public let data: Data
@@ -5426,6 +5438,16 @@ public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View, StateMo
             + viewIdentityOccurrences(contentViews).flatMap { $0.declaredStateMountScopes(context: contentContext) }
     }
 
+    func viewListProjection() -> ViewListProjection {
+        .scope(
+            .type(ObjectIdentifier(Self.self)), excluding: .modifierContent,
+            children: [
+                .scope(
+                    .prefix([.role(.content)]), excluding: nil,
+                    children: viewIdentityOccurrences(contentViews).map { .value($0) })
+            ])
+    }
+
     private static func buildContentViews(
         data: Data,
         id: KeyPath<Data.Element, ID>,
@@ -5434,7 +5456,7 @@ public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View, StateMo
         var views: [AnyView] = []
         for (elementIndex, element) in data.enumerated() {
             let elementID = element[keyPath: id]
-            let elementViews = content(element)
+            let elementViews = normalizedProjectedViewList(content(element))
             for (index, view) in elementViews.enumerated() {
                 views.append(
                     view.ensuringViewIdentitySlot(index).mappingViewIdentity { content in
@@ -9883,7 +9905,7 @@ public struct List: View {
         for (elementIndex, element) in data.enumerated() {
             let elementID = element[keyPath: id]
             let elementIDDescription = String(describing: elementID)
-            let elementViews = rowContent(element)
+            let elementViews = normalizedProjectedViewList(rowContent(element))
             for (index, view) in elementViews.enumerated() {
                 views.append(
                     view.ensuringViewIdentitySlot(index).mappingViewIdentity { content in

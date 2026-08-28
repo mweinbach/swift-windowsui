@@ -45,6 +45,12 @@ protocol TransparentStateMountView {}
 extension AnyView: TransparentStateMountView {}
 extension Array: TransparentStateMountView where Element == AnyView {}
 extension Optional: TransparentStateMountView where Wrapped: View {}
+extension TupleView: TransparentStateMountView {}
+extension _ViewBuilderArrayExpression: TransparentStateMountView {}
+extension _ViewBuilderLoopContent: TransparentStateMountView {}
+
+extension AnyView: ViewListProjectionProvider {}
+extension TupleView: ViewListProjectionProvider {}
 
 /// A declared, unevaluated alternative can preserve a previous mount without
 /// running its body. Known modifier chains include their explicit identity.
@@ -54,6 +60,24 @@ protocol StateMountDeclarationView {
 }
 
 extension AnyView: StateMountDeclarationView {}
+
+extension TupleView: StateMountDeclarationView {
+    func declaredStateMountScopes(context: ViewBuildContext) -> [StateMountDeclarationScope] {
+        declaredProjectedViewListScopes(viewListProjection(), context: context)
+    }
+}
+
+extension _ViewBuilderArrayExpression: StateMountDeclarationView {
+    func declaredStateMountScopes(context: ViewBuildContext) -> [StateMountDeclarationScope] {
+        declaredProjectedViewListScopes(viewListProjection(), context: context)
+    }
+}
+
+extension _ViewBuilderLoopContent: StateMountDeclarationView {
+    func declaredStateMountScopes(context: ViewBuildContext) -> [StateMountDeclarationScope] {
+        declaredProjectedViewListScopes(viewListProjection(), context: context)
+    }
+}
 
 extension ModifiedView: StateMountDeclarationView {
     func declaredStateMountScopes(context: ViewBuildContext) -> [StateMountDeclarationScope] {

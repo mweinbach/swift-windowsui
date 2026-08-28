@@ -10247,6 +10247,7 @@ public struct ViewBuildContext {
 public protocol View {
     associatedtype Body: View
 
+    @ViewBuilder
     var body: Body { get }
 
     func makeComponent(context: ViewBuildContext) -> Component
@@ -10839,6 +10840,7 @@ public struct AnyView: View {
 
     private let buildComponent: (ViewBuildContext) -> Component
     private let stateMountDeclarations: (ViewBuildContext) -> [StateMountDeclarationScope]
+    private let listProjection: (@MainActor () -> ViewListProjection)?
     var structuralIdentity: [RetainedViewIdentity.Segment] = []
     let selectionTag: AnyHashable?
     let tabItem: [AnyView]?
@@ -10878,6 +10880,13 @@ public struct AnyView: View {
         self.stateMountDeclarations = { context in
             resolveDeclaredStateMountScopes(of: view, context: context)
         }
+        if V.self is any ViewListProjectionProvider.Type,
+            let provider = view as? any ViewListProjectionProvider
+        {
+            self.listProjection = { provider.viewListProjection() }
+        } else {
+            self.listProjection = nil
+        }
     }
 
     public var body: Never {
@@ -10890,6 +10899,11 @@ public struct AnyView: View {
 
     func declaredStateMountScopes(context: ViewBuildContext) -> [StateMountDeclarationScope] {
         stateMountDeclarations(context.withViewIdentityPrefix(structuralIdentity))
+    }
+
+    func viewListProjection() -> ViewListProjection {
+        guard let listProjection else { return .leaf(self) }
+        return .scope(.prefix(structuralIdentity), excluding: nil, children: [listProjection()])
     }
 }
 extension Array: View where Element == AnyView {
@@ -10969,9 +10983,37 @@ public struct TupleView<T>: View {
     public typealias Body = Never
 
     public var value: T
+    private let currentChildren: @MainActor (T) -> [ViewListProjection]
 
     public init(_ value: T) {
         self.value = value
+        self.currentChildren = { current in
+            if let child = current as? any View {
+                return [projectedViewList(child)]
+            }
+            // Only built-in tuple storage is inspected. Unsupported legacy T
+            // values keep their empty fallback without invoking CustomMirror.
+            guard !(T.self is any CustomReflectable.Type), !(current is any CustomReflectable) else { return [] }
+            let mirror = Mirror(reflecting: current)
+            guard mirror.displayStyle == .tuple else { return [] }
+            var children: [ViewListProjection] = []
+            children.reserveCapacity(mirror.children.count)
+            for field in mirror.children {
+                guard let child = field.value as? any View else { return [] }
+                children.append(projectedViewList(child))
+            }
+            return children
+        }
+    }
+
+    init<each Content>(projecting value: (repeat each Content))
+    where T == (repeat each Content), repeat each Content: View {
+        self.value = value
+        self.currentChildren = { current in
+            var children: [ViewListProjection] = []
+            repeat children.append(projectedViewList(each current))
+            return children
+        }
     }
 
     public var body: Never {
@@ -10979,11 +11021,16 @@ public struct TupleView<T>: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        if let view = value as? any View {
-            return makeViewComponent(
-                view, context: context.withViewIdentityType(Self.self).withViewIdentityRole(.content))
+        makeProjectedViewListComponent(viewListProjection(), context: context)
+    }
+
+    func viewListProjection() -> ViewListProjection {
+        let children = currentChildren(value).enumerated().map { index, child in
+            ViewListProjection.scope(.prefix([.slot(index)]), excluding: nil, children: [child])
         }
-        return composeComponent(from: [], context: context)
+        return .scope(
+            .type(ObjectIdentifier(Self.self)), excluding: .modifierContent,
+            children: [.scope(.prefix([.role(.content)]), excluding: nil, children: children)])
     }
 }
 @MainActor
@@ -11016,11 +11063,56 @@ public struct _ConditionalContent<TrueContent: View, FalseContent: View>: View {
 }
 @MainActor
 @resultBuilder
-public enum ViewBuilder {
+public struct ViewBuilder {
+    public static func buildExpression<Content: View>(_ expression: Content) -> Content {
+        expression
+    }
+
+    public static func buildBlock() -> EmptyView { EmptyView() }
+
+    public static func buildBlock<Content: View>(_ content: Content) -> Content { content }
+
+    @_disfavoredOverload
+    public static func buildBlock<each Content: View>(_ content: repeat each Content) -> TupleView<
+        (repeat each Content)
+    > {
+        TupleView(projecting: (repeat each content))
+    }
+
+    public static func buildIf<Content: View>(_ content: Content?) -> Content? { content }
+
+    public static func buildOptional<Content: View>(_ content: Content?) -> Content? { content }
+
+    public static func buildEither<TrueContent: View, FalseContent: View>(
+        first content: TrueContent
+    ) -> _ConditionalContent<TrueContent, FalseContent> {
+        _ConditionalContent(storage: .trueContent(content))
+    }
+
+    public static func buildEither<TrueContent: View, FalseContent: View>(
+        second content: FalseContent
+    ) -> _ConditionalContent<TrueContent, FalseContent> {
+        _ConditionalContent(storage: .falseContent(content))
+    }
+
+    public static func buildLimitedAvailability<Content: View>(_ content: Content) -> AnyView {
+        AnyView(content)
+    }
+
+    public static func buildFinalResult<Content: View>(_ content: Content) -> Content { content }
+
+    @_disfavoredOverload
+    public static func buildFinalResult<Content: View>(_ content: Content) -> [AnyView] {
+        materializedViewList(projectedViewList(content))
+    }
+
+    // Contextual compatibility for the existing Windows array-returning API.
+    @_disfavoredOverload
     public static func buildExpression<V: View>(_ expression: V) -> [AnyView] {
         [AnyView(expression)]
     }
 
+    @_disfavoredOverload
     public static func buildExpression<Data, ID>(
         _ expression: ForEach<Data, ID>
     ) -> [AnyView] {
@@ -11029,18 +11121,28 @@ public enum ViewBuilder {
         }
     }
 
-    public static func buildExpression(_ expression: [AnyView]) -> [AnyView] {
-        viewIdentityOccurrences(expression)
+    public static func buildExpression(_ expression: [AnyView]) -> _ViewBuilderArrayExpression {
+        _ViewBuilderArrayExpression(expression)
     }
 
+    public static func buildExpression<Result: _ViewBuilderArrayExpressionResult>(_ expression: [AnyView]) -> Result {
+        Result._fromViewBuilderArrayExpression(expression)
+    }
+
+    public static func buildExpression(_ expression: Void) -> EmptyView { EmptyView() }
+
+    @_disfavoredOverload
     public static func buildExpression(_ expression: Void) -> [AnyView] {
         []
     }
 
+    public static func buildBlock(_ component: [AnyView]) -> [AnyView] {
+        legacyViewBuilderBlock([component])
+    }
+
+    @_disfavoredOverload
     public static func buildBlock(_ components: [AnyView]...) -> [AnyView] {
-        components.enumerated().flatMap { index, views in
-            viewIdentityOccurrences(views).map { $0.prefixedViewIdentity([.slot(index)]) }
-        }
+        legacyViewBuilderBlock(components)
     }
 
     public static func buildOptional(_ components: [AnyView]?) -> [AnyView] {
@@ -11061,8 +11163,19 @@ public enum ViewBuilder {
         }
     }
 
+    public static func buildArray<Content: View>(_ components: [Content]) -> _ViewBuilderLoopContent<Content> {
+        _ViewBuilderLoopContent(components)
+    }
+
     public static func buildLimitedAvailability(_ components: [AnyView]) -> [AnyView] {
         components
+    }
+}
+
+@MainActor
+func legacyViewBuilderBlock(_ components: [[AnyView]]) -> [AnyView] {
+    components.enumerated().flatMap { index, views in
+        viewIdentityOccurrences(views).map { $0.prefixedViewIdentity([.slot(index)]) }
     }
 }
 @MainActor

@@ -1,10 +1,11 @@
 # Structural child construction
 
 `VStack` and `HStack` can lay out the children of a pure composition directly.
-For example, a custom view with an explicitly annotated `@ViewBuilder` body
-containing two views contributes two stack children, rather than an absolute
+For example, a custom view whose `@ViewBuilder` body contains two views
+contributes two stack children, rather than an absolute
 panel containing overlapping children. An empty composition contributes no
-child and therefore adds no stack spacing.
+child and therefore adds no stack spacing. The attribute is inherited from the
+`View.body` requirement; explicitly annotated bodies remain supported.
 
 This uses an optional package-scoped append callback on
 `SwiftWindowsUI.Component`. Existing public initializers and
@@ -21,8 +22,9 @@ component with a reconciliation key always contributes one aggregate node;
 the key is not copied to its children. `asSingleNode()` returns a copy that
 disables structural expansion, including after its key is cleared.
 
-`[AnyView]`, `Group`, and `ForEach` opt into this path as pure composition
-producers, and `EmptyView` supplies an empty structural result. Optional and
+`[AnyView]`, `Group`, `ForEach`, and the typed tuple/loop/array carriers opt into
+this path as pure composition producers, and `EmptyView` supplies an empty
+structural result. Optional and
 conditional views can forward the active child's capability through their
 existing component dispatch. `AnyView` re-erasure and the identity wrapper
 preserve it. The normal installed-value gateway still evaluates a selected
@@ -56,19 +58,24 @@ The single-child producer keeps its existing eager component construction;
 zero or multiple children retain lazy node construction. Either request uses
 one construction path, not both.
 
-This does not change `ComponentHost`, `UI.stackPanel`, lazy stacks, lists,
-grids, `ViewThatFits`, or other consumers that index content metadata. In
-particular, the list-edit decorator around a `ForEach` row remains opaque;
+This does not change `ComponentHost`, `UI.stackPanel`, or the structural-child
+consumer behavior of lazy stacks, lists, grids, `ViewThatFits`, and other
+containers. Typed builder finalization exposes known structure before existing
+array-based consumers index metadata, and `ForEach`/data-driven `List` also
+normalize explicit-return arrays before decorating their logical leaves. The
+list-edit decorator around a `ForEach` row remains opaque;
 a custom multi-child body inside that decorated row still uses its existing
 aggregate layout. Likewise, an aggregate under a frame is not automatically
 laid out with its enclosing stack's axis. Native behavior for all such
 boundaries remains incomplete.
 
-The public builder still returns `[AnyView]`. This change does not add inherited
-`@ViewBuilder` behavior to the `View.body` requirement, change the canonical
-builder signatures, or implement mutable typed `TupleView` rendering. Those
-source and runtime changes remain separate work; this construction path is not
-a claim of complete SwiftUI builder or container parity.
+The public builder now keeps typed results, including a flat `TupleView` for
+multiple expressions, while existing array-returning APIs use contextual
+finalization. Tuple rendering reads the current mutable value. See
+[ViewBuilder.md](ViewBuilder.md) for inherited-body behavior, current declaration
+paths, Windows array-helper migration, and qualification limits. The component
+construction capability remains independent of those public signatures and is
+not a claim of complete SwiftUI builder or container parity.
 
 `StructuralComponentTests` covers the low-level construction paths, keys, and
 empty results. `StructuralCompositionIdentityTests` covers captured context,

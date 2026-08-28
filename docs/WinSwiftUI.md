@@ -1156,14 +1156,19 @@ still resolves size from its actual layout slot; its content build carries the
 structural context independently of that measurement. Built-in modifier-kind
 erasure and specialized-container lifetime semantics remain incomplete.
 
-`VStack` and `HStack` also accept structural children from the existing array,
-Group, and ForEach composition path, including a custom explicitly annotated
-`@ViewBuilder` body. Empty compositions contribute no stack spacing. Keyed or
-node-decorating aggregates keep their single-node boundary; other containers
-and the public builder signatures are unchanged. See
-[StructuralComposition.md](StructuralComposition.md) for the construction and
-State ownership rules, metadata boundaries, and remaining inherited-builder
-and typed-tuple work.
+`View.body` inherits `@ViewBuilder`, whose native-first empty/single/multiple
+results preserve concrete types and form flat typed tuples. Existing
+array-returning APIs use contextual finalization. `TupleView` construction and
+declarations read its current mutable value. `VStack` and `HStack` accept
+structural children from pure composition, including custom builder bodies;
+empty compositions contribute no stack spacing. Keyed or node-decorating
+aggregates keep their single-node boundary. The explicit Windows extension
+`WindowsArrayViewBuilder` retains fixed-array authoring for opaque loop content;
+it does not change nested controls or fix canonical opaque-loop inference.
+See
+[StructuralComposition.md](StructuralComposition.md) for construction and State
+ownership, and [ViewBuilder.md](ViewBuilder.md) for projection/metadata limits,
+explicit Windows array-helper migration, and pending native qualification.
 
 This identity path owns ordinary `@State` and `@StateObject` cells per mounted view and host.
 Reconstruction and keyed reordering preserve surviving values; separate mounted

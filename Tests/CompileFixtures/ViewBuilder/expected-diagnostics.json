@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "source": "CanonicalOpaqueLoops.swift",
+  "sourceSHA256": "45e2abbd9259eb32e55e4a115bcacc49fe64b5c84daf45266b19670dd83324c5",
+  "status": "authored-actual-module-validation-pending",
+  "languageMode": "6",
+  "recordedStandaloneCompiler": "Swift 6.3 swift-6.3-RELEASE x86_64-unknown-windows-msvc +assertions",
+  "expectedCompilerExitCode": 1,
+  "expectedDiagnosticKind": "error",
+  "expectedDiagnosticMessage": "underlying type for opaque result type 'some View' could not be inferred from return expression",
+  "expectedHeaderCount": 3,
+  "expectedLocations": [
+    {
+      "line": 10,
+      "column": 5,
+      "sourceLine": "for value in loopValues {"
+    },
+    {
+      "line": 29,
+      "column": 9,
+      "sourceLine": "for index in 0..<4 {"
+    },
+    {
+      "line": 37,
+      "column": 9,
+      "sourceLine": "for index in 0..<4 {"
+    }
+  ],
+  "allowUnexpectedErrors": false,
+  "countCaretEchoesAsDiagnostics": false,
+  "nonzeroExitAloneIsSuccess": false,
+  "actualWinSwiftUIModuleInvoked": false
+}

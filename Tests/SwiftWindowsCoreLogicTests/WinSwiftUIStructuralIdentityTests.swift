@@ -579,7 +579,7 @@ private func structuralIdentityPrebuiltRows(_ text: String, identifier: String) 
 }
 
 @MainActor
-@ViewBuilder
+@WindowsArrayViewBuilder
 private func structuralIdentityBuilderRows(extras: [AnyView], loopValues: [Int]) -> [AnyView] {
     Text("Preceding sibling")
         .accessibilityIdentifier("preceding")

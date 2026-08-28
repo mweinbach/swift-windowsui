@@ -25,6 +25,26 @@ public enum RetainedFileExportError: Error, LocalizedError, Sendable, Equatable 
     }
 }
 
+/// Shared commit boundary for retained exports and document sessions. The
+/// caller completes serialization first; validation is the final application
+/// callback before Foundation atomically replaces the destination.
+@MainActor
+package enum RetainedAtomicFileWriter {
+    @discardableResult
+    package static func write(
+        _ data: Data,
+        to destination: URL,
+        validate: @MainActor () throws -> Void = {}
+    ) throws -> Data {
+        try validate()
+        guard destination.isFileURL else {
+            throw RetainedFileExportError.invalidDestination
+        }
+        try data.write(to: destination, options: .atomic)
+        return data
+    }
+}
+
 extension RetainedFileExporterConfiguration {
     @MainActor
     func write(to destination: URL, validate: @MainActor () throws -> Void = {}) throws {
@@ -44,7 +64,6 @@ extension RetainedFileExporterConfiguration {
         let data = try dataProvider(destination)
         // Serialization is application code and may close the owning window or
         // remove the presenter while the native modal operation is suspended.
-        try validate()
-        try data.write(to: destination, options: .atomic)
+        try RetainedAtomicFileWriter.write(data, to: destination, validate: validate)
     }
 }

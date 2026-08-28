@@ -41,12 +41,12 @@ extension View {
 }
 
 @MainActor
-private func fileDocumentExportData<Document: FileDocument>(
+func fileDocumentExportData<Document: FileDocument>(
     _ document: Document,
     contentType: UTType
 ) throws -> Data where Document.WriteConfiguration == FileDocumentWriteConfiguration {
-    // Standalone export has no document-session wrapper. In particular, an
-    // unrelated file at the chosen destination is not this document's existingFile.
+    // Encoding does not read the destination or manufacture an existingFile.
+    // An unrelated file chosen by Save As is not this document's saved wrapper.
     let configuration = FileDocumentWriteConfiguration(contentType: contentType)
     let wrapper = try document.fileWrapper(configuration: configuration)
     guard wrapper.fileWrappers == nil, let data = wrapper.regularFileContents else {

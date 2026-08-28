@@ -178,6 +178,10 @@ public class FileWrapper: @unchecked Sendable {
     public var fileWrappers: [String: FileWrapper]?
     public var preferredFilename: String?
 
+    public var isRegularFile: Bool {
+        fileWrappers == nil && regularFileContents != nil
+    }
+
     public init() {}
 
     public init(regularFileWithContents data: Data) {
@@ -227,12 +231,14 @@ public protocol ReferenceFileDocument: ObservableObject {
 }
 @MainActor
 public struct FileDocumentConfiguration<Document>: DynamicProperty {
-    public var document: Binding<Document>
+    @Binding public var document: Document
     public var fileURL: URL?
     public var isEditable: Bool
 
     public init(document: Binding<Document>, fileURL: URL? = nil, isEditable: Bool = true) {
-        self.document = document
+        // Editing permission belongs to the binding. Changing metadata on a
+        // copied viewing configuration must not grant write access again.
+        self._document = isEditable ? document : document.limitingWrites { false }
         self.fileURL = fileURL
         self.isEditable = isEditable
     }

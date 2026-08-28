@@ -1863,3 +1863,40 @@ all three changed Swift files. Quick now includes both new suites. These tests
 use retained rendering and controlled time; they do not qualify native frame
 pacing or every reentrant transition-adoption scenario. A new Full run must
 start at its first shard rather than reuse the failed run's partial result.
+
+### Fourth Full retry: preserve the paint-invalidation test's purpose
+
+The clean `8304d98` retry passed the previous remount failure and reached shard
+107 of 190. It recorded 2,175 passing XCTest cases, one existing skip, one
+failure, and 58 passing Swift Testing cases before stopping. The log is
+`artifacts/goal-fourth-full-8304d98.log`, SHA-256
+`cb55699c8f8abace9eee76246022f7e180b91b915f991f1caa37f0e109b21178`.
+The product build, screenshot, and gallery gates were again not reached.
+
+This failure was an obsolete fixture assumption: the paint-invalidation test
+used `onAppear` to change an already-painted sibling and required a stale first
+frame. Appearance now runs before painting, so that color change is already
+visible in the first frame; its dirty-state and next-frame assertions still
+passed. Independent source review confirmed the phase distinction.
+
+The original test now makes its mutation from an actual Canvas paint callback
+and runs on both render paths. It preserves the stale-first-frame, retained
+invalidation, and corrected-next-frame assertions, and also requires the
+follow-up pass to settle. A separate test checks appearance before paint on
+both paths, retained invalidation, exactly one appearance, and a clean
+follow-up. This changes the fixture to exercise the intended contract; no
+production behavior or dirty-flag requirement was relaxed.
+
+The corrected phase fixtures and related lifecycle, Canvas, prepaint, geometry,
+animation, reentry, and cache suites passed 90 tests across ten targets and four
+serial invocations, with no failures or skips. The main focused log is
+`artifacts/goal-fourth-dirty-phase-focused.log` (68 cases), SHA-256
+`6a8cd12a49ab1f3ce9306d562c429f9536ec1476af8d2b7183a8b41679b715e1`;
+the additional 22 cache cases are in
+`artifacts/goal-fourth-dirty-phase-cache.log`. An initially requested nonexistent
+`SceneCommandCacheTests` filter contributed no cases; the separate cache run
+selected the actual `CacheComplexityAndReclamationTests` and
+`CompositingGroupBitmapCacheTests` suites. Strict lint and contracts passed.
+The broader read-only test audit found no additional assertions depending on
+the old appearance/paint ordering. This focused result still requires a fresh
+complete Full run.

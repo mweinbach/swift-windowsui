@@ -295,7 +295,7 @@ if ($Full) {
         & $testScript -Sharded -Filter "DynamicPropertyInstallationTests|StateMountRegistryTests|RetainedBuildLifecycleTests|MountedStateDeclarationTests|MountedStateDispatchTests|MountedStateEpochTests|MountedStateHostTimingTests|MountedStateLifecycleTests|MountedStateQueuedTransactionTests|MountedOutlineGroupStateTests|EditorStateOwnershipTeardownTests"
     }
     Invoke-Step "shared scene and frame lifecycle delivery" {
-        & $testScript -Sharded -Filter "RenderLifecycleDeliveryTests|SceneLifecycleHostTests|RuntimeRenderPassReentrancyTests|ViewSnapshotTaskLifetimeTests|ViewSnapshotTests|TransitionConstructionOwnershipTests|TabViewLifecycleTransitionTests"
+        & $testScript -Sharded -Filter "RenderLifecycleDeliveryTests|SceneLifecycleHostTests|RuntimeRenderPassReentrancyTests|RuntimeDirtyFlagIntegrityTests|ViewSnapshotTaskLifetimeTests|ViewSnapshotTests|TransitionConstructionOwnershipTests|TabViewLifecycleTransitionTests"
     }
     Invoke-Step "asynchronous GPU timing diagnostics" {
         & $testScript -Sharded -Filter "D3D11GPUFrameTimingCollectorTests|D3D11GPUFrameTimingNativeTests|LiveGPUFrameTimingHostTests|LiveGPUFrameTimingReportTests"

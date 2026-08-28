@@ -1,11 +1,7 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
-
 import SwiftWindowsPlatform
-
 import XCTest
 
 @testable import SwiftWindowsUI
@@ -17,43 +13,84 @@ import XCTest
 /// again.
 final class RuntimeDirtyFlagIntegrityTests: XCTestCase {
 
-    /// A node whose `onAppear` mutates an earlier sibling. `onAppear` fires
-    /// from inside the paint traversal, after the sibling has already been
+    /// A node whose Canvas callback mutates an earlier sibling. Canvas runs
+    /// inside the paint traversal, after the sibling has already been
     /// appended and marked rendered, so the first frame is necessarily stale —
     /// the requirement is that the runtime is still dirty afterwards and the
     /// next pass repaints rather than replaying the sibling's cached range.
     func testInvalidationFromPaintClosureSurvivesTheRenderPass() async {
         await MainActor.run {
-            let sibling = ViewNode(
-                frame: Rect(x: 0, y: 0, width: 40, height: 40),
-                backgroundColor: Color(red: 0, green: 0, blue: 0, alpha: 1)
-            )
-            let trigger = ViewNode(frame: Rect(x: 60, y: 0, width: 40, height: 40))
-            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 200, height: 200), isHitTestVisible: false)
-            root.addChild(sibling)
-            root.addChild(trigger)
+            for usesScene in [false, true] {
+                let sibling = ViewNode(
+                    frame: Rect(x: 0, y: 0, width: 40, height: 40),
+                    backgroundColor: Color(red: 0, green: 0, blue: 0, alpha: 1)
+                )
+                let trigger = ViewNode(frame: Rect(x: 60, y: 0, width: 40, height: 40))
+                let root = ViewNode(frame: Rect(x: 0, y: 0, width: 200, height: 200), isHitTestVisible: false)
+                root.addChild(sibling)
+                root.addChild(trigger)
 
-            var didMutate = false
-            trigger.onAppear = {
-                guard !didMutate else { return }
-                didMutate = true
-                sibling.backgroundColor = Color(red: 1, green: 1, blue: 1, alpha: 1)
+                var didMutate = false
+                trigger.canvasDraw = { _, _ in
+                    guard !didMutate else { return }
+                    didMutate = true
+                    sibling.backgroundColor = Color(red: 1, green: 1, blue: 1, alpha: 1)
+                }
+
+                let runtime = RetainedViewRuntime(root: root)
+                let firstContainsWhite = renderContainsWhiteFill(runtime, usesScene: usesScene)
+                XCTAssertTrue(didMutate, "The Canvas callback must run during the first paint pass")
+                XCTAssertFalse(
+                    firstContainsWhite,
+                    "the sibling was already painted when the closure ran, so the first frame is stale")
+                XCTAssertTrue(
+                    runtime.isDirty,
+                    "an invalidation raised during the pass must not be wiped by the pass's own clear")
+
+                XCTAssertTrue(
+                    renderContainsWhiteFill(runtime, usesScene: usesScene),
+                    "the second pass must repaint the sibling rather than replay its cached range")
+                XCTAssertFalse(runtime.isDirty, "The follow-up pass must consume the staged invalidation")
             }
+        }
+    }
 
-            let runtime = RetainedViewRuntime(root: root)
-            let first = runtime.renderFrame()
-            XCTAssertTrue(didMutate, "the lifecycle closure must have run during the first pass")
-            XCTAssertFalse(
-                containsWhiteFill(first),
-                "the sibling was already painted when the closure ran, so the first frame is stale")
-            XCTAssertTrue(
-                runtime.isDirty,
-                "an invalidation raised during the pass must not be wiped by the pass's own clear")
+    /// Appearance is staged after layout and before painting on both paths.
+    /// Its paint-only mutation is visible immediately, but must still survive
+    /// the render pass's dirty-flag clear and settle on the follow-up pass.
+    func testAppearanceInvalidationRunsBeforePaintAndStillSchedulesAFollowup() async {
+        await MainActor.run {
+            for usesScene in [false, true] {
+                let sibling = ViewNode(
+                    frame: Rect(x: 0, y: 0, width: 40, height: 40),
+                    backgroundColor: Color(red: 0, green: 0, blue: 0, alpha: 1)
+                )
+                let trigger = ViewNode(frame: Rect(x: 60, y: 0, width: 40, height: 40))
+                let root = ViewNode(frame: Rect(x: 0, y: 0, width: 200, height: 200), isHitTestVisible: false)
+                root.addChild(sibling)
+                root.addChild(trigger)
 
-            let second = runtime.renderFrame()
-            XCTAssertTrue(
-                containsWhiteFill(second),
-                "the second pass must repaint the sibling rather than replay its cached range")
+                var appearances = 0
+                trigger.onAppear = {
+                    appearances += 1
+                    sibling.backgroundColor = Color(red: 1, green: 1, blue: 1, alpha: 1)
+                }
+
+                let runtime = RetainedViewRuntime(root: root)
+                XCTAssertTrue(
+                    renderContainsWhiteFill(runtime, usesScene: usesScene),
+                    "Appearance must run before the sibling is painted on either render path")
+                XCTAssertEqual(appearances, 1)
+                XCTAssertTrue(
+                    runtime.isDirty,
+                    "an invalidation raised during the pass must not be wiped by the pass's own clear")
+
+                XCTAssertTrue(
+                    renderContainsWhiteFill(runtime, usesScene: usesScene),
+                    "the second pass must repaint the sibling rather than replay its cached range")
+                XCTAssertEqual(appearances, 1, "A follow-up paint must not repeat appearance")
+                XCTAssertFalse(runtime.isDirty, "A completed appearance must allow the runtime to settle")
+            }
         }
     }
 
@@ -142,8 +179,13 @@ final class RuntimeDirtyFlagIntegrityTests: XCTestCase {
 }
 
 @MainActor
-private func containsWhiteFill(_ frame: RenderFrame) -> Bool {
-    frame.commands.contains { command in
+private func renderContainsWhiteFill(_ runtime: RetainedViewRuntime, usesScene: Bool) -> Bool {
+    if usesScene {
+        return runtime.renderScene().layers.flatMap(\.quads).contains { quad in
+            quad.startR == 1 && quad.startG == 1 && quad.startB == 1 && quad.startA == 1
+        }
+    }
+    return runtime.renderFrame().commands.contains { command in
         guard case .fillRect(let fill) = command else { return false }
         return fill.color.red == 1 && fill.color.green == 1 && fill.color.blue == 1 && fill.color.alpha == 1
     }

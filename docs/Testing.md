@@ -113,6 +113,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   Task cases cover latest deferred declarations, duplicate-key suppression,
   ordinary node reinsertion, and rejected launches from close cancellation.
   The batch host cases do not prime lifecycle by rendering a fallback frame first.
+  Quick also runs `RuntimeDirtyFlagIntegrityTests`: a Canvas callback changes
+  an already-painted sibling, while a separate appearance callback changes it
+  before paint. Both paths must preserve invalidation and then settle.
 - `TransitionConstructionOwnershipTests` and `TabViewLifecycleTransitionTests`
   keep construction-time transfers out of the outgoing-overlay lifecycle.
   Both render paths must deliver incoming descendant appearances while real

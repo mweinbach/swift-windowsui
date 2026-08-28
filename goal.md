@@ -3294,3 +3294,50 @@ SDK arguments and twelve actual standard-module loading remarks are evidence
 about configuration; the separate target-info query does not itself prove
 that SDK selection. Testing's actual graph and static-library flags, framework
 compilation, ABI, loading, scheduling, and Unicode behavior remain unverified.
+
+### Sixth batch: accessibility adapters do not own a retired runtime
+
+The alert integration exposed a separate existing ownership problem. In its
+second attempt, 25 cases passed and one failed: after dropping a host, its alert
+node, button, payload, and host released, but the runtime remained alive. The
+surviving native-window object retained its accessibility bridge; that bridge
+retained its projection source, which strongly retained the runtime. Escaped
+alert receipts were not the remaining owner. The failing source and log remain
+preserved in `artifacts/goal-sixth-alert-runtime-failure-v2/`; its receipt hash
+is `52cb697ff538abdf8d1d00cd988927a4bbc21e38578feccbf78baff95b591f5f`.
+
+The projection source now weakly references the host-owned runtime. Each query
+or action pins its entry runtime through the complete operation, including
+application bounds mapping and any nested calls. Once that owner is gone,
+snapshots are empty, identifier lookup is unavailable, and actions fail without
+calling retained controls. The forwarding selection method uses the same
+pinned selection operation. No bridge/window ownership, COM provider release,
+native disconnect, callback routing, scheduling, or public API is changed.
+
+Four new headless regressions pass: a source and bridge outlive the released
+runtime and tree; retained nodes and old identifiers cannot invoke explicit or
+fallback actions after release; live ownership preserves stable identifiers,
+invocation, and focus; and a bounds mapper can drop the final external owner
+while all four mapping callbacks observe the operation's runtime pin, followed
+by immediate release and an empty subsequent query. The original alert release
+assertion also passes unchanged. The source correction and added test bytes are
+bound by `artifacts/goal-sixth-uia-runtime-ownership-overlay-v1.json`, SHA-256
+`774e91ac3402c8a558964b07d8c9fe4946b031b87cf5a7d86a9c2ec89c4abc7e`.
+
+These checks executed in the joined alert working tree
+`2481a293d5292bc81498ccc7633b13c27d95aefb` over `0ffc5cb`, not as an
+independently qualified release commit. The eleven-target run passes 240 cases,
+including all four new ownership tests and 32 existing accessibility adapter,
+pattern, and bridge cases. Its actual exit is zero, without skips, timeouts,
+duplicates, or recorded input/index changes. The log SHA-256 is
+`58e7b7b7350049773bb4cdcaba77370a911399243e1c70ed0ab5263924603bb5`.
+Both ownership files pass fresh strict lint and contracts. An earlier lint
+invocation rejected a comma-joined path argument before linting; separate
+documented file invocations supplied the actual passing evidence.
+
+Source review also identified an independent native COM lifetime gap: retained
+providers copy an unowned bridge callback context, while native disconnect can
+fail or reenter. Merely releasing the bridge earlier would not be a sound fix.
+That path is deliberately unchanged here and has a separate repair investigation;
+headless ownership tests do not qualify Narrator or native provider teardown.
+All nine original product acceptance gates remain open.

@@ -22,7 +22,9 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
         }
     }
 
-    private let runtime: RetainedViewRuntime
+    // The host owns its runtime. An accessibility bridge may outlive that
+    // owner, so keep the projection source without keeping the view tree alive.
+    private weak var runtime: RetainedViewRuntime?
     /// Maps root-view-space bounds to screen coordinates; injected so tests
     /// can run headlessly (identity) and the window host can supply the real
     /// client-to-screen conversion.
@@ -39,6 +41,8 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
     // MARK: - UIAElementTreeSource
 
     func uiaElementSnapshots() -> [UIAElementSnapshot] {
+        guard let runtime else { return [] }
+        defer { withExtendedLifetime(runtime) {} }
         pruneDeadNodes()
         guard let root = AccessibilityProjection.project(runtime: runtime) else {
             return []
@@ -62,6 +66,8 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
 
     @discardableResult
     func uiaInvokeDefaultAction(elementID: UInt64) -> Bool {
+        guard let runtime else { return false }
+        defer { withExtendedLifetime(runtime) {} }
         guard let element = projectedElement(for: elementID), element.isEnabled else {
             return false
         }
@@ -79,6 +85,8 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
     }
 
     func uiaSetFocus(elementID: UInt64) {
+        guard let runtime else { return }
+        defer { withExtendedLifetime(runtime) {} }
         guard let node = projectedElement(for: elementID)?.sourceNode else {
             return
         }
@@ -87,6 +95,8 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
 
     @discardableResult
     func uiaSetValue(elementID: UInt64, value: String) -> Bool {
+        guard let runtime else { return false }
+        defer { withExtendedLifetime(runtime) {} }
         guard let element = projectedElement(for: elementID), element.isEnabled,
             element.controlType == .edit,
             !element.traits.contains(.isSecureTextInput),
@@ -115,6 +125,8 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
 
     @discardableResult
     func uiaToggle(elementID: UInt64) -> Bool {
+        guard let runtime else { return false }
+        defer { withExtendedLifetime(runtime) {} }
         guard let element = projectedElement(for: elementID), element.controlType == .checkBox else {
             return false
         }
@@ -123,6 +135,8 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
 
     @discardableResult
     func uiaSelect(elementID: UInt64) -> Bool {
+        guard let runtime else { return false }
+        defer { withExtendedLifetime(runtime) {} }
         guard let element = projectedElement(for: elementID), element.traits.contains(.isSelectable),
             element.isEnabled
         else {
@@ -141,6 +155,8 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
 
     @discardableResult
     func uiaRemoveFromSelection(elementID: UInt64) -> Bool {
+        guard let runtime else { return false }
+        defer { withExtendedLifetime(runtime) {} }
         guard let element = projectedElement(for: elementID), element.traits.contains(.isSelectable),
             element.isEnabled
         else {
@@ -154,6 +170,8 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
 
     @discardableResult
     func uiaRealizeVirtualizedItem(elementID: UInt64) -> Bool {
+        guard let runtime else { return false }
+        defer { withExtendedLifetime(runtime) {} }
         guard let element = projectedElement(for: elementID), element.isVirtualizedPlaceholder,
             let node = element.sourceNode
         else {
@@ -169,6 +187,8 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
     /// element (e.g. a control's interactive root with no metadata); UIA
     /// focus events then target the nearest projected ancestor instead.
     func projectedElementID(forNodeOrAncestor node: ViewNode) -> UInt64? {
+        guard let runtime else { return nil }
+        defer { withExtendedLifetime(runtime) {} }
         guard let root = AccessibilityProjection.project(runtime: runtime) else {
             return nil
         }
@@ -240,7 +260,7 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
     }
 
     private func projectedElement(for id: UInt64) -> AccessibilityElementProjection? {
-        guard let root = AccessibilityProjection.project(runtime: runtime) else {
+        guard let runtime, let root = AccessibilityProjection.project(runtime: runtime) else {
             return nil
         }
         if id == UIAProviderBridge.rootElementID {

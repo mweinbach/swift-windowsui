@@ -4317,7 +4317,7 @@ public final class ViewNode {
         defer { interactionRuntime?.endLongPressReconciliation() }
         for child in children { child.revokeTextInputOwnership() }
         for child in children {
-            if child.transition.removal.kind != .identity, child.applyRemovalTransition() {
+            if runtime != nil, child.transition.removal.kind != .identity, child.applyRemovalTransition() {
                 child.isRemovalOverlay = true
                 child.cachedFrameKey = nil
                 child.cachedFrameCommandRange = nil
@@ -4386,7 +4386,9 @@ public final class ViewNode {
     private func detachRemovedChild(_ removed: ViewNode) {
         removed.revokeTextInputOwnership()
         removed.onDismantlePlatformView?(removed)
-        if removed.transition.removal.kind != .identity, removed.applyRemovalTransition() {
+        // Adoption also removes fresh nodes from temporary construction
+        // parents. Only a mounted parent can own and retire a removal overlay.
+        if runtime != nil, removed.transition.removal.kind != .identity, removed.applyRemovalTransition() {
             removed.isRemovalOverlay = true
             removed.cachedFrameKey = nil
             removed.cachedFrameCommandRange = nil

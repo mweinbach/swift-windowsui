@@ -113,6 +113,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   Task cases cover latest deferred declarations, duplicate-key suppression,
   ordinary node reinsertion, and rejected launches from close cancellation.
   The batch host cases do not prime lifecycle by rendering a fallback frame first.
+- `TransitionConstructionOwnershipTests` and `TabViewLifecycleTransitionTests`
+  keep construction-time transfers out of the outgoing-overlay lifecycle.
+  Both render paths must deliver incoming descendant appearances while real
+  outgoing pages fade and disappear. Repeated tab switches and rebuilds during
+  a fade must preserve that ownership without restarting the transition. Quick
+  includes both suites; the existing demo remount assertion remains unchanged.
 - `ViewSnapshotTaskLifetimeTests` checks cooperative cancellation and payload
   release for the two bitmap-only snapshot helpers, including actual renderer
   failures. Borrowed runtimes and the runtime returned by the SwiftUI snapshotter

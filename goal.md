@@ -1813,3 +1813,53 @@ line, and caret-revealing editor scrolling are also still required for a
 complete multiline template. These are implementation gaps, not exceptions
 to sections 5, 6, or 7. The catalog now distinguishes implemented editor undo
 from the remaining document workflow.
+
+### Fourth combined Full run: tab-remount regression
+
+The first Full attempt on clean revision `7b486f7` stopped at Windows shard
+37 of 190. Tooling fixtures and portable tests passed, and the log contains
+705 passing XCTest cases, one failing case, and 16 passing Swift Testing
+cases before termination. It did not reach the debug/release product build,
+screenshot, or gallery gates. The log is
+`artifacts/goal-fourth-full-7b486f7.log`, SHA-256
+`608b7bd512600420c5908d9467cc8a50c9e84db3ef5a8b044c3058d926eb53f2`.
+This is a failed Full attempt, not qualification of the combined revision.
+
+The unchanged observation-showcase remount test expected its new page's
+appearance callback to reset the derived phase to Idle. The viewport was
+replaced and its offset and visibility reset, but the phase remained the old
+Idle-from-Interacting value. A focused rerun reproduced the failure. Temporary
+instrumentation showed that the showcase and its printed ancestors had not
+appeared; eight additional frames did not deliver the callback. That
+instrumentation has been removed without changing the original assertions.
+
+Source inspection traces the missing callback to removal-transition ownership:
+adopting a fresh tab page first removes it from an unattached construction
+parent. That removal currently starts a fade and marks the incoming page as
+an outgoing overlay even though there is no runtime to register or retire
+the overlay. The shared lifecycle stage correctly refuses callbacks through
+an outgoing-overlay ancestor. The correction must require runtime ownership
+before starting removal transitions, while preserving real outgoing fades,
+disappearance, and the lifecycle eligibility check. Construction transfers,
+unattached bulk removal, and tab changes on both render paths need regression
+coverage before a new complete Full run.
+
+The correction now checks the owning parent's runtime before either individual
+or bulk removal can start a transition. Direct transition behavior and lifecycle
+eligibility are unchanged. Four new async tests cover construction transfer,
+unattached bulk removal, and public TabView switches from the first page to the
+second and back on both scene and frame paths. They verify fresh incoming nodes,
+descendant appearance, real outgoing overlays at intermediate and final times,
+disappearance, and rebuilds that must not restart the incoming fade.
+
+Root passed all 56 tests across nine targets and three serial invocations,
+including the unchanged demo phase assertion, the four new cases, existing tab
+crossfades, shared lifecycle and reentry, and combined editor/State teardown.
+There were no failures or skips. The log is
+`artifacts/goal-fourth-transition-focused.log`, SHA-256
+`5717a0711b6d582129c94827047809078a94f7780e3577e4e72a095ea92a1fda`.
+Contracts passed before and after the correction, and strict lint passed on
+all three changed Swift files. Quick now includes both new suites. These tests
+use retained rendering and controlled time; they do not qualify native frame
+pacing or every reentrant transition-adoption scenario. A new Full run must
+start at its first shard rather than reuse the failed run's partial result.

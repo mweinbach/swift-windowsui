@@ -1,0 +1,320 @@
+<#
+.SYNOPSIS
+Checks the agent memory-fixture process boundary with tiny PowerShell stubs.
+.DESCRIPTION
+Copies agent-check.ps1 into an owned temporary repository. Every referenced
+stage script is replaced by a stub: no memory workload, SwiftPM, formatter,
+native renderer, or real Quick/Full validation runs.
+#>
+param(
+    [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
+    [string]$OutputDirectory = (Join-Path ([IO.Path]::GetTempPath()) ("swift-windowsui-memory-isolation-tests-" + [Guid]::NewGuid().ToString("N")))
+)
+
+$ErrorActionPreference = "Stop"
+if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
+    throw "These process-boundary fixtures require Windows PowerShell 5.1 or PowerShell 7 on Windows."
+}
+$fixtureShellName = if ($PSVersionTable.PSEdition -eq "Core") { "pwsh.exe" } else { "powershell.exe" }
+$fixtureShell = Join-Path $PSHOME $fixtureShellName
+$fixtureRoot = [IO.Path]::GetFullPath($OutputDirectory)
+$sourceRoot = [IO.Path]::GetFullPath($RepositoryRoot).TrimEnd([char[]]@('/', '\'))
+$sourceArtifacts = $sourceRoot + [IO.Path]::DirectorySeparatorChar + "artifacts" + [IO.Path]::DirectorySeparatorChar
+if ($fixtureRoot.Equals($sourceRoot, [StringComparison]::OrdinalIgnoreCase) -or
+    ($fixtureRoot.StartsWith($sourceRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -and
+        -not $fixtureRoot.StartsWith($sourceArtifacts, [StringComparison]::OrdinalIgnoreCase))) {
+    throw "Fixture output cannot be inside this repository except beneath artifacts."
+}
+$allowedRoots = @(
+    [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([char[]]@('/', '\')),
+    [IO.Path]::GetFullPath((Join-Path $RepositoryRoot "artifacts")).TrimEnd([char[]]@('/', '\'))
+)
+$contained = $false
+foreach ($allowedRoot in $allowedRoots) {
+    if ($fixtureRoot.StartsWith($allowedRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        $contained = $true
+    }
+}
+if (-not $contained -or (Test-Path -LiteralPath $fixtureRoot)) { throw "Fixture output must be a new directory under artifacts or the OS temporary directory." }
+$ancestor = [IO.DirectoryInfo]::new([IO.Path]::GetDirectoryName($fixtureRoot))
+while ($null -ne $ancestor) {
+    if ($ancestor.Exists -and ($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "Fixture output cannot traverse a reparse point." }
+    $ancestor = $ancestor.Parent
+}
+[void][IO.Directory]::CreateDirectory($fixtureRoot)
+$fixtureEncoding = [Text.UTF8Encoding]::new($false)
+$script:fixtureAssertions = 0
+$fixtureResults = [System.Collections.Generic.List[object]]::new()
+
+function Assert-MemoryIsolationFixture {
+    param([bool]$Condition, [string]$Message)
+    $script:fixtureAssertions++
+    if (-not $Condition) { throw "Memory-isolation fixture: $Message" }
+}
+
+function Quote-MemoryIsolationArgument {
+    param([string]$Value)
+    # Windows CommandLineToArgvW quoting, including trailing backslashes.
+    return '"' + ([regex]::Replace([regex]::Replace($Value, '(\\*)"', '$1$1\"'), '(\\+)$', '$1$1')) + '"'
+}
+
+function Invoke-MemoryIsolationFixture {
+    param(
+        [string]$Name,
+        [string[]]$RunnerArguments,
+        [ValidateSet("pass", "exit", "throw", "missing")][string]$MemoryOutcome = "pass",
+        [int]$MemoryExitCode = 37,
+        [switch]$StaleCallerStatus
+    )
+    $caseRoot = Join-Path $fixtureRoot $Name
+    $workspace = Join-Path $caseRoot "repository with spaces"
+    $scripts = Join-Path $workspace "scripts"
+    [void][IO.Directory]::CreateDirectory($scripts)
+    [IO.File]::WriteAllText((Join-Path $scripts "agent-check.ps1"), $agentSource, $fixtureEncoding)
+    $runnerPath = Join-Path $scripts "agent-check.ps1"
+    if ($StaleCallerStatus) {
+        $runnerPath = Join-Path $scripts "stale-status-runner.ps1"
+        [IO.File]::WriteAllText($runnerPath, $staleStatusSource, $fixtureEncoding)
+    }
+    foreach ($scriptName in $stageScriptNames) {
+        if ($scriptName -ceq "test-swiftui-api-audit-memory.ps1") {
+            if ($MemoryOutcome -cne "missing") {
+                [IO.File]::WriteAllText((Join-Path $scripts $scriptName), $memoryStub + $commonStub, $fixtureEncoding)
+            }
+        } else {
+            [IO.File]::WriteAllText((Join-Path $scripts $scriptName), $commonStub, $fixtureEncoding)
+        }
+    }
+    $control = [ordered]@{
+        memoryOutcome = $MemoryOutcome
+        memoryExitCode = $MemoryExitCode
+    }
+    [IO.File]::WriteAllText((Join-Path $workspace "fixture-control.json"), ($control | ConvertTo-Json -Depth 4), $fixtureEncoding)
+    $arguments = @("-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", $runnerPath) + $RunnerArguments
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $fixtureShell
+    $startInfo.Arguments = (($arguments | ForEach-Object { Quote-MemoryIsolationArgument $_ }) -join " ")
+    $startInfo.WorkingDirectory = $workspace
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    $started = $false
+    try {
+        if (-not $process.Start()) { throw "Could not start the owned fixture runner." }
+        $started = $true
+        $runnerPid = $process.Id
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit(30000)) {
+            throw "The owned fixture runner exceeded 30 seconds; verify any remaining fixture children before retrying."
+        }
+        $exitCode = $process.ExitCode
+        if (-not $stdoutTask.Wait(5000) -or -not $stderrTask.Wait(5000)) {
+            throw "The fixture output pipes did not close; verify remaining fixture children before retrying."
+        }
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        [IO.File]::WriteAllText((Join-Path $caseRoot "stdout.log"), $stdout, $fixtureEncoding)
+        [IO.File]::WriteAllText((Join-Path $caseRoot "stderr.log"), $stderr, $fixtureEncoding)
+    } finally {
+        # This is the retained Process object from our own Start, never a name
+        # lookup. Stop only that runner; do not claim descendant-tree closure.
+        if ($started -and -not $process.HasExited) { $process.Kill(); [void]$process.WaitForExit(5000) }
+        $process.Dispose()
+    }
+    $calls = @()
+    $callsPath = Join-Path $workspace "calls.ndjson"
+    if ([IO.File]::Exists($callsPath)) {
+        $calls = @([IO.File]::ReadAllLines($callsPath) | ForEach-Object { ConvertFrom-Json -InputObject $_ })
+    }
+    $receipt = [ordered]@{
+        name = $Name
+        runnerArguments = $RunnerArguments
+        executable = $fixtureShell
+        commandArguments = $arguments
+        runnerPid = $runnerPid
+        exitCode = $exitCode
+        memoryOutcome = $MemoryOutcome
+        staleCallerStatus = [bool]$StaleCallerStatus
+        calls = $calls
+        stdoutSha256 = (Get-FileHash -LiteralPath (Join-Path $caseRoot "stdout.log") -Algorithm SHA256).Hash.ToLowerInvariant()
+        stderrSha256 = (Get-FileHash -LiteralPath (Join-Path $caseRoot "stderr.log") -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    $fixtureResults.Add($receipt)
+    return $receipt
+}
+
+$memoryStub = @'
+param(
+    [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
+    [switch]$Large,
+    [ValidateRange(128, 4096)][int]$MaximumPeakWorkingSetMiB = 768
+)
+'@ + [Environment]::NewLine
+$commonStub = @'
+$ErrorActionPreference = "Stop"
+$workspace = Split-Path -Parent $PSScriptRoot
+$control = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText((Join-Path $workspace "fixture-control.json")))
+$stubName = [IO.Path]::GetFileName($PSCommandPath)
+$currentProcess = [Diagnostics.Process]::GetCurrentProcess()
+try { $hostPath = $currentProcess.MainModule.FileName } finally { $currentProcess.Dispose() }
+$record = [ordered]@{
+    script = $stubName
+    pid = $PID
+    powerShellVersion = $PSVersionTable.PSVersion.ToString()
+    edition = $PSVersionTable.PSEdition
+    architecture = [IntPtr]::Size * 8
+    psHome = $PSHOME
+    hostPath = $hostPath
+    nativeErrorPreference = [bool](Get-Variable -Name PSNativeCommandUseErrorActionPreference -ValueOnly -ErrorAction SilentlyContinue)
+    arguments = @($args | ForEach-Object { [string]$_ })
+}
+if ($stubName -ceq "test-swiftui-api-audit-memory.ps1") {
+    $record.maximumPeakWorkingSetMiB = $MaximumPeakWorkingSetMiB
+    $record.large = [bool]$Large
+    $record.repositoryRoot = $RepositoryRoot
+    $record.boundParameters = @($PSBoundParameters.Keys)
+}
+[IO.File]::AppendAllText((Join-Path $workspace "calls.ndjson"), ($record | ConvertTo-Json -Depth 6 -Compress) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+if ($stubName -ceq "test-swiftui-api-audit-memory.ps1") {
+    if ($control.memoryOutcome -ceq "exit") { exit ([int]$control.memoryExitCode) }
+    if ($control.memoryOutcome -ceq "throw") { throw "Synthetic memory fixture failure." }
+}
+exit 0
+'@ + [Environment]::NewLine
+
+$report = [ordered]@{
+    schemaVersion = 1
+    evidenceKind = "synthetic-agent-check-memory-process-boundary"
+    status = "running"
+    powerShellVersion = $PSVersionTable.PSVersion.ToString()
+    edition = $PSVersionTable.PSEdition
+    architecture = [IntPtr]::Size * 8
+    executable = $fixtureShell
+    agentCheckSha256 = $null
+    memoryFixtureSha256 = $null
+    memoryWorkloadExecuted = $false
+    swiftPMExecuted = $false
+    realQuickOrFullExecuted = $false
+    assertions = 0
+    cases = @()
+}
+$fixtureFailure = $null
+try {
+    $agentPath = Join-Path $RepositoryRoot "scripts/agent-check.ps1"
+    $agentSource = [IO.File]::ReadAllText($agentPath)
+    $report.agentCheckSha256 = (Get-FileHash -LiteralPath $agentPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $tokens = $null
+    $parseErrors = $null
+    $agentAst = [Management.Automation.Language.Parser]::ParseInput($agentSource, [ref]$tokens, [ref]$parseErrors)
+    Assert-MemoryIsolationFixture (@($parseErrors).Count -eq 0) "the copied runner parses"
+    $stageScriptNames = @($agentAst.FindAll({
+        param($node)
+        $node -is [Management.Automation.Language.StringConstantExpressionAst] -and $node.Value.EndsWith(".ps1", [StringComparison]::Ordinal)
+    }, $true) | ForEach-Object { $_.Value } | Sort-Object -Unique)
+    Assert-MemoryIsolationFixture ($stageScriptNames -ccontains "test-swiftui-api-audit-memory.ps1") "the runner references the actual memory fixture"
+    foreach ($scriptName in $stageScriptNames) {
+        Assert-MemoryIsolationFixture ([IO.Path]::GetFileName($scriptName) -ceq $scriptName) "every stage reference stays inside the copied scripts directory"
+    }
+    $allowedCommands = @("Join-Path", "Split-Path", "Get-ReportedExitCode", "Invoke-Step", "Write-Host", "Set-Variable")
+    $allowedVariables = @("Command", "contractScript", "lintScript", "testScript", "portableTestScript", "buildScript", "screenshotScript", "galleryCompareScript", "memoryFixtureShell")
+    foreach ($command in $agentAst.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] }, $true)) {
+        $commandName = $command.GetCommandName()
+        if ($null -ne $commandName) {
+            Assert-MemoryIsolationFixture ($allowedCommands -ccontains $commandName) "the copied runner cannot call an unexpected command"
+        } elseif ($command.CommandElements[0] -is [Management.Automation.Language.VariableExpressionAst]) {
+            Assert-MemoryIsolationFixture ($allowedVariables -ccontains $command.CommandElements[0].VariablePath.UserPath) "dynamic commands stay within the known stage and fixture-host variables"
+        } else {
+            Assert-MemoryIsolationFixture ($command.CommandElements[0].Extent.Text -match '^\(Join-Path \$PSScriptRoot "[^"/\\]+\.ps1"\)$') "computed stage commands only address copied scripts"
+        }
+    }
+    $memoryPath = Join-Path $RepositoryRoot "scripts/test-swiftui-api-audit-memory.ps1"
+    $report.memoryFixtureSha256 = (Get-FileHash -LiteralPath $memoryPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $memoryAst = [Management.Automation.Language.Parser]::ParseFile($memoryPath, [ref]$tokens, [ref]$parseErrors)
+    Assert-MemoryIsolationFixture (@($parseErrors).Count -eq 0) "the real memory fixture parses without being executed"
+    $budgetParameter = @($memoryAst.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -ceq "MaximumPeakWorkingSetMiB" })
+    Assert-MemoryIsolationFixture ($budgetParameter.Count -eq 1 -and $budgetParameter[0].DefaultValue.SafeGetValue() -eq 768) "the real fixture retains its 768 MiB default"
+
+    $exitHelper = @($agentAst.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq "Get-ReportedExitCode" }, $true))
+    $stepHelper = @($agentAst.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq "Invoke-Step" }, $true))
+    $memoryStep = @($agentAst.FindAll({
+        param($node)
+        $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq "Invoke-Step" -and $node.CommandElements[1].Value -ceq "SwiftUI API audit bounded-memory fixtures (synthetic only)"
+    }, $true))
+    Assert-MemoryIsolationFixture ($exitHelper.Count -eq 1 -and $stepHelper.Count -eq 1 -and $memoryStep.Count -eq 1) "the scope probe extracts the exact helpers and memory step"
+    $staleStatusSource = @(
+        '$ErrorActionPreference = "Stop"',
+        $exitHelper[0].Extent.Text,
+        $stepHelper[0].Extent.Text,
+        '& (Join-Path $PSScriptRoot "test-swiftui-api-audit.ps1")',
+        '$script:LASTEXITCODE = 79',
+        '$global:LASTEXITCODE = 83',
+        '$PSNativeCommandUseErrorActionPreference = $true',
+        $memoryStep[0].Extent.Text,
+        '& (Join-Path $PSScriptRoot "test-swiftui-api-audit-workflow.ps1")',
+        'exit 0'
+    ) -join [Environment]::NewLine
+
+    foreach ($mode in @("Quick", "Full")) {
+        $case = Invoke-MemoryIsolationFixture -Name ($mode.ToLowerInvariant() + "-success") -RunnerArguments @("-" + $mode)
+        Assert-MemoryIsolationFixture ($case.exitCode -eq 0) "$mode succeeds when the child succeeds"
+        $memoryCalls = @($case.calls | Where-Object script -CEQ "test-swiftui-api-audit-memory.ps1")
+        $before = @($case.calls | Where-Object script -CEQ "test-swiftui-api-audit.ps1")
+        $after = @($case.calls | Where-Object script -CEQ "test-swiftui-api-audit-workflow.ps1")
+        Assert-MemoryIsolationFixture ($memoryCalls.Count -eq 1 -and $before.Count -eq 1 -and $after.Count -eq 1) "$mode runs the memory stage exactly once in its existing sequence"
+        $memory = $memoryCalls[0]
+        Assert-MemoryIsolationFixture ($memory.pid -ne $case.runnerPid -and $before[0].pid -eq $case.runnerPid -and $after[0].pid -eq $case.runnerPid) "only the memory stage changes process in $mode"
+        Assert-MemoryIsolationFixture ($memory.powerShellVersion -ceq $PSVersionTable.PSVersion.ToString() -and $memory.edition -ceq $PSVersionTable.PSEdition -and $memory.architecture -eq [IntPtr]::Size * 8) "$mode preserves engine version, edition and architecture"
+        Assert-MemoryIsolationFixture ([string]::Equals($memory.hostPath, $fixtureShell, [StringComparison]::OrdinalIgnoreCase) -and [string]::Equals($memory.psHome, $PSHOME, [StringComparison]::OrdinalIgnoreCase)) "$mode uses the exact PSHOME executable"
+        Assert-MemoryIsolationFixture ($memory.maximumPeakWorkingSetMiB -eq 768 -and -not $memory.large -and @($memory.arguments).Count -eq 0 -and @($memory.boundParameters).Count -eq 0) "$mode preserves memory-script arguments and defaults"
+        Assert-MemoryIsolationFixture ($memory.repositoryRoot -like "*repository with spaces") "$mode preserves paths containing spaces"
+        $otherProcessCalls = @($case.calls | Where-Object { $_.script -cne "test-swiftui-api-audit-memory.ps1" -and $_.pid -ne $case.runnerPid })
+        Assert-MemoryIsolationFixture ($otherProcessCalls.Count -eq 0) "$mode leaves every other stage in the original host"
+        if ($mode -ceq "Full") {
+            $testCalls = @($case.calls | Where-Object script -CEQ "test.ps1")
+            $buildCalls = @($case.calls | Where-Object script -CEQ "build.ps1")
+            Assert-MemoryIsolationFixture ($testCalls.Count -eq 1 -and @($testCalls[0].arguments).Count -eq 1 -and $testCalls[0].arguments[0] -ceq "-Sharded") "Full keeps its original test invocation"
+            Assert-MemoryIsolationFixture ($buildCalls.Count -eq 2 -and @($buildCalls | Where-Object { $_.arguments -ccontains "release" }).Count -eq 1) "Full retains both build configurations as stubs"
+        }
+    }
+    $contracts = Invoke-MemoryIsolationFixture -Name "contracts-only" -RunnerArguments @("-ContractsOnly") -MemoryOutcome throw
+    Assert-MemoryIsolationFixture ($contracts.exitCode -eq 0 -and $contracts.calls.Count -eq 1 -and $contracts.calls[0].script -ceq "check-contracts.ps1") "ContractsOnly never starts the memory fixture or subsequent stages"
+    foreach ($mode in @("Quick", "Full")) {
+        foreach ($outcome in @("exit", "throw", "missing")) {
+            $case = Invoke-MemoryIsolationFixture -Name ($mode.ToLowerInvariant() + "-" + $outcome) -RunnerArguments @("-" + $mode) -MemoryOutcome $outcome
+            if ($outcome -ceq "exit") {
+                Assert-MemoryIsolationFixture ($case.exitCode -eq 37) "$mode preserves the child's exact nonzero exit"
+            } else {
+                Assert-MemoryIsolationFixture ($case.exitCode -ne 0) "$mode rejects a $outcome child"
+            }
+            $lastCall = $case.calls[$case.calls.Count - 1]
+            $expectedLast = if ($outcome -ceq "missing") { "test-swiftui-api-audit.ps1" } else { "test-swiftui-api-audit-memory.ps1" }
+            Assert-MemoryIsolationFixture ($lastCall.script -ceq $expectedLast) "$mode stops immediately after a $outcome child, with no later validation stages"
+        }
+    }
+    foreach ($outcome in @("pass", "exit", "throw")) {
+        $case = Invoke-MemoryIsolationFixture -Name ("stale-caller-" + $outcome) -RunnerArguments @() -MemoryOutcome $outcome -StaleCallerStatus
+        $expectedExit = if ($outcome -ceq "pass") { 0 } elseif ($outcome -ceq "exit") { 37 } else { 1 }
+        Assert-MemoryIsolationFixture ($case.exitCode -eq $expectedExit) "actual $outcome child status overrides stale caller codes and native-error preferences"
+        $afterCalls = @($case.calls | Where-Object script -CEQ "test-swiftui-api-audit-workflow.ps1")
+        $expectedAfterCalls = if ($outcome -ceq "pass") { 1 } else { 0 }
+        Assert-MemoryIsolationFixture ($afterCalls.Count -eq $expectedAfterCalls) "only a successful child continues after the scope probe"
+        if ($outcome -ceq "pass") {
+            Assert-MemoryIsolationFixture ([bool]$afterCalls[0].nativeErrorPreference) "the memory block does not change its caller's native-error preference"
+        }
+    }
+    $report.status = "passed"
+} catch {
+    $fixtureFailure = $_
+    $report.status = "failed"
+} finally {
+    $report.assertions = $script:fixtureAssertions
+    $report.cases = $fixtureResults.ToArray()
+    [IO.File]::WriteAllText((Join-Path $fixtureRoot "report.json"), ($report | ConvertTo-Json -Depth 12), $fixtureEncoding)
+}
+Write-Host "Memory-isolation fixtures: $($report.status); $($report.assertions) assertions; evidence: $fixtureRoot"
+if ($null -ne $fixtureFailure) { throw $fixtureFailure }
+exit 0

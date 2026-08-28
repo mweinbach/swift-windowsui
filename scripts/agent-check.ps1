@@ -89,12 +89,26 @@ Invoke-Step "SwiftUI API audit capture intake fixtures (synthetic only)" {
     & (Join-Path $PSScriptRoot "test-swiftui-api-audit-capture.ps1")
 }
 
+Invoke-Step "audit memory process-boundary fixtures (synthetic only)" {
+    & (Join-Path $PSScriptRoot "test-agent-check-memory-isolation.ps1")
+}
+
 Invoke-Step "SwiftUI API audit ledger fixtures (synthetic only)" {
     & (Join-Path $PSScriptRoot "test-swiftui-api-audit.ps1")
 }
 
 Invoke-Step "SwiftUI API audit bounded-memory fixtures (synthetic only)" {
-    & (Join-Path $PSScriptRoot "test-swiftui-api-audit-memory.ps1")
+    # The peak working set covers a process lifetime, including earlier suites.
+    $memoryFixtureShellName = if ($PSVersionTable.PSEdition -eq "Core") { "pwsh" } else { "powershell" }
+    if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) { $memoryFixtureShellName += ".exe" }
+    $memoryFixtureShell = Join-Path $PSHOME $memoryFixtureShellName
+    # Preserve native exit codes even when a PS7 caller enables native errors.
+    $PSNativeCommandUseErrorActionPreference = $false
+    $global:LASTEXITCODE = $null
+    & $memoryFixtureShell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "test-swiftui-api-audit-memory.ps1")
+    $memoryFixtureExitCode = $global:LASTEXITCODE
+    if ($null -eq $memoryFixtureExitCode) { throw "Memory fixture child reported no exit code." }
+    Set-Variable -Name LASTEXITCODE -Scope 1 -Value ([int]$memoryFixtureExitCode)
 }
 
 Invoke-Step "SwiftUI API audit workflow handoff fixtures (synthetic only)" {
@@ -119,6 +133,10 @@ Invoke-Step "gallery font provenance fixtures (synthetic only)" {
 
 Invoke-Step "bitmap font attribution fixtures (synthetic only)" {
     & (Join-Path $PSScriptRoot "test-gallery-bitmap-font-attribution.ps1")
+}
+
+Invoke-Step "hosted bitmap font attribution handoff fixtures (synthetic only)" {
+    & (Join-Path $PSScriptRoot "test-ci-bitmap-font-attribution.ps1")
 }
 
 # All SwiftPM steps below run strictly serially (shared .build/build.db).
@@ -302,6 +320,9 @@ if ($Full) {
     }
     Invoke-Step "typed retained view identity" {
         & $testScript -Sharded -Filter "RetainedViewIdentityTests|WinSwiftUIStructuralIdentityTests|ViewIdentityRoleTests"
+    }
+    Invoke-Step "typed ViewBuilder and array compatibility" {
+        & $testScript -Sharded -Filter "CanonicalViewBuilderPublicTests|CanonicalViewBuilderMountedTests|CanonicalViewBuilderMetadataTests|CanonicalViewBuilderArrayCompatibilityTests|ViewListProjectionTests|WindowsArrayViewBuilderTests|WindowsArrayViewBuilderMountedTests|WindowsArrayViewBuilderMetadataTests"
     }
     Invoke-Step "structural stack children" {
         & $testScript -Sharded -Filter "StructuralComponentTests|StructuralCompositionIdentityTests|StructuralComponentMountedTests"

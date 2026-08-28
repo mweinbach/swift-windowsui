@@ -2516,3 +2516,121 @@ measurement is the process-lifetime peak working set. Earlier allocations can
 therefore contaminate that measurement. A fresh same-engine child boundary
 for that one fixture is being implemented and tested; the existing 768 MiB
 limit, workload, and failure result will remain unchanged.
+
+### Typed ViewBuilder and explicit Windows array migration
+
+The held typed-builder candidate and its separately reviewed Windows array
+overlay are integrated for serial validation. Canonical composition preserves
+typed blocks, conditionals, optional content, tuple children, and inherited
+`View.body` builder syntax. Existing array-returning control closures retain
+their contextual compatibility path. `WindowsArrayViewBuilder` explicitly
+preserves the old fixed-array rules for Windows opaque `for` expressions;
+it is a named Windows extension, not a native SwiftUI API or a repair to the
+canonical compiler inference limit. Only the two previously approved fixture
+boundaries were migrated; their loop bodies and behavior assertions remain.
+
+The candidate has 55 new canonical/projection cases and 23 new explicit-array
+cases, still unexecuted at this point. The canonical opaque-loop source is
+retained outside the SwiftPM targets as a negative compilation fixture. Its
+expected three diagnostic headers must be observed against the real integrated
+module; a nonzero compiler exit alone will not count as passing evidence.
+
+The first clean-commit Windows RGB collection attempt at `bb39831` failed
+before any compiler or color observer ran. A safe-relative-name check rejected
+the existing committed path `Sources/SwiftWindowsApp/FoundationApp+DefaultRenderer.swift`
+because its allowed character set omitted a literal plus. The complete failed
+packet remains in `artifacts/goal-fifth-rgb-windows-bb39831/`; `capture.json`
+has SHA-256 `92bf7c1c580c4bed4ac6db733c8af4c0d256ffbab61dcb1cf893bc1fb691c7f1`.
+The collector will admit this ordinary filename with regression coverage while
+keeping traversal and containment checks. The source file will not be omitted
+or renamed to make collection succeed.
+
+The typed-builder run now passes all 96 selected XCTest cases: 78 new cases
+and the existing 18 structural-identity cases, across nine targets and five
+serial invocations, with no failures or skips. The log
+`artifacts/goal-fifth-typed-builder-new-tests-v2.log` has SHA-256
+`b473026e60d1615048a4c0a28d81a8c5e55e580941773aea7f8c567fb0a70539`.
+The actual-module negative fixture also reproduces exactly its three expected
+opaque-result inference errors at lines/columns 10:5, 29:9, and 37:9. It has no
+unexpected error or warning; all 179 recorded tool/module/source inputs are
+unchanged. `artifacts/goal-fifth-typed-negative-bb39831/validation.json`,
+SHA-256 `cd3b404c4031c8210db5a4f66ab43f8fd271cf97da44a31f7614ea5b67136f03`,
+seals that result. This confirms the documented Windows compiler limitation,
+not native SwiftUI conformance or a linked/executed negative program.
+Broader state/list/scrolling regressions remain the next check.
+
+The memory-fixture process boundary and RGB literal-plus filename correction
+are now integrated for root validation. The memory fixture alone runs in a
+fresh copy of the current `$PSHOME` engine and preserves its native exit code;
+other validation stages and the 768 MiB limit remain unchanged. Its new tiny
+stub-based process tests are included in Quick/Full. The RGB change consists
+of three literal-plus grammar additions plus regression coverage through the
+actual snapshot helpers and source/evidence validators. It does not skip an
+input or weaken traversal/containment checks. Prior failed capture evidence
+and the original frozen patches remain intact.
+
+The broader typed-builder validation now also passes 732 state/list/scrolling
+cases and 105 mounted-state/structural-component cases. Together with the first
+96, the three logs contain 933 distinct passing XCTest identifiers, no overlaps,
+failures, or skips, across 41 strictly serial SwiftPM invocations. The first
+broader selection used abbreviated class tokens that omitted the mounted suites;
+the separate 105-case run explicitly selected all eleven intended classes.
+Those omitted classes are not inferred to have run in the earlier invocation.
+The existing test bodies remain unchanged. Strict lint passes all 15 changed
+Swift files, and the post-integration architecture contracts pass.
+
+The corrected memory-boundary fixtures pass 303 assertions across twelve cases
+on each PowerShell version. The first root fixture attempt failed because the
+new self-test gate was placed between the audit ledger and its memory stage,
+violating the test's exact predecessor assertion for a missing child. Moving
+that self-test before the ledger restores the existing sequence; the assertion
+was not weakened. Both failed logs are retained. Separate fresh executions of
+the actual memory workload pass all 19 assertions at measured process peaks of
+193.5 MiB on PS5 and 231.3 MiB on PS7, below the unchanged 768 MiB limit.
+
+The plus-filename regression passes all 126 RGB-tooling cases on each shell,
+with 494 assertions on PS5 and 501 on PS7. The workflow integration passes
+387 assertions per shell. It checks out the triggering source revision and
+adds a native RGB collection step only after a successful pinned SDK export
+and complete unreviewed audit. Material failure remains a job failure but
+does not suppress independently eligible RGB evidence. A completed Windows
+packet from the same final clean source revision and an actual native packet
+are still required; no workflow run or paired comparison has occurred here.
+
+The Windows CI font diagnostic is also integrated and passes 102 synthetic
+cases on each shell. It preserves the original Full command and result, records
+a boundary before Full, and accepts only a fresh successful gallery build
+receipt with matching clean source and executable observations. Its separate
+two-fixture invocation never rebuilds or substitutes an executable. Bounded
+stdout/stderr prefixes, discarded-byte counts, child exits, and independent
+pixel/attribution outcomes remain explicit. The advisory diagnostic does not
+convert the existing hosted pixel failures into success. Actual hosted face
+selection, loaded font bytes, and font-profile qualification remain unobserved.
+
+`artifacts/goal-fifth-builder-workflows-validation.json`, SHA-256
+`13ba8f93c2574fc854e472f6ed9707f2eeb65bd38a9556788ccfa19d24b8717e`,
+records the 933 test outcomes, actual negative compiler validation, current
+working source hashes, both-shell tooling receipts, fresh memory measurements,
+lint/contracts, and preserved failures. It is focused working-source evidence,
+not a clean-source Full/Quick or native compatibility qualification. The
+original goal text and its nine open acceptance gates are verified unchanged.
+
+The isolated Foundation experiment has preserved two additional preparation
+failures. A short-source configure attempt used an incorrect rebased ICU path;
+it stopped before compilation and is recorded as a driver error. A subsequent
+configuration unexpectedly enabled Ninja compile response files because the
+owned PowerShell driver had left an empty-but-present environment variable
+where it intended absence. A bounded sentinel confirmed that distinction;
+no Foundation compiler ran in that attempt. The failed phase is sealed in
+`builds/foundation-f5-build/frozen-f5-phase-manifest.json` under the existing
+owned Foundation workspace, SHA-256
+`7edc033911b0548648c95090d0229ddeed4f9da3da96de7526bf7015254c5647`.
+
+The fresh F6 configuration now uses verified literal environment removal,
+the same frozen source bytes, public build options, dependencies, and eleven
+targets. Its actual 586 compile edges and eleven link edges match the reviewed
+command-length projection, and compilation has started within the existing
+time/output/memory limits. No installed SDK, runtime, source semantics, or OS
+setting was changed. Compilation, module-origin verification, a complete
+runtime/test-library cohort, and native activation remain separate unfinished
+steps; the MainActor/Unicode failure is not yet resolved.

@@ -61,16 +61,30 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   These checks compile only a managed JSON helper, not Swift or a native color
   observer. Actual collection requires the separate clean-source workflow in
   [ColorRGBReference.md](ColorRGBReference.md).
-  Keep tracked files and Git state unchanged while validation is active. The
+- Keep tracked files and Git state unchanged while validation is active. The
   review suite checks repository immutability, and the bounded-memory fixture
-  measures the whole test process; standalone runs need fresh processes, not
-  a reused process containing unrelated suites' earlier allocation peaks.
+  measures the whole test process. Quick and Full launch only that fixture in
+  a fresh process using the current PowerShell installation under `$PSHOME`;
+  its arguments and 768 MiB budget are unchanged. Standalone runs also need a
+  fresh process so earlier suites' allocation peaks do not affect the result.
+  Both modes also run `scripts/test-agent-check-memory-isolation.ps1`, which
+  checks this boundary under PS5.1 and PS7 using a copied runner and tiny stage
+  stubs. It checks engine, process identity, arguments, failures, and the
+  ContractsOnly bypass without running the real memory workload, SwiftPM, or
+  the Quick/Full validation work.
 - Use `async` test methods in `@MainActor` XCTest classes. With the current Windows toolchain, synchronous actor-isolated methods can compile but crash SwiftPM's test discovery when it casts them to nonisolated callbacks, before a filter executes. A standalone XCTest entrypoint does not validate that discovery path.
 - Quick includes `RetainedViewIdentityTests`, `WinSwiftUIStructuralIdentityTests`, and `ViewIdentityRoleTests` for typed keys, structural branches and slots, erased fragments, and auxiliary builder roles. These check retained-node identity, not mounted `State` or `StateObject` storage.
   The identity suite also covers singleton tag/layout precedence, retained focus
   and callbacks, recursive editor departure ordering, and child-count boundaries.
   Local `Hashable` counters check omitted singleton key hashing without production
   instrumentation; they do not measure allocations, elapsed time, or frame pacing.
+- Quick also runs the canonical ViewBuilder public, mounted, metadata, and
+  array-compatibility suites, `ViewListProjectionTests`, and the three explicit
+  `WindowsArrayViewBuilder` suites. They preserve inherited body syntax,
+  current tuple children, structural ownership, metadata, and Windows array
+  migration behavior. The separate expected-failure fixture under
+  `Tests/CompileFixtures/ViewBuilder` is outside SwiftPM test discovery; its
+  real-module invocation and strict diagnostic comparison are documented there.
 - Quick includes `WinSwiftUIColorInitializerTests` and
   `WinSwiftUIColorSpaceConversionTests` for the canonical RGB constructor's
   signed transfer curves, P3 primaries, finite storage policy, alpha handling,
@@ -123,6 +137,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   These do not fingerprint loaded glyph bytes or qualify a font profile. Actual
   off/on retained renders and selected DirectWrite face observations remain
   separate checks; see [BitmapFontAttribution.md](BitmapFontAttribution.md).
+- Both modes also run `test-ci-bitmap-font-attribution.ps1`. Its synthetic
+  process and filesystem fixtures check the advisory hosted handoff, bounded
+  log capture, executable and source matching, and separate pixel/attribution
+  outcomes. They do not run native rendering or hosted CI. The Windows workflow
+  preserves its original Full result and never rebuilds a stale or missing
+  gallery executable to manufacture diagnostic evidence.
 - Quick and Full also run the API audit intake, ledger, default bounded
   memory, and workflow handoff fixtures. The pinned macOS capture workflow runs the same four
   scripts before export. These synthetic tests preserve full record scope,

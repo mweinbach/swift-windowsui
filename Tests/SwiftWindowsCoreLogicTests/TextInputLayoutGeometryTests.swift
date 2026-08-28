@@ -121,11 +121,18 @@ final class TextInputLayoutGeometryTests: XCTestCase {
 
     func testReconciledEditorAttachesWhenTheRetainedSlotHadNoController() async throws {
         let root = ViewNode(frame: Rect(x: 30, y: 40, width: 320, height: 200))
-        let label = ViewNode(text: "Placeholder")
+        let content = ViewNode(isHitTestVisible: false)
+        let viewport = Controls.scrollPanel(
+            axis: .vertical,
+            stackLayout: .vertical(spacing: 0, padding: .zero, alignment: .stretch),
+            isHitTestVisible: false,
+            children: [content])
+        viewport.layoutFillAxes = .both
         let slot = ViewNode(
             layoutMode: .stack(
                 .vertical(padding: EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10), alignment: .stretch)),
-            children: [label])
+            children: [viewport])
+        slot.forwardsStackMainAxisProposal = true
         root.addChild(slot)
         let runtime = RetainedViewRuntime(root: root)
         let context = ViewBuildContext(
@@ -139,7 +146,8 @@ final class TextInputLayoutGeometryTests: XCTestCase {
             .makeComponent(context: context).makeNode(runtime: runtime)
         ComponentHost.adopt(source: source, into: slot)
         XCTAssertTrue(root.children.first === slot)
-        XCTAssertTrue(slot.children.first === label, "Unchanged children must not supply a later setRuntime walk")
+        XCTAssertTrue(
+            slot.children.first === viewport, "The surviving viewport must not supply a later setRuntime walk")
         XCTAssertNotNil(slot.textInputController)
         runtime.requestFocus(slot)
         runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.home.rawValue))
@@ -148,8 +156,7 @@ final class TextInputLayoutGeometryTests: XCTestCase {
         XCTAssertTrue(slot.isFocused)
         XCTAssertEqual(slot.textInputCaretOffset, 0)
 
-        let content = try XCTUnwrap(slot.children.first(where: { !$0.isHidden }))
-        let placedContent = try XCTUnwrap(runtime.resolvedLayoutFrame(of: content))
+        let placedContent = try XCTUnwrap(runtime.resolvedLayoutFrame(of: try XCTUnwrap(viewport.children.first)))
         let caret = try XCTUnwrap(runtime.focusedTextInputCaretRect)
         XCTAssertGreaterThan(placedContent.origin.x, root.frame.origin.x)
         XCTAssertEqual(caret.origin, placedContent.origin)

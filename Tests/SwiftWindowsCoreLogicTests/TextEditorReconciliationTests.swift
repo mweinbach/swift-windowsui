@@ -164,8 +164,43 @@ private final class ReconciledEditorFixture {
         editorNodes(in: editor).filter { $0.isTextInputCaret && !$0.isHidden }
     }
 
-    func markedTextSegments() -> [ViewNode] {
-        editorNodes(in: editor).filter { $0.textStyle.underline && !$0.isHidden && $0.text?.isEmpty == false }
+    func visibleTextFragments() -> [ViewNode] {
+        editorNodes(in: editor).filter { !$0.isHidden && $0.text?.isEmpty == false }
+    }
+
+    func markedTextUnderlines() -> [ViewNode] {
+        guard let content = editor.children.first?.children.first,
+            let color = visibleTextFragments().first?.textStyle.color
+        else { return [] }
+        return content.children.filter {
+            $0.text == nil && !$0.isTextInputCaret && $0.backgroundColor == color
+                && $0.frame.size.height > 0 && $0.frame.size.height <= 1
+        }
+    }
+
+    func assertSingleLineSelection(
+        _ range: Range<Int>, in text: String, advance: Double,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let fragments = visibleTextFragments()
+        XCTAssertEqual(fragments.map(\.text), [text], file: file, line: line)
+        let fragment = try XCTUnwrap(fragments.first, file: file, line: line)
+        let content = try XCTUnwrap(editor.children.first?.children.first, file: file, line: line)
+        let highlights = content.children.filter {
+            $0.text == nil && !$0.isTextInputCaret && $0.backgroundColor != nil && $0.frame.size.height > 1
+        }
+        XCTAssertEqual(highlights.count, 1, file: file, line: line)
+        let highlight = try XCTUnwrap(highlights.first, file: file, line: line)
+        XCTAssertNil(fragment.backgroundColor, "Selection must not split and reshape the text", file: file, line: line)
+        XCTAssertFalse(highlight.isHidden, file: file, line: line)
+        let textFrame = try XCTUnwrap(runtime.resolvedLayoutFrame(of: fragment), file: file, line: line)
+        let highlightFrame = try XCTUnwrap(runtime.resolvedLayoutFrame(of: highlight), file: file, line: line)
+        XCTAssertEqual(
+            highlightFrame.minX, textFrame.minX + Double(range.lowerBound) * advance,
+            accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(highlightFrame.minY, textFrame.minY, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(highlightFrame.width, Double(range.count) * advance, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(highlightFrame.height, textFrame.height, accuracy: 0.001, file: file, line: line)
     }
 }
 
@@ -260,7 +295,7 @@ final class TextEditorReconciliationTests: XCTestCase {
 
             XCTAssertEqual(fixture.editor.textInputCaretOffset, 3)
             XCTAssertEqual(fixture.editor.textInputSelection?.indices, .range(1..<3))
-            XCTAssertTrue(editorNodes(in: fixture.editor).contains { $0.text == "bc" && $0.backgroundColor != nil })
+            try fixture.assertSingleLineSelection(1..<3, in: "abcdef", advance: Self.characterAdvance)
 
             fixture.type("Q")
             XCTAssertEqual(fixture.state.primary.text, "aQdef")
@@ -431,13 +466,17 @@ final class TextEditorReconciliationTests: XCTestCase {
             XCTAssertEqual(composingCaret.origin.x, plainCaret.origin.x + 2 * Self.characterAdvance, accuracy: 0.001)
             XCTAssertEqual(fixture.state.primary.text, "abcd")
             XCTAssertEqual(fixture.editor.textInputMarkedText, "ni")
-            XCTAssertEqual(fixture.markedTextSegments().map(\.text), ["ni"])
+            XCTAssertEqual(fixture.visibleTextFragments().map(\.text), ["abnicd"])
+            XCTAssertEqual(fixture.markedTextUnderlines().count, 1)
+            XCTAssertEqual(fixture.markedTextUnderlines().first?.frame.size.width, 2 * Self.characterAdvance)
 
             fixture.rebuildUnrelatedContent()
 
             XCTAssertTrue(fixture.runtime.focusedNode === fixture.editor)
             XCTAssertEqual(fixture.editor.textInputMarkedText, "ni")
-            XCTAssertEqual(fixture.markedTextSegments().map(\.text), ["ni"])
+            XCTAssertEqual(fixture.visibleTextFragments().map(\.text), ["abnicd"])
+            XCTAssertEqual(fixture.markedTextUnderlines().count, 1)
+            XCTAssertEqual(fixture.markedTextUnderlines().first?.frame.size.width, 2 * Self.characterAdvance)
             XCTAssertEqual(fixture.host.windowTextInputCaretRect(fixture.window), composingCaret)
             XCTAssertEqual(fixture.state.primary.textWrites, 0)
 
@@ -446,7 +485,7 @@ final class TextEditorReconciliationTests: XCTestCase {
             XCTAssertEqual(fixture.state.primary.text, "ab你cd")
             XCTAssertEqual(fixture.editor.textInputCaretOffset, 3)
             XCTAssertNil(fixture.editor.textInputMarkedText)
-            XCTAssertTrue(fixture.markedTextSegments().isEmpty)
+            XCTAssertTrue(fixture.markedTextUnderlines().isEmpty)
             let committedCaret = try XCTUnwrap(fixture.host.windowTextInputCaretRect(fixture.window))
             XCTAssertEqual(committedCaret.origin.x, plainCaret.origin.x + Self.characterAdvance, accuracy: 0.001)
             fixture.rebuildUnrelatedContent()
@@ -482,30 +521,29 @@ final class TextEditorReconciliationTests: XCTestCase {
             XCTAssertTrue(fixture.runtime.focusedNode === fixture.editor)
             XCTAssertEqual(fixture.editor.textInputCaretOffset, 4)
             XCTAssertEqual(fixture.editor.textInputSelection?.indices, .range(1..<4))
-            XCTAssertTrue(editorNodes(in: fixture.editor).contains { $0.text == "bcd" && $0.backgroundColor != nil })
+            try fixture.assertSingleLineSelection(1..<4, in: "abcdef", advance: Self.characterAdvance)
             fixture.type("X")
             XCTAssertEqual(fixture.state.primary.text, "aXef")
             XCTAssertEqual(fixture.editor.textInputCaretOffset, 2)
         }
     }
 
-    func testCaretRectangleTracksVisibleChromeInsteadOfTheHiddenSourceLabel() async throws {
+    func testCaretRectangleTracksTheWholeVisibleFragmentInsideItsViewport() async throws {
         try withFixture(text: "abcdef") { fixture in
             fixture.key(.home)
             fixture.rebuildUnrelatedContent()
-            let label = try XCTUnwrap(fixture.editor.children.first)
+            let viewport = try XCTUnwrap(fixture.editor.children.first)
+            let label = try XCTUnwrap(fixture.visibleTextFragments().first)
             let caret = try XCTUnwrap(fixture.visibleCaretNodes().first)
             let reported = try XCTUnwrap(fixture.host.windowTextInputCaretRect(fixture.window))
 
-            var origin = Point.zero
-            var current: ViewNode? = caret
-            while let node = current {
-                origin.x += node.resolvedFrame.origin.x
-                origin.y += node.resolvedFrame.origin.y
-                current = node.parent
-            }
-            XCTAssertTrue(label.isHidden)
-            XCTAssertEqual(label.resolvedFrame, .zero)
+            let origin = try XCTUnwrap(fixture.runtime.resolvedLayoutFrame(of: caret)).origin
+            XCTAssertEqual(fixture.editor.children.count, 1)
+            XCTAssertEqual(viewport.scrollAxis, .vertical)
+            XCTAssertTrue(viewport.clipsToBounds)
+            XCTAssertTrue(label.parent === viewport.children.first)
+            XCTAssertEqual(label.text, "abcdef", "Caret placement must not split and reshape the fragment")
+            XCTAssertFalse(label.isHidden)
             XCTAssertGreaterThan(origin.x, 0)
             XCTAssertGreaterThan(origin.y, 0)
             XCTAssertEqual(reported.origin.x, origin.x, accuracy: 0.001)

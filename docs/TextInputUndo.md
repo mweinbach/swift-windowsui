@@ -128,7 +128,9 @@ when changing the integration.
 
 This is a bounded editor history path, not a complete document workflow. Native
 typing-group behavior, full Foundation grouping/event notifications, platform
-Edit-menu validation, native IME/selection parity, vertical caret navigation,
-internal document scrolling, document dirty/save checkpoints, autosave, and
+Edit-menu validation, native IME/selection parity, full editor scrolling,
+document dirty/save checkpoints, autosave, and
 `DocumentGroup` hosting remain separate work. Same-source API compatibility
 does not establish those behaviors without a pinned native reference.
+The bounded visual-line navigation and editor-owned keyboard caret reveal are
+documented separately in [TextEditorNavigation.md](TextEditorNavigation.md).

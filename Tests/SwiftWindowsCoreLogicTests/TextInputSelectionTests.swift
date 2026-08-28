@@ -522,12 +522,36 @@ final class TextInputSelectionTests: XCTestCase {
 
             node.onKeyDown?(controlKey(0x41))
 
-            XCTAssertEqual(node.children.count, 2)
-            let container = node.children[1]
-            XCTAssertEqual(container.children.count, 2)
-            for row in container.children {
-                XCTAssertTrue(row.children.contains { $0.backgroundColor != nil })
+            XCTAssertEqual(node.children.count, 1)
+            guard let viewport = node.children.first else {
+                XCTFail("The multiline editor must retain its viewport")
+                return
             }
+            XCTAssertEqual(viewport.scrollAxis, .vertical)
+            XCTAssertTrue(viewport.clipsToBounds)
+            XCTAssertEqual(viewport.children.count, 1)
+            guard let content = viewport.children.first else {
+                XCTFail("The viewport must retain its text content")
+                return
+            }
+            let fragments = content.children.filter { $0.text?.isEmpty == false }
+            let highlights = content.children.filter { $0.text == nil && $0.backgroundColor != nil }
+            XCTAssertEqual(fragments.map(\.text), ["ab", "cd"])
+            XCTAssertEqual(highlights.count, 2)
+            XCTAssertEqual(node.textInputSelection?.indices, .range(0..<5))
+            for fragment in fragments {
+                XCTAssertFalse(fragment.isHidden)
+                XCTAssertNil(fragment.backgroundColor, "Selection must not split or reshape either line")
+                let highlight = highlights.first { abs($0.frame.minY - fragment.frame.minY) < 0.001 }
+                XCTAssertNotNil(highlight, "Each selected line must have its own background")
+                guard let highlight else { continue }
+                XCTAssertFalse(highlight.isHidden)
+                XCTAssertEqual(highlight.frame.minX, fragment.frame.minX, accuracy: 0.001)
+                XCTAssertGreaterThanOrEqual(highlight.frame.maxX + 0.001, fragment.frame.maxX)
+                XCTAssertEqual(highlight.frame.height, fragment.frame.height, accuracy: 0.001)
+                XCTAssertGreaterThan(highlight.frame.width, 0)
+            }
+            XCTAssertEqual(value, "ab\ncd", "Select-all must not alter the text binding")
         }
     }
 }

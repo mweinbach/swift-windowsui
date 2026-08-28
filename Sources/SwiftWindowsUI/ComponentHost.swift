@@ -1431,6 +1431,9 @@ public final class ComponentHost {
         }
         if target.imageAntialiased != source.imageAntialiased { target.imageAntialiased = source.imageAntialiased }
         if target.keyboardShortcuts != source.keyboardShortcuts { target.keyboardShortcuts = source.keyboardShortcuts }
+        if target.interceptsVerticalArrowKeys != source.interceptsVerticalArrowKeys {
+            target.interceptsVerticalArrowKeys = source.interceptsVerticalArrowKeys
+        }
         if target.textInputSubmitLabel != source.textInputSubmitLabel {
             target.textInputSubmitLabel = source.textInputSubmitLabel
         }

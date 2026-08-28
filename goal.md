@@ -3636,3 +3636,126 @@ event cleanup, and failure paths before any new framework configure authority.
 Missing identity or exit evidence remains a failure; cleanup never supplies
 passing evidence. No original acceptance criterion has changed, and all nine
 product gates remain open.
+
+### Sixth batch: shaped editor navigation, selection geometry, and owned reveal
+
+The retained editor now uses one package-internal editing-layout snapshot for
+displayed visual fragments, source ranges, legal caret stops, pointer placement,
+selection regions, keyboard movement, and native IME caret rectangles. Wrapping
+measures complete shaped fragments. Each fragment paints intact; selection
+backgrounds, composition underlines, and the caret overlay it without splitting
+and reshaping the text. UTF-16 native hit positions map to Swift Character
+boundaries, and visually discontinuous bidi selection pieces remain separate.
+The layout preserves spaces, tabs, graphemes, line-ending forms, and trailing
+empty lines without writing back to the model. Existing paste normalization is
+unchanged. Unsupported exact native caret geometry remains explicitly
+unavailable rather than receiving invented pixel-font positions.
+
+Up/Down and their Shift variants move between visual lines and preserve the
+preferred horizontal position across shorter lines. Soft-wrap affinity survives
+compatible rebuilds. Home/End operate on the current visual fragment, while
+Ctrl+Home/End operate on the document. Application shortcuts retain precedence;
+Ctrl+Up/Down are reserved without moving the editor or an enclosing scroll view.
+Paragraph navigation is not implemented. Active IME composition owns its
+candidate selection, so these navigation and pointer operations do not move the
+model insertion point during composition.
+
+The public editor keeps its retained identity, focus, bindings, and undo owner.
+An inset child viewport owns vertical scrolling. There is no hidden source label
+used for measurement, accessibility, or caret lookup. Minimal caret reveal
+checks the current controller, runtime attachment, focus, viewport ownership,
+and settled layout, and changes only that viewport. Unrelated rebuilds and color
+changes do not pull a manually scrolled editor back to an unchanged caret.
+Geometry invalidation is queued through a package helper with exact node and
+controller checks; it does not synchronously evaluate bindings or broaden a
+public invalidation API.
+
+Joined tests exposed two production corrections before this slice was committed.
+First, the multiline input needed explicit-frame fill on both axes: an editor
+framed to width 300 had continued to shape at its unframed ideal width 260.
+TextEditor and vertical TextField now honor that explicit frame while retaining
+their unframed ideal size, fixed-size behavior, and single-axis constraints.
+Ordinary single-line TextField and SecureField sizing remains separate. Second,
+reveal now normalizes an out-of-range logical scroll target even when the caret
+is already visible or oversized after content shrinks. With an active tween,
+normalization preserves the current presented offset rather than jumping to the
+old target's clamped endpoint. It cancels only the editor's obsolete motion;
+regrowth cannot revive it or alter an outer viewport's animation.
+
+Failures remain recorded as failures, with logs and source copies preserved
+before corrections:
+
+- The first editor run completed 98 distinct cases with seven failing cases and
+  69 assertion failures. The frame and reveal corrections address the observed
+  production behavior; that partial run was not a pass.
+- The next attempt failed compilation before any test ran because three new
+  frame-fixture API references were wrong. The fixture now supplies the required
+  ViewBuildContext invalidation closure and accesses the stack through
+  layoutMode. Its four test cases and assertions were retained.
+- The next run completed 102 distinct cases with two failing navigation cases.
+  Their binding-read hooks had fired during ordinary routing layout, before the
+  prepared navigation phase they intended to test. The fixtures now settle the
+  bounded pending renders before arming those hooks and explicitly witness the
+  intended geometry query. Existing destinations, read counts, callback bodies,
+  and rejection assertions remain; the already-correct production guard was not
+  replaced by a blanket rejection of legitimate fresh geometry.
+- A separate 18-case run had three failing cases: two legacy reconciliation
+  assertions still expected split selected-text labels, and a new clamp fixture
+  confused child height with the viewport's minimum content extent. The former
+  now verify intact text and separate highlight geometry; the latter separately
+  verifies child height 40 and viewport extent 80. Selection, animation, owner,
+  and regrowth assertions were not removed.
+- An earlier preservation run completed 42 passing cases before an old
+  multiline-selection fixture asserted the removed child hierarchy and then
+  indexed past it. This was a fixture crash, not a passing or completed run. Its
+  final method now guards the viewport/content hierarchy and verifies two intact
+  lines, separate visible selection backgrounds, full selection range, and the
+  unchanged binding. All other methods and bytes in that file remain unchanged.
+
+The fixture migrations test retained construction and geometry, not presented
+pixel colors. The new frame and clamp assertions are contract corrections, not
+changes to the original acceptance criteria. The staged-source verifier confirms
+402 preexisting test/resource paths unchanged relative to the batch base, with
+the earlier alert migration and three explicitly recorded editor fixture files
+as the only allowed existing-test changes.
+
+Final focused validation uses one unchanged joined tree,
+`0d8862faf23303a7f981011b3d8562de7dea3ea9`, over `4ed6011`:
+
+- The editor/accessibility run passes 417 distinct XCTest cases across 23
+  selected targets and 22 serial invocations. It includes all 94 new editor
+  cases, the reconciliation and text-geometry cases, and all 293 previously
+  passing accessibility, modal action, COM ownership, alert, focus, build
+  settlement, and close-finalization cases. Eight GeometryTests are also
+  selected by the existing shard planner. The run finishes at 2026-08-28
+  12:51:15 UTC; log SHA-256 is
+  `f58a2cad1b46b4d2aa6e0fb7672126693f7421bc9e69c5063fc2a4873b028698`.
+- The separate preservation run passes 169 distinct cases across 11 targets and
+  nine serial invocations, covering input construction and ownership, drag
+  selection, environment, IME composition, selection indices, undo sessions,
+  undo manager behavior, and Win32 text-input routing. It finishes at 12:42:30
+  UTC; log SHA-256 is
+  `371893556981304aab7b678a5bc51d7056d3e8cbff978342c04e1ab0f90cfb46`.
+
+Those final runs cover 586 distinct cases with no failures, skips, duplicate
+completed identifiers, timeouts, or source/index changes during execution.
+Their receipts and per-class summaries are under
+`artifacts/goal-sixth-editor-uia-joined-tests-v1*` and
+`artifacts/goal-sixth-editor-preservation-tests-v2*`. Strict lint passes for all
+16 changed Swift files, and contracts pass. An earlier successful editor run
+contained seven duplicate completion events from overlapping geometry filters;
+its 155 completion events must not be reported as 155 distinct cases.
+
+Geometry and runtime integration are split into coherent commits without
+changing the joined source bytes. The tests qualify that combined source, not
+an independently tested intermediate commit. `docs/TextEditorNavigation.md`,
+the compatibility table, and undo documentation describe the supported behavior
+and limitations.
+
+Wheel/drag scrolling qualification, drag autoscroll, Page Up/Down, paragraph
+navigation, complete UIA text/selection patterns, arbitrary ancestor transforms,
+large-document performance, native IME behavior, and pinned native editing
+parity remain open. No visual screenshot or native document workflow is
+qualified by these focused tests. Full, Quick, gallery, same-commit reference,
+hosted, and release validation are still required for this batch. This slice
+does not complete DocumentGroup or any of the nine original product gates.

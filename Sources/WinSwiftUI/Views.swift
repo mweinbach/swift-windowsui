@@ -13864,6 +13864,16 @@ extension ControlSize {
 /// synchronous rebuild can replace bindings and a removal can end the operation.
 @MainActor
 private final class TextInputInteractionController: RetainedTextInputController, TextInputUndoClient {
+    struct SelectionUpdate {
+        var anchor: Int
+        var extent: Int
+        var preparation: TextEditorSelectionPreparation? = nil
+        var affinity: RetainedTextSelectionAffinity? = nil
+        var pointerAnchor: Int? = nil
+        var preferredVisualX: Double? = nil
+        var resetsPreferredVisualX = false
+    }
+
     private(set) weak var node: ViewNode?
     private(set) var isAttached = false
     let characterCount: Int
@@ -13878,14 +13888,19 @@ private final class TextInputInteractionController: RetainedTextInputController,
     var undoSession: TextInputUndoSession?
     var isComposing = false
     var pointerDragAnchor = 0
+    var isSelectingWithPointer = false
     var readText: (() -> String)?
     var readSelection: (() -> TextSelection?)?
-    var applySelection: ((Int, Int) -> Void)?
+    var applySelection: ((SelectionUpdate) -> Bool)?
     var refreshChrome: (() -> Void)?
-    var textOffset: ((Point) -> Int?)?
+    var textPosition: ((Point) -> RetainedTextCaretPosition?)?
     var invalidate: (() -> Void)?
     var writeUndoText: ((String, TextInputUndoSelection) -> Void)?
     var restoreUndoSelection: ((TextInputUndoSelection) -> Void)?
+    var editorLayoutState: TextEditorLayoutState?
+    var preferredVisualX: Double?
+    var visualCaretAffinity: RetainedTextSelectionAffinity = .downstream
+    private var editorRevealQueued = false
 
     init(
         node: ViewNode, characterCount: Int, hasSelectionBinding: Bool,
@@ -13902,6 +13917,10 @@ private final class TextInputInteractionController: RetainedTextInputController,
         self.isEnabled = isEnabled
         undoRuntime = runtime
         configuredUndoManager = undoManager
+        if allowsNewlines {
+            editorLayoutState = TextEditorLayoutState()
+            visualCaretAffinity = node.textInputSelection?.affinity ?? node.textSelectionAffinity
+        }
     }
 
     var current: TextInputInteractionController? {
@@ -13919,6 +13938,7 @@ private final class TextInputInteractionController: RetainedTextInputController,
     func detach(from node: ViewNode) {
         if self.node === node {
             undoSession?.invalidate()
+            editorRevealQueued = false
             self.node = nil
             isAttached = false
         }
@@ -13939,7 +13959,9 @@ private final class TextInputInteractionController: RetainedTextInputController,
 
     var undoSelection: TextInputUndoSelection? {
         guard let node, let text = undoText else { return nil }
-        return TextInputUndoSelection(node: node, text: text)
+        var result = TextInputUndoSelection(node: node, text: text)
+        if allowsNewlines { result.affinity = visualCaretAffinity }
+        return result
     }
 
     var permitsUndoReplay: Bool {
@@ -13953,6 +13975,41 @@ private final class TextInputInteractionController: RetainedTextInputController,
     func refreshUndoConfiguration() { invalidate?() }
     func invalidateUndoDisplay() { current?.invalidate?() }
     func applyUndoText(_ text: String, selection: TextInputUndoSelection) { writeUndoText?(text, selection) }
+
+    func requestEditorCaretReveal() {
+        guard isEnabled, let state = editorLayoutState else { return }
+        state.needsCaretReveal = true
+        state.revealDeferrals = 0
+        queueEditorCaretReveal()
+    }
+
+    func queueEditorCaretReveal() {
+        guard !editorRevealQueued, current === self, isAttached, isEnabled,
+            let node, node.isFocused, let runtime = undoRuntime,
+            let state = editorLayoutState, state.needsCaretReveal, state.revealDeferrals < 2
+        else { return }
+        editorRevealQueued = true
+        runtime.scheduleAfterLayout(key: "text-editor-caret-\(ObjectIdentifier(node))") { [weak self, weak runtime] in
+            guard let self, let runtime else { return }
+            self.editorRevealQueued = false
+            guard self.current === self, self.isAttached, self.isEnabled,
+                let node = self.node, node.isFocused,
+                let state = self.editorLayoutState, state.needsCaretReveal,
+                let caretRect = state.caretRect,
+                let viewport = textEditorViewport(in: node)
+            else { return }
+            if runtime.revealTextInputRect(caretRect, in: viewport, ownedBy: node, controller: self) {
+                state.needsCaretReveal = false
+                state.revealDeferrals = 0
+            } else {
+                // A preceding after-layout callback may have changed the
+                // editor. One further settled pass can resolve that change;
+                // a permanently invalid owner never spins the frame loop.
+                state.revealDeferrals += 1
+                self.queueEditorCaretReveal()
+            }
+        }
+    }
 
     private func transferableUndoSession(from previous: TextInputInteractionController?) -> TextInputUndoSession? {
         guard !isSecure, readText != nil, let manager = configuredUndoManager,
@@ -13995,6 +14052,18 @@ private final class TextInputInteractionController: RetainedTextInputController,
         if preservesEditing {
             isComposing = previous?.isComposing ?? false
             pointerDragAnchor = min(max(0, previous?.pointerDragAnchor ?? 0), characterCount)
+            isSelectingWithPointer = previous?.isSelectingWithPointer ?? false
+            if let previousState = previous?.editorLayoutState, let state = editorLayoutState {
+                state.key = previousState.key
+                state.layout = previousState.layout
+                state.viewportWidth = previousState.viewportWidth
+                state.viewportHeight = previousState.viewportHeight
+                state.geometryGeneration = previousState.geometryGeneration
+                state.revealSignature = previousState.revealSignature
+                state.needsCaretReveal = previousState.needsCaretReveal
+                preferredVisualX = previous?.preferredVisualX
+                visualCaretAffinity = previous?.visualCaretAffinity ?? .downstream
+            }
         } else {
             node.textInputMarkedText = nil
         }
@@ -14017,6 +14086,8 @@ private final class TextInputInteractionController: RetainedTextInputController,
         } else {
             node.textInputCaretOffset = authoredCaret
             node.textInputSelection = authoredSelection
+            preferredVisualX = nil
+            visualCaretAffinity = authoredSelection?.affinity ?? .downstream
         }
     }
 }
@@ -14128,6 +14199,26 @@ private func textInputComponent(
             isHitTestVisible: context.isEnabled,
             children: [labelNode]
         )
+        if allowsNewlines {
+            // The focusable input remains the public retained identity. Its
+            // only child is a clipped viewport inside the fixed bezel.
+            // Typography belongs to the real content, not a hidden label.
+            let content = ViewNode(isHitTestVisible: false)
+            let viewport = Controls.scrollPanel(
+                axis: .vertical,
+                stackLayout: .vertical(spacing: 0, padding: .zero, alignment: .stretch),
+                scrollIndicatorAutoHides: true,
+                isHitTestVisible: false,
+                children: [content]
+            )
+            viewport.textStyle = labelNode.textStyle
+            viewport.layoutFillAxes = .both
+            node.removeAllChildren()
+            node.addChild(viewport)
+            node.explicitFrameFillAxes = .both
+            node.forwardsStackMainAxisProposal = true
+            node.interceptsVerticalArrowKeys = true
+        }
         node.textInputSubmitLabel = context.submitLabel.retainedSubmitLabel
         // Default accessibility metadata: the isTextInput trait maps to the
         // UIA edit control type, the placeholder/title is the field's name,
@@ -14171,7 +14262,7 @@ private func textInputComponent(
         node.isReplaceDisabled = context.isReplaceDisabled
         node.isFindNavigatorPresented = context.isFindNavigatorPresented
 
-        guard context.isEnabled else {
+        guard context.isEnabled || allowsNewlines else {
             return node
         }
 
@@ -14182,19 +14273,35 @@ private func textInputComponent(
         }
         controller.refreshChrome = { [weak controller] in
             guard let controller, let node = controller.node,
-                node.textInputController === controller, let labelNode = node.children.first
+                node.textInputController === controller
             else { return }
             let currentText = binding.wrappedValue
+            guard controller.current === controller, controller.node === node else { return }
             let isShowingPlaceholder = currentText.isEmpty
             let contentText =
                 isShowingPlaceholder
                 ? (resolvedPlaceholder ?? "")
                 : isSecure ? String(repeating: secureFieldMaskCharacter, count: currentText.count) : currentText
-            if labelNode.text != contentText { labelNode.text = contentText }
             let marked = node.textInputMarkedText.flatMap { text -> String? in
                 guard !text.isEmpty else { return nil }
                 return isSecure ? String(repeating: secureFieldMaskCharacter, count: text.count) : text
             }
+            if allowsNewlines {
+                guard let viewport = textEditorViewport(in: node) else { return }
+                updateTextEditorChrome(
+                    controller: controller,
+                    style: viewport.textStyle,
+                    text: contentText,
+                    markedText: marked,
+                    caretColor: textColor,
+                    selectionColor: context.tint.opacity(0.35),
+                    displayScale: controller.undoRuntime?.displayScale ?? 1,
+                    baselineOffset: Double(context.baselineOffset ?? 0)
+                )
+                return
+            }
+            guard let labelNode = node.children.first else { return }
+            if labelNode.text != contentText { labelNode.text = contentText }
             updateTextInputEditingChrome(
                 node: node,
                 labelNode: labelNode,
@@ -14212,6 +14319,24 @@ private func textInputComponent(
         // Rebuild caret/selection chrome after every layout pass so it tracks
         // focus, caret, and selection changes across runtime rebuilds.
         node.onLayout = { _ in refreshChrome() }
+        if let viewport = textEditorViewport(in: node) {
+            viewport.onLayout = { [weak controller] bounds in
+                guard let controller, controller.current === controller,
+                    let state = controller.editorLayoutState
+                else { return }
+                state.viewportWidth = bounds.size.width
+                state.viewportHeight = bounds.size.height
+                controller.refreshChrome?()
+            }
+            // Before attachment an authored callback still needs a faithful
+            // layout at the component's ideal width. A placed viewport replaces
+            // this proposal before its first retained paint.
+            controller.editorLayoutState?.viewportWidth = max(
+                0, preferredSize.width - style.padding.leading - style.padding.trailing)
+            controller.editorLayoutState?.viewportHeight = max(
+                0, preferredSize.height - style.padding.top - style.padding.bottom)
+            refreshChrome()
+        }
 
         // Caret rectangle in root coordinates for the OS IME candidate
         // window (ImmSetCompositionWindow via the window host). Follows the
@@ -14220,11 +14345,17 @@ private func textInputComponent(
         node.textInputCaretRectProvider = { [weak controller, weak runtime] in
             guard let controller, let node = controller.node,
                 node.textInputController === controller,
-                let contentOrigin = textInputContentOrigin(controller: controller, runtime: runtime),
-                let labelNode = node.children.first
+                let contentOrigin = textInputContentOrigin(controller: controller, runtime: runtime)
             else {
                 return nil
             }
+            if allowsNewlines {
+                guard let state = controller.editorLayoutState,
+                    let caretRect = state.caretRect
+                else { return nil }
+                return caretRect.offsetBy(dx: contentOrigin.x, dy: contentOrigin.y)
+            }
+            guard let labelNode = node.children.first else { return nil }
             let currentText = binding.wrappedValue
             let sourceText =
                 isSecure && !currentText.isEmpty
@@ -14270,6 +14401,8 @@ private func textInputComponent(
             return Rect(x: rootPoint.x, y: rootPoint.y, width: 0, height: rowHeight)
         }
 
+        guard context.isEnabled else { return node }
+
         node.isFocusable = true
         // The bezel and ring are the runtime's to resolve — see
         // `RetainedInteractionSurface`. Setting them from these closures meant
@@ -14295,13 +14428,17 @@ private func textInputComponent(
         node.onFocusExit = {
             guard controller.current === controller else { return }
             controller.isComposing = false
+            controller.preferredVisualX = nil
+            controller.isSelectingWithPointer = false
             controller.node?.textInputMarkedText = nil
             onEditingChanged?(false)
             refreshChrome()
         }
-        @MainActor func currentSelectionState() -> (caret: Int, range: Range<Int>?, anchor: Int) {
+        @MainActor func currentSelectionState(in sourceText: String? = nil) -> (
+            caret: Int, range: Range<Int>?, anchor: Int
+        ) {
             guard let node = controller.current?.node else { return (0, nil, 0) }
-            let text = binding.wrappedValue
+            let text = sourceText ?? binding.wrappedValue
             let caret = clampedTextOffset(node.textInputCaretOffset, in: text)
             guard let range = node.textInputSelection?.editableCharacterRange(in: text) else {
                 return (caret, nil, caret)
@@ -14310,13 +14447,54 @@ private func textInputComponent(
             return (caret, range, anchor)
         }
         @MainActor func applySelection(anchor: Int, extent: Int) {
-            controller.current?.applySelection?(anchor, extent)
+            _ = controller.current?.applySelection?(.init(anchor: anchor, extent: extent))
         }
-        controller.applySelection = { [weak controller] anchor, extent in
-            guard let controller, let node = controller.node, node.textInputController === controller else { return }
+        controller.applySelection = { [weak controller] update in
+            guard let controller, let node = controller.node, node.textInputController === controller else {
+                return false
+            }
+            let wasAttached = controller.isAttached
             let text = binding.wrappedValue
-            let clampedAnchor = clampedTextOffset(anchor, in: text)
-            let clampedExtent = clampedTextOffset(extent, in: text)
+            guard controller.current === controller, controller.node === node,
+                !wasAttached || controller.isAttached
+            else { return false }
+            if let preparation = update.preparation, !text.utf8.elementsEqual(preparation.text.utf8) {
+                // A getter can replace the source without replacing this
+                // controller. A destination from older geometry is not an
+                // instruction to select a different document's characters.
+                controller.undoRuntime?.invalidateTextInputLayout(for: node, controller: controller)
+                controller.invalidate?()
+                return false
+            }
+            if let preparation = update.preparation {
+                guard !controller.isComposing, node.textInputMarkedText == nil else { return false }
+                // A getter may change layout while leaving the controller
+                // and text intact. Settle that geometry, then validate the
+                // prepared destination before any selection write.
+                if controller.isAttached {
+                    guard textInputContentOrigin(controller: controller, runtime: controller.undoRuntime) != nil else {
+                        return false
+                    }
+                }
+                guard controller.current === controller, controller.node === node,
+                    !wasAttached || controller.isAttached,
+                    !controller.isComposing, node.textInputMarkedText == nil,
+                    controller.editorLayoutState?.geometryGeneration == preparation.geometryGeneration,
+                    controller.editorLayoutState?.key?.text.utf8.elementsEqual(preparation.text.utf8) == true
+                else { return false }
+            }
+            if let affinity = update.affinity { controller.visualCaretAffinity = affinity }
+            if update.resetsPreferredVisualX {
+                controller.preferredVisualX = nil
+            } else if let preferredVisualX = update.preferredVisualX {
+                controller.preferredVisualX = preferredVisualX
+            }
+            if let pointerAnchor = update.pointerAnchor {
+                controller.pointerDragAnchor = clampedTextOffset(pointerAnchor, in: text)
+                controller.isSelectingWithPointer = true
+            }
+            let clampedAnchor = clampedTextOffset(update.anchor, in: text)
+            let clampedExtent = clampedTextOffset(update.extent, in: text)
             let lower = min(clampedAnchor, clampedExtent)
             let upper = max(clampedAnchor, clampedExtent)
             node.textInputCaretOffset = clampedExtent
@@ -14325,7 +14503,9 @@ private func textInputComponent(
                     let nextSelection = TextSelection.insertion(
                         at: lower,
                         in: text,
-                        affinity: context.textSelectionAffinity
+                        affinity: allowsNewlines
+                            ? textEditorSelectionAffinity(controller.visualCaretAffinity)
+                            : context.textSelectionAffinity
                     )
                     node.textInputSelection = nextSelection.retainedSelection(in: text)
                     selection.wrappedValue = nextSelection
@@ -14348,10 +14528,14 @@ private func textInputComponent(
                 }
             }
             controller.current?.refreshChrome?()
+            return true
         }
         controller.restoreUndoSelection = { [weak controller] snapshot in
             guard let controller, let node = controller.node, controller.current === controller else { return }
             let text = binding.wrappedValue
+            guard controller.current === controller, controller.node === node else { return }
+            controller.preferredVisualX = nil
+            controller.visualCaretAffinity = snapshot.affinity
             node.textInputCaretOffset = min(max(0, snapshot.caret), text.count)
             node.textInputSelection = snapshot.selection
             node.textSelectionAffinity = snapshot.affinity
@@ -14373,9 +14557,11 @@ private func textInputComponent(
             else { return }
             let updatedText = originalText.replacingText(in: range, with: inserted)
             let session = controller.undoSession
+            var beforeSelection = TextInputUndoSelection(node: node, text: originalText)
+            if allowsNewlines { beforeSelection.affinity = controller.visualCaretAffinity }
             let mutation = session?.beginEdit(
                 before: originalText, expected: updatedText,
-                selection: TextInputUndoSelection(node: node, text: originalText))
+                selection: beforeSelection)
             defer { session?.cancelEdit(mutation) }
             let generation = session?.generation
             // Stale-history cleanup can close or rebuild the editor before
@@ -14404,13 +14590,15 @@ private func textInputComponent(
             // a callback may instead remove it or install another document.
             node.textInputCaretOffset = caret
             node.textInputSelection = nil
+            controller.preferredVisualX = nil
+            controller.visualCaretAffinity = .downstream
             binding.wrappedValue = updatedText
             guard let current = controller.current, current.node === node else { return }
             // An explicit selection changed by the setter belongs to newer
             // application state, even when it kept the text we just wrote.
             let selectionWasReplaced = current.hasSelectionBinding && current.readSelection?() != previousSelection
             if current.readText?() == updatedText, !selectionWasReplaced {
-                current.applySelection?(caret, caret)
+                _ = current.applySelection?(.init(anchor: caret, extent: caret))
             }
             if let latest = controller.current, latest.undoSession === session, let text = latest.undoText,
                 let selection = latest.undoSelection
@@ -14436,6 +14624,8 @@ private func textInputComponent(
             node.textInputCaretOffset = snapshot.caret
             node.textInputSelection = snapshot.selection
             node.textSelectionAffinity = snapshot.affinity
+            controller.preferredVisualX = nil
+            controller.visualCaretAffinity = snapshot.affinity
             binding.wrappedValue = text
             guard session.isValid, session.generation == generation,
                 let current = controller.current, current.undoSession === session,
@@ -14491,6 +14681,82 @@ private func textInputComponent(
                 return
             }
 
+            if allowsNewlines,
+                event.key == .upArrow || event.key == .downArrow || event.key == .home || event.key == .end,
+                event.modifiers == [] || event.modifiers == [.shift]
+                    || event.modifiers == [.control] || event.modifiers == [.control, .shift]
+            {
+                // Composition owns its candidate-navigation keys. Never turn
+                // an Up/Down passed through by an IME into a document edit.
+                guard !controller.isComposing, node.textInputMarkedText == nil else { return }
+                let vertical = event.key == .upArrow || event.key == .downArrow
+                // Paragraph navigation is outside this bounded editor path.
+                // Reserve Ctrl+Up/Down rather than moving an enclosing scroller.
+                if vertical, event.modifiers.contains(.control) { return }
+                refreshChrome()
+                guard controller.current === controller else { return }
+                if controller.isAttached {
+                    guard textInputContentOrigin(controller: controller, runtime: controller.undoRuntime) != nil,
+                        controller.current === controller
+                    else { return }
+                }
+                guard controller.current === controller,
+                    !controller.isComposing, node.textInputMarkedText == nil,
+                    let layout = controller.editorLayoutState?.layout,
+                    let sourceText = controller.editorLayoutState?.key?.text,
+                    let preparation = controller.editorLayoutState?.selectionPreparation,
+                    layout.hasCompleteCaretGeometry
+                else { return }
+                // The final snapshot and selection are read after all layout
+                // callbacks. No application getter sits between choosing the
+                // visual line and computing its destination.
+                let state = currentSelectionState(in: sourceText)
+                guard controller.current === controller,
+                    let caret = layout.caret(
+                        at: RetainedTextCaretPosition(
+                            characterOffset: state.caret, affinity: controller.visualCaretAffinity))
+                else { return }
+                let destination: RetainedTextCaretPosition
+                var preferredVisualX: Double?
+                if vertical {
+                    let preferredX = controller.preferredVisualX ?? caret.rect.minX
+                    preferredVisualX = preferredX
+                    let line = caret.lineIndex + (event.key == .upArrow ? -1 : 1)
+                    guard layout.lines.indices.contains(line),
+                        let target = layout.caret(onLine: line, nearestX: preferredX)
+                    else {
+                        controller.requestEditorCaretReveal()
+                        return
+                    }
+                    destination = target.position
+                } else {
+                    if event.modifiers.contains(.control) {
+                        destination = RetainedTextCaretPosition(
+                            characterOffset: event.key == .home ? 0 : layout.characterCount,
+                            affinity: event.key == .home ? .downstream : .upstream)
+                    } else {
+                        let line = layout.lines[caret.lineIndex]
+                        destination = RetainedTextCaretPosition(
+                            characterOffset: event.key == .home
+                                ? line.sourceRange.lowerBound : line.sourceRange.upperBound,
+                            affinity: event.key == .home ? .downstream : .upstream)
+                    }
+                }
+                guard
+                    controller.applySelection?(
+                        .init(
+                            anchor: event.modifiers.contains(.shift) ? state.anchor : destination.characterOffset,
+                            extent: destination.characterOffset,
+                            preparation: preparation,
+                            affinity: destination.affinity,
+                            preferredVisualX: preferredVisualX,
+                            resetsPreferredVisualX: !vertical)) == true
+                else { return }
+                controller.current?.requestEditorCaretReveal()
+                invalidate()
+                return
+            }
+
             // Word navigation has to run before the Ctrl+clipboard dispatch:
             // arrows are not clipboard shortcuts, and the old switch's
             // default swallowed Ctrl+Left/Right altogether. Character-based
@@ -14498,6 +14764,8 @@ private func textInputComponent(
             if event.modifiers.contains(.control),
                 event.key == .leftArrow || event.key == .rightArrow
             {
+                controller.preferredVisualX = nil
+                controller.visualCaretAffinity = event.key == .leftArrow ? .upstream : .downstream
                 let state = currentSelectionState()
                 let destination = textInputWordBoundary(
                     in: binding.wrappedValue,
@@ -14517,6 +14785,8 @@ private func textInputComponent(
                 let clipboard = context.textInputClipboard ?? TextInputClipboardProvider.current
                 switch event.keyCode {
                 case 0x41:  // Ctrl+A — select all
+                    controller.preferredVisualX = nil
+                    controller.visualCaretAffinity = .upstream
                     let count = binding.wrappedValue.count
                     guard count > 0 else {
                         return
@@ -14589,6 +14859,8 @@ private func textInputComponent(
 
             switch event.key {
             case .leftArrow:
+                controller.preferredVisualX = nil
+                controller.visualCaretAffinity = .upstream
                 let state = currentSelectionState()
                 if event.modifiers.contains(.shift) {
                     applySelection(anchor: state.anchor, extent: state.caret - 1)
@@ -14601,6 +14873,8 @@ private func textInputComponent(
                 }
                 return
             case .rightArrow:
+                controller.preferredVisualX = nil
+                controller.visualCaretAffinity = .downstream
                 let state = currentSelectionState()
                 if event.modifiers.contains(.shift) {
                     applySelection(anchor: state.anchor, extent: state.caret + 1)
@@ -14704,13 +14978,28 @@ private func textInputComponent(
         // Pointer-down places the caret at the hit offset; dragging extends
         // the selection from the down anchor. Request focus here as well as
         // in runtime routing so direct callback callers use the same path.
-        controller.textOffset = { [weak controller, weak runtime] point in
+        controller.textPosition = { [weak controller, weak runtime] point in
             guard let controller, let node = controller.node,
-                node.textInputController === controller,
-                let contentOrigin = textInputContentOrigin(controller: controller, runtime: runtime),
+                node.textInputController === controller
+            else { return nil }
+            if allowsNewlines {
+                // A composition has its own candidate selection; clicking
+                // through it must not remap a display offset into the model.
+                guard !controller.isComposing, node.textInputMarkedText == nil else { return nil }
+                controller.refreshChrome?()
+                guard controller.current === controller,
+                    let contentOrigin = textInputContentOrigin(controller: controller, runtime: runtime),
+                    controller.current === controller,
+                    let state = controller.editorLayoutState,
+                    let hit = state.layout?.hitTest(
+                        Point(x: point.x - contentOrigin.x, y: point.y - contentOrigin.y - state.contentTranslationY))
+                else { return nil }
+                return hit.position
+            }
+            guard let contentOrigin = textInputContentOrigin(controller: controller, runtime: runtime),
                 let labelNode = node.children.first
             else { return nil }
-            return textInputOffset(
+            let offset = textInputOffset(
                 atRootPoint: point,
                 contentOrigin: contentOrigin,
                 labelNode: labelNode,
@@ -14719,24 +15008,255 @@ private func textInputComponent(
                 allowsNewlines: allowsNewlines,
                 displayScale: runtime?.displayScale ?? 1
             )
+            return RetainedTextCaretPosition(characterOffset: offset)
         }
         node.onDragStart = { [weak runtime] point in
             guard controller.current === controller, let node = controller.node, let runtime else { return }
+            controller.isSelectingWithPointer = false
             runtime.requestFocus(node)
-            guard let current = controller.current, current.node === node,
-                let offset = current.textOffset?(point)
+            guard let current = controller.current, current.node === node, node.isFocused,
+                let position = current.textPosition?(point)
             else { return }
-            current.pointerDragAnchor = offset
-            current.applySelection?(offset, offset)
+            _ = current.applySelection?(
+                .init(
+                    anchor: position.characterOffset, extent: position.characterOffset,
+                    preparation: current.editorLayoutState?.selectionPreparation,
+                    affinity: position.affinity, pointerAnchor: position.characterOffset,
+                    resetsPreferredVisualX: true))
         }
         node.onDragChange = { point, _ in
-            guard let current = controller.current, let offset = current.textOffset?(point) else { return }
-            current.applySelection?(current.pointerDragAnchor, offset)
+            guard let current = controller.current, current.isSelectingWithPointer,
+                current.node?.isFocused == true, let position = current.textPosition?(point)
+            else { return }
+            _ = current.applySelection?(
+                .init(
+                    anchor: current.pointerDragAnchor, extent: position.characterOffset,
+                    preparation: current.editorLayoutState?.selectionPreparation,
+                    affinity: position.affinity,
+                    resetsPreferredVisualX: true))
         }
+        node.onDragEnd = { _, _ in controller.current?.isSelectingWithPointer = false }
 
         return node
     }
 }
+/// Geometry belongs to the displayed text and accepted viewport width. This
+/// cache contains no bindings, runtime, or authored child-node ownership.
+private struct TextEditorSelectionPreparation {
+    var text: String
+    var geometryGeneration: UInt64
+}
+
+@MainActor
+private final class TextEditorLayoutState {
+    struct Key: Equatable {
+        var text: String
+        var style: PixelTextStyle
+        var width: Double
+        var displayScale: Double
+
+        static func == (lhs: Key, rhs: Key) -> Bool {
+            lhs.text.utf8.elementsEqual(rhs.text.utf8) && lhs.style == rhs.style
+                && lhs.width == rhs.width && lhs.displayScale == rhs.displayScale
+        }
+    }
+
+    struct Signature: Equatable {
+        var key: Key
+        var caret: RetainedTextCaretPosition
+        var selection: Range<Int>?
+        var markedRange: Range<Int>?
+        var isFocused: Bool
+        var caretColor: Color
+        var selectionColor: Color
+        var contentTranslationY: Double
+        var viewportHeight: Double
+    }
+
+    var key: Key?
+    var layout: RetainedTextEditingLayout?
+    var viewportWidth: Double = 0
+    var viewportHeight: Double = 0
+    var displayCaret = RetainedTextCaretPosition(characterOffset: 0)
+    var contentTranslationY: Double = 0
+    var renderSignature: Signature?
+    var revealSignature: Signature?
+    weak var renderedContent: ViewNode?
+    var needsCaretReveal = false
+    var revealDeferrals = 0
+    var geometryGeneration: UInt64 = 0
+
+    var selectionPreparation: TextEditorSelectionPreparation? {
+        guard let key, layout?.hasCompleteCaretGeometry == true else { return nil }
+        return TextEditorSelectionPreparation(text: key.text, geometryGeneration: geometryGeneration)
+    }
+
+    var caretRect: Rect? {
+        guard let caret = layout?.caret(at: displayCaret) else { return nil }
+        return translated(caret.rect)
+    }
+
+    func translated(_ rect: Rect) -> Rect { rect.offsetBy(dx: 0, dy: contentTranslationY) }
+}
+
+@MainActor
+private func textEditorViewport(in node: ViewNode) -> ViewNode? {
+    guard (node.textInputController as? TextInputInteractionController)?.allowsNewlines == true else { return nil }
+    return node.children.first(where: { $0.scrollAxis == .vertical })
+}
+
+private func textEditorSelectionAffinity(_ affinity: RetainedTextSelectionAffinity) -> TextSelectionAffinity {
+    switch affinity {
+    case .automatic: .automatic
+    case .upstream: .upstream
+    case .downstream: .downstream
+    }
+}
+
+@MainActor
+private func updateTextEditorChrome(
+    controller: TextInputInteractionController,
+    style: PixelTextStyle,
+    text: String,
+    markedText: String?,
+    caretColor: Color,
+    selectionColor: Color,
+    displayScale: Double,
+    baselineOffset: Double
+) {
+    guard controller.current === controller, let node = controller.node,
+        let state = controller.editorLayoutState, let viewport = textEditorViewport(in: node),
+        let content = viewport.children.first
+    else { return }
+    let baseCaret = clampedTextOffset(node.textInputCaretOffset, in: text)
+    let display = textInputCompositionDisplayState(
+        contentText: text,
+        caret: baseCaret,
+        selection: node.textInputSelection?.editableCharacterRange(in: text),
+        markedText: markedText
+    )
+    let viewportWidth =
+        !controller.isAttached && viewport.frame.size.width > 0
+        ? viewport.frame.size.width : state.viewportWidth
+    // Leave room for the insertion indicator at an exactly filled line end.
+    // It is an overlay and must not alter the shaped fragment's advances.
+    let width = max(0, viewportWidth - 1.5)
+    let key = TextEditorLayoutState.Key(text: display.text, style: style, width: width, displayScale: displayScale)
+    var geometryChanged = false
+    if state.key != key {
+        // A new width, font, scale, or source invalidates a preferred X taken
+        // from the old shaping. Paint-only style changes do not.
+        let oldLayout = state.layout
+        let sourceChanged = state.key.map { !$0.text.utf8.elementsEqual(key.text.utf8) } ?? true
+        state.key = key
+        state.layout = RetainedTextMetrics.editingLayout(
+            of: display.text, style: style, contentWidth: width, displayScale: displayScale)
+        geometryChanged = oldLayout != state.layout || sourceChanged
+        if geometryChanged { controller.preferredVisualX = nil }
+    }
+    state.displayCaret = RetainedTextCaretPosition(
+        characterOffset: display.caret,
+        affinity: display.markedRange == nil ? controller.visualCaretAffinity : .downstream
+    )
+    let signature = TextEditorLayoutState.Signature(
+        key: key,
+        caret: state.displayCaret,
+        selection: display.selection,
+        markedRange: display.markedRange,
+        isFocused: node.isFocused,
+        caretColor: caretColor,
+        selectionColor: selectionColor,
+        contentTranslationY: baselineOffset.isFinite ? -baselineOffset : 0,
+        viewportHeight: !controller.isAttached && viewport.frame.size.height > 0
+            ? viewport.frame.size.height : state.viewportHeight
+    )
+    state.contentTranslationY = signature.contentTranslationY
+    let previousReveal = state.revealSignature
+    if geometryChanged || previousReveal?.viewportHeight != signature.viewportHeight
+        || previousReveal?.contentTranslationY != signature.contentTranslationY
+    {
+        state.geometryGeneration &+= 1
+    }
+    let needsReveal =
+        geometryChanged || previousReveal?.caret != signature.caret
+        || previousReveal?.selection != signature.selection || previousReveal?.markedRange != signature.markedRange
+        || previousReveal?.isFocused != signature.isFocused
+        || previousReveal?.contentTranslationY != signature.contentTranslationY
+        || previousReveal?.viewportHeight != signature.viewportHeight
+    state.revealSignature = signature
+    if needsReveal {
+        if node.isFocused, state.layout?.hasCompleteCaretGeometry == true {
+            controller.requestEditorCaretReveal()
+        } else {
+            state.needsCaretReveal = false
+            state.revealDeferrals = 0
+        }
+    } else if state.needsCaretReveal {
+        controller.queueEditorCaretReveal()
+    }
+    guard state.renderSignature != signature || state.renderedContent !== content else { return }
+    state.renderSignature = signature
+    state.renderedContent = content
+    guard let layout = state.layout else {
+        if !content.children.isEmpty { content.removeAllChildren() }
+        if content.preferredSize != .zero { content.preferredSize = .zero }
+        return
+    }
+
+    var children: [ViewNode] = []
+    if let selection = display.selection {
+        for rect in layout.selectionRects(for: selection) {
+            children.append(
+                ViewNode(frame: state.translated(rect), backgroundColor: selectionColor, isHitTestVisible: false))
+        }
+    }
+    for line in layout.lines where !line.text.isEmpty {
+        var lineStyle = style
+        lineStyle.alignment = .leading
+        lineStyle.verticalAlignment = .top
+        lineStyle.insets = .zero
+        lineStyle.lineBreakMode = .clip
+        lineStyle.maximumNumberOfLines = 1
+        lineStyle.minimumNumberOfLines = nil
+        lineStyle.reservesLineLimitSpace = false
+        // The entire visual fragment shapes once. Caret, highlights, and
+        // composition decorations never divide it into separate text runs.
+        children.append(
+            ViewNode(frame: state.translated(line.rect), text: line.text, textStyle: lineStyle, isHitTestVisible: false)
+        )
+    }
+    if let markedRange = display.markedRange {
+        let thickness = 1 / max(1, displayScale)
+        for rect in layout.selectionRects(for: markedRange) where rect.size.width > 0 {
+            children.append(
+                ViewNode(
+                    frame: state.translated(
+                        Rect(x: rect.minX, y: rect.maxY - thickness, width: rect.size.width, height: thickness)),
+                    backgroundColor: caretColor,
+                    isHitTestVisible: false
+                ))
+        }
+    }
+    if node.isFocused, display.selection == nil,
+        let caret = layout.caret(at: state.displayCaret)
+    {
+        let caretNode = ViewNode(
+            frame: state.translated(
+                Rect(x: caret.rect.minX, y: caret.rect.minY, width: 1.5, height: caret.rect.size.height)),
+            backgroundColor: caretColor,
+            isHitTestVisible: false
+        )
+        caretNode.isTextInputCaret = true
+        children.append(caretNode)
+    }
+    let contentSize = Size(
+        width: max(0, viewportWidth), height: max(0, layout.contentSize.height + max(0, state.contentTranslationY)))
+    if content.preferredSize != contentSize { content.preferredSize = contentSize }
+    content.absoluteChildFrame = { child, _ in child.frame }
+    content.removeAllChildren()
+    for child in children { content.addChild(child) }
+}
+
 /// Mutable bookkeeping for `updateTextInputEditingChrome` so repeated layout
 /// passes only rebuild caret/selection overlay children when the editing
 /// state actually changed (guards against layout/invalidate feedback loops).
@@ -15021,9 +15541,7 @@ private func textInputContentOrigin(
     controller: TextInputInteractionController,
     runtime: RetainedViewRuntime?
 ) -> Point? {
-    guard controller.current === controller, let node = controller.node,
-        let labelNode = node.children.first
-    else { return nil }
+    guard controller.current === controller, let node = controller.node else { return nil }
     if controller.isAttached {
         guard let runtime else { return nil }
         // Resolving pending layout can replace an unfocused source label
@@ -15031,10 +15549,12 @@ private func textInputContentOrigin(
         // layout to chase changes made by application callbacks.
         for _ in 0..<2 {
             guard controller.current === controller,
-                let contentNode = node.children.first(where: { !$0.isHidden })
+                let container = controller.allowsNewlines ? textEditorViewport(in: node) : node,
+                let contentNode = container.children.first(where: { !$0.isHidden })
             else { return nil }
             if let frame = runtime.resolvedLayoutFrame(of: contentNode),
-                controller.current === controller, contentNode.parent === node, !contentNode.isHidden
+                controller.current === controller, contentNode.parent === container, !contentNode.isHidden,
+                container === node || container.parent === node
             {
                 return frame.origin
             }
@@ -15045,8 +15565,12 @@ private func textInputContentOrigin(
     // Component.makeNode does not attach the returned node. Callers using
     // those callbacks before attachment supply authored geometry and own
     // the runtime for the duration of the interaction.
+    guard
+        let contentNode = controller.allowsNewlines
+            ? textEditorViewport(in: node)?.children.first : node.children.first
+    else { return nil }
     var chain: [ViewNode] = []
-    var current: ViewNode? = labelNode
+    var current: ViewNode? = contentNode
     while let ancestor = current {
         chain.append(ancestor)
         current = ancestor.parent

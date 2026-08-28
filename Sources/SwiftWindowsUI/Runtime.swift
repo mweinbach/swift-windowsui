@@ -3381,6 +3381,7 @@ public final class ViewNode {
     /// When true, unmodified up/down arrow keys are delivered to this node's
     /// `onKeyDown` before the runtime's scroll-key handling, so a focused node
     /// (e.g. a selectable list row) can claim vertical arrows for navigation.
+    /// Text inputs also claim Up/Down/Home/End with Shift and/or Control.
     public var interceptsVerticalArrowKeys = false
     public var onKeyUp: ((KeyboardEvent) -> Void)? {
         get { interactionHandlers?.keyUp }
@@ -9289,6 +9290,7 @@ public final class RetainedViewRuntime {
     private var presentationFocusEntryReaffirmation: UInt64?
     private var isWaitingForPresentationBuildSettlement = false
     private let presentationBuildSettlementOwner = NSObject()
+    private var afterLayoutGeometryInvalidations: [WeakViewNodeRef] = []
     private var scrollObserverRegistry: RetainedScrollObserverRegistry?
     private struct PendingPreciseScrollAlignment {
         weak var target: ViewNode?
@@ -10688,6 +10690,20 @@ public final class RetainedViewRuntime {
             break
         }
 
+        // A multiline editor owns its caret movement even when an enclosing
+        // scroll view can consume the same key. Explicit application shortcuts
+        // have already run; other controls retain their unmodified-arrow rule.
+        if let focusedNode,
+            focusedNode.interceptsVerticalArrowKeys,
+            focusedNode.accessibilityTraits.contains(.isTextInput),
+            event.modifiers.isSubset(of: [.shift, .control]),
+            let key = event.key,
+            key == .upArrow || key == .downArrow || key == .home || key == .end
+        {
+            focusedNode.onKeyDown?(event)
+            return
+        }
+
         if let key = event.key,
             key == .upArrow || key == .downArrow,
             event.modifiers.isEmpty,
@@ -11364,6 +11380,125 @@ public final class RetainedViewRuntime {
         }
     }
 
+    /// Reveals a caret in the explicitly owned text viewport without searching
+    /// for or moving an enclosing application scroll view. The rectangle uses
+    /// unscrolled viewport-content coordinates; a zero-width caret is valid.
+    /// Call after layout, using the current controller's visual text layout.
+    /// False leaves a premature or stale request for its owner to reconsider;
+    /// true includes an already-visible caret and a request clamped at an edge.
+    @discardableResult
+    package func revealTextInputRect(
+        _ rect: Rect,
+        in viewport: ViewNode,
+        ownedBy editor: ViewNode,
+        controller: any RetainedTextInputController
+    ) -> Bool {
+        guard focusedNode === editor, editor.textInputController === controller,
+            editor.accessibilityTraits.contains(.isTextInput),
+            editor.runtime === self, viewport.runtime === self, viewport.parent === editor,
+            viewport.scrollAxis == .vertical, viewport.clipsToBounds,
+            layoutPassID != 0, !isLayoutInProgress,
+            isDrainingAfterLayoutActions || !hasPendingLayout,
+            editor.cachedLayoutKey?.displayScale == displayScale, editor.pendingLayoutKey == nil,
+            viewport.cachedLayoutKey?.displayScale == displayScale, viewport.pendingLayoutKey == nil,
+            displayScale.isFinite,
+            rect.origin.x.isFinite, rect.origin.y.isFinite,
+            rect.size.width.isFinite, rect.size.width >= 0,
+            rect.size.height.isFinite, rect.size.height > 0, rect.maxX.isFinite, rect.maxY.isFinite,
+            viewport.resolvedFrame.origin.x.isFinite, viewport.resolvedFrame.origin.y.isFinite,
+            viewport.resolvedFrame.size.width.isFinite, viewport.resolvedFrame.size.width > 0,
+            viewport.resolvedFrame.size.height.isFinite, viewport.resolvedFrame.size.height > 0,
+            viewport.resolvedContentSize.width.isFinite,
+            viewport.resolvedContentSize.height.isFinite, viewport.resolvedContentSize.height >= 0
+        else { return false }
+
+        var ancestor: ViewNode? = viewport
+        var reachedRoot = false
+        var depth = 0
+        while let node = ancestor, depth < ViewNode.maximumTraversalDepth {
+            guard node.runtime === self, !node.isHidden, !node.isRemovalOverlay,
+                !node.isLayoutDeferredByVirtualization
+            else { return false }
+            if node === root {
+                reachedRoot = true
+                break
+            }
+            ancestor = node.parent
+            depth += 1
+        }
+        guard reachedRoot,
+            activeModalPresentationNode.map({ Self.isInteractionTarget(editor, within: $0) }) ?? true
+        else { return false }
+
+        // Geometry queries also drain these callbacks before painting, while
+        // hasPendingLayout still includes the layout that just completed.
+        // Accept that settled geometry, but not a mutation made by an earlier
+        // callback to this editor's content, viewport, or enclosing placement.
+        if isDrainingAfterLayoutActions {
+            for reference in afterLayoutGeometryInvalidations {
+                guard let node = reference.node else { continue }
+                if Self.isInteractionTarget(node, within: editor)
+                    || Self.isInteractionTarget(editor, within: node)
+                {
+                    return false
+                }
+                // A sibling can change the proposal assigned by a shared
+                // stack/flex layout. Independent absolute branches do not
+                // reflow each other unless their parent has custom placement.
+                var placementAncestor = node.parent
+                var placementDepth = 0
+                while let ancestor = placementAncestor, placementDepth < ViewNode.maximumTraversalDepth {
+                    if Self.isInteractionTarget(editor, within: ancestor) {
+                        switch ancestor.layoutMode {
+                        case .absolute:
+                            if ancestor.absoluteChildFrame != nil { return false }
+                        case .stack, .lazyStack, .flex:
+                            return false
+                        }
+                    }
+                    placementAncestor = ancestor.parent
+                    placementDepth += 1
+                }
+            }
+        }
+
+        let visibleOffset = viewport.effectiveScrollOffset
+        let clampedLogicalOffset = viewport.clampedScrollOffset(for: viewport.scrollOffset)
+        let needsLogicalClamp = clampedLogicalOffset != viewport.scrollOffset
+        let viewportHeight = viewport.resolvedFrame.size.height
+        let visibleEnd = visibleOffset + viewportHeight
+        guard visibleEnd.isFinite else { return false }
+        // A line taller than a short viewport cannot fit completely. Once it
+        // fills the viewport, keep that position instead of alternating its
+        // leading and trailing edges on repeated reveal requests.
+        let requestedOffset: Double
+        if rect.minY <= visibleOffset, rect.maxY >= visibleEnd {
+            guard needsLogicalClamp else { return true }
+            requestedOffset = visibleOffset
+        } else if rect.minY < visibleOffset {
+            requestedOffset = rect.minY
+        } else if rect.maxY > visibleEnd {
+            requestedOffset = rect.maxY - viewportHeight
+        } else {
+            // Shorter content can make the caret visible through clamping
+            // while an obsolete logical offset remains stored. Normalize it
+            // so growing the document cannot revive that old scroll request.
+            guard needsLogicalClamp else { return true }
+            requestedOffset = visibleOffset
+        }
+        let nextOffset = viewport.clampedScrollOffset(for: requestedOffset)
+        guard nextOffset != visibleOffset || needsLogicalClamp else { return true }
+
+        // A visible caret with an in-range logical target leaves motion alone.
+        // Movement or clamping interrupts only this viewport; neither an outer
+        // scroll tween nor an unrelated pointer gesture belongs to it.
+        cancelScrollMomentum(for: viewport)
+        cancelScrollPresentedTween(for: viewport)
+        _ = viewport.setScrollOffset(nextOffset)
+        recordScrollPhase(scrollPhase(of: viewport), for: viewport)
+        return true
+    }
+
     /// Moves the nearest retained scroll container until `descendant` is
     /// visible. Explicit anchor coordinates align the same fractional point
     /// on the target and viewport; without one, only the smallest movement
@@ -11527,6 +11662,17 @@ public final class RetainedViewRuntime {
         if Self.isInteractionTarget(focusedNode, within: subtree) {
             updateFocusTarget(to: nil)
         }
+    }
+
+    /// A changed text source invalidates a prepared selection. Queue the
+    /// owning editor's next layout without reading bindings or invoking layout
+    /// callbacks while that selection is being rejected.
+    package func invalidateTextInputLayout(for node: ViewNode, controller: any RetainedTextInputController) {
+        guard permitsRenderLifecycleCallbacks, node.runtime === self,
+            node.textInputController === controller
+        else { return }
+        node.markDirty(.layout)
+        invalidate(.layout, from: node)
     }
 
     /// Tests the current retained input scope without exposing facade-specific
@@ -12599,6 +12745,9 @@ public final class RetainedViewRuntime {
 
     fileprivate func invalidate(_ flags: DirtyFlags, from node: ViewNode) {
         recordLayoutSettlementInvalidation(flags)
+        if isDrainingAfterLayoutActions, !flags.intersection([.layout, .children]).isEmpty {
+            afterLayoutGeometryInvalidations.append(WeakViewNodeRef(node: node))
+        }
         invalidateRenderLifecycleCandidates()
         guard isRendering else {
             dirtyFlags.insert(flags)
@@ -13296,7 +13445,11 @@ public final class RetainedViewRuntime {
         let actions = pendingAfterLayoutActions
         pendingAfterLayoutActionKeys.removeAll(keepingCapacity: true)
         pendingAfterLayoutActions.removeAll(keepingCapacity: true)
-        defer { isDrainingAfterLayoutActions = false }
+        afterLayoutGeometryInvalidations.removeAll(keepingCapacity: true)
+        defer {
+            isDrainingAfterLayoutActions = false
+            afterLayoutGeometryInvalidations.removeAll(keepingCapacity: true)
+        }
 
         for key in keys {
             guard let action = actions[key] else {

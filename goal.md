@@ -3449,3 +3449,68 @@ those are local synthetic reproductions, not hosted or macOS execution. The
 new workflow still needs an actual hosted run. Same-commit native RGB pairing,
 pinned API export, behavioral conformance, and all nine original product gates
 remain open.
+
+### Sixth batch: current modal accessibility actions and escaped projections
+
+Retained accessibility default and named actions now qualify the exact live
+node, enabled ancestry, current modal scope, settled layout, and accepted
+prepaint after one geometry query. Terminal runtimes reject before that query.
+An old projection cannot activate a removed or replaced node, reuse a newly
+allocated node's UIA identity, or invoke background controls through a modal.
+An admitted operation pins its weak runtime through the complete handler;
+copied projections and UIA sources do not retain the runtime between calls.
+
+Toggle, Select, AddToSelection, RemoveFromSelection, and Invoke now derive
+their role, selection state, no-op decision, and handler from that same current
+element. The joined review found that pre-query pattern checks could otherwise
+approve a checkbox and invoke a replacement button, or reverse an already
+satisfied selection request after layout callbacks changed its state. One
+shared invocation guard covers these routes. It does not invoke a handler
+twice or add another projection query to repair a stale pre-query decision.
+
+The first root run failed 17 of 45 completed cases because the initial guard
+treated `hasPendingLayout` as proof that a geometry query had not settled.
+Geometry queries intentionally leave render dirty flags intact. The guard now
+uses the existing layout-settlement status, followed by the existing pure
+prepaint-freshness check; it does not clear those dirty flags, render, or retry.
+The next run passed 50 cases but failed two late-focus fixtures, whose geometry
+assertions made the same incorrect dirty-flag assumption. The corrected
+fixtures preserve the accepted layout receipt and assert that it remains
+current across the callback and action attempt. This proves unchanged geometry
+without an intervening resolution. All action rejection, callback count,
+prepaint mutation, and subsequent recovery assertions remain intact.
+
+Both failed runs, their original source, and actual nonzero outcomes remain
+under `artifacts/goal-sixth-modal-uia-failure-v1/` and `-v2/`; neither has
+completed-validation credit. Failure receipt SHA-256 values are
+`070f0abe0efb6bfc3d85e38742c0c8785ede8829589eb6dc138fde568524ed29`
+and `f9669da427814836dfade86b32f8d538c4dcd4a9d7f7fee569b58a4e5161cdc8`.
+The corrected initial implementation then passed 264 distinct XCTest cases.
+Subsequent cross-pattern and escaped-projection lifetime changes received a
+fresh joined run rather than inheriting that earlier result.
+
+The final joined run passes 293 distinct XCTest cases in 14 targets and 15
+serial invocations. It includes all 44 new modal, current-element, and copied
+projection cases, 17 new COM lifetime cases recorded separately below, and
+the existing accessibility, alert, presentation-focus, build-settlement, and
+native-close preservation cases. There are no failures, skips, duplicate
+completed identifiers, or timeouts. All recorded source inputs, HEAD, index
+bytes, and staged tree remain unchanged during execution. The tested tree is
+`03b68c2b2a2bb0243c6fd828332ee3e7de21143f` over `c4124a5`; the run finishes
+at 2026-08-28 11:15:38 UTC. Its log SHA-256 is
+`3a50f212fa8ebd64fe0cf8ba7cae7a0c8cc6d65bccf08641e2e0510d9428f212`.
+Strict lint covers all eight joined Swift files, and contracts pass.
+
+The joined source matches the frozen modal, cross-pattern, projection-pin,
+COM, and RGB increments with only the recorded native, actor-isolation,
+ownership-test, and late-focus fixture corrections. All 405 preexisting
+test/resource paths outside the previously approved legacy alert fixture file
+remain unchanged. Splitting the modal and COM changes into separate commits
+does not change the tested source bytes; this is still focused joined-source
+evidence, not an exact-release Full run or hosted/native conformance.
+
+SetFocus, SetValue, and virtualized realization still require separate
+callback-boundary and admission work. This slice does not qualify complete
+retained-build reentry readiness, native Enter/Space routing, Narrator, all
+UIA patterns, or the full input workflow. All nine original acceptance gates
+remain open.

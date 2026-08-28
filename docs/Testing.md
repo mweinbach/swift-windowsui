@@ -368,9 +368,33 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Win
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter RetainedInteractionLifecyclePolishTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter AccessibilityProjectionRuntimePolishTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIDisabledAccessibilityInvokeTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter ModalAccessibilityActionTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter UIACurrentElementMutationTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter AccessibilityProjectedActionLifetimeTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIDynamicTypeRangeTests
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIControlUsabilityTests
 ```
+
+`ModalAccessibilityActionTests` contains 32 headless async cases for copied
+actions and the live UIA source. The late focus notification and focus-request
+completion/cleanup fixtures witness paint-only modal reordering, rejection of
+the stale explicit or fallback route, and recovery after an independent layout
+query. These cases do not create HWNDs or qualify disconnected COM delivery,
+Narrator, or native activation-character routing.
+
+`UIACurrentElementMutationTests` adds 10 headless async cases for Invoke,
+Toggle, Select, AddToSelection, and RemoveFromSelection. The cases change
+roles and selection during layout, exercise current-state no-ops, reject
+modal/terminal/removal/disabled targets, and check shared reentry protection
+and the absence of a second action query. They preserve the existing 32
+modal-action cases and do not exercise native COM delivery.
+
+`AccessibilityProjectedActionLifetimeTests` adds two headless async cases for
+copied named/default actions whose last external runtime owner disappears
+during layout or the admitted handler. They check temporary retention through
+the handler, terminal rejection through another projection scope, release
+after return, and inert stale repeats. They do not create a UIA source or
+qualify native provider disconnection.
 
 `FileDocumentExportTests` performs real filesystem writes in unique test-owned
 temporary directories. It checks document round trips, atomic replacement,

@@ -987,6 +987,51 @@ at the origin.
 - `ProgressView(value:total:)` maps into retained progress chrome for `Double` and generic `BinaryFloatingPoint` values; title, builder-label, and current-value label overloads wrap that retained indicator in small retained stacks. `ProgressView(timerInterval:countsDown:)` overloads compute retained progress from the current `Date` at build time and accept custom label/current-value label builders; automatic ticking updates and SwiftUI's default date-progress label text are not modeled yet. `progressViewStyle(_:)` and `EnvironmentValues.progressViewStyle` accept `.automatic`, `.linear`, `.circular`, `DefaultProgressViewStyle`, `LinearProgressViewStyle`, and `CircularProgressViewStyle`; `.automatic` and `.linear` use the retained progress bar, while `.circular` composes a renderer-neutral retained circular segment indicator.
 - `Gauge(value:in:)` maps SwiftUI-shaped scalar gauges onto retained gauge chrome. BinaryFloatingPoint values and ranges are converted into the retained `Double` progress path. Title, current-value, minimum-value, maximum-value, and marked-value label builders compose retained label chrome around the same renderer-neutral fill primitive, with `.tint` driving the filled segment. Marked value labels render as a retained caption row below the gauge. `gaugeStyle(_:)` and `EnvironmentValues.gaugeStyle` accept common built-in style values and concrete supporting types including `DefaultGaugeStyle`, `LinearGaugeStyle`, `LinearCapacityGaugeStyle`, `AccessoryLinearGaugeStyle`, `AccessoryLinearCapacityGaugeStyle`, `CircularGaugeStyle`, `AccessoryCircularGaugeStyle`, and `AccessoryCircularCapacityGaugeStyle`; automatic and linear styles use the retained progress bar, while circular and accessory circular styles use retained circular segment chrome.
 - Accessibility modifiers store retained metadata on `ViewNode` (`label`, `value`, `hint`, `identifier`, hidden state, traits, child behavior, sort priority, and actions) so the tree has stable semantic data. `accessibilityAddTraits(_:)` and `accessibilityRemoveTraits(_:)` retain common SwiftUI-shaped `AccessibilityTraits` such as button, header, selected, image, link, search-field, keyboard-key, static-text, summary, media, direct-interaction, page-turn, and modal intent. `accessibilityElement(children:)` retains `.ignore`, `.combine`, and `.contain` grouping intent, and `accessibilitySortPriority(_:)` stores deterministic ordering metadata for UI Automation projection. `accessibilityAction(...)` accepts default, kind-based, and named action closures and stores them on the retained node for accessibility invocation. `help(_:)` maps to the same retained hint metadata for desktop shared-source compatibility. The retained tree is projected to native Windows UI Automation (`WM_GETOBJECT` fragment tree via `CUIAInterop` + `UIAProviderBridge`): traits map to UIA control types; transformed bounds and `IsOffscreen` track layout; stored default actions expose InvokePattern; non-password text inputs expose editable ValuePattern; switches expose TogglePattern; selectable List/Table rows expose SelectionPattern and SelectionItemPattern; and deferred lazy rows expose VirtualizedItemPattern realization. Secure inputs report `IsPassword` and never expose their contents. Focus/structure events and explicit live-region announcements are supported; rich TextPattern/text ranges, automatic live-region observation, and fine-grained structure-changed events remain unsupported.
+
+Retained modal ancestors remain in accessibility projections as the geometry
+and navigation path to the active presentation, but do not expose stored
+actions or an activation fallback. Live Invoke rechecks terminal runtime
+revocation, settles layout once through the existing bounded query, then
+resolves the current projected owner, enabled state, modal scope, and handler.
+An explicit action is never followed by a fallback because it was rejected or
+changed the tree while running. Nested invocation through the same live source
+is rejected until the original call returns.
+
+After the query, invocation also requires the existing prepaint revision to
+match the runtime's current mutation revision. A final focus notification or
+finished focus request's capture cleanup can change modal paint order without
+leaving pending layout. That invocation is rejected without a second query;
+a later independent query or render can settle the change and admit the
+current modal. The rejected action is not queued or replayed automatically.
+
+Toggle and SelectionItem Select, AddToSelection, and RemoveFromSelection use
+that same post-query element for their role and selected-state decisions.
+A current selection that already satisfies the request succeeds without an
+application action, but only after the current element passes admission.
+Layout cannot authorize a Toggle on a replacement button role or turn a
+selection request into the opposite transition. These routes share the
+source's reentry guard and do not run a second action query.
+
+This admission rule does not yet cover SetFocus, SetValue, or
+VirtualizedItem.Realize. Their validation across application callbacks and
+terminal/modal changes remains separate work.
+
+Copied projected actions retain weak tree/runtime references and their original
+list count, slot, name, and kind rather than retaining application handlers.
+Each invocation temporarily pins its entry runtime through the selected handler
+and scope cleanup; the copied action does not keep that runtime alive afterward.
+They resolve the current matching slot and reject changed descriptors, removed
+owners, and blocked modal routes. Unchanged duplicate descriptors retain their
+declared slots; this is not a new stable action-identity API. Synthetic
+accessibility representations validate through their current projected owner,
+including that owner's disabled state. Runtime-backed projections and the live
+Invoke source reject actions after terminal host/snapshot teardown while the
+tree remains inspectable. `project(root:)` still supports standalone detached
+trees and has no runtime/host lifetime authority. These Invoke/custom-action
+guards do not qualify other mutation patterns, disconnected native COM provider
+delivery, or Narrator behavior, and do not complete alert dismissal semantics.
+An existing UIA element ID is reused only while its weak entry still identifies
+the same live retained node; a recycled allocation address receives a new ID.
 - `cornerRadius(_:antialiased:)` maps to a retained rounded rectangular clipping wrapper and stores the antialiasing choice as retained clip metadata. The current retained renderer does not visually distinguish antialiased and non-antialiased clips.
 - `clipped(antialiased:)` maps to retained rectangular bounds clipping and stores the antialiasing choice as retained clip metadata. The current retained renderer does not visually distinguish antialiased and non-antialiased clips. A frame boundary alone does not clip, matching SwiftUI: content inside a view collapsed to zero width or height still paints (both paint paths), and `clipped()` is what hides it. The collapsed view paints none of its own decoration, and hit testing still prunes a zero-extent subtree.
 - `ContainerRelativeShape` maps to the retained dynamic rounded shape path used by capsule-style shape fallbacks. It supports the same color, foreground-style, gradient, stroke, and stroke-border overloads as the other retained basic shapes, and participates in `clipShape` / `contentShape` as a dynamic rounded retained shape. It does not yet derive a parent container's precise SwiftUI shape style.

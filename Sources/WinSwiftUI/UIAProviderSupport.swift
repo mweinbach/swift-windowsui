@@ -32,6 +32,7 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
     private var idsByNode: [ObjectIdentifier: UInt64] = [:]
     private var nodesByID: [UInt64: WeakNode] = [:]
     private var nextID: UInt64 = 1
+    private var isInvokingDefaultAction = false
 
     init(runtime: RetainedViewRuntime, screenBoundsMapper: @escaping (Rect) -> Rect = { $0 }) {
         self.runtime = runtime
@@ -68,20 +69,7 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
     func uiaInvokeDefaultAction(elementID: UInt64) -> Bool {
         guard let runtime else { return false }
         defer { withExtendedLifetime(runtime) {} }
-        guard let element = projectedElement(for: elementID), element.isEnabled else {
-            return false
-        }
-        if element.invokeDefaultAction() {
-            return true
-        }
-        // Controls without explicit accessibility actions still expose their
-        // activation handler (e.g. retained buttons) as the UIA Invoke
-        // pattern's default action.
-        if let onActivate = element.sourceNode?.onActivate {
-            onActivate()
-            return true
-        }
-        return false
+        return invokeDefaultAction(elementID: elementID, in: runtime, intent: .invoke)
     }
 
     func uiaSetFocus(elementID: UInt64) {
@@ -127,25 +115,14 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
     func uiaToggle(elementID: UInt64) -> Bool {
         guard let runtime else { return false }
         defer { withExtendedLifetime(runtime) {} }
-        guard let element = projectedElement(for: elementID), element.controlType == .checkBox else {
-            return false
-        }
-        return uiaInvokeDefaultAction(elementID: elementID)
+        return invokeDefaultAction(elementID: elementID, in: runtime, intent: .toggle)
     }
 
     @discardableResult
     func uiaSelect(elementID: UInt64) -> Bool {
         guard let runtime else { return false }
         defer { withExtendedLifetime(runtime) {} }
-        guard let element = projectedElement(for: elementID), element.traits.contains(.isSelectable),
-            element.isEnabled
-        else {
-            return false
-        }
-        if element.isSelected {
-            return true
-        }
-        return uiaInvokeDefaultAction(elementID: elementID)
+        return invokeDefaultAction(elementID: elementID, in: runtime, intent: .select)
     }
 
     @discardableResult
@@ -157,15 +134,7 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
     func uiaRemoveFromSelection(elementID: UInt64) -> Bool {
         guard let runtime else { return false }
         defer { withExtendedLifetime(runtime) {} }
-        guard let element = projectedElement(for: elementID), element.traits.contains(.isSelectable),
-            element.isEnabled
-        else {
-            return false
-        }
-        if !element.isSelected {
-            return true
-        }
-        return uiaInvokeDefaultAction(elementID: elementID)
+        return invokeDefaultAction(elementID: elementID, in: runtime, intent: .removeFromSelection)
     }
 
     @discardableResult
@@ -178,6 +147,20 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
             return false
         }
         return runtime.scrollToDescendant(node)
+    }
+
+    private func invokeDefaultAction(
+        elementID: UInt64, in runtime: RetainedViewRuntime, intent: AccessibilityDefaultActionIntent
+    ) -> Bool {
+        guard !isInvokingDefaultAction, runtime.permitsRetainedActionInvocation,
+            let node = elementID == UIAProviderBridge.rootElementID ? runtime.root : nodesByID[elementID]?.node
+        else { return false }
+        isInvokingDefaultAction = true
+        defer { isInvokingDefaultAction = false }
+        // Role, selection state, and the handler belong to one post-query
+        // element. A pre-query predicate must not authorize a different role
+        // or an obsolete selection transition after layout callbacks run.
+        return AccessibilityProjection.invokeDefaultAction(on: node, in: runtime, intent: intent)
     }
 
     // MARK: - Focus event support
@@ -244,7 +227,8 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
                 hasKeyboardFocus: element.isFocused,
                 isKeyboardFocusable: element.sourceNode?.isFocusable ?? false,
                 isOffscreen: element.isVirtualizedPlaceholder || screenBounds.intersected(with: rootBounds) == nil,
-                hasDefaultAction: !element.actions.isEmpty || element.sourceNode?.onActivate != nil,
+                hasDefaultAction: element.permitsModalActions
+                    && (!element.actions.isEmpty || element.sourceNode?.onActivate != nil),
                 isPassword: isPassword,
                 supportsValue: supportsValue,
                 isReadOnly: !element.isEnabled || element.sourceNode?.onIMEComposition == nil,
@@ -276,10 +260,9 @@ final class RuntimeUIAElementTreeSource: UIAElementTreeSource {
 
     private func stableID(for node: ViewNode) -> UInt64 {
         let key = ObjectIdentifier(node)
-        if let existing = idsByNode[key] {
-            // Refresh the weak back-reference: an ObjectIdentifier can be
-            // reused by a new allocation after the old node died.
-            nodesByID[existing] = WeakNode(node)
+        if let existing = idsByNode[key], nodesByID[existing]?.node === node {
+            // A reused allocation address must not retarget an old UIA id.
+            // Only the exact still-live node keeps its previous identity.
             return existing
         }
         let id = nextID

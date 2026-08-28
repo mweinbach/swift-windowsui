@@ -12488,6 +12488,16 @@ public final class RetainedViewRuntime {
     /// Closing a host revokes future render callbacks without delivering any
     /// lifecycle or releasing application payloads. A retained runtime can
     /// still be inspected after its host has gone away.
+    package var permitsRetainedActionInvocation: Bool { permitsRenderLifecycleCallbacks }
+
+    /// Focus restoration can publish callbacks after a query records prepaint.
+    /// Read this after the query, before invoking a retained accessibility action.
+    var hasCurrentAccessibilityPrepaint: Bool {
+        presentationPrepaintRevision == presentationMutationRevision
+    }
+
+    /// This terminal revocation also prevents retained accessibility actions
+    /// from entering application code through the still-inspectable tree.
     public func stopRenderLifecycleCallbacks() {
         permitsRenderLifecycleCallbacks = false
         renderLifecycleRevision &+= 1

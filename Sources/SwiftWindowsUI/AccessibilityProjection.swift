@@ -58,16 +58,33 @@ public struct AccessibilityProjectedAction {
     public let kind: RetainedAccessibilityActionKind?
     /// True when the stored action is the node's `.default` (activate) action.
     public let isDefault: Bool
-    private let handler: () -> Void
+    private let handler: () -> Bool
 
     public init(name: String, kind: RetainedAccessibilityActionKind?, isDefault: Bool, handler: @escaping () -> Void) {
         self.name = name
         self.kind = kind
         self.isDefault = isDefault
-        self.handler = handler
+        self.handler = {
+            handler()
+            return true
+        }
+    }
+
+    fileprivate init(
+        name: String, kind: RetainedAccessibilityActionKind?, isDefault: Bool,
+        invoke: @escaping () -> Bool
+    ) {
+        self.name = name
+        self.kind = kind
+        self.isDefault = isDefault
+        self.handler = invoke
     }
 
     public func invoke() {
+        _ = invokeIfPermitted()
+    }
+
+    fileprivate func invokeIfPermitted() -> Bool {
         handler()
     }
 }
@@ -118,6 +135,11 @@ public final class AccessibilityElementProjection {
     /// `VirtualizedItem` pattern; `Realize` is a layout pass away, because
     /// scrolling the row into view lays it out.
     public let isVirtualizedPlaceholder: Bool
+    fileprivate var isStructuralModalAncestor = false
+
+    /// Structural modal ancestors remain in the tree for bounds/navigation,
+    /// but their activation fallback is no more eligible than stored actions.
+    package var permitsModalActions: Bool { !isStructuralModalAncestor }
 
     public init(
         bounds: Rect,
@@ -160,14 +182,13 @@ public final class AccessibilityElementProjection {
     /// Returns true when an action was invoked.
     @discardableResult
     public func invokeDefaultAction() -> Bool {
-        guard isEnabled,
+        guard isEnabled, permitsModalActions,
             let defaultAction = actions.first(where: { $0.isDefault }) ?? actions.first
         else {
             return false
         }
 
-        defaultAction.invoke()
-        return true
+        return defaultAction.invokeIfPermitted()
     }
 
     /// Pre-order flattening of this element and its descendants.
@@ -189,6 +210,104 @@ public final class AccessibilityElementProjection {
     }
 }
 
+/// These intents inspect the same current element that supplies the action.
+/// They do not carry a callback that could invalidate admission between the
+/// operation-specific predicate and handler selection.
+package enum AccessibilityDefaultActionIntent {
+    case invoke
+    case toggle
+    case select
+    case removeFromSelection
+}
+
+/// A projection may outlive its source tree or an action implementation.
+/// Keep only a weak scope and resolve the current handler after one bounded
+/// layout query. Synthetic representation children are validated by a fresh
+/// projection of their owner, not by assuming they have a retained parent.
+@MainActor
+private final class AccessibilityActionScope {
+    private weak var root: ViewNode?
+    private weak var runtime: RetainedViewRuntime?
+    private let hasRuntime: Bool
+    private var isInvoking = false
+
+    init(root: ViewNode, runtime: RetainedViewRuntime? = nil) {
+        self.root = root
+        self.runtime = runtime
+        self.hasRuntime = runtime != nil
+    }
+
+    func invokeAction(
+        on node: ViewNode, at index: Int, count: Int,
+        name: String?, kind: RetainedAccessibilityActionKind?
+    ) -> Bool {
+        withCurrentElement(for: node) { _ in
+            let actions = node.accessibilityActions
+            guard actions.count == count, actions.indices.contains(index) else { return false }
+            let action = actions[index]
+            guard action.name == name, action.kind == kind else { return false }
+            action.handler()
+            return true
+        }
+    }
+
+    func invokeDefaultAction(on node: ViewNode, intent: AccessibilityDefaultActionIntent) -> Bool {
+        withCurrentElement(for: node) { element in
+            switch intent {
+            case .invoke:
+                break
+            case .toggle:
+                guard element.controlType == .checkBox else { return false }
+            case .select:
+                guard element.traits.contains(.isSelectable) else { return false }
+                if element.isSelected { return true }
+            case .removeFromSelection:
+                guard element.traits.contains(.isSelectable) else { return false }
+                if !element.isSelected { return true }
+            }
+            // Select only after validation. Rejection never falls through to
+            // another handler, and callback reentry cannot cause a second call.
+            if let action = node.accessibilityActions.first(where: { $0.kind == .default })
+                ?? node.accessibilityActions.first
+            {
+                action.handler()
+                return true
+            }
+            guard let activate = node.onActivate else { return false }
+            activate()
+            return true
+        }
+    }
+
+    private func withCurrentElement(
+        for node: ViewNode, perform: (AccessibilityElementProjection) -> Bool
+    ) -> Bool {
+        guard !isInvoking, let root else { return false }
+        let invocationRuntime = runtime
+        isInvoking = true
+        defer {
+            isInvoking = false
+            withExtendedLifetime(invocationRuntime) {}
+        }
+
+        let projection: AccessibilityElementProjection?
+        if hasRuntime {
+            guard let runtime = invocationRuntime, runtime.root === root, runtime.permitsRetainedActionInvocation,
+                runtime.resolvedLayoutFrame(of: root) != nil,
+                runtime.permitsRetainedActionInvocation, case .settled = runtime.layoutSettlementStatus,
+                runtime.hasCurrentAccessibilityPrepaint
+            else { return false }
+            projection = AccessibilityProjection.project(runtime: runtime)
+        } else {
+            projection = AccessibilityProjection.project(root: root)
+        }
+        guard let element = projection?.flattened().first(where: { $0.sourceNode === node }),
+            element.isEnabled, element.permitsModalActions
+        else { return false }
+        return perform(element)
+    }
+}
+
 /// Builds `AccessibilityElementProjection` trees from retained `ViewNode`
 /// state. All entry points re-derive the whole projection at call time.
 /// Main-actor isolated, matching the retained runtime it reads from.
@@ -198,12 +317,16 @@ public enum AccessibilityProjection {
     /// projected as an element (typically a `pane`/`group` container) unless
     /// it is hidden, in which case the result is nil.
     public static func project(root: ViewNode) -> AccessibilityElementProjection? {
-        project(root: root, activeModalNode: topmostModalNode(in: root))
+        project(
+            root: root, activeModalNode: topmostModalNode(in: root),
+            actionScope: AccessibilityActionScope(root: root)
+        )
     }
 
     private static func project(
         root: ViewNode,
-        activeModalNode: ViewNode?
+        activeModalNode: ViewNode?,
+        actionScope: AccessibilityActionScope
     ) -> AccessibilityElementProjection? {
         guard !isSubtreeHidden(root) else { return nil }
         return projectElement(
@@ -211,14 +334,27 @@ public enum AccessibilityProjection {
             parentOrigin: .zero,
             inheritedTransform: .identity,
             forceElement: true,
-            activeModalNode: activeModalNode
+            activeModalNode: activeModalNode,
+            actionScope: actionScope,
+            inheritedIsEnabled: true
         )
     }
 
     /// Projects a runtime's retained root. Its modal scope comes from the
     /// exact prepaint order that keyboard routing and both renderers share.
     public static func project(runtime: RetainedViewRuntime) -> AccessibilityElementProjection? {
-        project(root: runtime.root, activeModalNode: runtime.activeModalPresentationNode)
+        project(
+            root: runtime.root, activeModalNode: runtime.activeModalPresentationNode,
+            actionScope: AccessibilityActionScope(root: runtime.root, runtime: runtime)
+        )
+    }
+
+    /// The live provider resolves one current explicit/default-fallback action.
+    /// This is separate from the public projection's snapshot-only metadata.
+    package static func invokeDefaultAction(
+        on node: ViewNode, in runtime: RetainedViewRuntime, intent: AccessibilityDefaultActionIntent = .invoke
+    ) -> Bool {
+        AccessibilityActionScope(root: runtime.root, runtime: runtime).invokeDefaultAction(on: node, intent: intent)
     }
 
     // MARK: - Trait → control type mapping table
@@ -375,7 +511,9 @@ public enum AccessibilityProjection {
         parentOrigin: Point,
         inheritedTransform: Transform2D,
         forceElement: Bool,
-        activeModalNode: ViewNode?
+        activeModalNode: ViewNode?,
+        actionScope: AccessibilityActionScope,
+        inheritedIsEnabled: Bool
     ) -> AccessibilityElementProjection {
         let geometry = projectedGeometry(
             of: node,
@@ -385,6 +523,8 @@ public enum AccessibilityProjection {
         let childOrigin = scrolledChildOrigin(of: node, absoluteOrigin: geometry.absoluteOrigin)
 
         let behavior = node.accessibilityChildBehavior
+        let isEnabled = inheritedIsEnabled && node.accessibilityRespondsToUserInteraction != false
+        let isStructuralModalAncestor = activeModalNode.map { $0 !== node } ?? false
         var name = node.accessibilityLabel ?? node.text ?? ""
         var projectedChildren: [AccessibilityElementProjection] = []
 
@@ -396,7 +536,9 @@ public enum AccessibilityProjection {
                 of: node,
                 parentOrigin: childOrigin,
                 inheritedTransform: geometry.effectiveTransform,
-                activeModalNode: activeModalNode
+                activeModalNode: activeModalNode,
+                actionScope: actionScope,
+                inheritedIsEnabled: isEnabled
             )
         } else {
             switch behavior {
@@ -417,12 +559,14 @@ public enum AccessibilityProjection {
                     of: node,
                     parentOrigin: childOrigin,
                     inheritedTransform: geometry.effectiveTransform,
-                    activeModalNode: nil
+                    activeModalNode: nil,
+                    actionScope: actionScope,
+                    inheritedIsEnabled: isEnabled
                 )
             }
         }
 
-        return AccessibilityElementProjection(
+        let result = AccessibilityElementProjection(
             bounds: geometry.paintedBounds,
             name: name,
             value: node.accessibilityValue,
@@ -434,14 +578,16 @@ public enum AccessibilityProjection {
             traits: node.isModalPresentationScope
                 ? node.accessibilityTraits.union(.isModal) : node.accessibilityTraits,
             headingLevel: node.accessibilityHeadingLevel,
-            isEnabled: node.accessibilityRespondsToUserInteraction ?? true,
+            isEnabled: isEnabled,
             isFocused: node.isFocused,
             isSelected: node.accessibilityTraits.contains(.isSelected),
             sortPriority: node.accessibilitySortPriority,
-            actions: node.accessibilityActions.map(projectedAction(from:)),
+            actions: isStructuralModalAncestor ? [] : projectedActions(for: node, scope: actionScope),
             children: projectedChildren,
             sourceNode: node
         )
+        result.isStructuralModalAncestor = isStructuralModalAncestor
+        return result
     }
 
     /// Projects a node's child list, splicing the projected children of
@@ -453,7 +599,9 @@ public enum AccessibilityProjection {
         of node: ViewNode,
         parentOrigin: Point,
         inheritedTransform: Transform2D,
-        activeModalNode: ViewNode?
+        activeModalNode: ViewNode?,
+        actionScope: AccessibilityActionScope,
+        inheritedIsEnabled: Bool
     ) -> [AccessibilityElementProjection] {
         let childNodes =
             activeModalNode == nil
@@ -473,7 +621,9 @@ public enum AccessibilityProjection {
                     projectVirtualizedPlaceholder(
                         child,
                         parentOrigin: parentOrigin,
-                        inheritedTransform: inheritedTransform
+                        inheritedTransform: inheritedTransform,
+                        actionScope: actionScope,
+                        inheritedIsEnabled: inheritedIsEnabled
                     )
                 )
                 continue
@@ -485,7 +635,9 @@ public enum AccessibilityProjection {
                         parentOrigin: parentOrigin,
                         inheritedTransform: inheritedTransform,
                         forceElement: false,
-                        activeModalNode: activeModalNode
+                        activeModalNode: activeModalNode,
+                        actionScope: actionScope,
+                        inheritedIsEnabled: inheritedIsEnabled
                     )
                 )
             } else {
@@ -502,7 +654,9 @@ public enum AccessibilityProjection {
                         of: child,
                         parentOrigin: childOrigin,
                         inheritedTransform: geometry.effectiveTransform,
-                        activeModalNode: activeModalNode
+                        activeModalNode: activeModalNode,
+                        actionScope: actionScope,
+                        inheritedIsEnabled: inheritedIsEnabled && child.accessibilityRespondsToUserInteraction != false
                     )
                 )
             }
@@ -521,7 +675,9 @@ public enum AccessibilityProjection {
     private static func projectVirtualizedPlaceholder(
         _ node: ViewNode,
         parentOrigin: Point,
-        inheritedTransform: Transform2D
+        inheritedTransform: Transform2D,
+        actionScope: AccessibilityActionScope,
+        inheritedIsEnabled: Bool
     ) -> AccessibilityElementProjection {
         let geometry = projectedGeometry(
             of: node,
@@ -542,11 +698,11 @@ public enum AccessibilityProjection {
             controlType: isAccessibilityElement(node) ? resolveControlType(for: node) : .group,
             traits: node.accessibilityTraits,
             headingLevel: node.accessibilityHeadingLevel,
-            isEnabled: node.accessibilityRespondsToUserInteraction ?? true,
+            isEnabled: inheritedIsEnabled && node.accessibilityRespondsToUserInteraction != false,
             isFocused: node.isFocused,
             isSelected: node.accessibilityTraits.contains(.isSelected),
             sortPriority: node.accessibilitySortPriority,
-            actions: node.accessibilityActions.map(projectedAction(from:)),
+            actions: projectedActions(for: node, scope: actionScope),
             children: [],
             sourceNode: node,
             isVirtualizedPlaceholder: true
@@ -630,13 +786,24 @@ public enum AccessibilityProjection {
         }
     }
 
-    private static func projectedAction(from action: RetainedAccessibilityAction) -> AccessibilityProjectedAction {
-        AccessibilityProjectedAction(
-            name: action.name ?? fallbackActionName(for: action.kind),
-            kind: action.kind,
-            isDefault: action.kind == .default,
-            handler: action.handler
-        )
+    private static func projectedActions(
+        for node: ViewNode, scope: AccessibilityActionScope
+    ) -> [AccessibilityProjectedAction] {
+        let actions = node.accessibilityActions
+        let count = actions.count
+        return actions.enumerated().map { index, action in
+            let name = action.name
+            let kind = action.kind
+            return AccessibilityProjectedAction(
+                name: name ?? fallbackActionName(for: kind),
+                kind: kind,
+                isDefault: kind == .default,
+                invoke: { [weak node] in
+                    guard let node else { return false }
+                    return scope.invokeAction(on: node, at: index, count: count, name: name, kind: kind)
+                }
+            )
+        }
     }
 
     private static func fallbackActionName(for kind: RetainedAccessibilityActionKind?) -> String {

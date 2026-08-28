@@ -3568,3 +3568,71 @@ Windows may retain an inert provider after native cleanup fails, but it must
 not retain application state through this provider family. Full, Quick,
 visual, hosted, and exact-release validation remain pending for this batch;
 all nine original product gates remain open.
+
+### Sixth batch: interrupted test-framework configuration continuations
+
+Two later owned Testing configuration attempts remain failures of supervision,
+not completed configurations or product test runs. Neither changes the earlier
+successful F9 Foundation build's uninstalled, unexecuted status. Installed SDK,
+toolchain, original source, and prior frozen evidence remain unchanged.
+
+The second continuation started at 2026-08-28 10:17:36 UTC with a fixed
+45-minute deadline. Its input preflight passed, but its supervisor exited one
+at 10:24:21 UTC before worker readiness or a CMake attempt. One selected CIM
+record disappeared before a process handle could be opened. Only its PID,
+reported parent PID, and creation date were observed; its name, executable,
+exact process start, exit code, and descendants are unknown. It must not be
+attributed to a guessed executable or treated as a harmless successful helper.
+The retained command-shell and console handles were cleaned up without recorded
+cleanup errors, but that does not prove absence of all descendants. The zero
+working-set sample came from prelaunch observation, not a measured peak.
+
+The phase's 38-file, 233,255-byte seal has SHA-256
+`d04862d544d710307023579be07dafc51839ddc0ede47b3c27952a3e077905c7`.
+Its outcome SHA-256 is
+`deb11f73be747f6ce12888c545f3232eb347d8cc16f09fdbbe9e8252c38b5ead`.
+No Testing graph, framework build, install, or runtime load occurred.
+
+The third attempt used a separately reviewed direct PowerShell worker instead
+of the command-shell/Visual Studio bootstrap. Its new environment candidate
+preserved eight compiler fields from the saved successful XCTest invocation
+and explicitly added `EXTERNAL_INCLUDE = INCLUDE`. That ninth value was not
+historically recorded. The candidate is not a claim of complete VsDevCmd
+equivalence; unspecified inherited fields remain a stated limitation. All
+26 CMake options, ten ordered PATH entries, sixteen explicit removals, and seven
+phase overrides were preserved except the reviewed new output/cache/temp roots.
+The deadline ran from 11:12:26 to 11:57:26 UTC and was not renewed.
+
+This attempt passed its 18-set input preflight and independent execution gate,
+established direct worker identity, and launched main CMake. The supervisor
+then exited one at 11:21:22 UTC when a selected CIM child named `rc.exe` was
+already gone before its handle could be captured. That string is an observation
+of a process name, not verified executable identity, hash, exact start, or exit.
+The main CMake attempt was interrupted. Some captured compiler probes exited
+zero, but their outcomes cannot turn the interrupted configuration into a pass.
+Seven exact owned termination requests were recorded, with drained output and
+no reported retained-handle survivors or cleanup errors. Two raw ExitTime values
+were the invalid 1601 sentinel; derived natural-exit labels for those records
+remain untrusted. Selected observations do not establish exhaustive process
+coverage or cleanup causality.
+
+The final input verifier and independent evidence reviews passed. The sealed
+phase contains 108 files and 4,920,081 bytes, manifest SHA-256
+`1359a1c2de30e31ff4d30250abb7800b0df34d1019041105630627222a3e4c9a`;
+the outcome SHA-256 is
+`637b7d250ab841082eda37cdf5390c5ed6199e2fd9155518c43b62aafa566ce`.
+Passive inspection found compiler-identification and scratch outputs, not a
+complete top-level Ninja graph, cache, File API reply, or six-target archive/ABI
+qualification. No Foundation/Testing installation or runtime load followed.
+
+The next investigation is an isolated prototype using creation and exit debug
+events, so a short-lived child cannot disappear before its creation handle is
+captured. This changes execution semantics and ownership evidence; it is not a
+retry under either expired authority or ordinary-execution qualification.
+An owned debug connection and optional dedicated job cannot prove an exhaustive
+causal process tree. Source review and controlled tests must cover exception
+handling, Unicode command/environment transport, resource/deadline limits,
+event cleanup, and failure paths before any new framework configure authority.
+Missing identity or exit evidence remains a failure; cleanup never supplies
+passing evidence. No original acceptance criterion has changed, and all nine
+product gates remain open.

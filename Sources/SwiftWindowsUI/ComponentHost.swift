@@ -484,6 +484,12 @@ public final class ComponentHost {
     }
 
     private static func matchingChildren(oldChildren: [ViewNode], newNodes: [ViewNode]) -> [ViewNode?] {
+        // A single candidate has no competing claims; the same typed, tag,
+        // and layout rules can be applied without constructing lookup tables.
+        if oldChildren.count == 1 && newNodes.count == 1 {
+            return [nodesMatch(oldChildren[0], newNodes[0]) ? oldChildren[0] : nil]
+        }
+
         var matches = [ViewNode?](repeating: nil, count: newNodes.count)
         var isClaimed = [Bool](repeating: false, count: oldChildren.count)
 

@@ -1,4 +1,5 @@
 import SwiftWindowsCore
+import SwiftWindowsLayout
 import XCTest
 
 @testable import SwiftWindowsUI
@@ -289,6 +290,229 @@ final class RetainedViewIdentityTests: XCTestCase {
         XCTAssertEqual(moved.retainedViewIdentity, viewIdentity)
     }
 
+    func testSingletonTypedIdentityRetainsStateAndAdoptsFreshConfiguration() async {
+        let existing = node(identity: identity("parent"), tag: "old tag", text: "old text")
+        let existingChild = node(identity: identity("child"), text: "old child")
+        existing.addChild(existingChild)
+        let previousController = SingletonIdentityTextInputController()
+        existing.textInputController = previousController
+        var callbacks: [String] = []
+        existing.onActivate = { callbacks.append("old activation") }
+        existing.onUpdatePlatformView = { _ in callbacks.append("old update") }
+        let runtime = runtime(children: [existing])
+        existing.scrollOffset = 37
+        runtime.requestFocus(existing)
+
+        let replacement = node(identity: identity("parent"), tag: "new tag", text: "new text")
+        replacement.layoutMode = .stack(.horizontal(spacing: 12))
+        replacement.addChild(node(identity: identity("child"), text: "new child"))
+        let nextController = SingletonIdentityTextInputController()
+        replacement.textInputController = nextController
+        replacement.onActivate = { callbacks.append("new activation") }
+        replacement.onUpdatePlatformView = { _ in callbacks.append("new update") }
+
+        reconcile(runtime.root, with: [replacement])
+        existing.onActivate?()
+
+        XCTAssertTrue(runtime.root.children.first === existing)
+        XCTAssertTrue(existing.parent === runtime.root)
+        assertRuntimeClockRoute(existing, through: runtime, isAttached: true)
+        XCTAssertTrue(runtime.focusedNode === existing)
+        XCTAssertEqual(existing.scrollOffset, 37)
+        XCTAssertEqual(existing.retainedViewIdentity, replacement.retainedViewIdentity)
+        XCTAssertEqual(existing.nodeTag, "new tag")
+        XCTAssertEqual(existing.text, "new text")
+        XCTAssertEqual(existing.layoutMode.stackLayout?.axis, .horizontal)
+        XCTAssertTrue(existing.children.first === existingChild)
+        XCTAssertEqual(existingChild.text, "new child")
+        XCTAssertEqual(callbacks, ["new update", "new activation"])
+        XCTAssertTrue(existing.textInputController === nextController)
+        XCTAssertEqual(nextController.preparationCount, 1)
+        XCTAssertTrue(nextController.preparedPrevious === previousController)
+        XCTAssertTrue(nextController.reconciledPrevious === previousController)
+        XCTAssertTrue(nextController.preparedNode === existing)
+        XCTAssertTrue(nextController.reconciledNode === existing)
+        XCTAssertTrue(nextController.wasPreparedBeforeReconciliation)
+        XCTAssertFalse(previousController.wasRevoked)
+        XCTAssertFalse(previousController.didDetach)
+    }
+
+    func testSingletonLegacyTagsAndLayoutCategoriesKeepTheirMatchingPrecedence() async {
+        let layouts: [(ViewLayoutMode, ViewLayoutMode)] = [
+            (.absolute, .absolute),
+            (.stack(.vertical(spacing: 2)), .stack(.vertical(spacing: 11))),
+            (.stack(.horizontal(spacing: 3)), .stack(.horizontal(spacing: 12))),
+            (.lazyStack(.vertical(spacing: 4)), .lazyStack(.vertical(spacing: 13))),
+            (.lazyStack(.horizontal(spacing: 5)), .lazyStack(.horizontal(spacing: 14))),
+            (.flex(.init(direction: .row)), .flex(.init(direction: .column))),
+        ]
+        let tags: [(String?, String?)] = [
+            (nil, nil),
+            ("same", "same"),
+            ("before", "after"),
+            ("one-sided", nil),
+            (nil, "one-sided"),
+        ]
+
+        for (oldCategory, oldLayouts) in layouts.enumerated() {
+            for (newCategory, newLayouts) in layouts.enumerated() {
+                for (oldTag, newTag) in tags {
+                    let existing = node(tag: oldTag, text: "original")
+                    existing.layoutMode = oldLayouts.0
+                    let runtime = runtime(children: [existing])
+                    let replacement = node(tag: newTag, text: "updated")
+                    replacement.layoutMode = newLayouts.1
+                    let shouldMatch =
+                        oldTag != nil && newTag != nil ? oldTag == newTag : oldCategory == newCategory
+                    let tagContext = "\(String(describing: oldTag))/\(String(describing: newTag))"
+                    let context = "layouts \(oldCategory)/\(newCategory), tags \(tagContext)"
+
+                    reconcile(runtime.root, with: [replacement])
+
+                    XCTAssertTrue(runtime.root.children.first === (shouldMatch ? existing : replacement), context)
+                    XCTAssertEqual(existing.text, shouldMatch ? "updated" : "original", context)
+                    if shouldMatch {
+                        XCTAssertTrue(existing.parent === runtime.root, context)
+                        XCTAssertEqual(existing.nodeTag, newTag, context)
+                    } else {
+                        XCTAssertNil(existing.parent, context)
+                        assertRuntimeClockRoute(existing, through: runtime, isAttached: false, context)
+                    }
+                }
+            }
+        }
+    }
+
+    func testSingletonDepartureIsRevokedBeforeItsSurvivingParentsUpdateCallback() async {
+        let existingParent = node(identity: identity("parent"), text: "old parent")
+        let departingEditor = node(identity: identity("departing editor"))
+        let departingController = SingletonIdentityTextInputController()
+        departingEditor.textInputController = departingController
+        existingParent.addChild(departingEditor)
+        let runtime = runtime(children: [existingParent])
+        runtime.requestFocus(departingEditor)
+        var callbacks: [String] = []
+        departingEditor.onFocusExit = {
+            XCTAssertTrue(departingController.wasRevoked)
+            callbacks.append("focus exit")
+        }
+
+        let replacementParent = node(identity: identity("parent"), text: "new parent")
+        let insertedEditor = node(identity: identity("inserted editor"))
+        let insertedController = SingletonIdentityTextInputController()
+        insertedEditor.textInputController = insertedController
+        replacementParent.addChild(insertedEditor)
+        replacementParent.onUpdatePlatformView = { [weak existingParent, weak departingEditor, weak runtime] node in
+            XCTAssertTrue(node === existingParent)
+            XCTAssertTrue(departingController.wasRevoked)
+            XCTAssertTrue(departingEditor?.parent === existingParent)
+            assertRuntimeClockRoute(departingEditor, through: runtime, isAttached: true)
+            callbacks.append("parent update")
+        }
+
+        reconcile(runtime.root, with: [replacementParent])
+
+        XCTAssertEqual(callbacks, ["parent update", "focus exit"])
+        XCTAssertTrue(runtime.root.children.first === existingParent)
+        XCTAssertEqual(existingParent.text, "new parent")
+        XCTAssertTrue(existingParent.children.first === insertedEditor)
+        XCTAssertTrue(insertedEditor.parent === existingParent)
+        XCTAssertTrue(insertedController.attachedNode === insertedEditor)
+        XCTAssertFalse(insertedController.wasRevoked)
+        XCTAssertNil(departingEditor.parent)
+        assertRuntimeClockRoute(departingEditor, through: runtime, isAttached: false)
+        XCTAssertNil(runtime.focusedNode)
+        XCTAssertTrue(departingController.wasRevokedAtWillDetach)
+        XCTAssertTrue(departingController.didDetach)
+    }
+
+    func testSingletonTypedMatchingUsesEqualityWithoutHashingKeys() async {
+        for newValue in [1, 2] {
+            let operations = SingletonIdentityKeyOperations()
+            let existing = node(
+                identity: identity(SingletonCountedIdentityKey(value: 1, operations: operations)), tag: "same")
+            let runtime = runtime(children: [existing])
+            let replacement = node(
+                identity: identity(SingletonCountedIdentityKey(value: newValue, operations: operations)), tag: "same")
+
+            operations.reset()
+            reconcile(runtime.root, with: [replacement])
+            let hashCalls = operations.hashCalls
+            let equalityCalls = operations.equalityCalls
+
+            // Count only this real reconciliation, excluding setup and assertions.
+            // The keys deliberately collide; equality must still decide the claim.
+            XCTAssertEqual(hashCalls, 0)
+            XCTAssertGreaterThan(equalityCalls, 0)
+            XCTAssertTrue(runtime.root.children.first === (newValue == 1 ? existing : replacement))
+        }
+    }
+
+    func testNonSingletonCardinalityKeepsTheFullTypedClaimingPath() async {
+        let cases: [([Int], [Int], [Int])] = [
+            ([], [1], [-1]),
+            ([1], [], []),
+            ([1], [2, 1], [-1, 0]),
+            ([1, 2], [2], [1]),
+            ([1, 2], [2, 1], [1, 0]),
+        ]
+        for (oldValues, newValues, expectedClaims) in cases {
+            let operations = SingletonIdentityKeyOperations()
+            let oldNodes = oldValues.map { value in
+                node(identity: identity(SingletonCountedIdentityKey(value: value, operations: operations)), tag: "same")
+            }
+            let runtime = runtime(children: oldNodes)
+            let newNodes = newValues.map { value in
+                node(identity: identity(SingletonCountedIdentityKey(value: value, operations: operations)), tag: "same")
+            }
+
+            operations.reset()
+            reconcile(runtime.root, with: newNodes)
+            let hashCalls = operations.hashCalls
+            let expectedNodes = expectedClaims.enumerated().map { index, oldIndex in
+                oldIndex < 0 ? newNodes[index] : oldNodes[oldIndex]
+            }
+
+            XCTAssertEqual(
+                runtime.root.children.map(ObjectIdentifier.init), expectedNodes.map(ObjectIdentifier.init))
+            XCTAssertEqual(Set(runtime.root.children.map(ObjectIdentifier.init)).count, newNodes.count)
+            XCTAssertTrue(runtime.root.children.allSatisfy { $0.parent === runtime.root })
+            for child in runtime.root.children {
+                assertRuntimeClockRoute(child, through: runtime, isAttached: true)
+            }
+            if oldValues.count > 1 || newValues.count > 1 {
+                XCTAssertGreaterThan(hashCalls, 0, "Non-singleton lists must retain the existing dictionary path")
+            }
+            for oldNode in oldNodes where !expectedNodes.contains(where: { $0 === oldNode }) {
+                XCTAssertNil(oldNode.parent)
+                assertRuntimeClockRoute(oldNode, through: runtime, isAttached: false)
+            }
+        }
+    }
+
+    func testSingletonTypedAndUntypedPairsNeverHashOrClaimThroughLegacyTags() async {
+        for startsTyped in [false, true] {
+            for tag in [String?(nil), "same"] {
+                let operations = SingletonIdentityKeyOperations()
+                let viewIdentity = identity(SingletonCountedIdentityKey(value: 1, operations: operations))
+                let existing = node(identity: startsTyped ? viewIdentity : nil, tag: tag)
+                let runtime = runtime(children: [existing])
+                let replacement = node(identity: startsTyped ? nil : viewIdentity, tag: tag)
+
+                operations.reset()
+                reconcile(runtime.root, with: [replacement])
+                let hashCalls = operations.hashCalls
+                let equalityCalls = operations.equalityCalls
+
+                XCTAssertEqual(hashCalls, 0)
+                XCTAssertEqual(equalityCalls, 0, "A nil typed identity rejects before comparing key payloads")
+                XCTAssertTrue(runtime.root.children.first === replacement)
+                XCTAssertNil(existing.parent)
+                assertRuntimeClockRoute(existing, through: runtime, isAttached: false)
+            }
+        }
+    }
+
     private func identity<ID: Hashable>(_ key: ID) -> RetainedViewIdentity {
         RetainedViewIdentity(
             segments: [.view(ObjectIdentifier(RetainedIdentityOwner.self)), .role(.content), .keyed(.init(key))])
@@ -315,6 +539,29 @@ final class RetainedViewIdentityTests: XCTestCase {
     }
 }
 
+@MainActor
+private func assertRuntimeClockRoute(
+    _ node: ViewNode?, through runtime: RetainedViewRuntime?, isAttached: Bool,
+    _ message: String = "", file: StaticString = #filePath, line: UInt = #line
+) {
+    guard let node, let runtime else {
+        XCTFail("The node and its expected runtime must still be alive. \(message)", file: file, line: line)
+        return
+    }
+    let previousClock = runtime.clock
+    var clockReads = 0
+    runtime.clock = {
+        clockReads += 1
+        return 0
+    }
+    defer { runtime.clock = previousClock }
+
+    // Use the existing runtime-backed accessor instead of exposing the private
+    // runtime reference. A detached node must not consult its former clock.
+    _ = node.animationClockNow
+    XCTAssertEqual(clockReads, isAttached ? 1 : 0, message, file: file, line: line)
+}
+
 private struct RetainedIdentityOwner {}
 
 private struct RetainedIdentityFirstKey: Hashable, CustomStringConvertible {
@@ -331,4 +578,76 @@ private struct RetainedIdentitySecondKey: Hashable, CustomStringConvertible {
     let value: Int
 
     var description: String { "same" }
+}
+
+@MainActor
+private final class SingletonIdentityTextInputController: RetainedTextInputController {
+    private(set) weak var attachedNode: ViewNode?
+    private(set) weak var preparedNode: ViewNode?
+    private(set) weak var reconciledNode: ViewNode?
+    private(set) weak var preparedPrevious: (any RetainedTextInputController)?
+    private(set) weak var reconciledPrevious: (any RetainedTextInputController)?
+    private(set) var preparationCount = 0
+    private(set) var wasPreparedBeforeReconciliation = false
+    private(set) var wasRevoked = false
+    private(set) var wasRevokedAtWillDetach = false
+    private(set) var didDetach = false
+
+    func attach(to node: ViewNode) {
+        attachedNode = node
+    }
+
+    func prepareForReconciliation(from previous: (any RetainedTextInputController)?, onto node: ViewNode) {
+        preparationCount += 1
+        preparedPrevious = previous
+        preparedNode = node
+    }
+
+    func reconcile(from previous: (any RetainedTextInputController)?, onto node: ViewNode) {
+        wasPreparedBeforeReconciliation = preparationCount > 0 && preparedPrevious === previous && preparedNode === node
+        reconciledPrevious = previous
+        reconciledNode = node
+        attachedNode = node
+    }
+
+    func revokeOwnership(from node: ViewNode) {
+        // Detached construction nodes have no attached ownership to retire.
+        if attachedNode === node { wasRevoked = true }
+    }
+
+    func willDetach(from node: ViewNode) {
+        wasRevokedAtWillDetach = wasRevoked
+    }
+
+    func detach(from node: ViewNode) {
+        didDetach = true
+        attachedNode = nil
+    }
+}
+
+// Each counter belongs to one main-actor test and is never shared with another
+// test or used by production code. Hashable witnesses stay nonisolated.
+private final class SingletonIdentityKeyOperations {
+    var hashCalls = 0
+    var equalityCalls = 0
+
+    func reset() {
+        hashCalls = 0
+        equalityCalls = 0
+    }
+}
+
+private struct SingletonCountedIdentityKey: Hashable {
+    let value: Int
+    let operations: SingletonIdentityKeyOperations
+
+    static func == (lhs: SingletonCountedIdentityKey, rhs: SingletonCountedIdentityKey) -> Bool {
+        lhs.operations.equalityCalls += 1
+        return lhs.value == rhs.value
+    }
+
+    func hash(into hasher: inout Hasher) {
+        operations.hashCalls += 1
+        hasher.combine(0)
+    }
 }

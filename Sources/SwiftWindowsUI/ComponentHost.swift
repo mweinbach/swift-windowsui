@@ -9,6 +9,47 @@ public final class ComponentHost {
     private var buildComponents: (() -> [Component])?
     private var isProcessingFileDialog = false
     private var needsFileDialogProcessing = false
+    private var fileDialogLifetimeIsValid = true
+    private var fileDialogOwnerGeneration: UInt64 = 0
+    private var activeFileDialogOperation: FileDialogOperation?
+
+    /// The retained window supplies its own current HWND. Raw ComponentHost
+    /// callers retain the standalone provider behavior without global ownership.
+    package var fileDialogOwner: @MainActor () -> FileDialogOwner = { .standalone }
+
+    @MainActor
+    private final class FileDialogOperation {
+        enum Phase: Equatable {
+            case inspecting, selecting, accessingFile, resetting, completing, finished, revoked
+        }
+
+        enum Outcome {
+            case completed, cancelled, failed, revoked
+        }
+
+        let ownerGeneration: UInt64
+        let node: ViewNode
+        let presenterLease: RetainedFileDialogPresenterLease
+        var phase = Phase.inspecting
+        var outcome: Outcome?
+        var didRequestSelection = false
+
+        init(ownerGeneration: UInt64, node: ViewNode, kind: RetainedFileDialogKind) {
+            self.ownerGeneration = ownerGeneration
+            self.node = node
+            self.presenterLease = node.beginFileDialogPresentation(kind: kind)
+        }
+
+        func revoke() {
+            phase = .revoked
+            outcome = .revoked
+            presenterLease.invalidate()
+        }
+    }
+
+    private enum FileDialogOperationError: Error {
+        case revoked
+    }
     private struct ReloadRequest {
         let transaction: RetainedBuildTransaction
         let validity: (any RetainedBuildRequest)?
@@ -254,31 +295,67 @@ public final class ComponentHost {
     /// the corresponding Win32 modal dialog. Reentrant requests wait until the
     /// active operation, presentation reset, and completion callback finish.
     public func processPendingFileDialogs() {
+        guard fileDialogLifetimeIsValid else { return }
         guard !isProcessingFileDialog else {
             needsFileDialogProcessing = true
             return
         }
         isProcessingFileDialog = true
         defer { isProcessingFileDialog = false }
+        var retriedEmptyScan = false
         repeat {
             needsFileDialogProcessing = false
-            guard let (config, node) = findActiveFileDialogConfiguration(in: runtime.root) else { return }
-            presentFileDialog(config, node: node)
+            guard fileDialogLifetimeIsValid else { return }
+            if !processNextFileDialog() {
+                // A getter may replace the tree and enqueue its new presenter.
+                // Retry once without spinning on an unchanged false getter
+                // that calls this method every time it is read.
+                guard needsFileDialogProcessing, !retriedEmptyScan else { return }
+                retriedEmptyScan = true
+                continue
+            }
+            retriedEmptyScan = false
         } while needsFileDialogProcessing
     }
 
-    private func findActiveFileDialogConfiguration(in node: ViewNode) -> (FileDialogConfig, ViewNode)? {
-        if let exporter = node.fileExporterConfiguration, exporter.isPresented.wrappedValue {
-            return (.exporter(exporter), node)
+    /// Revocation precedes application teardown callbacks. It does not release
+    /// the suspended operation's payloads or allow a later request to revive it.
+    package func invalidateFileDialogRequests() {
+        guard fileDialogLifetimeIsValid else { return }
+        fileDialogLifetimeIsValid = false
+        fileDialogOwnerGeneration &+= 1
+        needsFileDialogProcessing = false
+        activeFileDialogOperation?.revoke()
+    }
+
+    private func processNextFileDialog() -> Bool {
+        guard let (config, operation) = findActiveFileDialogConfiguration(in: runtime.root) else { return false }
+        defer {
+            operation.presenterLease.invalidate()
+            if operation.phase != .revoked { operation.phase = .finished }
+            if activeFileDialogOperation === operation { activeFileDialogOperation = nil }
         }
-        if let importer = node.fileImporterConfiguration, importer.isPresented.wrappedValue {
-            return (.importer(importer), node)
-        }
-        if let importerMulti = node.fileImporterMultiConfiguration, importerMulti.isPresented.wrappedValue {
-            return (.importerMulti(importerMulti), node)
-        }
-        if let mover = node.fileMoverConfiguration, mover.isPresented.wrappedValue {
-            return (.mover(mover), node)
+        presentFileDialog(config, operation: operation)
+        return operation.didRequestSelection
+    }
+
+    private func findActiveFileDialogConfiguration(in node: ViewNode) -> (FileDialogConfig, FileDialogOperation)? {
+        guard fileDialogLifetimeIsValid, node.isFileDialogPresenter(in: runtime) else { return nil }
+        for kind in RetainedFileDialogKind.allCases {
+            guard fileDialogLifetimeIsValid, node.isFileDialogPresenter(in: runtime) else { return nil }
+            // A preceding binding getter can replace a later modifier. Read
+            // each configuration only when its own lease is about to begin.
+            guard let config = FileDialogConfig.current(kind: kind, on: node) else { continue }
+            // Install the lease before reading an application binding: even its
+            // getter can remove and reinsert this same retained presenter.
+            let operation = FileDialogOperation(
+                ownerGeneration: fileDialogOwnerGeneration, node: node, kind: config.kind)
+            activeFileDialogOperation = operation
+            if validateFileDialogPresentation(config, operation: operation) {
+                operation.phase = .selecting
+                return (config, operation)
+            }
+            if activeFileDialogOperation === operation { activeFileDialogOperation = nil }
         }
         for child in node.children {
             if let result = findActiveFileDialogConfiguration(in: child) {
@@ -288,83 +365,216 @@ public final class ComponentHost {
         return nil
     }
 
+    @MainActor
     private enum FileDialogConfig {
         case exporter(RetainedFileExporterConfiguration)
         case importer(RetainedFileImporterConfiguration)
         case importerMulti(RetainedFileImporterMultiConfiguration)
         case mover(RetainedFileMoverConfiguration)
+
+        static func current(kind: RetainedFileDialogKind, on node: ViewNode) -> FileDialogConfig? {
+            switch kind {
+            case .exporter: return node.fileExporterConfiguration.map { .exporter($0) }
+            case .importer: return node.fileImporterConfiguration.map { .importer($0) }
+            case .importerMulti: return node.fileImporterMultiConfiguration.map { .importerMulti($0) }
+            case .mover: return node.fileMoverConfiguration.map { .mover($0) }
+            }
+        }
+
+        var kind: RetainedFileDialogKind {
+            switch self {
+            case .exporter: return .exporter
+            case .importer: return .importer
+            case .importerMulti: return .importerMulti
+            case .mover: return .mover
+            }
+        }
+
+        var isPresented: Binding<Bool> {
+            switch self {
+            case .exporter(let configuration): return configuration.isPresented
+            case .importer(let configuration): return configuration.isPresented
+            case .importerMulti(let configuration): return configuration.isPresented
+            case .mover(let configuration): return configuration.isPresented
+            }
+        }
     }
 
-    private func presentFileDialog(_ config: FileDialogConfig, node: ViewNode) {
-        let title = node.fileDialogMessage
-        let defaultDirectory = node.fileDialogDefaultDirectory
+    private func isCurrentFileDialogOperation(_ operation: FileDialogOperation) -> Bool {
+        fileDialogLifetimeIsValid && operation.ownerGeneration == fileDialogOwnerGeneration
+            && activeFileDialogOperation === operation && operation.phase != .revoked && operation.phase != .finished
+    }
+
+    private func isCurrentFileDialogPresenter(_ operation: FileDialogOperation) -> Bool {
+        isCurrentFileDialogOperation(operation) && operation.presenterLease.isValid
+            && operation.node.isFileDialogPresenter(in: runtime)
+    }
+
+    private func validateFileDialogPresentation(_ config: FileDialogConfig, operation: FileDialogOperation) -> Bool {
+        guard isCurrentFileDialogPresenter(operation) else {
+            operation.revoke()
+            return false
+        }
+        let isPresented = config.isPresented.wrappedValue
+        guard isCurrentFileDialogPresenter(operation), isPresented else {
+            operation.revoke()
+            return false
+        }
+        return true
+    }
+
+    private func validateFileDialogAccess(_ config: FileDialogConfig, operation: FileDialogOperation) throws {
+        guard operation.phase == .accessingFile, validateFileDialogPresentation(config, operation: operation) else {
+            operation.revoke()
+            throw FileDialogOperationError.revoked
+        }
+    }
+
+    private func completeFileDialog(
+        _ config: FileDialogConfig,
+        operation: FileDialogOperation,
+        outcome: FileDialogOperation.Outcome,
+        completion: (@MainActor () -> Void)? = nil
+    ) {
+        guard isCurrentFileDialogPresenter(operation) else {
+            operation.revoke()
+            return
+        }
+        operation.outcome = outcome
+        operation.phase = .resetting
+        // A normal reset can remove the presenter. The captured terminal result
+        // still belongs to this operation, but a closing host cannot receive it.
+        operation.presenterLease.invalidate()
+        config.isPresented.wrappedValue = false
+        guard isCurrentFileDialogOperation(operation) else { return }
+        operation.phase = .completing
+        completion?()
+    }
+
+    private func completeFileDialog<Value>(
+        _ config: FileDialogConfig,
+        operation: FileDialogOperation,
+        result: Result<Value, Error>,
+        completion: @escaping (Result<Value, Error>) -> Void
+    ) {
+        let outcome: FileDialogOperation.Outcome
+        switch result {
+        case .success: outcome = .completed
+        case .failure: outcome = .failed
+        }
+        completeFileDialog(config, operation: operation, outcome: outcome) {
+            completion(result)
+        }
+    }
+
+    private func presentFileDialog(_ config: FileDialogConfig, operation: FileDialogOperation) {
+        let title = operation.node.fileDialogMessage
+        let defaultDirectory = operation.node.fileDialogDefaultDirectory
+        guard validateFileDialogPresentation(config, operation: operation) else { return }
+        let owner = fileDialogOwner()
+        guard validateFileDialogPresentation(config, operation: operation) else { return }
+        operation.didRequestSelection = true
         switch config {
         case .exporter(let exporter):
-            let url = FileDialogManager.showSaveFileDialog(
+            let selection = FileDialogManager.saveFileDialogOutcome(
                 defaultFilename: exporter.defaultFilename,
                 allowedExtensions: FileDialogManager.fileExtensions(forContentTypes: [exporter.contentType]),
                 defaultDirectory: defaultDirectory,
-                title: title
+                title: title,
+                owner: owner
             )
-            guard let url else {
-                // SwiftUI dismisses a canceled exporter without calling completion.
-                exporter.isPresented.wrappedValue = false
-                return
+            guard validateFileDialogPresentation(config, operation: operation) else { return }
+            switch selection {
+            case .cancelled:
+                completeFileDialog(config, operation: operation, outcome: .cancelled)
+            case .failed(let error):
+                completeFileDialog(
+                    config, operation: operation, result: .failure(error), completion: exporter.onCompletion)
+            case .selected(let url):
+                operation.phase = .accessingFile
+                let result: Result<URL, Error> = Result {
+                    try exporter.write(to: url) {
+                        try self.validateFileDialogAccess(config, operation: operation)
+                    }
+                    return url
+                }
+                completeFileDialog(config, operation: operation, result: result, completion: exporter.onCompletion)
             }
-            let result: Result<URL, Error> = Result {
-                try exporter.write(to: url)
-                return url
-            }
-            // Keep this operation's document and completion through any rebuild
-            // caused by resetting presentation. Success already means saved bytes.
-            exporter.isPresented.wrappedValue = false
-            exporter.onCompletion(result)
 
         case .importer(let importer):
-            let urls = FileDialogManager.showOpenFileDialog(
+            let selection = FileDialogManager.openFileDialogOutcome(
                 allowedExtensions: FileDialogManager.fileExtensions(forContentTypes: importer.allowedContentTypes),
                 allowsMultipleSelection: false,
                 defaultDirectory: defaultDirectory,
-                title: title
+                title: title,
+                owner: owner
             )
-            importer.isPresented.wrappedValue = false
-            if let url = urls.first {
-                importer.onCompletion(.success(url))
-            } else {
-                importer.onCompletion(.failure(fileDialogCancellationError()))
+            guard validateFileDialogPresentation(config, operation: operation) else { return }
+            switch selection {
+            case .selected(let urls):
+                let result: Result<URL, Error> =
+                    urls.first.map(Result.success) ?? .failure(FileDialogError.invalidSelection)
+                completeFileDialog(config, operation: operation, result: result, completion: importer.onCompletion)
+            case .cancelled:
+                let error = fileDialogCancellationError()
+                completeFileDialog(config, operation: operation, outcome: .cancelled) {
+                    importer.onCompletion(.failure(error))
+                }
+            case .failed(let error):
+                completeFileDialog(
+                    config, operation: operation, result: .failure(error), completion: importer.onCompletion)
             }
 
         case .importerMulti(let importerMulti):
-            let urls = FileDialogManager.showOpenFileDialog(
+            let selection = FileDialogManager.openFileDialogOutcome(
                 allowedExtensions: FileDialogManager.fileExtensions(
                     forContentTypes: importerMulti.allowedContentTypes),
                 allowsMultipleSelection: importerMulti.allowsMultipleSelection,
                 defaultDirectory: defaultDirectory,
-                title: title
+                title: title,
+                owner: owner
             )
-            importerMulti.isPresented.wrappedValue = false
-            if !urls.isEmpty {
-                importerMulti.onCompletion(.success(urls))
-            } else {
-                importerMulti.onCompletion(.failure(fileDialogCancellationError()))
+            guard validateFileDialogPresentation(config, operation: operation) else { return }
+            switch selection {
+            case .selected(let urls):
+                let result: Result<[URL], Error> =
+                    urls.isEmpty ? .failure(FileDialogError.invalidSelection) : .success(urls)
+                completeFileDialog(config, operation: operation, result: result, completion: importerMulti.onCompletion)
+            case .cancelled:
+                let error = fileDialogCancellationError()
+                completeFileDialog(config, operation: operation, outcome: .cancelled) {
+                    importerMulti.onCompletion(.failure(error))
+                }
+            case .failed(let error):
+                completeFileDialog(
+                    config, operation: operation, result: .failure(error), completion: importerMulti.onCompletion)
             }
 
         case .mover(let mover):
-            let url = FileDialogManager.showSaveFileDialog(
+            let selection = FileDialogManager.saveFileDialogOutcome(
                 defaultFilename: mover.file.lastPathComponent,
                 defaultDirectory: defaultDirectory,
-                title: title
+                title: title,
+                owner: owner
             )
-            mover.isPresented.wrappedValue = false
-            if let destination = url {
-                do {
+            guard validateFileDialogPresentation(config, operation: operation) else { return }
+            switch selection {
+            case .selected(let destination):
+                operation.phase = .accessingFile
+                let result: Result<URL, Error> = Result {
+                    try validateFileDialogAccess(config, operation: operation)
                     try FileManager.default.moveItem(at: mover.file, to: destination)
-                    mover.onCompletion(.success(destination))
-                } catch {
+                    return destination
+                }
+                completeFileDialog(config, operation: operation, result: result, completion: mover.onCompletion)
+            case .cancelled:
+                let error = fileDialogCancellationError()
+                completeFileDialog(config, operation: operation, outcome: .cancelled) {
                     mover.onCompletion(.failure(error))
                 }
-            } else {
-                mover.onCompletion(.failure(fileDialogCancellationError()))
+            case .failed(let error):
+                completeFileDialog(
+                    config, operation: operation, result: .failure(error), completion: mover.onCompletion)
             }
         }
     }
@@ -547,6 +757,7 @@ public final class ComponentHost {
     }
 
     private static func revokeDepartingTextInputOwnership(source: ViewNode, target: ViewNode) {
+        target.revokeFileDialogPresentation(ifAbsentFrom: source)
         if let controller = source.textInputController {
             controller.prepareForReconciliation(from: target.textInputController, onto: target)
         } else {
@@ -694,6 +905,7 @@ public final class ComponentHost {
     /// Copy visual / layout properties from `source` onto `target`, keeping
     /// `target`'s identity (parent, runtime, callbacks) intact.
     private static func updateNodeProperties(target: ViewNode, source: ViewNode) {
+        defer { target.finishFileDialogConfigurationAdoption() }
         let oldFrame = target.frame
         let oldOpacity = target.opacity
         let oldBackgroundColor = target.backgroundColor

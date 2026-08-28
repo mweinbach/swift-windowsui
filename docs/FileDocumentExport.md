@@ -45,6 +45,39 @@ subsequent export. This is the retained runtime's policy; native behavior for
 document mutations while the modal panel is open has not been qualified.
 Successful export also does not mark a subsequently edited document clean.
 
+Each selected operation has a window-owner lifetime and a presenter lease.
+Closing the host or removing the presenting node or modifier revokes that
+operation before it can serialize, write, move, or reset an obsolete binding.
+Reinserting the same node or configuration does not revive the old lease.
+Departing presenters cannot start fresh dialogs from teardown callbacks;
+legitimate reattachment permits a new request. Export checks ownership both
+before and after the application's serializer, so a serializer that reenters
+teardown cannot overwrite the destination afterward.
+
+A normal presentation reset may itself remove the view. Once the operation
+has finished its file work, that reset still precedes its captured completion.
+Closing the host during reset suppresses the late completion. It cannot undo
+bytes already written. The retained file mover likewise performs the selected
+move before resetting presentation, rather than letting reset callbacks run
+before the filesystem operation. These rules do not add document sessions,
+dirty checkpoints, or unsaved-close approval.
+
+Retained windows send their own current HWND with a native dialog request.
+The Win32 provider rejects a missing hosted handle instead of choosing a
+different active window. Standalone callers retain the active-window fallback.
+The public `FileDialogProvider` methods remain source-compatible; custom legacy
+providers still receive their original arguments, so they cannot establish the
+new native-owner or error distinctions through those methods alone. Headless
+providers remain usable without creating a native window.
+
+The native provider distinguishes cancellation from failure by reading
+`CommDlgExtendedError` immediately after a failed common-dialog call. Export
+cancellation still resets presentation without completion; native failure now
+delivers a failure result. Import and move retain their cancellation-failure
+callbacks, separately from native failure. Invalid native selection buffers
+also fail explicitly. No native dialog appears in the synthetic tests for
+these paths. See the [common-dialog error contract](https://learn.microsoft.com/en-us/windows/win32/api/commdlg/nf-commdlg-commdlgextendederror).
+
 Directory/package wrappers, wrappers without regular-file data, mixed
 directory/data wrappers, multiple documents, `ReferenceFileDocument`, and
 `Transferable` export remain unsupported. They must not report successful
@@ -68,6 +101,13 @@ unchanged original bytes after encoding/read-only-destination failures,
 directory-destination failure, empty-file export, cancellation, content-type
 selection, nil documents, reconciliation, and chained dialogs.
 `FileDialogIntegrationTests` also verifies written bytes and dialog filters.
+`FileDialogOwnershipTests` covers modal, serializer, getter, reset, and teardown
+reentry across import, multi-import, export, and move. It preserves old bytes
+when a request is revoked before IO and checks captured completion and queued
+request behavior. `FileDialogOutcomeTests` injects the native call and immediate
+error/owner dependencies to distinguish cancellation, failure, and ownership
+without showing a panel. This is deterministic source-path coverage, not native
+dialog or complete document-lifecycle qualification.
 Every filesystem destination returned by an exporter mock is inside a fresh UUID directory under OS
 temp, with cleanup restricted to that owned directory. The tests use no
 hardcoded user or example save paths.

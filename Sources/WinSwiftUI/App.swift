@@ -2587,6 +2587,9 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         self.currentBatchRecoveryInterval = recoveryPolicy.initialRetryInterval
 
         runtime.setRootSize(WinSwiftUIWindowHost.initialClientSize(for: configuration))
+        componentHost.fileDialogOwner = { [weak window] in
+            .hostedWindow(window)
+        }
         componentHost.buildLifecycle = stateMountCoordinator
         componentHost.measureBuild = { [weak self] build in
             guard let self else {
@@ -2633,6 +2636,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     isolated deinit {
         if !hasTornDownWindow {
             hasTornDownWindow = true
+            componentHost.invalidateFileDialogRequests()
             runtime.stopRenderLifecycleCallbacks()
             let textInputTeardown = prepareTextInputUndoForWindowClose(in: runtime)
             stateMountCoordinator.close()
@@ -3253,6 +3257,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     func windowWillClose(_ window: Win32Window) {
         guard !hasTornDownWindow else { return }
         hasTornDownWindow = true
+        componentHost.invalidateFileDialogRequests()
         runtime.stopRenderLifecycleCallbacks()
         // Revoke every capability before any ownership cleanup releases
         // application payloads that may reenter undo or escaped State bindings.

@@ -2919,3 +2919,60 @@ The code validation above belongs to `580718b`, and hosted CI must run against
 the exact delivered commit before any current hosted result is claimed. The
 original sections 1–9, their fingerprint, all nine open completion gates, the
 pinned API baseline, and the published performance targets remain unchanged.
+
+### Sixth batch: dialog owner lifetime and terminal results
+
+The fifth batch was pushed together as 23 commits at
+`9f983e633b80da2591567d78c37913e6632611ca`. Its fresh Windows RGB collection
+completed there with three healthy observer reports and unchanged source,
+tools, and executable observations. The successful release build reused the
+unchanged incremental binary; this was a new collection with new processes,
+not a cold recompilation. The final packet has SHA-256
+`e349065efdfe1288705f009519ef7cb9e55ae70b2702b3a9331bb3043af87ba5` at
+`artifacts/goal-fifth-rgb-windows-9f983e6/capture.json`. A separate read-only audit
+verified its 240 referenced files, 167 source entries, 25 commands, and all 300
+finite Float observations. Repetitions and the earlier Windows packet agree
+exactly by value and bits; no native pairing or qualification follows.
+
+The first sixth-batch slice now binds file dialogs to their retained owner and
+presenter lifetime. Hosted requests use that window's handle and do not fall
+back to another active window. Internal outcomes distinguish cancellation,
+native failure, and a valid selection; existing URL-only providers retain their
+documented compatibility behavior. Native extended-error lookup occurs directly
+after a false common-dialog result, while its buffers remain alive.
+
+An admitted operation retains its configuration across the modal call, file
+access, presentation reset, and captured completion. Owner close, presenter
+removal, or removal/reinsertion revokes the old request before later file writes
+or callbacks. A normal reset may remove its presenter without discarding an
+already-completed result, but a closed owner cannot receive that callback.
+Filesystem effects finish before reset/completion; failed or revoked work does
+not pretend that bytes were saved. Reentrant empty scans are bounded.
+
+Root replay verified all six prepared native-close patches against `9f983e6`,
+with the updated goal as the only difference from their `580718b` source base.
+The intake receipt is `artifacts/goal-sixth-native-intake-9f983e6/intake.json`,
+SHA-256 `a6cf7b2c36d5e69952376aa0f02274d0e894400290bbbd099f700ad241b594fe`.
+Only the first dialog patch is integrated at this point. Its staged tree
+`2a2b7e7f55267cdf10820a299cad0348dc62fd92` matches the reviewed replay exactly;
+the later close-control, settlement, and host increments are still pending.
+
+The first focused attempt failed in an ignored PowerShell orchestration wrapper:
+normal compiler progress on stderr became a terminating NativeCommandError under
+its Stop preference. Its partial log and source receipt are preserved, with no
+complete child exit receipt and no passing-test credit. The replacement wrapper
+captures the actual child's stdout/stderr directly to a file and records its
+exit code. No production or test source changed between those two attempts.
+
+The complete rerun passes 109 distinct XCTest cases across eight selected targets
+and six serial invocations, with no failures or skips. These include all 42 new
+dialog cases and 67 existing file-dialog, export, buffer, and integration cases.
+The sharded selector also included the existing `IntegrationTests` class; its
+22 executed cases are reported explicitly in that total. The log is
+`artifacts/goal-sixth-dialog-tests-v2.log`, SHA-256
+`add07abc4a54a24ecef49fa33e7a90fbb7360fb335c6d65e7f3754c968e3f0d2`.
+The actual child returned zero; staged tree, index bytes, Git status, and recorded
+input hashes remained unchanged during execution. All seven changed Swift files
+pass strict lint and contracts. This is focused working-source evidence, not
+sixth-batch Full/Quick, an interactive common-dialog smoke test, or a completed
+document workflow. The original nine product gates remain open.

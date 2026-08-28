@@ -196,6 +196,29 @@ public struct RetainedListItemTint: Sendable, Equatable {
         self.kind = kind
     }
 }
+enum RetainedFileDialogKind: UInt8, CaseIterable {
+    case exporter = 1
+    case importer = 2
+    case importerMulti = 4
+    case mover = 8
+}
+
+/// A selected native dialog cannot regain ownership after its presenter leaves,
+/// even when the same raw node is inserted again before the modal call returns.
+@MainActor
+final class RetainedFileDialogPresenterLease {
+    let kind: RetainedFileDialogKind
+    private(set) var isValid = true
+
+    init(kind: RetainedFileDialogKind) {
+        self.kind = kind
+    }
+
+    func invalidate() {
+        isValid = false
+    }
+}
+
 public struct RetainedFileExporterConfiguration {
     public var isPresented: Binding<Bool>
     public var document: Any?
@@ -3422,10 +3445,37 @@ public final class ViewNode {
         set { setDropHandler(newValue, at: \.makeDragPayload) }
     }
     public var commandHandlers: [String: () -> Void] = [:]
-    public var fileExporterConfiguration: RetainedFileExporterConfiguration?
-    public var fileImporterConfiguration: RetainedFileImporterConfiguration?
-    public var fileImporterMultiConfiguration: RetainedFileImporterMultiConfiguration?
-    public var fileMoverConfiguration: RetainedFileMoverConfiguration?
+    private weak var fileDialogPresenterLease: RetainedFileDialogPresenterLease?
+    private var fileDialogPresenterIsDeparting = false
+    private var fileDialogPreparedRevocations: UInt8 = 0
+    public var fileExporterConfiguration: RetainedFileExporterConfiguration? {
+        willSet {
+            if newValue == nil, fileDialogPresenterLease?.kind == .exporter {
+                fileDialogPresenterLease?.invalidate()
+            }
+        }
+    }
+    public var fileImporterConfiguration: RetainedFileImporterConfiguration? {
+        willSet {
+            if newValue == nil, fileDialogPresenterLease?.kind == .importer {
+                fileDialogPresenterLease?.invalidate()
+            }
+        }
+    }
+    public var fileImporterMultiConfiguration: RetainedFileImporterMultiConfiguration? {
+        willSet {
+            if newValue == nil, fileDialogPresenterLease?.kind == .importerMulti {
+                fileDialogPresenterLease?.invalidate()
+            }
+        }
+    }
+    public var fileMoverConfiguration: RetainedFileMoverConfiguration? {
+        willSet {
+            if newValue == nil, fileDialogPresenterLease?.kind == .mover {
+                fileDialogPresenterLease?.invalidate()
+            }
+        }
+    }
     public var inspectorColumnWidth: Double?
     public var inspectorColumnWidthFraction: Double?
     public var inspectorColumnWidthMin: Double?
@@ -4487,16 +4537,67 @@ public final class ViewNode {
         var pending = [self]
         while let node = pending.popLast() {
             pending.append(contentsOf: node.children)
+            // File dialogs share the same departure boundary: a callback in an
+            // earlier branch must not use a later departing presenter's lease.
+            node.fileDialogPresenterIsDeparting = true
+            node.fileDialogPresenterLease?.invalidate()
             node.textInputController?.revokeOwnership(from: node)
         }
     }
 
+    func beginFileDialogPresentation(kind: RetainedFileDialogKind) -> RetainedFileDialogPresenterLease {
+        fileDialogPresenterLease?.invalidate()
+        let lease = RetainedFileDialogPresenterLease(kind: kind)
+        if fileDialogPresenterIsDeparting || (fileDialogPreparedRevocations & kind.rawValue) != 0 {
+            lease.invalidate()
+        }
+        fileDialogPresenterLease = lease
+        return lease
+    }
+
+    func isFileDialogPresenter(in expectedRuntime: RetainedViewRuntime) -> Bool {
+        guard !fileDialogPresenterIsDeparting, runtime === expectedRuntime else { return false }
+        var ancestor: ViewNode? = self
+        while let node = ancestor {
+            if node === expectedRuntime.root { return true }
+            ancestor = node.parent
+        }
+        return false
+    }
+
+    /// Called during adoption preparation, before any departing payload can run
+    /// application code. Compatible configuration refreshes keep the operation
+    /// snapshot; removing that modifier revokes it immediately.
+    func revokeFileDialogPresentation(ifAbsentFrom source: ViewNode) {
+        if fileExporterConfiguration != nil, source.fileExporterConfiguration == nil {
+            fileDialogPreparedRevocations |= RetainedFileDialogKind.exporter.rawValue
+        }
+        if fileImporterConfiguration != nil, source.fileImporterConfiguration == nil {
+            fileDialogPreparedRevocations |= RetainedFileDialogKind.importer.rawValue
+        }
+        if fileImporterMultiConfiguration != nil, source.fileImporterMultiConfiguration == nil {
+            fileDialogPreparedRevocations |= RetainedFileDialogKind.importerMulti.rawValue
+        }
+        if fileMoverConfiguration != nil, source.fileMoverConfiguration == nil {
+            fileDialogPreparedRevocations |= RetainedFileDialogKind.mover.rawValue
+        }
+        if let lease = fileDialogPresenterLease, (fileDialogPreparedRevocations & lease.kind.rawValue) != 0 {
+            lease.invalidate()
+        }
+    }
+
+    func finishFileDialogConfigurationAdoption() {
+        fileDialogPreparedRevocations = 0
+    }
+
     fileprivate func setRuntime(_ runtime: RetainedViewRuntime?, hasRevokedTextInputOwnership: Bool = false) {
+        let didChangeRuntime = self.runtime !== runtime
         let isLeavingRuntime = self.runtime != nil && self.runtime !== runtime
         if isLeavingRuntime, !hasRevokedTextInputOwnership {
             revokeTextInputOwnership()
         }
-        if self.runtime !== runtime {
+        if didChangeRuntime {
+            fileDialogPresenterLease?.invalidate()
             if let state = scrollContainerState { state.attachmentGeneration &+= 1 }
             self.runtime?.unregisterScrollObservationNode(self)
             scrollObserverStorage?.reset()
@@ -4517,6 +4618,10 @@ public final class ViewNode {
             runtime?.registerAnimatingNode(self)
         }
         self.runtime = runtime
+        if runtime != nil, didChangeRuntime {
+            fileDialogPresenterIsDeparting = false
+            fileDialogPreparedRevocations = 0
+        }
         if runtime != nil {
             textInputController?.attach(to: self)
         }

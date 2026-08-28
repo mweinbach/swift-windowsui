@@ -23,9 +23,93 @@ public protocol FileDialogProvider: AnyObject {
     ) -> URL?
 }
 
+/// Internal callers distinguish a dismissed panel from a native failure.
+/// The public provider keeps its original URL-only compatibility surface.
+package enum FileDialogOutcome<Selection> {
+    case selected(Selection)
+    case cancelled
+    case failed(Error)
+}
+
+/// Standalone callers retain the active-window behavior. A hosted request
+/// must never fall back to another window when its own handle is absent.
+package enum FileDialogOwner {
+    case standalone
+    case hosted(HWND?)
+
+    @MainActor
+    package static func hostedWindow(_ window: Win32Window?) -> FileDialogOwner {
+        guard let handle = window?.nativeHandle else { return .hosted(nil) }
+        return .hosted(HWND(bitPattern: Int(bitPattern: handle.rawValue)))
+    }
+}
+
+package enum FileDialogError: Error, LocalizedError, Sendable, Equatable {
+    case ownerUnavailable
+    case nativeFailure(UInt32)
+    case invalidSelection
+
+    package var errorDescription: String? {
+        switch self {
+        case .ownerUnavailable:
+            return "The window requesting this file dialog is no longer available."
+        case .nativeFailure(let code):
+            return "Windows could not complete the file dialog (common-dialog error \(code))."
+        case .invalidSelection:
+            return "The file dialog returned an invalid selection."
+        }
+    }
+}
+
+/// Package callers can opt in to explicit ownership and error delivery.
+/// Existing custom FileDialogProvider conformers do not need to change.
+@MainActor
+package protocol FileDialogOutcomeProvider: FileDialogProvider {
+    func openFileDialogOutcome(
+        allowedExtensions: [String]?,
+        allowsMultipleSelection: Bool,
+        defaultDirectory: URL?,
+        title: String?,
+        owner: FileDialogOwner
+    ) -> FileDialogOutcome<[URL]>
+
+    func saveFileDialogOutcome(
+        defaultFilename: String?,
+        allowedExtensions: [String]?,
+        defaultDirectory: URL?,
+        title: String?,
+        owner: FileDialogOwner
+    ) -> FileDialogOutcome<URL>
+}
+
 /// Live Win32 common-dialog provider.
-public final class Win32FileDialogProvider: FileDialogProvider {
-    public init() {}
+@MainActor
+public final class Win32FileDialogProvider: FileDialogOutcomeProvider {
+    private let openDialog: @MainActor (inout OPENFILENAMEW) -> Bool
+    private let saveDialog: @MainActor (inout OPENFILENAMEW) -> Bool
+    private let extendedError: @MainActor () -> DWORD
+    private let activeWindow: @MainActor () -> HWND?
+
+    public init() {
+        openDialog = { GetOpenFileNameW(&$0) }
+        saveDialog = { GetSaveFileNameW(&$0) }
+        extendedError = { CommDlgExtendedError() }
+        activeWindow = { GetActiveWindow() }
+    }
+
+    /// Tests inject only the native invocation and its immediate dependencies;
+    /// all configuration, buffer ownership, and result handling stay real.
+    init(
+        openDialog: @escaping @MainActor (inout OPENFILENAMEW) -> Bool,
+        saveDialog: @escaping @MainActor (inout OPENFILENAMEW) -> Bool,
+        extendedError: @escaping @MainActor () -> DWORD,
+        activeWindow: @escaping @MainActor () -> HWND?
+    ) {
+        self.openDialog = openDialog
+        self.saveDialog = saveDialog
+        self.extendedError = extendedError
+        self.activeWindow = activeWindow
+    }
 
     public func showOpenFileDialog(
         allowedExtensions: [String]?,
@@ -33,26 +117,16 @@ public final class Win32FileDialogProvider: FileDialogProvider {
         defaultDirectory: URL?,
         title: String?
     ) -> [URL] {
-        var buffer = [WCHAR](repeating: 0, count: 4096)
-        let flags: DWORD =
-            allowsMultipleSelection
-            ? DWORD(OFN_ALLOWMULTISELECT | OFN_FILEMUSTEXIST | OFN_EXPLORER)
-            : DWORD(OFN_FILEMUSTEXIST | OFN_EXPLORER)
-
-        let result = Self.withConfiguredDialog(
-            fileBuffer: &buffer,
-            allowedExtensions: allowedExtensions,
-            defaultDirectory: defaultDirectory,
-            title: title,
-            flags: flags
-        ) { configuration in
-            GetOpenFileNameW(&configuration)
-        }
-        guard result else {
-            return []
-        }
-
-        return Self.selectedFileURLs(from: buffer, allowsMultipleSelection: allowsMultipleSelection)
+        guard
+            case .selected(let urls) = openFileDialogOutcome(
+                allowedExtensions: allowedExtensions,
+                allowsMultipleSelection: allowsMultipleSelection,
+                defaultDirectory: defaultDirectory,
+                title: title,
+                owner: .standalone
+            )
+        else { return [] }
+        return urls
     }
 
     public func showSaveFileDialog(
@@ -61,6 +135,50 @@ public final class Win32FileDialogProvider: FileDialogProvider {
         defaultDirectory: URL?,
         title: String?
     ) -> URL? {
+        guard
+            case .selected(let url) = saveFileDialogOutcome(
+                defaultFilename: defaultFilename,
+                allowedExtensions: allowedExtensions,
+                defaultDirectory: defaultDirectory,
+                title: title,
+                owner: .standalone
+            )
+        else { return nil }
+        return url
+    }
+
+    package func openFileDialogOutcome(
+        allowedExtensions: [String]? = nil,
+        allowsMultipleSelection: Bool = false,
+        defaultDirectory: URL? = nil,
+        title: String? = nil,
+        owner: FileDialogOwner = .standalone
+    ) -> FileDialogOutcome<[URL]> {
+        var buffer = [WCHAR](repeating: 0, count: 4096)
+        let flags: DWORD =
+            allowsMultipleSelection
+            ? DWORD(OFN_ALLOWMULTISELECT | OFN_FILEMUSTEXIST | OFN_EXPLORER)
+            : DWORD(OFN_FILEMUSTEXIST | OFN_EXPLORER)
+
+        return performDialog(
+            fileBuffer: &buffer,
+            allowedExtensions: allowedExtensions,
+            allowsMultipleSelection: allowsMultipleSelection,
+            defaultDirectory: defaultDirectory,
+            title: title,
+            flags: flags,
+            owner: owner,
+            perform: openDialog
+        )
+    }
+
+    package func saveFileDialogOutcome(
+        defaultFilename: String? = nil,
+        allowedExtensions: [String]? = nil,
+        defaultDirectory: URL? = nil,
+        title: String? = nil,
+        owner: FileDialogOwner = .standalone
+    ) -> FileDialogOutcome<URL> {
         var buffer = [WCHAR](repeating: 0, count: 4096)
 
         if let defaultFilename = defaultFilename {
@@ -69,20 +187,72 @@ public final class Win32FileDialogProvider: FileDialogProvider {
             }
         }
 
-        let result = Self.withConfiguredDialog(
+        let result = performDialog(
             fileBuffer: &buffer,
+            allowedExtensions: allowedExtensions,
+            allowsMultipleSelection: false,
+            defaultDirectory: defaultDirectory,
+            title: title,
+            flags: DWORD(OFN_OVERWRITEPROMPT | OFN_EXPLORER),
+            owner: owner,
+            perform: saveDialog
+        )
+        switch result {
+        case .selected(let urls):
+            guard let url = urls.first else { return .failed(FileDialogError.invalidSelection) }
+            return .selected(url)
+        case .cancelled:
+            return .cancelled
+        case .failed(let error):
+            return .failed(error)
+        }
+    }
+
+    private func performDialog(
+        fileBuffer: inout [WCHAR],
+        allowedExtensions: [String]?,
+        allowsMultipleSelection: Bool,
+        defaultDirectory: URL?,
+        title: String?,
+        flags: DWORD,
+        owner: FileDialogOwner,
+        perform: @MainActor (inout OPENFILENAMEW) -> Bool
+    ) -> FileDialogOutcome<[URL]> {
+        let ownerHandle: HWND?
+        switch owner {
+        case .standalone:
+            ownerHandle = activeWindow()
+        case .hosted(let handle):
+            guard let handle else { return .failed(FileDialogError.ownerUnavailable) }
+            ownerHandle = handle
+        }
+
+        let result: FileDialogOutcome<Void> = Self.withConfiguredDialog(
+            fileBuffer: &fileBuffer,
             allowedExtensions: allowedExtensions,
             defaultDirectory: defaultDirectory,
             title: title,
-            flags: DWORD(OFN_OVERWRITEPROMPT | OFN_EXPLORER)
+            flags: flags,
+            ownerHandle: ownerHandle
         ) { configuration in
-            GetSaveFileNameW(&configuration)
+            guard perform(&configuration) else {
+                // CommDlgExtendedError is meaningful only after FALSE. Sample
+                // it immediately, before buffer cleanup or any other callback.
+                let code = extendedError()
+                return code == 0 ? .cancelled : .failed(FileDialogError.nativeFailure(code))
+            }
+            return .selected(())
         }
-        guard result else {
-            return nil
+        switch result {
+        case .selected:
+            let urls = Self.selectedFileURLs(from: fileBuffer, allowsMultipleSelection: allowsMultipleSelection)
+            guard !urls.isEmpty else { return .failed(FileDialogError.invalidSelection) }
+            return .selected(urls)
+        case .cancelled:
+            return .cancelled
+        case .failed(let error):
+            return .failed(error)
         }
-
-        return Self.selectedFileURLs(from: buffer, allowsMultipleSelection: false).first
     }
 
     /// Keeps every pointer in `OPENFILENAMEW` valid throughout the synchronous
@@ -94,7 +264,8 @@ public final class Win32FileDialogProvider: FileDialogProvider {
         defaultDirectory: URL?,
         title: String?,
         flags: DWORD,
-        perform: (inout OPENFILENAMEW) -> Result
+        ownerHandle: HWND? = nil,
+        perform: @MainActor (inout OPENFILENAMEW) -> Result
     ) -> Result {
         let titleBuffer: [WCHAR] = title.map { Array($0.utf16) + [0] } ?? []
         let directoryBuffer: [WCHAR] = defaultDirectory.map { Array($0.path.utf16) + [0] } ?? []
@@ -106,7 +277,7 @@ public final class Win32FileDialogProvider: FileDialogProvider {
                     filterBuffer.withUnsafeBufferPointer { filterPointer in
                         var configuration = OPENFILENAMEW()
                         configuration.lStructSize = DWORD(MemoryLayout<OPENFILENAMEW>.size)
-                        configuration.hwndOwner = GetActiveWindow()
+                        configuration.hwndOwner = ownerHandle
                         configuration.lpstrFile = filePointer.baseAddress
                         configuration.nMaxFile = DWORD(filePointer.count)
                         configuration.lpstrTitle = titlePointer.isEmpty ? nil : titlePointer.baseAddress
@@ -221,6 +392,65 @@ public enum FileDialogManager {
             defaultDirectory: defaultDirectory,
             title: title
         )
+    }
+
+    package static func openFileDialogOutcome(
+        allowedExtensions: [String]? = nil,
+        allowsMultipleSelection: Bool = false,
+        defaultDirectory: URL? = nil,
+        title: String? = nil,
+        owner: FileDialogOwner = .standalone
+    ) -> FileDialogOutcome<[URL]> {
+        if let provider = provider as? any FileDialogOutcomeProvider {
+            return provider.openFileDialogOutcome(
+                allowedExtensions: allowedExtensions,
+                allowsMultipleSelection: allowsMultipleSelection,
+                defaultDirectory: defaultDirectory,
+                title: title,
+                owner: owner
+            )
+        }
+
+        // Legacy custom providers have no owner or error channel. Preserve
+        // their behavior (including headless test providers) without claiming
+        // native ownership or error qualification for this fallback.
+        let urls = provider.showOpenFileDialog(
+            allowedExtensions: allowedExtensions,
+            allowsMultipleSelection: allowsMultipleSelection,
+            defaultDirectory: defaultDirectory,
+            title: title
+        )
+        return urls.isEmpty ? .cancelled : .selected(urls)
+    }
+
+    package static func saveFileDialogOutcome(
+        defaultFilename: String? = nil,
+        allowedExtensions: [String]? = nil,
+        defaultDirectory: URL? = nil,
+        title: String? = nil,
+        owner: FileDialogOwner = .standalone
+    ) -> FileDialogOutcome<URL> {
+        if let provider = provider as? any FileDialogOutcomeProvider {
+            return provider.saveFileDialogOutcome(
+                defaultFilename: defaultFilename,
+                allowedExtensions: allowedExtensions,
+                defaultDirectory: defaultDirectory,
+                title: title,
+                owner: owner
+            )
+        }
+
+        // As for open, nil from an old provider cannot distinguish a user
+        // cancellation from a provider failure; no error is fabricated.
+        guard
+            let url = provider.showSaveFileDialog(
+                defaultFilename: defaultFilename,
+                allowedExtensions: allowedExtensions,
+                defaultDirectory: defaultDirectory,
+                title: title
+            )
+        else { return .cancelled }
+        return .selected(url)
     }
 
     public static func moveToRecycleBin(fileURLs: [URL]) {

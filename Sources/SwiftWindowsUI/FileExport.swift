@@ -27,7 +27,8 @@ public enum RetainedFileExportError: Error, LocalizedError, Sendable, Equatable 
 
 extension RetainedFileExporterConfiguration {
     @MainActor
-    func write(to destination: URL) throws {
+    func write(to destination: URL, validate: @MainActor () throws -> Void = {}) throws {
+        try validate()
         guard destination.isFileURL else {
             throw RetainedFileExportError.invalidDestination
         }
@@ -41,6 +42,9 @@ extension RetainedFileExporterConfiguration {
         // Finish serialization before Foundation touches the destination. Atomic
         // writing replaces it only after the auxiliary file has been written.
         let data = try dataProvider(destination)
+        // Serialization is application code and may close the owning window or
+        // remove the presenter while the native modal operation is suspended.
+        try validate()
         try data.write(to: destination, options: .atomic)
     }
 }

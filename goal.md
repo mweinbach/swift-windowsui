@@ -3145,3 +3145,44 @@ their original Git content; the two explicitly recorded earlier fixture
 overlays remain the only imported-source differences apart from this goal.
 Layout receipts and final native host integration remain unfinished, and none
 of the original nine acceptance gates is closed by this focused result.
+
+### Sixth batch: bounded layout evidence for close finalization
+
+Build settlement is committed as `9bfcae2`. The runtime now records a receipt
+only after one bounded layout resolution establishes current geometry. The
+receipt carries a runtime-specific identity plus checked geometry and
+resolution generations, without retaining the runtime or application payloads.
+Later layout/child invalidation, a new resolution, nested resolution, truncated
+traversal, unresolved positive-size GeometryReader slots, or pending deferred
+layout work cannot reuse an earlier receipt. Generation exhaustion remains
+permanently unavailable rather than wrapping into a valid old identity.
+
+Final receipt validation reads stored identity and scalar state; it does not
+run layout, application callbacks, reader bodies, lease getters, or key hashing.
+Paint-only changes do not manufacture a geometry change. Build settlement is
+still a separate condition, and a bounded attempt that cannot establish layout
+evidence must not turn into an inline retry loop. Silent arbitrary replacement
+of raw layout callback metadata is outside this receipt's stated guarantee.
+The final host increment, including its additional build-history and managed
+GeometryReader corrections, is still pending.
+
+The first focused run passes 93 distinct XCTest cases over four targets and
+six serial invocations: all 34 new layout/finalization cases, 34 settlement
+cases, seven GeometryReader slot cases, and eighteen dismissal-policy cases.
+There are no failures, skips, or duplicate completed identifiers. The actual
+child exited zero at 08:43:44 UTC; its tested staged tree is
+`6c7c983ea8e67f3dc5a9032c3caf80b2c9b85596` over `9bfcae2`. Source inputs,
+index bytes, status, and tree stayed unchanged throughout execution. The log
+is `artifacts/goal-sixth-layout-receipt-tests-v1.log`, SHA-256
+`1d353c5cfa1d00adb069b8c27e7fdfa502f62a1e72a449c8c4109e224fe8b002`.
+Both changed Swift files pass strict lint and contracts; no new source
+correction was needed for this boundary. All 406 preexisting test/resource
+paths still match their original Git content. This is focused retained-runtime
+evidence, not final native document or complete close qualification.
+
+The fifth-push hosted Windows run `33151787744` at `9f983e6` has now completed
+with a failure in Full validation job `98785288310`, at Run full agent checks.
+Its contract job passed and the optional Quick job was skipped. Exact logs and
+artifacts are being inspected; no cause or passing hosted Full result is
+inferred from the earlier local Full/Quick passes. That hosted failure and all
+nine original product acceptance gates remain open.

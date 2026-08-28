@@ -9016,6 +9016,30 @@ private struct PendingNodeInvalidation {
     var node: WeakViewNodeRef
     var flags: DirtyFlags
 }
+
+/// Kept alive by receipts, without retaining the runtime or application data.
+/// An address alone could identify a different runtime after deallocation.
+fileprivate final class RetainedLayoutSettlementIdentity {}
+
+/// Evidence from one completed, bounded retained layout resolution. Only the
+/// runtime that produced it can validate it; it is not permission to run layout
+/// or a guarantee about callbacks that have not yet executed.
+package struct RetainedLayoutSettlementReceipt {
+    fileprivate let identity: RetainedLayoutSettlementIdentity
+    fileprivate let geometryRevision: UInt64
+    fileprivate let resolutionSequence: UInt64
+}
+
+/// A host must not turn either failure case into a synchronous retry loop.
+/// `unsettled` needs an ordinary layout or active callback/build to finish.
+/// `unavailable` means the completed resolution did not establish the proof,
+/// or its checked generations are exhausted. Exhaustion is permanent.
+package enum RetainedLayoutSettlementStatus {
+    case settled(RetainedLayoutSettlementReceipt)
+    case unsettled
+    case unavailable
+}
+
 @MainActor
 public final class RetainedViewRuntime {
     private static let buttonRepeatInitialDelay = 0.45
@@ -9320,6 +9344,141 @@ public final class RetainedViewRuntime {
         !isRendering
             && !dirtyFlags.intersection([.layout, .children]).isEmpty
             && !root.subtreeDirtyFlags.intersection([.layout, .children]).isEmpty
+    }
+
+    // Layout-only queries leave render dirty flags intact. Their settlement
+    // evidence therefore has its own checked generations; render lifecycle
+    // revisions only advance while lifecycle callbacks are being delivered.
+    private var layoutSettlementGeometryRevision: UInt64 = 0
+    private var layoutSettlementResolutionSequence: UInt64 = 0
+    private var layoutSettlementGenerationsExhausted = false
+    private var isResolvingLayoutSettlement = false
+    private var lastUnmutatedLayoutPassRevision: UInt64?
+    private var layoutSettlementIdentity: RetainedLayoutSettlementIdentity?
+    private var recordedLayoutSettlement: RetainedLayoutSettlementStatus = .unsettled
+
+    /// Whether preflight may start a layout query outside Runtime callback
+    /// scopes. This reads only owned flags, not the build coordinator. Hosts
+    /// must separately require build settlement and retain a successful
+    /// receipt; true is not final close authority and false does not request a
+    /// retry. Exhausted generations remain `unavailable`, never merely busy.
+    package var canPrepareLayoutSettlement: Bool {
+        !layoutSettlementGenerationsExhausted
+            && !isRendering && !isLayoutInProgress && !isResolvingLayoutFrame && !isResolvingLayoutSettlement
+            && !isDeliveringRenderLifecycleCallbacks && !isDrainingAfterLayoutActions
+            && scrollObserverRegistry?.isDelivering != true
+            && longPressReconciliationDepth == 0 && !isDrainingReconciliationCallbacks
+            && pendingLongPressCallbacks.isEmpty && pendingRetainedBuildCompletions.isEmpty
+    }
+
+    /// Read-only evidence for the last bounded layout resolution. Callers may
+    /// first use `resolvedLayoutFrame(of:)` during preflight, never during final
+    /// close validation. This getter does not lay out, walk nodes, call build
+    /// leases, invoke application getters, or create a receipt.
+    ///
+    /// Build settlement remains a separate requirement. This covers ordinary
+    /// invalidating retained mutations, not silent replacement of raw layout
+    /// callback metadata or native SwiftUI behavior for hidden/deferred readers.
+    package var layoutSettlementStatus: RetainedLayoutSettlementStatus {
+        guard !layoutSettlementGenerationsExhausted else { return .unavailable }
+        guard canReadLayoutSettlement else { return .unsettled }
+        if case .settled = recordedLayoutSettlement,
+            !pendingAfterLayoutActionKeys.isEmpty || !pendingPreciseScrollAlignments.isEmpty
+        {
+            return .unsettled
+        }
+        return recordedLayoutSettlement
+    }
+
+    /// Validates the original preflight receipt without refreshing its proof.
+    /// Only internal identity and scalar comparisons occur here. A later
+    /// layout resolution invalidates it even when the resulting bounds match.
+    package func isLayoutSettlementReceiptCurrent(_ receipt: RetainedLayoutSettlementReceipt) -> Bool {
+        guard case .settled(let current) = layoutSettlementStatus else { return false }
+        return current.identity === receipt.identity
+            && receipt.geometryRevision == layoutSettlementGeometryRevision
+            && receipt.resolutionSequence == layoutSettlementResolutionSequence
+            && current.geometryRevision == receipt.geometryRevision
+            && current.resolutionSequence == receipt.resolutionSequence
+    }
+
+    private var canReadLayoutSettlement: Bool {
+        canPrepareLayoutSettlement && !hasActiveRetainedBuild
+    }
+
+    private func recordLayoutSettlementInvalidation(_ flags: DirtyFlags) {
+        guard !flags.intersection([.layout, .children]).isEmpty else { return }
+        guard !layoutSettlementGenerationsExhausted else { return }
+        let next = layoutSettlementGeometryRevision.addingReportingOverflow(1)
+        guard !next.overflow else {
+            layoutSettlementGenerationsExhausted = true
+            recordedLayoutSettlement = .unavailable
+            return
+        }
+        layoutSettlementGeometryRevision = next.partialValue
+        recordedLayoutSettlement = .unsettled
+    }
+
+    private func beginLayoutSettlementResolution() -> UInt64? {
+        guard !layoutSettlementGenerationsExhausted else { return nil }
+        let next = layoutSettlementResolutionSequence.addingReportingOverflow(1)
+        guard !next.overflow else {
+            layoutSettlementGenerationsExhausted = true
+            recordedLayoutSettlement = .unavailable
+            return nil
+        }
+        layoutSettlementResolutionSequence = next.partialValue
+        recordedLayoutSettlement = .unsettled
+        lastUnmutatedLayoutPassRevision = nil
+        return next.partialValue
+    }
+
+    private func finishLayoutSettlementResolution(
+        sequence: UInt64?, wasNested: Bool, traversalOverflowCount: Int
+    ) {
+        recordedLayoutSettlement = .unavailable
+        guard !layoutSettlementGenerationsExhausted, let sequence, !wasNested,
+            sequence == layoutSettlementResolutionSequence,
+            lastUnmutatedLayoutPassRevision == layoutSettlementGeometryRevision,
+            ViewNode.traversalDepthOverflowCount == traversalOverflowCount,
+            pendingAfterLayoutActionKeys.isEmpty, pendingPreciseScrollAlignments.isEmpty,
+            !hasUnresolvedLayoutSettlementReader
+        else { return }
+
+        let identity = layoutSettlementIdentity ?? RetainedLayoutSettlementIdentity()
+        layoutSettlementIdentity = identity
+        recordedLayoutSettlement = .settled(
+            RetainedLayoutSettlementReceipt(
+                identity: identity,
+                geometryRevision: layoutSettlementGeometryRevision,
+                resolutionSequence: sequence))
+    }
+
+    /// Inspect only the candidates reached by the existing final layout pass.
+    /// Never call another reader body or a lease getter to test convergence:
+    /// an exhausted loop, empty build, or deferred lease must remain unproven.
+    private var hasUnresolvedLayoutSettlementReader: Bool {
+        for reference in pendingGeometryReaderNodes {
+            guard let node = reference.node, node.runtime === self, node.geometryReaderBuild != nil else { continue }
+            let slot = node.resolvedFrame.size
+            guard slot.width > 0, slot.height > 0 else { continue }
+            guard let built = node.geometryReaderBuiltSize,
+                abs(built.width - slot.width) < 0.5, abs(built.height - slot.height) < 0.5
+            else { return true }
+        }
+        return false
+    }
+
+    // Test seams only move checked generations forward. They cannot reset an
+    // exhausted runtime, restore a previous receipt, or wrap a generation.
+    internal func exhaustLayoutGeometryGenerationOnNextInvalidationForTesting() {
+        layoutSettlementGeometryRevision = .max
+        recordedLayoutSettlement = .unsettled
+    }
+
+    internal func exhaustLayoutResolutionGenerationOnNextQueryForTesting() {
+        layoutSettlementResolutionSequence = .max
+        recordedLayoutSettlement = .unsettled
     }
 
     /// The `GeometryReader` nodes the pass that just ran walked past, in
@@ -12034,6 +12193,7 @@ public final class RetainedViewRuntime {
     }
 
     fileprivate func invalidate(_ flags: DirtyFlags = .all) {
+        recordLayoutSettlementInvalidation(flags)
         invalidateRenderLifecycleCandidates()
         guard isRendering else {
             dirtyFlags.insert(flags)
@@ -12043,6 +12203,7 @@ public final class RetainedViewRuntime {
     }
 
     fileprivate func invalidate(_ flags: DirtyFlags, from node: ViewNode) {
+        recordLayoutSettlementInvalidation(flags)
         invalidateRenderLifecycleCandidates()
         guard isRendering else {
             dirtyFlags.insert(flags)
@@ -12661,6 +12822,11 @@ public final class RetainedViewRuntime {
     }
 
     private func updateResolvedLayout() {
+        let wasResolvingLayoutSettlement = isResolvingLayoutSettlement
+        isResolvingLayoutSettlement = true
+        defer { isResolvingLayoutSettlement = wasResolvingLayoutSettlement }
+        let settlementSequence = beginLayoutSettlementResolution()
+        let traversalOverflowCount = ViewNode.traversalDepthOverflowCount
         lastLayoutReuseCount = 0
         lastMeasureReuseCount = 0
         lastPrepaintReplayCount = 0
@@ -12710,6 +12876,10 @@ public final class RetainedViewRuntime {
         }
 
         updatePrepaintState()
+        finishLayoutSettlementResolution(
+            sequence: settlementSequence,
+            wasNested: wasResolvingLayoutSettlement,
+            traversalOverflowCount: traversalOverflowCount)
     }
 
     private func drainAfterLayoutActions() -> Bool {
@@ -12812,7 +12982,21 @@ public final class RetainedViewRuntime {
     private func runLayoutPass() {
         let wasLayoutInProgress = isLayoutInProgress
         isLayoutInProgress = true
-        defer { isLayoutInProgress = wasLayoutInProgress }
+        let geometryRevision = layoutSettlementGeometryRevision
+        let resolutionSequence = layoutSettlementResolutionSequence
+        let traversalOverflowCount = ViewNode.traversalDepthOverflowCount
+        defer {
+            isLayoutInProgress = wasLayoutInProgress
+            if !wasLayoutInProgress, !layoutSettlementGenerationsExhausted,
+                geometryRevision == layoutSettlementGeometryRevision,
+                resolutionSequence == layoutSettlementResolutionSequence,
+                traversalOverflowCount == ViewNode.traversalDepthOverflowCount
+            {
+                lastUnmutatedLayoutPassRevision = geometryRevision
+            } else {
+                lastUnmutatedLayoutPassRevision = nil
+            }
+        }
 
         layoutPassID &+= 1
         currentPassLayoutVisitCount = 0

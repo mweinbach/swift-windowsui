@@ -74,7 +74,7 @@ limits still apply; this is not the completed product in `goal.md`.
 | --- | --- | --- |
 | `App`, `Scene`, `SceneBuilder`, `WindowGroup` | **Implemented** | Primary host path; static multi-scene declarations and availability checks preserve scene order and modifiers, and startup opens the first ordinary window scene. Ordinary WindowGroup builders construct fresh root content once per hosted window and preserve those values across that host's rebuilds; scene environments remain inherited. Explicitly replacing a configuration's content overrides its builder. Scene registration is not dynamically reconciled; this is not general State/StateObject lifetime conformance |
 | `Window`, `WindowScene` | **Partial** | Configurations participate in coordinator hosting; full native scene-specific uniqueness and restoration semantics remain incomplete |
-| Host loop / invalidation coalescing | **Implemented** | Coalesced rebuilds; high-rate pumping only when input dirties presentation |
+| Host loop / invalidation coalescing | **Partial** | Native input, presentation, and coalesced rebuilds work, but the blocking Win32 message loop does not service the installed Swift 6.3 MainActor task queue. Retained task scheduling/cancellation tests do not establish native task-body progress; do not depend on `.task` for a native application workflow yet. A plain Foundation RunLoop replacement was rejected because it corrupted queued Unicode characters; see the native scheduling evidence in `goal.md` |
 
 ### Layout containers — Implemented / Partial
 

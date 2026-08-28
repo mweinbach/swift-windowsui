@@ -1990,3 +1990,53 @@ and logs preserve this failure without altering the earlier four results.
 Any scheduling correction must preserve Unicode input and native modal
 routing as well as task progress; the Foundation loop is not yet a usable
 production replacement.
+
+### Fourth Full retry: remaining fixture assumptions
+
+The clean `80b9429` Full retry passed the previous three failures and reached
+shard 175 of 190. Its log records 3,595 passing XCTest cases, one existing
+skip, one failing case, and all 134 Swift Testing cases. Product builds,
+screenshots, and gallery comparison were not reached. The log is
+`artifacts/goal-fourth-full-80b9429.log`, SHA-256
+`35ec710ed918671bcbb8b2561cce687a2f8434c90de0126eaf8c3702fd2b136e`.
+
+The item-sheet fixture expected the dismissed Text to be the physical root
+node. The stable sheet shell deliberately remains present, with that same
+base content as its child, to preserve editor identity and undo through
+presentation changes. Independent inspection confirmed that the text was not
+removed. The corrected assertion requires the complete descendant text list
+to equal `["ROOT"]`, so ROOT occurs exactly once and DETAIL/CLOSE are gone.
+The selected-item and dismissal assertions are unchanged. Existing raw and
+hosted sheet identity tests separately check the shell, base, editor,
+selection, modal input isolation, and undo/redo. Production is unchanged.
+
+A diagnostic-only continuation from shard 176 found one more fixture failure
+at shard 189: four absolute reload-counter assertions in the host environment
+test. Its snapshot counts and every environment-value assertion passed.
+Counting actual ComponentHost build attempts now includes the existing
+presenter-attachment rebuild; only constructor setup is excluded. The fixture
+now records its post-startup count and requires exact subsequent increments,
+including no increment for a duplicate notification and the previously
+unchecked hidden-window active-state increment. It does not suppress a real
+build or relax notification coalescing. Independent accounting review agrees
+with the documented counter semantics and other accounting fixtures.
+
+That diagnostic continuation recorded 366 passing cases and one failing case;
+the final shard was checked separately and passed 18 cases. Both are partial
+diagnostics, not a completed Full run or a substitute for restarting at the
+first shard. Their logs are `artifacts/goal-fourth-tail-diagnostic-80b9429.log`
+and `artifacts/goal-fourth-last-shard-diagnostic-80b9429.log`. Both original
+failures reproduced in isolated focused invocations before the fixture edits.
+Focused validation and a new clean complete Full run remain required.
+
+The corrected fixtures and related host, modal, sheet-identity, and accounting
+coverage now pass 81 cases across six targets and five serial invocations,
+with no failures or skips. The two sheet cases are in
+`artifacts/goal-fourth-sheet-fixture-correction.log`; the other 79 are in
+`artifacts/goal-fourth-fixture-regressions.log`, SHA-256
+`2cff869e36bc59c697cc8d081063e4738c8cf183668d4fb7f321858084bff2f6`.
+Strict lint passed on both changed test files, and contracts passed. Quick
+now selects both sheet dismissal cases and the environment-notification case
+explicitly. The compatibility documentation also states that retained async
+test results do not establish progress in the native host's current message
+loop. No production source changed in this fixture correction.

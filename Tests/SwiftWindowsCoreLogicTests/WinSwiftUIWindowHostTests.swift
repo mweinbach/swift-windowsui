@@ -1385,6 +1385,7 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
 
             host.windowDidCreate(window)
             let startupSnapshotCount = recorder.snapshots.count
+            let startupReloadCount = host.executedReloadCount
 
             XCTAssertGreaterThanOrEqual(startupSnapshotCount, 1)
             XCTAssertEqual(recorder.snapshots.last?.scenePhase, .active)
@@ -1397,7 +1398,7 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             XCTAssertEqual(recorder.snapshots.last?.scenePhase, .inactive)
             XCTAssertEqual(recorder.snapshots.last?.controlActiveState, .inactive)
             XCTAssertEqual(recorder.snapshots.last?.appearsActive, false)
-            XCTAssertEqual(host.executedReloadCount, 1)
+            XCTAssertEqual(host.executedReloadCount, startupReloadCount + 1)
 
             host.windowDidChangeActiveState(window, isActive: false)
 
@@ -1406,7 +1407,7 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
                 startupSnapshotCount + 1,
                 "Duplicate active-state notifications should not rebuild content"
             )
-            XCTAssertEqual(host.executedReloadCount, 1)
+            XCTAssertEqual(host.executedReloadCount, startupReloadCount + 1)
 
             host.windowDidChangeVisibility(window, isVisible: false)
 
@@ -1414,7 +1415,7 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             XCTAssertEqual(recorder.snapshots.last?.scenePhase, .background)
             XCTAssertEqual(recorder.snapshots.last?.controlActiveState, .inactive)
             XCTAssertEqual(recorder.snapshots.last?.appearsActive, false)
-            XCTAssertEqual(host.executedReloadCount, 2)
+            XCTAssertEqual(host.executedReloadCount, startupReloadCount + 2)
 
             host.windowDidChangeActiveState(window, isActive: true)
 
@@ -1422,6 +1423,7 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             XCTAssertEqual(recorder.snapshots.last?.scenePhase, .background)
             XCTAssertEqual(recorder.snapshots.last?.controlActiveState, .inactive)
             XCTAssertEqual(recorder.snapshots.last?.appearsActive, false)
+            XCTAssertEqual(host.executedReloadCount, startupReloadCount + 3)
 
             host.windowDidChangeVisibility(window, isVisible: true)
 
@@ -1429,7 +1431,7 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             XCTAssertEqual(recorder.snapshots.last?.scenePhase, .active)
             XCTAssertEqual(recorder.snapshots.last?.controlActiveState, .key)
             XCTAssertEqual(recorder.snapshots.last?.appearsActive, true)
-            XCTAssertEqual(host.executedReloadCount, 4)
+            XCTAssertEqual(host.executedReloadCount, startupReloadCount + 4)
         }
     }
 

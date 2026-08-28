@@ -112,6 +112,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   task cancellation after State/editor revocation during close and host release.
   Task cases cover latest deferred declarations, duplicate-key suppression,
   ordinary node reinsertion, and rejected launches from close cancellation.
+  They execute under a cooperative test executor. They do not qualify task
+  progress inside the native Win32 message loop, which currently leaves the
+  installed Swift 6.3 MainActor queue unserviced. The separate native loop
+  experiments and Unicode failure are recorded in `goal.md`.
   The batch host cases do not prime lifecycle by rendering a fallback frame first.
   Quick also runs `RuntimeDirtyFlagIntegrityTests`: a Canvas callback changes
   an already-painted sibling, while a separate appearance callback changes it
@@ -122,6 +126,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   outgoing pages fade and disappear. Repeated tab switches and rebuilds during
   a fade must preserve that ownership without restarting the transition. Quick
   includes both suites; the existing demo remount assertion remains unchanged.
+- Quick also runs the existing boolean/item sheet dismissal and host environment
+  notification fixtures. Dismissal checks descendant content, since the stable
+  sheet shell remains to preserve background identity. Notification counters
+  use a post-startup baseline and require exact increments and duplicate
+  suppression; presenter attachment already performs a counted rebuild.
 - `ViewSnapshotTaskLifetimeTests` checks cooperative cancellation and payload
   release for the two bitmap-only snapshot helpers, including actual renderer
   failures. Borrowed runtimes and the runtime returned by the SwiftUI snapshotter

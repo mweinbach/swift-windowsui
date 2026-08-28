@@ -294,6 +294,9 @@ if ($Full) {
     Invoke-Step "undo ownership and bitmap stretch" {
         & $testScript -Sharded -Filter "UndoManagerTests|TextInputUndoTests|TextInputUndoSessionTests|TextInputConstructionLifetimeTests|TextSelectionIndexSafetyTests|SheetContentIdentityTests|WinSwiftUIBitmapStretchTests"
     }
+    Invoke-Step "sheet dismissal and host environment notifications" {
+        & $testScript -Filter "WinSwiftUITests/(testSheetIsPresentedComposesRetainedModalAndDismisses|testSheetItemRendersSelectedItemAndClearsOnDismiss)|WinSwiftUIWindowHostTests/testHostActiveAndVisibilityStateDriveEnvironmentValues"
+    }
     Invoke-Step "mounted State ownership and editor teardown" {
         & $testScript -Sharded -Filter "DynamicPropertyInstallationTests|StateMountRegistryTests|RetainedBuildLifecycleTests|MountedStateDeclarationTests|MountedStateDispatchTests|MountedStateEpochTests|MountedStateHostTimingTests|MountedStateLifecycleTests|MountedStateQueuedTransactionTests|MountedOutlineGroupStateTests|EditorStateOwnershipTeardownTests"
     }

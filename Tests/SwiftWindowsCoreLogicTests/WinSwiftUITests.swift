@@ -11203,7 +11203,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(didDismiss)
 
             let rootNode = makeNode(view)
-            XCTAssertEqual(rootNode.text, "ROOT")
+            XCTAssertEqual(allTexts(in: rootNode), ["ROOT"])
         }
     }
 

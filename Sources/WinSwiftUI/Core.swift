@@ -20047,11 +20047,23 @@ private func retainedUnpresentedSheet(base: Component) -> Component {
     }
 }
 @MainActor
+private func retainedCurrentSheetRoot(_ authoredRoot: ViewNode, in runtime: RetainedViewRuntime) -> ViewNode? {
+    if retainedPresentationNode(authoredRoot, isWithin: runtime.root) { return authoredRoot }
+    guard let identity = authoredRoot.retainedViewIdentity else { return nil }
+    var pending = [runtime.root]
+    while let node = pending.popLast() {
+        if node.retainedViewIdentity == identity { return node }
+        pending.append(contentsOf: node.children)
+    }
+    return nil
+}
+@MainActor
 private func retainedSheetPresentation(
     base: Component,
     sheet: Component,
     context: ViewBuildContext,
-    onInteractiveDismiss: @escaping @MainActor () -> Void
+    onInteractiveDismiss: @escaping @MainActor () -> Void,
+    hostedDismissal: PresentationDismissHandle? = nil
 ) -> Component {
     Component { runtime in
         let baseNode = base.makeNode(runtime: runtime)
@@ -20128,14 +20140,35 @@ private func retainedSheetPresentation(
         )
 
         let focusedAtPresentation = runtime.focusedNode
-        let dismissSheet: @MainActor () -> Void = {
-            retainedRestorePresentationFocus(
-                runtime: runtime,
-                focusedAtPresentation: focusedAtPresentation,
-                baseNode: baseNode,
-                overlayNode: overlayContainer
-            )
-            onInteractiveDismiss()
+        let dismissSheet: @MainActor () -> Void
+        if let hostedDismissal {
+            hostedDismissal.materialize { [weak runtime] admission in
+                guard let runtime, admission(), let currentRoot = retainedCurrentSheetRoot(root, in: runtime),
+                    admission(), let currentBase = currentRoot.children.first,
+                    let currentOverlay = currentRoot.children.first(where: { $0.nodeTag == "sheet-overlay" })
+                else { return nil }
+                let wasModal = currentOverlay.accessibilityTraits.contains(.isModal)
+                retainedRestorePresentationFocus(
+                    runtime: runtime, focusedAtPresentation: focusedAtPresentation,
+                    baseNode: currentBase, overlayNode: currentOverlay)
+                return { [weak runtime, weak currentOverlay] in
+                    guard wasModal, let runtime, let currentOverlay,
+                        retainedPresentationNode(currentOverlay, isWithin: runtime.root)
+                    else { return }
+                    currentOverlay.accessibilityTraits.insert(.isModal)
+                }
+            }
+            dismissSheet = { hostedDismissal.dismissInteractively() }
+        } else {
+            dismissSheet = {
+                retainedRestorePresentationFocus(
+                    runtime: runtime,
+                    focusedAtPresentation: focusedAtPresentation,
+                    baseNode: baseNode,
+                    overlayNode: overlayContainer
+                )
+                onInteractiveDismiss()
+            }
         }
         if scrimDismissesSheet {
             scrimNode.onActivate = {
@@ -21829,18 +21862,35 @@ extension View {
                 return retainedUnpresentedSheet(base: base)
             }
 
-            let dismiss: @MainActor () -> Void = {
-                guard isPresented.wrappedValue else {
-                    return
+            let presentationContext = context.withViewIdentityRole(.presentation)
+            let hostedDismissal = context.stateMountCoordinator.map { coordinator in
+                coordinator.sheetDismissal(
+                    at: presentationContext.retainedViewIdentity,
+                    configuration: PresentationDismissConfiguration(
+                        validate: { admission in
+                            guard admission() else { return false }
+                            let presented = isPresented.wrappedValue
+                            return admission() && presented
+                        },
+                        writeDismissal: { isPresented.wrappedValue = false },
+                        onDismiss: { onDismiss?() },
+                        invalidate: { context.invalidate() }
+                    )
+                )
+            }
+            let dismiss: @MainActor () -> Void
+            if let hostedDismissal {
+                dismiss = { hostedDismissal.dismiss() }
+            } else {
+                dismiss = {
+                    guard isPresented.wrappedValue else { return }
+                    isPresented.wrappedValue = false
+                    onDismiss?()
+                    context.invalidate()
                 }
-
-                isPresented.wrappedValue = false
-                onDismiss?()
-                context.invalidate()
             }
             let sheetContext =
-                context
-                .withViewIdentityRole(.presentation)
+                presentationContext
                 .withEnvironmentValue(\.dismiss, DismissAction(handler: dismiss))
                 .withEnvironmentValue(\.isPresented, true)
             let sheet = composeComponent(
@@ -21853,7 +21903,8 @@ extension View {
                 base: base,
                 sheet: sheet,
                 context: context,
-                onInteractiveDismiss: dismiss
+                onInteractiveDismiss: dismiss,
+                hostedDismissal: hostedDismissal
             )
         }
     }
@@ -21869,19 +21920,40 @@ extension View {
                 return retainedUnpresentedSheet(base: base)
             }
 
-            let dismiss: @MainActor () -> Void = {
-                guard item.wrappedValue != nil else {
-                    return
+            let selectedID = selectedItem.id
+            let presentationContext =
+                context.withViewIdentityRole(.presentation)
+                .withViewIdentityPrefix([.keyed(RetainedViewIdentity.Key(selectedID))])
+            let hostedDismissal = context.stateMountCoordinator.map { coordinator in
+                coordinator.sheetDismissal(
+                    at: presentationContext.retainedViewIdentity,
+                    configuration: PresentationDismissConfiguration(
+                        validate: { admission in
+                            guard admission(), let currentItem = item.wrappedValue, admission() else { return false }
+                            let currentID = currentItem.id
+                            guard admission() else { return false }
+                            let matches = currentID == selectedID
+                            return admission() && matches
+                        },
+                        writeDismissal: { item.wrappedValue = nil },
+                        onDismiss: { onDismiss?() },
+                        invalidate: { context.invalidate() }
+                    )
+                )
+            }
+            let dismiss: @MainActor () -> Void
+            if let hostedDismissal {
+                dismiss = { hostedDismissal.dismiss() }
+            } else {
+                dismiss = {
+                    guard item.wrappedValue != nil else { return }
+                    item.wrappedValue = nil
+                    onDismiss?()
+                    context.invalidate()
                 }
-
-                item.wrappedValue = nil
-                onDismiss?()
-                context.invalidate()
             }
             let sheetContext =
-                context
-                .withViewIdentityRole(.presentation)
-                .withViewIdentityPrefix([.keyed(RetainedViewIdentity.Key(selectedItem.id))])
+                presentationContext
                 .withEnvironmentValue(\.dismiss, DismissAction(handler: dismiss))
                 .withEnvironmentValue(\.isPresented, true)
             let sheet = composeComponent(
@@ -21894,7 +21966,8 @@ extension View {
                 base: base,
                 sheet: sheet,
                 context: context,
-                onInteractiveDismiss: dismiss
+                onInteractiveDismiss: dismiss,
+                hostedDismissal: hostedDismissal
             )
         }
     }

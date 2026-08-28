@@ -147,6 +147,10 @@ content scope. Resolving its actual layout slot rebuilds that scope without
 sweeping sibling State. A removed or closed reader's captured closure cannot
 evaluate content, even if the same path is later mounted again. A deferred
 build skipped during active construction is retried after the guard ends.
+Hosted readers also require their exact accepted construction receipt: merely
+composing a reader or preserving its inactive State does not admit a deferred
+build. Accepted reader replacement retires the old receipt without resetting
+the surviving State owner.
 
 ## Containers and retirement
 
@@ -156,18 +160,51 @@ selecting another ID retires its old generation and starts from the new seed.
 The stable sheet host and background child retain their existing identities,
 including background editing state. An accepted active nil presentation also
 retires its content before a later presentation starts a fresh generation.
-This does not change StateObject's current eager storage or presentation
-callbacks; native dismissal ordering is not qualified by this ownership change.
+StateObject follows its separate mounted ownership contract described above.
+Native dismissal ordering is not qualified by these ownership changes.
 
 Inactive tabs preserve known declarations through modifier, optional,
 conditional, array, Group, and ForEach paths without evaluating custom bodies.
 Opaque inactive bodies and auxiliary builder captures stay unevaluated until
 their next evaluation; deeper native inactive-lifetime behavior is unqualified.
-An inactive sheet's binding guard is likewise deferred until its page evaluates.
+An inactive sheet's Binding value is not read just to preserve its declared
+State; binding validation waits until its page evaluates.
 ViewThatFits keeps candidate namespaces disjoint and discards rejected
 provisional candidates without retiring a selected sibling. OutlineGroup uses
 typed hierarchical row identities and parent-local duplicate ordinals, but
 retains its existing eager construction and expansion behavior.
+
+Boolean and item sheet dismissal actions in a mounted host use a separate
+accepted presentation lifetime. Same-ID accepted rebuilds preserve that
+lifetime and publish the latest binding, callback, and interactive focus
+configuration. Accepted absence, item replacement, or tab inactivity retires
+the action even when State and StateObject survive. Returning to that tab or
+item starts new dismissal authority; an escaped old action cannot revive or
+touch binding accessors, callbacks, or focus. A provisional action from a
+discarded candidate never borrows an earlier accepted presentation's authority.
+
+Activity is recorded for selected, constructed presentations, not appearance
+or paint visibility. Root adoption updates the whole host; a GeometryReader
+adoption updates only its content scope and its boundary lease. Skipped,
+superseded, or abandoned builds do not replace accepted activity. Intermediate
+model writes coalesced before any accepted presentation change do not invent
+an inactive interval. Covered actions are suspended during adoption, and all
+new configurations publish before retirement cleanup can call application
+code. Close revokes presentation and deferred-reader authority before releasing
+State or configuration payloads; it adds no native lifecycle callbacks.
+Retired sessions reject dismissal before reading configuration storage. Cleanup
+detaches stored collections while retaining their outgoing values locally, then
+releases captures after those writes end. A payload's deinitializer can therefore
+reenter dismissal or close without accessing a collection or configuration that
+is still being modified. Normal finish preserves accepted session configurations.
+
+Raw contexts without a StateMountCoordinator keep their existing dismissal
+behavior, without the hosted lifetime guarantee. Explicit accepted dismissal
+keeps the existing setter, onDismiss, and invalidation order; environment
+dismissal does not acquire interactive focus restoration. External binding
+changes do not gain synthesized onDismiss callbacks. Native callback ordering,
+other presentation APIs, and atomic compare-and-set across arbitrary custom
+Binding accessors remain unqualified.
 
 A retired State cell is a last-value read handle. Removal or close releases
 registry ownership, while an escaped binding or installed value may retain

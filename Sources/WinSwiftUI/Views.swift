@@ -9194,6 +9194,7 @@ public struct GeometryReader: View {
             // (see `RetainedViewRuntime.resolveGeometryReaderSlots`).
             node.geometryReaderBuiltSize = seedSize
             node.retainedSubtreeBuildLease = lease
+            context.stateMountCoordinator?.materializeSubtreeLease(lease)
             node.geometryReaderBuild = { runtime, size in
                 if let coordinator = context.stateMountCoordinator {
                     guard lease?.canBuild == true,

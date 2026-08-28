@@ -7,6 +7,7 @@ import SwiftWindowsUI
 @MainActor
 final class StateMountCoordinator: RetainedBuildLifecycle {
     let registry: StateMountRegistry
+    private let presentationActivity = PresentationActivityLedger()
     private let observeObject: @MainActor (any ObservableObject) -> Void
     private let updateObservedObjects: @MainActor (Set<ObjectIdentifier>, Set<ObjectIdentifier>, Bool) -> Void
     private let reportInstallationError: @MainActor (String) -> Void
@@ -31,8 +32,13 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
 
     func beginBuild() -> (any RetainedBuildEpoch)? {
         guard currentBuild == nil, let epoch = registry.beginRootBuild() else { return nil }
+        guard let activity = presentationActivity.beginBuild() else {
+            epoch.abort()
+            registry.finishPendingRetirements()
+            return nil
+        }
         latestInstallationError = nil
-        let build = StateMountBuild(coordinator: self, epoch: epoch, replacesRoot: true)
+        let build = StateMountBuild(coordinator: self, epoch: epoch, activity: activity, replacesRoot: true)
         currentBuild = build
         return build
     }
@@ -42,14 +48,19 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
     }
 
     fileprivate func beginSubtreeBuild(
-        owner: StateMountOwner, contentPrefix: RetainedViewIdentity
+        owner: StateMountOwner, contentPrefix: RetainedViewIdentity, anchor: PresentationActivityAnchor
     ) -> (any RetainedBuildEpoch)? {
-        guard currentBuild == nil,
+        guard currentBuild == nil, anchor.isActive,
             let epoch = registry.beginSubtreeBuild(owner: owner, contentPrefix: contentPrefix)
         else { return nil }
+        guard let activity = presentationActivity.beginBuild(prefix: contentPrefix, boundary: anchor) else {
+            epoch.abort()
+            registry.finishPendingRetirements()
+            return nil
+        }
         latestInstallationError = nil
         let build = StateMountBuild(
-            coordinator: self, epoch: epoch, replacesRoot: false, subtreePrefix: contentPrefix)
+            coordinator: self, epoch: epoch, activity: activity, replacesRoot: false, subtreePrefix: contentPrefix)
         currentBuild = build
         return build
     }
@@ -105,6 +116,8 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
 
     func discardUnadoptedSubtree(at prefix: RetainedViewIdentity, preserveCommitted: Bool) {
         guard let build = currentBuild else { return }
+        build.activity.discardSubtree(at: prefix) { self.isCurrent(build) && build.canAdopt }
+        guard isCurrent(build), build.canAdopt else { return }
         build.epoch.discardUnadoptedSubtree(at: prefix, preserveCommitted: preserveCommitted)
         build.observations = build.observations.filter { !$0.key.segments.starts(with: prefix.segments) }
     }
@@ -112,7 +125,30 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
     func subtreeLease(
         owner: StateMountOwner, contentPrefix: RetainedViewIdentity
     ) -> any RetainedSubtreeBuildLease {
-        StateMountSubtreeLease(coordinator: self, owner: owner, contentPrefix: contentPrefix)
+        let anchor: PresentationActivityAnchor
+        if let build = currentBuild, build.canAdopt {
+            anchor = build.activity.stageAnchor(owner: owner, contentPrefix: contentPrefix)
+        } else {
+            anchor = .unavailable(owner: owner, contentPrefix: contentPrefix)
+        }
+        return StateMountSubtreeLease(
+            coordinator: self, owner: owner, contentPrefix: contentPrefix, activityAnchor: anchor)
+    }
+
+    func materializeSubtreeLease(_ lease: (any RetainedSubtreeBuildLease)?) {
+        guard let lease = lease as? StateMountSubtreeLease, let build = currentBuild, build.canAdopt else { return }
+        build.activity.materialize(lease.activityAnchor)
+    }
+
+    func sheetDismissal(
+        at presentationIdentity: RetainedViewIdentity, configuration: PresentationDismissConfiguration
+    ) -> PresentationDismissHandle {
+        guard let build = currentBuild, build.canAdopt else { return .unavailable() }
+        let identity = presentationIdentity.appending(.view(ObjectIdentifier(PresentationActivityOwner.self)))
+        guard let owner = build.epoch.owner(at: identity), isCurrent(build), build.canAdopt else {
+            return .unavailable()
+        }
+        return build.activity.stagePresentation(owner: owner, configuration: configuration)
     }
 
     func canEvaluateDeferredSubtree(at contentPrefix: RetainedViewIdentity) -> Bool {
@@ -120,7 +156,9 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
     }
 
     func close() {
+        presentationActivity.closeAdmissions()
         registry.close()
+        presentationActivity.releaseClosedPayloads()
         committedObservations.removeAll()
         currentBuild?.observations.removeAll()
         updateObservedObjects([], [], false)
@@ -128,6 +166,7 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
 
     fileprivate func didCommit(_ build: StateMountBuild, visited: Set<RetainedViewIdentity>) {
         guard currentBuild === build, build.epoch.didCommit, !registry.isClosed else { return }
+        build.activity.commit()
         committedObservations = committedObservations.filter { registry.owner(at: $0.key)?.isLive == true }
         for identity in visited {
             committedObservations[identity] = build.observations[identity] ?? []
@@ -144,8 +183,13 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
 
     fileprivate func didFinish(_ build: StateMountBuild) {
         guard currentBuild === build else { return }
+        build.activity.finish()
         currentBuild = nil
         registry.finishPendingRetirements()
+    }
+
+    fileprivate func isCurrent(_ build: StateMountBuild) -> Bool {
+        currentBuild === build && !registry.isClosed
     }
 
     private func publishObservations(replacesRoot: Bool) {
@@ -154,6 +198,8 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
         updateObservedObjects(committed, committed.union(provisional), replacesRoot)
     }
 }
+
+private enum PresentationActivityOwner {}
 
 // These existing leaves have a no-op DynamicProperty.update and manage their
 // own legacy mechanisms. They are not mount-owned by State/StateObject installation;
@@ -183,26 +229,34 @@ extension ReferenceFileDocumentConfiguration: NonOwningDynamicProperty {}
 private final class StateMountBuild: RetainedBuildEpoch {
     private weak var coordinator: StateMountCoordinator?
     let epoch: StateMountEpoch
+    let activity: PresentationActivityBuild
     let replacesRoot: Bool
     let subtreePrefix: RetainedViewIdentity?
     var observations: [RetainedViewIdentity: Set<ObjectIdentifier>] = [:]
     private var hasFinished = false
 
     init(
-        coordinator: StateMountCoordinator, epoch: StateMountEpoch, replacesRoot: Bool,
+        coordinator: StateMountCoordinator, epoch: StateMountEpoch, activity: PresentationActivityBuild,
+        replacesRoot: Bool,
         subtreePrefix: RetainedViewIdentity? = nil
     ) {
         self.coordinator = coordinator
         self.epoch = epoch
+        self.activity = activity
         self.replacesRoot = replacesRoot
         self.subtreePrefix = subtreePrefix
     }
 
-    var canAdopt: Bool { epoch.canAdopt }
+    var canAdopt: Bool { epoch.canAdopt && activity.canConstruct }
     var canComplete: Bool { epoch.didCommit && coordinator?.registry.isClosed == false }
 
     func supersede() { epoch.supersede() }
-    func willAdopt() -> Bool { epoch.prepareForAdoption() }
+    func willAdopt() -> Bool {
+        guard let coordinator,
+            activity.prepare(isCurrent: { coordinator.isCurrent(self) && self.epoch.canAdopt })
+        else { return false }
+        return epoch.prepareForAdoption()
+    }
 
     func commit() {
         let visited = epoch.visitedOwnerIdentities
@@ -211,6 +265,7 @@ private final class StateMountBuild: RetainedBuildEpoch {
     }
 
     func abandon() {
+        activity.abandon()
         epoch.abort()
         coordinator?.didAbandon(self)
     }
@@ -218,7 +273,11 @@ private final class StateMountBuild: RetainedBuildEpoch {
     func finishAfterCallbacks() {
         guard !hasFinished else { return }
         hasFinished = true
-        coordinator?.didFinish(self)
+        if let coordinator {
+            coordinator.didFinish(self)
+        } else {
+            activity.finish()
+        }
     }
 }
 
@@ -243,20 +302,28 @@ private final class StateMountSubtreeLease: RetainedSubtreeBuildLease {
     private weak var coordinator: StateMountCoordinator?
     private let owner: StateMountOwner
     private let contentPrefix: RetainedViewIdentity
+    let activityAnchor: PresentationActivityAnchor
 
-    init(coordinator: StateMountCoordinator, owner: StateMountOwner, contentPrefix: RetainedViewIdentity) {
+    init(
+        coordinator: StateMountCoordinator, owner: StateMountOwner, contentPrefix: RetainedViewIdentity,
+        activityAnchor: PresentationActivityAnchor
+    ) {
         self.coordinator = coordinator
         self.owner = owner
         self.contentPrefix = contentPrefix
+        self.activityAnchor = activityAnchor
     }
 
     var canBuild: Bool {
-        guard let coordinator, !coordinator.registry.isClosed else { return false }
-        return owner.isLive && coordinator.registry.owner(at: owner.identity) === owner
+        guard let coordinator, activityAnchor.isActive, !coordinator.registry.isClosed,
+            owner.isLive, coordinator.registry.owner(at: owner.identity) === owner
+        else { return false }
+        // Typed identity lookup may run application Hashable code.
+        return activityAnchor.isActive && owner.isLive && !coordinator.registry.isClosed
     }
 
     func beginBuild() -> (any RetainedBuildEpoch)? {
         guard canBuild else { return nil }
-        return coordinator?.beginSubtreeBuild(owner: owner, contentPrefix: contentPrefix)
+        return coordinator?.beginSubtreeBuild(owner: owner, contentPrefix: contentPrefix, anchor: activityAnchor)
     }
 }

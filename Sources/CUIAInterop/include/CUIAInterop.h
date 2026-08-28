@@ -129,8 +129,26 @@ typedef struct SWUUIACallbacks {
     uint64_t (*focusedElement)(void *context);
 } SWUUIACallbacks;
 
-// Provider lifecycle. The callbacks struct is copied; only `context` must
-// stay alive for as long as any provider exists.
+// A shared native lifetime for one provider tree. Creation copies the callback
+// table and adopts one reference to callbacks->context only on success. The
+// release hook runs exactly once, on whichever thread releases the final native
+// reference; it must not perform actor-isolated work. A null hook preserves a
+// borrowed context. Revocation is irreversible and never releases the context
+// while providers or calls still hold it.
+typedef struct SWUUIAProviderContext SWUUIAProviderContext;
+SWUUIAProviderContext *SWU_UIACreateProviderContext(
+    const SWUUIACallbacks *callbacks, void (*releaseContext)(void *));
+void SWU_UIARetainProviderContext(SWUUIAProviderContext *context);
+void SWU_UIAReleaseProviderContext(SWUUIAProviderContext *context);
+void SWU_UIARevokeProviderContext(SWUUIAProviderContext *context);
+int SWU_UIAProviderContextIsAvailable(SWUUIAProviderContext *context);
+void *SWU_UIACreateRootProviderWithContext(SWUUIAProviderContext *context, void *hwnd);
+void *SWU_UIACreateElementProviderWithContext(
+    SWUUIAProviderContext *context, void *hwnd, uint64_t element);
+
+// Legacy borrowed-context factories. The callback table is copied; the caller
+// must keep callbacks->context alive for every provider derived from this call.
+// New owned clients should share one context through the WithContext factories.
 void *SWU_UIACreateRootProvider(const SWUUIACallbacks *callbacks, void *hwnd);
 void *SWU_UIACreateElementProvider(const SWUUIACallbacks *callbacks, void *hwnd, uint64_t element);
 void SWU_UIAAddRefProvider(void *provider);
@@ -143,6 +161,10 @@ void SWU_UIARaiseAutomationFocusChanged(void *provider);
 void SWU_UIARaiseStructureChanged(void *provider);
 void SWU_UIARaiseLiveRegionChanged(void *provider);
 void SWU_UIADisconnectProvider(void *provider);
+// Irreversibly revokes this provider's shared context before attempting native
+// disconnection. Returns the native HRESULT; failure never restores availability.
+// It still calls the OS when the owner already revoked the context.
+int32_t SWU_UIATryDisconnectProvider(void *provider);
 
 // BSTR helpers (SysAllocStringLen / SysFreeString wrappers).
 uint16_t *SWU_UIACreateBSTR(const uint16_t *chars, int32_t length);
@@ -183,6 +205,69 @@ void SWU_UIAProviderSetFocus(void *provider);
 void *SWU_UIAProviderGetFocus(void *rootProvider);
 void *SWU_UIAProviderElementFromPoint(void *rootProvider, double x, double y);
 void *SWU_UIAProviderGetFragmentRoot(void *provider);
+
+// HRESULT-preserving headless peers. They invoke the actual COM interfaces.
+// Required output addresses are validated first and initialized before all
+// other failures. Interface/string outputs are null on failure; scalar and
+// rectangle outputs are zero. An unsupported live property/pattern or absent
+// navigation destination remains a successful empty result. A revoked owner
+// returns UIA_E_ELEMENTNOTAVAILABLE instead. QueryInterface is the exception:
+// its fixed interface support and COM identity survive owner revocation.
+// Successful returned providers and strings carry the same ownership as the
+// legacy helpers above. Runtime-id buffers are written only on success; their
+// output count remains zero on failure.
+enum {
+    SWU_UIA_INTERFACE_UNKNOWN = 0,
+    SWU_UIA_INTERFACE_SIMPLE = 1,
+    SWU_UIA_INTERFACE_FRAGMENT = 2,
+    SWU_UIA_INTERFACE_FRAGMENT_ROOT = 3,
+    SWU_UIA_INTERFACE_INVOKE = 4,
+    SWU_UIA_INTERFACE_VALUE = 5,
+    SWU_UIA_INTERFACE_TOGGLE = 6,
+    SWU_UIA_INTERFACE_SELECTION = 7,
+    SWU_UIA_INTERFACE_SELECTION_ITEM = 8,
+    SWU_UIA_INTERFACE_VIRTUALIZED_ITEM = 9,
+};
+// QueryInterface and pattern results are genuine interface pointers. Use only
+// their matching pattern helpers or AddRef/ReleaseProvider with these handles.
+// Navigation, focus, fragment-root, and selection results are concrete handles.
+int32_t SWU_UIAProviderQueryInterfaceResult(void *provider, int32_t interfaceKind, void **result);
+int32_t SWU_UIAProviderGetPatternResult(void *provider, int32_t pattern, void **result);
+int32_t SWU_UIAProviderNavigateResult(void *provider, int32_t direction, void **result);
+int32_t SWU_UIAProviderGetRuntimeIdResult(
+    void *provider, int32_t *buffer, int32_t capacity, int32_t *count);
+int32_t SWU_UIAProviderGetBoundingRectangleResult(
+    void *provider, double *left, double *top, double *width, double *height);
+int32_t SWU_UIAProviderGetNameResult(void *provider, uint16_t **result);
+int32_t SWU_UIAProviderGetControlTypeResult(void *provider, int32_t *result);
+int32_t SWU_UIAProviderGetBoolPropertyResult(
+    void *provider, int32_t neutralKey, int32_t *result, int32_t *hasValue);
+int32_t SWU_UIAProviderGetProviderOptionsResult(void *provider, int32_t *result);
+int32_t SWU_UIAProviderGetEmbeddedFragmentRootCountResult(void *provider, int32_t *result);
+// Host-provider results belong to Windows, not SWUProvider. Only AddRef/Release
+// and ordinary COM clients may consume a successful non-null result.
+int32_t SWU_UIAProviderGetHostRawElementProviderResult(void *provider, void **result);
+int32_t SWU_UIAProviderInvokeResult(void *invokeProvider);
+int32_t SWU_UIAValueProviderGetValueResult(void *valueProvider, uint16_t **result);
+int32_t SWU_UIAValueProviderSetValueResult(
+    void *valueProvider, const uint16_t *value, int32_t length);
+int32_t SWU_UIAValueProviderIsReadOnlyResult(void *valueProvider, int32_t *result);
+int32_t SWU_UIAToggleProviderGetStateResult(void *toggleProvider, int32_t *result);
+int32_t SWU_UIAToggleProviderToggleResult(void *toggleProvider);
+int32_t SWU_UIASelectionItemProviderIsSelectedResult(void *selectionItemProvider, int32_t *result);
+int32_t SWU_UIASelectionItemProviderSelectResult(void *selectionItemProvider);
+int32_t SWU_UIASelectionItemProviderAddToSelectionResult(void *selectionItemProvider);
+int32_t SWU_UIASelectionItemProviderRemoveFromSelectionResult(void *selectionItemProvider);
+int32_t SWU_UIASelectionItemProviderGetSelectionContainerResult(void *selectionItemProvider, void **result);
+int32_t SWU_UIASelectionProviderGetSelectedCountResult(void *selectionProvider, int32_t *result);
+int32_t SWU_UIASelectionProviderGetSelectedAtResult(void *selectionProvider, int32_t index, void **result);
+int32_t SWU_UIASelectionProviderCanSelectMultipleResult(void *selectionProvider, int32_t *result);
+int32_t SWU_UIASelectionProviderIsSelectionRequiredResult(void *selectionProvider, int32_t *result);
+int32_t SWU_UIAVirtualizedItemProviderRealizeResult(void *virtualizedItemProvider);
+int32_t SWU_UIAProviderSetFocusResult(void *provider);
+int32_t SWU_UIAProviderGetFocusResult(void *rootProvider, void **result);
+int32_t SWU_UIAProviderElementFromPointResult(void *rootProvider, double x, double y, void **result);
+int32_t SWU_UIAProviderGetFragmentRootResult(void *provider, void **result);
 
 #ifdef __cplusplus
 }

@@ -17,8 +17,9 @@ import WinSDK
 // Threading: UIA calls raw providers on its own background threads. Every
 // callback hops to the main thread before touching the tree source, which is
 // main-actor isolated like the rest of the UI stack. Hopping from a UIA
-// worker thread is deadlock-safe here because UIA clients (Narrator etc.)
-// are out of process; the main thread never blocks on a UIA callback.
+// worker thread preserves the existing synchronous dispatch contract. The
+// main thread must remain able to service that dispatch; provider lifetime
+// safety does not qualify every COM reentry or Narrator deadlock scenario.
 
 /// A flat, screen-coordinate snapshot of one accessibility element, produced
 /// by a `UIAElementTreeSource` on every UIA query. `id` values must be stable
@@ -167,14 +168,67 @@ public protocol Win32WindowAccessibilityProvider: AnyObject {
     ) -> LRESULT?
 }
 
+/// Native effects are supplied per bridge so lifecycle tests can force failure
+/// and reentry without changing process-wide UI Automation state.
+@MainActor
+struct UIAProviderNativeCalls {
+    var clientsAreListening: @MainActor () -> Bool
+    var returnProvider: @MainActor (UnsafeMutableRawPointer?, WPARAM, LPARAM, UnsafeMutableRawPointer) -> LRESULT
+    var disconnectProvider: @MainActor (UnsafeMutableRawPointer) -> Int32
+    var raiseFocusChanged: @MainActor (UnsafeMutableRawPointer) -> Void
+    var raiseStructureChanged: @MainActor (UnsafeMutableRawPointer) -> Void
+    var raiseLiveRegionChanged: @MainActor (UnsafeMutableRawPointer) -> Void
+
+    static var live: UIAProviderNativeCalls {
+        UIAProviderNativeCalls(
+            clientsAreListening: { SWU_UIAClientsAreListening() != 0 },
+            returnProvider: { hwnd, wParam, lParam, provider in
+                LRESULT(SWU_UIAReturnRawElementProvider(hwnd, UInt(wParam), Int(lParam), provider))
+            },
+            disconnectProvider: { SWU_UIATryDisconnectProvider($0) },
+            raiseFocusChanged: { SWU_UIARaiseAutomationFocusChanged($0) },
+            raiseStructureChanged: { SWU_UIARaiseStructureChanged($0) },
+            raiseLiveRegionChanged: { SWU_UIARaiseLiveRegionChanged($0) })
+    }
+}
+
+/// Providers retain this box, never the bridge. Its implicit nonisolated
+/// destruction only destroys weak storage and can run on any COM thread.
+@MainActor
+private final class UIAProviderCallbackContext {
+    weak var bridge: UIAProviderBridge?
+    // Borrowed, not retained: this is read only inside a callback whose native
+    // provider already pins the context, never during box destruction.
+    var nativeContext: OpaquePointer?
+
+    func withBridge<Result: Sendable>(
+        unavailable: Result, _ work: @MainActor (UIAProviderBridge) -> Result
+    ) -> Result {
+        guard let nativeContext else { return unavailable }
+        guard SWU_UIAProviderContextIsAvailable(nativeContext) != 0, let bridge else {
+            // Weak zeroing can precede an isolated bridge deinitializer. Make
+            // that failure terminal before the C caller publishes any result.
+            SWU_UIARevokeProviderContext(nativeContext)
+            return unavailable
+        }
+        defer { withExtendedLifetime(bridge) {} }
+        return work(bridge)
+    }
+}
+
+private func releaseUIAProviderCallbackContext(_ context: UnsafeMutableRawPointer?) {
+    guard let context else { return }
+    Unmanaged<UIAProviderCallbackContext>.fromOpaque(context).release()
+}
+
 /// Serves UIA provider objects for one window's accessibility tree.
 ///
 /// The bridge owns the root fragment provider (one per window, handed to UIA
 /// via `UiaReturnRawElementProvider`); child providers are created on demand
 /// by the C glue during navigation and are reference-counted COM objects
 /// whose callbacks all funnel back into this bridge. The bridge must outlive
-/// every provider it created — in practice it is owned by the window for the
-/// window's lifetime.
+/// every source callback it admits. Escaped providers instead own a shared
+/// native context whose weak Swift bridge reference becomes unavailable.
 @MainActor
 public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     /// Element token reserved for the fragment root.
@@ -188,51 +242,84 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     private static let defaultClassName = "SwiftWindowsUI.View"
 
     private let source: any UIAElementTreeSource
-    private var callbacks: SWUUIACallbacks
+    private let nativeCalls: UIAProviderNativeCalls
+    private let callbackContext: UIAProviderCallbackContext
+    private let nativeContext: OpaquePointer?
     private var hwnd: UnsafeMutableRawPointer?
     private var rootProvider: UnsafeMutableRawPointer?
+    private var didDisconnect = false
+    internal private(set) var lastDisconnectResult: Int32?
 
-    public init(source: any UIAElementTreeSource) {
+    public convenience init(source: any UIAElementTreeSource) {
+        self.init(source: source, nativeCalls: .live)
+    }
+
+    internal init(source: any UIAElementTreeSource, nativeCalls: UIAProviderNativeCalls) {
         self.source = source
-        self.callbacks = SWUUIACallbacks()
-        installCallbacks()
+        self.nativeCalls = nativeCalls
+        let callbackContext = UIAProviderCallbackContext()
+        self.callbackContext = callbackContext
+        let retainedBox = Unmanaged.passRetained(callbackContext).toOpaque()
+        var callbacks = Self.makeCallbacks(context: retainedBox)
+        let nativeContext = SWU_UIACreateProviderContext(&callbacks, releaseUIAProviderCallbackContext)
+        self.nativeContext = nativeContext
+        if nativeContext == nil {
+            // Creation adopts the retained box only when it succeeds.
+            releaseUIAProviderCallbackContext(retainedBox)
+        }
+        callbackContext.nativeContext = nativeContext
+        callbackContext.bridge = self
     }
 
     isolated deinit {
+        // Local revocation is sufficient for safety even when Windows cannot
+        // disconnect providers. Never make an outbound COM call from deinit.
+        if let nativeContext { SWU_UIARevokeProviderContext(nativeContext) }
+        callbackContext.bridge = nil
         if let rootProvider {
             SWU_UIAReleaseProvider(rootProvider)
         }
+        if let nativeContext { SWU_UIAReleaseProviderContext(nativeContext) }
     }
+
+    private var isAvailable: Bool {
+        nativeContext.map { SWU_UIAProviderContextIsAvailable($0) != 0 } ?? false
+    }
+
+    internal var callbackContextObjectForTesting: AnyObject { callbackContext }
 
     // MARK: - WM_GETOBJECT
 
     public func handleAccessibilityGetObject(
         hwnd: UnsafeMutableRawPointer?, wParam: WPARAM, lParam: LPARAM
     ) -> LRESULT? {
+        guard isAvailable else { return nil }
         self.hwnd = hwnd
         guard Int32(truncatingIfNeeded: lParam) == Self.uiaRootObjectID else {
             return nil
         }
         // Only pay projection/provider costs while an assistive client exists.
-        guard isClientListening else {
+        guard isClientListening, isAvailable, let nativeContext else {
             return nil
         }
         if rootProvider == nil {
-            rootProvider = SWU_UIACreateRootProvider(&callbacks, hwnd)
+            rootProvider = SWU_UIACreateRootProviderWithContext(nativeContext, hwnd)
         }
-        guard let rootProvider else {
+        guard isAvailable, let rootProvider else {
             return nil
         }
-        // UiaReturnRawElementProvider takes ownership of one reference; keep
-        // ours so the bridge can keep answering and raising events.
+        // The native call borrows its provider. Pin it across reentry, then
+        // balance only our temporary reference; UIA owns any references it takes.
         SWU_UIAAddRefProvider(rootProvider)
-        return LRESULT(SWU_UIAReturnRawElementProvider(hwnd, UInt(wParam), Int(lParam), rootProvider))
+        defer { SWU_UIAReleaseProvider(rootProvider) }
+        let result = nativeCalls.returnProvider(hwnd, wParam, lParam, rootProvider)
+        return isAvailable ? result : nil
     }
 
     /// True while an assistive-technology client is attached. Cheap to call;
     /// use to gate work (like re-projection) that only matters for UIA.
     public var isClientListening: Bool {
-        SWU_UIAClientsAreListening() != 0
+        nativeCalls.clientsAreListening()
     }
 
     // MARK: - UIA events
@@ -240,55 +327,69 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
     /// Raises `UIA_AutomationFocusChangedEventId` for the given element.
     /// No-op when no UIA client is listening.
     public func raiseFocusChanged(elementID: UInt64) {
-        guard isClientListening else {
+        defer { withExtendedLifetime(self) {} }
+        guard isAvailable, isClientListening, isAvailable, let nativeContext else {
             return
         }
-        guard let provider = SWU_UIACreateElementProvider(&callbacks, hwnd, elementID) else {
+        guard let provider = SWU_UIACreateElementProviderWithContext(nativeContext, hwnd, elementID) else {
             return
         }
-        SWU_UIARaiseAutomationFocusChanged(provider)
-        SWU_UIAReleaseProvider(provider)
+        defer { SWU_UIAReleaseProvider(provider) }
+        guard isAvailable else { return }
+        nativeCalls.raiseFocusChanged(provider)
     }
 
     /// Raises `UIA_StructureChangedEventId` (ChildrenInvalidated) on the root.
     /// No-op when no client is listening or UIA has never attached.
     public func raiseStructureChanged() {
-        guard isClientListening, let rootProvider else {
+        defer { withExtendedLifetime(self) {} }
+        guard isAvailable, isClientListening, isAvailable, let rootProvider else {
             return
         }
-        SWU_UIARaiseStructureChanged(rootProvider)
+        SWU_UIAAddRefProvider(rootProvider)
+        defer { SWU_UIAReleaseProvider(rootProvider) }
+        nativeCalls.raiseStructureChanged(rootProvider)
     }
 
     /// Announces a changed live region to Narrator and other UIA clients.
     /// The provider is projected at call time; no second accessibility tree
     /// or observer work is retained when no assistive client is attached.
     public func raiseLiveRegionChanged(elementID: UInt64) {
-        guard isClientListening,
-            let provider = SWU_UIACreateElementProvider(&callbacks, hwnd, elementID)
+        defer { withExtendedLifetime(self) {} }
+        guard isAvailable, isClientListening, isAvailable, let nativeContext,
+            let provider = SWU_UIACreateElementProviderWithContext(nativeContext, hwnd, elementID)
         else {
             return
         }
-        SWU_UIARaiseLiveRegionChanged(provider)
-        SWU_UIAReleaseProvider(provider)
+        defer { SWU_UIAReleaseProvider(provider) }
+        guard isAvailable else { return }
+        nativeCalls.raiseLiveRegionChanged(provider)
     }
 
-    /// Disconnects the root provider; call when the window is going away so
-    /// UIA stops calling into the tree.
+    /// Revokes the entire provider family before attempting native cleanup.
+    /// A failed native disconnect never restores availability or starts a retry.
     public func disconnect() {
+        guard !didDisconnect else { return }
+        didDisconnect = true
+        if let nativeContext { SWU_UIARevokeProviderContext(nativeContext) }
+        callbackContext.bridge = nil
         guard let rootProvider else {
             return
         }
-        SWU_UIADisconnectProvider(rootProvider)
+        SWU_UIAAddRefProvider(rootProvider)
+        defer { SWU_UIAReleaseProvider(rootProvider) }
+        lastDisconnectResult = nativeCalls.disconnectProvider(rootProvider)
     }
 
     /// Test seam: the lazily created root provider, without requiring a
     /// listening UIA client or a window handle. Returns a retained reference
     /// the caller must release with `SWU_UIAReleaseProvider`.
     internal func retainedRootProviderForTesting() -> UnsafeMutableRawPointer? {
+        guard isAvailable, let nativeContext else { return nil }
         if rootProvider == nil {
-            rootProvider = SWU_UIACreateRootProvider(&callbacks, hwnd)
+            rootProvider = SWU_UIACreateRootProviderWithContext(nativeContext, hwnd)
         }
-        guard let rootProvider else {
+        guard isAvailable, let rootProvider else {
             return nil
         }
         SWU_UIAAddRefProvider(rootProvider)
@@ -297,83 +398,142 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
 
     // MARK: - Callback installation
 
-    private func installCallbacks() {
-        callbacks.context = Unmanaged.passUnretained(self).toOpaque()
+    nonisolated private static func makeCallbacks(context: UnsafeMutableRawPointer) -> SWUUIACallbacks {
+        var callbacks = SWUUIACallbacks()
+        callbacks.context = context
         callbacks.navigate = { context, element, direction in
-            UIAProviderBridge.unmanaged(from: context).navigateForUIA(element, direction: direction)
+            UIAProviderBridge.withBridge(from: context, unavailable: UInt64.max) {
+                $0.navigateForUIA(element, direction: direction)
+            }
         }
         callbacks.getRuntimeId = { context, element, buffer, capacity in
-            UIAProviderBridge.unmanaged(from: context).runtimeIDForUIA(element, buffer: buffer, capacity: capacity)
+            guard capacity >= 2, let buffer else { return 0 }
+            let values = UIAProviderBridge.withBridge(from: context, unavailable: [Int32]()) {
+                $0.runtimeIDForUIA(element)
+            }
+            for (index, value) in values.prefix(Int(capacity)).enumerated() { buffer[index] = value }
+            return Int32(clamping: values.count)
         }
         callbacks.getBoundingRectangle = { context, element, left, top, width, height in
-            UIAProviderBridge.unmanaged(from: context).boundingRectangleForUIA(
-                element, left: left, top: top, width: width, height: height)
+            let bounds = UIAProviderBridge.withBridge(
+                from: context, unavailable: Rect(x: 0, y: 0, width: 0, height: 0)
+            ) {
+                $0.boundingRectangleForUIA(element)
+            }
+            left?.pointee = bounds.origin.x
+            top?.pointee = bounds.origin.y
+            width?.pointee = bounds.size.width
+            height?.pointee = bounds.size.height
         }
         callbacks.copyStringProperty = { context, element, property in
-            UIAProviderBridge.unmanaged(from: context).stringPropertyForUIA(element, property: property)
+            let value = UIAProviderBridge.withBridge(from: context, unavailable: String?.none) {
+                $0.stringPropertyForUIA(element, property: property)
+            }
+            guard let value else { return nil }
+            var utf16 = Array(value.utf16)
+            if utf16.isEmpty { utf16 = [0] }
+            return utf16.withUnsafeBufferPointer { buffer in
+                SWU_UIACreateBSTR(buffer.baseAddress, Int32(value.utf16.count))
+            }
         }
         callbacks.getControlType = { context, element in
-            UIAProviderBridge.unmanaged(from: context).controlTypeForUIA(element)
+            UIAProviderBridge.withBridge(from: context, unavailable: Int32(SWU_UIA_CONTROL_TYPE_GROUP)) {
+                $0.controlTypeForUIA(element)
+            }
         }
         callbacks.getBoolProperty = { context, element, property in
-            UIAProviderBridge.unmanaged(from: context).boolPropertyForUIA(element, property: property)
+            UIAProviderBridge.withBridge(from: context, unavailable: Int32(-1)) {
+                $0.boolPropertyForUIA(element, property: property)
+            }
         }
         callbacks.hasInvokeAction = { context, element in
-            UIAProviderBridge.unmanaged(from: context).hasInvokeActionForUIA(element)
+            UIAProviderBridge.withBridge(from: context, unavailable: Int32(0)) {
+                $0.hasInvokeActionForUIA(element)
+            }
         }
         callbacks.invokeDefaultAction = { context, element in
-            UIAProviderBridge.unmanaged(from: context).invokeDefaultActionForUIA(element)
+            UIAProviderBridge.withBridge(from: context, unavailable: ()) {
+                $0.invokeDefaultActionForUIA(element)
+            }
         }
         callbacks.supportsPattern = { context, element, pattern in
-            UIAProviderBridge.unmanaged(from: context).supportsPatternForUIA(element, pattern: pattern)
+            UIAProviderBridge.withBridge(from: context, unavailable: Int32(0)) {
+                $0.supportsPatternForUIA(element, pattern: pattern)
+            }
         }
         callbacks.setValue = { context, element, value, length in
-            UIAProviderBridge.unmanaged(from: context).setValueForUIA(element, value: value, length: length)
+            guard length >= 0, length <= 1_048_576, let value else { return 0 }
+            let decoded = String(decoding: UnsafeBufferPointer(start: value, count: Int(length)), as: UTF16.self)
+            return UIAProviderBridge.withBridge(from: context, unavailable: Int32(0)) {
+                $0.setValueForUIA(element, value: decoded)
+            }
         }
         callbacks.getToggleState = { context, element in
-            UIAProviderBridge.unmanaged(from: context).toggleStateForUIA(element)
+            UIAProviderBridge.withBridge(from: context, unavailable: Int32(-1)) {
+                $0.toggleStateForUIA(element)
+            }
         }
         callbacks.toggle = { context, element in
-            UIAProviderBridge.unmanaged(from: context).toggleForUIA(element)
+            UIAProviderBridge.withBridge(from: context, unavailable: Int32(0)) { $0.toggleForUIA(element) }
         }
         callbacks.select = { context, element in
-            UIAProviderBridge.unmanaged(from: context).selectForUIA(element)
+            UIAProviderBridge.withBridge(from: context, unavailable: Int32(0)) { $0.selectForUIA(element) }
         }
         callbacks.addToSelection = { context, element in
-            UIAProviderBridge.unmanaged(from: context).addToSelectionForUIA(element)
+            UIAProviderBridge.withBridge(from: context, unavailable: Int32(0)) { $0.addToSelectionForUIA(element) }
         }
         callbacks.removeFromSelection = { context, element in
-            UIAProviderBridge.unmanaged(from: context).removeFromSelectionForUIA(element)
+            UIAProviderBridge.withBridge(from: context, unavailable: Int32(0)) { $0.removeFromSelectionForUIA(element) }
         }
         callbacks.getSelectionContainer = { context, element in
-            UIAProviderBridge.unmanaged(from: context).selectionContainerForUIA(element)
+            UIAProviderBridge.withBridge(from: context, unavailable: UInt64.max) {
+                $0.selectionContainerForUIA(element)
+            }
         }
         callbacks.getSelection = { context, element, buffer, capacity in
-            UIAProviderBridge.unmanaged(from: context).selectionForUIA(element, buffer: buffer, capacity: capacity)
+            guard capacity >= 0 else { return -1 }
+            let selected = UIAProviderBridge.withBridge(from: context, unavailable: [UInt64]?.none) {
+                $0.selectionForUIA(element)
+            }
+            guard let selected else { return -1 }
+            if let buffer {
+                for (index, elementID) in selected.prefix(Int(capacity)).enumerated() { buffer[index] = elementID }
+            }
+            return Int32(clamping: selected.count)
         }
         callbacks.realizeVirtualizedItem = { context, element in
-            UIAProviderBridge.unmanaged(from: context).realizeVirtualizedItemForUIA(element)
+            UIAProviderBridge.withBridge(from: context, unavailable: Int32(0)) {
+                $0.realizeVirtualizedItemForUIA(element)
+            }
         }
         callbacks.setFocus = { context, element in
-            UIAProviderBridge.unmanaged(from: context).setFocusForUIA(element)
+            UIAProviderBridge.withBridge(from: context, unavailable: ()) { $0.setFocusForUIA(element) }
         }
         callbacks.elementFromPoint = { context, x, y in
-            UIAProviderBridge.unmanaged(from: context).elementFromPointForUIA(x: x, y: y)
+            UIAProviderBridge.withBridge(from: context, unavailable: UInt64.max) {
+                $0.elementFromPointForUIA(x: x, y: y)
+            }
         }
         callbacks.focusedElement = { context in
-            UIAProviderBridge.unmanaged(from: context).focusedElementForUIA()
+            UIAProviderBridge.withBridge(from: context, unavailable: UInt64.max) { $0.focusedElementForUIA() }
         }
+        return callbacks
     }
 
-    private static func unmanaged(from context: UnsafeMutableRawPointer?) -> UIAProviderBridge {
-        guard let context else {
-            fatalError("UIAProviderBridge callback invoked with no context")
-        }
-        return Unmanaged<UIAProviderBridge>.fromOpaque(context).takeUnretainedValue()
+    nonisolated private static func withBridge<Result: Sendable>(
+        from context: UnsafeMutableRawPointer?, unavailable: Result,
+        _ work: @MainActor (UIAProviderBridge) -> Result
+    ) -> Result {
+        guard let context else { return unavailable }
+        // The native invocation pins its provider/context. Merely retaining
+        // this Sendable box reads no actor-isolated state on the COM thread.
+        let box = Unmanaged<UIAProviderCallbackContext>.fromOpaque(context).takeUnretainedValue()
+        return onMain { box.withBridge(unavailable: unavailable, work) }
     }
 
-    /// Runs main-actor work from a (possibly background) UIA callback thread.
-    private static func onMain<T: Sendable>(_ work: @MainActor () -> T) -> T {
+    /// Preserve the existing synchronous main dispatch, but perform the weak
+    /// bridge read and promotion only after entering the main actor.
+    nonisolated private static func onMain<Result: Sendable>(_ work: @MainActor () -> Result) -> Result {
         if Thread.isMainThread {
             return MainActor.assumeIsolated(work)
         }
@@ -382,324 +542,196 @@ public final class UIAProviderBridge: Win32WindowAccessibilityProvider {
         }
     }
 
-    // MARK: - Tree queries (main-actor, called via onMain)
+    // MARK: - Tree queries (main actor; C memory stays in the trampolines)
 
     private func navigateForUIA(_ element: UInt64, direction: Int32) -> UInt64 {
-        Self.onMain {
-            let list = source.uiaElementSnapshots()
-            guard let current = list.first(where: { $0.id == element }) else {
-                return Self.noElement
-            }
-            switch direction {
-            case Int32(SWU_UIA_NAV_PARENT):
-                return current.parentID ?? Self.noElement
-            case Int32(SWU_UIA_NAV_FIRST_CHILD):
-                return list.first(where: { $0.parentID == element })?.id ?? Self.noElement
-            case Int32(SWU_UIA_NAV_LAST_CHILD):
-                return list.last(where: { $0.parentID == element })?.id ?? Self.noElement
-            case Int32(SWU_UIA_NAV_NEXT_SIBLING), Int32(SWU_UIA_NAV_PREVIOUS_SIBLING):
-                guard let parentID = current.parentID else {
-                    return Self.noElement
-                }
-                let siblings = list.filter { $0.parentID == parentID }
-                guard let index = siblings.firstIndex(where: { $0.id == element }) else {
-                    return Self.noElement
-                }
-                let target = direction == Int32(SWU_UIA_NAV_NEXT_SIBLING) ? index + 1 : index - 1
-                guard siblings.indices.contains(target) else {
-                    return Self.noElement
-                }
-                return siblings[target].id
-            default:
-                return Self.noElement
-            }
-        }
-    }
-
-    private func runtimeIDForUIA(
-        _ element: UInt64, buffer: UnsafeMutablePointer<Int32>?, capacity: Int32
-    ) -> Int32 {
-        Self.onMain {
-            guard element != Self.rootElementID, capacity >= 2, let buffer else {
-                return 0
-            }
-            buffer[0] = Self.runtimeIDPrefix
-            buffer[1] = Int32(truncatingIfNeeded: element)
-            return 2
-        }
-    }
-
-    private func boundingRectangleForUIA(
-        _ element: UInt64,
-        left: UnsafeMutablePointer<Double>?,
-        top: UnsafeMutablePointer<Double>?,
-        width: UnsafeMutablePointer<Double>?,
-        height: UnsafeMutablePointer<Double>?
-    ) {
-        Self.onMain {
-            let bounds =
-                source.uiaElementSnapshots().first(where: { $0.id == element })?.bounds
-                ?? Rect(x: 0, y: 0, width: 0, height: 0)
-            left?.pointee = bounds.origin.x
-            top?.pointee = bounds.origin.y
-            width?.pointee = bounds.size.width
-            height?.pointee = bounds.size.height
-        }
-    }
-
-    private func stringPropertyForUIA(_ element: UInt64, property: Int32) -> UnsafeMutablePointer<UInt16>? {
-        // The BSTR pointer itself is created on the main thread and handed to
-        // COM, which frees it with SysFreeString; box it for the short trip
-        // back across the thread hop.
-        struct BSTRBox: @unchecked Sendable {
-            let bstr: UnsafeMutablePointer<UInt16>?
-        }
-        return Self.onMain { () -> BSTRBox in
-            guard let snapshot = source.uiaElementSnapshots().first(where: { $0.id == element }) else {
-                return BSTRBox(bstr: nil)
-            }
-            let value: String?
-            switch property {
-            case Int32(SWU_UIA_STRING_NAME):
-                value = snapshot.name
-            case Int32(SWU_UIA_STRING_VALUE):
-                value = snapshot.value
-            case Int32(SWU_UIA_STRING_HELP_TEXT):
-                value = snapshot.helpText
-            case Int32(SWU_UIA_STRING_AUTOMATION_ID):
-                value = snapshot.automationID
-            case Int32(SWU_UIA_STRING_CLASS_NAME):
-                value = snapshot.className ?? Self.defaultClassName
-            default:
-                value = nil
-            }
-            guard let value else {
-                return BSTRBox(bstr: nil)
-            }
-            var utf16 = Array(value.utf16)
-            if utf16.isEmpty {
-                utf16 = [0]
-            }
-            let bstr = utf16.withUnsafeMutableBufferPointer { buffer in
-                SWU_UIACreateBSTR(buffer.baseAddress, Int32(value.utf16.count))
-            }
-            return BSTRBox(bstr: bstr)
-        }.bstr
-    }
-
-    private func controlTypeForUIA(_ element: UInt64) -> Int32 {
-        Self.onMain {
-            source.uiaElementSnapshots().first(where: { $0.id == element })?.controlType
-                ?? Int32(SWU_UIA_CONTROL_TYPE_GROUP)
-        }
-    }
-
-    private func boolPropertyForUIA(_ element: UInt64, property: Int32) -> Int32 {
-        Self.onMain {
-            guard let snapshot = source.uiaElementSnapshots().first(where: { $0.id == element }) else {
-                return -1
-            }
-            switch property {
-            case Int32(SWU_UIA_BOOL_IS_ENABLED):
-                return snapshot.isEnabled ? 1 : 0
-            case Int32(SWU_UIA_BOOL_HAS_KEYBOARD_FOCUS):
-                return snapshot.hasKeyboardFocus ? 1 : 0
-            case Int32(SWU_UIA_BOOL_IS_KEYBOARD_FOCUSABLE):
-                return snapshot.isKeyboardFocusable ? 1 : 0
-            case Int32(SWU_UIA_BOOL_IS_OFFSCREEN):
-                guard let isOffscreen = snapshot.isOffscreen else {
-                    return -1
-                }
-                return isOffscreen ? 1 : 0
-            case Int32(SWU_UIA_BOOL_IS_PASSWORD):
-                return snapshot.isPassword ? 1 : 0
-            case Int32(SWU_UIA_BOOL_IS_READ_ONLY):
-                guard snapshot.supportsValue else {
-                    return -1
-                }
-                return snapshot.isReadOnly ? 1 : 0
-            case Int32(SWU_UIA_BOOL_IS_SELECTED):
-                guard let isSelected = snapshot.isSelected else {
-                    return -1
-                }
-                return isSelected ? 1 : 0
-            default:
-                return -1
-            }
-        }
-    }
-
-    private func hasInvokeActionForUIA(_ element: UInt64) -> Int32 {
-        Self.onMain {
-            source.uiaElementSnapshots().first(where: { $0.id == element })?.hasDefaultAction == true ? 1 : 0
-        }
-    }
-
-    private func invokeDefaultActionForUIA(_ element: UInt64) {
-        _ = Self.onMain {
-            source.uiaInvokeDefaultAction(elementID: element)
-        }
-    }
-
-    private func supportsPatternForUIA(_ element: UInt64, pattern: Int32) -> Int32 {
-        Self.onMain {
-            guard let snapshot = source.uiaElementSnapshots().first(where: { $0.id == element }) else {
-                return 0
-            }
-            switch pattern {
-            case Int32(SWU_UIA_PATTERN_VALUE):
-                return snapshot.supportsValue && !snapshot.isPassword ? 1 : 0
-            case Int32(SWU_UIA_PATTERN_TOGGLE):
-                return snapshot.toggleState != nil ? 1 : 0
-            case Int32(SWU_UIA_PATTERN_SELECTION):
-                return snapshot.supportsSelection ? 1 : 0
-            case Int32(SWU_UIA_PATTERN_SELECTION_ITEM):
-                return snapshot.isSelected != nil ? 1 : 0
-            case Int32(SWU_UIA_PATTERN_VIRTUALIZED_ITEM):
-                return snapshot.isVirtualizedPlaceholder ? 1 : 0
-            default:
-                return 0
-            }
-        }
-    }
-
-    private func setValueForUIA(_ element: UInt64, value: UnsafePointer<UInt16>?, length: Int32) -> Int32 {
-        guard length >= 0, length <= 1_048_576, let value else {
-            return 0
-        }
-        let decoded = String(decoding: UnsafeBufferPointer(start: value, count: Int(length)), as: UTF16.self)
-        return Self.onMain {
-            guard let snapshot = source.uiaElementSnapshots().first(where: { $0.id == element }),
-                snapshot.isEnabled, snapshot.supportsValue, !snapshot.isPassword, !snapshot.isReadOnly
-            else {
-                return 0
-            }
-            return source.uiaSetValue(elementID: element, value: decoded) ? 1 : 0
-        }
-    }
-
-    private func toggleStateForUIA(_ element: UInt64) -> Int32 {
-        Self.onMain {
-            source.uiaElementSnapshots().first(where: { $0.id == element })?.toggleState?.rawValue ?? -1
-        }
-    }
-
-    private func toggleForUIA(_ element: UInt64) -> Int32 {
-        Self.onMain {
-            source.uiaToggle(elementID: element) ? 1 : 0
-        }
-    }
-
-    private func selectForUIA(_ element: UInt64) -> Int32 {
-        Self.onMain {
-            source.uiaSelect(elementID: element) ? 1 : 0
-        }
-    }
-
-    private func addToSelectionForUIA(_ element: UInt64) -> Int32 {
-        Self.onMain {
-            source.uiaAddToSelection(elementID: element) ? 1 : 0
-        }
-    }
-
-    private func removeFromSelectionForUIA(_ element: UInt64) -> Int32 {
-        Self.onMain {
-            source.uiaRemoveFromSelection(elementID: element) ? 1 : 0
-        }
-    }
-
-    private func selectionContainerForUIA(_ element: UInt64) -> UInt64 {
-        Self.onMain {
-            let snapshots = source.uiaElementSnapshots()
-            guard let snapshot = snapshots.first(where: { $0.id == element }), snapshot.isSelected != nil else {
-                return Self.noElement
-            }
-            var parentID = snapshot.parentID
-            while let candidate = parentID,
-                let parent = snapshots.first(where: { $0.id == candidate })
-            {
-                if parent.supportsSelection {
-                    return parent.id
-                }
-                parentID = parent.parentID
-            }
+        let list = source.uiaElementSnapshots()
+        guard let current = list.first(where: { $0.id == element }) else { return Self.noElement }
+        switch direction {
+        case Int32(SWU_UIA_NAV_PARENT):
+            return current.parentID ?? Self.noElement
+        case Int32(SWU_UIA_NAV_FIRST_CHILD):
+            return list.first(where: { $0.parentID == element })?.id ?? Self.noElement
+        case Int32(SWU_UIA_NAV_LAST_CHILD):
+            return list.last(where: { $0.parentID == element })?.id ?? Self.noElement
+        case Int32(SWU_UIA_NAV_NEXT_SIBLING), Int32(SWU_UIA_NAV_PREVIOUS_SIBLING):
+            guard let parentID = current.parentID else { return Self.noElement }
+            let siblings = list.filter { $0.parentID == parentID }
+            guard let index = siblings.firstIndex(where: { $0.id == element }) else { return Self.noElement }
+            let target = direction == Int32(SWU_UIA_NAV_NEXT_SIBLING) ? index + 1 : index - 1
+            guard siblings.indices.contains(target) else { return Self.noElement }
+            return siblings[target].id
+        default:
             return Self.noElement
         }
     }
 
-    private func selectionForUIA(
-        _ element: UInt64, buffer: UnsafeMutablePointer<UInt64>?, capacity: Int32
-    ) -> Int32 {
-        Self.onMain {
-            guard capacity >= 0 else {
-                return -1
-            }
-            let snapshots = source.uiaElementSnapshots()
-            guard snapshots.first(where: { $0.id == element })?.supportsSelection == true else {
-                return -1
-            }
-            let selected = snapshots.filter { snapshot in
-                guard snapshot.isSelected == true else {
-                    return false
-                }
-                var parentID = snapshot.parentID
-                while let candidate = parentID,
-                    let parent = snapshots.first(where: { $0.id == candidate })
-                {
-                    if parent.supportsSelection {
-                        return parent.id == element
-                    }
-                    parentID = parent.parentID
-                }
-                return false
-            }
-            if let buffer {
-                for (index, snapshot) in selected.prefix(Int(capacity)).enumerated() {
-                    buffer[index] = snapshot.id
-                }
-            }
-            return Int32(clamping: selected.count)
+    private func runtimeIDForUIA(_ element: UInt64) -> [Int32] {
+        guard element != Self.rootElementID else { return [] }
+        return [Self.runtimeIDPrefix, Int32(truncatingIfNeeded: element)]
+    }
+
+    private func boundingRectangleForUIA(_ element: UInt64) -> Rect {
+        source.uiaElementSnapshots().first(where: { $0.id == element })?.bounds
+            ?? Rect(x: 0, y: 0, width: 0, height: 0)
+    }
+
+    private func stringPropertyForUIA(_ element: UInt64, property: Int32) -> String? {
+        guard let snapshot = source.uiaElementSnapshots().first(where: { $0.id == element }) else { return nil }
+        switch property {
+        case Int32(SWU_UIA_STRING_NAME):
+            return snapshot.name
+        case Int32(SWU_UIA_STRING_VALUE):
+            return snapshot.value
+        case Int32(SWU_UIA_STRING_HELP_TEXT):
+            return snapshot.helpText
+        case Int32(SWU_UIA_STRING_AUTOMATION_ID):
+            return snapshot.automationID
+        case Int32(SWU_UIA_STRING_CLASS_NAME):
+            return snapshot.className ?? Self.defaultClassName
+        default:
+            return nil
         }
+    }
+
+    private func controlTypeForUIA(_ element: UInt64) -> Int32 {
+        source.uiaElementSnapshots().first(where: { $0.id == element })?.controlType
+            ?? Int32(SWU_UIA_CONTROL_TYPE_GROUP)
+    }
+
+    private func boolPropertyForUIA(_ element: UInt64, property: Int32) -> Int32 {
+        guard let snapshot = source.uiaElementSnapshots().first(where: { $0.id == element }) else { return -1 }
+        switch property {
+        case Int32(SWU_UIA_BOOL_IS_ENABLED):
+            return snapshot.isEnabled ? 1 : 0
+        case Int32(SWU_UIA_BOOL_HAS_KEYBOARD_FOCUS):
+            return snapshot.hasKeyboardFocus ? 1 : 0
+        case Int32(SWU_UIA_BOOL_IS_KEYBOARD_FOCUSABLE):
+            return snapshot.isKeyboardFocusable ? 1 : 0
+        case Int32(SWU_UIA_BOOL_IS_OFFSCREEN):
+            guard let isOffscreen = snapshot.isOffscreen else { return -1 }
+            return isOffscreen ? 1 : 0
+        case Int32(SWU_UIA_BOOL_IS_PASSWORD):
+            return snapshot.isPassword ? 1 : 0
+        case Int32(SWU_UIA_BOOL_IS_READ_ONLY):
+            guard snapshot.supportsValue else { return -1 }
+            return snapshot.isReadOnly ? 1 : 0
+        case Int32(SWU_UIA_BOOL_IS_SELECTED):
+            guard let isSelected = snapshot.isSelected else { return -1 }
+            return isSelected ? 1 : 0
+        default:
+            return -1
+        }
+    }
+
+    private func hasInvokeActionForUIA(_ element: UInt64) -> Int32 {
+        source.uiaElementSnapshots().first(where: { $0.id == element })?.hasDefaultAction == true ? 1 : 0
+    }
+
+    private func invokeDefaultActionForUIA(_ element: UInt64) {
+        _ = source.uiaInvokeDefaultAction(elementID: element)
+    }
+
+    private func supportsPatternForUIA(_ element: UInt64, pattern: Int32) -> Int32 {
+        guard let snapshot = source.uiaElementSnapshots().first(where: { $0.id == element }) else { return 0 }
+        switch pattern {
+        case Int32(SWU_UIA_PATTERN_VALUE):
+            return snapshot.supportsValue && !snapshot.isPassword ? 1 : 0
+        case Int32(SWU_UIA_PATTERN_TOGGLE):
+            return snapshot.toggleState != nil ? 1 : 0
+        case Int32(SWU_UIA_PATTERN_SELECTION):
+            return snapshot.supportsSelection ? 1 : 0
+        case Int32(SWU_UIA_PATTERN_SELECTION_ITEM):
+            return snapshot.isSelected != nil ? 1 : 0
+        case Int32(SWU_UIA_PATTERN_VIRTUALIZED_ITEM):
+            return snapshot.isVirtualizedPlaceholder ? 1 : 0
+        default:
+            return 0
+        }
+    }
+
+    private func setValueForUIA(_ element: UInt64, value: String) -> Int32 {
+        guard let snapshot = source.uiaElementSnapshots().first(where: { $0.id == element }),
+            isAvailable, snapshot.isEnabled, snapshot.supportsValue, !snapshot.isPassword, !snapshot.isReadOnly
+        else { return 0 }
+        return source.uiaSetValue(elementID: element, value: value) ? 1 : 0
+    }
+
+    private func toggleStateForUIA(_ element: UInt64) -> Int32 {
+        source.uiaElementSnapshots().first(where: { $0.id == element })?.toggleState?.rawValue ?? -1
+    }
+
+    private func toggleForUIA(_ element: UInt64) -> Int32 {
+        source.uiaToggle(elementID: element) ? 1 : 0
+    }
+
+    private func selectForUIA(_ element: UInt64) -> Int32 {
+        source.uiaSelect(elementID: element) ? 1 : 0
+    }
+
+    private func addToSelectionForUIA(_ element: UInt64) -> Int32 {
+        source.uiaAddToSelection(elementID: element) ? 1 : 0
+    }
+
+    private func removeFromSelectionForUIA(_ element: UInt64) -> Int32 {
+        source.uiaRemoveFromSelection(elementID: element) ? 1 : 0
+    }
+
+    private func selectionContainerForUIA(_ element: UInt64) -> UInt64 {
+        let snapshots = source.uiaElementSnapshots()
+        guard let snapshot = snapshots.first(where: { $0.id == element }), snapshot.isSelected != nil else {
+            return Self.noElement
+        }
+        var parentID = snapshot.parentID
+        while let candidate = parentID, let parent = snapshots.first(where: { $0.id == candidate }) {
+            if parent.supportsSelection { return parent.id }
+            parentID = parent.parentID
+        }
+        return Self.noElement
+    }
+
+    private func selectionForUIA(_ element: UInt64) -> [UInt64]? {
+        let snapshots = source.uiaElementSnapshots()
+        guard snapshots.first(where: { $0.id == element })?.supportsSelection == true else { return nil }
+        return snapshots.filter { snapshot in
+            guard snapshot.isSelected == true else { return false }
+            var parentID = snapshot.parentID
+            while let candidate = parentID, let parent = snapshots.first(where: { $0.id == candidate }) {
+                if parent.supportsSelection { return parent.id == element }
+                parentID = parent.parentID
+            }
+            return false
+        }.map(\.id)
     }
 
     private func realizeVirtualizedItemForUIA(_ element: UInt64) -> Int32 {
-        Self.onMain {
-            source.uiaRealizeVirtualizedItem(elementID: element) ? 1 : 0
-        }
+        source.uiaRealizeVirtualizedItem(elementID: element) ? 1 : 0
     }
 
     private func setFocusForUIA(_ element: UInt64) {
-        Self.onMain {
-            source.uiaSetFocus(elementID: element)
-        }
+        source.uiaSetFocus(elementID: element)
     }
 
     private func elementFromPointForUIA(x: Double, y: Double) -> UInt64 {
-        Self.onMain {
-            let list = source.uiaElementSnapshots()
-            var best: UIAElementSnapshot?
-            var bestDepth = -1
-            for snapshot in list {
-                let bounds = snapshot.bounds
-                guard x >= bounds.origin.x, x < bounds.origin.x + bounds.size.width,
-                    y >= bounds.origin.y, y < bounds.origin.y + bounds.size.height
-                else {
-                    continue
-                }
-                let depth = depthOfElement(snapshot, in: list)
-                if depth > bestDepth {
-                    best = snapshot
-                    bestDepth = depth
-                }
+        let list = source.uiaElementSnapshots()
+        var best: UIAElementSnapshot?
+        var bestDepth = -1
+        for snapshot in list {
+            let bounds = snapshot.bounds
+            guard x >= bounds.origin.x, x < bounds.origin.x + bounds.size.width,
+                y >= bounds.origin.y, y < bounds.origin.y + bounds.size.height
+            else { continue }
+            let depth = depthOfElement(snapshot, in: list)
+            if depth > bestDepth {
+                best = snapshot
+                bestDepth = depth
             }
-            return best?.id ?? Self.noElement
         }
+        return best?.id ?? Self.noElement
     }
 
     private func focusedElementForUIA() -> UInt64 {
-        Self.onMain {
-            source.uiaElementSnapshots().first(where: { $0.hasKeyboardFocus })?.id ?? Self.noElement
-        }
+        source.uiaElementSnapshots().first(where: { $0.hasKeyboardFocus })?.id ?? Self.noElement
     }
 
     private func depthOfElement(_ snapshot: UIAElementSnapshot, in list: [UIAElementSnapshot]) -> Int {

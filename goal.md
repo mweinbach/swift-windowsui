@@ -3514,3 +3514,57 @@ callback-boundary and admission work. This slice does not qualify complete
 retained-build reentry readiness, native Enter/Space routing, Narrator, all
 UIA patterns, or the full input workflow. All nine original acceptance gates
 remain open.
+
+### Sixth batch: revocable COM provider ownership and callback lifetime
+
+Every provider family created by the Swift bridge now shares one native,
+reference-counted context containing an immutable callback table and a sticky
+availability flag. Its retained Swift box holds the bridge weakly. Escaped
+roots, children, selection results, focus results, events, and held pattern
+interfaces keep that context alive without retaining the bridge, source,
+window host, or runtime. A live callback promotes and pins the bridge on the
+main actor for the complete source operation. Temporary provider and bridge
+references also survive outbound native calls and reentrant cleanup.
+
+Disconnect revokes locally before attempting native cleanup or creating any
+root provider. Failure cannot revive availability or trigger a retry. Deinit
+only revokes and releases local ownership; it does not initiate outbound COM.
+Operational methods check availability around callbacks and before publishing
+results. Reentrant revocation releases partial interface, BSTR, SAFEARRAY, and
+VARIANT outputs and returns the unavailable HRESULT. Static QueryInterface,
+AddRef, Release, and interface identity remain usable after revocation.
+Existing invalid-argument precedence and live unsupported-pattern semantics
+remain unchanged. The original 42 C entry points and callback-table ABI remain;
+owned-context factories and HRESULT-preserving test peers are additive.
+
+The borrowed provider passed to UiaReturnRawElementProvider receives a balanced
+temporary reference. A reentrant disconnect suppresses the outer publication.
+An action may run before its owner closes and the final HRESULT becomes
+unavailable; clients must not treat that result as proof that no effect ran or
+automatically repeat the action. Native availability linearizes at explicit
+context revocation, not Swift weak-reference zeroing. Callback-free metadata
+may briefly remain available before deferred isolated destruction, but a
+missing bridge cannot admit source work or reacquire application ownership.
+
+All 17 new headless COM tests now compile, link, and pass in the 293-case joined
+root run recorded above. They exercise actual provider objects with injected
+native effects, including escaped interfaces, final release, independent
+bridges, callback reentry, actor routing, failure outputs, and weak ownership.
+All earlier UIA fixtures remain unchanged. The separately sealed stock
+SwiftWindowsPlatform build also exits zero naturally in 35.25 seconds using
+the installed Swift 6.3.0+Asserts toolchain and two jobs, with no F9 override,
+warning, or error. Its manifest SHA-256 is
+`98be50a8b47eaf45d09585024c13cd75772d5bde74730107296aefcfe9c2000d`;
+verified copies are under
+`artifacts/goal-sixth-late-intake-c4124a5/uia-stock-build/`.
+That separate build alone did not compile or execute the tests.
+
+`docs/UIAProviderLifetime.md` records the ownership contract and limits.
+Neither run proves native disconnect success, every synchronous COM/main-actor
+deadlock scenario, real Narrator behavior, or modal admission for other UIA
+operations. The preexisting null-provider shortcut still omits Windows'
+documented WM_DESTROY event-map cleanup; that is separate follow-up work.
+Windows may retain an inert provider after native cleanup fails, but it must
+not retain application state through this provider family. Full, Quick,
+visual, hosted, and exact-release validation remain pending for this batch;
+all nine original product gates remain open.

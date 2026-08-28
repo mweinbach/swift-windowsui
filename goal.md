@@ -2190,3 +2190,69 @@ array representation, complete aggregate layout, establish native SwiftUI
 behavior, or qualify the fifth batch's full visual/build gates.
 [StructuralComposition.md](docs/StructuralComposition.md) records the precise
 producer/consumer boundaries. All nine original completion gates remain open.
+
+### Actual SDK capture and the first complete API review packet
+
+Hosted capture run `33135644721` on pushed commit `0cb9a36` successfully
+exported the pinned SDK and published its complete nine-stream audit ledger.
+The overall job subsequently failed in material-reference validation: the
+material receipt included a `swift-driver version:` prefix while the SDK
+receipt's compiler line did not. That later failure does not invalidate the
+sealed export, and matching normalized version text alone would not prove
+matching executable bytes or native behavior.
+
+The actual candidate records Xcode 26.6 build `17F113`, SDK 26.5 build `25F70`,
+and extractor Apple Swift 6.3.3 with complete compiler/clang build suffixes.
+The six preserved interfaces independently identify their producer as Apple
+Swift 6.3.2 effective-5.10 and interface language mode 5; extraction used
+language mode 6. The export host was macOS 26.6.1 build `25G76`, x86_64.
+These facts remain distinct and unreviewed. No SDK pin, review status, exception,
+or original completion gate was changed.
+
+The 299,473,561-byte artifact ZIP is preserved under
+`artifacts/goal-sdk-33135644721/`, SHA-256
+`30d576728266c79a81dc7b698f613896bba3413b1f452ecbec4438c1e42f3f44`.
+Its capture manifest SHA-256 is
+`f900bef9de2e5c37b8145ad6bdae7a3fe1c9b679f15b324175e3f1c89797057d`;
+its audit manifest SHA-256 is
+`868d79adb9de34ea74f875bb9aaa8a179bf3177e2dfcee16daf6a8b14b34db63`.
+Independent streaming hashes and row counts passed, followed by complete
+raw-record/ledger reconciliation through the frozen API review selector:
+22 graphs, 134,147 precise identifiers, 300,436 declaration occurrences,
+309,048 relationships, six interfaces with 137,973 lines, and all nine streams.
+Seventy checked input files remained byte-identical before and after selection.
+Zero captured overlay files still does not prove overlay completeness.
+
+The first selected unit is the exact exported `StateObject.init(wrappedValue:)`
+identifier `s:7SwiftUI11StateObjectV12wrappedValueACyxGxyXA_tcfc`, retaining all
+four module/architecture occurrences and four incident relationships. Its
+Windows candidates are five explicit Git blobs at `baa2b40`, not the current
+working tree. The imported packet is
+`artifacts/goal-sdk-33135644721/stateobject-review-unit/review-unit.json`,
+SHA-256 `b5d29e592f2b69c15762cbbe44a66c4139e219113f4bf1583891c60613b89105`.
+All declaration, source, and behavior claims remain `unverified`. Reading this
+unit already identifies a concrete source gap: native construction is
+`nonisolated` with a plain escaping autoclosure; Windows currently isolates the
+initializer and factory to the main actor. The local ObservableObject protocol
+and native Combine constraint also require separate review. Correct lazy
+factory ownership does not by itself resolve those API differences.
+
+### Fourth hosted Windows validation stopped before the gallery
+
+Windows run `33135644630`, Full job `98734917190`, failed at shard 95 of 190
+in `RenderLifecycleDeliveryTests`. Before stopping, the log records 1,905
+passing XCTest cases, one failing case, and 58 passing Swift Testing cases.
+The failed case was
+`testNodeHookPaintMutationDefersPendingTasksWithoutRepeatingTheHook`: after
+64 cooperative yields its task-start values were still empty/zero, while its
+later assertion in the same case observed the task start. The log therefore
+shows late readiness, not demonstrated task loss. The exact executor timing
+cause is not established, and the separate native Windows message-loop
+problem remains open.
+
+The failure and parsed counts are retained in
+`artifacts/goal-fourth-windows-ci-33135644630-summary.json`. A bounded explicit
+task-start acknowledgment is being validated without changing runtime behavior
+or removing the lifecycle assertions. This hosted run did not complete the
+test ladder or reach the product/gallery gates; the earlier local Full/Quick
+passes remain separate evidence, not a replacement for hosted success.

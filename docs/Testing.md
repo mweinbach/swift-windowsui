@@ -996,6 +996,64 @@ renderer now produces. **Open every regenerated PNG before committing it**, and
 say in the commit which entries moved and why. A baseline accepted unseen turns
 the gate from a check on the renderer into a record of whatever it last did.
 
+## Native close acceptance
+
+The close foundation has four focused suites:
+
+- `Win32CloseControlTests` checks delegate vetoes, final leases, ticket/owner
+  lifetime, reservation rollback, and actual destruction outcomes using
+  per-instance native-call adapters and simulated lifetime notifications.
+- `Win32DeferredCloseTests` checks scalar wake ownership, nested scope deferral,
+  coalescing, cancellation, post failures, cleanup reentry, and exact retry
+  authorization. A build-busy retry can earn one fresh continuation only for its
+  exact still-current evaluation; duplicates, terminal outcomes, second inline
+  attempts, and capture cleanup cannot borrow it. Its hidden-HWND cases separately
+  use real `PeekMessageW` and `DispatchMessageW`; simulated scope tests do not prove
+  those native paths.
+- `RetainedBuildSettlementTests` checks root/subtree completion, retained callback
+  drain, queued work, transaction order, weak observer ownership, and bounded
+  self-registration. Admitted builds retire old layout evidence even when their
+  exact retained geometry remains unchanged; skipped, rejected, abandoned, and
+  overflow cases preserve that boundary. Reader metadata and denied-lease tests
+  distinguish active-render invalidation staging from ordinary idle denial.
+  Readiness does not imply resolved geometry.
+- `WindowCloseFinalizationTests` checks layout receipts and managed-host final
+  acceptance, including stale policy/geometry, unavailable evidence, first-attempt
+  preservation, participant reservations, and host-only pending work with an idle
+  component coordinator. Nested observed flushes must complete before a waiting
+  continuation posts. Unadapted document configurations reject both native and
+  direct Boolean close routes before flushing. Public State/GeometryReader cases
+  cover stale receipt rejection and a fresh constrained-slot policy query,
+  including capture cleanup renders during adoption. Runtime receipts are not
+  native document workflow qualification.
+
+The clean-tree State fixtures establish their baseline with ordinary layout and
+rendering before the tested mutation. Initial reader adoption may stage a normal
+follow-up layout invalidation; the setup consumes it while retaining the clean
+assertion. No extra query is inserted between the later mutation and the native
+preflight being checked.
+
+Run them serially through the existing sharder; do not start another SwiftPM
+command against the same build directory:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter "Win32CloseControlTests|Win32DeferredCloseTests|RetainedBuildSettlementTests|WindowCloseFinalizationTests"
+```
+
+Also retain the existing close-policy, window-coordinator, dialog-lifetime,
+mounted-state, and editor-undo regressions when integrating this capability.
+Check the selected test names and report which native cases actually ran versus
+skipped. Hidden-window fixtures do not show a UI or consume another test's quit
+message. They are distinct from an interactive Save/Discard/Cancel sequence,
+native dialog ownership, or a complete document/editor product.
+
+The initial implementation handoff recorded formatting, contracts, patch checks,
+and source review only. Authored tests and simulated destruction are not execution
+evidence. Preserve that distinction in subsequent validation records; default
+document-scene activation and the remaining native workflows stay governed by
+[goal.md](../goal.md). The detailed callback, receipt, and unsupported raw-mutation
+contracts are in [WindowClose.md](WindowClose.md).
+
 ## Live Motion Capture
 
 Every animation assertion in the suite is about counters and about values

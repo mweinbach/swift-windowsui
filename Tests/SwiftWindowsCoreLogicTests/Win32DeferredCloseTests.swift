@@ -1513,3 +1513,910 @@ private enum DeferredTestError: Error {
     case expected
     case missingNativeWake
 }
+
+// Continuation regressions extend the original 38 cases without changing them.
+extension Win32DeferredCloseTests {
+    func testBuildBusyRetryQueuesOneFreshContinuationAfterActionAndCaptureCleanup() async throws {
+        let harness = try DeferredTestHarness()
+        defer {
+            harness.posts.onPost = nil
+            harness.registration.revoke()
+        }
+        let ticket = try harness.ticket()
+        let otherTicket = try harness.ticket(intentID: ticket.intentID)
+        var events: [String] = []
+        var attempts: [Foundation.UUID] = []
+        weak var capture: DeferredTestReleaseProbe?
+        harness.posts.onPost = { _, ordinal in
+            guard ordinal == 2 else { return }
+            XCTAssertEqual(
+                events, ["retry.begin", "build.busy", "continuation.queued", "retry.end", "capture.release"])
+            XCTAssertFalse(Win32DispatchScope.canDeliverWindowWake)
+            events.append("continuation.post")
+        }
+        @MainActor func installInitialRetry() -> Win32DeferredCloseSubmission {
+            let owned = DeferredTestReleaseProbe {
+                events.append("capture.release")
+                XCTAssertEqual(harness.posts.messages.count, 1)
+                XCTAssertFalse(Win32DispatchScope.canDeliverWindowWake)
+                XCTAssertEqual(
+                    harness.enqueue(ticket, phase: .retry) { _ in events.append("cleanup.replacement") }, .coalesced)
+            }
+            capture = owned
+            return harness.enqueue(ticket, phase: .retry) { [owned] delivered in
+                XCTAssertTrue(delivered === ticket)
+                events.append("retry.begin")
+                XCTAssertEqual(
+                    harness.enqueue(ticket, phase: .retry) { _ in events.append("premature.duplicate") }, .coalesced)
+                XCTAssertEqual(
+                    deferredContinuationBlockedAttempt(harness, ticket: ticket) { attempt in
+                        if let attempt { attempts.append(attempt.id) }
+                    }, .busy(.buildsNotSettled))
+                events.append("build.busy")
+                XCTAssertTrue(ticket.isCurrent)
+                XCTAssertEqual(harness.enqueue(ticket) { _ in events.append("premature.wrong.phase") }, .busy)
+                XCTAssertEqual(
+                    harness.enqueue(otherTicket, phase: .retry) { _ in events.append("premature.wrong.ticket") }, .busy)
+                XCTAssertEqual(
+                    harness.enqueue(ticket, phase: .retry) { continued in
+                        events.append("continuation.action")
+                        XCTAssertTrue(continued === ticket)
+                        XCTAssertEqual(
+                            harness.enqueue(ticket, phase: .retry) { _ in events.append("inherited.permission") },
+                            .coalesced)
+                        let outcome = harness.control.attemptClose(
+                            expectedHandle: harness.handle, ticket: continued, participants: [],
+                            preflight: {
+                                if let attempt = harness.control.activeAttempt { attempts.append(attempt.id) }
+                                return false
+                            },
+                            destroy: { _ in
+                                XCTFail("The continued preflight still has its own veto.")
+                                return .failed(1)
+                            })
+                        XCTAssertEqual(outcome, .vetoed)
+                        XCTAssertEqual(
+                            harness.enqueue(ticket, phase: .retry) { _ in events.append("consumed.permission") },
+                            .unavailable)
+                    }, .queued)
+                events.append("continuation.queued")
+                XCTAssertEqual(
+                    harness.enqueue(ticket, phase: .retry) { _ in events.append("replacement.action") }, .coalesced)
+                XCTAssertEqual(harness.enqueue(ticket) { _ in events.append("wrong.phase") }, .busy)
+                XCTAssertEqual(
+                    harness.enqueue(otherTicket, phase: .retry) { _ in events.append("wrong.ticket") }, .busy)
+                XCTAssertEqual(harness.posts.messages.count, 1)
+                withExtendedLifetime(owned) {}
+                events.append("retry.end")
+            }
+        }
+        XCTAssertEqual(installInitialRetry(), .queued)
+        let oldNonce = try harness.lastNonce()
+
+        harness.deliver(oldNonce)
+
+        XCTAssertNil(capture)
+        XCTAssertEqual(harness.posts.messages.count, 2)
+        let continuationNonce = try harness.lastNonce()
+        XCTAssertNotEqual(oldNonce, continuationNonce)
+        XCTAssertEqual(attempts.count, 1)
+        harness.deliver(oldNonce)
+        XCTAssertFalse(events.contains("continuation.action"))
+        harness.deliver(continuationNonce)
+        XCTAssertEqual(
+            events,
+            [
+                "retry.begin", "build.busy", "continuation.queued", "retry.end", "capture.release", "continuation.post",
+                "continuation.action",
+            ])
+        XCTAssertEqual(attempts.count, 2)
+        XCTAssertEqual(Set(attempts).count, 2)
+        XCTAssertFalse(ticket.isCurrent)
+        XCTAssertTrue(otherTicket.isCurrent)
+        XCTAssertEqual(harness.posts.messages.count, 2)
+    }
+
+    func testBuildBusyRetryDoesNotPostAnotherWakeWithoutExplicitContinuation() async throws {
+        let harness = try DeferredTestHarness()
+        defer { harness.registration.revoke() }
+        let ticket = try harness.ticket()
+        var actions = 0
+        XCTAssertEqual(
+            harness.enqueue(ticket, phase: .retry) { _ in
+                actions += 1
+                XCTAssertEqual(deferredContinuationBlockedAttempt(harness, ticket: ticket), .busy(.buildsNotSettled))
+            }, .queued)
+        let nonce = try harness.lastNonce()
+
+        harness.deliver(nonce)
+        harness.deliver(nonce)
+        Win32DispatchScope.withWindowDispatch {}
+        Win32DispatchScope.withNativeModal {}
+
+        XCTAssertEqual(actions, 1)
+        XCTAssertTrue(ticket.isCurrent)
+        XCTAssertEqual(harness.posts.messages.count, 1)
+        XCTAssertEqual(harness.enqueue(ticket, phase: .retry) { _ in actions += 1 }, .queued)
+        XCTAssertEqual(harness.posts.messages.count, 2)
+        harness.deliver(try harness.lastNonce())
+        XCTAssertEqual(actions, 2)
+    }
+
+    func testContinuationCannotInheritBuildPermissionForAnotherBusyReason() async throws {
+        let reasons: [Win32CloseBusyReason] = [.ownerOperation, .nativeDispatch, .closeInProgress]
+        for reason in reasons {
+            let harness = try DeferredTestHarness()
+            defer { harness.registration.revoke() }
+            let ticket = try harness.ticket()
+            var actions = 0
+            XCTAssertEqual(
+                harness.enqueue(ticket, phase: .retry) { _ in
+                    actions += 1
+                    XCTAssertEqual(
+                        deferredContinuationBlockedAttempt(harness, ticket: ticket), .busy(.buildsNotSettled))
+                    XCTAssertEqual(
+                        harness.enqueue(ticket, phase: .retry) { _ in
+                            actions += 1
+                            XCTAssertEqual(
+                                deferredContinuationBlockedAttempt(harness, ticket: ticket, reason: reason),
+                                .busy(reason))
+                            XCTAssertEqual(
+                                harness.enqueue(ticket, phase: .retry) { _ in
+                                    XCTFail("Another busy reason cannot create a continuation.")
+                                }, .busy)
+                        }, .queued)
+                }, .queued)
+
+            harness.deliver(try harness.lastNonce())
+            XCTAssertEqual(harness.posts.messages.count, 2)
+            harness.deliver(try harness.lastNonce())
+
+            XCTAssertEqual(actions, 2)
+            XCTAssertTrue(ticket.isCurrent)
+            XCTAssertEqual(harness.posts.messages.count, 2)
+        }
+    }
+
+    func testTerminalRetryResultsCannotProduceAContinuation() async throws {
+        for terminal in DeferredContinuationTerminalResult.allCases {
+            let harness = try DeferredTestHarness()
+            defer { harness.registration.revoke() }
+            let ticket = try harness.ticket()
+            var nativeCalls = 0
+            var outcome: Win32CloseAttemptOutcome?
+            var continuation: Win32DeferredCloseSubmission?
+            XCTAssertEqual(
+                harness.enqueue(ticket, phase: .retry) { delivered in
+                    outcome = harness.control.attemptClose(
+                        expectedHandle: harness.handle, ticket: delivered, participants: [],
+                        preflight: {
+                            if terminal == .unavailable { harness.control.activeAttempt?.rejectAsUnavailable() }
+                            return terminal != .vetoed
+                        },
+                        destroy: { _ in
+                            nativeCalls += 1
+                            switch terminal {
+                            case .nativeFailure: return .failed(5)
+                            case .completionNotObserved: return .succeeded
+                            case .closed:
+                                harness.control.beginDestruction(harness.lifetime)
+                                harness.control.completeDestruction(harness.lifetime)
+                                return .succeeded
+                            case .vetoed, .unavailable:
+                                XCTFail("Rejected preflight cannot enter native destruction.")
+                                return .failed(1)
+                            }
+                        })
+                    continuation = harness.enqueue(ticket, phase: .retry) { _ in
+                        XCTFail("A terminal retry cannot reuse its consumed ticket.")
+                    }
+                }, .queued)
+
+            harness.deliver(try harness.lastNonce())
+
+            XCTAssertEqual(outcome, terminal.outcome)
+            XCTAssertEqual(continuation, .unavailable)
+            XCTAssertFalse(ticket.isCurrent)
+            XCTAssertEqual(nativeCalls, terminal == .vetoed || terminal == .unavailable ? 0 : 1)
+            XCTAssertEqual(harness.posts.messages.count, 1)
+        }
+    }
+
+    func testRetiredTicketCannotSpendAnEarnedBuildContinuation() async throws {
+        for retirement in DeferredTestRetirement.allCases {
+            let harness = try DeferredTestHarness()
+            defer { harness.registration.revoke() }
+            let ticket = try harness.ticket()
+            var continuation: Win32DeferredCloseSubmission?
+            XCTAssertEqual(
+                harness.enqueue(ticket, phase: .retry) { _ in
+                    XCTAssertEqual(
+                        deferredContinuationBlockedAttempt(harness, ticket: ticket), .busy(.buildsNotSettled))
+                    switch retirement {
+                    case .cancel: ticket.cancel()
+                    case .epoch: harness.registration.invalidateTickets()
+                    case .revoke: harness.registration.revoke()
+                    case .destroy: harness.control.beginDestruction(harness.lifetime)
+                    }
+                    continuation = harness.enqueue(ticket, phase: .retry) { _ in
+                        XCTFail("A retired ticket cannot inherit continuation permission.")
+                    }
+                }, .queued)
+
+            harness.deliver(try harness.lastNonce())
+
+            XCTAssertEqual(continuation, .unavailable)
+            XCTAssertFalse(ticket.isCurrent)
+            XCTAssertEqual(harness.posts.messages.count, 1)
+        }
+    }
+
+    func testCancellationDuringCaptureCleanupOrBeforeWakeStopsQueuedContinuation() async throws {
+        for cancelDuringCleanup in [false, true] {
+            let harness = try DeferredTestHarness()
+            defer { harness.registration.revoke() }
+            let ticket = try harness.ticket()
+            var captureReleased = false
+            var continuationActions = 0
+            @MainActor func installInitialRetry() -> Win32DeferredCloseSubmission {
+                let capture = DeferredTestReleaseProbe {
+                    captureReleased = true
+                    XCTAssertEqual(harness.posts.messages.count, 1)
+                    if cancelDuringCleanup { ticket.cancel() }
+                }
+                return harness.enqueue(ticket, phase: .retry) { [capture] _ in
+                    XCTAssertEqual(
+                        deferredContinuationBlockedAttempt(harness, ticket: ticket), .busy(.buildsNotSettled))
+                    XCTAssertEqual(
+                        harness.enqueue(ticket, phase: .retry) { _ in continuationActions += 1 }, .queued)
+                    withExtendedLifetime(capture) {}
+                }
+            }
+            XCTAssertEqual(installInitialRetry(), .queued)
+            let initialNonce = try harness.lastNonce()
+
+            harness.deliver(initialNonce)
+
+            XCTAssertTrue(captureReleased)
+            XCTAssertEqual(harness.posts.messages.count, cancelDuringCleanup ? 1 : 2)
+            if !cancelDuringCleanup { ticket.cancel() }
+            XCTAssertFalse(ticket.isCurrent)
+            harness.deliver(try harness.lastNonce())
+            harness.deliver(initialNonce)
+            XCTAssertEqual(continuationActions, 0)
+            XCTAssertEqual(harness.posts.messages.count, cancelDuringCleanup ? 1 : 2)
+        }
+    }
+
+    func testContinuationPostFailureIsDelayedUntilCleanupAndDoesNotRetryItself() async throws {
+        let harness = try DeferredTestHarness(postResults: [.succeeded, .failed(87)])
+        defer { harness.registration.revoke() }
+        let ticket = try harness.ticket()
+        var events: [String] = []
+        var failures: [UInt32] = []
+        @MainActor func installInitialRetry() -> Win32DeferredCloseSubmission {
+            let capture = DeferredTestReleaseProbe { events.append("capture.release") }
+            return harness.enqueue(ticket, phase: .retry) { [capture] _ in
+                XCTAssertEqual(deferredContinuationBlockedAttempt(harness, ticket: ticket), .busy(.buildsNotSettled))
+                XCTAssertEqual(
+                    harness.enqueue(
+                        ticket, phase: .retry,
+                        onPostFailure: { failedTicket, code in
+                            XCTAssertTrue(failedTicket === ticket)
+                            XCTAssertEqual(events, ["action.end", "capture.release"])
+                            failures.append(code)
+                            XCTAssertTrue(ticket.isCurrent)
+                            XCTAssertNil(harness.control.activeAttempt)
+                            XCTAssertEqual(
+                                deferredContinuationBlockedAttempt(harness, ticket: ticket), .busy(.nativeDispatch))
+                        }
+                    ) { _ in XCTFail("A failed continuation post cannot execute.") }, .queued)
+                XCTAssertTrue(failures.isEmpty)
+                withExtendedLifetime(capture) {}
+                events.append("action.end")
+            }
+        }
+        XCTAssertEqual(installInitialRetry(), .queued)
+
+        harness.deliver(try harness.lastNonce())
+
+        XCTAssertEqual(failures, [87])
+        XCTAssertEqual(harness.posts.messages.count, 2)
+        XCTAssertNotEqual(harness.posts.messages[0].nonce, harness.posts.messages[1].nonce)
+        harness.deliver(try harness.lastNonce())
+        XCTAssertEqual(failures, [87])
+        XCTAssertTrue(ticket.isCurrent)
+        XCTAssertEqual(harness.posts.messages.count, 2)
+    }
+
+    func testEarnedContinuationCannotFollowARecreatedLifetimeWithTheSameHandle() async throws {
+        let harness = try DeferredTestHarness()
+        let oldTicket = try harness.ticket()
+        let replacementAuthority = DeferredTestAuthority()
+        var replacementRegistration: Win32CloseRegistration?
+        var replacementTicket: Win32CloseTicket?
+        var replacementLifetime: Win32CloseLifetime?
+        var insideSubmission: Win32DeferredCloseSubmission?
+        var replacementActions = 0
+        defer {
+            replacementRegistration?.revoke()
+            harness.registration.revoke()
+        }
+        XCTAssertEqual(
+            harness.enqueue(oldTicket, phase: .retry) { _ in
+                XCTAssertEqual(deferredContinuationBlockedAttempt(harness, ticket: oldTicket), .busy(.buildsNotSettled))
+                harness.control.beginDestruction(harness.lifetime)
+                harness.control.completeDestruction(harness.lifetime)
+                let nextLifetime = harness.control.beginLifetime(generation: 2)
+                harness.control.didCreate(nextLifetime, handle: harness.handle)
+                replacementLifetime = nextLifetime
+                guard let registration = harness.control.installAuthority(replacementAuthority),
+                    let ticket = registration.makeTicket(intentID: oldTicket.intentID)
+                else {
+                    XCTFail("The recreated window must establish a distinct close authority and ticket.")
+                    return
+                }
+                replacementRegistration = registration
+                replacementTicket = ticket
+                XCTAssertEqual(
+                    harness.enqueue(oldTicket, phase: .retry) { _ in
+                        XCTFail("An old ticket cannot target the new lifetime.")
+                    },
+                    .unavailable)
+                insideSubmission = registration.enqueue(
+                    ticket: ticket, phase: .retry,
+                    onPostFailure: { _, _ in XCTFail("No replacement wake should be posted inside the old action.") },
+                    action: { _ in replacementActions += 1 })
+                XCTAssertEqual(
+                    deferredContinuationBlockedAttempt(harness, ticket: ticket), .busy(.nativeDispatch))
+            }, .queued)
+        let oldNonce = try harness.lastNonce()
+
+        harness.deliver(oldNonce)
+
+        XCTAssertEqual(insideSubmission, .busy)
+        XCTAssertFalse(oldTicket.isCurrent)
+        XCTAssertTrue(replacementLifetime?.isAlive == true)
+        XCTAssertEqual(replacementLifetime?.handle, harness.handle)
+        XCTAssertEqual(harness.posts.messages.count, 1)
+        XCTAssertEqual(replacementActions, 0)
+        let registration = try XCTUnwrap(replacementRegistration)
+        let ticket = try XCTUnwrap(replacementTicket)
+        XCTAssertTrue(ticket.isCurrent)
+        XCTAssertEqual(
+            registration.enqueue(
+                ticket: ticket, phase: .retry,
+                onPostFailure: { _, _ in XCTFail("Unexpected fresh replacement post failure.") },
+                action: { _ in replacementActions += 1 }), .queued)
+        let nextNonce = try harness.lastNonce()
+        XCTAssertNotEqual(oldNonce, nextNonce)
+        XCTAssertEqual(harness.posts.messages.last?.handle, harness.handle)
+        harness.deliver(oldNonce)
+        XCTAssertEqual(replacementActions, 0)
+        harness.deliver(nextNonce)
+        XCTAssertEqual(replacementActions, 1)
+        withExtendedLifetime(replacementAuthority) {}
+    }
+
+    func testSecondInlineAttemptRetiresUnusedPermissionButPreservesQueuedContinuation() async throws {
+        for queueBeforeSecondAttempt in [false, true] {
+            let harness = try DeferredTestHarness()
+            defer { harness.registration.revoke() }
+            let ticket = try harness.ticket()
+            var preflightCount = 0
+            var continuedActions = 0
+            var secondOutcome: Win32CloseAttemptOutcome?
+            var duplicateSubmission: Win32DeferredCloseSubmission?
+            XCTAssertEqual(
+                harness.enqueue(ticket, phase: .retry) { _ in
+                    XCTAssertEqual(
+                        deferredContinuationBlockedAttempt(harness, ticket: ticket) { _ in preflightCount += 1 },
+                        .busy(.buildsNotSettled))
+                    if queueBeforeSecondAttempt {
+                        XCTAssertEqual(
+                            harness.enqueue(ticket, phase: .retry) { _ in continuedActions += 1 }, .queued)
+                    }
+                    secondOutcome = deferredContinuationBlockedAttempt(harness, ticket: ticket) { _ in
+                        preflightCount += 1
+                    }
+                    duplicateSubmission = harness.enqueue(ticket, phase: .retry) { _ in
+                        XCTFail("A rejected inline attempt must not replace the already queued continuation.")
+                    }
+                    XCTAssertEqual(harness.posts.messages.count, 1)
+                    XCTAssertTrue(ticket.isCurrent)
+                }, .queued)
+            let oldNonce = try harness.lastNonce()
+
+            harness.deliver(oldNonce)
+
+            XCTAssertEqual(secondOutcome, .busy(.nativeDispatch))
+            XCTAssertEqual(preflightCount, 1)
+            XCTAssertEqual(duplicateSubmission, queueBeforeSecondAttempt ? .coalesced : .busy)
+            XCTAssertEqual(harness.posts.messages.count, queueBeforeSecondAttempt ? 2 : 1)
+            harness.deliver(oldNonce)
+            XCTAssertEqual(continuedActions, 0)
+            if queueBeforeSecondAttempt { harness.deliver(try harness.lastNonce()) }
+            XCTAssertEqual(continuedActions, queueBeforeSecondAttempt ? 1 : 0)
+            XCTAssertTrue(ticket.isCurrent)
+        }
+    }
+
+    func testExhaustedNonceCannotReuseTheExecutingWakeForAContinuation() async throws {
+        let harness = try DeferredTestHarness(sequence: Win32CloseWakeSequence(startingAfter: UInt.max - 1))
+        defer { harness.registration.revoke() }
+        let ticket = try harness.ticket()
+        var submissions: [Win32DeferredCloseSubmission] = []
+        var actions = 0
+        XCTAssertEqual(
+            harness.enqueue(ticket, phase: .retry) { _ in
+                actions += 1
+                XCTAssertEqual(deferredContinuationBlockedAttempt(harness, ticket: ticket), .busy(.buildsNotSettled))
+                submissions.append(
+                    harness.enqueue(ticket, phase: .retry) { _ in XCTFail("An exhausted nonce cannot be reused.") })
+                submissions.append(
+                    harness.enqueue(ticket, phase: .retry) { _ in
+                        XCTFail("Exhaustion cannot restart the nonce sequence.")
+                    })
+            }, .queued)
+        XCTAssertEqual(try harness.lastNonce(), UInt.max)
+
+        harness.deliver(UInt.max)
+        harness.deliver(UInt.max)
+
+        XCTAssertEqual(submissions, [.unavailable, .busy])
+        XCTAssertEqual(actions, 1)
+        XCTAssertTrue(ticket.isCurrent)
+        XCTAssertEqual(harness.posts.messages, [.init(handle: harness.handle, nonce: UInt.max)])
+        XCTAssertEqual(
+            harness.enqueue(ticket, phase: .retry) { _ in XCTFail("The exhausted sequence remains unavailable.") },
+            .unavailable)
+        XCTAssertEqual(harness.posts.messages.count, 1)
+    }
+
+    func testBuildBusyPreparationAndValidationCanEachEarnOneContinuation() async throws {
+        for busyDuringPreparation in [false, true] {
+            let posts = DeferredTestPosts(results: [])
+            let control = Win32CloseControl(
+                postWake: { [posts] handle, nonce in posts.post(handle: handle, nonce: nonce) },
+                wakeSequence: Win32CloseWakeSequence())
+            let lifetime = control.beginLifetime(generation: 1)
+            control.didCreate(lifetime, handle: 101)
+            let lease = DeferredContinuationDecisionLease(decision: .busy(.buildsNotSettled))
+            let authority = DeferredContinuationDecisionAuthority(
+                preparation: busyDuringPreparation ? .busy(.buildsNotSettled) : .ready(lease))
+            let registration = try XCTUnwrap(control.installAuthority(authority))
+            defer { registration.revoke() }
+            let ticket = try XCTUnwrap(registration.makeTicket(intentID: UUID()))
+            var continuationActions = 0
+            XCTAssertEqual(
+                registration.enqueue(
+                    ticket: ticket, phase: .retry,
+                    onPostFailure: { _, _ in XCTFail("Unexpected initial retry post failure.") },
+                    action: { _ in
+                        XCTAssertEqual(
+                            control.attemptClose(
+                                expectedHandle: 101, ticket: ticket, participants: [],
+                                preflight: { true },
+                                destroy: { _ in
+                                    XCTFail("Busy commit participants cannot enter native destruction.")
+                                    return .failed(1)
+                                }), .busy(.buildsNotSettled))
+                        XCTAssertEqual(
+                            registration.enqueue(
+                                ticket: ticket, phase: .retry,
+                                onPostFailure: { _, _ in XCTFail("Unexpected continuation post failure.") },
+                                action: { _ in continuationActions += 1 }), .queued)
+                        XCTAssertEqual(posts.messages.count, 1)
+                    }), .queued)
+            let firstNonce = try XCTUnwrap(posts.messages.first).nonce
+
+            Win32DispatchScope.withWindowDispatch { control.receiveDeferredWake(nonce: firstNonce) }
+
+            XCTAssertEqual(posts.messages.count, 2)
+            XCTAssertEqual(authority.preparationCount, 1)
+            XCTAssertEqual(lease.validationCount, busyDuringPreparation ? 0 : 1)
+            XCTAssertEqual(lease.finished, busyDuringPreparation ? [] : [.busy(.buildsNotSettled)])
+            XCTAssertTrue(ticket.isCurrent)
+            let nextNonce = try XCTUnwrap(posts.messages.last).nonce
+            XCTAssertNotEqual(firstNonce, nextNonce)
+            Win32DispatchScope.withWindowDispatch { control.receiveDeferredWake(nonce: nextNonce) }
+            XCTAssertEqual(continuationActions, 1)
+            withExtendedLifetime(authority) {}
+        }
+    }
+
+    func testTopologyOrHandleChangeRetiresContinuationEvenIfHandleIsRestored() async throws {
+        for changeHandle in [false, true] {
+            let harness = try DeferredTestHarness()
+            defer { harness.registration.revoke() }
+            let ticket = try harness.ticket()
+            var submissions: [Win32DeferredCloseSubmission] = []
+            XCTAssertEqual(
+                harness.enqueue(ticket, phase: .retry) { _ in
+                    XCTAssertEqual(
+                        deferredContinuationBlockedAttempt(harness, ticket: ticket), .busy(.buildsNotSettled))
+                    if changeHandle {
+                        harness.control.didCreate(harness.lifetime, handle: harness.handle + 1)
+                    } else {
+                        harness.control.noteTopologyChanged()
+                    }
+                    submissions.append(
+                        harness.enqueue(ticket, phase: .retry) { _ in
+                            XCTFail("Changed native ownership cannot continue.")
+                        })
+                    if changeHandle { harness.control.didCreate(harness.lifetime, handle: harness.handle) }
+                    submissions.append(
+                        harness.enqueue(ticket, phase: .retry) { _ in
+                            XCTFail("Restoring a value cannot revive permission.")
+                        })
+                }, .queued)
+
+            harness.deliver(try harness.lastNonce())
+
+            XCTAssertEqual(submissions, [.busy, .busy])
+            XCTAssertTrue(ticket.isCurrent)
+            XCTAssertEqual(harness.lifetime.handle, harness.handle)
+            XCTAssertEqual(harness.posts.messages.count, 1)
+        }
+    }
+
+    func testNestedRequestDuringPreflightOrLeaseFinishPreventsContinuationPublication() async throws {
+        for duringFinish in [false, true] {
+            for taggedNestedRequest in [false, true] {
+                let posts = DeferredTestPosts(results: [])
+                let control = Win32CloseControl(
+                    postWake: { [posts] handle, nonce in posts.post(handle: handle, nonce: nonce) },
+                    wakeSequence: Win32CloseWakeSequence())
+                let lifetime = control.beginLifetime(generation: 1)
+                control.didCreate(lifetime, handle: 101)
+                let lease = DeferredContinuationDecisionLease(decision: .busy(.buildsNotSettled))
+                let authority = DeferredContinuationDecisionAuthority(preparation: .ready(lease))
+                let registration = try XCTUnwrap(control.installAuthority(authority))
+                let ticket = try XCTUnwrap(registration.makeTicket(intentID: UUID()))
+                defer {
+                    lease.willFinish = nil
+                    registration.revoke()
+                }
+                var nested: Win32CloseAttemptOutcome?
+                var continuation: Win32DeferredCloseSubmission?
+                @MainActor func makeNestedRequest() {
+                    nested = control.attemptClose(
+                        expectedHandle: 101, ticket: taggedNestedRequest ? ticket : nil, participants: [],
+                        preflight: {
+                            XCTFail("An active native attempt cannot reenter its preflight.")
+                            return false
+                        },
+                        destroy: { _ in
+                            XCTFail("An active native attempt cannot reenter native destruction.")
+                            return .failed(1)
+                        })
+                }
+                lease.willFinish = { outcome in
+                    XCTAssertEqual(outcome, .busy(.buildsNotSettled))
+                    XCTAssertNotNil(control.activeAttempt)
+                    if duringFinish { makeNestedRequest() }
+                }
+                XCTAssertEqual(
+                    registration.enqueue(
+                        ticket: ticket, phase: .retry,
+                        onPostFailure: { _, _ in XCTFail("Unexpected initial post failure.") },
+                        action: { _ in
+                            XCTAssertEqual(
+                                control.attemptClose(
+                                    expectedHandle: 101, ticket: ticket, participants: [],
+                                    preflight: {
+                                        if duringFinish { return true }
+                                        control.activeAttempt?.deferUntilReady(.buildsNotSettled)
+                                        makeNestedRequest()
+                                        return false
+                                    },
+                                    destroy: { _ in
+                                        XCTFail("A build wait cannot enter native destruction.")
+                                        return .failed(1)
+                                    }), .busy(.buildsNotSettled))
+                            continuation = registration.enqueue(
+                                ticket: ticket, phase: .retry,
+                                onPostFailure: { _, _ in XCTFail("A rejected continuation cannot post.") },
+                                action: { _ in XCTFail("Nested close requests retire the pending permission.") })
+                        }), .queued)
+                let nonce = try XCTUnwrap(posts.messages.first).nonce
+
+                Win32DispatchScope.withWindowDispatch { control.receiveDeferredWake(nonce: nonce) }
+
+                XCTAssertEqual(nested, .busy(.closeInProgress))
+                XCTAssertEqual(continuation, .busy)
+                XCTAssertEqual(lease.finished, duringFinish ? [.busy(.buildsNotSettled)] : [])
+                XCTAssertTrue(ticket.isCurrent)
+                XCTAssertEqual(posts.messages.count, 1)
+                withExtendedLifetime(authority) {}
+            }
+        }
+    }
+
+    func testLeaseFinishEpochInvalidationCannotTransferContinuationToNewSameIntentTicket() async throws {
+        let posts = DeferredTestPosts(results: [])
+        let control = Win32CloseControl(
+            postWake: { [posts] handle, nonce in posts.post(handle: handle, nonce: nonce) },
+            wakeSequence: Win32CloseWakeSequence())
+        let lifetime = control.beginLifetime(generation: 1)
+        control.didCreate(lifetime, handle: 101)
+        let lease = DeferredContinuationDecisionLease(decision: .busy(.buildsNotSettled))
+        let authority = DeferredContinuationDecisionAuthority(preparation: .ready(lease))
+        let registration = try XCTUnwrap(control.installAuthority(authority))
+        let oldTicket = try XCTUnwrap(registration.makeTicket(intentID: UUID()))
+        var freshTicket: Win32CloseTicket?
+        var oldSubmission: Win32DeferredCloseSubmission?
+        var freshSubmission: Win32DeferredCloseSubmission?
+        defer {
+            lease.willFinish = nil
+            registration.revoke()
+        }
+        lease.willFinish = { outcome in
+            XCTAssertEqual(outcome, .busy(.buildsNotSettled))
+            XCTAssertTrue(control.activeAttempt?.ticket === oldTicket)
+            registration.invalidateTickets()
+            freshTicket = registration.makeTicket(intentID: oldTicket.intentID)
+            XCTAssertFalse(oldTicket.isCurrent)
+        }
+        XCTAssertEqual(
+            registration.enqueue(
+                ticket: oldTicket, phase: .retry,
+                onPostFailure: { _, _ in XCTFail("Unexpected initial post failure.") },
+                action: { _ in
+                    XCTAssertEqual(
+                        control.attemptClose(
+                            expectedHandle: 101, ticket: oldTicket, participants: [],
+                            preflight: { true },
+                            destroy: { _ in
+                                XCTFail("A busy lease cannot destroy the fake lifetime.")
+                                return .failed(1)
+                            }), .busy(.buildsNotSettled))
+                    oldSubmission = registration.enqueue(
+                        ticket: oldTicket, phase: .retry,
+                        onPostFailure: { _, _ in XCTFail("No old continuation can post.") },
+                        action: { _ in XCTFail("The old ticket was invalidated by lease cleanup.") })
+                    guard let freshTicket else {
+                        XCTFail("Epoch invalidation preserves a usable registration for a fresh ticket.")
+                        return
+                    }
+                    freshSubmission = registration.enqueue(
+                        ticket: freshTicket, phase: .retry,
+                        onPostFailure: { _, _ in XCTFail("No fresh continuation can post inside the old action.") },
+                        action: { _ in XCTFail("A fresh ticket cannot inherit the old record's permission.") })
+                }), .queued)
+        let nonce = try XCTUnwrap(posts.messages.first).nonce
+
+        Win32DispatchScope.withWindowDispatch { control.receiveDeferredWake(nonce: nonce) }
+
+        XCTAssertEqual(oldSubmission, .unavailable)
+        XCTAssertEqual(freshSubmission, .busy)
+        XCTAssertFalse(oldTicket.isCurrent)
+        XCTAssertTrue(freshTicket?.isCurrent == true)
+        XCTAssertEqual(freshTicket?.intentID, oldTicket.intentID)
+        XCTAssertNotEqual(freshTicket?.id, oldTicket.id)
+        XCTAssertEqual(lease.finished, [.busy(.buildsNotSettled)])
+        XCTAssertEqual(posts.messages.count, 1)
+        withExtendedLifetime(authority) {}
+    }
+
+    func testRetryCaptureCleanupCannotBorrowOutgoingPermissionAfterNestedIgnoredWake() async throws {
+        let harness = try DeferredTestHarness()
+        defer { harness.registration.revoke() }
+        let ticket = try harness.ticket()
+        weak var capture: DeferredTestReleaseProbe?
+        var cleanupSubmission: Win32DeferredCloseSubmission?
+        var laterActions = 0
+        @MainActor func installInitialRetry() -> Win32DeferredCloseSubmission {
+            let owned = DeferredTestReleaseProbe {
+                XCTAssertNil(harness.control.activeAttempt)
+                XCTAssertTrue(ticket.isCurrent)
+                // A nested receive with no matching pending record must leave
+                // the outer retiring ticket and phase marker intact.
+                harness.deliver(0)
+                cleanupSubmission = harness.enqueue(ticket, phase: .retry) { _ in
+                    XCTFail("An outgoing action capture cannot borrow its old continuation permission.")
+                }
+                XCTAssertEqual(harness.posts.messages.count, 1)
+            }
+            capture = owned
+            return harness.enqueue(ticket, phase: .retry) { [owned] _ in
+                XCTAssertEqual(deferredContinuationBlockedAttempt(harness, ticket: ticket), .busy(.buildsNotSettled))
+                withExtendedLifetime(owned) {}
+            }
+        }
+        XCTAssertEqual(installInitialRetry(), .queued)
+        let oldNonce = try harness.lastNonce()
+
+        harness.deliver(oldNonce)
+
+        XCTAssertNil(capture)
+        XCTAssertEqual(cleanupSubmission, .busy)
+        XCTAssertTrue(ticket.isCurrent)
+        XCTAssertEqual(harness.posts.messages.count, 1)
+        XCTAssertEqual(harness.enqueue(ticket, phase: .retry) { _ in laterActions += 1 }, .queued)
+        let laterNonce = try harness.lastNonce()
+        XCTAssertNotEqual(oldNonce, laterNonce)
+        harness.deliver(laterNonce)
+        XCTAssertEqual(laterActions, 1, "The retired marker must not leak beyond its own cleanup scope.")
+    }
+
+    func testFreshReplacementFromCleanupWaitsForActionAndAuthorityPayloadRelease() async throws {
+        let posts = DeferredTestPosts(results: [])
+        let control = Win32CloseControl(
+            postWake: { [posts] handle, nonce in posts.post(handle: handle, nonce: nonce) },
+            wakeSequence: Win32CloseWakeSequence())
+        let lifetime = control.beginLifetime(generation: 1)
+        control.didCreate(lifetime, handle: 101)
+        var events: [String] = []
+        var oldOwner: DeferredContinuationReleaseAuthority? = DeferredContinuationReleaseAuthority {
+            events.append("authority.release")
+            XCTAssertEqual(posts.messages.count, 1)
+            XCTAssertFalse(Win32DispatchScope.canDeliverWindowWake)
+        }
+        weak var oldAuthority = oldOwner
+        let newAuthority = DeferredTestAuthority()
+        var replacementRegistration: Win32CloseRegistration?
+        var replacementSubmission: Win32DeferredCloseSubmission?
+        var replacementActions = 0
+        @MainActor func installOldAuthority() throws -> Win32CloseRegistration {
+            try XCTUnwrap(control.installAuthority(try XCTUnwrap(oldOwner)))
+        }
+        let oldRegistration = try installOldAuthority()
+        let oldTicket = try XCTUnwrap(oldRegistration.makeTicket(intentID: UUID()))
+        defer {
+            posts.onPost = nil
+            replacementRegistration?.revoke()
+            oldRegistration.revoke()
+        }
+        posts.onPost = { _, ordinal in
+            guard ordinal == 2 else { return }
+            XCTAssertEqual(events, ["action.end", "capture.begin", "capture.end", "authority.release"])
+            XCTAssertNil(oldAuthority)
+            events.append("replacement.post")
+        }
+        @MainActor func installInitialRetry() -> Win32DeferredCloseSubmission {
+            let capture = DeferredTestReleaseProbe {
+                events.append("capture.begin")
+                XCTAssertNotNil(oldAuthority)
+                guard let registration = control.installAuthority(newAuthority),
+                    let ticket = registration.makeTicket(intentID: UUID())
+                else {
+                    XCTFail("Cleanup must be able to establish a genuinely new owner and intent.")
+                    return
+                }
+                replacementRegistration = registration
+                replacementSubmission = registration.enqueue(
+                    ticket: ticket, phase: .retry,
+                    onPostFailure: { _, _ in XCTFail("Unexpected replacement post failure.") },
+                    action: { _ in replacementActions += 1 })
+                XCTAssertEqual(posts.messages.count, 1)
+                Win32DispatchScope.withWindowDispatch { control.receiveDeferredWake(nonce: 0) }
+                XCTAssertEqual(posts.messages.count, 1)
+                events.append("capture.end")
+            }
+            return oldRegistration.enqueue(
+                ticket: oldTicket, phase: .retry,
+                onPostFailure: { _, _ in XCTFail("Unexpected initial post failure.") },
+                action: { [capture] _ in
+                    XCTAssertEqual(
+                        control.attemptClose(
+                            expectedHandle: 101, ticket: oldTicket, participants: [],
+                            preflight: {
+                                control.activeAttempt?.deferUntilReady(.buildsNotSettled)
+                                return false
+                            },
+                            destroy: { _ in
+                                XCTFail("A build wait cannot enter native destruction.")
+                                return .failed(1)
+                            }), .busy(.buildsNotSettled))
+                    oldOwner = nil
+                    XCTAssertNotNil(oldAuthority)
+                    withExtendedLifetime(capture) {}
+                    events.append("action.end")
+                })
+        }
+        XCTAssertEqual(installInitialRetry(), .queued)
+        let oldNonce = try XCTUnwrap(posts.messages.first).nonce
+
+        Win32DispatchScope.withWindowDispatch { control.receiveDeferredWake(nonce: oldNonce) }
+
+        XCTAssertEqual(replacementSubmission, .queued)
+        XCTAssertNil(oldOwner)
+        XCTAssertNil(oldAuthority)
+        XCTAssertEqual(
+            events, ["action.end", "capture.begin", "capture.end", "authority.release", "replacement.post"])
+        XCTAssertEqual(posts.messages.count, 2)
+        XCTAssertEqual(replacementActions, 0)
+        XCTAssertFalse(oldTicket.isCurrent)
+        let replacementNonce = try XCTUnwrap(posts.messages.last).nonce
+        XCTAssertNotEqual(oldNonce, replacementNonce)
+        Win32DispatchScope.withWindowDispatch { control.receiveDeferredWake(nonce: oldNonce) }
+        XCTAssertEqual(replacementActions, 0)
+        Win32DispatchScope.withWindowDispatch { control.receiveDeferredWake(nonce: replacementNonce) }
+        XCTAssertEqual(replacementActions, 1)
+        withExtendedLifetime(newAuthority) {}
+    }
+}
+
+@MainActor
+private func deferredContinuationBlockedAttempt(
+    _ harness: DeferredTestHarness,
+    ticket: Win32CloseTicket,
+    reason: Win32CloseBusyReason = .buildsNotSettled,
+    observe: (@MainActor (Win32CloseAttempt?) -> Void)? = nil
+) -> Win32CloseAttemptOutcome {
+    harness.control.attemptClose(
+        expectedHandle: harness.handle, ticket: ticket, participants: [],
+        preflight: {
+            let attempt = harness.control.activeAttempt
+            XCTAssertNotNil(attempt)
+            attempt?.deferUntilReady(reason)
+            observe?(attempt)
+            return false
+        },
+        destroy: { _ in
+            XCTFail("A blocked preflight cannot enter native destruction.")
+            return .failed(1)
+        })
+}
+
+private enum DeferredContinuationTerminalResult: CaseIterable, Equatable {
+    case vetoed, unavailable, nativeFailure, completionNotObserved, closed
+
+    var outcome: Win32CloseAttemptOutcome {
+        switch self {
+        case .vetoed: return .vetoed
+        case .unavailable: return .unavailable
+        case .nativeFailure: return .destructionFailed(.native(5))
+        case .completionNotObserved: return .destructionFailed(.destructionNotObserved)
+        case .closed: return .closed
+        }
+    }
+}
+
+@MainActor
+private final class DeferredContinuationDecisionAuthority: Win32CloseAuthority {
+    let preparation: Win32CloseCommitPreparation
+    private(set) var preparationCount = 0
+
+    init(preparation: Win32CloseCommitPreparation) { self.preparation = preparation }
+
+    func prepareCloseCommit(for attempt: Win32CloseAttempt) -> Win32CloseCommitPreparation {
+        preparationCount += 1
+        return preparation
+    }
+}
+
+@MainActor
+private final class DeferredContinuationDecisionLease: Win32CloseCommitLease {
+    let decision: Win32CloseCommitDecision
+    var willFinish: (@MainActor (Win32CloseAttemptOutcome) -> Void)?
+    private(set) var validationCount = 0
+    private(set) var finished: [Win32CloseAttemptOutcome] = []
+
+    init(decision: Win32CloseCommitDecision) { self.decision = decision }
+
+    func validateAndReserve() -> Win32CloseCommitDecision {
+        validationCount += 1
+        return decision
+    }
+
+    func finish(with outcome: Win32CloseAttemptOutcome) {
+        finished.append(outcome)
+        willFinish?(outcome)
+    }
+}
+
+@MainActor
+private final class DeferredContinuationReleaseAuthority: Win32CloseAuthority {
+    private let onRelease: @MainActor () -> Void
+
+    init(_ onRelease: @escaping @MainActor () -> Void) { self.onRelease = onRelease }
+
+    func prepareCloseCommit(for attempt: Win32CloseAttempt) -> Win32CloseCommitPreparation {
+        XCTFail("This authority's preflight is blocked before commit preparation.")
+        return .unavailable
+    }
+
+    isolated deinit { onRelease() }
+}

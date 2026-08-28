@@ -1197,3 +1197,696 @@ private func settlementNode(text: String = "value") -> ViewNode {
     node.nodeTag = "settlement.value"
     return node
 }
+
+// Build history retires layout evidence even when the admitted work leaves the
+// exact retained nodes, their geometry, and their render invalidations unchanged.
+@MainActor
+extension RetainedBuildSettlementTests {
+    func testBuildStartedCallbackRunsOnceAfterAdmissionAndNotForRefusedNestedBuilds() async throws {
+        weak var observedCoordinator: RetainedBuildCoordinator?
+        var starts = 0
+        let coordinator = RetainedBuildCoordinator(
+            onBuildStarted: {
+                starts += 1
+                guard let coordinator = observedCoordinator else {
+                    XCTFail("The coordinator must exist before an admitted build invokes its hook")
+                    return
+                }
+                XCTAssertTrue(coordinator.isBuilding)
+                XCTAssertFalse(coordinator.isBuildSettled)
+                // Bound this probe even if a regression puts the hook before
+                // admission: a wrongly admitted nested call must not recurse.
+                if starts == 1 { XCTAssertNil(coordinator.beginBuild()) }
+            })
+        observedCoordinator = coordinator
+
+        XCTAssertEqual(starts, 0, "Creating a coordinator is not build admission")
+        let firstSequence = try XCTUnwrap(coordinator.beginBuild())
+        XCTAssertEqual(starts, 1)
+        XCTAssertNil(coordinator.beginBuild())
+        XCTAssertEqual(starts, 1, "A refused nested build must not publish another start")
+        coordinator.finishBuild()
+        XCTAssertEqual(starts, 1, "Finishing a build must not republish its admission")
+        XCTAssertTrue(coordinator.isBuildSettled)
+
+        let secondSequence = try XCTUnwrap(coordinator.beginBuild())
+        XCTAssertEqual(starts, 2)
+        XCTAssertEqual(secondSequence, firstSequence, "Admission does not enqueue a new root request")
+        coordinator.finishBuild()
+        XCTAssertEqual(starts, 2)
+        XCTAssertTrue(coordinator.isBuildSettled)
+    }
+
+    func testCompletedUnchangedManagedRootReloadRetiresItsPreviousLayoutReceipt() async throws {
+        let fixture = makeSettlementHistoryFixture()
+        defer { fixture.releaseCallbacks() }
+        let runtime = fixture.runtime
+        let host = fixture.host
+        let lifecycle = fixture.lifecycle
+        XCTAssertNotNil(runtime.resolvedLayoutFrame(of: runtime.root))
+        let original = try settlementHistoryReceipt(runtime)
+        let assertGeometryUnchanged = settlementHistoryGeometryWitness(fixture)
+        let originalEpochCount = lifecycle.epochs.count
+        let originalComposeCalls = fixture.probe.composeCalls
+        let originalNodeCalls = fixture.probe.nodeCalls
+        var phases: [String] = []
+        lifecycle.configure = { epoch in
+            XCTAssertTrue(runtime.hasActiveRetainedBuild)
+            phases.append("begin")
+            epoch.onWillAdopt = { phases.append("prepare") }
+            epoch.onCommit = { phases.append("commit") }
+            epoch.onFinish = { phases.append("finish") }
+        }
+        host.onReloadCompleted = { phases.append("host.complete") }
+
+        host.reload(onCompleted: { phases.append("request.complete") })
+
+        XCTAssertEqual(phases, ["begin", "prepare", "commit", "finish", "host.complete", "request.complete"])
+        XCTAssertEqual(lifecycle.epochs.count, originalEpochCount + 1)
+        XCTAssertEqual(fixture.probe.composeCalls, originalComposeCalls + 1)
+        XCTAssertEqual(fixture.probe.nodeCalls, originalNodeCalls + 1)
+        XCTAssertTrue(host.isBuildSettled)
+        XCTAssertFalse(runtime.hasActiveRetainedBuild)
+        assertGeometryUnchanged()
+        assertSettlementHistoryUnsettled(runtime)
+        XCTAssertFalse(runtime.isLayoutSettlementReceiptCurrent(original))
+
+        // A separate ordinary layout may establish new proof. The completed
+        // build must not have silently revived the old preflight receipt.
+        let previousPass = runtime.layoutPassID
+        XCTAssertNotNil(runtime.resolvedLayoutFrame(of: runtime.root))
+        let refreshed = try settlementHistoryReceipt(runtime)
+        XCTAssertGreaterThan(runtime.layoutPassID, previousPass)
+        XCTAssertTrue(runtime.isLayoutSettlementReceiptCurrent(refreshed))
+        XCTAssertFalse(runtime.isLayoutSettlementReceiptCurrent(original))
+    }
+
+    func testAbandonedManagedRootBuildRetiresReceiptWithoutChangingRetainedGeometry() async throws {
+        let fixture = makeSettlementHistoryFixture()
+        defer { fixture.releaseCallbacks() }
+        let runtime = fixture.runtime
+        let host = fixture.host
+        let lifecycle = fixture.lifecycle
+        let revision = SettlementRevision()
+        lifecycle.revision = revision
+        XCTAssertNotNil(runtime.resolvedLayoutFrame(of: runtime.root))
+        let original = try settlementHistoryReceipt(runtime)
+        let assertGeometryUnchanged = settlementHistoryGeometryWitness(fixture)
+        let originalEpochCount = lifecycle.epochs.count
+        let originalComposeCalls = fixture.probe.composeCalls
+        let originalNodeCalls = fixture.probe.nodeCalls
+        var phases: [String] = []
+        lifecycle.configure = { epoch in
+            phases.append("begin")
+            epoch.onWillAdopt = {
+                phases.append("prepare")
+                // The captured request becomes obsolete after preparation,
+                // before ComponentHost can adopt its otherwise identical node.
+                revision.value += 1
+            }
+            epoch.onCommit = { XCTFail("An obsolete prepared request must not commit") }
+            epoch.onAbandon = { phases.append("abandon") }
+            epoch.onFinish = { phases.append("finish") }
+        }
+        host.onReloadCompleted = { XCTFail("An abandoned build must not complete") }
+
+        host.reload(onCompleted: { XCTFail("An abandoned request must not complete") })
+
+        XCTAssertEqual(phases, ["begin", "prepare", "abandon", "finish"])
+        XCTAssertEqual(revision.value, 1)
+        XCTAssertEqual(lifecycle.epochs.count, originalEpochCount + 1)
+        XCTAssertEqual(fixture.probe.composeCalls, originalComposeCalls + 1)
+        XCTAssertEqual(fixture.probe.nodeCalls, originalNodeCalls + 1)
+        XCTAssertTrue(host.isBuildSettled)
+        assertGeometryUnchanged()
+        assertSettlementHistoryUnsettled(runtime)
+        XCTAssertFalse(runtime.isLayoutSettlementReceiptCurrent(original))
+
+        XCTAssertNotNil(runtime.resolvedLayoutFrame(of: runtime.root))
+        XCTAssertTrue(runtime.isLayoutSettlementReceiptCurrent(try settlementHistoryReceipt(runtime)))
+        XCTAssertFalse(runtime.isLayoutSettlementReceiptCurrent(original))
+    }
+
+    func testSkippedManagedRootUpdateRetiresReceiptBeforeReturningSettled() async throws {
+        let fixture = makeSettlementHistoryFixture()
+        defer { fixture.releaseCallbacks() }
+        let runtime = fixture.runtime
+        let host = fixture.host
+        let lifecycle = fixture.lifecycle
+        XCTAssertNotNil(runtime.resolvedLayoutFrame(of: runtime.root))
+        let original = try settlementHistoryReceipt(runtime)
+        let assertGeometryUnchanged = settlementHistoryGeometryWitness(fixture)
+        let originalEpochCount = lifecycle.epochs.count
+        let originalComposeCalls = fixture.probe.composeCalls
+        let originalNodeCalls = fixture.probe.nodeCalls
+        var updateChecks = 0
+        host.shouldUpdate = {
+            updateChecks += 1
+            XCTAssertTrue(runtime.hasActiveRetainedBuild)
+            return false
+        }
+        lifecycle.configure = { _ in XCTFail("A skipped update must not begin a lifecycle epoch") }
+        host.onReloadCompleted = { XCTFail("A skipped update must not complete") }
+
+        host.reload(onCompleted: { XCTFail("A skipped request must not complete") })
+
+        XCTAssertEqual(updateChecks, 1)
+        XCTAssertEqual(lifecycle.epochs.count, originalEpochCount)
+        XCTAssertEqual(fixture.probe.composeCalls, originalComposeCalls)
+        XCTAssertEqual(fixture.probe.nodeCalls, originalNodeCalls)
+        XCTAssertTrue(host.isBuildSettled)
+        assertGeometryUnchanged()
+        assertSettlementHistoryUnsettled(runtime)
+        XCTAssertFalse(runtime.isLayoutSettlementReceiptCurrent(original))
+
+        XCTAssertNotNil(runtime.resolvedLayoutFrame(of: runtime.root))
+        XCTAssertTrue(runtime.isLayoutSettlementReceiptCurrent(try settlementHistoryReceipt(runtime)))
+        XCTAssertFalse(runtime.isLayoutSettlementReceiptCurrent(original))
+    }
+
+    func testRejectedManagedLifecycleRetiresReceiptWithoutConstructingAnotherTree() async throws {
+        let fixture = makeSettlementHistoryFixture()
+        defer { fixture.releaseCallbacks() }
+        let runtime = fixture.runtime
+        let host = fixture.host
+        let lifecycle = fixture.lifecycle
+        XCTAssertNotNil(runtime.resolvedLayoutFrame(of: runtime.root))
+        let original = try settlementHistoryReceipt(runtime)
+        let assertGeometryUnchanged = settlementHistoryGeometryWitness(fixture)
+        let originalEpochCount = lifecycle.epochs.count
+        let originalComposeCalls = fixture.probe.composeCalls
+        let originalNodeCalls = fixture.probe.nodeCalls
+        var updateChecks = 0
+        lifecycle.rejectsBuild = true
+        host.shouldUpdate = {
+            updateChecks += 1
+            XCTAssertTrue(runtime.hasActiveRetainedBuild)
+            return true
+        }
+        host.onReloadCompleted = { XCTFail("A rejected lifecycle must not complete") }
+
+        host.reload(onCompleted: { XCTFail("A rejected request must not complete") })
+
+        XCTAssertEqual(updateChecks, 1)
+        XCTAssertEqual(lifecycle.epochs.count, originalEpochCount)
+        XCTAssertEqual(fixture.probe.composeCalls, originalComposeCalls)
+        XCTAssertEqual(fixture.probe.nodeCalls, originalNodeCalls)
+        XCTAssertTrue(host.isBuildSettled)
+        assertGeometryUnchanged()
+        assertSettlementHistoryUnsettled(runtime)
+        XCTAssertFalse(runtime.isLayoutSettlementReceiptCurrent(original))
+
+        XCTAssertNotNil(runtime.resolvedLayoutFrame(of: runtime.root))
+        XCTAssertTrue(runtime.isLayoutSettlementReceiptCurrent(try settlementHistoryReceipt(runtime)))
+        XCTAssertFalse(runtime.isLayoutSettlementReceiptCurrent(original))
+    }
+
+    func testCoordinatorOnlyBuildAdmissionRetiresReceiptWithoutAdvancingRootRequestSequence() async throws {
+        let fixture = makeSettlementHistoryFixture()
+        let runtime = fixture.runtime
+        let coordinator = runtime.retainedBuildCoordinator
+        XCTAssertNotNil(runtime.resolvedLayoutFrame(of: runtime.root))
+        let original = try settlementHistoryReceipt(runtime)
+        let assertFirstGeometryUnchanged = settlementHistoryGeometryWitness(fixture)
+        let originalEpochCount = fixture.lifecycle.epochs.count
+        let originalComposeCalls = fixture.probe.composeCalls
+        let originalNodeCalls = fixture.probe.nodeCalls
+
+        // This exercises only the runtime's coordinator admission boundary
+        // shared with managed subtrees. It does not run a GeometryReader or
+        // claim to cover the reader's lease, body, or reconciliation pipeline.
+        let firstSequence = try XCTUnwrap(coordinator.beginBuild())
+        XCTAssertTrue(runtime.hasActiveRetainedBuild)
+        coordinator.finishBuild()
+
+        XCTAssertTrue(coordinator.isBuildSettled)
+        assertFirstGeometryUnchanged()
+        assertSettlementHistoryUnsettled(runtime)
+        XCTAssertFalse(runtime.isLayoutSettlementReceiptCurrent(original))
+        XCTAssertNotNil(runtime.resolvedLayoutFrame(of: runtime.root))
+        let betweenBuilds = try settlementHistoryReceipt(runtime)
+        let assertSecondGeometryUnchanged = settlementHistoryGeometryWitness(fixture)
+
+        let secondSequence = try XCTUnwrap(coordinator.beginBuild())
+        XCTAssertEqual(secondSequence, firstSequence)
+        XCTAssertFalse(coordinator.wasSuperseded(since: firstSequence))
+        coordinator.finishBuild()
+
+        XCTAssertTrue(coordinator.isBuildSettled)
+        XCTAssertFalse(coordinator.wasSuperseded(since: firstSequence))
+        XCTAssertEqual(fixture.lifecycle.epochs.count, originalEpochCount)
+        XCTAssertEqual(fixture.probe.composeCalls, originalComposeCalls)
+        XCTAssertEqual(fixture.probe.nodeCalls, originalNodeCalls)
+        assertSecondGeometryUnchanged()
+        assertSettlementHistoryUnsettled(runtime)
+        XCTAssertFalse(runtime.isLayoutSettlementReceiptCurrent(betweenBuilds))
+        XCTAssertFalse(runtime.isLayoutSettlementReceiptCurrent(original))
+    }
+
+    func testBuildAdmissionGeometryRevisionOverflowPrecedesAdmittedCallbacksAndStaysUnavailable() async throws {
+        let fixture = makeSettlementHistoryFixture()
+        defer { fixture.releaseCallbacks() }
+        let runtime = fixture.runtime
+        let host = fixture.host
+        runtime.exhaustLayoutGeometryGenerationOnNextInvalidationForTesting()
+        XCTAssertNotNil(runtime.resolvedLayoutFrame(of: runtime.root))
+        let lastReceipt = try settlementHistoryReceipt(runtime)
+        XCTAssertTrue(runtime.isLayoutSettlementReceiptCurrent(lastReceipt))
+        let assertGeometryUnchanged = settlementHistoryGeometryWitness(fixture)
+        var callouts: [String] = []
+        host.shouldUpdate = {
+            callouts.append("shouldUpdate")
+            XCTAssertTrue(runtime.hasActiveRetainedBuild)
+            // Unlike a merely busy build, exhausted proof is unavailable
+            // even while the build guard is still held.
+            assertSettlementHistoryUnavailable(runtime)
+            return true
+        }
+        fixture.lifecycle.configure = { _ in
+            callouts.append("lifecycle.begin")
+            assertSettlementHistoryUnavailable(runtime)
+        }
+
+        host.reload()
+
+        XCTAssertEqual(callouts, ["shouldUpdate", "lifecycle.begin"])
+        XCTAssertTrue(host.isBuildSettled)
+        assertGeometryUnchanged()
+        assertSettlementHistoryUnavailable(runtime)
+        XCTAssertFalse(runtime.isLayoutSettlementReceiptCurrent(lastReceipt))
+
+        // Ordinary later layout and another admission cannot reset a checked
+        // geometry generation that has already exhausted its scalar range.
+        XCTAssertNotNil(runtime.resolvedLayoutFrame(of: runtime.root))
+        assertSettlementHistoryUnavailable(runtime)
+        let coordinator = runtime.retainedBuildCoordinator
+        _ = try XCTUnwrap(coordinator.beginBuild())
+        coordinator.finishBuild()
+        assertSettlementHistoryUnavailable(runtime)
+        runtime.exhaustLayoutGeometryGenerationOnNextInvalidationForTesting()
+        assertSettlementHistoryUnavailable(runtime)
+        XCTAssertFalse(runtime.isLayoutSettlementReceiptCurrent(lastReceipt))
+    }
+}
+
+@MainActor
+private final class SettlementHistoryProbe {
+    var composeCalls = 0
+    var nodeCalls = 0
+}
+
+@MainActor
+private struct SettlementHistoryFixture {
+    let runtime: RetainedViewRuntime
+    let host: ComponentHost
+    let lifecycle: SettlementLifecycle
+    let node: ViewNode
+    let probe: SettlementHistoryProbe
+
+    func releaseCallbacks() {
+        host.shouldUpdate = nil
+        host.onReloadCompleted = nil
+        lifecycle.configure = nil
+        for epoch in lifecycle.epochs {
+            epoch.onWillAdopt = nil
+            epoch.onCommit = nil
+            epoch.onAbandon = nil
+            epoch.onFinish = nil
+        }
+    }
+}
+
+@MainActor
+private func makeSettlementHistoryFixture() -> SettlementHistoryFixture {
+    let runtime = settlementRuntime()
+    let host = ComponentHost(runtime: runtime)
+    let lifecycle = SettlementLifecycle()
+    let node = settlementNode()
+    let probe = SettlementHistoryProbe()
+    host.buildLifecycle = lifecycle
+    host.setComponents {
+        probe.composeCalls += 1
+        return [
+            Component { _ in
+                probe.nodeCalls += 1
+                return node
+            }
+        ]
+    }
+    // Start with clean render flags, then let each test explicitly obtain its
+    // layout-only receipt. Every later build returns this exact node object.
+    _ = runtime.renderScene()
+    XCTAssertTrue(host.isBuildSettled)
+    XCTAssertTrue(runtime.dirtyFlags.isEmpty)
+    XCTAssertTrue(runtime.root.subtreeDirtyFlags.isEmpty)
+    XCTAssertTrue(node.subtreeDirtyFlags.isEmpty)
+    XCTAssertEqual(runtime.root.children.count, 1)
+    XCTAssertTrue(runtime.root.children.first === node)
+    return SettlementHistoryFixture(runtime: runtime, host: host, lifecycle: lifecycle, node: node, probe: probe)
+}
+
+@MainActor
+private func settlementHistoryReceipt(
+    _ runtime: RetainedViewRuntime, file: StaticString = #filePath, line: UInt = #line
+) throws -> RetainedLayoutSettlementReceipt {
+    let receipt: RetainedLayoutSettlementReceipt?
+    if case .settled(let current) = runtime.layoutSettlementStatus {
+        receipt = current
+    } else {
+        receipt = nil
+    }
+    return try XCTUnwrap(receipt, "Expected an existing settled layout receipt", file: file, line: line)
+}
+
+@MainActor
+private func assertSettlementHistoryUnsettled(
+    _ runtime: RetainedViewRuntime, file: StaticString = #filePath, line: UInt = #line
+) {
+    guard case .unsettled = runtime.layoutSettlementStatus else {
+        XCTFail("An admitted build must retire the previous layout proof", file: file, line: line)
+        return
+    }
+}
+
+@MainActor
+private func assertSettlementHistoryUnavailable(
+    _ runtime: RetainedViewRuntime, file: StaticString = #filePath, line: UInt = #line
+) {
+    guard case .unavailable = runtime.layoutSettlementStatus else {
+        XCTFail("Exhausted layout proof must remain unavailable", file: file, line: line)
+        return
+    }
+    XCTAssertFalse(runtime.canPrepareLayoutSettlement, file: file, line: line)
+}
+
+@MainActor
+private func settlementHistoryGeometryWitness(
+    _ fixture: SettlementHistoryFixture, file: StaticString = #filePath, line: UInt = #line
+) -> @MainActor () -> Void {
+    let runtime = fixture.runtime
+    let root = runtime.root
+    let node = fixture.node
+    let rootFrame = root.frame
+    let rootResolvedFrame = root.resolvedFrame
+    let nodeFrame = node.frame
+    let nodeResolvedFrame = node.resolvedFrame
+    let runtimeDirtyFlags = runtime.dirtyFlags
+    let rootDirtyFlags = root.subtreeDirtyFlags
+    let nodeDirtyFlags = node.subtreeDirtyFlags
+    let layoutPass = runtime.layoutPassID
+    let contentRevision = runtime.contentRevision
+    let sceneRebuilds = runtime.sceneRebuildCount
+    let readerResolutions = runtime.geometryReaderResolveCount
+    return {
+        XCTAssertTrue(runtime.root === root, file: file, line: line)
+        XCTAssertEqual(root.children.count, 1, file: file, line: line)
+        XCTAssertTrue(root.children.first === node, file: file, line: line)
+        XCTAssertTrue(node.parent === root, file: file, line: line)
+        XCTAssertEqual(root.frame, rootFrame, file: file, line: line)
+        XCTAssertEqual(root.resolvedFrame, rootResolvedFrame, file: file, line: line)
+        XCTAssertEqual(node.frame, nodeFrame, file: file, line: line)
+        XCTAssertEqual(node.resolvedFrame, nodeResolvedFrame, file: file, line: line)
+        XCTAssertEqual(runtime.dirtyFlags, runtimeDirtyFlags, file: file, line: line)
+        XCTAssertEqual(root.subtreeDirtyFlags, rootDirtyFlags, file: file, line: line)
+        XCTAssertEqual(node.subtreeDirtyFlags, nodeDirtyFlags, file: file, line: line)
+        XCTAssertEqual(runtime.layoutPassID, layoutPass, file: file, line: line)
+        XCTAssertEqual(runtime.contentRevision, contentRevision, file: file, line: line)
+        XCTAssertEqual(runtime.sceneRebuildCount, sceneRebuilds, file: file, line: line)
+        XCTAssertEqual(runtime.geometryReaderResolveCount, readerResolutions, file: file, line: line)
+    }
+}
+
+// These are raw retained-node and coordinator tests. They do not install
+// State ownership or stand in for the native host's managed reader pipeline.
+@MainActor
+extension RetainedBuildSettlementTests {
+    func testRawReaderSizeAssignmentInvalidatesAncestorsForEqualNonNilButNotNilToNil() async {
+        let sizes: [Size?] = [nil, Size(width: 120, height: 80)]
+        for size in sizes {
+            let runtime = settlementRuntime()
+            let parent = ViewNode(frame: Rect(x: 0, y: 0, width: 200, height: 100), isHitTestVisible: false)
+            let node = ViewNode(frame: Rect(x: 0, y: 0, width: 120, height: 80), isHitTestVisible: false)
+            node.geometryReaderBuiltSize = size
+            parent.addChild(node)
+            runtime.root.addChild(parent)
+            _ = runtime.renderScene()
+            XCTAssertTrue(runtime.dirtyFlags.isEmpty)
+            for candidate in [runtime.root, parent, node] {
+                XCTAssertTrue(candidate.subtreeDirtyFlags.isEmpty)
+            }
+            let authoredFrame = node.frame
+            let resolvedFrame = node.resolvedFrame
+            let parentFrame = parent.resolvedFrame
+            let rootFrame = runtime.root.resolvedFrame
+            let pass = runtime.layoutPassID
+            let sceneCount = runtime.sceneRebuildCount
+
+            // This is a primitive metadata assignment, with no reader body.
+            // The captured value is deliberately equal to the existing size.
+            node.geometryReaderBuiltSize = size
+
+            let expectedFlags: DirtyFlags = size == nil ? [] : .layout
+            XCTAssertEqual(runtime.dirtyFlags, expectedFlags)
+            for candidate in [runtime.root, parent, node] {
+                XCTAssertEqual(candidate.subtreeDirtyFlags, expectedFlags)
+            }
+            XCTAssertEqual(node.geometryReaderBuiltSize, size)
+            XCTAssertEqual(node.frame, authoredFrame)
+            XCTAssertEqual(node.resolvedFrame, resolvedFrame)
+            XCTAssertEqual(parent.resolvedFrame, parentFrame)
+            XCTAssertEqual(runtime.root.resolvedFrame, rootFrame)
+            XCTAssertTrue(node.parent === parent)
+            XCTAssertTrue(parent.parent === runtime.root)
+            XCTAssertEqual(runtime.layoutPassID, pass)
+            XCTAssertEqual(runtime.sceneRebuildCount, sceneCount)
+        }
+    }
+
+    func testRawIdleDeniedReaderLeavesRenderingCleanAndDoesNotCreateBuildWork() async {
+        let fixture = makeSettlementRawDeniedReader(suppressLifecycleCallbacks: false)
+        let runtime = fixture.runtime
+
+        _ = runtime.renderScene()
+
+        XCTAssertEqual(fixture.lease.readCount, 1)
+        fixture.assertNoBuilds()
+        fixture.assertClean()
+        XCTAssertEqual(fixture.reader.geometryReaderBuiltSize, Size(width: 60, height: 40))
+        XCTAssertEqual(fixture.reader.resolvedFrame.size, Size(width: 120, height: 80))
+        if case .unavailable = runtime.layoutSettlementStatus {
+            // Rendering cleanly does not prove an unresolved reader's layout.
+        } else {
+            XCTFail("The render that denied a reader cannot supply settled layout evidence")
+        }
+        let coordinator = runtime.retainedBuildCoordinator
+        XCTAssertTrue(coordinator.isBuildSettled)
+        var settlements = 0
+        coordinator.scheduleAfterBuildsSettled(owner: SettlementOwner()) { settlements += 1 }
+        XCTAssertEqual(settlements, 1, "Idle denial must not leave pending coordinator work")
+
+        // An ordinary unchanged query may inspect the unresolved reader; it
+        // must not run its denied body or turn denial into a rendering retry.
+        XCTAssertNotNil(runtime.resolvedLayoutFrame(of: runtime.root))
+        fixture.assertNoBuilds()
+        fixture.assertClean()
+        XCTAssertTrue(coordinator.isBuildSettled)
+        XCTAssertEqual(settlements, 1)
+    }
+
+    func testRawActiveBuildDenialStagesTheOwnedReaderWithoutQueuingAnotherBuild() async throws {
+        let fixture = makeSettlementRawDeniedReader(suppressLifecycleCallbacks: true)
+        let runtime = fixture.runtime
+        let coordinator = runtime.retainedBuildCoordinator
+        let sequence = try XCTUnwrap(coordinator.beginBuild())
+        fixture.lease.onRead = { XCTAssertTrue(runtime.hasActiveRetainedBuild) }
+        defer { fixture.lease.onRead = nil }
+
+        _ = runtime.renderScene()
+
+        XCTAssertEqual(fixture.lease.readCount, 1)
+        fixture.assertNoBuilds()
+        // This positive control uses the same suppressed lifecycle callbacks
+        // as the stale-owner cases. Geometry denial must still stage its path.
+        XCTAssertEqual(runtime.dirtyFlags, .layout)
+        for node in [runtime.root, fixture.parent, fixture.reader] {
+            XCTAssertEqual(node.subtreeDirtyFlags, .layout)
+        }
+        var settlements = 0
+        coordinator.scheduleAfterBuildsSettled(owner: SettlementOwner()) { settlements += 1 }
+        XCTAssertEqual(settlements, 0)
+
+        coordinator.finishBuild()
+
+        XCTAssertTrue(coordinator.isBuildSettled)
+        XCTAssertFalse(coordinator.wasSuperseded(since: sequence))
+        XCTAssertEqual(settlements, 1)
+        XCTAssertEqual(fixture.lease.readCount, 1, "Finishing must not run a queued denial retry")
+        fixture.assertNoBuilds()
+        XCTAssertEqual(runtime.dirtyFlags, .layout)
+
+        _ = runtime.renderScene()
+
+        XCTAssertEqual(fixture.lease.readCount, 2)
+        fixture.assertNoBuilds()
+        fixture.assertClean()
+        XCTAssertTrue(coordinator.isBuildSettled)
+    }
+
+    func testRawDenyingGetterCannotStageAReaderDetachedOrMovedToAnotherRuntime() async throws {
+        for movesToForeignRuntime in [false, true] {
+            let fixture = makeSettlementRawDeniedReader(suppressLifecycleCallbacks: true)
+            let runtime = fixture.runtime
+            let foreignRuntime = settlementRuntime()
+            let coordinator = runtime.retainedBuildCoordinator
+            _ = try XCTUnwrap(coordinator.beginBuild())
+            fixture.lease.onRead = {
+                XCTAssertTrue(runtime.hasActiveRetainedBuild)
+                // The raw child-list operation creates only .children dirt.
+                // removeFromParent() would add .all and mask illicit .layout.
+                fixture.parent.setChildren([])
+                if movesToForeignRuntime { foreignRuntime.root.addChild(fixture.reader) }
+            }
+            defer { fixture.lease.onRead = nil }
+
+            _ = runtime.renderScene()
+
+            XCTAssertEqual(fixture.lease.readCount, 1)
+            fixture.assertNoBuilds()
+            XCTAssertTrue(fixture.parent.children.isEmpty)
+            XCTAssertEqual(runtime.dirtyFlags, .children)
+            XCTAssertEqual(runtime.root.subtreeDirtyFlags, .children)
+            XCTAssertEqual(fixture.parent.subtreeDirtyFlags, .children)
+            if movesToForeignRuntime {
+                XCTAssertTrue(fixture.reader.parent === foreignRuntime.root)
+                XCTAssertTrue(foreignRuntime.root.children.first === fixture.reader)
+            } else {
+                XCTAssertNil(fixture.reader.parent)
+                XCTAssertTrue(foreignRuntime.root.children.isEmpty)
+            }
+
+            coordinator.finishBuild()
+
+            XCTAssertTrue(coordinator.isBuildSettled)
+            XCTAssertEqual(fixture.lease.readCount, 1)
+            fixture.assertNoBuilds()
+            XCTAssertEqual(runtime.dirtyFlags, .children)
+            XCTAssertEqual(foreignRuntime.geometryReaderResolveCount, 0)
+        }
+    }
+
+    func testRawDenyingGetterCannotStageAfterItsLeaseIsReplacedOrItsBodyIsRemoved() async throws {
+        for removesBody in [false, true] {
+            let fixture = makeSettlementRawDeniedReader(suppressLifecycleCallbacks: true)
+            let runtime = fixture.runtime
+            let replacementLease = SettlementReaderDenialLease()
+            let coordinator = runtime.retainedBuildCoordinator
+            _ = try XCTUnwrap(coordinator.beginBuild())
+            fixture.lease.onRead = {
+                XCTAssertTrue(runtime.hasActiveRetainedBuild)
+                if removesBody {
+                    fixture.reader.geometryReaderBuild = nil
+                } else {
+                    fixture.reader.retainedSubtreeBuildLease = replacementLease
+                }
+                // Do not assign builtSize here: that would legitimately dirty
+                // layout and hide whether the obsolete lease staged anything.
+            }
+            defer { fixture.lease.onRead = nil }
+
+            _ = runtime.renderScene()
+
+            XCTAssertEqual(fixture.lease.readCount, 1)
+            XCTAssertEqual(replacementLease.readCount, 0)
+            XCTAssertEqual(replacementLease.beginCount, 0)
+            fixture.assertNoBuilds()
+            fixture.assertClean()
+            XCTAssertEqual(fixture.reader.geometryReaderBuiltSize, Size(width: 60, height: 40))
+            XCTAssertTrue(fixture.reader.parent === fixture.parent)
+            if removesBody {
+                XCTAssertNil(fixture.reader.geometryReaderBuild)
+                XCTAssertTrue(fixture.reader.retainedSubtreeBuildLease === fixture.lease)
+            } else {
+                XCTAssertNotNil(fixture.reader.geometryReaderBuild)
+                XCTAssertTrue(fixture.reader.retainedSubtreeBuildLease === replacementLease)
+            }
+
+            coordinator.finishBuild()
+
+            XCTAssertTrue(coordinator.isBuildSettled)
+            XCTAssertEqual(fixture.lease.readCount, 1)
+            XCTAssertEqual(replacementLease.readCount, 0)
+            fixture.assertNoBuilds()
+            fixture.assertClean()
+        }
+    }
+}
+
+@MainActor
+private final class SettlementReaderDenialLease: RetainedSubtreeBuildLease {
+    var onRead: (() -> Void)?
+    private(set) var readCount = 0
+    private(set) var beginCount = 0
+
+    var canBuild: Bool {
+        readCount += 1
+        let callback = onRead
+        onRead = nil
+        callback?()
+        return false
+    }
+
+    func beginBuild() -> (any RetainedBuildEpoch)? {
+        beginCount += 1
+        return nil
+    }
+}
+
+@MainActor
+private final class SettlementReaderDenialProbe {
+    var bodyCalls = 0
+}
+
+@MainActor
+private struct SettlementRawDeniedReader {
+    let runtime: RetainedViewRuntime
+    let parent: ViewNode
+    let reader: ViewNode
+    let lease: SettlementReaderDenialLease
+    let probe: SettlementReaderDenialProbe
+
+    func assertNoBuilds(file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(lease.beginCount, 0, file: file, line: line)
+        XCTAssertEqual(probe.bodyCalls, 0, file: file, line: line)
+        XCTAssertEqual(runtime.geometryReaderResolveCount, 0, file: file, line: line)
+    }
+
+    func assertClean(file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(runtime.dirtyFlags.isEmpty, file: file, line: line)
+        for node in [runtime.root, parent, reader] {
+            XCTAssertTrue(node.subtreeDirtyFlags.isEmpty, file: file, line: line)
+        }
+    }
+}
+
+@MainActor
+private func makeSettlementRawDeniedReader(suppressLifecycleCallbacks: Bool) -> SettlementRawDeniedReader {
+    let runtime = settlementRuntime()
+    let parent = ViewNode(frame: Rect(x: 0, y: 0, width: 200, height: 100), isHitTestVisible: false)
+    let reader = ViewNode(frame: Rect(x: 0, y: 0, width: 120, height: 80), isHitTestVisible: false)
+    let lease = SettlementReaderDenialLease()
+    let probe = SettlementReaderDenialProbe()
+    reader.geometryReaderBuiltSize = Size(width: 60, height: 40)
+    reader.retainedSubtreeBuildLease = lease
+    reader.geometryReaderBuild = { _, _ in
+        probe.bodyCalls += 1
+        return []
+    }
+    parent.addChild(reader)
+    runtime.root.addChild(parent)
+    if suppressLifecycleCallbacks {
+        // A raw isolation control: active-build rendering otherwise stages an
+        // unrelated global lifecycle follow-up. Geometry resolution remains on.
+        runtime.stopRenderLifecycleCallbacks()
+    }
+    return SettlementRawDeniedReader(runtime: runtime, parent: parent, reader: reader, lease: lease, probe: probe)
+}

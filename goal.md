@@ -3186,3 +3186,111 @@ Its contract job passed and the optional Quick job was skipped. Exact logs and
 artifacts are being inspected; no cause or passing hosted Full result is
 inferred from the earlier local Full/Quick passes. That hosted failure and all
 nine original product acceptance gates remain open.
+
+### Sixth batch: final managed native close authority
+
+The final native-host increment joins the earlier owner leases, deferred native
+work, retained-build settlement, and bounded layout receipts. A native attempt
+keeps its original preflight evidence; a reentrant delegate cannot replace it
+after another delegate changes state. Preflight performs at most one observed
+reload flush and one existing bounded layout query. Final validation checks
+stored ownership, policy, layout history, participant identity, and pending work
+without invoking application callbacks, building, rendering, prompting, or IO.
+The composite reservation pins its host, participant, and prepared session until
+the attempt completes. Missing document participation still rejects before
+flush/layout; this does not enable native DocumentGroup or an unsaved-close UI.
+
+Build admission now retires earlier geometry evidence even when the admitted
+build later makes no visible change or is abandoned. Reader adoption invalidates
+non-nil built-size assignments, including equal values. A nested render denied
+by a provisional reader lease preserves the unresolved layout work during an
+active coordinated build. The next independent query can resolve the actual
+slot; idle denial does not create a retry, frame, timer, or polling loop.
+
+Root integration preserved the frozen input and recorded two real failures.
+The first attempt failed compilation before any tests: Swift inferred a
+throwing closure for the observed-reload completion fixture. An explicit
+`throws(Never)` annotation on that callback fixes inference while leaving its
+body and assertions intact. Four additional fixture declarations explicitly
+name Foundation.UUID, following the earlier demonstrated namespace ambiguity.
+Together with the previously recorded actor and UUID corrections, these are
+nine fixture-line corrections, not changes to production close semantics.
+
+The second attempt compiled and completed 255 passing cases, then crashed in
+the first reader capture-release regression. It has no passing-run credit.
+The exact log, source inputs, receipts, and original 370,859,520-byte executable
+were preserved before correction. The executable SHA-256 is
+`c03358e7e0738f1b844745fd4ca75b6f7be9e4d7341171506250dd97daa20f6e`.
+Static symbols identify the conflict as the lifecycle bag's GeometryReader
+key-path write and a reentrant read of the same field during old capture cleanup.
+The production fix pins the old lifecycle handler until that assignment ends,
+then releases it before the setter returns. The new-storage branch, reader
+body-before-size ordering, leases, and complete regression file are unchanged.
+The failed evidence and symbols remain under
+`artifacts/goal-sixth-native-host-runtime-failure-v2/` and
+`artifacts/goal-sixth-native-host-runtime-binary-v2/` respectively.
+
+With that five-line production addition, all 259 close/dialog/settlement cases
+pass in fourteen serial invocations. Both exact cleanup phases, including
+the 240/360 reader-size assertions and nested public render calls, execute and
+pass unchanged. A separate twenty-target preservation run passes 325 existing
+window, component, State, GeometryReader, presentation, and text-undo cases in
+seventeen serial invocations. Both runs exit zero without failures, skips,
+duplicate completed identifiers, timeouts, or changes to recorded inputs,
+status, HEAD, staged tree, or index bytes. They tested staged tree
+`11e4f763001d486b719ea2a51a638e4ac8ac80db` over `72478f2`.
+The focused log SHA-256 is
+`8e43c9193188d7818af878c2d212678521cf53ced2f6b0b20dc49cc26b45928e`;
+the preservation log SHA-256 is
+`c50c4ca173db5182fc411fef5747164850e609c3be0a97380404fd14d01d101d`.
+Fresh strict lint covers all seven changed Swift files and contracts pass.
+The source comparison preserves all 406 test/resource paths present before
+this batch. These results include owned hidden-window fixtures, not visible
+dialog flows, arbitrary modal pumps, Narrator, hardware pacing, or complete
+native document qualification. All nine original completion gates remain open.
+
+### Fifth hosted result: exact failure and evidence reconciliation
+
+The final audit of Windows run `33151787744` at `9f983e6` identifies the gallery
+gate as its first failed Full step: 67 of 85 fixtures differ. All preceding
+registered checks, builds, and captures complete. The hosted and local Full
+logs contain the same 4,289 distinct XCTest identifiers: hosted has 4,285 passes
+and four skips, versus 4,288 passes and one skip locally. The three additional
+hosted skips are the variable-font tests on an image without Segoe UI Variable.
+All 134 Swift Testing case outcomes match. The previously corrected render
+delivery cases pass, but hosted Full still fails its visual gate.
+
+The runner is Windows Server 2022 image `20260818.277.1`. Its two font-diagnostic
+PNGs exactly match the corresponding normal captures. Diagnostic exit one means
+completed-with-pixel-mismatches and usable partial attribution; the advisory
+Actions step's success is not a pixel pass. All 85 current gallery PNGs and
+their reported metrics match the verified second hosted run `33110144711`.
+The fourth run failed earlier and never reached this gallery gate. This audit
+does not establish a new source defect or justify changing fonts, baselines,
+tolerances, or reported failures. Loaded font bytes, actual shaped glyph paths,
+and a font-qualified replacement runner remain unverified. The sealed audit
+manifest is SHA-256
+`31e57669d5fa99379d070321b666bd4f5f5ddbbeec6700a88f006af1a2fe4bd0`.
+Private raw logs and signed download references are not published as artifacts
+of the source package. Hosted release qualification remains open.
+
+### Isolated Foundation framework configuration boundary
+
+The separate real-XCTest configuration generated the expected shared target,
+all 32 pinned sources, two target edges, and all 26 approved options. CMake
+itself exited zero. The supervising phase nevertheless stopped because an
+owned vctip-named descendant remained after configuration; exact pinned process
+cleanup succeeded. This is a supervisor completion failure, not a compiler
+failure or a clean two-framework pass. Testing was not attempted. Observed
+parent/PID/start identity is recorded, but that process's executable path/hash
+and reason for persistence were not captured and remain unknown. An installed
+sibling's metadata is only a candidate identity, not proof of execution.
+
+The stopped attempt was sealed before its original deadline, with no retries,
+target builds, installs, candidate DLL loads, or native consumers. Its manifest
+SHA-256 is `e66d40da81d1caf4682151919523fcc59ecdfd3a41d6a72c3715c78e16b213be`.
+All predecessor input manifests were rechecked unchanged. Generated explicit
+SDK arguments and twelve actual standard-module loading remarks are evidence
+about configuration; the separate target-info query does not itself prove
+that SDK selection. Testing's actual graph and static-library flags, framework
+compilation, ABI, loading, scheduling, and Unicode behavior remain unverified.

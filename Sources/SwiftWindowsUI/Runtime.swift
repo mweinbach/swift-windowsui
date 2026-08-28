@@ -1832,7 +1832,12 @@ public final class ViewNode {
         at keyPath: ReferenceWritableKeyPath<ViewNodeLifecycleHandlers, Value?>
     ) {
         if let lifecycleHandlers {
+            // Captured objects can reenter this slot during cleanup. Publish
+            // the replacement and finish its exclusive write before releasing
+            // the old handler, without delaying cleanup past this setter.
+            let previous = lifecycleHandlers[keyPath: keyPath]
             lifecycleHandlers[keyPath: keyPath] = value
+            withExtendedLifetime(previous) {}
         } else if value != nil {
             let handlers = ViewNodeLifecycleHandlers()
             handlers[keyPath: keyPath] = value
@@ -3568,7 +3573,15 @@ public final class ViewNode {
     /// is not a reader. Compared against `resolvedFrame.size` to decide
     /// whether a convergence rebuild is owed, so it is also the loop's own
     /// termination condition.
-    public var geometryReaderBuiltSize: Size?
+    public var geometryReaderBuiltSize: Size? {
+        didSet {
+            guard oldValue != nil || geometryReaderBuiltSize != nil else { return }
+            // Reconciliation copies the opaque body before this scalar. Even
+            // an equal seed completes a new body/size pair that a clean path
+            // must visit before it can establish resolved layout evidence.
+            invalidateRuntime(.layout)
+        }
+    }
 
     internal private(set) var hasAppeared = false
     /// A rebuilding onAppear action must not drop the remaining node/task
@@ -9531,13 +9544,20 @@ public final class RetainedViewRuntime {
 
     var retainedBuildCoordinator: RetainedBuildCoordinator {
         if let retainedBuildCoordinatorStorage { return retainedBuildCoordinatorStorage }
-        let coordinator = RetainedBuildCoordinator { [weak self] in
-            guard let self else { return false }
-            return self.longPressReconciliationDepth == 0
-                && !self.isDrainingReconciliationCallbacks
-                && self.pendingLongPressCallbacks.isEmpty
-                && self.pendingRetainedBuildCompletions.isEmpty
-        }
+        let coordinator = RetainedBuildCoordinator(
+            onBuildStarted: { [weak self] in
+                // A completed build can replace retained behavior without a
+                // geometry change. Retire close evidence, not layout caches or
+                // render flags; the next ordinary query can establish new proof.
+                self?.recordLayoutSettlementInvalidation(.layout)
+            },
+            retainedCallbacksAreSettled: { [weak self] in
+                guard let self else { return false }
+                return self.longPressReconciliationDepth == 0
+                    && !self.isDrainingReconciliationCallbacks
+                    && self.pendingLongPressCallbacks.isEmpty
+                    && self.pendingRetainedBuildCompletions.isEmpty
+            })
         retainedBuildCoordinatorStorage = coordinator
         return coordinator
     }
@@ -13069,7 +13089,18 @@ public final class RetainedViewRuntime {
         _ node: ViewNode, slot: Size, build: (RetainedViewRuntime, Size) -> [ViewNode],
         lease: any RetainedSubtreeBuildLease
     ) -> Bool {
-        guard lease.canBuild else { return false }
+        guard lease.canBuild else {
+            // Cleanup can render while the adopted reader's lease is still
+            // provisional. Preserve its unresolved path through this render;
+            // ordinary idle denial must not create retries or new work.
+            if isRendering, hasActiveRetainedBuild, node.runtime === self,
+                node.retainedSubtreeBuildLease === lease, node.geometryReaderBuild != nil
+            {
+                node.markDirty(.layout)
+                invalidate(.layout, from: node)
+            }
+            return false
+        }
         let coordinator = retainedBuildCoordinator
         let parent = node.parent
         guard let sequence = coordinator.beginBuild() else {

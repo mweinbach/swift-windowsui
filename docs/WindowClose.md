@@ -50,6 +50,10 @@ one finish result, including rejection after reservation but before destruction.
 Failure releases a still-live owner's reservation; it never revives a revoked
 owner or makes a consumed approval reusable.
 
+`finish(with:)` still runs inside the active close attempt, before the host
+releases its reservation. It may perform exact primitive rollback or publish
+owned framework error state, but it is not an idle prompt or retry callback.
+
 ## Tickets and actual outcomes
 
 A `Win32CloseTicket` identifies one intent, registration, and native lifetime.
@@ -90,6 +94,30 @@ registration replacement, ticket-epoch changes, and native destruction retire
 pending work before its captures are released. Old or duplicate scalar messages
 cannot remove newer work.
 
+One executing retry record admits at most one matching tagged close attempt.
+Only an observed `busy(buildsNotSettled)` result can earn a continuation, after
+the lease's finish callback and revalidation of that exact attempt, ticket,
+registration, native lifetime, topology, and delivery number. The ticket must
+remain current and unconsumed. Resubmitting the same ticket and retry phase
+consumes that permission once and queues a fresh delivery number; posting waits until the old
+action and its captures have unwound. This permission is not document approval
+and does not schedule work by itself.
+
+Before its first admitted attempt, an executing record still coalesces an exact
+duplicate. After a retry attempt, a missing or retired continuation returns busy
+instead of reporting a coalesced action that will never run. A second close
+request retires any unused continuation; cancellation, replacement, another
+outcome, and native teardown cannot transfer it to another attempt or ticket.
+Once a new pending record exists, its duplicates coalesce without replacement.
+This retry permission does not change prompt-phase coalescing: submitting a
+different callback for an executing prompt does not preserve that callback.
+
+The old record's capture and promoted-owner cleanup also cannot create a new
+record for its retiring ticket and phase. Only ticket/phase metadata spans that
+cleanup; it does not keep application captures alive. An accepted replacement
+for other work still waits to post until the cleanup boundary has returned.
+Nested wake cleanup preserves each outer boundary.
+
 An initial native posting failure returns `postFailed` to the submitting caller
 without also invoking its failure observer. A posting failure during a later
 rearm invokes that observer once, after the posting guard has cleared. A newer
@@ -109,8 +137,8 @@ pump is running. The rearm pass only posts messages; failure observers and captu
 cleanup run afterward under their own protected scope. Neither frames, timers,
 Swift tasks, a presenter, nor a Foundation executor relay drive this mailbox.
 
-A synchronous tagged attempt is allowed outside owned dispatch, or inside this
-window's exact executing retry record. A prompt, another window's action, an
+A synchronous tagged attempt is allowed outside owned dispatch, or once inside
+this window's exact executing retry record. A prompt, another window's action, an
 ordinary window callback, and payload/failure cleanup cannot borrow that retry
 permission. Ordinary untagged `WM_CLOSE` keeps its existing delegate behavior.
 
@@ -126,6 +154,141 @@ This scope covers owned entry points. It does not qualify arbitrary third-party
 modal pumps entered outside them, and simulated dispatch tests do not prove real
 Windows delivery. Hidden-window fixtures are separate from native document
 workflow qualification.
+
+## Managed host settlement
+
+`WinSwiftUIWindowHost` installs a final authority independently of its optional
+`WindowCloseParticipant`. Its first preflight for a native attempt keeps one
+original receipt. Reentering the concrete delegate for that same attempt cannot
+run another flush or replace the receipt after a later delegate changes state.
+A direct Boolean policy query outside a native attempt cannot create a reusable
+native approval.
+
+A document configuration without an installed participant is rejected before
+flushing observed work or querying layout. Native preflight records unavailable;
+the legacy Boolean query returns false. Ordinary window configurations retain
+their existing flush and policy behavior. This guard does not activate a native
+document adapter.
+
+Coordinated build settlement means no active build, queued build work, or reload
+drain, and no retained reconciliation/terminal callback waiting or executing.
+`ComponentHost.isBuildSettled` exposes that condition only for an installed build
+lifecycle. Raw unmanaged hosts are unavailable; manually inserted geometry without
+a build lease is not tracked by this condition. Root completion alone is not
+settlement, and build settlement alone is not resolved layout.
+
+`scheduleAfterBuildsSettled` registers an owner token without adding a rebuild or
+changing a transaction. Replacing a pending owner preserves its FIFO slot and
+uses its latest action. An idle registration may deliver synchronously. A delivery
+pass processes only its original number of records; callbacks appended during
+delivery wait for a later independent drain opportunity. It creates no wakeup or
+automatic follow-up pass. `isBuildSettled` can therefore be true while a newly
+registered observer is still pending.
+
+The host's close helper keeps one current intent waiting for both coordinated
+builds and host reload work. The host condition includes initial construction,
+an active observed-reload flush, its scheduled flag, pending changed-object and
+observation-context maps, and pending control invalidation. An empty component
+queue alone does not satisfy it. The helper validates the weak host, participant
+identity, registration, and ticket before submitting a native wake.
+
+An already-ready caller submits directly. An idle coordinator is never registered
+just to wait for a host-only batch. A real coordinator callback that finds host
+work pending parks the same token; it does not register itself again. The existing
+outermost accepted observed-reload flush supplies the host notification after
+publication and transaction restoration. If component work remains then, one
+observer waits for its actual drainage. These notifications create no build,
+layout, frame, timer, polling loop, or automatic retry.
+
+Settlement callbacks only submit owned native work; they do not prompt or attempt
+close inline. If a busy retry becomes fully ready before its current action
+returns, the exact native continuation above supplies one fresh pending wake.
+Deferred submission failures are reported once after the wait token is retired;
+failure observers may publish framework state but must not prompt, close, or
+retry inline. Losing an owner or replacing its intent silently drops old work.
+
+Readiness at submission is not a promise about later delivery. The action wrapper
+revalidates ownership and ticket identity; it does not reserve build settlement.
+A native retry performs fresh preflight. A future prompt or document IO adapter
+must additionally check its delivery-time readiness and action phase, and prove
+any later prompt handoff. This helper does not supply general same-phase UI
+continuations or qualify those document workflows.
+
+## Layout and final policy evidence
+
+Preflight first checks that a layout query is permitted, flushes a pending
+observed batch at most once, and uses the existing bounded
+`resolvedLayoutFrame(of:)` query once. `canPrepareLayoutSettlement` reads owned
+phase flags; it is not permission to close. A false value must not cause a
+self-post or retry without a real settlement event. The host also rejects pending
+live-resize geometry that has not yet reached the runtime.
+
+The query can issue an opaque `RetainedLayoutSettlementReceipt` without rendering
+or presenting. The receipt has a runtime identity, a checked geometry revision,
+and a checked layout-resolution sequence. Both layout/children invalidation
+paths retire it, and every later layout resolution retires it even when the
+bounds happen to match. Paint-only writes do not change the geometry revision.
+
+Every admitted coordinated root or deferred build also retires earlier evidence,
+after the build guard is set and before update or lifecycle callbacks. An
+unchanged, skipped, rejected, or abandoned build cannot revive the old receipt
+when it returns to idle. This framework-only weak hook advances the same checked
+revision without dirtying nodes or scheduling work. Preflight captures evidence
+after its own required flush and layout, so legitimate settling can still
+produce a receipt within the original attempt.
+
+The final layout pass must finish without geometry invalidation or nested
+resolution. Existing traversal limits must not truncate it. Pending after-layout
+work, precise scroll alignment, or an eligible reader whose built size does not
+match its positive resolved slot prevent a receipt. The check invokes no extra
+reader body and does not change the existing four-round convergence limit.
+
+Framework reader adoption copies its body and then its seed size. Assigning a
+non-nil built size, even an equal value, or removing a previous size invalidates
+that reader and its ancestor path. A nil-to-nil assignment remains a no-op. The
+next ordinary query therefore reaches a replaced reader even when the new seed
+looks identical but its actual constrained slot requires a different body.
+The existing size comparison prevents repeated body calls once the slot matches.
+
+A cleanup callback can render after the pair is copied but before the new
+reader lease becomes active. If that render reaches the unresolved reader and
+the lease denies building, the runtime preserves its layout invalidation through
+the existing pending-node staging, only while a coordinated build is active.
+It rechecks runtime attachment, exact lease identity, and body presence after
+the lease getter. Idle denial adds no work or automatic retry. These targeted
+invalidations can leave a follow-up dirty frame when adoption occurs during
+rendering, like other mutations within a render; they do not add a queue, force
+a render, or change convergence limits.
+
+This evidence is conservative. A layout callback can make a geometry change that
+the same pass happens to consume correctly, yet the pass cannot prove that all
+earlier placement remains current. That completed attempt is unavailable. Normal
+later layout can establish a new receipt; close handling does not add a convergence
+loop or force a frame to obtain approval. Checked generation exhaustion remains
+unavailable for that runtime's lifetime and is never a busy/retry condition.
+The existing render dirty flags are not cleared to manufacture settlement.
+
+Preflight captures the dismissal policy with its receipt, synchronizes the native
+close affordance, and revalidates the same evidence afterward. Final validation
+does not traverse the policy tree again: the policy setter itself invalidates
+layout evidence. It checks the original receipt, captured policy, current native
+affordance, host identity, pending work, and participant identity using owned
+state only. It performs no build, layout, application getter, custom hash, IO,
+callback delivery, or native synchronization.
+
+The host's composite lease pins the actual host, participant, and prepared session
+lease. It checks host evidence before and after the participant reserves its close,
+and blocks participant replacement while that reservation is active. Failure
+releases the matching live reservation; actual teardown remains authoritative.
+This is a capability for a later document adapter, not document-scene activation.
+
+Silent raw replacement of `onLayout` or `geometryReaderBuild`, raw reader pairs
+that keep a nil built size, and external closure state that never invalidates the
+retained tree are outside this receipt contract. Native SwiftUI policy for hidden
+or deferred readers and conflicting sibling modifiers also remains unqualified.
+`interactiveDismissDisabled` controls retained presentation overlays. The public
+`windowDismissBehavior` modifier supplies native policy through the runtime's
+`windowDismissalBehavior` getter.
 
 ## Forced cleanup and limits
 

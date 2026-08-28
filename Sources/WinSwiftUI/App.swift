@@ -1993,8 +1993,146 @@ struct WindowSceneEnvironment {
     var sceneStorageScope: String
     var openSettings: OpenSettingsAction = .noop
 }
+
+/// A package-owned session can add its own close decision without replacing
+/// the concrete or renderer-neutral delegate votes. A participant holds its
+/// host weakly. Its prepared lease pins the actual session until finish.
 @MainActor
-final class WinSwiftUIWindowHost: WindowDelegate {
+protocol WindowCloseParticipant: AnyObject {
+    func windowShouldClose(_ attempt: Win32CloseAttempt) -> Bool
+    func prepareCloseCommit(for attempt: Win32CloseAttempt) -> Win32CloseCommitPreparation
+
+    /// Revoke owner capabilities using stored framework state only. Do not
+    /// release application payloads or deliver callbacks before host teardown
+    /// has also revoked editor and mounted-State capabilities.
+    func revokeCloseParticipation()
+}
+
+enum WindowCloseWorkSubmission: Equatable {
+    case queued
+    case waitingForBuilds
+    case coalesced
+    case busy
+    case unavailable
+    case postFailed(UInt32)
+
+    init(_ submission: Win32DeferredCloseSubmission) {
+        switch submission {
+        case .queued: self = .queued
+        case .coalesced: self = .coalesced
+        case .busy: self = .busy
+        case .unavailable: self = .unavailable
+        case .postFailed(let code): self = .postFailed(code)
+        }
+    }
+}
+
+@MainActor
+final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
+    private final class CloseParticipantIdentity {}
+    private final class CloseReservation {}
+
+    private struct ClosePreflightStamp {
+        let receipt: RetainedLayoutSettlementReceipt
+        let behavior: RetainedWindowInteractionBehavior
+        let registration: Win32CloseRegistration
+    }
+
+    /// Kept through terminal callbacks so reentry into the same native attempt
+    /// cannot replace its first receipt. None of this state retains app data.
+    private final class ClosePreflight {
+        let attempt: Win32CloseAttempt
+        let participantIdentity: CloseParticipantIdentity
+        var stamp: ClosePreflightStamp?
+        var vote: Win32CloseCommitDecision?
+        var hasFinished = false
+
+        init(attempt: Win32CloseAttempt, participantIdentity: CloseParticipantIdentity) {
+            self.attempt = attempt
+            self.participantIdentity = participantIdentity
+        }
+    }
+
+    private final class CloseBuildWait {
+        let ticket: Win32CloseTicket
+        let phase: Win32DeferredClosePhase
+        let registration: Win32CloseRegistration
+        let participantIdentity: CloseParticipantIdentity
+        weak var participant: (any WindowCloseParticipant)?
+        let action: @MainActor (Win32CloseTicket) -> Void
+        let onSubmissionFailure: @MainActor (Win32CloseTicket, Win32DeferredCloseSubmission) -> Void
+        var isValid = true
+        var isWaiting = false
+        var coordinatorObserverPending = false
+        var isRegistering = false
+        var submission: Win32DeferredCloseSubmission?
+        var hasPublishedFailure = false
+
+        init(
+            ticket: Win32CloseTicket, phase: Win32DeferredClosePhase, registration: Win32CloseRegistration,
+            participantIdentity: CloseParticipantIdentity, participant: any WindowCloseParticipant,
+            onSubmissionFailure: @escaping @MainActor (Win32CloseTicket, Win32DeferredCloseSubmission) -> Void,
+            action: @escaping @MainActor (Win32CloseTicket) -> Void
+        ) {
+            self.ticket = ticket
+            self.phase = phase
+            self.registration = registration
+            self.participantIdentity = participantIdentity
+            self.participant = participant
+            self.onSubmissionFailure = onSubmissionFailure
+            self.action = action
+        }
+    }
+
+    private final class CloseCommitLease: Win32CloseCommitLease {
+        let host: WinSwiftUIWindowHost
+        let preflight: ClosePreflight
+        let stamp: ClosePreflightStamp
+        let participant: (any WindowCloseParticipant)?
+        let participantLease: (any Win32CloseCommitLease)?
+        let reservation = CloseReservation()
+        private var didValidate = false
+        private var didFinish = false
+
+        init(
+            host: WinSwiftUIWindowHost, preflight: ClosePreflight, stamp: ClosePreflightStamp,
+            participant: (any WindowCloseParticipant)?, participantLease: (any Win32CloseCommitLease)?
+        ) {
+            self.host = host
+            self.preflight = preflight
+            self.stamp = stamp
+            self.participant = participant
+            self.participantLease = participantLease
+        }
+
+        func validateAndReserve() -> Win32CloseCommitDecision {
+            guard !didValidate, !didFinish else { return .unavailable }
+            didValidate = true
+            let before = host.validateClosePreflight(preflight, stamp: stamp)
+            guard before == .reserved else { return before }
+
+            // Allocate the token during preparation, then publish only a
+            // reference here. Slot replacement stays blocked through finish.
+            host.closeCommitReservation = reservation
+            if let participantLease {
+                let decision = participantLease.validateAndReserve()
+                guard decision == .reserved else { return decision }
+            }
+            return host.validateClosePreflight(preflight, stamp: stamp, reservation: reservation)
+        }
+
+        func finish(with outcome: Win32CloseAttemptOutcome) {
+            guard !didFinish else { return }
+            didFinish = true
+            preflight.hasFinished = true
+            participantLease?.finish(with: outcome)
+            if !host.hasTornDownWindow, host.closeCommitReservation === reservation {
+                host.closeCommitReservation = nil
+            }
+            withExtendedLifetime(participant) {}
+        }
+    }
+
     private enum PresentationBackend {
         case frame
         case scene
@@ -2034,6 +2172,15 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private var hasTornDownWindow = false
     private var isPerformingInitialContentBuild = true
     private var isEvaluatingWindowClosePolicy = false
+    private var isPreparingWindowCloseCommit = false
+    private var isReplacingWindowCloseParticipant = false
+    private var isSubmittingWindowCloseWork = false
+    private var windowCloseParticipant: (any WindowCloseParticipant)?
+    private var closeParticipantIdentity = CloseParticipantIdentity()
+    private var closePreflight: ClosePreflight?
+    private var closeCommitReservation: CloseReservation?
+    private var pendingCloseBuildWait: CloseBuildWait?
+    private(set) var windowCloseRegistration: Win32CloseRegistration?
 
     /// Where a pacing verdict outlives the process, or `nil` for hosts that
     /// do not persist one (tests, direct embedders). See
@@ -2251,6 +2398,9 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// Batching flag: when true, a reload is waiting for the next native frame
     /// or cooperative main-actor turn; additional notifications are coalesced.
     private var reloadScheduled = false
+    /// An accepted flush can nest through its completion callbacks. Pending
+    /// maps may already be empty while that outer publication is still active.
+    private var observedReloadFlushDepth = 0
 
     /// Set of ObjectIdentifiers for which we currently hold observation tokens.
     /// Tracked so we can match incoming change notifications to the
@@ -2591,6 +2741,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             .hostedWindow(window)
         }
         componentHost.buildLifecycle = stateMountCoordinator
+        windowCloseRegistration = window.installCloseAuthority(self)
         componentHost.measureBuild = { [weak self] build in
             guard let self else {
                 build()
@@ -2636,6 +2787,20 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     isolated deinit {
         if !hasTornDownWindow {
             hasTornDownWindow = true
+            let closeWorkPin = windowCloseRegistration?.pinDeferredWork()
+            let closingParticipant = windowCloseParticipant
+            let closeBuildWait = pendingCloseBuildWait
+            defer { withExtendedLifetime((closeWorkPin, closingParticipant, closeBuildWait)) {} }
+            closeParticipantIdentity = CloseParticipantIdentity()
+            windowCloseParticipant = nil
+            closeBuildWait?.isValid = false
+            closeBuildWait?.isWaiting = false
+            closeBuildWait?.coordinatorObserverPending = false
+            pendingCloseBuildWait = nil
+            closePreflight?.hasFinished = true
+            closeCommitReservation = nil
+            windowCloseRegistration?.revoke()
+            closingParticipant?.revokeCloseParticipation()
             componentHost.invalidateFileDialogRequests()
             runtime.stopRenderLifecycleCallbacks()
             let textInputTeardown = prepareTextInputUndoForWindowClose(in: runtime)
@@ -3232,6 +3397,13 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func windowShouldClose(_ window: Win32Window) -> Bool {
+        guard window === self.window else { return false }
+        if let attempt = window.activeCloseAttempt {
+            return evaluateNativeClosePreflight(attempt)
+        }
+        guard !configuration.isDocumentGroup || windowCloseParticipant != nil else { return false }
+        // Direct Bool queries remain useful for headless coordinator hooks.
+        // They do not mint a native receipt or authorize a later destruction.
         guard !isEvaluatingWindowClosePolicy else { return false }
         isEvaluatingWindowClosePolicy = true
         defer { isEvaluatingWindowClosePolicy = false }
@@ -3247,16 +3419,438 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         return hasTornDownWindow || (!reloadScheduled && window.isCloseButtonEnabled)
     }
 
-    private func syncWindowDismissBehavior() {
+    /// Replacing a session retires its tickets without removing this host's
+    /// mandatory final authority. A final reservation cannot be displaced.
+    @discardableResult
+    func setWindowCloseParticipant(_ participant: (any WindowCloseParticipant)?) -> Bool {
+        guard !hasTornDownWindow, closeCommitReservation == nil, !isReplacingWindowCloseParticipant else {
+            return false
+        }
+        guard windowCloseParticipant !== participant else { return true }
+        isReplacingWindowCloseParticipant = true
+        defer { isReplacingWindowCloseParticipant = false }
+        let previous = windowCloseParticipant
+        let workPin = windowCloseRegistration?.pinDeferredWork()
+        let previousBuildWait = pendingCloseBuildWait
+        let nextIdentity = CloseParticipantIdentity()
+        closeParticipantIdentity = nextIdentity
+        windowCloseParticipant = participant
+        previousBuildWait?.isValid = false
+        previousBuildWait?.isWaiting = false
+        previousBuildWait?.coordinatorObserverPending = false
+        pendingCloseBuildWait = nil
+        windowCloseRegistration?.invalidateTickets()
+        previous?.revokeCloseParticipation()
+        // Keep an in-flight preflight record: a later concrete vote in this
+        // same attempt must reject its old slot, never capture the new one.
+        return withExtendedLifetime((previous, workPin, previousBuildWait)) {
+            !hasTornDownWindow && closeParticipantIdentity === nextIdentity
+        }
+    }
+
+    /// Enqueue one owned native wake, or wait for pending host reload work and
+    /// coordinated builds to settle before posting it. The wake is not a close approval:
+    /// its action must validate the current intent and perform fresh preflight.
+    /// Both closures must capture their host/session weakly. Failure delivery
+    /// may publish framework state only; it must not prompt, close, or retry
+    /// inline. Immediate submission failures are returned, never also reported
+    /// to the callback. A failure after waiting is reported exactly once.
+    func enqueueCloseWork(
+        ticket: Win32CloseTicket, for participant: any WindowCloseParticipant, phase: Win32DeferredClosePhase,
+        onSubmissionFailure: @escaping @MainActor (Win32CloseTicket, Win32DeferredCloseSubmission) -> Void,
+        action: @escaping @MainActor (Win32CloseTicket) -> Void
+    ) -> WindowCloseWorkSubmission {
+        guard !isSubmittingWindowCloseWork, closeCommitReservation == nil else { return .busy }
+        guard !hasTornDownWindow, !isReplacingWindowCloseParticipant,
+            windowCloseParticipant === participant, let registration = windowCloseRegistration,
+            registration.isCurrent, ticket.isCurrent,
+            componentHost.buildLifecycle === stateMountCoordinator
+        else { return .unavailable }
+        isSubmittingWindowCloseWork = true
+        defer { isSubmittingWindowCloseWork = false }
+
+        var retiredWait: CloseBuildWait?
+        defer { withExtendedLifetime(retiredWait) {} }
+        if let pending = pendingCloseBuildWait {
+            if isCloseWorkCurrent(pending, participant: participant) {
+                return pending.ticket === ticket && pending.phase == phase ? .coalesced : .busy
+            }
+            pending.isValid = false
+            pending.isWaiting = false
+            pending.coordinatorObserverPending = false
+            retiredWait = pending
+            pendingCloseBuildWait = nil
+        }
+        guard pendingLiveResizeSize == nil else { return .unavailable }
+        if case .unavailable = runtime.layoutSettlementStatus { return .unavailable }
+
+        let wait = CloseBuildWait(
+            ticket: ticket, phase: phase, registration: registration,
+            participantIdentity: closeParticipantIdentity, participant: participant,
+            onSubmissionFailure: onSubmissionFailure, action: action)
+        if !hasPendingCloseHostWork, componentHost.isBuildSettled {
+            let submission = postCloseWork(wait, participant: participant)
+            if submission != .queued, submission != .coalesced { wait.isValid = false }
+            return WindowCloseWorkSubmission(submission)
+        }
+
+        wait.isWaiting = true
+        wait.isRegistering = true
+        pendingCloseBuildWait = wait
+        // An idle coordinator cannot announce a host-only observed batch.
+        // Park that batch for its existing flush, without an idle observer.
+        let accepted = componentHost.isBuildSettled || observeCoordinatorForCloseBuildWait(wait)
+        wait.isRegistering = false
+        guard accepted else {
+            wait.isValid = false
+            wait.isWaiting = false
+            wait.coordinatorObserverPending = false
+            if pendingCloseBuildWait === wait { pendingCloseBuildWait = nil }
+            return .unavailable
+        }
+        // The coordinator may finish during registration. Report such a
+        // synchronous post failure to this caller, not twice through both
+        // the return value and the deferred failure callback.
+        if let submission = wait.submission { return WindowCloseWorkSubmission(submission) }
+        return .waitingForBuilds
+    }
+
+    private var hasPendingCloseHostWork: Bool {
+        isPerformingInitialContentBuild || observedReloadFlushDepth != 0 || reloadScheduled
+            || !pendingChangedObjects.isEmpty || !pendingObservedObjectContexts.isEmpty
+            || pendingControlInvalidationContext != nil
+    }
+
+    /// Called only for actual unsettled component work. A consumed observer
+    /// never registers itself again; host-only work waits for a real flush.
+    private func observeCoordinatorForCloseBuildWait(_ wait: CloseBuildWait) -> Bool {
+        guard pendingCloseBuildWait === wait, wait.isWaiting, wait.isValid else { return false }
+        guard !wait.coordinatorObserverPending, !componentHost.isBuildSettled else { return true }
+        wait.coordinatorObserverPending = true
+        let accepted = componentHost.scheduleAfterBuildsSettled(owner: wait) { [weak self, weak wait] in
+            guard let self, let wait, wait.coordinatorObserverPending else { return }
+            wait.coordinatorObserverPending = false
+            self.resumeCloseBuildWait(wait)
+        }
+        if !accepted { wait.coordinatorObserverPending = false }
+        return accepted
+    }
+
+    /// Only an accepted outermost observed flush calls this, after it has
+    /// published pending state and restored its transaction. It does not
+    /// manufacture layout, a frame, or another observation notification.
+    private func observedReloadFlushDidComplete() {
+        guard let wait = pendingCloseBuildWait, wait.isWaiting else { return }
+        resumeCloseBuildWait(wait)
+        guard pendingCloseBuildWait === wait, wait.isWaiting,
+            !wait.coordinatorObserverPending, !componentHost.isBuildSettled
+        else { return }
+        if !observeCoordinatorForCloseBuildWait(wait), let participant = wait.participant {
+            completeCloseBuildWait(wait, participant: participant, submission: .unavailable)
+        }
+    }
+
+    private func isCloseWorkCurrent(_ wait: CloseBuildWait, participant: any WindowCloseParticipant) -> Bool {
+        wait.isValid && !hasTornDownWindow && closeCommitReservation == nil
+            && windowCloseParticipant === participant && wait.participant === participant
+            && closeParticipantIdentity === wait.participantIdentity
+            && windowCloseRegistration === wait.registration && wait.registration.isCurrent && wait.ticket.isCurrent
+    }
+
+    private func postCloseWork(
+        _ wait: CloseBuildWait, participant: any WindowCloseParticipant
+    ) -> Win32DeferredCloseSubmission {
+        guard isCloseWorkCurrent(wait, participant: participant) else { return .unavailable }
+        return withExtendedLifetime(participant) {
+            wait.registration.enqueue(
+                ticket: wait.ticket, phase: wait.phase,
+                onPostFailure: { [weak self, weak participant, wait] ticket, code in
+                    guard let self, let participant, ticket === wait.ticket else { return }
+                    self.publishCloseWorkFailure(wait, participant: participant, submission: .postFailed(code))
+                },
+                action: { [weak self, weak participant, wait] ticket in
+                    guard let self, let participant, ticket === wait.ticket,
+                        self.isCloseWorkCurrent(wait, participant: participant)
+                    else { return }
+                    withExtendedLifetime((self, participant, wait)) { wait.action(ticket) }
+                })
+        }
+    }
+
+    private func resumeCloseBuildWait(_ wait: CloseBuildWait) {
+        guard pendingCloseBuildWait === wait, wait.isWaiting else { return }
+        let wasSubmitting = isSubmittingWindowCloseWork
+        isSubmittingWindowCloseWork = true
+        defer { isSubmittingWindowCloseWork = wasSubmitting }
+        guard let participant = wait.participant, isCloseWorkCurrent(wait, participant: participant),
+            componentHost.buildLifecycle === stateMountCoordinator
+        else {
+            wait.isValid = false
+            wait.isWaiting = false
+            wait.coordinatorObserverPending = false
+            pendingCloseBuildWait = nil
+            return
+        }
+        if pendingLiveResizeSize != nil {
+            completeCloseBuildWait(wait, participant: participant, submission: .unavailable)
+            return
+        }
+        if case .unavailable = runtime.layoutSettlementStatus {
+            completeCloseBuildWait(wait, participant: participant, submission: .unavailable)
+            return
+        }
+        // Component settlement can be delivered inside an observed flush.
+        // Preserve this exact wait for the outer flush's real completion.
+        guard !hasPendingCloseHostWork, componentHost.isBuildSettled else { return }
+        retireCloseBuildWait(wait)
+        let submission = postCloseWork(wait, participant: participant)
+        completeCloseBuildWait(wait, participant: participant, submission: submission)
+        withExtendedLifetime((participant, wait)) {}
+    }
+
+    private func retireCloseBuildWait(_ wait: CloseBuildWait) {
+        wait.isWaiting = false
+        wait.coordinatorObserverPending = false
+        if pendingCloseBuildWait === wait { pendingCloseBuildWait = nil }
+    }
+
+    private func completeCloseBuildWait(
+        _ wait: CloseBuildWait, participant: any WindowCloseParticipant, submission: Win32DeferredCloseSubmission
+    ) {
+        // Retire before publishing failure, including a failed post after the
+        // original caller already returned waitingForBuilds. No retry is added.
+        retireCloseBuildWait(wait)
+        wait.submission = submission
+        switch submission {
+        case .queued, .coalesced: break
+        case .busy, .unavailable, .postFailed:
+            if wait.isRegistering {
+                wait.isValid = false
+            } else {
+                publishCloseWorkFailure(wait, participant: participant, submission: submission)
+            }
+        }
+    }
+
+    private func publishCloseWorkFailure(
+        _ wait: CloseBuildWait, participant: any WindowCloseParticipant, submission: Win32DeferredCloseSubmission
+    ) {
+        guard !wait.hasPublishedFailure, isCloseWorkCurrent(wait, participant: participant) else { return }
+        let wasSubmitting = isSubmittingWindowCloseWork
+        isSubmittingWindowCloseWork = true
+        defer { isSubmittingWindowCloseWork = wasSubmitting }
+        wait.hasPublishedFailure = true
+        wait.isValid = false
+        wait.isWaiting = false
+        wait.coordinatorObserverPending = false
+        if pendingCloseBuildWait === wait { pendingCloseBuildWait = nil }
+        withExtendedLifetime((self, participant, wait)) { wait.onSubmissionFailure(wait.ticket, submission) }
+    }
+
+    private func evaluateNativeClosePreflight(_ attempt: Win32CloseAttempt) -> Bool {
+        if let existing = closePreflight, existing.attempt === attempt {
+            guard !existing.hasFinished, let vote = existing.vote else { return false }
+            guard vote == .reserved, let stamp = existing.stamp else {
+                return recordClosePreflightRejection(vote, for: existing)
+            }
+            let decision = validateClosePreflight(existing, stamp: stamp)
+            return decision == .reserved || recordClosePreflightRejection(decision, for: existing)
+        }
+
+        let preflight = ClosePreflight(attempt: attempt, participantIdentity: closeParticipantIdentity)
+        closePreflight = preflight
+        guard !hasTornDownWindow, let registration = windowCloseRegistration, registration.isCurrent else {
+            return recordClosePreflightRejection(.unavailable, for: preflight)
+        }
+        // The separate document-session adapter must be installed explicitly.
+        // This generic foundation does not activate native DocumentGroup close
+        // or bypass its startup capability gate when the bundles are combined.
+        guard !configuration.isDocumentGroup || windowCloseParticipant != nil else {
+            return recordClosePreflightRejection(.unavailable, for: preflight)
+        }
+        guard !isEvaluatingWindowClosePolicy, !isPreparingWindowCloseCommit,
+            !isReplacingWindowCloseParticipant, !isSubmittingWindowCloseWork, closeCommitReservation == nil
+        else { return recordClosePreflightRejection(.busy(.closeInProgress), for: preflight) }
+        if let rejection = closeBuildRejection(includingPendingReloads: false) {
+            return recordClosePreflightRejection(rejection, for: preflight)
+        }
+        guard runtime.canPrepareLayoutSettlement else {
+            return recordClosePreflightRejection(.unavailable, for: preflight)
+        }
+
+        isEvaluatingWindowClosePolicy = true
+        defer { isEvaluatingWindowClosePolicy = false }
+        let participant = windowCloseParticipant
+        return withExtendedLifetime(participant) {
+            // Consume at most one observed batch. Its completion may queue
+            // another build or replace the participant, so check again below.
+            flushObservedObjectReload(in: window, requestsFrame: false)
+            guard !hasTornDownWindow, closeParticipantIdentity === preflight.participantIdentity,
+                windowCloseRegistration === registration, !registration.isRevoked
+            else { return recordClosePreflightRejection(.unavailable, for: preflight) }
+            if let rejection = closeBuildRejection() {
+                return recordClosePreflightRejection(rejection, for: preflight)
+            }
+            guard runtime.canPrepareLayoutSettlement else {
+                return recordClosePreflightRejection(.unavailable, for: preflight)
+            }
+
+            // A layout-only query can run app builders, so it belongs here,
+            // before any final lease. It never renders or presents a frame.
+            _ = runtime.resolvedLayoutFrame(of: runtime.root)
+            guard !hasTornDownWindow, !preflight.hasFinished, closePreflight === preflight,
+                closeParticipantIdentity === preflight.participantIdentity,
+                windowCloseRegistration === registration, !registration.isRevoked
+            else { return recordClosePreflightRejection(.unavailable, for: preflight) }
+            if let rejection = closeBuildRejection() {
+                return recordClosePreflightRejection(rejection, for: preflight)
+            }
+            guard case .settled(let receipt) = runtime.layoutSettlementStatus else {
+                // Completed but unproven layout is terminal for this attempt;
+                // neither this path nor the build observer retries it.
+                return recordClosePreflightRejection(.unavailable, for: preflight)
+            }
+            let behavior = runtime.windowDismissalBehavior
+            let stamp = ClosePreflightStamp(receipt: receipt, behavior: behavior, registration: registration)
+            preflight.stamp = stamp
+            syncWindowDismissBehavior(behavior)
+            let afterPolicy = validateClosePreflight(preflight, stamp: stamp)
+            guard afterPolicy == .reserved else {
+                return recordClosePreflightRejection(afterPolicy, for: preflight)
+            }
+
+            if let participant, !participant.windowShouldClose(attempt) {
+                let rejection: Win32CloseCommitDecision =
+                    attempt.isUnavailable ? .unavailable : attempt.busyReason.map { .busy($0) } ?? .vetoed
+                return recordClosePreflightRejection(rejection, for: preflight)
+            }
+            let afterParticipant = validateClosePreflight(preflight, stamp: stamp)
+            guard afterParticipant == .reserved, !attempt.isUnavailable else {
+                return recordClosePreflightRejection(
+                    attempt.isUnavailable ? .unavailable : afterParticipant, for: preflight)
+            }
+            preflight.vote = .reserved
+            return true
+        }
+    }
+
+    private func recordClosePreflightRejection(
+        _ decision: Win32CloseCommitDecision, for preflight: ClosePreflight
+    ) -> Bool {
+        preflight.vote = decision
+        switch decision {
+        case .unavailable: preflight.attempt.rejectAsUnavailable()
+        case .busy(let reason): preflight.attempt.deferUntilReady(reason)
+        case .reserved, .vetoed: break
+        }
+        return false
+    }
+
+    /// Pending observation/control batches count even when no root build is
+    /// currently executing. A native live-resize size has not reached retained
+    /// layout yet and cannot be repaired during final close validation.
+    private func closeBuildRejection(includingPendingReloads: Bool = true) -> Win32CloseCommitDecision? {
+        // Exhaustion is sticky even when a build or host batch is pending.
+        // An ordinary earlier unproven resolution with a preparable runtime
+        // can still receive its one bounded query on a fresh user request.
+        if !runtime.canPrepareLayoutSettlement, case .unavailable = runtime.layoutSettlementStatus {
+            return .unavailable
+        }
+        guard componentHost.buildLifecycle === stateMountCoordinator else { return .unavailable }
+        guard pendingLiveResizeSize == nil else { return .unavailable }
+        guard !isPerformingInitialContentBuild, observedReloadFlushDepth == 0, componentHost.isBuildSettled else {
+            return .busy(.buildsNotSettled)
+        }
+        if includingPendingReloads,
+            reloadScheduled || !pendingChangedObjects.isEmpty || !pendingObservedObjectContexts.isEmpty
+                || pendingControlInvalidationContext != nil
+        {
+            return .busy(.buildsNotSettled)
+        }
+        return nil
+    }
+
+    /// Read the captured proof, never refresh it. The retained policy getter
+    /// walks the tree, so only preflight calls it; policy setters invalidate
+    /// the layout receipt. Every check here reads owned framework state.
+    private func validateClosePreflight(
+        _ preflight: ClosePreflight, stamp: ClosePreflightStamp, reservation: CloseReservation? = nil
+    ) -> Win32CloseCommitDecision {
+        guard !hasTornDownWindow, !preflight.hasFinished, closePreflight === preflight,
+            window.activeCloseAttempt === preflight.attempt,
+            closeParticipantIdentity === preflight.participantIdentity,
+            windowCloseRegistration === stamp.registration, !stamp.registration.isRevoked
+        else { return .unavailable }
+        guard closeCommitReservation == nil || closeCommitReservation === reservation else {
+            return .busy(.closeInProgress)
+        }
+        if let rejection = closeBuildRejection() { return rejection }
+        guard runtime.isLayoutSettlementReceiptCurrent(stamp.receipt) else { return .unavailable }
+        guard stamp.behavior != .disabled, window.isCloseButtonEnabled else { return .vetoed }
+        return .reserved
+    }
+
+    func prepareCloseCommit(for attempt: Win32CloseAttempt) -> Win32CloseCommitPreparation {
+        guard !isPreparingWindowCloseCommit else { return .busy(.closeInProgress) }
+        guard let preflight = closePreflight, preflight.attempt === attempt,
+            preflight.vote == .reserved, let stamp = preflight.stamp
+        else { return .unavailable }
+        let decision = validateClosePreflight(preflight, stamp: stamp)
+        switch decision {
+        case .vetoed: return .vetoed
+        case .busy(let reason): return .busy(reason)
+        case .unavailable: return .unavailable
+        case .reserved: break
+        }
+        isPreparingWindowCloseCommit = true
+        defer { isPreparingWindowCloseCommit = false }
+        let participant = windowCloseParticipant
+        var participantLease: (any Win32CloseCommitLease)?
+        if let participant {
+            switch participant.prepareCloseCommit(for: attempt) {
+            case .ready(let lease): participantLease = lease
+            case .vetoed: return .vetoed
+            case .busy(let reason): return .busy(reason)
+            case .unavailable: return .unavailable
+            }
+        }
+        // Always hand a prepared participant lease to the native owner, even
+        // if its preparation changed host state. Final validation rejects the
+        // old stamp and native finish then rolls that exact lease back once.
+        return .ready(
+            CloseCommitLease(
+                host: self, preflight: preflight, stamp: stamp,
+                participant: participant, participantLease: participantLease))
+    }
+
+    private func syncWindowDismissBehavior(_ capturedBehavior: RetainedWindowInteractionBehavior? = nil) {
+        // Native preflight already captured the policy with its receipt. Keep
+        // all affordance/policy-change handling on this common path without
+        // walking the tree a second time or refreshing that receipt.
+        let behavior = capturedBehavior ?? runtime.windowDismissalBehavior
         // Failed-start rollback can already have torn down this host before
         // requesting native cleanup. It must not leave an unowned disabled
         // HWND alive; the idempotent teardown below will not run twice.
-        window.setCloseButtonEnabled(hasTornDownWindow || runtime.windowDismissalBehavior != .disabled)
+        window.setCloseButtonEnabled(hasTornDownWindow || behavior != .disabled)
     }
 
     func windowWillClose(_ window: Win32Window) {
         guard !hasTornDownWindow else { return }
         hasTornDownWindow = true
+        let closeWorkPin = windowCloseRegistration?.pinDeferredWork()
+        let closingParticipant = windowCloseParticipant
+        let closeBuildWait = pendingCloseBuildWait
+        defer { withExtendedLifetime((closeWorkPin, closingParticipant, closeBuildWait)) {} }
+        closeParticipantIdentity = CloseParticipantIdentity()
+        windowCloseParticipant = nil
+        closeBuildWait?.isValid = false
+        closeBuildWait?.isWaiting = false
+        closeBuildWait?.coordinatorObserverPending = false
+        pendingCloseBuildWait = nil
+        closePreflight?.hasFinished = true
+        closeCommitReservation = nil
+        windowCloseRegistration?.revoke()
+        closingParticipant?.revokeCloseParticipation()
         componentHost.invalidateFileDialogRequests()
         runtime.stopRenderLifecycleCallbacks()
         // Revoke every capability before any ownership cleanup releases
@@ -3656,6 +4250,13 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         // always queues a full root rebuild, covering the consumed older batch
         // under that mutation's transaction even if dependency filtering fails.
         guard !componentHost.isBuilding || preservingCurrentTransaction else { return false }
+        observedReloadFlushDepth += 1
+        defer {
+            // The later transaction-restoration defers and every existing
+            // completion have returned before this outermost notification.
+            observedReloadFlushDepth -= 1
+            if observedReloadFlushDepth == 0 { observedReloadFlushDidComplete() }
+        }
         reloadScheduled = false
 
         let changedObjects = pendingChangedObjects

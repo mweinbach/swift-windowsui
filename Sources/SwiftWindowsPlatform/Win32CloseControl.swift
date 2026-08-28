@@ -269,12 +269,20 @@ enum Win32CloseNativeResult: Equatable {
 @MainActor
 final class Win32CloseControl: Win32DispatchWakeClient {
     private final class DeferredWork {
+        enum RetryState {
+            case notAttempted
+            case attempting(Win32CloseAttempt)
+            case continuation(Win32CloseAttempt, topology: UUID, handle: UInt)
+            case retired
+        }
+
         let ticket: Win32CloseTicket
         let phase: Win32DeferredClosePhase
         let nonce: UInt
         let action: @MainActor (Win32CloseTicket) -> Void
         let onPostFailure: @MainActor (Win32CloseTicket, UInt32) -> Void
         var hasOutstandingWake = false
+        var retryState = RetryState.notAttempted
 
         init(
             ticket: Win32CloseTicket, phase: Win32DeferredClosePhase, nonce: UInt,
@@ -289,6 +297,11 @@ final class Win32CloseControl: Win32DispatchWakeClient {
         }
     }
 
+    private struct DeferredCleanupIdentity {
+        let ticket: Win32CloseTicket
+        let phase: Win32DeferredClosePhase
+    }
+
     private(set) var lifetime: Win32CloseLifetime?
     private(set) var registration: Win32CloseRegistration?
     private(set) var activeAttempt: Win32CloseAttempt?
@@ -298,6 +311,7 @@ final class Win32CloseControl: Win32DispatchWakeClient {
     private let wakeSequence: Win32CloseWakeSequence
     private var pendingWork: DeferredWork?
     private var executingWork: DeferredWork?
+    private var deferredCleanupIdentities: [DeferredCleanupIdentity] = []
     var isCloseEnabled = true
 
     init(
@@ -376,10 +390,20 @@ final class Win32CloseControl: Win32DispatchWakeClient {
         preflight: () -> Bool,
         destroy: (UInt) -> Win32CloseNativeResult
     ) -> Win32CloseAttemptOutcome {
+        var selectedRetry: DeferredWork?
+        if let executingWork, executingWork.phase == .retry {
+            switch executingWork.retryState {
+            case .notAttempted:
+                if executingWork.ticket === ticket { selectedRetry = executingWork }
+            case .attempting, .continuation, .retired:
+                // A second request cannot reuse a completed evaluation's
+                // permission, including one rejected by the dispatch guard.
+                executingWork.retryState = .retired
+            }
+        }
         guard activeAttempt == nil else { return .busy(.closeInProgress) }
-        if let ticket {
-            let isOwnedRetry = executingWork?.ticket === ticket && executingWork?.phase == .retry
-            guard Win32DispatchScope.permitsTaggedClose(isOwnedRetry: isOwnedRetry) else {
+        if ticket != nil {
+            guard Win32DispatchScope.permitsTaggedClose(isOwnedRetry: selectedRetry != nil) else {
                 return .busy(.nativeDispatch)
             }
         }
@@ -400,6 +424,7 @@ final class Win32CloseControl: Win32DispatchWakeClient {
         let attempt = Win32CloseAttempt(
             ticket: ticket, registrationEpoch: selectedRegistration?.ticketEpoch, control: self)
         let selectedTopology = topologyIdentity
+        selectedRetry?.retryState = .attempting(attempt)
         activeAttempt = attempt
         Win32DispatchScope.beginCloseAttempt()
         defer {
@@ -483,6 +508,24 @@ final class Win32CloseControl: Win32DispatchWakeClient {
             // application payloads or reenter. A prepared lease finishes on
             // every exit, including a failed post-reservation native guard.
             lease?.finish(with: outcome)
+            if let selectedRetry, executingWork === selectedRetry,
+                case .attempting(let selectedAttempt) = selectedRetry.retryState,
+                selectedAttempt === attempt
+            {
+                if outcome == .busy(.buildsNotSettled), let ticket, ticket.isCurrent,
+                    ticket.latestDeferredNonce == selectedRetry.nonce,
+                    isCurrent(
+                        lifetime: lifetime, handle: expectedHandle, registration: selectedRegistration,
+                        topology: selectedTopology, attempt: attempt)
+                {
+                    // This permit only replaces the exact executing retry.
+                    // It is not document approval and never schedules itself.
+                    selectedRetry.retryState = .continuation(
+                        attempt, topology: selectedTopology, handle: expectedHandle)
+                } else {
+                    selectedRetry.retryState = .retired
+                }
+            }
             return withExtendedLifetime(lease) { outcome }
         }
     }
@@ -531,22 +574,51 @@ final class Win32CloseControl: Win32DispatchWakeClient {
             if let pendingWork {
                 return pendingWork.ticket === ticket && pendingWork.phase == phase ? .coalesced : .busy
             }
+            var continuingRetry: DeferredWork?
             if let executingWork {
-                if executingWork.ticket === ticket, executingWork.phase == phase { return .coalesced }
-                guard executingWork.ticket === ticket, executingWork.phase == .prompt, phase == .retry else {
-                    return .busy
+                guard executingWork.ticket === ticket else { return .busy }
+                if executingWork.phase == phase {
+                    if phase == .prompt { return .coalesced }
+                    switch executingWork.retryState {
+                    case .notAttempted:
+                        return .coalesced
+                    case .continuation(let attempt, let topology, let expectedHandle):
+                        guard activeAttempt == nil, attempt.ticket === ticket, !attempt.isUnavailable,
+                            attempt.registrationEpoch == registration.ticketEpoch,
+                            topologyIdentity == topology, handle == expectedHandle,
+                            ticket.latestDeferredNonce == executingWork.nonce, isCurrent(executingWork)
+                        else {
+                            executingWork.retryState = .retired
+                            return .busy
+                        }
+                        continuingRetry = executingWork
+                    case .attempting, .retired:
+                        return .busy
+                    }
+                } else {
+                    guard executingWork.phase == .prompt, phase == .retry else { return .busy }
                 }
+            } else if deferredCleanupIdentities.contains(where: { $0.ticket === ticket && $0.phase == phase }) {
+                // The action has returned, but its captures or promoted owner
+                // are still retiring. Cleanup cannot borrow its old permit.
+                return .busy
             }
-            guard let nonce = wakeSequence.takeNext() else { return .unavailable }
+            guard let nonce = wakeSequence.takeNext() else {
+                continuingRetry?.retryState = .retired
+                return .unavailable
+            }
             let work = DeferredWork(
                 ticket: ticket, phase: phase, nonce: nonce,
                 onPostFailure: onPostFailure, action: action)
+            // Consume before publishing the replacement. There are no callbacks
+            // between the exact-record checks above and these owned mutations.
+            continuingRetry?.retryState = .retired
             ticket.latestDeferredNonce = nonce
             pendingWork = work
             return withExtendedLifetime((registration, authority, work)) {
-                if executingWork != nil {
-                    // A prompt can queue its approved retry, but cannot start
-                    // another close while its own callback/modal stack is live.
+                if executingWork != nil || !deferredCleanupIdentities.isEmpty {
+                    // Prompt-to-retry and an earned busy continuation both
+                    // wait for the old action and its captures to unwind.
                     Win32DispatchScope.requestWakeWhenIdle(self)
                     return .queued
                 }
@@ -577,14 +649,30 @@ final class Win32CloseControl: Win32DispatchWakeClient {
     func receiveDeferredWake(nonce: UInt) {
         let canDeliver = Win32DispatchScope.canDeliverWindowWake && activeAttempt == nil && executingWork == nil
         Win32DispatchScope.withMailboxWork {
-            guard pendingWork?.nonce == nonce, pendingWork?.hasOutstandingWake == true else { return }
-            let selectedRegistration = registration
-            let authority = selectedRegistration?.authority
-            // The helper owns the work local, so its final payload release
-            // occurs before these promoted weak owners can be released.
-            withExtendedLifetime((selectedRegistration, authority)) {
-                consumeDeferredWake(nonce: nonce, canDeliver: canDeliver)
+            guard pendingWork?.nonce == nonce, pendingWork?.hasOutstandingWake == true,
+                let ticket = pendingWork?.ticket, let phase = pendingWork?.phase
+            else { return }
+            // Keep only metadata here: retaining the record in this wrapper
+            // would postpone its capture cleanup until after the marker ended.
+            deferredCleanupIdentities.append(DeferredCleanupIdentity(ticket: ticket, phase: phase))
+            defer {
+                deferredCleanupIdentities.removeLast()
+                if let pendingWork, !pendingWork.hasOutstandingWake {
+                    Win32DispatchScope.requestWakeWhenIdle(self)
+                }
             }
+            receiveDeferredWakeWithOwners(nonce: nonce, canDeliver: canDeliver)
+        }
+    }
+
+    private func receiveDeferredWakeWithOwners(nonce: UInt, canDeliver: Bool) {
+        let selectedRegistration = registration
+        let authority = selectedRegistration?.authority
+        // Both the work's captures and these promoted owners finish releasing
+        // before the caller removes its cleanup identity. Nested wakes stack
+        // their own identity without replacing this outer retirement boundary.
+        withExtendedLifetime((selectedRegistration, authority)) {
+            consumeDeferredWake(nonce: nonce, canDeliver: canDeliver)
         }
     }
 

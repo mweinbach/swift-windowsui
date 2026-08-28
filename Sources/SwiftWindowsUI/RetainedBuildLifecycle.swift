@@ -117,9 +117,14 @@ final class RetainedBuildCoordinator {
     private var isDrainingReloads = false
     private var settlementCallbacks: [SettlementCallback] = []
     private var isProcessingSettlementCallbacks = false
+    private let onBuildStarted: @MainActor () -> Void
     private let retainedCallbacksAreSettled: @MainActor () -> Bool
 
-    init(retainedCallbacksAreSettled: @escaping @MainActor () -> Bool = { true }) {
+    init(
+        onBuildStarted: @escaping @MainActor () -> Void = {},
+        retainedCallbacksAreSettled: @escaping @MainActor () -> Bool = { true }
+    ) {
+        self.onBuildStarted = onBuildStarted
         self.retainedCallbacksAreSettled = retainedCallbacksAreSettled
     }
 
@@ -190,6 +195,9 @@ final class RetainedBuildCoordinator {
     func beginBuild() -> UInt64? {
         guard !isBuilding else { return nil }
         isBuilding = true
+        // Framework evidence must be retired before lifecycle callbacks can
+        // reenter. An unchanged or abandoned build still crosses this boundary.
+        onBuildStarted()
         return requestSequence
     }
 

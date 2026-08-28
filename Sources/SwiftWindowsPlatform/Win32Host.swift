@@ -548,7 +548,7 @@ public final class Win32Window: PlatformWindow {
     /// button-up must not cancel its own press before the delegate can handle it.
     private var isReleasingPointerCapture = false
     private var isAnimationTimerRunning = false
-    private let closeControl = Win32CloseControl()
+    private let closeControl: Win32CloseControl
     private var isHandlingCloseRequest: Bool { closeControl.isHandlingCloseRequest }
     private var hasDeliveredWillClose = false
     private var windowLifetimeGeneration: UInt64 = 0
@@ -662,6 +662,13 @@ public final class Win32Window: PlatformWindow {
         self.requestedLogicalClientSize = clientSize
         self.titleBarVisibility = titleBarVisibility
         self.configuration = configuration
+        closeControl = Win32CloseControl(postWake: { rawHandle, nonce in
+            guard let handle = HWND(bitPattern: rawHandle) else {
+                return .failed(UInt32(ERROR_INVALID_WINDOW_HANDLE))
+            }
+            if PostMessageW(handle, Self.deferredCloseMessage, WPARAM(nonce), 0) { return .succeeded }
+            return .failed(GetLastError())
+        })
     }
 
     public var nativeHandle: NativeWindowHandle? {
@@ -1440,9 +1447,18 @@ public final class Win32Window: PlatformWindow {
     /// retain an unowned window after its renderer has already been released.
     /// Ordinary application dismissal must use `requestClose()` instead.
     public func destroyForFailedStartup() {
-        closeControl.revokeForForcedTeardown()
-        guard let hwnd else { return }
-        DestroyWindow(hwnd)
+        let failedHandle = hwnd
+        let failedGeneration = windowLifetimeGeneration
+        let failedLifetime = closeControl.lifetime
+        Win32DispatchScope.withMailboxWork {
+            let workPin = closeControl.pinDeferredWork()
+            defer { withExtendedLifetime(workPin) {} }
+            closeControl.revokeForForcedTeardown()
+            guard let failedHandle, hwnd == failedHandle,
+                windowLifetimeGeneration == failedGeneration, closeControl.lifetime === failedLifetime
+            else { return }
+            DestroyWindow(failedHandle)
+        }
     }
 
     /// Updates the native affordance without destroying the window. A close
@@ -2247,6 +2263,12 @@ public final class Win32Window: PlatformWindow {
             handleTouchMessage(hwnd: hwnd, wParam: wParam, lParam: lParam)
             return 0
 
+        case Self.deferredCloseMessage:
+            // The payload is a checked process-unique scalar, never a pointer
+            // or an approval. The owned record validates the current lifetime.
+            closeControl.receiveDeferredWake(nonce: UInt(wParam))
+            return 0
+
         case UINT(WM_CLOSE):
             // Both the native close affordances and requestClose() arrive
             // here. A rejected request must not stop timers, detach a backend,
@@ -2256,6 +2278,8 @@ public final class Win32Window: PlatformWindow {
 
         case UINT(WM_DESTROY):
             guard !hasDeliveredWillClose else { return 0 }
+            let workPin = closeControl.pinDeferredWork()
+            defer { withExtendedLifetime(workPin) {} }
             hasDeliveredWillClose = true
             if let lifetime = closeControl.lifetime { closeControl.beginDestruction(lifetime) }
             setAnimationTimerEnabled(false)
@@ -2605,6 +2629,9 @@ public final class Win32Window: PlatformWindow {
     /// by the frame loop stopping its own timer, which is precisely the state
     /// the watchdog exists to survive.
     private static let closeWatchdogTimerIdentifier: UINT_PTR = 2
+    /// Reserved package message: WM_APP + 0x100. No payload crosses native
+    /// memory ownership; wParam is only a process-unique delivery identity.
+    internal static let deferredCloseMessage = UINT(0x8100)
     private static let wheelPageScrollValue = UINT.max
 
     internal struct AnimationTimerConfiguration: Equatable {
@@ -2628,35 +2655,37 @@ public final class Win32Window: PlatformWindow {
 
     private static let windowProc: WNDPROC = {
         (hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT in
-        if message == UINT(WM_NCCREATE) {
-            let createStructure = UnsafeMutableRawPointer(bitPattern: Int(lParam))?.assumingMemoryBound(
-                to: CREATESTRUCTW.self)
-            let rawSelf = createStructure?.pointee.lpCreateParams
+        return Win32DispatchScope.withWindowDispatch {
+            if message == UINT(WM_NCCREATE) {
+                let createStructure = UnsafeMutableRawPointer(bitPattern: Int(lParam))?.assumingMemoryBound(
+                    to: CREATESTRUCTW.self)
+                let rawSelf = createStructure?.pointee.lpCreateParams
 
-            if let rawSelf {
-                SetWindowLongPtrW(hwnd, GWLP_USERDATA, LONG_PTR(Int(bitPattern: rawSelf)))
-            }
-        }
-
-        let rawValue = GetWindowLongPtrW(hwnd, GWLP_USERDATA)
-        if let rawSelf = UnsafeMutableRawPointer(bitPattern: Int(rawValue)) {
-            let unmanaged = Unmanaged<Win32Window>.fromOpaque(rawSelf)
-            let window = unmanaged.takeUnretainedValue()
-            return withExtendedLifetime(window) {
-                let result = window.handleMessage(hwnd: hwnd, message: message, wParam: wParam, lParam: lParam)
-
-                // WM_CLOSE can destroy the HWND synchronously. Keep the Swift
-                // window alive until every enclosing wndproc frame returns,
-                // even when the coordinator drops it during WM_DESTROY.
-                if message == UINT(WM_NCDESTROY), window.consumeRetainedSelfReferenceOwnership() {
-                    unmanaged.release()
+                if let rawSelf {
+                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, LONG_PTR(Int(bitPattern: rawSelf)))
                 }
-
-                return result
             }
-        }
 
-        return DefWindowProcW(hwnd, message, wParam, lParam)
+            let rawValue = GetWindowLongPtrW(hwnd, GWLP_USERDATA)
+            if let rawSelf = UnsafeMutableRawPointer(bitPattern: Int(rawValue)) {
+                let unmanaged = Unmanaged<Win32Window>.fromOpaque(rawSelf)
+                let window = unmanaged.takeUnretainedValue()
+                return withExtendedLifetime(window) {
+                    let result = window.handleMessage(hwnd: hwnd, message: message, wParam: wParam, lParam: lParam)
+
+                    // WM_CLOSE can destroy the HWND synchronously. Keep the Swift
+                    // window alive until every enclosing wndproc frame returns,
+                    // even when the coordinator drops it during WM_DESTROY.
+                    if message == UINT(WM_NCDESTROY), window.consumeRetainedSelfReferenceOwnership() {
+                        unmanaged.release()
+                    }
+
+                    return result
+                }
+            }
+
+            return DefWindowProcW(hwnd, message, wParam, lParam)
+        }
     }
 }
 

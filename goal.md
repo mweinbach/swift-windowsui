@@ -3048,3 +3048,64 @@ module-origin, resource, and input verification is still being sealed. No DLL
 was installed or activated, and the real XCTest/Swift Testing cohort and native
 scheduling/Unicode checks remain separate unfinished work. None of these local
 or hosted results closes an original product gate.
+
+### Sixth batch: deferred close delivery and nested native scopes
+
+The close-control slice is committed as `5a09843`. Deferred delivery now uses
+an owned window message containing a scalar nonce, with the actual request and
+its captures retained by the current close registration. A stale, duplicate,
+cancelled, or wrong-lifetime wake cannot become a fresh close approval. Nested
+window dispatch, native modal calls, active close attempts, and mailbox cleanup
+defer delivery until the owned scopes unwind. Rearming posts a wake rather than
+running the application prompt inline; a posting failure is explicit and is
+not retried automatically. The real file/color common-dialog calls participate
+in these scopes, and failed file-dialog calls still sample their extended error
+immediately inside the invocation scope. Third-party modal pumps remain outside
+this owned-scope guarantee.
+
+The first actual build stopped before XCTest execution because Foundation and
+WinSDK both export a type named UUID. Three new fixture declarations therefore
+had ambiguous types, with follow-on inference errors. The complete failed log
+has SHA-256 `f64c03857592f7b148a9eb6c133c7f2f6cdf5a82b01654f91a594290f64ebf9e`.
+Its sixteen source/log/receipt files were archived before correction in
+`artifacts/goal-sixth-deferred-close-compile-failure-v1/failure.json`, SHA-256
+`6e2294120cb71b9578f49b2127522685bbfdd79bd0125a7f59b7a7a2eb7a065b`.
+No test execution or passing-test credit is attributed to that build.
+
+The correction qualifies two fixture arrays and the ticket helper's argument
+and default constructor as Foundation.UUID. Exactly three lines change; all
+production code, fixture behavior, and assertions remain unchanged. Independent
+source review confirms that these values are the Foundation UUIDs required by
+the existing ticket API. The frozen input bundle remains intact. The exact
+root-only overlay is recorded in
+`artifacts/goal-sixth-native-uuid-overlay-v1.json`, alongside the earlier
+MainActor fixture annotation; later integration comparisons must retain both.
+
+The corrected run passes 133 distinct XCTest cases across six targets and eight
+serial invocations: 38 deferred-close, 37 close-control, 29 dialog-ownership,
+13 dialog-outcome, twelve native close-request, and four color-dialog-provider
+cases. There are no failures, skips, or duplicate completed case identifiers.
+The actual child exited zero at 08:29:10 UTC. Its staged source tree is
+`aca6b3de71828a55dd363c639dd25239cd39e83a` over `5a09843`; the recorded
+input hashes, index bytes, Git status, and source tree did not change during
+execution. The log is `artifacts/goal-sixth-deferred-close-tests-v2.log`, SHA-256
+`e1a36066b09a94ca3c7760cf9b6489f08af8bf817720e055c71fa601e246840b`.
+All six changed Swift files pass a fresh strict lint and contract check.
+These results include owned hidden-window cases, not visible dialog workflows,
+arbitrary third-party message loops, or final App/document close qualification.
+The retained-build, layout-receipt, and final host increments remain pending.
+
+The isolated F9 Foundation phase is now sealed. All eleven configured targets
+completed, all 597 planned primary outputs have successful build records and
+exist, and the declared outputs include six DLLs and eleven static/import
+libraries. Passive checks cover actual link/response commands, emitted library
+requests, module origins, preserved inputs, and owned-process completion. The
+Foundation DLL imports the two wide Win32 message functions in its PE table;
+that is linked static evidence, not an executed message-pump result. The phase
+manifest is `builds/foundation-f9-build/frozen-f9-phase-manifest.json` under the
+owned Foundation input directory, SHA-256
+`56e0d623e4d3166819e839c48167c002deea80883fd89d3dc9aaf89718887f66`.
+No candidate DLL was loaded, installed, or activated. A separately reviewed
+plan for real XCTest and Swift Testing consumers is still being prepared;
+runtime ABI, native scheduling, Unicode, distribution, and all nine original
+product acceptance gates remain unqualified.

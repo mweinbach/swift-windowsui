@@ -235,13 +235,15 @@ public final class Win32FileDialogProvider: FileDialogOutcomeProvider {
             flags: flags,
             ownerHandle: ownerHandle
         ) { configuration in
-            guard perform(&configuration) else {
-                // CommDlgExtendedError is meaningful only after FALSE. Sample
-                // it immediately, before buffer cleanup or any other callback.
-                let code = extendedError()
-                return code == 0 ? .cancelled : .failed(FileDialogError.nativeFailure(code))
+            Win32DispatchScope.withNativeModal {
+                guard perform(&configuration) else {
+                    // CommDlgExtendedError is meaningful only after FALSE. Sample
+                    // it immediately, before buffer cleanup or any other callback.
+                    let code = extendedError()
+                    return code == 0 ? .cancelled : .failed(FileDialogError.nativeFailure(code))
+                }
+                return .selected(())
             }
-            return .selected(())
         }
         switch result {
         case .selected:

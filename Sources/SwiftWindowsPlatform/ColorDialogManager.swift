@@ -32,7 +32,7 @@ public final class Win32ColorDialogProvider: ColorDialogProvider {
 
         return customColors.withUnsafeMutableBufferPointer { buffer in
             chooser.lpCustColors = buffer.baseAddress
-            guard ChooseColorW(&chooser) else {
+            guard Win32DispatchScope.withNativeModal({ ChooseColorW(&chooser) }) else {
                 return nil
             }
             return Self.color(from: chooser.rgbResult, alpha: initial.alpha)

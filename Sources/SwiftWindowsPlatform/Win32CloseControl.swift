@@ -29,6 +29,49 @@ package enum Win32CloseCommitDecision: Equatable, Sendable {
     case unavailable
 }
 
+package enum Win32DeferredClosePhase: Equatable, Sendable {
+    case prompt
+    case retry
+}
+
+package enum Win32DeferredCloseSubmission: Equatable, Sendable {
+    case queued
+    case coalesced
+    case busy
+    case unavailable
+    case postFailed(UInt32)
+}
+
+/// Scalars posted to an HWND are never reused, including after handle reuse.
+/// Tests can inject a separate sequence without changing the process source.
+@MainActor
+final class Win32CloseWakeSequence {
+    static let process = Win32CloseWakeSequence()
+    private var lastValue: UInt?
+
+    init(startingAfter value: UInt? = 0) { lastValue = value }
+
+    func takeNext() -> UInt? {
+        guard let lastValue, lastValue < UInt.max else {
+            self.lastValue = nil
+            return nil
+        }
+        let next = lastValue + 1
+        self.lastValue = next
+        return next
+    }
+}
+
+/// Teardown holds this pin until editor/model capabilities have been revoked.
+/// Revoking a registration can then remove work without releasing its captures
+/// before the ordinary window cleanup has reached that boundary.
+@MainActor
+package final class Win32CloseWorkPin {
+    private let records: [AnyObject]
+
+    fileprivate init(records: [AnyObject]) { self.records = records }
+}
+
 /// Only package-owned code implements this lease. Validation must read owned
 /// state and publish a primitive reservation without application callbacks,
 /// notifications, payload release, rebuilding, IO, or native message pumping.
@@ -66,16 +109,27 @@ package final class Win32CloseAttempt {
     package let ticket: Win32CloseTicket?
     package var intentID: UUID? { ticket?.intentID }
     package private(set) var busyReason: Win32CloseBusyReason?
+    package private(set) var isUnavailable = false
     fileprivate let registrationEpoch: UUID?
+    private weak var control: Win32CloseControl?
 
-    fileprivate init(ticket: Win32CloseTicket?, registrationEpoch: UUID?) {
+    fileprivate init(ticket: Win32CloseTicket?, registrationEpoch: UUID?, control: Win32CloseControl) {
         self.ticket = ticket
         self.registrationEpoch = registrationEpoch
+        self.control = control
     }
 
     /// Explains a false legacy delegate vote. It cannot override that vote.
     package func deferUntilReady(_ reason: Win32CloseBusyReason) {
         if busyReason == nil { busyReason = reason }
+    }
+
+    /// Strengthens only this still-active evaluation. An exhausted or
+    /// unprovable receipt is unavailable, not a policy veto or a retry signal.
+    /// Holding an old attempt cannot affect the next native evaluation.
+    package func rejectAsUnavailable() {
+        guard control?.activeAttempt === self else { return }
+        isUnavailable = true
     }
 }
 
@@ -119,6 +173,7 @@ package final class Win32CloseTicket {
     fileprivate let registrationEpoch: UUID
     fileprivate private(set) var isCancelled = false
     fileprivate var consumedByAttempt: UUID?
+    fileprivate var latestDeferredNonce: UInt?
 
     fileprivate init(
         intentID: UUID, registration: Win32CloseRegistration, lifetime: Win32CloseLifetime
@@ -136,6 +191,7 @@ package final class Win32CloseTicket {
 
     package func cancel() {
         isCancelled = true
+        registration?.control?.cancelDeferredWork(ticket: self)
     }
 }
 
@@ -168,12 +224,32 @@ package final class Win32CloseRegistration {
     package func revoke() {
         // Publish the tombstone before any caller releases an application owner.
         isRevoked = true
+        control?.cancelDeferredWork(registration: self)
     }
 
     /// Replacing a session/participant invalidates its tickets without removing
     /// the host's required final authority or stranding the next close request.
     package func invalidateTickets() {
         ticketEpoch = UUID()
+        control?.cancelDeferredWork(registration: self)
+    }
+
+    /// Callers capture their host/session weakly and revalidate the intent in
+    /// the action. Coalescing retains the first action for the same ticket and
+    /// phase. A post failure does not close the owner or retry automatically.
+    package func enqueue(
+        ticket: Win32CloseTicket,
+        phase: Win32DeferredClosePhase,
+        onPostFailure: @escaping @MainActor (Win32CloseTicket, UInt32) -> Void,
+        action: @escaping @MainActor (Win32CloseTicket) -> Void
+    ) -> Win32DeferredCloseSubmission {
+        guard let control, control.registration === self else { return .unavailable }
+        return control.enqueue(
+            ticket: ticket, phase: phase, onPostFailure: onPostFailure, action: action)
+    }
+
+    package func pinDeferredWork() -> Win32CloseWorkPin? {
+        control?.pinDeferredWork(for: self)
     }
 
     fileprivate func accepts(_ ticket: Win32CloseTicket) -> Bool {
@@ -191,32 +267,68 @@ enum Win32CloseNativeResult: Equatable {
 /// MainActor state behind one Win32Window. Native calls are supplied per
 /// attempt, allowing deterministic tests without a global native override.
 @MainActor
-final class Win32CloseControl {
+final class Win32CloseControl: Win32DispatchWakeClient {
+    private final class DeferredWork {
+        let ticket: Win32CloseTicket
+        let phase: Win32DeferredClosePhase
+        let nonce: UInt
+        let action: @MainActor (Win32CloseTicket) -> Void
+        let onPostFailure: @MainActor (Win32CloseTicket, UInt32) -> Void
+        var hasOutstandingWake = false
+
+        init(
+            ticket: Win32CloseTicket, phase: Win32DeferredClosePhase, nonce: UInt,
+            onPostFailure: @escaping @MainActor (Win32CloseTicket, UInt32) -> Void,
+            action: @escaping @MainActor (Win32CloseTicket) -> Void
+        ) {
+            self.ticket = ticket
+            self.phase = phase
+            self.nonce = nonce
+            self.onPostFailure = onPostFailure
+            self.action = action
+        }
+    }
+
     private(set) var lifetime: Win32CloseLifetime?
     private(set) var registration: Win32CloseRegistration?
     private(set) var activeAttempt: Win32CloseAttempt?
     private var requiresAuthority = false
     private var topologyIdentity = UUID()
+    private let postWake: (@MainActor (UInt, UInt) -> Win32CloseNativeResult)?
+    private let wakeSequence: Win32CloseWakeSequence
+    private var pendingWork: DeferredWork?
+    private var executingWork: DeferredWork?
     var isCloseEnabled = true
+
+    init(
+        postWake: (@MainActor (UInt, UInt) -> Win32CloseNativeResult)? = nil,
+        wakeSequence: Win32CloseWakeSequence = .process
+    ) {
+        self.postWake = postWake
+        self.wakeSequence = wakeSequence
+    }
 
     var isHandlingCloseRequest: Bool { activeAttempt != nil }
 
     @discardableResult
     func installAuthority(_ authority: any Win32CloseAuthority) -> Win32CloseRegistration? {
-        guard activeAttempt == nil else { return nil }
-        if let lifetime, lifetime.destructionStarted, !lifetime.destructionCompleted { return nil }
-        let previous = registration
-        previous?.revoke()
-        let next = Win32CloseRegistration(control: self, authority: authority)
-        if let lifetime, !lifetime.destructionStarted, !lifetime.creationFailed {
-            next.lifetime = lifetime
+        Win32DispatchScope.withMailboxWork {
+            guard activeAttempt == nil else { return nil }
+            if let lifetime, lifetime.destructionStarted, !lifetime.destructionCompleted { return nil }
+            let previous = registration
+            let workPin = pinDeferredWork()
+            let next = Win32CloseRegistration(control: self, authority: authority)
+            if let lifetime, !lifetime.destructionStarted, !lifetime.creationFailed {
+                next.lifetime = lifetime
+            }
+            requiresAuthority = true
+            registration = next
+            previous?.revoke()
+            // Do not release the old registration until its tombstone is published
+            // and the new registration is visible to reentrant cleanup.
+            withExtendedLifetime((previous, workPin)) {}
+            return next
         }
-        requiresAuthority = true
-        registration = next
-        // Do not release the old registration until its tombstone is published
-        // and the new registration is visible to reentrant cleanup.
-        withExtendedLifetime(previous) {}
-        return next
     }
 
     func noteTopologyChanged() { topologyIdentity = UUID() }
@@ -265,6 +377,12 @@ final class Win32CloseControl {
         destroy: (UInt) -> Win32CloseNativeResult
     ) -> Win32CloseAttemptOutcome {
         guard activeAttempt == nil else { return .busy(.closeInProgress) }
+        if let ticket {
+            let isOwnedRetry = executingWork?.ticket === ticket && executingWork?.phase == .retry
+            guard Win32DispatchScope.permitsTaggedClose(isOwnedRetry: isOwnedRetry) else {
+                return .busy(.nativeDispatch)
+            }
+        }
         guard let lifetime, lifetime.isAlive, lifetime.handle == expectedHandle else { return .unavailable }
         let selectedRegistration = registration
         let authority = selectedRegistration?.authority
@@ -279,16 +397,22 @@ final class Win32CloseControl {
             else { return .unavailable }
         }
 
-        let attempt = Win32CloseAttempt(ticket: ticket, registrationEpoch: selectedRegistration?.ticketEpoch)
+        let attempt = Win32CloseAttempt(
+            ticket: ticket, registrationEpoch: selectedRegistration?.ticketEpoch, control: self)
         let selectedTopology = topologyIdentity
         activeAttempt = attempt
-        defer { activeAttempt = nil }
+        Win32DispatchScope.beginCloseAttempt()
+        defer {
+            activeAttempt = nil
+            Win32DispatchScope.endCloseAttempt()
+        }
 
         return withExtendedLifetime((participants, selectedRegistration, authority, lifetime, attempt)) {
             var lease: (any Win32CloseCommitLease)?
             let outcome: Win32CloseAttemptOutcome = {
                 let approved = preflight()
                 if lifetime.destructionCompleted { return .closed }
+                if attempt.isUnavailable { return .unavailable }
                 guard approved else {
                     if let reason = attempt.busyReason { return .busy(reason) }
                     return .vetoed
@@ -304,6 +428,7 @@ final class Win32CloseControl {
                     let preparation = authority.prepareCloseCommit(for: attempt)
                     if case .ready(let prepared) = preparation { lease = prepared }
                     if lifetime.destructionCompleted { return .closed }
+                    if attempt.isUnavailable { return .unavailable }
                     switch preparation {
                     case .ready: break
                     case .vetoed: return .vetoed
@@ -323,6 +448,7 @@ final class Win32CloseControl {
                 if let lease {
                     let decision = lease.validateAndReserve()
                     if lifetime.destructionCompleted { return .closed }
+                    if attempt.isUnavailable { return .unavailable }
                     switch decision {
                     case .reserved: break
                     case .vetoed: return .vetoed
@@ -361,6 +487,179 @@ final class Win32CloseControl {
         }
     }
 
+    func pinDeferredWork(for selectedRegistration: Win32CloseRegistration? = nil) -> Win32CloseWorkPin {
+        var records: [AnyObject] = []
+        for work in [pendingWork, executingWork] {
+            if let work,
+                selectedRegistration == nil || work.ticket.registration === selectedRegistration
+            {
+                records.append(work)
+            }
+        }
+        return Win32CloseWorkPin(records: records)
+    }
+
+    fileprivate func cancelDeferredWork(registration: Win32CloseRegistration) {
+        Win32DispatchScope.withMailboxWork {
+            guard let work = pendingWork, work.ticket.registration === registration else { return }
+            pendingWork = nil
+            work.hasOutstandingWake = false
+            withExtendedLifetime(work) {}
+        }
+    }
+
+    fileprivate func cancelDeferredWork(ticket: Win32CloseTicket) {
+        Win32DispatchScope.withMailboxWork {
+            guard let work = pendingWork, work.ticket === ticket else { return }
+            pendingWork = nil
+            work.hasOutstandingWake = false
+            withExtendedLifetime(work) {}
+        }
+    }
+
+    fileprivate func enqueue(
+        ticket: Win32CloseTicket,
+        phase: Win32DeferredClosePhase,
+        onPostFailure: @escaping @MainActor (Win32CloseTicket, UInt32) -> Void,
+        action: @escaping @MainActor (Win32CloseTicket) -> Void
+    ) -> Win32DeferredCloseSubmission {
+        Win32DispatchScope.withMailboxWork {
+            guard let postWake, let registration, let authority = registration.authority,
+                ticket.isCurrent, ticket.registration === registration,
+                ticket.lifetime === lifetime, let handle = ticket.lifetime.handle
+            else { return .unavailable }
+            if let pendingWork {
+                return pendingWork.ticket === ticket && pendingWork.phase == phase ? .coalesced : .busy
+            }
+            if let executingWork {
+                if executingWork.ticket === ticket, executingWork.phase == phase { return .coalesced }
+                guard executingWork.ticket === ticket, executingWork.phase == .prompt, phase == .retry else {
+                    return .busy
+                }
+            }
+            guard let nonce = wakeSequence.takeNext() else { return .unavailable }
+            let work = DeferredWork(
+                ticket: ticket, phase: phase, nonce: nonce,
+                onPostFailure: onPostFailure, action: action)
+            ticket.latestDeferredNonce = nonce
+            pendingWork = work
+            return withExtendedLifetime((registration, authority, work)) {
+                if executingWork != nil {
+                    // A prompt can queue its approved retry, but cannot start
+                    // another close while its own callback/modal stack is live.
+                    Win32DispatchScope.requestWakeWhenIdle(self)
+                    return .queued
+                }
+                work.hasOutstandingWake = true
+                let result = postWake(handle, nonce)
+                guard pendingWork === work, isCurrent(work) else {
+                    if pendingWork === work { pendingWork = nil }
+                    work.hasOutstandingWake = false
+                    return .unavailable
+                }
+                switch result {
+                case .succeeded:
+                    return .queued
+                case .failed(let code):
+                    pendingWork = nil
+                    work.hasOutstandingWake = false
+                    // The synchronous caller owns this failure; notifying its
+                    // observer too would deliver the same failure twice.
+                    return .postFailed(code)
+                }
+            }
+        }
+    }
+
+    /// Only the private scalar wake reaches here. A consumed nested wake keeps
+    /// the record, then rearms once at the outer owned scope exit. Duplicates
+    /// cannot clear or execute newer work, even after an HWND value is reused.
+    func receiveDeferredWake(nonce: UInt) {
+        let canDeliver = Win32DispatchScope.canDeliverWindowWake && activeAttempt == nil && executingWork == nil
+        Win32DispatchScope.withMailboxWork {
+            guard pendingWork?.nonce == nonce, pendingWork?.hasOutstandingWake == true else { return }
+            let selectedRegistration = registration
+            let authority = selectedRegistration?.authority
+            // The helper owns the work local, so its final payload release
+            // occurs before these promoted weak owners can be released.
+            withExtendedLifetime((selectedRegistration, authority)) {
+                consumeDeferredWake(nonce: nonce, canDeliver: canDeliver)
+            }
+        }
+    }
+
+    private func consumeDeferredWake(nonce: UInt, canDeliver: Bool) {
+        guard let work = pendingWork, work.nonce == nonce, work.hasOutstandingWake else { return }
+        work.hasOutstandingWake = false
+        guard isCurrent(work) else {
+            pendingWork = nil
+            return
+        }
+        guard canDeliver else {
+            Win32DispatchScope.requestWakeWhenIdle(self)
+            return
+        }
+        // Delivery is consumed before callbacks. The intent ticket remains
+        // current for a later retry until a terminal native attempt uses it.
+        pendingWork = nil
+        executingWork = work
+        Win32DispatchScope.withMailboxDelivery {
+            work.action(work.ticket)
+        }
+        executingWork = nil
+        if let pendingWork, !pendingWork.hasOutstandingWake {
+            Win32DispatchScope.requestWakeWhenIdle(self)
+        }
+    }
+
+    func dispatchScopeDidBecomeIdle() -> (@MainActor () -> Void)? {
+        guard let work = pendingWork, !work.hasOutstandingWake else { return nil }
+        let selectedRegistration = registration
+        let authority = selectedRegistration?.authority
+        guard let postWake, authority != nil, isCurrent(work), let handle = work.ticket.lifetime.handle else {
+            pendingWork = nil
+            return retirement(of: work, registration: selectedRegistration, authority: authority)
+        }
+        work.hasOutstandingWake = true
+        let result = postWake(handle, work.nonce)
+        guard pendingWork === work, isCurrent(work) else {
+            if pendingWork === work { pendingWork = nil }
+            work.hasOutstandingWake = false
+            return retirement(of: work, registration: selectedRegistration, authority: authority)
+        }
+        switch result {
+        case .succeeded:
+            return retirement(of: work, registration: selectedRegistration, authority: authority)
+        case .failed(let code):
+            pendingWork = nil
+            work.hasOutstandingWake = false
+            return retirement(of: work, registration: selectedRegistration, authority: authority, failure: code)
+        }
+    }
+
+    private func retirement(
+        of work: DeferredWork,
+        registration: Win32CloseRegistration?,
+        authority: (any Win32CloseAuthority)?,
+        failure: UInt32? = nil
+    ) -> @MainActor () -> Void {
+        // Keep promoted weak owners and every retired payload until the scope
+        // has cleared its posting guard. ARC or failure delivery can then pump
+        // messages only under the scope's protected mailbox cleanup phase.
+        { [self, work, registration, authority] in
+            withExtendedLifetime((work, registration, authority)) {
+                if let failure, isCurrent(work), work.ticket.latestDeferredNonce == work.nonce {
+                    work.onPostFailure(work.ticket, failure)
+                }
+            }
+        }
+    }
+
+    private func isCurrent(_ work: DeferredWork) -> Bool {
+        work.ticket.isCurrent && work.ticket.registration === registration
+            && work.ticket.lifetime === lifetime && work.ticket.lifetime.isAlive
+    }
+
     private func isCurrent(
         lifetime: Win32CloseLifetime,
         handle: UInt,
@@ -370,7 +669,7 @@ final class Win32CloseControl {
     ) -> Bool {
         guard self.lifetime === lifetime, lifetime.isAlive, lifetime.handle == handle,
             registration === selectedRegistration, topologyIdentity == topology,
-            activeAttempt === attempt
+            activeAttempt === attempt, !attempt.isUnavailable
         else { return false }
         if requiresAuthority {
             guard let selectedRegistration, !selectedRegistration.isRevoked,

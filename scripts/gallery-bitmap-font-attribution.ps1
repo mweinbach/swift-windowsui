@@ -386,6 +386,7 @@ function Assert-GalleryBitmapJsonLexicalBounds {
 function Get-GalleryBitmapOptionalProperty {
     param($Value, [string]$Name)
     $property = $Value.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $null }
     if ($null -ne $property) {
         if ($property.Value -is [array]) { return ,$property.Value }
         $property.Value

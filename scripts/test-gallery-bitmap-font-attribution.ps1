@@ -848,5 +848,257 @@ try {
     Remove-Item -LiteralPath $resolved -Recurse -Force
 }
 
+# Optional values must survive the real reader's output serialization. These
+# additions use only in-memory synthetic data after the existing fixture cleanup.
+$bitmapOptionalAssertionsBefore = $script:bitmapAssertions
+$bitmapOptionalCaseCount = 0
+$bitmapOptionalUTF8 = New-Object Text.UTF8Encoding($false, $true)
+
+function New-BitmapOptionalRawFixture {
+    param([int]$Version, [string]$FixtureID = 'symbol-palette')
+    $raw = if ($Version -eq 1) { New-BitmapNativeFixture $token $FixtureID } else { New-BitmapNativeFixtureV2 $token $FixtureID }
+    # Clone only the raw fixture. The V2 constructor shares legacy/physical
+    # metadata objects; independent mutations must not modify both by accident.
+    ConvertFrom-Json -InputObject (ConvertTo-Json -InputObject $raw -Depth 32 -Compress) -ErrorAction Stop
+}
+
+function Set-BitmapOptionalRawFields {
+    param($Value, [string[]]$Names, [string]$Representation)
+    if ($Representation -cnotin @('absent', 'null')) { throw 'Unknown optional fixture representation.' }
+    foreach ($name in $Names) {
+        $Value.PSObject.Properties.Remove($name)
+        if ($Representation -ceq 'null') { $Value | Add-Member NoteProperty $name $null }
+    }
+}
+
+function Set-BitmapOptionalUnknownMetadata {
+    param($Metadata, [string]$Representation)
+    $Metadata.status = 'partial'; $Metadata.namesStatus = 'unavailable'
+    $Metadata.axesStatus = 'not-implemented'; $Metadata.filesStatus = 'nonlocal-or-custom'
+    $Metadata.files = @([pscustomobject]@{ status = 'nonlocal-or-custom' })
+    Set-BitmapOptionalRawFields $Metadata @('familyName', 'faceName', 'faceIndex', 'simulations', 'axes') $Representation
+    Set-BitmapOptionalRawFields $Metadata.files[0] @('scope', 'basename') $Representation
+}
+
+function Set-BitmapOptionalV2Failure {
+    param($Fixture, [string]$Shape, [string]$Representation = 'absent')
+    $Fixture.status = 'partial'; $Fixture.report.status = 'partial'
+    $Fixture.report.coverage.faceFileStreams = 'partial'
+    $Fixture.report.limits.requestedStreamBytes = 0; $Fixture.report.limits.readStreamBytes = 0
+    $evidence = $Fixture.report.faces[0].evidence; $file = $evidence.files[0]
+    $evidence.filesStatus = 'partial'; $file.requestedBytes = 0; $file.readBytes = 0
+    if ($Shape -ceq 'zero-stream') {
+        $file.status = 'invalid-value'; $file.operation = 'get-stream-size'; $file.streamLength = 0
+        Set-BitmapOptionalRawFields $file @('code', 'sha256') $Representation
+        return
+    }
+    if ($Shape -ceq 'open-local-file') {
+        $file.status = 'failed'; $file.operation = 'open-local-file'; $file.codeDomain = 'win32'
+        $file | Add-Member NoteProperty code 87 -Force
+        $file.reference = [pscustomobject]@{ status = 'failed' }
+    } elseif ($Shape -ceq 'nonlocal') {
+        $file.status = 'nonlocal-or-custom'; $file.operation = 'query-local-loader'; $file.codeDomain = 'none'
+        $file.reference = [pscustomobject]@{ status = 'nonlocal-or-custom' }
+        Set-BitmapOptionalRawFields $file @('code') $Representation
+    } else { throw 'Unknown optional fixture failure shape.' }
+    Set-BitmapOptionalRawFields $file @('streamLength', 'sha256') $Representation
+    Set-BitmapOptionalRawFields $file.reference @('scope', 'basename') $Representation
+}
+
+function Test-BitmapOptionalNullProperties {
+    param($Value, [string[]]$Names)
+    foreach ($name in $Names) {
+        $property = $Value.PSObject.Properties[$name]
+        if ($null -eq $property -or $null -ne $property.Value) { return $false }
+    }
+    $true
+}
+
+function Test-BitmapOptionalAxes {
+    param($Value, [int]$Count)
+    if ($Value.axes -isnot [array] -or $Value.axes.Count -ne $Count -or $Value.axesStatus -cne 'observed') { return $false }
+    if ($Count -ge 1 -and ($Value.axes[0].tag -ne 1952999287 -or $Value.axes[0].value -ne 400)) { return $false }
+    if ($Count -eq 2 -and ($Value.axes[1].tag -ne 1752458359 -or $Value.axes[1].value -ne 100)) { return $false }
+    $true
+}
+
+function Assert-BitmapOptionalRoundTrip {
+    param($Fixture, [int]$Version, [string]$FixtureID, [string]$CaseName)
+    $rawJson = ConvertTo-Json -InputObject $Fixture -Depth 32 -Compress -ErrorAction Stop
+    $normalized = if ($Version -eq 1) {
+        ConvertTo-GalleryBitmapNativeReport $rawJson $token $FixtureID
+    } else { ConvertTo-GalleryBitmapNativeReportV2 $rawJson $token $FixtureID }
+    # Do not coalesce fields, clone the normalized DTO, or use the collector's
+    # fixture writer here. Match the real child writer and then the strict reader.
+    $serialized = ConvertTo-Json -InputObject $normalized -Depth 32 -Compress -ErrorAction Stop
+    $bytes = $bitmapOptionalUTF8.GetBytes($serialized)
+    if ($bytes.LongLength -le 0 -or $bytes.LongLength -gt 524288) { throw 'Optional round-trip JSON exceeds its fixed bound.' }
+    $reparsed = if ($Version -eq 1) {
+        ConvertTo-GalleryBitmapNativeReport ($bitmapOptionalUTF8.GetString($bytes)) $token $FixtureID
+    } else { ConvertTo-GalleryBitmapNativeReportV2 ($bitmapOptionalUTF8.GetString($bytes)) $token $FixtureID }
+    Assert-Bitmap ($reparsed.schemaVersion -eq $Version -and $reparsed.invocationID -ceq $token -and
+        $reparsed.fixtureID -ceq $FixtureID -and $reparsed.status -ceq $Fixture.status -and
+        $reparsed.report.qualification -ceq 'unqualified') "optional output strictly reparses without changing identity or status ($CaseName)"
+    $reserialized = ConvertTo-Json -InputObject $reparsed -Depth 32 -Compress -ErrorAction Stop
+    Assert-Bitmap ($serialized -ceq $reserialized) "normalized optional output is stable within this PowerShell runtime ($CaseName)"
+    $reparsed
+}
+
+# Direct getter tests distinguish explicit JSON null, scalar values, and arrays.
+# Null equality or ReferenceEquals is not used as proof of the serialized form.
+$bitmapOptionalGetterCases = @(
+    [pscustomobject]@{ name = 'getter-absent'; value = [pscustomobject]@{}; json = '{"value":null}' },
+    [pscustomobject]@{ name = 'getter-null'; value = [pscustomobject]@{ value = $null }; json = '{"value":null}' },
+    [pscustomobject]@{ name = 'getter-zero'; value = [pscustomobject]@{ value = 0 }; json = '{"value":0}' },
+    [pscustomobject]@{ name = 'getter-false'; value = [pscustomobject]@{ value = $false }; json = '{"value":false}' },
+    [pscustomobject]@{ name = 'getter-string'; value = [pscustomobject]@{ value = 'present' }; json = '{"value":"present"}' },
+    [pscustomobject]@{ name = 'getter-digest'; value = [pscustomobject]@{ value = ('d' * 64) }; json = ('{"value":"' + ('d' * 64) + '"}') },
+    [pscustomobject]@{ name = 'getter-empty-array'; value = [pscustomobject]@{ value = @() }; json = '{"value":[]}' },
+    [pscustomobject]@{ name = 'getter-one-array'; value = [pscustomobject]@{ value = @(0) }; json = '{"value":[0]}' },
+    [pscustomobject]@{ name = 'getter-many-array'; value = [pscustomobject]@{ value = @(0, 1) }; json = '{"value":[0,1]}' }
+)
+foreach ($bitmapOptionalCase in $bitmapOptionalGetterCases) {
+    $bitmapOptionalCaseCount++
+    $bitmapOptionalValue = Get-GalleryBitmapOptionalProperty $bitmapOptionalCase.value 'value'
+    $bitmapOptionalJson = ConvertTo-Json -InputObject ([pscustomobject][ordered]@{ value = $bitmapOptionalValue }) -Depth 32 -Compress
+    Assert-Bitmap ($bitmapOptionalJson -ceq $bitmapOptionalCase.json) "the shared optional getter preserves exact JSON shape ($($bitmapOptionalCase.name))"
+}
+
+$bitmapOptionalPositiveCases = @(
+    [pscustomobject]@{ name = 'v1-present-empty-axes'; version = 1; mode = 'axes'; axes = 0; fixture = 'symbol-palette' },
+    [pscustomobject]@{ name = 'v1-all-absent'; version = 1; mode = 'absent'; axes = 0; fixture = 'symbol-palette' },
+    [pscustomobject]@{ name = 'v1-all-null'; version = 1; mode = 'null'; axes = 0; fixture = 'symbol-palette' },
+    [pscustomobject]@{ name = 'v1-one-axis'; version = 1; mode = 'axes'; axes = 1; fixture = 'symbol-palette' },
+    [pscustomobject]@{ name = 'v1-many-axes'; version = 1; mode = 'axes'; axes = 2; fixture = 'symbol-palette' },
+    [pscustomobject]@{ name = 'v2-present-absent-code'; version = 2; mode = 'axes'; axes = 0; fixture = 'symbol-palette' },
+    [pscustomobject]@{ name = 'v2-present-null-code'; version = 2; mode = 'null-code'; axes = 0; fixture = 'symbol-palette' },
+    [pscustomobject]@{ name = 'v2-all-absent'; version = 2; mode = 'absent'; axes = 0; fixture = 'symbol-palette' },
+    [pscustomobject]@{ name = 'v2-all-null'; version = 2; mode = 'null'; axes = 0; fixture = 'symbol-palette' },
+    [pscustomobject]@{ name = 'v2-one-axis'; version = 2; mode = 'axes'; axes = 1; fixture = 'symbol-palette' },
+    [pscustomobject]@{ name = 'v2-many-axes'; version = 2; mode = 'axes'; axes = 2; fixture = 'symbol-palette' },
+    [pscustomobject]@{ name = 'v2-open-87-absent'; version = 2; mode = 'open-absent'; axes = 0; fixture = 'stepper' },
+    [pscustomobject]@{ name = 'v2-open-87-null'; version = 2; mode = 'open-null'; axes = 0; fixture = 'stepper' },
+    [pscustomobject]@{ name = 'v2-zero-stream'; version = 2; mode = 'zero-stream'; axes = 0; fixture = 'symbol-palette' }
+)
+foreach ($bitmapOptionalCase in $bitmapOptionalPositiveCases) {
+    $bitmapOptionalCaseCount++
+    $bitmapOptionalRaw = New-BitmapOptionalRawFixture $bitmapOptionalCase.version $bitmapOptionalCase.fixture
+    $bitmapOptionalMetadata = if ($bitmapOptionalCase.version -eq 1) {
+        @($bitmapOptionalRaw.report.faces[0].metadata)
+    } else { @($bitmapOptionalRaw.report.attributionV1.faces[0].metadata, $bitmapOptionalRaw.report.faces[0].metadata) }
+    if ($bitmapOptionalCase.mode -cin @('absent', 'null')) {
+        $bitmapOptionalRaw.status = 'partial'; $bitmapOptionalRaw.report.status = 'partial'
+        foreach ($bitmapMetadata in $bitmapOptionalMetadata) { Set-BitmapOptionalUnknownMetadata $bitmapMetadata $bitmapOptionalCase.mode }
+        if ($bitmapOptionalCase.version -eq 1) { $bitmapOptionalRaw.report.coverage.bitmapIcons = 'partial' } else {
+            $bitmapOptionalRaw.report.attributionV1.status = 'partial'
+            $bitmapOptionalRaw.report.attributionV1.coverage.bitmapIcons = 'partial'
+            Set-BitmapOptionalV2Failure $bitmapOptionalRaw 'nonlocal' $bitmapOptionalCase.mode
+            $bitmapOptionalRaw.report.faces[0].evidence.axesStatus = 'not-implemented'
+            Set-BitmapOptionalRawFields $bitmapOptionalRaw.report.faces[0].evidence @('faceType', 'axes', 'hasVariations') $bitmapOptionalCase.mode
+        }
+    } elseif ($bitmapOptionalCase.mode -cin @('axes', 'null-code')) {
+        $bitmapOptionalAxes = @(for ($axisIndex = 0; $axisIndex -lt $bitmapOptionalCase.axes; $axisIndex++) {
+            if ($axisIndex -eq 0) { [pscustomobject]@{ tag = 1952999287; value = 400 } } else { [pscustomobject]@{ tag = 1752458359; value = 100 } }
+        })
+        foreach ($bitmapMetadata in $bitmapOptionalMetadata) {
+            $bitmapMetadata.axesStatus = 'observed'; $bitmapMetadata | Add-Member NoteProperty axes $bitmapOptionalAxes -Force
+        }
+        if ($bitmapOptionalCase.version -eq 2) {
+            $bitmapOptionalRaw.report.faces[0].evidence.faceType = 0
+            $bitmapOptionalRaw.report.faces[0].evidence.axes = $bitmapOptionalAxes
+            $bitmapOptionalRaw.report.faces[0].evidence.hasVariations = ($bitmapOptionalCase.axes -gt 0)
+            if ($bitmapOptionalCase.mode -ceq 'null-code') { Set-BitmapOptionalRawFields $bitmapOptionalRaw.report.faces[0].evidence.files[0] @('code') 'null' }
+        }
+    } elseif ($bitmapOptionalCase.mode -cin @('open-absent', 'open-null')) {
+        $bitmapRepresentation = if ($bitmapOptionalCase.mode -ceq 'open-absent') { 'absent' } else { 'null' }
+        Set-BitmapOptionalV2Failure $bitmapOptionalRaw 'open-local-file' $bitmapRepresentation
+    } else { Set-BitmapOptionalV2Failure $bitmapOptionalRaw 'zero-stream' }
+
+    $bitmapOptionalParsed = Assert-BitmapOptionalRoundTrip $bitmapOptionalRaw $bitmapOptionalCase.version $bitmapOptionalCase.fixture $bitmapOptionalCase.name
+    $bitmapOptionalParsedMetadata = if ($bitmapOptionalCase.version -eq 1) {
+        @($bitmapOptionalParsed.report.faces[0].metadata)
+    } else { @($bitmapOptionalParsed.report.attributionV1.faces[0].metadata, $bitmapOptionalParsed.report.faces[0].metadata) }
+    $bitmapOptionalMatches = $true
+    if ($bitmapOptionalCase.mode -cin @('absent', 'null')) {
+        foreach ($bitmapMetadata in $bitmapOptionalParsedMetadata) {
+            $bitmapOptionalMatches = $bitmapOptionalMatches -and
+                (Test-BitmapOptionalNullProperties $bitmapMetadata @('familyName', 'faceName', 'faceIndex', 'simulations', 'axes')) -and
+                (Test-BitmapOptionalNullProperties $bitmapMetadata.files[0] @('scope', 'basename'))
+        }
+        if ($bitmapOptionalCase.version -eq 2) {
+            $bitmapEvidence = $bitmapOptionalParsed.report.faces[0].evidence; $bitmapFile = $bitmapEvidence.files[0]
+            $bitmapOptionalMatches = $bitmapOptionalMatches -and
+                (Test-BitmapOptionalNullProperties $bitmapEvidence @('faceType', 'axes', 'hasVariations')) -and
+                (Test-BitmapOptionalNullProperties $bitmapFile @('code', 'streamLength', 'sha256')) -and
+                (Test-BitmapOptionalNullProperties $bitmapFile.reference @('scope', 'basename')) -and
+                $bitmapFile.requestedBytes -eq 0 -and $bitmapFile.readBytes -eq 0
+        }
+    } elseif ($bitmapOptionalCase.mode -cin @('axes', 'null-code')) {
+        foreach ($bitmapMetadata in $bitmapOptionalParsedMetadata) {
+            $bitmapOptionalMatches = $bitmapOptionalMatches -and (Test-BitmapOptionalAxes $bitmapMetadata $bitmapOptionalCase.axes) -and
+                $bitmapMetadata.familyName -ceq 'Segoe MDL2 Assets' -and $bitmapMetadata.faceName -ceq 'Regular' -and
+                $bitmapMetadata.faceIndex -eq 0 -and $bitmapMetadata.simulations -eq 0 -and
+                $bitmapMetadata.files[0].scope -ceq 'system-fonts' -and $bitmapMetadata.files[0].basename -ceq 'segmdl2.ttf'
+        }
+        if ($bitmapOptionalCase.version -eq 2) {
+            $bitmapEvidence = $bitmapOptionalParsed.report.faces[0].evidence; $bitmapFile = $bitmapEvidence.files[0]
+            $bitmapOptionalMatches = $bitmapOptionalMatches -and (Test-BitmapOptionalAxes $bitmapEvidence $bitmapOptionalCase.axes) -and
+                $bitmapEvidence.faceType -eq 0 -and $bitmapEvidence.hasVariations -is [bool] -and
+                $bitmapEvidence.hasVariations -eq ($bitmapOptionalCase.axes -gt 0) -and
+                (Test-BitmapOptionalNullProperties $bitmapFile @('code')) -and $bitmapFile.streamLength -eq 4096 -and
+                $bitmapFile.sha256 -ceq ('d' * 64) -and $bitmapFile.reference.scope -ceq 'system-fonts' -and $bitmapFile.reference.basename -ceq 'segmdl2.ttf'
+        }
+    } else {
+        $bitmapFile = $bitmapOptionalParsed.report.faces[0].evidence.files[0]
+        $bitmapOptionalMatches = $bitmapFile.requestedBytes -eq 0 -and $bitmapFile.readBytes -eq 0 -and
+            (Test-BitmapOptionalNullProperties $bitmapFile @('sha256')) -and $bitmapOptionalParsed.status -ceq 'partial'
+        if ($bitmapOptionalCase.mode -ceq 'zero-stream') {
+            $bitmapOptionalMatches = $bitmapOptionalMatches -and $bitmapFile.streamLength -eq 0 -and
+                $null -ne $bitmapFile.streamLength -and $bitmapFile.status -ceq 'invalid-value' -and $bitmapFile.operation -ceq 'get-stream-size'
+        } else {
+            $bitmapOptionalMatches = $bitmapOptionalMatches -and $bitmapFile.status -ceq 'failed' -and
+                $bitmapFile.operation -ceq 'open-local-file' -and $bitmapFile.codeDomain -ceq 'win32' -and $bitmapFile.code -eq 87 -and
+                (Test-BitmapOptionalNullProperties $bitmapFile @('streamLength')) -and
+                (Test-BitmapOptionalNullProperties $bitmapFile.reference @('scope', 'basename'))
+        }
+    }
+    Assert-Bitmap $bitmapOptionalMatches "nullable fields, present scalars, and array cardinality survive the strict round trip ($($bitmapOptionalCase.name))"
+}
+
+# Reject actual object/array protocol values; the missing-value fix must not
+# convert them to null, unwrap scalar arrays, or default required properties.
+$bitmapOptionalNegativeCases = @(
+    [pscustomobject]@{ name = 'v1-number-object'; version = 1; setup = 'unknown'; mutate = { param($x) $x.report.faces[0].metadata | Add-Member NoteProperty faceIndex ([pscustomobject]@{}) -Force } },
+    [pscustomobject]@{ name = 'v1-name-object'; version = 1; setup = 'unknown'; mutate = { param($x) $x.report.faces[0].metadata | Add-Member NoteProperty familyName ([pscustomobject]@{}) -Force } },
+    [pscustomobject]@{ name = 'v1-name-singleton-array'; version = 1; setup = 'present'; mutate = { param($x) $x.report.faces[0].metadata.familyName = @('Segoe MDL2 Assets') } },
+    [pscustomobject]@{ name = 'v2-length-object'; version = 2; setup = 'open'; mutate = { param($x) $x.report.faces[0].evidence.files[0] | Add-Member NoteProperty streamLength ([pscustomobject]@{}) -Force } },
+    [pscustomobject]@{ name = 'v2-hash-object'; version = 2; setup = 'open'; mutate = { param($x) $x.report.faces[0].evidence.files[0] | Add-Member NoteProperty sha256 ([pscustomobject]@{}) -Force } },
+    [pscustomobject]@{ name = 'v2-scope-object'; version = 2; setup = 'open'; mutate = { param($x) $x.report.faces[0].evidence.files[0].reference | Add-Member NoteProperty scope ([pscustomobject]@{}) -Force } },
+    [pscustomobject]@{ name = 'v2-basename-object'; version = 2; setup = 'open'; mutate = { param($x) $x.report.faces[0].evidence.files[0].reference | Add-Member NoteProperty basename ([pscustomobject]@{}) -Force } },
+    [pscustomobject]@{ name = 'v2-bool-singleton-array'; version = 2; setup = 'present'; mutate = { param($x) $x.report.faces[0].evidence.hasVariations = @($false) } },
+    [pscustomobject]@{ name = 'v2-number-singleton-array'; version = 2; setup = 'present'; mutate = { param($x) $x.report.faces[0].evidence.faceType = @(0) } },
+    [pscustomobject]@{ name = 'v2-required-status-absent'; version = 2; setup = 'present'; mutate = { param($x) $x.report.attributionV1.PSObject.Properties.Remove('status') } },
+    [pscustomobject]@{ name = 'v2-required-status-null'; version = 2; setup = 'present'; mutate = { param($x) $x.report.attributionV1.status = $null } },
+    [pscustomobject]@{ name = 'v2-axis-object'; version = 2; setup = 'present'; mutate = { param($x) $x.report.faces[0].evidence.axes = [pscustomobject]@{ tag = 1952999287; value = 400 } } }
+)
+foreach ($bitmapOptionalCase in $bitmapOptionalNegativeCases) {
+    $bitmapOptionalCaseCount++
+    $bitmapOptionalRaw = New-BitmapOptionalRawFixture $bitmapOptionalCase.version
+    if ($bitmapOptionalCase.setup -ceq 'unknown') {
+        $bitmapOptionalRaw.status = 'partial'; $bitmapOptionalRaw.report.status = 'partial'; $bitmapOptionalRaw.report.coverage.bitmapIcons = 'partial'
+        Set-BitmapOptionalUnknownMetadata $bitmapOptionalRaw.report.faces[0].metadata 'absent'
+    } elseif ($bitmapOptionalCase.setup -ceq 'open') { Set-BitmapOptionalV2Failure $bitmapOptionalRaw 'open-local-file' }
+    & $bitmapOptionalCase.mutate $bitmapOptionalRaw
+    $bitmapOptionalBadJson = ConvertTo-Json -InputObject $bitmapOptionalRaw -Depth 32 -Compress
+    if ($bitmapOptionalCase.version -eq 1) {
+        Assert-BitmapRejects { ConvertTo-GalleryBitmapNativeReport $bitmapOptionalBadJson $token 'symbol-palette' } "invalid optional object/array or missing required value stays rejected ($($bitmapOptionalCase.name))"
+    } else {
+        Assert-BitmapRejects { ConvertTo-GalleryBitmapNativeReportV2 $bitmapOptionalBadJson $token 'symbol-palette' } "invalid optional object/array or missing required value stays rejected ($($bitmapOptionalCase.name))"
+    }
+}
+Assert-Bitmap ($script:bitmapForbiddenCalls -eq 0 -and -not ('SwiftWindowsUIBitmapFontFileAdapterV1' -as [type])) 'optional round-trip regressions invoked no Add-Type, native adapter, or SwiftPM'
+$bitmapOptionalAddedAssertions = $script:bitmapAssertions - $bitmapOptionalAssertionsBefore
+Write-Host "Bitmap optional-value regressions passed ($bitmapOptionalCaseCount cases, $bitmapOptionalAddedAssertions added assertions)."
+
 Write-Host "Bitmap font attribution synthetic tests passed ($script:bitmapAssertions assertions). No C# compilation, native calls, renderer, or SwiftPM."
 exit 0

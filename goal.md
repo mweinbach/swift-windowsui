@@ -4746,3 +4746,69 @@ Neither the historical cause nor complete descendant closure is established.
 This fixture remains opt-in, with Quick/Full registration and combined
 validation still pending. No SwiftPM or native API-export workload ran in
 this validation. All original nine product gates and their scope remain open.
+
+### 2026-08-28: optional bitmap evidence fields now survive strict JSON round trips
+
+`Get-GalleryBitmapOptionalProperty` now explicitly returns null when a property
+is absent. The one-line production change retains the existing array and
+present-value behavior. This corrects the strict V2 serialization/reparse
+failure described earlier; it does not change the native collector, its file
+access policy, the V1 reader, privacy rules, or CI's diagnostic-version choice.
+The complete two-file patch has SHA256
+`b4bc2ff12e5942af2907f09a1a981690cd4b44c967441de0fe29ec10c6855c47`.
+
+The 252 added test lines contain 35 cases and 64 assertions: nine getter,
+fourteen round-trip, and twelve rejection cases. All 411 existing assertions
+remain intact, for **475 assertions per invocation**. The suite forbids
+`Add-Type`, the native adapter, rendering, and SwiftPM. Both the isolated
+PowerShell 5 and 7 runs passed all 475 assertions. Their source/run manifest
+has SHA256
+`f0ed9b11775860c5c0630027a9250177390c0ee3a2a1a662b89f86652983ef57`.
+The initial hidden `.git` metadata lookup error and its corrected prelaunch
+record remain in that packet; they are not fixture executions.
+
+A separate offline replay used the two actual saved raw V2 reports from the
+failed native collection. It made four strict V2 reader calls per host, once
+on each of PowerShell 5 and 7, without loading the native adapter or rerunning
+the collector. Both processes exited naturally with 0. The normalized and
+reparsed outputs match byte-for-byte within and across the two hosts. Original
+report values are unchanged; only six missing optional properties in the
+stepper report and seven in the palette report become explicit nulls.
+
+The normalized stepper report is 5,181 bytes, SHA256
+`cebdccccf8c3aec0ae84aa210e40bc6c6ad4378a8635623a9edb6bf99fdd6a21`;
+the palette report is 12,600 bytes, SHA256
+`c92cc0581ec2f701ef6e78420be363d6a5d49bface62db0f60887ef881113d30`.
+The 44-member offline evidence manifest has SHA256
+`4e59f15560791f9f2cefed26b1187da5059e0d58993137d3c4b643f58054fe91`;
+its independent audit reports no discrepancies. This verifies the observed
+round-trip correction, not the earlier experiment's proposed distinction
+between null sentinels: that original identity check was nondiscriminating.
+
+Both packets and the hash-verified source files were copied into
+`artifacts/goal-seventh-bitmap-null-intake-v1` before root application. The
+patch applied at `936266b8f3609e900d29d8dc7999dde3d0d10838`, producing staged
+tree `032f65514f2d90cbd131b14ef8a2566968a206ab` before this ledger addition.
+The main checkout then passed **475 assertions on PowerShell 5 and 475 on
+bundled PowerShell 7**, each in exactly one invocation. PowerShell PIDs 12444
+and 36996 exited naturally with 0; the respective recorded intervals were
+approximately 12.5 and 30.1 seconds, 42.6 seconds for the sequence. There was
+no timeout, termination, retry, native call, or SwiftPM invocation. All 753
+tracked file inputs, the gitlink, status, staged tree, and index bytes remained
+unchanged throughout both runs. Complete descendant closure is not attested.
+
+The root result, `artifacts/goal-seventh-bitmap-null-root-v1/result.json`, has
+SHA256 `fd66c483b2ea5880e2ed89b120ae21b7089df6d1352cb54791b42138b0dc47b1`.
+Its two raw logs have SHA256
+`eac81b8fff662f005c166838fe96163b174cffb63dcacd8bcf3a17e6a8ef5926`
+and `cf93ff6bfd379f8daa5bfe765ee9a466c4771fe869b0c615017aff891ad26b04`.
+
+The historical native result retains SHA256
+`bc9b0b715d4892d171db9472b8f7a99de13ae525608504ae88337831ebbd1eb9`,
+its stopped status, and `requiresOperatorCleanupBeforeAnotherRun == true`.
+The reports still describe partial, unqualified file evidence with
+`open-local-file`, Win32 error 87, and zero explicit file-read bytes. The
+sparkle remains vector output. No loaded-font-byte identity, successful native
+V2 collection, clean native closure, hosted result, macOS parity, or final
+visual qualification follows from this parser fix. Combined root Full/Quick
+validation and all nine original product gates remain required and unchanged.

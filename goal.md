@@ -2738,3 +2738,72 @@ features remain unchanged. Public target-info inspection and an independent
 generated-command review gate compilation. The same resource limits and
 first-failure stop apply. No installation, candidate activation, real test-library
 build, or native application run is included in this authorization.
+
+### Fifth-batch validation restart and Windows RGB capture
+
+The first clean-source Full attempt at `41f8366` stopped before any Swift
+test, demo build, screenshot, or gallery gate. The hosted bitmap-font fixture
+suite passed only 10 of 102 cases inside the runner: its dynamic-module
+callbacks could not resolve script-local assertion helpers through the
+runner's function and command-scriptblock scopes. Earlier standalone passes
+did not exercise that caller shape. The complete failed log and exact sources
+remain in `artifacts/goal-fifth-full-failure-41f8366/failure.json`, SHA-256
+`1af6826c4a6f7e05d53fc265e81540454d635985f26b7d909a7bee9553e5bb05`.
+The preceding tooling gates passed, including the actual fresh memory workload
+at 192.9 MiB against the unchanged 768 MiB limit. All 60 Swift files in this
+batch also passed a separate strict-lint invocation with source hashes and an
+explicit exit-code receipt. None of these partial results is a passing Full.
+
+The scope failure was independently reproduced under both PowerShell versions
+without any preceding suite. The repaired fixtures capture their original
+helper ScriptBlocks and the two mutation-loop values explicitly. An intermediate
+candidate fixed helper lookup but failed nine mutation cases; that source and
+both failed embedded receipts remain preserved in the isolated handoff. The
+final change adds a same-process caller-scope harness and one assertion-failure
+canary. It preserves all 102 original ordered cases and both assertion helper
+bodies, without global helper injection, production changes, or moving the
+fixture into a child process to hide the scope problem.
+
+After root integration, four fresh serial invocations pass all 103 cases:
+standalone and embedded on Windows PowerShell 5.1.26100.9223 and PowerShell
+7.6.4. Both embedded receipts confirm unchanged caller helper bindings; the
+assertion canary passes in all four runs. Source hashes and Git state remain
+unchanged during the matrix, and post-integration contracts pass. The root
+receipt is `artifacts/goal-fifth-ci-font-scope-root-v1-matrix.json`, SHA-256
+`b967c8408f89efdc455d2413edfdcd1c3af88465514a4810de13aa7653aa0eba`.
+This correction requires a new clean-source Full run from its first step,
+followed by Quick and inspection of the raw retained-runtime images.
+
+Separately, the actual Windows RGB collector completed at clean `41f8366`.
+It compiled `swiftui-color-rgb-reference` in release mode and recorded three
+valid retained-observer reports with 25 cases each. The capture reports healthy
+observer controls, no failure codes, and unchanged source, tools, and executable
+observations. `artifacts/goal-fifth-rgb-windows-41f8366/capture.json` has SHA-256
+`8cb09175f709058e3637125efe6a07ccf3a3bfa9bc208e572f411c16ddca2479`.
+Its status remains `captured-candidate`; declaration, source, and behavior review
+are unverified and release qualification is false. A new Windows capture at
+the eventual pushed revision must pair with the native capture from that same
+revision before any cross-platform comparison is claimed. This release build
+does not substitute for Full's demo builds or any native SwiftUI evidence.
+
+The isolated Foundation F7 attempt also reached a new, preserved boundary.
+Its copied SDK removed the observed F6 duplicate-module collision, and actual
+compiler remarks identify candidate FoundationEssentials and Collections
+imports with no old-SDK ordinary import path in the observations reached.
+The first FoundationEssentials link then failed because the generated command
+passed `/machine:x64` and `/INCREMENTAL:NO` as bare Swift-driver arguments.
+Those options were outside the response file; the launched command was within
+the reviewed length bound. No retry, installation, activation, candidate program,
+or real test-framework build followed the failure.
+
+The F7 phase is sealed under the existing owned Foundation workspace at
+`builds/foundation-f7-build/frozen-f7-phase-manifest.json`, SHA-256
+`eca74ce601a6dc8b49284d2363b9e549133ab0639ceda104e91316a1249b027a`:
+2,373 files and 487,119,297 bytes, excluding the manifest itself. Six of eleven
+targets have their required library artifacts; the Foundation DLL cohort is
+incomplete. The modified CFRunLoop object contains both W import names and
+neither corresponding A name, which is static object evidence only. All
+observed owned processes exited and pinned inputs rehashed unchanged. Further
+work is limited to a separately reviewed link-argument transport plan; the
+native MainActor, Unicode, runtime-cohort, and release gates remain open. The
+original goal text and all nine acceptance gates remain unchanged.

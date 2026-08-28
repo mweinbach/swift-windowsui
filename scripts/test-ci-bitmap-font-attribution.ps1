@@ -72,26 +72,34 @@ function New-CiTestState {
         fingerprint = [pscustomobject]@{ path = $context.galleryExecutable; status = 'observed'; sha256 = $fingerprint.sha256; length = $fingerprint.length; lastWriteTimeUtc = '2001-01-01T00:00:00Z'; fileVersion = $null; error = $null }
         normal = $null; request = $null; sentinels = @(); observeAdapter = $null; prepareAdapter = $null; executeAdapter = $null; clockAdapter = $null
     }
+    # GetNewClosure creates a dynamic module. Under agent-check's function ->
+    # scriptblock -> script nesting, bare helper names there cannot see this
+    # script's local functions. Capture the original function scriptblocks so
+    # their own helper lookups and script-scoped limits retain this context.
+    $ciAssert = ${function:Assert-CiTest}
+    $ciCopyObject = ${function:Copy-CiTestObject}
+    $ciWriteRender = ${function:Write-CiTestRender}
+    $ciReceiveStreams = ${function:Receive-CiBitmapStreams}
     $state.observeAdapter = {
         param($root)
         $state.sourceCalls++
-        Assert-CiTest ($root -ceq $state.context.root) 'Unexpected source root.'
+        & $ciAssert ($root -ceq $state.context.root) 'Unexpected source root.'
         if ($null -ne $state.onSource) { & $state.onSource $state }
-        Copy-CiTestObject $state.source
+        & $ciCopyObject $state.source
     }.GetNewClosure()
     $state.prepareAdapter = {
         param($context)
         $state.prepareCalls++; $state.prepared = $true
-        Assert-CiTest ($context.root -ceq $state.context.root) 'Unexpected environment root.'
+        & $ciAssert ($context.root -ceq $state.context.root) 'Unexpected environment root.'
         if ($null -ne $state.onPrepare) { & $state.onPrepare $state }
         $state.environmentExit
     }.GetNewClosure()
     $state.executeAdapter = {
         param($request)
         $state.executeCalls++; $state.request = $request
-        Assert-CiTest $state.prepared 'Environment must be prepared before execution.'
-        Assert-CiTest (-not (Test-Path -LiteralPath $state.context.renderDirectory)) 'Child WorkDir must not exist before execution.'
-        Write-CiTestRender $state
+        & $ciAssert $state.prepared 'Environment must be prepared before execution.'
+        & $ciAssert (-not (Test-Path -LiteralPath $state.context.renderDirectory)) 'Child WorkDir must not exist before execution.'
+        & $ciWriteRender $state
         if ($null -ne $state.onExecute) { & $state.onExecute $state }
         $outBytes = [byte[]]@(0, 255, 13, 10, 111, 117, 116, 0)
         $errBytes = [byte[]]@(254, 0, 101, 114, 114, 10, 13)
@@ -104,7 +112,7 @@ function New-CiTestState {
         $outInput = [IO.MemoryStream]::new($outBytes, $false); $errInput = [IO.MemoryStream]::new($errBytes, $false)
         $outFile = [IO.File]::Open($request.stdoutPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
         $errFile = [IO.File]::Open($request.stderrPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
-        try { $capture = Receive-CiBitmapStreams $outInput $errInput $outFile $errFile $request.maximumStreamBytes }
+        try { $capture = & $ciReceiveStreams $outInput $errInput $outFile $errFile $request.maximumStreamBytes }
         finally { $outFile.Dispose(); $errFile.Dispose(); $outInput.Dispose(); $errInput.Dispose() }
         if ($state.captureMode -ceq 'missing') { $capture = $null }
         if ($state.captureMode -ceq 'invalid-stdout') { $capture.stdout.status = @('complete') }
@@ -517,18 +525,24 @@ foreach ($kind in @('source-digest', 'png-link', 'sidecar-link', 'observed-with-
     Test-CiCase ('attribution-link-rejection-' + $kind) {
         $state = New-CiTestState ('link-' + $kind); Start-CiTestBoundary $state
         $state.sidecars = $true
+        $ciReadJson = ${function:Read-CiBitmapJson}
+        $ciWriteBytes = ${function:Write-CiTestBytes}
+        $ciWriteJson = ${function:Write-CiTestJson}
+        # The foreach variable is in the outer script scope, so make the value
+        # local before GetNewClosure captures this callback's dependencies.
+        $ciMutationKind = $kind
         $state.onExecute = {
             param($s)
             $path = Join-Path $s.context.renderDirectory 'bitmap-font-attribution/report.json'
-            $record = (Read-CiBitmapJson $path).value
-            switch ($kind) {
+            $record = (& $ciReadJson $path).value
+            switch ($ciMutationKind) {
                 'source-digest' { $record.source.observationSha256 = 'f' * 64 }
-                'png-link' { Write-CiTestBytes (Join-Path $s.context.renderDirectory 'current/stepper.png') ([byte[]]@(10, 11, 12)) }
-                'sidecar-link' { Write-CiTestBytes (Join-Path $s.context.renderDirectory 'bitmap-font-attribution/native/stepper.native-font-attribution.json') ([byte[]]@(13, 14, 15)) }
+                'png-link' { & $ciWriteBytes (Join-Path $s.context.renderDirectory 'current/stepper.png') ([byte[]]@(10, 11, 12)) }
+                'sidecar-link' { & $ciWriteBytes (Join-Path $s.context.renderDirectory 'bitmap-font-attribution/native/stepper.native-font-attribution.json') ([byte[]]@(13, 14, 15)) }
                 'observed-with-unverified-entry' { $record.status = 'observed' }
                 'array-kind' { $record.kind = @('gallery-bitmap-font-attribution') }
             }
-            Write-CiTestJson $path $record
+            & $ciWriteJson $path $record
         }.GetNewClosure()
         $result = Invoke-CiTestAfter $state
         Assert-CiTest ($result.status -ceq 'failed-or-incomplete' -and $result.childExitCode -eq 0 -and $result.coordinatorExitCode -eq 1 -and $result.association -ceq 'unverified') 'Invalid attribution link was accepted.'
@@ -572,12 +586,16 @@ Test-CiCase 'fixed-render-parent-junction-is-rejected' {
 foreach ($kind in @('executable', 'normal-receipt', 'boundary', 'source')) {
     Test-CiCase ('postrun-change-' + $kind) {
         $state = New-CiTestState ('postrun-' + $kind); Start-CiTestBoundary $state
+        $ciReadJson = ${function:Read-CiBitmapJson}
+        $ciWriteBytes = ${function:Write-CiTestBytes}
+        $ciWriteJson = ${function:Write-CiTestJson}
+        $ciMutationKind = $kind
         $state.onExecute = {
             param($s)
-            switch ($kind) {
-                'executable' { Write-CiTestBytes $s.context.galleryExecutable ([byte[]]@(4, 5, 6)) }
-                'normal-receipt' { $s.normal.fonts.status = 'changed'; Write-CiTestJson $s.context.normalProvenancePath $s.normal }
-                'boundary' { $b = (Read-CiBitmapJson $s.context.boundaryPath).value; $b.observedAtUtc = $s.now.ToString('o'); Write-CiTestJson $s.context.boundaryPath $b }
+            switch ($ciMutationKind) {
+                'executable' { & $ciWriteBytes $s.context.galleryExecutable ([byte[]]@(4, 5, 6)) }
+                'normal-receipt' { $s.normal.fonts.status = 'changed'; & $ciWriteJson $s.context.normalProvenancePath $s.normal }
+                'boundary' { $b = (& $ciReadJson $s.context.boundaryPath).value; $b.observedAtUtc = $s.now.ToString('o'); & $ciWriteJson $s.context.boundaryPath $b }
                 'source' { $s.source.dirty = $true }
             }
         }.GetNewClosure()
@@ -820,6 +838,14 @@ Test-CiCase 'workflow-preserves-Full-command-failure-and-upload-scope' {
         'artifacts/gallery-compare/bitmap-font-attribution-ci/**')) { Assert-CiTest ($workflow.Contains($line)) ('Required workflow setting missing: ' + $line) }
     $fullBlock = $workflow.Substring($workflow.IndexOf('      - name: Run full agent checks'), $screenshot - $workflow.IndexOf('      - name: Run full agent checks'))
     Assert-CiTest (-not $fullBlock.Contains('continue-on-error')) 'Full failure made advisory.'
+}
+
+Test-CiCase 'closure-bound-assertion-rejects-wrong-root' {
+    $state = New-CiTestState 'closure-assertion'
+    $caught = $null
+    try { & $state.observeAdapter (Join-Path $state.context.root 'wrong-root') } catch { $caught = $_.Exception.Message }
+    Assert-CiTest ($caught -ceq 'Unexpected source root.') 'The captured adapter assertion did not retain its original failure.'
+    Assert-CiTest ($state.sourceCalls -eq 1 -and $state.prepareCalls -eq 0 -and $state.executeCalls -eq 0) 'The failing assertion allowed later adapters to run.'
 }
 
 $failed = @($script:ciTestResults | Where-Object { $_.status -ceq 'fail' }).Count

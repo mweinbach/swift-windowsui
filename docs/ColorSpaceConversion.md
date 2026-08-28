@@ -171,6 +171,10 @@ Native validation is a separate follow-up, not evidence supplied by these tests:
   wide-gamut output, or HDR. No native expected pixels are supplied by this
   conversion's numerical oracle.
 
-A prospective layout is `scripts/fixtures/swiftui-color-rgb/` with separate
-shared cases, observation DTOs, and Windows/macOS adapters. No such probe,
-native execution, CI workflow, or new baseline is included in this slice.
+The separate `swiftui-color-rgb-reference` executable has shared constructor
+cases and observation DTOs with Windows/macOS adapters. Its collection and
+comparison scripts preserve finite extended-sRGB component observations,
+fixed tolerances, exact provenance, and independent result states. See
+[ColorRGBReference.md](ColorRGBReference.md). Authoring or running its synthetic
+tooling tests is not native execution evidence, API qualification, or a new
+rendering baseline.

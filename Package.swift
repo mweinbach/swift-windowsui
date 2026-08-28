@@ -46,6 +46,7 @@ var targets: [Target] = [
         .executable(name: "swift-windowsui", targets: ["swift-windowsui"]),
         .executable(name: "swift-windowsui-snapshot", targets: ["swift-windowsui-snapshot"]),
         .executable(name: "swift-windowsui-gallery", targets: ["swift-windowsui-gallery"]),
+        .executable(name: "swiftui-color-rgb-reference", targets: ["swiftui-color-rgb-reference"]),
         .executable(name: "macos-reference-renderer", targets: ["macos-reference-renderer"]),
     ]
 
@@ -137,6 +138,10 @@ var targets: [Target] = [
                 "WinSwiftUI",
             ]
         ),
+        .executableTarget(
+            name: "swiftui-color-rgb-reference",
+            dependencies: ["WinSwiftUI"]
+        ),
         // This remains a helpful explanatory stub on Windows while its real
         // SwiftUI/AppKit implementation is available on macOS below.
         .executableTarget(name: "macos-reference-renderer"),
@@ -163,6 +168,7 @@ var targets: [Target] = [
     products += [
         .library(name: "SwiftWindowsDemo", targets: ["SwiftWindowsDemo"]),
         .executable(name: "swift-windowsui", targets: ["swift-windowsui"]),
+        .executable(name: "swiftui-color-rgb-reference", targets: ["swiftui-color-rgb-reference"]),
         .executable(name: "macos-reference-renderer", targets: ["macos-reference-renderer"]),
     ]
 
@@ -173,6 +179,7 @@ var targets: [Target] = [
             dependencies: ["SwiftWindowsDemo"]
         ),
         .executableTarget(name: "macos-reference-renderer"),
+        .executableTarget(name: "swiftui-color-rgb-reference"),
     ]
 #endif
 

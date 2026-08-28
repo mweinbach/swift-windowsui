@@ -141,7 +141,16 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass `
             -File scripts/with-swift.ps1 swift --version
 
+      - name: Record bitmap font diagnostic boundary
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass `
+            -File scripts/capture-ci-bitmap-font-attribution.ps1 `
+            -Phase BeforeFull
+
       - name: Run full agent checks
+        id: full_checks
         shell: pwsh
         run: |
           # agent-check -Full runs contracts, full swift test, demo build,
@@ -169,6 +178,19 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Collect bitmap font attribution (diagnostic only)
+        id: bitmap_font_diagnostic
+        if: ${{ !cancelled() && (steps.full_checks.outcome == 'success' || steps.full_checks.outcome == 'failure') }}
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          FULL_AGENT_CHECK_OUTCOME: ${{ steps.full_checks.outcome }}
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass `
+            -File scripts/capture-ci-bitmap-font-attribution.ps1 `
+            -Phase AfterFull -FullOutcome $env:FULL_AGENT_CHECK_OUTCOME
+
       - name: Upload gallery compare artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -181,5 +203,6 @@ jobs:
             artifacts/gallery-compare/provenance*.json
             artifacts/gallery-compare/current/*.png
             artifacts/gallery-compare/diffs/*.png
+            artifacts/gallery-compare/bitmap-font-attribution-ci/**
           if-no-files-found: warn
           retention-days: 14

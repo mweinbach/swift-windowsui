@@ -158,3 +158,91 @@ validate the C# interop, actual file-handle behavior, SFNT parser, or native
 rasterization. Those require the normal serial build/tests and an approved
 Windows run comparing diagnostic off/on retained pixels and warm-cache behavior.
 Diagnostic write failures preserve PNGs and must not change pixel pass/fail.
+
+## Advisory collection after the hosted Full gate
+
+The Windows Full job records a boundary immediately before its unchanged
+`scripts/agent-check.ps1 -Full` command. After that command succeeds or fails,
+and after the ordinary screenshot upload, a separate advisory step attempts
+the two fixtures with `-BitmapFontAttribution -SkipBuild -Entries
+symbol-palette,stepper`. It does not install fonts, rebuild, change the runner
+or Swift setup/cache, update baselines, or change comparison tolerances. Full
+has no `continue-on-error`; its original failure remains a job failure even if
+the diagnostic passes. The existing manual `workflow_dispatch` Full selection
+includes this collection; there is no separate bitmap diagnostic workflow.
+
+The existing `windows-gallery-compare` upload includes
+`bitmap-font-attribution-ci/<run-id>-<attempt>/` beneath
+`artifacts/gallery-compare/`. The coordinator only accepts numeric run/attempt
+identifiers in the expected Windows GitHub checkout. Evidence uses new files;
+rerunning against an existing result or attempt does not overwrite it. Normal
+gallery reports, provenance, images, and baselines remain outside this owned
+directory. A missing/invalid boundary writes a blocked result when a fresh
+safe output directory is available.
+
+Before launching, `capture-ci-bitmap-font-attribution.ps1` requires a normal
+gallery provenance record captured after this job's boundary, a successful
+gallery build with numeric exit 0, and a matching nonempty executable digest
+at the exact `.build/debug/swift-windowsui-gallery.exe` path. Boundary, receipt,
+and current checkout must agree on a clean HEAD. The normal render can have
+failed after that successful build; its original render status remains in the
+result. Missing, stale, failed-build, dirty, or changed evidence blocks the
+diagnostic without launching or rebuilding. A fresh successful incremental
+build may keep the same executable bytes and an older modification time.
+Existence or timestamps alone never qualify an executable. The usual
+`.build/debug` directory alias is allowed; reparse executable leaves are not.
+
+`boundary.json` records the pre-Full observation. An eligible invocation first
+writes `attempt.json` and an exact byte copy of the normal provenance, then
+prepares the existing Swift runtime environment and rechecks source, receipt,
+and executable observations. Only the existing offscreen gallery wrapper is
+launched, through a hidden process with literal argv. It cannot launch the demo
+window or select an alternate executable. A completed run adds `result.json`,
+separate child stdout/stderr logs, and the wrapper's `render/` outputs. Native
+font metadata is collected by the wrapper, not rerun by the CI coordinator.
+
+Each log spool has a hard **16 MiB** cap. Both streams are drained concurrently
+even after reaching the cap; the exact prefix and discarded-byte count are
+retained. `limit-exceeded`, read failure, or write failure means incomplete evidence, never a
+complete raw log or successful association. No custom process-tree killer is
+added. The advisory step has a ten-minute Actions limit, but cancellation,
+runner loss, or the existing job timeout may prevent finalization or uploads;
+an unfinished attempt and any prefixes remain incomplete.
+
+The actual child exit code is always separate from the coordinator exit code.
+Child exit 1 is preserved after reports and streams are retained. It is labeled
+`completed-with-pixel-mismatches` only with a completed successful render, both
+fixed PNG observations, the full two-entry comparison, and actual threshold
+breaches. Missing baseline/current files or incomplete reports are not pixel
+mismatches. A post-validation error or log overflow after child exit 0 makes
+the coordinator exit 1 without rewriting the recorded child code; a nonzero
+child code remains primary. Pixel status and attribution status are separate:
+a passing pixel comparison can have partial or unavailable font attribution.
+Every result remains unqualified.
+
+Capture metadata failures still retain independent observations of available
+log prefixes, fixed output files, and the executable after the child exits.
+If result publication itself fails, the coordinator keeps any known nonzero
+child exit and leaves existing files intact; it does not claim a saved result.
+The coordinator also checks the aggregate's existing source, PNG, and sidecar
+digest links without rerunning native collection. Partial entries may retain
+an unverified association even when the overall invocation completed.
+
+JSON receipts are capped at 512 KiB, checked as strict UTF-8/JSON before parsing,
+and reject duplicate or case-aliased keys. Executable observations are capped
+at 256 MiB. Output inspection uses a fixed list, with 32 MiB per PNG, 512 KiB per
+JSON/sidecar, 1 MiB for report text, and 16 MiB for HTML. These are read/spool
+limits, not a claim that native execution or all generated files are bounded
+by the coordinator. Directory checks and repeated file digests do not pin
+directory handles against a hostile replacement. Existing reparse parents in
+the fixed render subdirectories are rejected. Checkout metadata is not an
+embedded executable build revision; a disk font digest is not the font bytes
+DirectWrite loaded. The diagnostic does not qualify CI, font profiles,
+performance, API compatibility, or visible glyph contribution.
+
+Run `scripts/test-ci-bitmap-font-attribution.ps1` under Windows PowerShell 5.1
+and PowerShell 7 for synthetic boundary, receipt, source/path, command, stream,
+exit-preservation, and workflow checks. Its source observer, environment setup,
+and executor are fake adapters, with owned opaque fixture files. It does not
+run SwiftPM, the gallery, the font probe, or a native renderer. Passing these
+tests does not validate hosted execution, actual process pipes, or font output.

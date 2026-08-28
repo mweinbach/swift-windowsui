@@ -494,7 +494,7 @@ function Get-SwiftUIColorRGBFileRecord {
 
 function Get-SwiftUIColorRGBEvidencePath {
     param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Name)
-    if ($Name -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._/-]*$' -or
+    if ($Name -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._/+-]*$' -or
         $Name -match '(^|/)\.\.?(/|$)|//|/$') { throw "RGB_INVALID_EVIDENCE_PATH" }
     $resolvedRoot = Resolve-SwiftUIBaselineFileSystemPath -Path $Root
     $path = Resolve-SwiftUIBaselineFileSystemPath -Path (Join-Path $resolvedRoot $Name)
@@ -1052,7 +1052,7 @@ function Assert-SwiftUIColorRGBSourceSnapshot {
         foreach ($entry in $Source.$group) {
             Assert-SwiftUIColorRGBObject $entry "source.file" @("path", "gitBlob", "byteIdentity", "file")
             Assert-SwiftUIColorRGBString $entry.path "source.file.path"
-            if ($entry.path -cnotmatch '^[A-Za-z0-9._/-]+$' -or $entry.path -match '(^|/)\.\.?(/|$)' -or
+            if ($entry.path -cnotmatch '^[A-Za-z0-9._/+-]+$' -or $entry.path -match '(^|/)\.\.?(/|$)' -or
                 -not $seen.Add($entry.path) -or $entry.gitBlob -isnot [string] -or $entry.gitBlob -cnotmatch '^[0-9a-f]{40}$') { throw "RGB_SOURCE_FILE_IDENTITY_INVALID" }
             $sourcePath = Assert-SwiftUIColorRGBFileRecord $Root $entry.file 33554432
             if ((Get-SwiftUIColorRGBSourceByteIdentity $sourcePath $entry.gitBlob) -cne $entry.byteIdentity) { throw "RGB_SOURCE_BYTE_IDENTITY_MISMATCH" }

@@ -209,7 +209,7 @@ function New-RGBTestCapture {
     $repository = if ($Platform -ceq "windows") { "C:/SYNTHETIC-repository" } else { "/SYNTHETIC-repository" }
     $shared = @(Get-SwiftUIColorRGBSourceNames | ForEach-Object { New-RGBTestSourceEntry $root $_ "shared" })
     $buildNames = @(Get-SwiftUIColorRGBSourceNames) + @("Package.swift")
-    if ($Platform -ceq "windows") { $buildNames += @("Sources/WinSwiftUI/Core.swift", "Sources/WinSwiftUI/ColorSpaceConversion.swift") }
+    if ($Platform -ceq "windows") { $buildNames += @("Sources/WinSwiftUI/Core.swift", "Sources/WinSwiftUI/ColorSpaceConversion.swift", "Sources/SwiftWindowsApp/FoundationApp+DefaultRenderer.swift") }
     $buildInputs = @($buildNames | ForEach-Object { New-RGBTestSourceEntry $root $_ "build-inputs" })
     $collector = @(New-RGBTestSourceEntry $root "scripts/capture-swiftui-color-rgb-reference.ps1" "collector")
     $toolRoot = if ($Platform -ceq "windows") { "C:/SYNTHETIC-Swift/usr/bin" } else { "/Applications/SYNTHETIC-Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin" }
@@ -710,6 +710,85 @@ try {
             Assert-RGBTestThrows { Read-SwiftUIColorRGBCapture $fixture.root } 'RGB_' $change.name
         }
     }
+    Invoke-RGBTestCase "actual snapshot helpers preserve the committed plus-name input" {
+        # Execute the unmodified production functions, never the collection
+        # entrypoint. Only Git replies are synthetic; no process or Swift runs.
+        $tokens = $null; $errors = $null
+        $captureAST = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $RepositoryRoot 'scripts/capture-swiftui-color-rgb-reference.ps1'), [ref]$tokens, [ref]$errors)
+        Assert-RGBTest ($errors.Count -eq 0) 'capture source parses before extracting snapshot helpers'
+        foreach ($name in @('Assert-RGBCheckout', 'Copy-RGBSourceEntries', 'New-RGBSourceSnapshot')) {
+            $definitions = @($captureAST.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq $name })
+            Assert-RGBTest ($definitions.Count -eq 1) "exactly one top-level production helper $name"
+            . ([scriptblock]::Create($definitions[0].Extent.Text))
+        }
+        $savedVariables = @{}
+        foreach ($name in @('rgbRepository', 'rgbOutput', 'rgbGitBlobs', 'rgbSourceOriginals', 'Platform', 'rgbSnapshotGitReplies', 'rgbSnapshotGitCalls')) {
+            $variable = Get-Variable -Name $name -Scope Script -ErrorAction SilentlyContinue
+            $savedVariables[$name] = [pscustomobject]@{ existed = ($null -ne $variable); value = $(if ($null -ne $variable) { $variable.Value } else { $null }) }
+        }
+        try {
+            $plusName = 'Sources/SwiftWindowsApp/FoundationApp+DefaultRenderer.swift'
+            $plusBytes = [IO.File]::ReadAllBytes((Join-Path $RepositoryRoot $plusName))
+            $plusHash = Get-SwiftUIColorRGBHash (Join-Path $RepositoryRoot $plusName)
+            $fixtureRoot = Join-Path $script:RGBTestRoot 'actual-source-snapshot'
+            $script:rgbRepository = Join-Path $fixtureRoot 'synthetic-repository'
+            $script:rgbOutput = Join-Path $fixtureRoot 'evidence'
+            $script:Platform = 'Windows'
+            $script:rgbSourceOriginals = [System.Collections.Generic.List[object]]::new()
+            $script:rgbSnapshotGitReplies = [System.Collections.Generic.Dictionary[string,string]]::new([StringComparer]::Ordinal)
+            $script:rgbSnapshotGitCalls = [System.Collections.Generic.List[string]]::new()
+            $collectorNames = @('scripts/capture-swiftui-color-rgb-reference.ps1', 'scripts/swiftui-color-rgb-reference-common.ps1',
+                'scripts/compare-swiftui-color-rgb-reference.ps1', 'scripts/swiftui-material-reference-common.ps1',
+                'scripts/swiftui-baseline-common.ps1', 'scripts/with-swift.ps1', 'docs/swiftui-baseline.json')
+            $sourceNames = @(Get-SwiftUIColorRGBSourceNames) + @('Package.swift', $plusName) + $collectorNames
+            $treeRows = [System.Collections.Generic.List[string]]::new()
+            foreach ($sourceName in $sourceNames) {
+                $path = Join-Path $script:rgbRepository $sourceName
+                if ($sourceName -ceq $plusName) {
+                    [void][IO.Directory]::CreateDirectory((Split-Path -Parent $path)); [IO.File]::WriteAllBytes($path, $plusBytes)
+                } else { Write-RGBTestText $path "// SYNTHETIC snapshot input only: $sourceName`n" }
+                $blob = Get-SwiftUIColorRGBGitBlobHash ([IO.File]::ReadAllBytes($path))
+                $treeRows.Add('100644 blob ' + $blob + [char]9 + $sourceName)
+            }
+            $script:rgbSnapshotGitReplies[(('rev-parse', 'HEAD') -join "`t")] = '1' * 40
+            $script:rgbSnapshotGitReplies[(('rev-parse', 'HEAD^{tree}') -join "`t")] = '2' * 40
+            $script:rgbSnapshotGitReplies[(('status', '--porcelain', '--untracked-files=no') -join "`t")] = ''
+            $script:rgbSnapshotGitReplies[(('ls-files', '-v') -join "`t")] = (($sourceNames | ForEach-Object { "H $_" }) -join "`n")
+            $script:rgbSnapshotGitReplies[(('ls-files', '--others', '--', 'Sources', 'Package.swift', 'Package.resolved', '.swiftpm/configuration') -join "`t")] = ''
+            $script:rgbSnapshotGitReplies[(('-c', 'core.quotepath=false', 'ls-tree', '-r', 'HEAD') -join "`t")] = $treeRows -join "`n"
+            function Invoke-RGBGit {
+                param([string[]]$Arguments, [int]$MaxBytes = 1048576)
+                $key = $Arguments -join "`t"
+                if (-not $script:rgbSnapshotGitReplies.ContainsKey($key)) { throw 'Unexpected synthetic Git request; no external command may run.' }
+                $script:rgbSnapshotGitCalls.Add($key)
+                return $script:rgbSnapshotGitReplies[$key]
+            }
+            $snapshot = New-RGBSourceSnapshot
+            Assert-RGBTest ($script:rgbSnapshotGitCalls.Count -eq 6) 'actual checkout and snapshot helpers used only six exact synthetic Git replies'
+            Assert-RGBTest ($snapshot.sharedSources.Count -eq 5 -and $snapshot.buildInputs.Count -eq 7 -and $snapshot.collectorSources.Count -eq 7) 'snapshot includes every synthetic tracked build input and collector dependency'
+            $plusEntries = @($snapshot.buildInputs | Where-Object { $_.path -ceq $plusName })
+            Assert-RGBTest ($plusEntries.Count -eq 1) 'actual Windows source selection retains exactly one plus-named build input'
+            $entry = $plusEntries[0]
+            Assert-RGBTest ($entry.file.evidenceFile -ceq "sources/build-inputs/$plusName") 'actual writer preserves the plus spelling in the evidence path'
+            Assert-RGBTest ($entry.gitBlob -ceq (Get-SwiftUIColorRGBGitBlobHash $plusBytes) -and $entry.byteIdentity -ceq 'git-blob-exact') 'copied committed-source bytes retain their exact Git blob identity'
+            Assert-RGBTest ($entry.file.sha256 -ceq $plusHash -and $entry.file.bytes -eq $plusBytes.Length) 'copied plus-name bytes and length match the real repository input'
+            Assert-SwiftUIColorRGBSourceSnapshot $script:rgbOutput $snapshot
+            Assert-RGBTest $true 'actual source and evidence-path validators accept the complete helper-produced snapshot'
+            $copiedPath = Get-SwiftUIColorRGBEvidencePath $script:rgbOutput $entry.file.evidenceFile
+            Assert-RGBTest ((Get-SwiftUIColorRGBHash $copiedPath) -ceq $plusHash -and (Get-SwiftUIColorRGBHash (Join-Path $RepositoryRoot $plusName)) -ceq $plusHash) 'archive and original retain identical physical bytes'
+            foreach ($badName in @('Sources/../X+Y.swift', 'Sources/./X+Y.swift', 'Sources\X+Y.swift', 'C:/X+Y.swift', 'Sources/X+Y.swift:stream')) {
+                Assert-RGBTestThrows { Copy-RGBSourceEntries @($badName) 'rejected' } 'RGB_SOURCE_PATH_UNSUPPORTED' "actual source writer still rejects $badName"
+                $changed = Copy-RGBTestValue $snapshot
+                @($changed.buildInputs | Where-Object { $_.path -ceq $plusName })[0].path = $badName
+                Assert-RGBTestThrows { Assert-SwiftUIColorRGBSourceSnapshot $script:rgbOutput $changed } 'RGB_SOURCE_FILE_IDENTITY_INVALID' "source snapshot reader still rejects $badName"
+            }
+        } finally {
+            foreach ($name in $savedVariables.Keys) {
+                if ($savedVariables[$name].existed) { Set-Variable -Name $name -Scope Script -Value $savedVariables[$name].value }
+                else { Remove-Variable -Name $name -Scope Script -ErrorAction SilentlyContinue }
+            }
+        }
+    }
     Invoke-RGBTestCase "physical source tampering and CRLF policy" {
         $file = Join-Path $script:RGBTestRoot "blob.txt"; Write-RGBTestText $file "first`nsecond`n"
         $blob = Get-SwiftUIColorRGBGitBlobHash ([IO.File]::ReadAllBytes($file))
@@ -903,6 +982,9 @@ Build version TESTXCODE' '26.5' '25F70' ($script:RGBTestCompiler.Replace('clang-
         Assert-RGBTestThrows { New-SwiftUIColorRGBOutputRoot (Join-Path $created 'nested') $RepositoryRoot @($created) } 'INSIDE_INPUT' "not inside capture"
         Assert-RGBTestThrows { Get-SwiftUIColorRGBEvidencePath $created '../outside' } 'INVALID_EVIDENCE_PATH' "parent traversal"
         Assert-RGBTestThrows { Get-SwiftUIColorRGBEvidencePath $created 'x/../../outside' } 'INVALID_EVIDENCE_PATH' "nested parent traversal"
+        foreach ($badName in @('../X+Y.swift', 'x/../../X+Y.swift', '/X+Y.swift', 'C:/X+Y.swift', 'x\X+Y.swift', 'x//X+Y.swift', 'x/./X+Y.swift', 'x/X+Y.swift/')) {
+            Assert-RGBTestThrows { Get-SwiftUIColorRGBEvidencePath $created $badName } 'INVALID_EVIDENCE_PATH' "plus spelling cannot hide invalid evidence path $badName"
+        }
         $file = Join-Path $created 'immutable.json'; Write-SwiftUIColorRGBJsonNew $file ([pscustomobject]@{ value = 1 })
         $before = Get-SwiftUIColorRGBHash $file
         Assert-RGBTestThrows { Write-SwiftUIColorRGBJsonNew $file ([pscustomobject]@{ value = 2 }) } '(exist|already|CreateNew)' "create-new JSON writer"

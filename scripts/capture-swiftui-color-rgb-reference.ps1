@@ -105,7 +105,7 @@ function Copy-RGBSourceEntries {
     $entries = [System.Collections.Generic.List[object]]::new()
     [long]$total = 0
     foreach ($name in $Names) {
-        if ($name -cnotmatch '^[A-Za-z0-9._/-]+$' -or $name -match '(^|/)\.\.?(/|$)') { throw "RGB_SOURCE_PATH_UNSUPPORTED" }
+        if ($name -cnotmatch '^[A-Za-z0-9._/+-]+$' -or $name -match '(^|/)\.\.?(/|$)') { throw "RGB_SOURCE_PATH_UNSUPPORTED" }
         $source = Resolve-SwiftUIBaselineFileSystemPath (Join-Path $script:rgbRepository $name)
         [void](Get-SwiftUIBaselineRelativePath -Root $script:rgbRepository -Path $source)
         if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "RGB_SOURCE_INPUT_MISSING" }

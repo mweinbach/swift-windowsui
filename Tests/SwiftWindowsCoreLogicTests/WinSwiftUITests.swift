@@ -12143,12 +12143,13 @@ final class WinSwiftUITests: XCTestCase {
                     )
                 }
 
-            let presentedNode = makeNode(
+            let (runtime, presentedNode) = makeRuntimeNode(
                 view,
                 onInvalidate: {
                     didInvalidate = true
                 }
             )
+            defer { withExtendedLifetime(runtime) {} }
 
             guard case .absolute = presentedNode.layoutMode else {
                 return XCTFail("Expected alert presentation to use retained absolute overlay layout")
@@ -12189,7 +12190,8 @@ final class WinSwiftUITests: XCTestCase {
                     )
                 }
 
-            let presentedNode = makeNode(view)
+            let (runtime, presentedNode) = makeRuntimeNode(view)
+            defer { withExtendedLifetime(runtime) {} }
 
             XCTAssertTrue(allTexts(in: presentedNode).contains("ALERT DETAIL"))
             XCTAssertTrue(allTexts(in: presentedNode).contains("OK"))
@@ -12199,7 +12201,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertNil(selectedItem)
 
             let rootNode = makeNode(view)
-            XCTAssertEqual(rootNode.text, "ROOT")
+            XCTAssertEqual(allTexts(in: rootNode), ["ROOT"])
         }
     }
 
@@ -12226,7 +12228,8 @@ final class WinSwiftUITests: XCTestCase {
                     AlertMessage()
                 }
 
-            let presentedNode = makeNode(view)
+            let (runtime, presentedNode) = makeRuntimeNode(view)
+            defer { withExtendedLifetime(runtime) {} }
 
             XCTAssertTrue(allTexts(in: presentedNode).contains("NETWORK ERROR"))
             XCTAssertTrue(allTexts(in: presentedNode).contains("PRESENTED MESSAGE"))
@@ -12237,7 +12240,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertFalse(isPresented)
 
             let rootNode = makeNode(view)
-            XCTAssertEqual(rootNode.text, "ROOT")
+            XCTAssertEqual(allTexts(in: rootNode), ["ROOT"])
         }
     }
 

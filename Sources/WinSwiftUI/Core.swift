@@ -6627,6 +6627,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var url: URL?
     public var openURL: OpenURLAction
     public var dismiss: DismissAction
+    var retainedAlertActionScope: RetainedAlertActionScope? = nil
     public var dismissSearch: DismissSearchAction
     public var presentationMode: Binding<PresentationMode>?
     public var resetFocus: ResetFocusAction
@@ -9300,6 +9301,48 @@ public struct ViewBuildContext {
 
     func invalidate() {
         invalidateHandler()
+    }
+
+    var retainedAlertInvalidation: @MainActor () -> Void {
+        { [invalidateHandler] in invalidateHandler() }
+    }
+
+    /// Action storage must not form coordinator -> alert -> context ->
+    /// coordinator ownership. Invocation keeps the environment snapshot, not a
+    /// build epoch or the private action-construction scope that created it.
+    func retainedAlertInvocationContext() -> ViewBuildContext {
+        var identity = viewIdentity
+        identity.installedOwner = nil
+        identity.installedEpoch = nil
+        var values = environmentValuesProvider()
+        values.retainedAlertActionScope = nil
+        return ViewBuildContext(
+            viewIdentity: identity,
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            stateMutationInvalidationHandler: stateMutationInvalidationHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
+            fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
+            fontWeightProvider: fontWeightProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider,
+            truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
+            textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
+            stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
+            environmentValuesProvider: { values },
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
+            navigationValueHandlerProvider: navigationValueHandlerProvider,
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider)
     }
 
     /// A state write is a new mutation, whereas a control's explicit
@@ -20639,15 +20682,79 @@ private func retainedCompactAdaptivePopoverPresentation(
     }
 }
 @MainActor
+private func retainedAlertModifier<Content: View>(
+    content: Content, transform: @escaping (AnyView, ViewBuildContext) -> Component
+) -> ModifiedView<Content> {
+    ModifiedView(content: content) { value, context in
+        if context.stateMountCoordinator != nil { return transform(value, context) }
+        // Raw Components are reusable across builds and runtimes. Their
+        // materialization owns a fresh declaration, not the reusable factory.
+        return Component { runtime in transform(value, context).makeNode(runtime: runtime) }
+    }
+}
+
+@MainActor
+private func retainedAlertDeclaration(
+    context: ViewBuildContext, configuration: RetainedAlertConfiguration?
+) -> RetainedAlertDeclaration {
+    if let coordinator = context.stateMountCoordinator {
+        return coordinator.alertDeclaration(at: context.retainedViewIdentity, configuration: configuration)
+    }
+    return .raw(configuration: configuration)
+}
+
+@MainActor
+private func retainedBooleanAlertDeclaration(
+    isPresented: Binding<Bool>, context: ViewBuildContext, payload: Any? = nil
+) -> RetainedAlertDeclaration {
+    retainedAlertDeclaration(
+        context: context,
+        configuration: RetainedAlertConfiguration(
+            payload: payload,
+            validate: { admission in
+                guard admission() else { return false }
+                let presented = isPresented.wrappedValue
+                return admission() && presented
+            }, reset: { isPresented.wrappedValue = false }, invalidate: context.retainedAlertInvalidation))
+}
+
+private enum RetainedAlertHostIdentity {}
+
+@MainActor
+private func retainedUnpresentedAlert(base: Component, context: ViewBuildContext) -> Component {
+    let declaration = retainedAlertDeclaration(context: context, configuration: nil)
+    let identity = context.retainedViewIdentity.appending(.view(ObjectIdentifier(RetainedAlertHostIdentity.self)))
+    return Component { runtime in
+        let root = Controls.panel(
+            layoutMode: .absolute, isHitTestVisible: false, children: [base.makeNode(runtime: runtime)])
+        root.retainedViewIdentity = identity
+        declaration.materialize(on: root, runtime: runtime)
+        root.onLayout = { bounds in
+            guard let base = declaration.layoutHost()?.children.first else { return }
+            let frame = Rect(origin: .zero, size: bounds.size)
+            if base.frame != frame { base.frame = frame }
+        }
+        return root
+    }
+}
+
+@MainActor
+private func attachRetainedAlertEscape(to node: ViewNode, declaration: RetainedAlertDeclaration) {
+    declaration.installEscape(on: node)
+    for child in node.children { attachRetainedAlertEscape(to: child, declaration: declaration) }
+}
+
+@MainActor
 private func retainedAlertPresentation(
     base: Component,
     title: Component,
     message: Component?,
     actions: Component,
     context: ViewBuildContext,
-    dismiss: @escaping @MainActor () -> Void
+    declaration: RetainedAlertDeclaration
 ) -> Component {
-    Component { runtime in
+    let identity = context.retainedViewIdentity.appending(.view(ObjectIdentifier(RetainedAlertHostIdentity.self)))
+    return Component { runtime in
         let palette = context.controlPalette
         let baseNode = base.makeNode(runtime: runtime)
         // Modal scrim: swallows outside clicks so they cannot reach the base
@@ -20700,23 +20807,17 @@ private func retainedAlertPresentation(
             children: [baseNode, overlayContainer]
         )
 
-        let focusedAtPresentation = runtime.focusedNode
-        let restoreFocus: @MainActor () -> Void = {
-            retainedRestorePresentationFocus(
-                runtime: runtime,
-                focusedAtPresentation: focusedAtPresentation,
-                baseNode: baseNode,
-                overlayNode: overlayContainer
-            )
-        }
-        let dismissAlert: @MainActor () -> Void = {
-            restoreFocus()
-            dismiss()
-        }
-        attachRetainedEscapeDismiss(to: root, within: overlayContainer, dismiss: dismissAlert)
-        attachRetainedPresentationFocusRestore(to: alertNode, restoreFocus: restoreFocus)
-
+        root.retainedViewIdentity = identity
+        declaration.materialize(on: root, runtime: runtime)
+        attachRetainedAlertEscape(to: root, declaration: declaration)
+        let canvasSize = context.canvasSize
+        let layoutDirection = context.layoutDirection
         root.onLayout = { bounds in
+            guard let root = declaration.layoutHost(), let baseNode = root.children.first,
+                let overlayContainer = root.children.dropFirst().first,
+                let scrimNode = overlayContainer.children.first,
+                let alertNode = overlayContainer.children.dropFirst().first
+            else { return }
             let boundsFrame = Rect(origin: .zero, size: bounds.size)
             if baseNode.frame != boundsFrame {
                 baseNode.frame = boundsFrame
@@ -20726,7 +20827,7 @@ private func retainedAlertPresentation(
             }
             // The scrim always covers the full canvas, no matter where the
             // presentation's root sits in the window.
-            let scrimFrame = retainedPresentationCanvasScrimFrame(root: root, canvasSize: context.canvasSize)
+            let scrimFrame = retainedPresentationCanvasScrimFrame(root: root, canvasSize: canvasSize)
             if scrimNode.frame != scrimFrame {
                 scrimNode.frame = scrimFrame
             }
@@ -20735,7 +20836,7 @@ private func retainedAlertPresentation(
             let alertOrigin = Alignment.center.frameOrigin(
                 for: alertSize,
                 in: bounds.size,
-                layoutDirection: context.layoutDirection
+                layoutDirection: layoutDirection
             )
             let alertFrame = Rect(origin: alertOrigin, size: alertSize)
             if alertNode.frame != alertFrame {
@@ -20751,11 +20852,11 @@ private func retainedAlertPresentation(
     base: Component,
     alert: Alert,
     context: ViewBuildContext,
-    dismiss: @escaping @MainActor () -> Void
+    declaration: RetainedAlertDeclaration
 ) -> Component {
     let alertContext =
-        context
-        .withEnvironmentValue(\.dismiss, DismissAction(handler: dismiss))
+        declaration.presentationContext(context)
+        .withEnvironmentValue(\.dismiss, DismissAction(handler: { declaration.dismiss() }))
         .withEnvironmentValue(\.isPresented, true)
     let title = alert.title
         .font(.headline)
@@ -20768,8 +20869,8 @@ private func retainedAlertPresentation(
         .makeComponent(context: alertContext)
     let actions = retainedAlertActionsComponent(
         buttons: alert.buttons,
-        context: alertContext,
-        dismiss: dismiss
+        context: alertContext.withEnvironmentValue(
+            \.retainedAlertActionScope, RetainedAlertActionScope(declaration: declaration, context: alertContext))
     )
 
     return retainedAlertPresentation(
@@ -20778,20 +20879,18 @@ private func retainedAlertPresentation(
         message: message,
         actions: actions,
         context: context,
-        dismiss: dismiss
+        declaration: declaration
     )
 }
 @MainActor
 private func retainedAlertActionsComponent(
     buttons: [Alert.Button],
-    context: ViewBuildContext,
-    dismiss: @escaping @MainActor () -> Void
+    context: ViewBuildContext
 ) -> Component {
     let actionButtons = (buttons.isEmpty ? [.default(Text("OK"))] : buttons).map { button in
         AnyView(
             Button(button.label.plainContent, role: button.role) {
                 button.action?()
-                dismiss()
             }
             .buttonStyle(.borderedProminent)
         )
@@ -20810,11 +20909,11 @@ private func retainedAlertBuilderPresentation(
     messageViews: [AnyView],
     actionViews: [AnyView],
     context: ViewBuildContext,
-    dismiss: @escaping @MainActor () -> Void
+    declaration: RetainedAlertDeclaration
 ) -> Component {
     let alertContext =
-        context
-        .withEnvironmentValue(\.dismiss, DismissAction(handler: dismiss))
+        declaration.presentationContext(context)
+        .withEnvironmentValue(\.dismiss, DismissAction(handler: { declaration.dismiss() }))
         .withEnvironmentValue(\.isPresented, true)
     let titleComponent =
         title
@@ -20831,11 +20930,12 @@ private func retainedAlertBuilderPresentation(
         )
     let actions =
         actionViews.isEmpty
-        ? [AnyView(Button("OK", role: .cancel) { dismiss() }.buttonStyle(.borderedProminent))]
+        ? [AnyView(Button("OK") {}.buttonStyle(.borderedProminent))]
         : actionViews
     let actionsComponent = composeComponent(
         from: actions,
-        context: alertContext,
+        context: alertContext.withEnvironmentValue(
+            \.retainedAlertActionScope, RetainedAlertActionScope(declaration: declaration, context: alertContext)),
         fallbackLayout: .stack(.horizontal(spacing: 8, alignment: .stretch, mainAlignment: .end))
     )
 
@@ -20845,7 +20945,7 @@ private func retainedAlertBuilderPresentation(
         message: messageComponent,
         actions: actionsComponent,
         context: context,
-        dismiss: dismiss
+        declaration: declaration
     )
 }
 @MainActor
@@ -22814,27 +22914,12 @@ extension View {
     }
 
     public func alert(isPresented: Binding<Bool>, content alertContent: @escaping () -> Alert) -> some View {
-        ModifiedView(content: self) { content, context in
+        retainedAlertModifier(content: self) { content, context in
             let base = content.makeComponent(context: context)
-            guard isPresented.wrappedValue else {
-                return base
-            }
-
-            let dismiss: @MainActor () -> Void = {
-                guard isPresented.wrappedValue else {
-                    return
-                }
-
-                isPresented.wrappedValue = false
-                context.invalidate()
-            }
-
+            guard isPresented.wrappedValue else { return retainedUnpresentedAlert(base: base, context: context) }
+            let declaration = retainedBooleanAlertDeclaration(isPresented: isPresented, context: context)
             return retainedAlertPresentation(
-                base: base,
-                alert: alertContent(),
-                context: context,
-                dismiss: dismiss
-            )
+                base: base, alert: alertContent(), context: context, declaration: declaration)
         }
     }
 
@@ -22842,27 +22927,27 @@ extension View {
         item: Binding<Item?>,
         content alertContent: @escaping (Item) -> Alert
     ) -> some View where Item: Identifiable {
-        ModifiedView(content: self) { content, context in
+        retainedAlertModifier(content: self) { content, context in
             let base = content.makeComponent(context: context)
             guard let selectedItem = item.wrappedValue else {
-                return base
+                return retainedUnpresentedAlert(base: base, context: context)
             }
-
-            let dismiss: @MainActor () -> Void = {
-                guard item.wrappedValue != nil else {
-                    return
-                }
-
-                item.wrappedValue = nil
-                context.invalidate()
-            }
-
-            return retainedAlertPresentation(
-                base: base,
-                alert: alertContent(selectedItem),
+            let selectedID = selectedItem.id
+            let declaration = retainedAlertDeclaration(
                 context: context,
-                dismiss: dismiss
-            )
+                configuration: RetainedAlertConfiguration(
+                    itemIdentity: RetainedViewIdentity.Key(selectedID),
+                    validate: { admission in
+                        guard admission() else { return false }
+                        let current = item.wrappedValue
+                        guard admission(), let current else { return false }
+                        let currentID = current.id
+                        guard admission() else { return false }
+                        let matches = currentID == selectedID
+                        return admission() && matches
+                    }, reset: { item.wrappedValue = nil }, invalidate: context.retainedAlertInvalidation))
+            return retainedAlertPresentation(
+                base: base, alert: alertContent(selectedItem), context: context, declaration: declaration)
         }
     }
 
@@ -22872,29 +22957,13 @@ extension View {
         @ViewBuilder actions: @escaping () -> [AnyView] = { [] },
         @ViewBuilder message: @escaping () -> [AnyView] = { [] }
     ) -> some View {
-        ModifiedView(content: self) { content, context in
+        retainedAlertModifier(content: self) { content, context in
             let base = content.makeComponent(context: context)
-            guard isPresented.wrappedValue else {
-                return base
-            }
-
-            let dismiss: @MainActor () -> Void = {
-                guard isPresented.wrappedValue else {
-                    return
-                }
-
-                isPresented.wrappedValue = false
-                context.invalidate()
-            }
-
+            guard isPresented.wrappedValue else { return retainedUnpresentedAlert(base: base, context: context) }
+            let declaration = retainedBooleanAlertDeclaration(isPresented: isPresented, context: context)
             return retainedAlertBuilderPresentation(
-                base: base,
-                title: Text(titleKey),
-                messageViews: message(),
-                actionViews: actions(),
-                context: context,
-                dismiss: dismiss
-            )
+                base: base, title: Text(titleKey), messageViews: message(), actionViews: actions(),
+                context: context, declaration: declaration)
         }
     }
 
@@ -22904,12 +22973,7 @@ extension View {
         @ViewBuilder actions: @escaping () -> [AnyView] = { [] },
         @ViewBuilder message: @escaping () -> [AnyView] = { [] }
     ) -> some View {
-        alert(
-            LocalizedStringKey(String(title)),
-            isPresented: isPresented,
-            actions: actions,
-            message: message
-        )
+        alert(LocalizedStringKey(String(title)), isPresented: isPresented, actions: actions, message: message)
     }
 
     public func alert(
@@ -22918,29 +22982,13 @@ extension View {
         @ViewBuilder actions: @escaping () -> [AnyView] = { [] },
         @ViewBuilder message: @escaping () -> [AnyView] = { [] }
     ) -> some View {
-        ModifiedView(content: self) { content, context in
+        retainedAlertModifier(content: self) { content, context in
             let base = content.makeComponent(context: context)
-            guard isPresented.wrappedValue else {
-                return base
-            }
-
-            let dismiss: @MainActor () -> Void = {
-                guard isPresented.wrappedValue else {
-                    return
-                }
-
-                isPresented.wrappedValue = false
-                context.invalidate()
-            }
-
+            guard isPresented.wrappedValue else { return retainedUnpresentedAlert(base: base, context: context) }
+            let declaration = retainedBooleanAlertDeclaration(isPresented: isPresented, context: context)
             return retainedAlertBuilderPresentation(
-                base: base,
-                title: title,
-                messageViews: message(),
-                actionViews: actions(),
-                context: context,
-                dismiss: dismiss
-            )
+                base: base, title: title, messageViews: message(), actionViews: actions(),
+                context: context, declaration: declaration)
         }
     }
 
@@ -22951,29 +22999,17 @@ extension View {
         @ViewBuilder actions: @escaping (Data) -> [AnyView],
         @ViewBuilder message: @escaping (Data) -> [AnyView] = { _ in [] }
     ) -> some View {
-        ModifiedView(content: self) { content, context in
+        retainedAlertModifier(content: self) { content, context in
             let base = content.makeComponent(context: context)
-            guard isPresented.wrappedValue, let presentedData = data else {
-                return base
+            guard isPresented.wrappedValue else { return retainedUnpresentedAlert(base: base, context: context) }
+            let declaration = retainedBooleanAlertDeclaration(
+                isPresented: isPresented, context: context, payload: data)
+            guard let presentedData = declaration.presentationPayload(or: data) else {
+                return retainedUnpresentedAlert(base: base, context: context)
             }
-
-            let dismiss: @MainActor () -> Void = {
-                guard isPresented.wrappedValue else {
-                    return
-                }
-
-                isPresented.wrappedValue = false
-                context.invalidate()
-            }
-
             return retainedAlertBuilderPresentation(
-                base: base,
-                title: Text(titleKey),
-                messageViews: message(presentedData),
-                actionViews: actions(presentedData),
-                context: context,
-                dismiss: dismiss
-            )
+                base: base, title: Text(titleKey), messageViews: message(presentedData),
+                actionViews: actions(presentedData), context: context, declaration: declaration)
         }
     }
 
@@ -22985,42 +23021,15 @@ extension View {
         @ViewBuilder message: @escaping (Data) -> [AnyView] = { _ in [] }
     ) -> some View {
         alert(
-            LocalizedStringKey(String(title)),
-            isPresented: isPresented,
-            presenting: data,
-            actions: actions,
-            message: message
-        )
+            LocalizedStringKey(String(title)), isPresented: isPresented, presenting: data, actions: actions,
+            message: message)
     }
 
     public func alert(
         isPresented: Binding<Bool>,
         @ViewBuilder actions: @escaping () -> [AnyView]
     ) -> some View {
-        ModifiedView(content: self) { content, context in
-            let base = content.makeComponent(context: context)
-            guard isPresented.wrappedValue else {
-                return base
-            }
-
-            let dismiss: @MainActor () -> Void = {
-                guard isPresented.wrappedValue else {
-                    return
-                }
-
-                isPresented.wrappedValue = false
-                context.invalidate()
-            }
-
-            return retainedAlertBuilderPresentation(
-                base: base,
-                title: Text(""),
-                messageViews: [],
-                actionViews: actions(),
-                context: context,
-                dismiss: dismiss
-            )
-        }
+        alert(Text(""), isPresented: isPresented, actions: actions)
     }
 
     public func alert<E: Error>(
@@ -23028,37 +23037,7 @@ extension View {
         error: E?,
         @ViewBuilder actions: @escaping (E) -> [AnyView]
     ) -> some View {
-        ModifiedView(content: self) { content, context in
-            let base = content.makeComponent(context: context)
-            guard isPresented.wrappedValue, let presentedError = error else {
-                return base
-            }
-
-            let dismiss: @MainActor () -> Void = {
-                guard isPresented.wrappedValue else {
-                    return
-                }
-
-                isPresented.wrappedValue = false
-                context.invalidate()
-            }
-
-            let errorMessage: String
-            if let localizedError = presentedError as? LocalizedError {
-                errorMessage = localizedError.errorDescription ?? String(describing: presentedError)
-            } else {
-                errorMessage = String(describing: presentedError)
-            }
-
-            return retainedAlertBuilderPresentation(
-                base: base,
-                title: Text("Error"),
-                messageViews: [AnyView(Text(errorMessage))],
-                actionViews: actions(presentedError),
-                context: context,
-                dismiss: dismiss
-            )
-        }
+        alert(LocalizedStringKey("Error"), isPresented: isPresented, error: error, actions: actions)
     }
 
     public func alert<E: Error>(
@@ -23067,36 +23046,12 @@ extension View {
         error: E?,
         @ViewBuilder actions: @escaping (E) -> [AnyView]
     ) -> some View {
-        ModifiedView(content: self) { content, context in
-            let base = content.makeComponent(context: context)
-            guard isPresented.wrappedValue, let presentedError = error else {
-                return base
-            }
-
-            let dismiss: @MainActor () -> Void = {
-                guard isPresented.wrappedValue else {
-                    return
-                }
-
-                isPresented.wrappedValue = false
-                context.invalidate()
-            }
-
-            let errorMessage: String
+        alert(titleKey, isPresented: isPresented, presenting: error, actions: actions) { presentedError in
             if let localizedError = presentedError as? LocalizedError {
-                errorMessage = localizedError.errorDescription ?? String(describing: presentedError)
+                Text(localizedError.errorDescription ?? String(describing: presentedError))
             } else {
-                errorMessage = String(describing: presentedError)
+                Text(String(describing: presentedError))
             }
-
-            return retainedAlertBuilderPresentation(
-                base: base,
-                title: Text(titleKey),
-                messageViews: [AnyView(Text(errorMessage))],
-                actionViews: actions(presentedError),
-                context: context,
-                dismiss: dismiss
-            )
         }
     }
 

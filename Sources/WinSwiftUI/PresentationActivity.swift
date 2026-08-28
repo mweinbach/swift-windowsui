@@ -164,6 +164,7 @@ final class PresentationActivityAnchor {
 
 @MainActor
 final class PresentationActivityLedger {
+    var alertSlots: [ObjectIdentifier: RetainedAlertSlot] = [:]
     fileprivate var sessions: [ObjectIdentifier: PresentationDismissSession] = [:]
     fileprivate var anchors: [ObjectIdentifier: PresentationActivityAnchor] = [:]
     fileprivate weak var currentBuild: PresentationActivityBuild?
@@ -191,6 +192,7 @@ final class PresentationActivityLedger {
     func closeAdmissions() {
         guard !isClosed else { return }
         isClosed = true
+        for slot in alertSlots.values { slot.closeAdmissions() }
         for session in sessions.values { session.phase = .retired }
         for anchor in anchors.values { anchor.phase = .retired }
         currentBuild?.closeAdmissions()
@@ -202,16 +204,19 @@ final class PresentationActivityLedger {
         let oldSessions = Array(sessions.values)
         let oldAnchors = Array(anchors.values)
         let oldBuild = currentBuild
+        let oldAlerts = alertSlots
+        alertSlots = [:]
         sessions.removeAll()
         anchors.removeAll()
         for session in oldSessions { session.clearConfiguration() }
         oldBuild?.releaseClosedPayloads()
-        withExtendedLifetime((oldSessions, oldAnchors, oldBuild)) {}
+        withExtendedLifetime((oldSessions, oldAnchors, oldBuild, oldAlerts)) {}
     }
 }
 
 @MainActor
 final class PresentationActivityBuild {
+    let alerts: RetainedAlertActivityBuild
     private enum Phase {
         case constructing
         case prepared
@@ -242,6 +247,7 @@ final class PresentationActivityBuild {
         ledger: PresentationActivityLedger, prefix: RetainedViewIdentity?, boundary: PresentationActivityAnchor?
     ) {
         self.ledger = ledger
+        alerts = RetainedAlertActivityBuild(ledger: ledger)
         self.prefix = prefix
         self.boundary = boundary
     }
@@ -301,6 +307,8 @@ final class PresentationActivityBuild {
     /// Discard authority before the matching State discard releases payloads.
     func discardSubtree(at prefix: RetainedViewIdentity, isCurrent: () -> Bool) {
         guard isCurrent(), canConstruct else { return }
+        alerts.discardSubtree(at: prefix, isCurrent: { isCurrent() && self.canConstruct })
+        guard isCurrent(), canConstruct else { return }
         let records = Array(candidates)
         let readers = Array(candidateAnchors)
         var removedRecords: [ObjectIdentifier] = []
@@ -343,6 +351,7 @@ final class PresentationActivityBuild {
             if covered { coveredAnchors.append(anchor) }
         }
         guard isCurrent(), canConstruct else { return false }
+        guard alerts.prepare(includes: includes, isCurrent: { isCurrent() && self.canConstruct }) else { return false }
         suspendedSessions = coveredSessions
         suspendedAnchors = coveredAnchors
         let suspension = PresentationActivityPhase.suspended(ObjectIdentifier(self))
@@ -374,6 +383,7 @@ final class PresentationActivityBuild {
             ledger.sessions[key] = candidate.session
         }
         for (key, anchor) in selectedAnchors { ledger.anchors[key] = anchor }
+        alerts.commit()
         // All membership/configuration is installed before admitting any copy.
         for candidate in candidates.values {
             if candidate.materializedConfiguration != nil {
@@ -391,6 +401,7 @@ final class PresentationActivityBuild {
     /// the still-accepted tree. A closed coordinator is never reopened.
     func abandon() {
         guard phase == .constructing || phase == .prepared else { return }
+        alerts.abandon()
         for candidate in candidates.values { candidate.receipt.isDiscarded = true }
         for anchor in candidateAnchors.values { anchor.phase = .retired }
         if let ledger, !ledger.isClosed, ledger.currentBuild === self, phase == .prepared {
@@ -406,6 +417,7 @@ final class PresentationActivityBuild {
     }
 
     fileprivate func closeAdmissions() {
+        alerts.closeAdmissions()
         for candidate in candidates.values {
             candidate.receipt.isDiscarded = true
             candidate.session.phase = .retired
@@ -416,6 +428,7 @@ final class PresentationActivityBuild {
     }
 
     fileprivate func releaseClosedPayloads() {
+        alerts.finish()
         releasePayloadCollections(clearingSessions: true)
     }
 
@@ -423,6 +436,7 @@ final class PresentationActivityBuild {
         guard phase != .finished else { return }
         phase = .finished
         if ledger?.currentBuild === self { ledger?.currentBuild = nil }
+        alerts.finish()
         // Remove publication ownership before any last capture can reenter.
         releasePayloadCollections(clearingSessions: false)
     }

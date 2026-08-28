@@ -9053,6 +9053,57 @@ package enum RetainedLayoutSettlementStatus {
     case unavailable
 }
 
+/// A facade's accepted removal can restore focus only while its private
+/// receipt remains current. Nodes stay weak, and the owner is a lightweight
+/// registration token rather than the window or runtime.
+@MainActor
+package final class RetainedPresentationFocusRequest {
+    fileprivate let owner: AnyObject
+    fileprivate weak var preferred: ViewNode?
+    fileprivate weak var underlyingModal: ViewNode?
+    fileprivate let expectedFocusRevision: UInt64
+    fileprivate var isRevoked = false
+    private var isFinished = false
+    fileprivate var isCurrent: (@MainActor () -> Bool)?
+    fileprivate var resolveBase: (@MainActor () -> ViewNode?)?
+    private var didFinish: (@MainActor () -> Void)?
+
+    package init(
+        owner: AnyObject,
+        preferred: ViewNode?,
+        underlyingModal: ViewNode?,
+        expectedFocusRevision: UInt64,
+        isCurrent: @escaping @MainActor () -> Bool,
+        resolveBase: @escaping @MainActor () -> ViewNode?,
+        didFinish: (@MainActor () -> Void)? = nil
+    ) {
+        self.owner = owner
+        self.preferred = preferred
+        self.underlyingModal = underlyingModal
+        self.expectedFocusRevision = expectedFocusRevision
+        self.isCurrent = isCurrent
+        self.resolveBase = resolveBase
+        self.didFinish = didFinish
+    }
+
+    /// Closing and adoption first revoke every receipt, before releasing any
+    /// application captures that could synchronously reenter the runtime.
+    package func revoke() {
+        isRevoked = true
+    }
+
+    fileprivate func finish() {
+        guard !isFinished else { return }
+        isFinished = true
+        isRevoked = true
+        let retired = (isCurrent, resolveBase, didFinish)
+        isCurrent = nil
+        resolveBase = nil
+        didFinish = nil
+        withExtendedLifetime(retired) { retired.2?() }
+    }
+}
+
 @MainActor
 public final class RetainedViewRuntime {
     private static let buttonRepeatInitialDelay = 0.45
@@ -9227,6 +9278,17 @@ public final class RetainedViewRuntime {
     private var pendingAfterLayoutActions: [String: @MainActor () -> Void] = [:]
     private var pendingAfterLayoutActionKeys: [String] = []
     private var isDrainingAfterLayoutActions = false
+    private var isUpdatingResolvedLayout = false
+    private var isResolvingPresentationAction = false
+    private var presentationMutationRevision: UInt64 = 0
+    private var presentationPrepaintRevision: UInt64?
+    private var presentationKeyDispatchDepth = 0
+    private var pendingPresentationFocusRequests: [RetainedPresentationFocusRequest] = []
+    private var isDrainingPresentationFocusRequests = false
+    private weak var presentationFocusEntryTarget: ViewNode?
+    private var presentationFocusEntryReaffirmation: UInt64?
+    private var isWaitingForPresentationBuildSettlement = false
+    private let presentationBuildSettlementOwner = NSObject()
     private var scrollObserverRegistry: RetainedScrollObserverRegistry?
     private struct PendingPreciseScrollAlignment {
         weak var target: ViewNode?
@@ -9525,6 +9587,9 @@ public final class RetainedViewRuntime {
     /// presentation builders can capture and later restore focus; mutate
     /// only through `requestFocus` / focus traversal.
     public private(set) weak var focusedNode: ViewNode?
+    /// Every admitted focus intent counts, including a request for the target
+    /// that already has focus. A deferred restoration must not override it.
+    package private(set) var presentationFocusRevision: UInt64 = 0
     /// Accessibility integration hook (UI Automation, Phase 2): called on the
     /// main actor after the focused node changes. Additive only — no effect
     /// on focus behavior itself.
@@ -10562,6 +10627,18 @@ public final class RetainedViewRuntime {
     }
 
     public func keyDown(_ event: KeyboardEvent) {
+        presentationKeyDispatchDepth += 1
+        defer {
+            presentationKeyDispatchDepth -= 1
+            if presentationKeyDispatchDepth == 0, !pendingPresentationFocusRequests.isEmpty,
+                permitsRenderLifecycleCallbacks
+            {
+                // A nested render may have consumed the enqueue invalidation.
+                // Keep one later layout pending, without restoring into the
+                // background while this key is still being dispatched.
+                invalidate(.layout)
+            }
+        }
         // Typing restarts the blink at fully on. macOS does the same, and for
         // the same reason: a caret that blinked out on the keystroke that
         // moved it would be unreadable exactly when it matters.
@@ -10702,6 +10779,285 @@ public final class RetainedViewRuntime {
         updateFocusTarget(to: node)
     }
 
+    /// Stored admission only: construction and retained callbacks must finish
+    /// before an escaped presentation action can consult application bindings.
+    package var presentationActionsAreAvailable: Bool {
+        presentationRuntimeIsIdle && !isResolvingPresentationAction
+    }
+
+    private var presentationRuntimeIsIdle: Bool {
+        permitsRenderLifecycleCallbacks
+            && !isRendering && !isLayoutInProgress && !isUpdatingResolvedLayout
+            && !isResolvingLayoutFrame && !isDeliveringRenderLifecycleCallbacks
+            && !isDrainingAfterLayoutActions && longPressReconciliationDepth == 0
+            && !isDrainingReconciliationCallbacks && pendingLongPressCallbacks.isEmpty
+            && pendingRetainedBuildCompletions.isEmpty
+            && retainedBuildCoordinatorStorage?.isBuildSettled != false
+    }
+
+    /// The last accepted prepaint's modal, without running layout or a user
+    /// callback while the next presentation is being constructed.
+    package var presentationModalSnapshot: ViewNode? {
+        guard permitsRenderLifecycleCallbacks else { return nil }
+        return prepaintState.dispatchNodes.last {
+            $0.node.isModalPresentationScope
+                && isPresentationNodeAvailable($0.node, requiresEnabled: false)
+        }?.node
+    }
+
+    /// The presentation itself is eligible for an implicit dismissal; it need
+    /// not be focusable or hit-testable. Custom actions must belong to this
+    /// exact, frontmost modal after layout and any deferred builds settle.
+    package func permitsPresentationAction(on node: ViewNode, within presentation: ViewNode) -> Bool {
+        guard presentationActionsAreAvailable else { return false }
+        isResolvingPresentationAction = true
+        defer { isResolvingPresentationAction = false }
+        updateResolvedLayout()
+        return presentationRuntimeIsIdle
+            && presentationPrepaintRevision == presentationMutationRevision
+            && presentationModalSnapshot === presentation
+            && isPresentationNodeAvailable(node)
+            && Self.isInteractionTarget(node, within: presentation)
+            && prepaintState.dispatchNodes.contains { $0.node === node }
+    }
+
+    package func schedulePresentationFocusRestoration(_ request: RetainedPresentationFocusRequest) {
+        guard permitsRenderLifecycleCallbacks, !request.isRevoked else {
+            request.finish()
+            return
+        }
+        if let index = pendingPresentationFocusRequests.firstIndex(where: { $0.owner === request.owner }) {
+            let previous = pendingPresentationFocusRequests[index]
+            guard previous !== request else { return }
+            previous.revoke()
+            pendingPresentationFocusRequests[index] = request
+            // Publish the replacement before finishing the old receipt:
+            // releasing its captures can enqueue another request for this slot.
+            previous.finish()
+        } else {
+            pendingPresentationFocusRequests.append(request)
+        }
+        guard pendingPresentationFocusRequests.contains(where: { $0 === request }), !request.isRevoked else { return }
+        invalidate(.layout)
+        drainPresentationFocusRestorations()
+    }
+
+    private var presentationFocusCanRun: Bool {
+        presentationActionsAreAvailable && presentationKeyDispatchDepth == 0
+    }
+
+    private func waitForPresentationBuildSettlementIfNeeded() {
+        guard permitsRenderLifecycleCallbacks, !pendingPresentationFocusRequests.isEmpty,
+            !isWaitingForPresentationBuildSettlement
+        else { return }
+        let coordinator = retainedBuildCoordinator
+        guard !coordinator.isBuildSettled else { return }
+        isWaitingForPresentationBuildSettlement = true
+        coordinator.scheduleAfterBuildsSettled(owner: presentationBuildSettlementOwner) { [weak self] in
+            guard let self else { return }
+            self.isWaitingForPresentationBuildSettlement = false
+            self.drainPresentationFocusRestorations()
+        }
+    }
+
+    private func drainPresentationFocusRestorations(layoutIsFresh: Bool = false) {
+        guard permitsRenderLifecycleCallbacks, !pendingPresentationFocusRequests.isEmpty,
+            !isDrainingPresentationFocusRequests
+        else { return }
+        guard presentationFocusCanRun else {
+            waitForPresentationBuildSettlementIfNeeded()
+            return
+        }
+        isDrainingPresentationFocusRequests = true
+        defer {
+            isDrainingPresentationFocusRequests = false
+            waitForPresentationBuildSettlementIfNeeded()
+        }
+        // A callback-created request belongs to a later independent layout or
+        // settlement opportunity, never another iteration of this drain.
+        let requests = pendingPresentationFocusRequests
+        if !layoutIsFresh || presentationPrepaintRevision != presentationMutationRevision {
+            updateResolvedLayout()
+        }
+        for request in requests {
+            guard pendingPresentationFocusRequests.contains(where: { $0 === request }) else { continue }
+            guard presentationFocusCanRun else { return }
+            guard presentationFocusRequestIsCurrent(request, revision: request.expectedFocusRevision) else {
+                guard permitsRenderLifecycleCallbacks else { return }
+                finishPresentationFocusRequest(request)
+                continue
+            }
+            if presentationPrepaintRevision != presentationMutationRevision { updateResolvedLayout() }
+            guard presentationFocusCanRun else { return }
+            restorePresentationFocus(request)
+            guard permitsRenderLifecycleCallbacks else { return }
+            // A resolver may have begun independent retained work after the
+            // first readiness check. Keep the receipt until that work settles;
+            // a started focus transition will then fail its old revision.
+            guard presentationFocusCanRun else { return }
+            finishPresentationFocusRequest(request)
+        }
+    }
+
+    private func finishPresentationFocusRequest(_ request: RetainedPresentationFocusRequest) {
+        if let index = pendingPresentationFocusRequests.firstIndex(where: { $0 === request }) {
+            pendingPresentationFocusRequests.remove(at: index)
+        }
+        request.finish()
+    }
+
+    private func presentationFocusRequestIsCurrent(
+        _ request: RetainedPresentationFocusRequest, revision: UInt64
+    ) -> Bool {
+        guard presentationFocusCanRun, !request.isRevoked,
+            presentationFocusRevision == revision,
+            pendingPresentationFocusRequests.contains(where: { $0 === request }),
+            request.isCurrent?() == true
+        else { return false }
+        // The facade promises a stored-only predicate. Still recheck the
+        // primitive admission after calling across that package boundary.
+        return presentationFocusCanRun && !request.isRevoked && presentationFocusRevision == revision
+            && pendingPresentationFocusRequests.contains(where: { $0 === request })
+    }
+
+    private func isPresentationNodeAvailable(_ node: ViewNode, requiresEnabled: Bool = true) -> Bool {
+        var current: ViewNode? = node
+        var depth = 0
+        while let candidate = current, depth < ViewNode.maximumTraversalDepth {
+            guard candidate.runtime === self, !candidate.isHidden, !candidate.isRemovalOverlay,
+                !candidate.isLayoutDeferredByVirtualization,
+                !requiresEnabled || candidate.accessibilityRespondsToUserInteraction != false
+            else { return false }
+            if candidate === root { return true }
+            current = candidate.parent
+            depth += 1
+        }
+        return false
+    }
+
+    private func presentationFocusTargetIsEligible(
+        _ node: ViewNode, base: ViewNode, modal: ViewNode?, request: RetainedPresentationFocusRequest
+    ) -> Bool {
+        guard node.isFocusable, isPresentationNodeAvailable(node),
+            prepaintState.dispatchNodes.contains(where: { $0.node === node })
+        else { return false }
+        if let modal {
+            return modal === request.underlyingModal && Self.isInteractionTarget(node, within: modal)
+        }
+        return Self.isInteractionTarget(node, within: base)
+    }
+
+    private func presentationFocusContextIsCurrent(
+        _ request: RetainedPresentationFocusRequest, revision: UInt64, base: ViewNode, target: ViewNode? = nil
+    ) -> Bool {
+        guard presentationFocusRequestIsCurrent(request, revision: revision) else { return false }
+        if presentationPrepaintRevision != presentationMutationRevision { updateResolvedLayout() }
+        guard presentationFocusRequestIsCurrent(request, revision: revision),
+            presentationPrepaintRevision == presentationMutationRevision,
+            isPresentationNodeAvailable(base),
+            prepaintState.dispatchNodes.contains(where: { $0.node === base })
+        else { return false }
+        let modal = presentationModalSnapshot
+        guard modal == nil || modal === request.underlyingModal else { return false }
+        return target.map { presentationFocusTargetIsEligible($0, base: base, modal: modal, request: request) } ?? true
+    }
+
+    private func restorePresentationFocus(_ request: RetainedPresentationFocusRequest) {
+        let expectedRevision = request.expectedFocusRevision
+        guard presentationFocusRequestIsCurrent(request, revision: expectedRevision),
+            let base = request.resolveBase?(),
+            presentationFocusContextIsCurrent(request, revision: expectedRevision, base: base)
+        else { return }
+        let modal = presentationModalSnapshot
+        let preferred = request.preferred.flatMap { candidate in
+            presentationFocusTargetIsEligible(candidate, base: base, modal: modal, request: request) ? candidate : nil
+        }
+        let fallback = prepaintState.focusOrder.lazy.compactMap { self.node(for: $0) }.first { candidate in
+            Self.isInteractionTarget(candidate, within: base)
+                && self.presentationFocusTargetIsEligible(candidate, base: base, modal: modal, request: request)
+        }
+        guard let target = preferred ?? fallback, focusedNode !== target else { return }
+
+        presentationFocusRevision &+= 1
+        let revision = presentationFocusRevision
+        let previous = focusedNode
+        // An exit callback can request focus itself. Remove the old pointer
+        // first so that nested ordinary request does not re-enter this exit.
+        focusedNode = nil
+        previous?.isFocused = false
+        applyInteractionChrome(to: previous)
+        guard presentationFocusRequestIsCurrent(request, revision: revision) else { return }
+        previous?.onFocusExit?()
+        guard presentationFocusContextIsCurrent(request, revision: revision, base: base, target: target) else { return }
+
+        focusedNode = target
+        target.isFocused = true
+        presentationFocusEntryTarget = target
+        presentationFocusEntryReaffirmation = nil
+        target.onFocusEnter?()
+        let reaffirmation = presentationFocusEntryReaffirmation
+        presentationFocusEntryTarget = nil
+        presentationFocusEntryReaffirmation = nil
+        if let reaffirmation, reaffirmation == presentationFocusRevision {
+            // A same-target request made from enter is a newer explicit intent.
+            // Complete it once, without borrowing the old removal's authority.
+            completeReaffirmedPresentationFocus(target, revision: reaffirmation)
+            return
+        }
+        guard presentationFocusContextIsCurrent(request, revision: revision, base: base, target: target),
+            focusedNode === target
+        else {
+            withdrawInterruptedPresentationFocus(target, revision: revision)
+            return
+        }
+        resetCaretBlink()
+        applyInteractionChrome(to: target)
+        guard presentationFocusContextIsCurrent(request, revision: revision, base: base, target: target),
+            focusedNode === target
+        else {
+            withdrawInterruptedPresentationFocus(target, revision: revision)
+            return
+        }
+        invalidate(.paint)
+        onAccessibilityFocusChanged?(target)
+    }
+
+    private func completeReaffirmedPresentationFocus(_ target: ViewNode, revision: UInt64) {
+        guard reaffirmedPresentationFocusIsCurrent(target, revision: revision) else {
+            withdrawInterruptedPresentationFocus(target, revision: revision)
+            return
+        }
+        resetCaretBlink()
+        applyInteractionChrome(to: target)
+        guard reaffirmedPresentationFocusIsCurrent(target, revision: revision) else {
+            withdrawInterruptedPresentationFocus(target, revision: revision)
+            return
+        }
+        invalidate(.paint)
+        onAccessibilityFocusChanged?(target)
+    }
+
+    private func reaffirmedPresentationFocusIsCurrent(_ target: ViewNode, revision: UInt64) -> Bool {
+        guard presentationFocusCanRun, presentationFocusRevision == revision, focusedNode === target else {
+            return false
+        }
+        if presentationPrepaintRevision != presentationMutationRevision { updateResolvedLayout() }
+        guard presentationFocusCanRun, presentationFocusRevision == revision, focusedNode === target,
+            presentationPrepaintRevision == presentationMutationRevision,
+            target.isFocusable, isPresentationNodeAvailable(target),
+            prepaintState.dispatchNodes.contains(where: { $0.node === target })
+        else { return false }
+        return presentationModalSnapshot.map { Self.isInteractionTarget(target, within: $0) } ?? true
+    }
+
+    private func withdrawInterruptedPresentationFocus(_ target: ViewNode, revision: UInt64) {
+        // Do not erase a focus choice made by an enter/exit callback, and do
+        // not deliver a stale exit or UIA notification after close/replacement.
+        guard presentationFocusRevision == revision, focusedNode === target else { return }
+        focusedNode = nil
+        target.isFocused = false
+    }
+
     /// The current layout frame in root coordinates, including presented
     /// ancestor scroll offsets. Authored `ViewNode.frame` values do not
     /// describe the placement of children in stacks or frame wrappers.
@@ -10712,7 +11068,10 @@ public final class RetainedViewRuntime {
     public func resolvedLayoutFrame(of node: ViewNode) -> Rect? {
         guard node.runtime === self, !isRendering, !isLayoutInProgress, !isResolvingLayoutFrame else { return nil }
         isResolvingLayoutFrame = true
-        defer { isResolvingLayoutFrame = false }
+        defer {
+            isResolvingLayoutFrame = false
+            drainPresentationFocusRestorations(layoutIsFresh: true)
+        }
         updateResolvedLayout()
 
         var origin = Point.zero
@@ -12132,6 +12491,7 @@ public final class RetainedViewRuntime {
     public func stopRenderLifecycleCallbacks() {
         permitsRenderLifecycleCallbacks = false
         renderLifecycleRevision &+= 1
+        for request in pendingPresentationFocusRequests { request.revoke() }
     }
 
     /// Cancel a closed host's tasks only after its editor and State writes
@@ -12139,6 +12499,9 @@ public final class RetainedViewRuntime {
     /// code. Clear every owned task slot before the first handler runs, without
     /// synthesizing disappearance, focus changes, or platform callbacks.
     public func cancelRenderLifecycleTasks() {
+        let focusRequests = pendingPresentationFocusRequests
+        for request in focusRequests { request.revoke() }
+        pendingPresentationFocusRequests.removeAll()
         var nodes = [root] + transitionOverlays
         var visited = Set<ObjectIdentifier>()
         var tasks: [Task<Void, Never>] = []
@@ -12147,12 +12510,14 @@ public final class RetainedViewRuntime {
             nodes.append(contentsOf: node.children)
             tasks.append(contentsOf: node.takeLifecycleTasks(retiring: true))
         }
+        for request in focusRequests { request.finish() }
         for task in tasks { task.cancel() }
     }
 
     /// An accepted rebuild can retain a node while replacing its callbacks and
     /// geometry. Its old lifecycle snapshot must not run on the new build.
     func invalidateRenderLifecycleCandidates() {
+        presentationMutationRevision &+= 1
         if isDeliveringRenderLifecycleCallbacks { renderLifecycleRevision &+= 1 }
     }
 
@@ -12279,6 +12644,7 @@ public final class RetainedViewRuntime {
             registry.renderedDuringDelivery = true
         }
         deliverScrollObservations()
+        drainPresentationFocusRestorations(layoutIsFresh: true)
     }
 
     /// Number of nested render passes observed since process start. Diagnostic
@@ -12843,8 +13209,14 @@ public final class RetainedViewRuntime {
 
     private func updateResolvedLayout() {
         let wasResolvingLayoutSettlement = isResolvingLayoutSettlement
+        let wasUpdatingLayout = isUpdatingResolvedLayout
         isResolvingLayoutSettlement = true
-        defer { isResolvingLayoutSettlement = wasResolvingLayoutSettlement }
+        isUpdatingResolvedLayout = true
+        defer {
+            isResolvingLayoutSettlement = wasResolvingLayoutSettlement
+            isUpdatingResolvedLayout = wasUpdatingLayout
+            if !wasUpdatingLayout { drainPresentationFocusRestorations(layoutIsFresh: true) }
+        }
         let settlementSequence = beginLayoutSettlementResolution()
         let traversalOverflowCount = ViewNode.traversalDepthOverflowCount
         lastLayoutReuseCount = 0
@@ -12895,11 +13267,13 @@ public final class RetainedViewRuntime {
             settleLayoutAfterProgrammaticScroll()
         }
 
+        let prepaintRevision = presentationMutationRevision
         updatePrepaintState()
         finishLayoutSettlementResolution(
             sequence: settlementSequence,
             wasNested: wasResolvingLayoutSettlement,
             traversalOverflowCount: traversalOverflowCount)
+        presentationPrepaintRevision = prepaintRevision
     }
 
     private func drainAfterLayoutActions() -> Bool {
@@ -13455,9 +13829,18 @@ public final class RetainedViewRuntime {
     }
 
     private func updateFocusTarget(to nextFocusedNode: ViewNode?) {
+        presentationFocusRevision &+= 1
         guard focusedNode !== nextFocusedNode else {
+            if let nextFocusedNode, presentationFocusEntryTarget === nextFocusedNode {
+                presentationFocusEntryReaffirmation = presentationFocusRevision
+            }
             return
         }
+
+        // A complete newer transition owns its own enter and UIA delivery.
+        // Moving away and back cannot revive the suspended entry's witness.
+        presentationFocusEntryTarget = nil
+        presentationFocusEntryReaffirmation = nil
 
         let previousNode = focusedNode
         previousNode?.isFocused = false

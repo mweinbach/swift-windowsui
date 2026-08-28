@@ -20288,6 +20288,7 @@ public struct Button: View {
         // A destructive button that is not accent-filled carries its role in
         // the *label*, as macOS does: standard bezel, red title.
         var labelContext = context.withEnvironmentValue(\.multilineTextAlignment, .center)
+            .withEnvironmentValue(\.retainedAlertActionScope, nil)
         if appliesDestructiveLabelTint, effectiveButtonStyle != .borderedProminent, !hasCustomSurfaceStyle {
             labelContext = labelContext.withForegroundColor(.red)
         }
@@ -20315,6 +20316,22 @@ public struct Button: View {
                 style: buttonStyle,
                 controlSize: context.controlSize
             )
+            let alertReceipt: RetainedAlertActionReceipt?
+            let activate: @MainActor () -> Void
+            if let scope = context.environmentValues.retainedAlertActionScope, scope.contains(context) {
+                let invocationContext = context.retainedAlertInvocationContext()
+                let receipt = scope.declaration.registerButton(role: role) {
+                    ViewBuildContextScope.withCurrent(invocationContext) { action() }
+                }
+                alertReceipt = receipt
+                activate = { receipt.activate() }
+            } else {
+                alertReceipt = nil
+                activate = {
+                    ViewBuildContextScope.withCurrent(context) { action() }
+                    context.invalidate()
+                }
+            }
             let node = Controls.button(
                 runtime: runtime,
                 layoutPriority: context.environmentValues.buttonSizing.retainedLayoutPriority,
@@ -20332,14 +20349,10 @@ public struct Button: View {
                 repeatBehavior: context.environmentValues.buttonRepeatBehavior.retainedBehavior,
                 animation: surfaceStyle.animation,
                 appliesSurfaceSheen: true,
-                action: {
-                    ViewBuildContextScope.withCurrent(context) {
-                        action()
-                    }
-                    context.invalidate()
-                },
+                action: activate,
                 children: [labelNode]
             )
+            alertReceipt?.install(on: node)
             if contentMetrics.minimumHeight > 0 {
                 node.applyDefaultMinimumHeight(contentMetrics.minimumHeight)
             }

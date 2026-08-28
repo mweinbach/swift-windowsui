@@ -151,6 +151,19 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
         return build.activity.stagePresentation(owner: owner, configuration: configuration)
     }
 
+    func alertDeclaration(
+        at identity: RetainedViewIdentity, configuration: RetainedAlertConfiguration?
+    ) -> RetainedAlertDeclaration {
+        guard let build = currentBuild, build.canAdopt else { return .unavailable() }
+        let slotIdentity = identity.appending(.view(ObjectIdentifier(AlertActivityOwner.self)))
+        guard let owner = build.epoch.owner(at: slotIdentity), isCurrent(build), build.canAdopt else {
+            return .unavailable()
+        }
+        return build.activity.alerts.stage(owner: owner, configuration: configuration) {
+            self.isCurrent(build) && build.canAdopt
+        }
+    }
+
     func canEvaluateDeferredSubtree(at contentPrefix: RetainedViewIdentity) -> Bool {
         currentBuild?.subtreePrefix == contentPrefix && currentBuild?.canAdopt == true
     }
@@ -200,6 +213,7 @@ final class StateMountCoordinator: RetainedBuildLifecycle {
 }
 
 private enum PresentationActivityOwner {}
+private enum AlertActivityOwner {}
 
 // These existing leaves have a no-op DynamicProperty.update and manage their
 // own legacy mechanisms. They are not mount-owned by State/StateObject installation;

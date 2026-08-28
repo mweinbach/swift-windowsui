@@ -3341,3 +3341,61 @@ fail or reenter. Merely releasing the bridge earlier would not be a sound fix.
 That path is deliberately unchanged here and has a separate repair investigation;
 headless ownership tests do not qualify Narrator or native provider teardown.
 All nine original product acceptance gates remain open.
+
+### Sixth batch: retained alert generations and settled focus restoration
+
+Boolean, item, builder, and error alerts now share a stable retained shell.
+Presenting and dismissing the overlay preserves the background child slot,
+editor, and mounted State. Hosted actions require their accepted generation
+and individual action receipt; removed, rejected, replaced, or closed content
+cannot reuse an escaped action. An admitted operation runs its captured action
+before its captured reset, suppresses reentry, and cannot reset a replacement
+alert. A binding that refuses dismissal leaves the current alert modal.
+Item identity remains typed, and presenting payloads are snapshots for one
+accepted hosted generation. Equal-true Boolean bindings do not invent a new
+identity or prove that an unobserved false-to-true transition occurred.
+
+Focus restoration waits for an accepted and materialized absent shell, existing
+retained-build settlement, fresh layout/prepaint, and the end of keyboard
+dispatch. It rechecks ownership and focus intent across application callbacks.
+It does not poll, schedule a Task, add a timer, or render continuously. Raw
+Component clients require an attached live runtime and have their own receipts;
+constructing a detached node does not confer hosted generation or focus rules.
+Three existing alert fixtures were explicitly migrated to retain that runtime
+and recognize the absent shell, preserving their action, binding, and environment
+assertions. All other 405 preexisting test/resource paths remain unchanged.
+
+The first root integration attempt failed compilation before tests because the
+new invalidation getter erased MainActor isolation at two callback arguments.
+The getter now returns an explicitly MainActor closure around the existing
+handler, without capturing the context or coordinator. A stock Swift 6 typecheck
+and subsequent real builds validate that correction. Its original source and
+failure remain under `artifacts/goal-sixth-alert-compile-failure-v1/`, with
+receipt SHA-256
+`c87e7947cbb8f9d94f3438fcd07c68f024be38e331d053ac8cf3aeeca8e51590`.
+The second attempt's runtime-release failure and separate accessibility-source
+ownership repair are recorded immediately above. Neither failed attempt has
+passing-run credit; no original alert assertion was weakened to obtain a pass.
+
+The corrected joined source passes 336 distinct XCTest cases in three serial
+runs: 240 alert, focus, presentation, close, and accessibility cases; all three
+migrated legacy alert cases; and 93 existing mounted-State, component, editor
+teardown, and GeometryReader preservation cases. This includes all 50 new alert
+and focus cases and all four separately committed ownership regressions.
+All runs exit zero without failures, skips, duplicate completed identifiers,
+timeouts, or changes to recorded source inputs, HEAD, index, or staged tree.
+The tested tree is `2481a293d5292bc81498ccc7633b13c27d95aefb` over `0ffc5cb`;
+splitting the ownership repair into its own commit changes history and the goal
+ledger, not those tested source bytes. The three log SHA-256 values are:
+
+- `58e7b7b7350049773bb4cdcaba77370a911399243e1c70ed0ab5263924603bb5`
+- `68b0678278efb23f858d3079c14e8e38f6a3142abf6ea9a8ebe4873f7d9a4a95`
+- `e92838e0fb9f15171cdb67355c9885fdb4085ddabdf4c40834388509f6b09455`
+
+Strict lint covers the ten alert Swift files, with a fresh check of the corrected
+getter and the two ownership files; contracts pass. `docs/RetainedAlerts.md`
+describes the accepted behavior and limits. These tests do not qualify native
+Enter/Space character routing, UI Automation modal isolation, COM provider
+teardown, document IO or unsaved-close decisions, native visual equivalence,
+Narrator, or a complete template workflow. Those remain separate integrations.
+All nine original product acceptance gates remain open.

@@ -104,7 +104,7 @@ function Read-MaterialTestObservation {
 }
 
 function New-MaterialTestFixture {
-    param([string]$Name)
+    param([string]$Name, [string]$CompilerVersionLine = $script:MaterialTestCompiler)
     $script:MaterialTestCases++
     $directory = Join-Path $script:MaterialTestRoot ("{0:D3}-{1}" -f $script:MaterialTestCases, $Name)
     $captureRoot = Join-Path $directory "sdk-capture"
@@ -133,7 +133,7 @@ function New-MaterialTestFixture {
     Write-MaterialTestText $executablePath "SYNTHETIC FIXTURE ONLY: not a reference renderer executable.`n"
     $manifest = Read-SwiftUIBaselineManifest -Path $manifestPath
     $identity = ConvertTo-SwiftUIBaselineIdentity -XcodeOutput "Xcode 26.6`nBuild version TESTXCODE" `
-        -SDKVersion "26.5" -SDKBuildVersion "TESTSDK" -SwiftOutput "$script:MaterialTestCompiler`nTarget: x86_64-apple-macosx26.5"
+        -SDKVersion "26.5" -SDKBuildVersion "TESTSDK" -SwiftOutput "$CompilerVersionLine`nTarget: x86_64-apple-macosx26.5"
     $fixture = [pscustomobject]@{
         directory = $directory; captureRoot = $captureRoot; observationRoot = $observationRoot
         manifestPath = $manifestPath; baselineCopy = $baselineCopy; developerDirectory = $developerDirectory
@@ -253,7 +253,7 @@ function New-MaterialTestFixture {
         provenance = [pscustomobject]@{
             osVersion = "Version 26.6 (Build TESTOS)"; osBuild = "TESTOS"
             xcodeAtCapture = "Xcode 26.6`nBuild version TESTXCODE"
-            swiftAtCapture = "$script:MaterialTestCompiler`nTarget: x86_64-apple-macosx26.5"
+            swiftAtCapture = "$CompilerVersionLine`nTarget: x86_64-apple-macosx26.5"
             sdkVersionAtCapture = "26.5"; sdkBuildAtCapture = "TESTSDK"; sdkPathAtCapture = $sdkPath
             sourceCommitAtCapture = $script:MaterialTestCommit; trackedWorkingTreeAtCapture = ""
             buildProvenance = "Synthetic fixture only; no native build."
@@ -385,6 +385,69 @@ try {
     $inconclusiveResult = Read-MaterialTestObservation $inconclusive (Read-MaterialTestSDK $inconclusive)
     Assert-MaterialTest ($inconclusiveResult.positiveControlStatus -ceq "inconclusive") "inconclusive capture is valid operational evidence"
     Assert-MaterialTest ($inconclusiveResult.manifest.inconclusiveReasons[0] -ceq $inconclusive.observation.inconclusiveReasons[0]) "preserve the inconclusive reason verbatim"
+
+    # Reuse the observed spelling only as synthetic test data. Every tool, SDK,
+    # renderer, and PNG remains a labelled fixture; these are not native results.
+    $syntheticReleaseCompiler = "Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)"
+    $syntheticDriverPrefix = "swift-driver version: 1.148.6 "
+    $syntheticRawReceipt = "$syntheticDriverPrefix$syntheticReleaseCompiler`nTarget: x86_64-apple-macosx26.0"
+    $prefixed = New-MaterialTestFixture "valid-driver-prefixed-receipt" -CompilerVersionLine $syntheticReleaseCompiler
+    $prefixedSDK = Read-MaterialTestSDK $prefixed
+    Assert-MaterialTest ($prefixedSDK.capture.observedIdentity.swiftCompilerVersion -ceq "6.3.3" -and
+        $prefixedSDK.capture.observedIdentity.swiftCompilerVersionLine -ceq $syntheticReleaseCompiler) "the SDK fixture has the complete canonical compiler identity"
+    $prefixed.observation.provenance.swiftAtCapture = $syntheticRawReceipt
+    Publish-MaterialTestObservation $prefixed
+    $prefixedCaptureHash = Get-MaterialTestHash $prefixed.capturePath
+    $prefixedObservationHash = Get-MaterialTestHash $prefixed.observationPath
+    $prefixedResult = Read-MaterialTestObservation $prefixed $prefixedSDK
+    Assert-MaterialTest ($prefixedResult.manifest.provenance.swiftAtCapture -ceq $syntheticRawReceipt) "normalizing compiler identity preserves the complete raw driver receipt and Target line"
+    Assert-MaterialTest ($prefixedResult.manifestSha256 -ceq $prefixedObservationHash -and
+        (Get-MaterialTestHash $prefixed.observationPath) -ceq $prefixedObservationHash) "normalizing compiler identity neither rewrites nor reseals the material manifest"
+    Assert-MaterialTest ($prefixedResult.positiveControlStatus -ceq "backdrop-filtering-observed") "recognized driver prefix does not change the synthetic control classification"
+    Assert-MaterialTest ($prefixedResult.manifest.qualification -ceq $prefixed.observation.qualification -and
+        $prefixedResult.manifest.groupBehaviorReview -ceq $prefixed.observation.groupBehaviorReview -and
+        -not $prefixedSDK.exactIdentityPreviouslyReviewed) "matching compiler text does not review or qualify synthetic evidence"
+
+    $prefixed.observation.positiveControlStatus = "inconclusive"
+    $prefixed.observation.inconclusiveReasons = @(
+        "Synthetic prefixed receipt: ordinary material did not retain enough coarse variation.",
+        "Synthetic prefixed receipt: ordinary material did not selectively attenuate the fine pattern."
+    )
+    foreach ($control in $prefixed.observation.controlsByRepetition) {
+        $control.status = "inconclusive"
+        $control.reasons = @($prefixed.observation.inconclusiveReasons)
+    }
+    Publish-MaterialTestObservation $prefixed
+    $prefixedInconclusiveHash = Get-MaterialTestHash $prefixed.observationPath
+    $prefixedInconclusive = Read-MaterialTestObservation $prefixed $prefixedSDK
+    Assert-MaterialTest ($prefixedInconclusive.positiveControlStatus -ceq "inconclusive" -and
+        $prefixedInconclusive.manifest.qualification -ceq $prefixed.observation.qualification -and
+        $prefixedInconclusive.manifest.groupBehaviorReview -ceq $prefixed.observation.groupBehaviorReview) "recognized driver prefix leaves inconclusive observations unreviewed and unqualified"
+    Assert-MaterialTest ($prefixedInconclusive.manifest.provenance.swiftAtCapture -ceq $syntheticRawReceipt -and
+        $prefixedInconclusive.manifestSha256 -ceq $prefixedInconclusiveHash -and
+        (Get-MaterialTestHash $prefixed.observationPath) -ceq $prefixedInconclusiveHash) "inconclusive validation preserves the raw receipt and exact manifest bytes"
+    Assert-MaterialTest ($prefixedInconclusive.manifest.inconclusiveReasons.Count -eq 2) "all inconclusive reasons survive prefix normalization"
+    for ($reasonIndex = 0; $reasonIndex -lt 2; $reasonIndex++) {
+        $expectedReason = $prefixed.observation.inconclusiveReasons[$reasonIndex]
+        Assert-MaterialTest ($prefixedInconclusive.manifest.inconclusiveReasons[$reasonIndex] -ceq $expectedReason) "preserve inconclusive reason $reasonIndex verbatim"
+        foreach ($control in $prefixedInconclusive.manifest.controlsByRepetition) {
+            Assert-MaterialTest ($control.status -ceq "inconclusive" -and $control.reasons.Count -eq 2 -and
+                $control.reasons[$reasonIndex] -ceq $expectedReason) "preserve each repetition's inconclusive reason $reasonIndex verbatim"
+        }
+    }
+    Assert-MaterialTest ((Get-MaterialTestHash $prefixed.capturePath) -ceq $prefixedCaptureHash) "material receipt normalization leaves the captured SDK identity and seal unchanged"
+
+    foreach ($case in @(
+            @{ name = "prefixed-compiler-patch"; compiler = $syntheticReleaseCompiler.Replace("version 6.3.3 ", "version 6.3.4 ") },
+            @{ name = "prefixed-swiftlang-build"; compiler = $syntheticReleaseCompiler.Replace("swiftlang-6.3.3.1.3", "swiftlang-6.3.3.1.4") },
+            @{ name = "prefixed-clang-build"; compiler = $syntheticReleaseCompiler.Replace("clang-2100.1.1.101", "clang-2100.1.1.102") })) {
+        $fixture = New-MaterialTestFixture $case.name -CompilerVersionLine $syntheticReleaseCompiler
+        $context = Read-MaterialTestSDK $fixture
+        $fixture.observation.provenance.swiftAtCapture = $syntheticDriverPrefix + $case.compiler + "`nTarget: x86_64-apple-macosx26.0"
+        Publish-MaterialTestObservation $fixture
+        Test-MaterialRejection { Read-MaterialTestObservation $fixture $context } `
+            'Material swiftCompilerVersionLine disagrees with the captured SDK identity' $case.name
+    }
 
     $sdkCases = @(
         @{ name = "capture-tamper"; pattern = '(?i)capture.*(hash|sha256|digest)|(?:hash|sha256|digest).*capture'; publish = $false; change = {

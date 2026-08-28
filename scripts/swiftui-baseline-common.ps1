@@ -70,26 +70,31 @@ function ConvertTo-SwiftUIBaselineIdentity {
         [Parameter(Mandatory)][string]$SwiftOutput
     )
 
-    $xcodeVersion = [regex]::Match($XcodeOutput, '(?m)^Xcode (\d+\.\d+(?:\.\d+)?)[ \t]*\r?$')
-    $xcodeBuild = [regex]::Match($XcodeOutput, '(?m)^Build version ([A-Za-z0-9]+)[ \t]*\r?$')
-    $swiftVersion = [regex]::Match($SwiftOutput, '(?m)^((?:swift-driver version: [^ \t\r\n]+[ \t]+)?Apple Swift version (\d+\.\d+(?:\.\d+)?)(?=[ \t(]|\r?$)[^\r\n]*)\r?$')
-    if (-not $xcodeVersion.Success -or -not $xcodeBuild.Success) {
+    $xcodeVersions = [regex]::Matches($XcodeOutput, '(?m)^Xcode (\d+\.\d+(?:\.\d+)?)[ \t]*\r?$')
+    $xcodeBuilds = [regex]::Matches($XcodeOutput, '(?m)^Build version ([A-Za-z0-9]+)[ \t]*\r?$')
+    # The swift driver can prepend its own version to the compiler's line.
+    # Canonical identity starts at Apple Swift and retains the complete compiler
+    # build suffix. Callers keep the original stdout/provenance receipt; this
+    # derived field does not assert that two executables have identical bytes.
+    $swiftVersions = [regex]::Matches($SwiftOutput, '(?m)^(?:swift-driver version: [^ \t\r\n]+[ \t]+)?(?<compilerLine>Apple Swift version (?<compilerVersion>\d+\.\d+(?:\.\d+)?)(?=[ \t(]|\r?$)[^\r\n]*)\r?$')
+    $swiftHeaders = [regex]::Matches($SwiftOutput, '(?i)\bApple Swift version\b')
+    if ($xcodeVersions.Count -ne 1 -or $xcodeBuilds.Count -ne 1) {
         throw "Cannot identify the Xcode release and build from xcodebuild -version."
     }
-    if (-not $swiftVersion.Success -or $SwiftOutput -match '(?i)DEVELOPMENT-SNAPSHOT|\bbeta\b') {
-        throw "Expected a released Apple Swift compiler from XcodeDefault."
+    if ($swiftVersions.Count -ne 1 -or $swiftHeaders.Count -ne 1 -or $SwiftOutput -match '(?i)DEVELOPMENT-SNAPSHOT|\bbeta\b') {
+        throw "Expected one unambiguous released Apple Swift compiler identity from XcodeDefault."
     }
     if ($SDKVersion.Trim() -notmatch '^\d+\.\d+(?:\.\d+)?$' -or
         $SDKBuildVersion.Trim() -notmatch '^[A-Za-z0-9]+$') {
         throw "Cannot identify the macOS SDK version and build."
     }
     return [pscustomobject][ordered]@{
-        xcodeVersion = $xcodeVersion.Groups[1].Value
-        xcodeBuildVersion = $xcodeBuild.Groups[1].Value
+        xcodeVersion = $xcodeVersions[0].Groups[1].Value
+        xcodeBuildVersion = $xcodeBuilds[0].Groups[1].Value
         sdkVersion = $SDKVersion.Trim()
         sdkBuildVersion = $SDKBuildVersion.Trim()
-        swiftCompilerVersion = $swiftVersion.Groups[2].Value
-        swiftCompilerVersionLine = $swiftVersion.Groups[1].Value.TrimEnd()
+        swiftCompilerVersion = $swiftVersions[0].Groups['compilerVersion'].Value
+        swiftCompilerVersionLine = $swiftVersions[0].Groups['compilerLine'].Value.TrimEnd()
     }
 }
 

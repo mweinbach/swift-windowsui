@@ -71,6 +71,18 @@ Any populated identity pin is checked even without that switch. The switch
 also rejects pending identity review. Neither mode edits the manifest,
 approves new SDK versions, or marks conformance complete.
 
+The normalized `swiftCompilerVersionLine` starts with `Apple Swift version`.
+The shared parser accepts that header by itself or preceded by the recognized
+`swift-driver version: <version> ` prefix; it excludes only the driver prefix
+from the derived compiler identity and retains the complete compiler patch,
+`swiftlang` build, and `clang` build suffix. Multiple compiler identities or
+Xcode release/build headers are rejected rather than selecting the first.
+SDK exporter command receipts and reference manifests' `swiftAtCapture` keep
+the original stdout, including the driver prefix and target line. No existing
+artifact or identity pin is rewritten. Matching normalized version text is
+not proof that compiler executables match: tool hashes, selected paths, SDK
+and Xcode builds, source commit, and runtime provenance remain separate checks.
+
 ## Candidate capture in GitHub Actions
 
 The [SwiftUI baseline candidate capture workflow](../.github/workflows/swiftui-baseline-capture.yml)

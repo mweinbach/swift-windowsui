@@ -81,7 +81,72 @@ $identity = ConvertTo-SwiftUIBaselineIdentity -XcodeOutput "Xcode 26.6`nBuild ve
 $driverLine = "swift-driver version: 0.0-fixture Apple Swift version 6.3.1 (synthetic test compiler)"
 $driverIdentity = ConvertTo-SwiftUIBaselineIdentity -XcodeOutput "Xcode 26.6`r`nBuild version TESTXCODE1" -SDKVersion "26.5" -SDKBuildVersion "TESTSDK1" -SwiftOutput "$driverLine`r`nTarget: arm64-apple-macosx26.5"
 Assert-BaselineTest ($driverIdentity.swiftCompilerVersion -ceq "6.3.1") "accept the Apple driver-prefixed version output"
-Assert-BaselineTest ($driverIdentity.swiftCompilerVersionLine -ceq $driverLine) "retain the exact driver/compiler build line"
+Assert-BaselineTest ($driverIdentity.swiftCompilerVersionLine -ceq "Apple Swift version 6.3.1 (synthetic test compiler)") "canonical compiler identity excludes only the driver prefix and retains the compiler suffix"
+
+# These exact text forms were observed in the unreviewed 33135644721 artifact.
+# They are regression input strings, not a native invocation or identity review.
+$observedCompilerLine = "Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)"
+$observedDriverLine = "swift-driver version: 1.148.6 $observedCompilerLine"
+$observedIdentityArguments = @{
+    XcodeOutput = "Xcode 26.6`nBuild version 17F113"
+    SDKVersion = "26.5"
+    SDKBuildVersion = "25F70"
+}
+$plainObservedIdentity = ConvertTo-SwiftUIBaselineIdentity @observedIdentityArguments -SwiftOutput "$observedCompilerLine`nTarget: x86_64-apple-macosx26.0"
+foreach ($receipt in @(
+        "$observedDriverLine`nTarget: x86_64-apple-macosx26.0",
+        "$observedDriverLine`r`nTarget: x86_64-apple-macosx26.0`r`n",
+        "$observedDriverLine  `nTarget: x86_64-apple-macosx26.0"
+    )) {
+    $originalReceipt = $receipt
+    $normalized = ConvertTo-SwiftUIBaselineIdentity @observedIdentityArguments -SwiftOutput $receipt
+    foreach ($field in @('xcodeVersion', 'xcodeBuildVersion', 'sdkVersion', 'sdkBuildVersion', 'swiftCompilerVersion', 'swiftCompilerVersionLine')) {
+        Assert-BaselineTest ($normalized.$field -ceq $plainObservedIdentity.$field) "driver normalization keeps the complete $field identity"
+    }
+    Assert-BaselineTest ($receipt -ceq $originalReceipt) "normalization does not replace the caller's raw compiler receipt"
+}
+Assert-BaselineTest ($plainObservedIdentity.swiftCompilerVersionLine -ceq $observedCompilerLine) "canonical form preserves both full compiler and clang build suffixes"
+Assert-BaselineTest ($plainObservedIdentity.swiftCompilerVersion -ceq '6.3.3') "canonical form preserves the compiler patch version"
+$observedTestPin = Copy-BaselineTestObject $manifest
+$observedTestPin.reviewedIdentity.status = 'reviewed'
+foreach ($field in @('xcodeBuildVersion', 'sdkBuildVersion', 'swiftCompilerVersionLine')) {
+    $observedTestPin.reviewedIdentity.$field = $plainObservedIdentity.$field
+}
+$driverObservedIdentity = ConvertTo-SwiftUIBaselineIdentity @observedIdentityArguments -SwiftOutput $observedDriverLine
+Assert-BaselineTest (Assert-SwiftUIBaselineIdentity -Manifest $observedTestPin -Identity $driverObservedIdentity -RequireReviewedIdentity) "canonical compiler line matches an explicit in-memory test pin without changing that pin"
+foreach ($differentLine in @(
+        $observedDriverLine.Replace('version 6.3.3', 'version 6.3.4'),
+        $observedDriverLine.Replace('swiftlang-6.3.3.1.3', 'swiftlang-6.3.3.1.4'),
+        $observedDriverLine.Replace('clang-2100.1.1.101', 'clang-2100.1.1.102')
+    )) {
+    $differentIdentity = ConvertTo-SwiftUIBaselineIdentity @observedIdentityArguments -SwiftOutput $differentLine
+    Assert-BaselineTest ($differentIdentity.swiftCompilerVersionLine -cne $observedCompilerLine) "driver normalization does not discard a changed compiler patch/build suffix"
+    Assert-BaselineThrows { Assert-SwiftUIBaselineIdentity -Manifest $observedTestPin -Identity $differentIdentity } 'Pinned identity mismatch' "reject a changed full compiler identity after prefix normalization"
+}
+foreach ($ambiguousOutput in @(
+        "$observedCompilerLine`n$observedDriverLine",
+        "$observedDriverLine`n$($observedCompilerLine.Replace('swiftlang-6.3.3.1.3', 'swiftlang-6.3.3.1.4'))",
+        "$observedCompilerLine $observedCompilerLine"
+    )) {
+    Assert-BaselineThrows { ConvertTo-SwiftUIBaselineIdentity @observedIdentityArguments -SwiftOutput $ambiguousOutput } 'unambiguous' "reject multiple compiler identities instead of choosing the first"
+}
+foreach ($malformedOutput in @(
+        "other-driver version: 1.148.6 $observedCompilerLine",
+        "swift-driver version 1.148.6 $observedCompilerLine",
+        "swift-driver version: $observedCompilerLine",
+        "prefix $observedDriverLine",
+        $observedDriverLine.Replace('version 6.3.3', 'version 6.3.3-dev'),
+        $observedDriverLine.Replace('swiftlang-6.3.3.1.3', 'swift-DEVELOPMENT-SNAPSHOT'),
+        $observedDriverLine.Replace('swiftlang-6.3.3.1.3', 'swiftlang-6.3.3-beta')
+    )) {
+    Assert-BaselineThrows { ConvertTo-SwiftUIBaselineIdentity @observedIdentityArguments -SwiftOutput $malformedOutput } 'released Apple Swift' "reject malformed driver/compiler output without a loose substring fallback"
+}
+foreach ($ambiguousXcode in @(
+        "Xcode 26.6`nXcode 26.7`nBuild version 17F113",
+        "Xcode 26.6`nBuild version 17F113`nBuild version OTHERBUILD"
+    )) {
+    Assert-BaselineThrows { ConvertTo-SwiftUIBaselineIdentity -XcodeOutput $ambiguousXcode -SDKVersion '26.5' -SDKBuildVersion '25F70' -SwiftOutput $observedDriverLine } 'Cannot identify' "reject ambiguous Xcode release/build receipts"
+}
 $unreviewedManifest = Copy-BaselineTestObject $manifest
 foreach ($field in @("xcodeBuildVersion", "sdkBuildVersion", "swiftCompilerVersionLine")) {
     $unreviewedManifest.reviewedIdentity.$field = $null

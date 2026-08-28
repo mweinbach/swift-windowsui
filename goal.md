@@ -3759,3 +3759,163 @@ parity remain open. No visual screenshot or native document workflow is
 qualified by these focused tests. Full, Quick, gallery, same-commit reference,
 hosted, and release validation are still required for this batch. This slice
 does not complete DocumentGroup or any of the nine original product gates.
+
+### Sixth batch: typed document sessions and one model history
+
+DocumentGroup now retains typed factories and content builders without creating
+a model, fabricating an empty input file, or invoking application content during
+scene collection. Editing and viewing adapters use their required associated
+configuration types without forced casts. FileDocumentConfiguration exposes the
+document value and its standard projected binding. Viewing permission belongs
+to the underlying binding, so changing metadata on a copied configuration cannot
+grant write access. Reference documents remain explicitly unsupported by this
+value-inverse implementation.
+
+This is an internal headless hosting stage. Each materialized window receives a
+separate session, owner lease, undo manager, scene storage, and environment
+actions before its first content build. Open/New routing retains the requesting
+window's identity and mutation revision across file selection, type callbacks,
+decoding, host construction, and startup. Retired requesters cannot admit a new
+window or publish an error into a replacement one. Exact standardized file URLs
+within one declaration reuse a window; this is not filesystem identity or
+external-change coordination.
+
+The shared DemoDocumentScene and DemoDocumentEditor use ordinary SwiftUI-shaped
+source and a strict UTF-8 value document. The editor owns selection through
+mounted State and receives configuration.$document. Its Windows path now
+compiles, but this slice does not enable the scene as the default executable or
+claim a new native macOS build. No fake open or save action substitutes for file
+operations.
+
+The live regular-file service performs bounded reads in owned operations, with
+a 16 MiB input ceiling and one overflow byte to detect excess input. The codec
+rejects malformed UTF-8, undeclared types, directories, and unsupported wrappers.
+Valid file bytes retain BOMs, decomposed characters, line endings, whitespace,
+and embedded NUL content. A NUL in a file path is rejected. Layout and the codec
+do not normalize the model; the existing paste policy remains separate. The
+shared exporter and document service use the same atomic write helper. Atomic
+replacement does not establish power-loss durability, and this input limit does
+not bound future edits, output size, or retained history.
+
+Direct model assignments and accepted editor writes now share one document-owned
+history. An editor write carries an explicit single-use mutation ticket through
+generated Binding projections, receives the exact accepted model-action receipt,
+and optionally attaches before/after selection to that receipt. It does not add
+a second local text action or infer ownership from equal text or the manager's
+top action. Optional and indexed projections retain mutation ownership without
+claiming a stable selection projection. Disabled or nil history registration
+does not invent fallback history. Managed secure input rejects document editing
+instead of storing plaintext model inverses.
+
+Every accepted assignment creates a checkpoint; undo/redo restore checkpoint
+identity while mutation revisions continue increasing. Save records the persisted
+checkpoint without clearing history. Undoing to that checkpoint becomes clean;
+an unrelated history branch at the same depth does not. Losing an optional editor
+selection endpoint cannot erase an already accepted model action. Composition
+blocks replay, and conservative selection restoration rejects changed explicit
+selection, retired owners, stale runtime stamps, and invalidated projections.
+It does not claim to detect arbitrary silent side effects in custom getters.
+
+Save tickets bind owner generation, session, operation, and mutation revision
+before callbacks. Cancel, dialog failure, serialization failure, write failure,
+and superseded ownership remain distinct. A completed write keeps its exact
+byte/destination receipt even if a later edit leaves the model dirty or the owner
+retires; obsolete work cannot update newer URL/checkpoint metadata. Dirty close
+has a separate intent with Save/Discard/Cancel outcomes and a final single-use
+reservation. Failed destruction releases the write barrier without reviving the
+consumed approval. This protocol is exercised through explicit headless hooks,
+not an ordinary second WM_CLOSE or a Boolean save approval.
+
+Native startup continues to reject every unadapted document marker, descriptor,
+or context before platform window creation, pending-work flush, or layout. The
+document session is not yet connected to the native close participant, owned
+retry delivery, real decision presentation, and command routing. The existing
+native close primitives are groundwork, not completion of those connections.
+Native scheduling, Unicode/IME behavior, actual file panels, Narrator, wheel/UIA
+editor scrolling, and the complete open/edit/undo/save/unsaved-close workflow
+remain required work.
+
+### Sixth batch: Binding facade and document validation corrections
+
+The shared document source exposed a public Binding visibility problem. The
+facade now selectively re-exports the original SwiftWindowsCore.Binding
+declaration. A generic typealias was tried and rejected after it caused
+ambiguity for clients importing both modules; that failed candidate was not
+integrated. The selected export supports facade-only public generic signatures,
+property-wrapper initialization/projection, and dual-import clients without
+exporting unrelated Core declarations. A separately preserved compiler probe
+passes its seven expected positive/negative outcomes; three unrelated-name
+sentinels and a public-import-only control remain negative. This is installed
+compiler evidence, not a full native SDK compatibility qualification.
+
+Prospective compilation also required an explicit MainActor factory closure and
+two throws(Never) test-closure headers. Earlier compiler and wrapper failures
+remain archived rather than relabeled as successful attempts. The corrected
+prospective build compiled and linked all products and the test runner, then its
+first focused run stopped after 67 passing cases at an error-clearing crash.
+Root compilation independently succeeded and reproduced the same unfinished
+case after 69 passes, including the two facade cases. Neither partial run was
+reported as a completed pass.
+
+The crash occurred when DocumentWindowContext cleared routingError: destroying
+the displaced application Error wrote through a binding and rebuilt content,
+which read routingError while its original stored-property modification was
+still active. The three-line production correction retains the displaced value
+through that assignment, then releases it outside the exclusive access and
+before invalidation/validation. The routing ticket is already installed, so a
+nested save remains busy and a newer model revision still supersedes the outer
+save without writing bytes. The original failure test and assertions remain.
+
+A separate root run completed 30 cases with one failed caret assertion. The
+fixture requested upstream affinity on range 1..<2 but never established an
+active caret at its lower endpoint; initial construction placed it at 2, and
+undo correctly restored that captured value. The fixture now starts at insertion
+2..<2, sends real Shift+Left, and asserts range 1..<2, upstream affinity, and
+caret 1 before editing. Every original Unicode, type, undo, and redo assertion
+remains unchanged. No production selection behavior was altered for this
+correction. Both original failures and their source copies were preserved before
+either correction was applied.
+
+The final root run passes all 175 new cases:
+
+| Suite | Distinct passing cases |
+| --- | ---: |
+| BindingFacadePublicBoundaryTests | 2 |
+| DemoDocumentTemplateTests | 12 |
+| DocumentFileServiceTests | 27 |
+| DocumentGroupHostingTests | 44 |
+| DocumentSessionEditorIntegrationTests | 3 |
+| DocumentTextUndoTests | 42 |
+| FileDocumentSessionTests | 45 |
+
+That run also passes the 395 binding, undo, ownership, settings, window, close,
+build-settlement, alert, and focus preservation cases plus 55 other existing
+declaration/integration cases. There are 625 distinct passing identifiers, no
+failures or skips, and no timeout. The existing broad IntegrationTests filter
+runs the three document/editor integration cases a second time: 628 completion
+events must not be reported as 628 distinct cases. The run uses 24 selected
+targets and 32 serial invocations on unchanged staged tree
+`43032b867c8e1e3bbd6d3d41acb9b2ec7a1eb017` over `faeca5e`, finishing at
+2026-08-28 13:27:41 UTC. Log SHA-256:
+`797e993705276c67298fb2b4c1376b0eeadb6d25b2a7883eaa800d4da863cca6`.
+Receipts and per-class summaries are under
+`artifacts/goal-sixth-document-joined-tests-v2*`. Recorded source, HEAD, staged
+tree, and real index bytes remained unchanged during execution. Strict lint
+passes for all 20 changed Swift files, and contracts pass. Compiler warnings
+remain visible in the raw log; this is not a warning-free build claim.
+
+The source verifier matches the frozen document and corrective increments while
+preserving the earlier native/editor/UIA corrections and all 402 preexisting
+test/resource paths outside the four already recorded fixture files. The
+document work is split into four coherent commits: facade export, binding/editor
+undo ownership, file/model sessions and shared sample, then headless scene
+hosting and documentation. Their combined source is tested; intermediate commit
+buildability is a source-dependency inference rather than a separate run.
+
+Docs now explain the supported typed/value subset, real IO and history behavior,
+and native integration limits. Synchronous main-actor serialization, mutable
+reference aliases inside value documents, filesystem races, package documents,
+external coordination, and large-document responsiveness remain unqualified.
+Full, Quick, raw retained screenshots, gallery/reference checks, and hosted
+validation remain pending for this batch. No original scope or acceptance
+criterion has changed, and all nine original product gates remain open.

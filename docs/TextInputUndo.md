@@ -1,6 +1,6 @@
 # Retained text undo and redo
 
-Nonsecure `TextField` and `TextEditor` controls register accepted text edits
+Ordinary nonsecure `TextField` and `TextEditor` controls register accepted text edits
 with their inherited `EnvironmentValues.undoManager`. Hosted windows supply a
 stable default manager; an environment override can share a manager or set it
 to `nil` to disable automatic history. `SecureField` does not create an
@@ -60,6 +60,40 @@ The identifier must represent the document session, not the current text or
 selection. Changing that identifier, removing the control, changing between
 secure and nonsecure input, or replacing its manager ends its old history.
 Equal-text replacements with an unchanged identity are not a new session.
+
+## Session-owned document bindings
+
+The internal [document session stage](DocumentSessions.md) supplies an explicit
+binding source and accepted-edit ticket for its writable configuration. Those
+bindings use the session's model inverses instead of the ordinary editor delta
+path. Direct document assignments and editor edits therefore share one undo
+authority. A model assignment accepted through a computed projection remains
+an action even when the projected text is unchanged. A retired managed source
+does not become an ordinary binding with fresh local history.
+
+An editor may attach selection to its exact accepted model-action receipt.
+It cannot attach to a later direct assignment by inspecting the stack top.
+Losing the editor removes optional selection behavior, not an accepted model
+inverse. Generated key-path projections carry location identity; arbitrary
+closure, optional, and collection projections do not invent equivalent
+selection identities. Replay preparation reads a cached observation without
+calling an application selection getter after the model action is consumed.
+
+After model replay, selection restoration settles input eligibility before
+reading bindings. The final checks do not run layout again. A checked runtime
+stamp advances on invalidation and every resolved-layout entry, including a
+nested pass draining a callback queued before the restore. Any observed pass
+after capture, changed explicit selection, or exhausted stamp refuses that
+optional restore. This is a conservative rule for observable mutations and
+layout, not detection of every silent custom-binding side effect.
+
+This managed path keeps its session manager even under an editor subtree
+override; nil session history does not enable a second local manager. Active
+composition blocks model replay. Managed secure input is unsupported and
+rejects edits, because a whole-model inverse could otherwise retain plaintext.
+Ordinary `SecureField` behavior is unchanged. These rules do not qualify native
+document-manager overrides, Foundation typing groups, or reference-shaped
+model snapshots. Default native DocumentGroup activation remains disabled.
 
 Boolean and item-based sheets keep a stable retained host around their base
 content, including while unpresented. Opening or dismissing a sheet therefore
@@ -126,11 +160,13 @@ State/editor ownership boundaries, including payload deinitializers and escaped
 handles. Run these with the existing text input, reconciliation, and close suites
 when changing the integration.
 
-This is a bounded editor history path, not a complete document workflow. Native
-typing-group behavior, full Foundation grouping/event notifications, platform
-Edit-menu validation, native IME/selection parity, full editor scrolling,
-document dirty/save checkpoints, autosave, and
-`DocumentGroup` hosting remain separate work. Same-source API compatibility
+This is a bounded editor history path, not a complete document workflow. The
+separate internal document stage adds model history and saved checkpoints,
+with explicitly injected headless scene hosting. Native activation and final
+unsaved-close integration remain blocked. Native typing-group behavior, full
+Foundation grouping/event notifications, platform Edit-menu validation,
+native IME/selection parity, full editor scrolling, and autosave remain open.
+Same-source API compatibility
 does not establish those behaviors without a pinned native reference.
 The bounded visual-line navigation and editor-owned keyboard caret reveal are
 documented separately in [TextEditorNavigation.md](TextEditorNavigation.md).

@@ -507,64 +507,47 @@ public struct DocumentGroup<Content: View>: Scene {
     public init<Document: FileDocument>(
         newDocument: @autoclosure @escaping () -> Document,
         @ViewBuilder content: @escaping (FileDocumentConfiguration<Document>) -> Content
-    ) {
-        let document = newDocument()
-        let binding = Binding(get: { document }, set: { _ in })
-        let fileConfig = FileDocumentConfiguration(document: binding, fileURL: nil, isEditable: true)
-        self.configuration = WindowGroupConfiguration(
-            title: "Untitled",
-            size: IntSize(width: 1280, height: 720),
-            clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
-            content: [AnyView(content(fileConfig))],
-            isDocumentGroup: true
+    )
+    where
+        Document.ReadConfiguration == FileDocumentReadConfiguration,
+        Document.WriteConfiguration == FileDocumentWriteConfiguration
+    {
+        self.configuration = Self.declaration(
+            DocumentSceneDescriptor(
+                documentType: Document.self, codec: .editable(Document.self),
+                newDocument: { @MainActor in newDocument() }, isEditable: true,
+                content: { [AnyView(content($0))] }
+            )
         )
     }
 
     public init<Document: FileDocument>(
         viewing documentType: Document.Type,
         @ViewBuilder content: @escaping (FileDocumentConfiguration<Document>) -> Content
-    ) {
-        let document: Document
-        do {
-            let readConfig =
-                FileDocumentReadConfiguration(file: FileWrapper(), contentType: UTType.data)
-                as! Document.ReadConfiguration
-            document = try documentType.init(configuration: readConfig)
-        } catch {
-            fatalError("DocumentGroup(viewing:) requires a document type with a default-readable init: \(error)")
-        }
-        let binding = Binding(get: { document }, set: { _ in })
-        let fileConfig = FileDocumentConfiguration(document: binding, fileURL: nil, isEditable: false)
-        self.configuration = WindowGroupConfiguration(
-            title: "Untitled",
-            size: IntSize(width: 1280, height: 720),
-            clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
-            content: [AnyView(content(fileConfig))],
-            isDocumentGroup: true
+    ) where Document.ReadConfiguration == FileDocumentReadConfiguration {
+        self.configuration = Self.declaration(
+            DocumentSceneDescriptor(
+                documentType: documentType, codec: .viewing(documentType),
+                newDocument: nil, isEditable: false,
+                content: { [AnyView(content($0))] }
+            )
         )
     }
 
     public init<Document: FileDocument>(
         editing documentType: Document.Type,
         @ViewBuilder content: @escaping (FileDocumentConfiguration<Document>) -> Content
-    ) {
-        let document: Document
-        do {
-            let readConfig =
-                FileDocumentReadConfiguration(file: FileWrapper(), contentType: UTType.data)
-                as! Document.ReadConfiguration
-            document = try documentType.init(configuration: readConfig)
-        } catch {
-            fatalError("DocumentGroup(editing:) requires a document type with a default-readable init: \(error)")
-        }
-        let binding = Binding(get: { document }, set: { _ in })
-        let fileConfig = FileDocumentConfiguration(document: binding, fileURL: nil, isEditable: true)
-        self.configuration = WindowGroupConfiguration(
-            title: "Untitled",
-            size: IntSize(width: 1280, height: 720),
-            clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
-            content: [AnyView(content(fileConfig))],
-            isDocumentGroup: true
+    )
+    where
+        Document.ReadConfiguration == FileDocumentReadConfiguration,
+        Document.WriteConfiguration == FileDocumentWriteConfiguration
+    {
+        self.configuration = Self.declaration(
+            DocumentSceneDescriptor(
+                documentType: documentType, codec: .editable(documentType),
+                newDocument: nil, isEditable: true,
+                content: { [AnyView(content($0))] }
+            )
         )
     }
 
@@ -572,16 +555,21 @@ public struct DocumentGroup<Content: View>: Scene {
         newDocument: @autoclosure @escaping () -> Document,
         @ViewBuilder content: @escaping (FileDocumentConfiguration<Document>) -> Content
     ) {
-        let document = newDocument()
-        let binding = Binding(get: { document }, set: { _ in })
-        let fileConfig = FileDocumentConfiguration(document: binding, fileURL: nil, isEditable: true)
-        self.configuration = WindowGroupConfiguration(
+        // Retain the declaration shape without manufacturing a reference
+        // model or pretending that value-inverse history supports it.
+        self.configuration = Self.declaration(.unsupportedReferenceDocument)
+    }
+
+    private static func declaration(_ descriptor: DocumentSceneDescriptor) -> WindowGroupConfiguration {
+        var configuration = WindowGroupConfiguration(
             title: "Untitled",
             size: IntSize(width: 1280, height: 720),
             clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
-            content: [AnyView(content(fileConfig))],
+            content: [],
             isDocumentGroup: true
         )
+        configuration.documentScene = descriptor
+        return configuration
     }
 
     public var body: Never {
@@ -1721,6 +1709,9 @@ public struct EnvironmentScene<Content: Scene, Value>: Scene {
                 buildContent(payload).map { $0.mappingViewIdentity { AnyView($0.environment(keyPath, value)) } }
             }
         }
+        configuration.documentScene = configuration.documentScene?.mappingContent { views in
+            views.map { $0.mappingViewIdentity { AnyView($0.environment(keyPath, value)) } }
+        }
         return configuration
     }
 }
@@ -1763,6 +1754,9 @@ public struct EnvironmentObjectScene<Content: Scene, ObjectType: ObservableObjec
             configuration.dataBoundContent = { payload in
                 buildContent(payload).map { $0.mappingViewIdentity { AnyView($0.environmentObject(object)) } }
             }
+        }
+        configuration.documentScene = configuration.documentScene?.mappingContent { views in
+            views.map { $0.mappingViewIdentity { AnyView($0.environmentObject(object)) } }
         }
         return configuration
     }
@@ -1860,6 +1854,331 @@ public struct AllowsWindowInliningScene<Content: Scene>: Scene {
         }
     }
 }
+/// Erases the model type through operations implemented by a typed adapter;
+/// document values never travel through Any or a value-window payload.
+@MainActor
+protocol AnyDocumentSession: AnyObject {
+    var sessionID: UUID { get }
+    var fileURL: URL? { get }
+    var isEditable: Bool { get }
+    var isDirty: Bool { get }
+    var mutationRevision: UInt64 { get }
+    var currentCheckpoint: DocumentCheckpoint { get }
+    var savedCheckpoint: DocumentCheckpoint? { get }
+    var savedBytes: Data? { get }
+    var lastError: Error? { get }
+    var hasActiveOperation: Bool { get }
+    var pendingCloseIntent: DocumentCloseIntent? { get }
+    var closeApproval: DocumentCloseApproval? { get }
+    var closePhase: DocumentClosePhase { get }
+    var onChange: (@MainActor () -> Void)? { get set }
+    func makeContent() -> [AnyView]
+    func save() -> DocumentSaveOutcome
+    func saveAs() -> DocumentSaveOutcome
+    func save(to url: URL) -> DocumentSaveOutcome
+    func requestClose(isHostSettled: Bool) -> DocumentCloseRequest
+    func resolveCloseIntent(id: UUID, choice: DocumentCloseChoice) -> DocumentCloseResolution
+    func invalidateCloseForHostChange()
+    func reserveClose(approval: DocumentCloseApproval, isHostSettled: Bool) -> Bool
+    func releaseCloseReservation(_ approval: DocumentCloseApproval)
+    func invalidate()
+}
+
+@MainActor
+private final class DocumentSessionAdapter<Document: FileDocument>: AnyDocumentSession {
+    let session: FileDocumentSession<Document>
+    private let content: @MainActor (FileDocumentConfiguration<Document>) -> [AnyView]
+
+    init(
+        session: FileDocumentSession<Document>,
+        content: @escaping @MainActor (FileDocumentConfiguration<Document>) -> [AnyView]
+    ) {
+        self.session = session
+        self.content = content
+    }
+
+    var sessionID: UUID { session.sessionID }
+    var fileURL: URL? { session.fileURL }
+    var isEditable: Bool { session.isEditable }
+    var isDirty: Bool { session.isDirty }
+    var mutationRevision: UInt64 { session.mutationRevision }
+    var currentCheckpoint: DocumentCheckpoint { session.currentCheckpoint }
+    var savedCheckpoint: DocumentCheckpoint? { session.savedCheckpoint }
+    var savedBytes: Data? { session.savedBytes }
+    var lastError: Error? { session.lastError }
+    var hasActiveOperation: Bool { session.hasActiveOperation }
+    var pendingCloseIntent: DocumentCloseIntent? { session.pendingCloseIntent }
+    var closeApproval: DocumentCloseApproval? { session.closeApproval }
+    var closePhase: DocumentClosePhase { session.closePhase }
+    var onChange: (@MainActor () -> Void)? {
+        get { session.onChange }
+        set { session.onChange = newValue }
+    }
+
+    func makeContent() -> [AnyView] { content(session.configuration()) }
+    func save() -> DocumentSaveOutcome { session.save() }
+    func saveAs() -> DocumentSaveOutcome { session.saveAs() }
+    func save(to url: URL) -> DocumentSaveOutcome { session.save(to: url) }
+    func requestClose(isHostSettled: Bool) -> DocumentCloseRequest {
+        session.requestClose(isHostSettled: isHostSettled)
+    }
+    func resolveCloseIntent(id: UUID, choice: DocumentCloseChoice) -> DocumentCloseResolution {
+        session.resolveCloseIntent(id: id, choice: choice)
+    }
+    func invalidateCloseForHostChange() { session.invalidateCloseForHostChange() }
+    func reserveClose(approval: DocumentCloseApproval, isHostSettled: Bool) -> Bool {
+        session.reserveClose(approval: approval, isHostSettled: isHostSettled)
+    }
+    func releaseCloseReservation(_ approval: DocumentCloseApproval) { session.releaseCloseReservation(approval) }
+    func invalidate() { session.invalidate() }
+}
+
+@MainActor
+struct DocumentSessionDependencies {
+    let owner: DocumentOwnerLease
+    let files: any DocumentFileService
+    let undoManager: UndoManager?
+}
+
+/// Immutable declaration metadata plus typed factories. Creating a scene does
+/// not invoke a document factory, read an empty wrapper, or build editor views.
+@MainActor
+struct DocumentSceneDescriptor {
+    let id: UUID
+    let validateDocumentType: @MainActor () throws -> Void
+    let readableContentTypes: @MainActor () -> [UTType]
+    let makeNew: (@MainActor (UTType, DocumentSessionDependencies) throws -> any AnyDocumentSession)?
+    let read: @MainActor (Data, URL, UTType, DocumentSessionDependencies) throws -> any AnyDocumentSession
+    private var contentMappings: [@MainActor ([AnyView]) -> [AnyView]] = []
+
+    init<Document: FileDocument>(
+        documentType: Document.Type,
+        codec: DocumentCodec<Document>,
+        newDocument: (@MainActor () -> Document)?,
+        isEditable: Bool,
+        content: @escaping @MainActor (FileDocumentConfiguration<Document>) -> [AnyView]
+    ) {
+        id = UUID()
+        validateDocumentType = {
+            guard !(Document.self is AnyClass) else { throw DocumentSessionError.referenceDocumentUnsupported }
+        }
+        readableContentTypes = { documentType.readableContentTypes }
+        if let newDocument {
+            makeNew = { type, dependencies in
+                guard !(Document.self is AnyClass) else { throw DocumentSessionError.referenceDocumentUnsupported }
+                let document = newDocument()
+                guard dependencies.owner.isValid else { throw DocumentSessionError.ownerUnavailable }
+                return DocumentSessionAdapter(
+                    session: try FileDocumentSession(
+                        document: document, contentType: type, isEditable: isEditable,
+                        owner: dependencies.owner, codec: codec, files: dependencies.files,
+                        undoManager: dependencies.undoManager
+                    ),
+                    content: content
+                )
+            }
+        } else {
+            makeNew = nil
+        }
+        read = { data, url, type, dependencies in
+            guard !(Document.self is AnyClass) else { throw DocumentSessionError.referenceDocumentUnsupported }
+            let document = try codec.decode(data, type)
+            guard dependencies.owner.isValid else { throw DocumentSessionError.ownerUnavailable }
+            return DocumentSessionAdapter(
+                session: try FileDocumentSession(
+                    document: document, fileURL: url, contentType: type, isEditable: isEditable,
+                    owner: dependencies.owner, codec: codec, files: dependencies.files,
+                    undoManager: dependencies.undoManager, savedBytes: data
+                ),
+                content: content
+            )
+        }
+    }
+
+    private init() {
+        id = UUID()
+        validateDocumentType = { throw DocumentSessionError.referenceDocumentUnsupported }
+        readableContentTypes = { [] }
+        makeNew = nil
+        read = { _, _, _, _ in throw DocumentSessionError.referenceDocumentUnsupported }
+    }
+
+    static var unsupportedReferenceDocument: Self { Self() }
+
+    func mappingContent(_ mapping: @escaping @MainActor ([AnyView]) -> [AnyView]) -> Self {
+        var copy = self
+        copy.contentMappings.append(mapping)
+        return copy
+    }
+
+    func mapContent(_ views: [AnyView]) -> [AnyView] {
+        contentMappings.reduce(views) { views, mapping in mapping(views) }
+    }
+}
+
+/// This stage deliberately has no native capability constructor. The private
+/// initializer makes the explicit headless seam distinct from a missing HWND
+/// (which is also normal during real window construction).
+@MainActor
+struct DocumentWindowServices {
+    let files: any DocumentFileService
+    let maximumReadBytes: Int
+    let makeUndoManager: @MainActor () -> UndoManager?
+
+    private init(
+        files: any DocumentFileService,
+        maximumReadBytes: Int,
+        makeUndoManager: @escaping @MainActor () -> UndoManager?
+    ) {
+        self.files = files
+        // The synchronous hosted stage has a ceiling, not an opt-out knob.
+        // Tests may lower it; negative limits retain the service's error path.
+        self.maximumReadBytes = min(maximumReadBytes, LiveDocumentFileService.defaultMaximumReadBytes)
+        self.makeUndoManager = makeUndoManager
+    }
+
+    static func headless(
+        files: any DocumentFileService,
+        maximumReadBytes: Int = LiveDocumentFileService.defaultMaximumReadBytes,
+        makeUndoManager: @escaping @MainActor () -> UndoManager? = { UndoManager() }
+    ) -> Self {
+        Self(files: files, maximumReadBytes: maximumReadBytes, makeUndoManager: makeUndoManager)
+    }
+}
+
+@MainActor
+final class DocumentWindowContext {
+    struct RoutingTicket: Equatable {
+        let id: UUID
+        let ownerGeneration: UInt64
+        let sessionID: UUID
+        let mutationRevision: UInt64
+    }
+
+    let descriptor: DocumentSceneDescriptor
+    let owner: DocumentOwnerLease
+    let session: any AnyDocumentSession
+    let services: DocumentWindowServices
+    let undoManager: UndoManager?
+    var environment: WindowSceneEnvironment
+    private(set) weak var host: WinSwiftUIWindowHost?
+    private(set) var routingError: Error?
+    private var routingTicket: RoutingTicket?
+    private var invalidateContent: (@MainActor () -> Void)?
+
+    init(
+        descriptor: DocumentSceneDescriptor, owner: DocumentOwnerLease,
+        session: any AnyDocumentSession, services: DocumentWindowServices,
+        undoManager: UndoManager?, sceneStorageScope: String
+    ) {
+        self.descriptor = descriptor
+        self.owner = owner
+        self.session = session
+        self.services = services
+        self.undoManager = undoManager
+        environment = WindowSceneEnvironment(
+            openWindow: .noop, dismissWindow: .noop,
+            supportsMultipleWindows: true, sceneStorageScope: sceneStorageScope
+        )
+    }
+
+    var isRoutingDocument: Bool { routingTicket != nil }
+    var lastError: Error? { routingError ?? session.lastError }
+
+    func bind(
+        host: WinSwiftUIWindowHost, runtime: RetainedViewRuntime,
+        dialogOwner: @escaping @MainActor () -> FileDialogOwner,
+        invalidate: @escaping @MainActor () -> Void
+    ) {
+        guard owner.isValid, self.host == nil else { return }
+        self.host = host
+        owner.bind(runtime: runtime, dialogOwner: dialogOwner)
+        invalidateContent = invalidate
+        session.onChange = invalidate
+    }
+
+    func makeContent() -> [AnyView] {
+        guard owner.isValid else { return [] }
+        let content = session.makeContent()
+        guard owner.isValid else { return [] }
+        let mapped = descriptor.mapContent(content)
+        return owner.isValid ? mapped : []
+    }
+
+    func beginRouting() throws -> RoutingTicket {
+        guard owner.isValid else { throw DocumentSessionError.ownerUnavailable }
+        guard routingTicket == nil, !session.hasActiveOperation,
+            !owner.hasCloseCommitReservation, host?.canStartDocumentOperation == true
+        else { throw WindowCoordinatorError.documentOperationBusy }
+        let ticket = RoutingTicket(
+            id: UUID(), ownerGeneration: owner.generation,
+            sessionID: session.sessionID, mutationRevision: session.mutationRevision
+        )
+        routingTicket = ticket
+        if routingError != nil {
+            var displacedError = routingError
+            routingError = nil
+            withExtendedLifetime(displacedError) {}
+            displacedError = nil
+            invalidateContent?()
+        }
+        do {
+            try validate(ticket)
+        } catch {
+            finishRouting(ticket)
+            throw error
+        }
+        return ticket
+    }
+
+    func validate(_ ticket: RoutingTicket) throws {
+        guard owner.isValid, owner.generation == ticket.ownerGeneration,
+            routingTicket == ticket, session.sessionID == ticket.sessionID,
+            session.mutationRevision == ticket.mutationRevision,
+            !owner.hasCloseCommitReservation, !session.hasActiveOperation,
+            host?.canStartDocumentOperation == true
+        else { throw DocumentSessionError.supersededOperation }
+    }
+
+    func finishRouting(_ ticket: RoutingTicket) {
+        if routingTicket == ticket { routingTicket = nil }
+    }
+
+    func reportRoutingError(_ error: Error) {
+        guard owner.isValid, !owner.hasCloseCommitReservation else { return }
+        routingError = error
+        invalidateContent?()
+    }
+
+    func save() -> DocumentSaveOutcome { performSave { session.save() } }
+    func saveAs() -> DocumentSaveOutcome { performSave { session.saveAs() } }
+    func save(to url: URL) -> DocumentSaveOutcome { performSave { session.save(to: url) } }
+
+    private func performSave(_ save: () -> DocumentSaveOutcome) -> DocumentSaveOutcome {
+        guard owner.isValid else { return .superseded(written: nil) }
+        let ticket: RoutingTicket
+        do {
+            // Acquire context authority before releasing an old Error payload
+            // or publishing its removal. Either can synchronously reenter.
+            ticket = try beginRouting()
+        } catch WindowCoordinatorError.documentOperationBusy {
+            return .busy
+        } catch {
+            return .superseded(written: nil)
+        }
+        defer { finishRouting(ticket) }
+        return save()
+    }
+
+    func invalidate() {
+        owner.revoke()
+        routingTicket = nil
+        session.invalidate()
+        routingError = nil
+        invalidateContent = nil
+    }
+}
+
 public struct WindowGroupConfiguration {
     public var title: String
     public var size: IntSize
@@ -1871,6 +2190,8 @@ public struct WindowGroupConfiguration {
     /// WindowGroup window gets fresh root view values. A materialized host
     /// keeps those values through its own observed-object rebuilds.
     var windowContentFactory: (@MainActor () -> [AnyView])?
+    var documentScene: DocumentSceneDescriptor?
+    var documentWindowContext: DocumentWindowContext?
     public var handlesExternalEvents: Set<String>?
     public var windowID: String?
     public var isSettingsWindow: Bool
@@ -1992,6 +2313,9 @@ struct WindowSceneEnvironment {
     var supportsMultipleWindows: Bool
     var sceneStorageScope: String
     var openSettings: OpenSettingsAction = .noop
+    var newDocument: NewDocumentAction = .noop
+    var openDocument: OpenDocumentAction = .noop
+    var saveDocument: SaveDocumentAction = .noop
 }
 
 /// A package-owned session can add its own close decision without replacing
@@ -2167,7 +2491,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
     /// reports it, it never acts on it.
     private let backendResolution: RenderBackendResolution?
     private let inputRateTracker = WindowInputRateTracker()
-    private let undoManager = UndoManager()
+    private let undoManager: UndoManager?
     private var isPrimaryTouchActive = false
     private var hasTornDownWindow = false
     private var isPerformingInitialContentBuild = true
@@ -2181,6 +2505,9 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
     private var closeCommitReservation: CloseReservation?
     private var pendingCloseBuildWait: CloseBuildWait?
     private(set) var windowCloseRegistration: Win32CloseRegistration?
+    private(set) var documentActivationError: Error?
+    private var claimedDocumentContext: DocumentWindowContext?
+    private var lastDocumentDismissBehavior: RetainedWindowInteractionBehavior?
 
     /// Where a pacing verdict outlives the process, or `nil` for hosts that
     /// do not persist one (tests, direct embedders). See
@@ -2681,6 +3008,30 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
         window
     }
 
+    var documentContext: DocumentWindowContext? { claimedDocumentContext }
+    var isClosed: Bool { hasTornDownWindow }
+
+    var canStartDocumentOperation: Bool {
+        !hasTornDownWindow && !isPerformingInitialContentBuild && !componentHost.isBuilding && !reloadScheduled
+            && documentContext?.owner.hasCloseCommitReservation != true
+    }
+
+    /// The injected factory must return the exact context installed before
+    /// its first build. A factory that drops the copied configuration cannot
+    /// turn a document request into an ordinary native window.
+    func validateDocumentAdmission(expected: DocumentWindowContext?) throws {
+        if let documentActivationError { throw documentActivationError }
+        guard !hasTornDownWindow else { throw WindowCoordinatorError.windowClosedDuringStartup }
+        if let expected {
+            guard documentContext === expected, expected.host === self, expected.owner.isValid else {
+                throw WindowCoordinatorError.documentContextMismatch
+            }
+            guard window.nativeHandle == nil else { throw WindowCoordinatorError.nativeDocumentActivationUnavailable }
+        } else if configuration.isDocumentGroup || documentContext != nil {
+            throw WindowCoordinatorError.documentContextMismatch
+        }
+    }
+
     /// Current timer state for observability. Updated by `syncAnimationDriver`.
     private(set) var currentTimerState: TimerState = TimerState(
         isEnabled: false,
@@ -2711,10 +3062,18 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
         presentPacingMemory: PresentPacingMemoryStore? = nil
     ) {
         var configuration = configuration
-        configuration.instantiateWindowContent()
+        if !configuration.isDocumentGroup {
+            configuration.instantiateWindowContent()
+        }
         self.backendResolution = backendResolution
         self.presentPacingMemory = presentPacingMemory
         self.configuration = configuration
+        if let context = configuration.documentWindowContext {
+            self.undoManager = context.undoManager
+            self.windowEnvironment = context.environment
+        } else {
+            self.undoManager = UndoManager()
+        }
         self.window =
             platformWindow
             ?? Win32Window(
@@ -2735,6 +3094,30 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
         self.startupProbeConfiguration = startupProbeConfiguration
         self.recoveryPolicy = recoveryPolicy
         self.currentBatchRecoveryInterval = recoveryPolicy.initialRetryInterval
+
+        // A bare legacy document marker remains an unadapted raw host. Typed
+        // document metadata must claim its exact prepared context; neither
+        // path permits native document activation.
+        if configuration.documentScene != nil || configuration.documentWindowContext != nil {
+            guard configuration.isDocumentGroup,
+                let descriptor = configuration.documentScene,
+                let context = configuration.documentWindowContext,
+                context.descriptor.id == descriptor.id,
+                context.owner.isValid, context.host == nil,
+                window.nativeHandle == nil
+            else {
+                documentActivationError = WindowCoordinatorError.nativeDocumentActivationUnavailable
+                isPerformingInitialContentBuild = false
+                windowWillClose(window)
+                return
+            }
+            claimedDocumentContext = context
+            context.bind(
+                host: self, runtime: runtime,
+                dialogOwner: { [weak window] in .hostedWindow(window) },
+                invalidate: { [weak self] in self?.reloadContentFromView() }
+            )
+        }
 
         runtime.setRootSize(WinSwiftUIWindowHost.initialClientSize(for: configuration))
         componentHost.fileDialogOwner = { [weak window] in
@@ -2767,6 +3150,11 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
             return [self.buildRootComponent()]
         }
         isPerformingInitialContentBuild = false
+        guard !hasTornDownWindow, documentContext?.owner.isValid != false else {
+            documentActivationError = WindowCoordinatorError.windowClosedDuringStartup
+            windowWillClose(window)
+            return
+        }
         window.delegate = self
         syncWindowDismissBehavior()
 
@@ -2787,6 +3175,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
     isolated deinit {
         if !hasTornDownWindow {
             hasTornDownWindow = true
+            documentContext?.owner.revoke()
             let closeWorkPin = windowCloseRegistration?.pinDeferredWork()
             let closingParticipant = windowCloseParticipant
             let closeBuildWait = pendingCloseBuildWait
@@ -2805,6 +3194,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
             runtime.stopRenderLifecycleCallbacks()
             let textInputTeardown = prepareTextInputUndoForWindowClose(in: runtime)
             stateMountCoordinator.close()
+            documentContext?.invalidate()
             textInputTeardown.purgeHistory()
             runtime.cancelRenderLifecycleTasks()
             textInputTeardown.detach()
@@ -2930,7 +3320,21 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
 
     @discardableResult
     func run() throws -> Int32 {
-        try Win32Application.run(window: window)
+        try validateNativeActivation()
+        return try Win32Application.run(window: window)
+    }
+
+    /// A non-creating preflight shared by direct run and headless assertions.
+    /// Tests must not call the native message loop to prove a rejection: a
+    /// regression of that rejection would otherwise open UI or block them.
+    func validateNativeActivation() throws {
+        if configuration.isDocumentGroup || configuration.documentScene != nil
+            || configuration.documentWindowContext != nil
+        {
+            throw WindowCoordinatorError.nativeDocumentActivationUnavailable
+        }
+        if let documentActivationError { throw documentActivationError }
+        guard !hasTornDownWindow else { throw WindowCoordinatorError.windowClosedDuringStartup }
     }
 
     func windowDidCreate(_ window: Win32Window) {
@@ -3401,12 +3805,16 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
         if let attempt = window.activeCloseAttempt {
             return evaluateNativeClosePreflight(attempt)
         }
-        guard !configuration.isDocumentGroup || windowCloseParticipant != nil else { return false }
+        guard
+            !configuration.isDocumentGroup || windowCloseParticipant != nil
+                || (documentContext != nil && window.nativeHandle == nil)
+        else { return false }
         // Direct Bool queries remain useful for headless coordinator hooks.
         // They do not mint a native receipt or authorize a later destruction.
         guard !isEvaluatingWindowClosePolicy else { return false }
         isEvaluatingWindowClosePolicy = true
         defer { isEvaluatingWindowClosePolicy = false }
+        guard !isPerformingInitialContentBuild, !componentHost.isBuilding else { return false }
         // A state write and a close can share one native message turn. Consume
         // the pending observed-object rebuild before reading its policy.
         if !hasTornDownWindow {
@@ -3416,6 +3824,14 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
         // Rebuild completion can mutate another observed value or pump a
         // native dialog. Do not approve using a tree already due for rebuild,
         // or spin here waiting for arbitrary application callbacks to settle.
+        if let documentContext {
+            guard !hasTornDownWindow else { return false }
+            _ = documentContext.session.requestClose(isHostSettled: isDocumentCloseSettled)
+            // This session is not adapted to native final close participation.
+            // Even a clean headless approval needs an explicit commit below;
+            // this Boolean query must never authorize document destruction.
+            return false
+        }
         return hasTornDownWindow || (!reloadScheduled && window.isCloseButtonEnabled)
     }
 
@@ -3823,11 +4239,42 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
                 participant: participant, participantLease: participantLease))
     }
 
+    private var isDocumentCloseSettled: Bool {
+        canStartDocumentOperation && window.isCloseButtonEnabled
+            && runtime.windowDismissalBehavior != .disabled
+            && documentContext?.isRoutingDocument == false
+            && documentContext?.session.hasActiveOperation == false
+    }
+
+    /// Deterministic test delivery only. An approval is consumed immediately
+    /// before the simulated WM_DESTROY, with no application callback between
+    /// the last checks and the session's write reservation.
+    @discardableResult
+    func commitHeadlessDocumentClose(_ approval: DocumentCloseApproval) -> Bool {
+        guard let context = documentContext, context.host === self,
+            window.nativeHandle == nil, !isEvaluatingWindowClosePolicy,
+            context.owner.isValid, !hasTornDownWindow
+        else { return false }
+        flushObservedObjectReload(in: window, requestsFrame: false)
+        syncWindowDismissBehavior()
+        guard window.nativeHandle == nil, isDocumentCloseSettled,
+            context.session.reserveClose(approval: approval, isHostSettled: true)
+        else { return false }
+        windowWillClose(window)
+        return hasTornDownWindow
+    }
+
     private func syncWindowDismissBehavior(_ capturedBehavior: RetainedWindowInteractionBehavior? = nil) {
         // Native preflight already captured the policy with its receipt. Keep
         // all affordance/policy-change handling on this common path without
         // walking the tree a second time or refreshing that receipt.
         let behavior = capturedBehavior ?? runtime.windowDismissalBehavior
+        if documentContext != nil {
+            if let previous = lastDocumentDismissBehavior, previous != behavior {
+                documentContext?.session.invalidateCloseForHostChange()
+            }
+            lastDocumentDismissBehavior = behavior
+        }
         // Failed-start rollback can already have torn down this host before
         // requesting native cleanup. It must not leave an unowned disabled
         // HWND alive; the idempotent teardown below will not run twice.
@@ -3837,6 +4284,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
     func windowWillClose(_ window: Win32Window) {
         guard !hasTornDownWindow else { return }
         hasTornDownWindow = true
+        documentContext?.owner.revoke()
         let closeWorkPin = windowCloseRegistration?.pinDeferredWork()
         let closingParticipant = windowCloseParticipant
         let closeBuildWait = pendingCloseBuildWait
@@ -3857,6 +4305,7 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
         // application payloads that may reenter undo or escaped State bindings.
         let textInputTeardown = prepareTextInputUndoForWindowClose(in: runtime)
         stateMountCoordinator.close()
+        documentContext?.invalidate()
         textInputTeardown.purgeHistory()
         runtime.cancelRenderLifecycleTasks()
         reloadScheduled = false
@@ -3923,6 +4372,9 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
                     openWindow: self?.windowEnvironment?.openWindow ?? .noop,
                     dismissWindow: self?.windowEnvironment?.dismissWindow ?? .noop,
                     openSettings: self?.windowEnvironment?.openSettings ?? .noop,
+                    newDocument: self?.windowEnvironment?.newDocument ?? .noop,
+                    openDocument: self?.windowEnvironment?.openDocument ?? .noop,
+                    saveDocument: self?.windowEnvironment?.saveDocument ?? .noop,
                     sceneStorageScope: self?.windowEnvironment?.sceneStorageScope ?? "shared"
                 )
                 .applyingSystemAppearance(self?.window.systemAppearance ?? .unavailable)
@@ -3967,7 +4419,30 @@ final class WinSwiftUIWindowHost: WindowDelegate, Win32CloseAuthority {
     }
 
     private func buildRootComponent() -> Component {
-        composeComponent(from: configuration.content, context: buildContext)
+        if let documentContext {
+            let views = documentContext.makeContent()
+            let errorMessage = documentContext.lastError?.localizedDescription
+            guard !hasTornDownWindow, documentContext.owner.isValid else { return .empty }
+            let body = composeComponent(from: views, context: buildContext)
+            let status = makeViewComponent(
+                Text(errorMessage ?? "")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("document.operation.error"),
+                context: buildContext
+            )
+            return Component(key: "document-window:\(documentContext.session.sessionID)") { runtime in
+                let bodyNode = body.makeNode(runtime: runtime)
+                bodyNode.layoutFillAxes = .both
+                let statusNode = status.makeNode(runtime: runtime)
+                statusNode.isHidden = errorMessage == nil
+                return Controls.panel(
+                    layoutMode: .stack(.vertical()), isHitTestVisible: false,
+                    children: [bodyNode, statusNode]
+                )
+            }
+        }
+        return composeComponent(from: configuration.content, context: buildContext)
     }
 
     private func reloadContentFromView(isStateMutation: Bool = false) {

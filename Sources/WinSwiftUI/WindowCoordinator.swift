@@ -45,6 +45,7 @@ struct WindowCoordinatorHooks {
     /// The real Win32 hooks used by `App.main()`.
     static let win32 = WindowCoordinatorHooks(
         startWindow: { host in
+            try host.validateNativeActivation()
             // The coordinator decides when the process quits; individual
             // windows must not post WM_QUIT on destroy.
             host.platformWindow.postsQuitMessageOnDestroy = false
@@ -67,6 +68,7 @@ struct WindowCoordinatorHooks {
     static func platform(_ factory: any PlatformHostFactory) -> WindowCoordinatorHooks {
         WindowCoordinatorHooks(
             startWindow: { host in
+                try host.validateNativeActivation()
                 // The coordinator owns the last-window quit policy; individual
                 // Win32 windows must not terminate the process on their own.
                 host.platformWindow.postsQuitMessageOnDestroy = false
@@ -85,14 +87,46 @@ struct WindowCoordinatorHooks {
     }
 }
 
-enum WindowCoordinatorError: Error, Equatable, CustomStringConvertible {
+enum WindowCoordinatorError: Error, LocalizedError, Equatable, CustomStringConvertible {
     case noLaunchableWindowScene
+    case nativeDocumentActivationUnavailable
+    case documentServicesRequireInjectedHost
+    case documentContextMismatch
+    case noDocumentScene
+    case documentInputRequired
+    case unsupportedDocumentExtension(String)
+    case unsupportedDocumentContentTypes
+    case documentOperationBusy
+    case windowClosedDuringStartup
+    case coordinatorTerminated
+
+    var errorDescription: String? { description }
 
     var description: String {
         switch self {
         case .noLaunchableWindowScene:
             return
                 "The app declares no launchable window scene. Settings opens on demand; MenuBarExtra hosting is unsupported."
+        case .nativeDocumentActivationUnavailable:
+            return "Native document windows require a verified final close check and owned deferred delivery."
+        case .documentServicesRequireInjectedHost:
+            return "Headless document services require explicitly injected window hooks and a host factory."
+        case .documentContextMismatch:
+            return "The window did not install the document context prepared for this open request."
+        case .noDocumentScene:
+            return "The app declares no matching document scene."
+        case .documentInputRequired:
+            return "This document scene requires an existing file URL."
+        case .unsupportedDocumentExtension(let fileExtension):
+            return "This document stage cannot open the file extension '\(fileExtension)'."
+        case .unsupportedDocumentContentTypes:
+            return "This document stage requires a declared plain-text or UTF-8 plain-text content type."
+        case .documentOperationBusy:
+            return "The document already has an operation in progress."
+        case .windowClosedDuringStartup:
+            return "The window closed before startup completed."
+        case .coordinatorTerminated:
+            return "The window coordinator has already terminated."
         }
     }
 }
@@ -113,6 +147,12 @@ enum WindowCoordinatorError: Error, Equatable, CustomStringConvertible {
 /// single-window quit behavior.
 @MainActor
 final class WinSwiftUIWindowCoordinator {
+    private struct DocumentRoutingRequest {
+        let id: UUID
+        let caller: DocumentWindowContext?
+        let ticket: DocumentWindowContext.RoutingTicket?
+    }
+
     /// A live window: its host, the configuration it presented, and the
     /// value it was opened with (for value-based `WindowGroup` scenes).
     struct ManagedWindow {
@@ -128,9 +168,13 @@ final class WinSwiftUIWindowCoordinator {
     private let hooks: WindowCoordinatorHooks
     private let hostFactory: @MainActor (WindowGroupConfiguration, Bool) throws -> WinSwiftUIWindowHost
     private let sceneStorageScopeProvider: @MainActor () -> String
+    private let documentServices: DocumentWindowServices?
+    private let hasInjectedDocumentHost: Bool
+    private var documentRoutingOperation: UUID?
 
     private(set) var windows: [ManagedWindow] = []
     private var isTerminated = false
+    private var lastManagedCloseID: UUID?
 
     /// Set when the process was launched in `--diagnostics` mode. The session
     /// attaches to the primary window only: a secondary window opened by the
@@ -167,9 +211,12 @@ final class WinSwiftUIWindowCoordinator {
         hooks: WindowCoordinatorHooks? = nil,
         hostFactory: (@MainActor (WindowGroupConfiguration, Bool) throws -> WinSwiftUIWindowHost)? = nil,
         sceneStorageScopeProvider: (@MainActor () -> String)? = nil,
-        liveDiagnostics: LiveDiagnosticsConfiguration? = nil
+        liveDiagnostics: LiveDiagnosticsConfiguration? = nil,
+        documentServices: DocumentWindowServices? = nil
     ) {
         self.sceneConfigurations = sceneConfigurations
+        self.documentServices = documentServices
+        self.hasInjectedDocumentHost = hooks != nil && hostFactory != nil
         self.hooks = hooks ?? .platform(platformHostFactory)
         self.liveDiagnosticsConfiguration = liveDiagnostics
         self.hostFactory =
@@ -227,6 +274,14 @@ final class WinSwiftUIWindowCoordinator {
             throw WindowCoordinatorError.noLaunchableWindowScene
         }
 
+        if configuration.isDocumentGroup {
+            return try withDocumentRouting(from: nil, configuration: configuration) { template, services, request in
+                try self.makeNewDocument(
+                    configuration: template, services: services, isPrimary: true, request: request
+                )
+            }
+        }
+
         return try openManagedWindow(
             configuration: configuration,
             presentedValue: nil,
@@ -247,7 +302,7 @@ final class WinSwiftUIWindowCoordinator {
 
         guard
             let template = sceneConfigurations.first(where: { template in
-                guard !template.isSettingsWindow && !template.isMenuBarExtra else {
+                guard !template.isSettingsWindow && !template.isMenuBarExtra && !template.isDocumentGroup else {
                     return false
                 }
                 if let id = payload.id, template.windowID != id {
@@ -288,6 +343,286 @@ final class WinSwiftUIWindowCoordinator {
             print("[WinSwiftUI] Failed to open window: \(error)")
             return false
         }
+    }
+
+    /// Internal operations behind the existing environment actions. They use
+    /// document declarations directly, never AnyHashable value-window routing.
+    @discardableResult
+    func newDocument(from caller: DocumentWindowContext? = nil) throws -> WinSwiftUIWindowHost {
+        try withDocumentRouting(from: caller) { template, services, request in
+            try self.makeNewDocument(
+                configuration: template, services: services, isPrimary: false, request: request
+            )
+        }
+    }
+
+    @discardableResult
+    func openDocument(at url: URL, from caller: DocumentWindowContext? = nil) throws -> WinSwiftUIWindowHost {
+        try withDocumentRouting(from: caller) { template, services, request in
+            try self.openDocument(at: url, configuration: template, services: services, request: request)
+        }
+    }
+
+    /// Nil means the user cancelled selection. Errors retain their identity
+    /// and are presented only by the still-current requesting document.
+    @discardableResult
+    func chooseOpenDocument(from caller: DocumentWindowContext) throws -> WinSwiftUIWindowHost? {
+        try withDocumentRouting(from: caller) { template, services, request in
+            guard let descriptor = template.documentScene else { throw WindowCoordinatorError.noDocumentScene }
+            try descriptor.validateDocumentType()
+            try self.validate(request)
+            let types = descriptor.readableContentTypes()
+            try self.validate(request)
+            let type = try Self.plainTextType(in: types)
+            let owner = caller.owner.dialogOwner()
+            try self.validate(request)
+            let result = services.files.chooseOpenURL(types: [type], owner: owner)
+            try self.validate(request)
+            switch result {
+            case .selected(let url):
+                return try self.openDocument(
+                    at: url, configuration: template, services: services, request: request
+                )
+            case .cancelled:
+                return nil
+            case .failed(let error):
+                throw error
+            }
+        }
+    }
+
+    private func withDocumentRouting<Result>(
+        from caller: DocumentWindowContext?,
+        configuration: WindowGroupConfiguration? = nil,
+        perform: (WindowGroupConfiguration, DocumentWindowServices, DocumentRoutingRequest) throws -> Result
+    ) throws -> Result {
+        // These checks precede every model factory, content-type getter and
+        // file read, including a directly booted DocumentGroup declaration.
+        guard let services = documentServices else {
+            throw WindowCoordinatorError.nativeDocumentActivationUnavailable
+        }
+        guard hasInjectedDocumentHost else { throw WindowCoordinatorError.documentServicesRequireInjectedHost }
+        guard !isTerminated else { throw WindowCoordinatorError.coordinatorTerminated }
+        guard documentRoutingOperation == nil else { throw WindowCoordinatorError.documentOperationBusy }
+        guard
+            let template = configuration
+                ?? sceneConfigurations.first(where: {
+                    $0.isDocumentGroup && !$0.isSettingsWindow && !$0.isMenuBarExtra
+                        && (caller == nil || $0.documentScene?.id == caller?.descriptor.id)
+                }), template.isDocumentGroup, template.documentScene != nil
+        else {
+            throw WindowCoordinatorError.noDocumentScene
+        }
+        if let caller {
+            guard caller.owner.isValid,
+                windows.contains(where: { $0.host === caller.host && $0.configuration.documentWindowContext === caller }
+                )
+            else { throw DocumentSessionError.ownerUnavailable }
+        }
+
+        let requestID = UUID()
+        documentRoutingOperation = requestID
+        let ticket: DocumentWindowContext.RoutingTicket?
+        do {
+            ticket = try caller?.beginRouting()
+        } catch {
+            if documentRoutingOperation == requestID { documentRoutingOperation = nil }
+            throw error
+        }
+        let request = DocumentRoutingRequest(id: requestID, caller: caller, ticket: ticket)
+        defer {
+            if documentRoutingOperation == request.id { documentRoutingOperation = nil }
+            if let caller, let ticket { caller.finishRouting(ticket) }
+        }
+        do {
+            try validate(request)
+            let result = try perform(template, services, request)
+            try validate(request)
+            return result
+        } catch {
+            if (try? validate(request)) != nil {
+                caller?.reportRoutingError(error)
+            }
+            throw error
+        }
+    }
+
+    private func validate(_ request: DocumentRoutingRequest) throws {
+        guard documentRoutingOperation == request.id, !isTerminated else {
+            throw DocumentSessionError.supersededOperation
+        }
+        if let caller = request.caller, let ticket = request.ticket {
+            try caller.validate(ticket)
+            guard
+                windows.contains(where: { $0.host === caller.host && $0.configuration.documentWindowContext === caller }
+                )
+            else { throw DocumentSessionError.ownerUnavailable }
+        }
+    }
+
+    private static func plainTextType(in types: [UTType]) throws -> UTType {
+        if types.contains(.utf8PlainText) { return .utf8PlainText }
+        if types.contains(.plainText) { return .plainText }
+        throw WindowCoordinatorError.unsupportedDocumentContentTypes
+    }
+
+    private func makeNewDocument(
+        configuration: WindowGroupConfiguration, services: DocumentWindowServices,
+        isPrimary: Bool, request: DocumentRoutingRequest
+    ) throws -> WinSwiftUIWindowHost {
+        guard let descriptor = configuration.documentScene else { throw WindowCoordinatorError.noDocumentScene }
+        try descriptor.validateDocumentType()
+        try validate(request)
+        guard let makeNew = descriptor.makeNew else { throw WindowCoordinatorError.documentInputRequired }
+        let types = descriptor.readableContentTypes()
+        try validate(request)
+        let type = try Self.plainTextType(in: types)
+        return try materializeDocument(
+            configuration: configuration, services: services, isPrimary: isPrimary, request: request
+        ) { dependencies in
+            try makeNew(type, dependencies)
+        }
+    }
+
+    private func openDocument(
+        at selectedURL: URL, configuration: WindowGroupConfiguration,
+        services: DocumentWindowServices, request: DocumentRoutingRequest
+    ) throws -> WinSwiftUIWindowHost {
+        guard selectedURL.isFileURL, !selectedURL.path(percentEncoded: false).utf16.contains(0) else {
+            throw DocumentFileServiceError.invalidFileURL
+        }
+        // Validate before standardization or URL-level deduplication. The live
+        // service applies the same rule before IO; a URL authority must not
+        // accidentally become an activation of an unrelated local path.
+        if let host = selectedURL.host(percentEncoded: true), !host.isEmpty, host.lowercased() != "localhost" {
+            throw DocumentFileServiceError.invalidFileURL
+        }
+        let url = selectedURL.standardizedFileURL
+        guard url.pathExtension.lowercased() == "txt" else {
+            throw WindowCoordinatorError.unsupportedDocumentExtension(url.pathExtension)
+        }
+        guard let descriptor = configuration.documentScene else { throw WindowCoordinatorError.noDocumentScene }
+        try descriptor.validateDocumentType()
+        try validate(request)
+        let types = descriptor.readableContentTypes()
+        try validate(request)
+        let type = try Self.plainTextType(in: types)
+        if let existing = existingDocument(at: url, descriptor: descriptor) {
+            _ = hooks.activateWindow(existing)
+            try validate(request)
+            guard !existing.isClosed else { throw WindowCoordinatorError.windowClosedDuringStartup }
+            return existing
+        }
+        let bytes = try services.files.readRegularFile(at: url, maximumBytes: services.maximumReadBytes)
+        try validate(request)
+        return try materializeDocument(
+            configuration: configuration, services: services, isPrimary: false, request: request
+        ) { dependencies in
+            try descriptor.read(bytes, url, type, dependencies)
+        }
+    }
+
+    private func existingDocument(at url: URL, descriptor: DocumentSceneDescriptor) -> WinSwiftUIWindowHost? {
+        windows.first {
+            guard let context = $0.configuration.documentWindowContext else { return false }
+            return context.owner.isValid && !$0.host.isClosed && context.descriptor.id == descriptor.id
+                && context.session.fileURL?.standardizedFileURL == url
+        }?.host
+    }
+
+    private func materializeDocument(
+        configuration: WindowGroupConfiguration, services: DocumentWindowServices,
+        isPrimary: Bool, request: DocumentRoutingRequest,
+        makeSession: (DocumentSessionDependencies) throws -> any AnyDocumentSession
+    ) throws -> WinSwiftUIWindowHost {
+        guard let descriptor = configuration.documentScene else { throw WindowCoordinatorError.noDocumentScene }
+        let owner = DocumentOwnerLease()
+        var session: (any AnyDocumentSession)?
+        var preparedContext: DocumentWindowContext?
+        do {
+            let manager = services.makeUndoManager()
+            try validate(request)
+            let prepared = try makeSession(
+                DocumentSessionDependencies(owner: owner, files: services.files, undoManager: manager)
+            )
+            session = prepared
+            try validate(request)
+            let scope = sceneStorageScopeProvider()
+            try validate(request)
+            let context = DocumentWindowContext(
+                descriptor: descriptor, owner: owner, session: prepared, services: services,
+                undoManager: manager, sceneStorageScope: scope
+            )
+            preparedContext = context
+            context.environment = documentEnvironment(for: context, scope: scope)
+            var materialized = configuration
+            materialized.documentWindowContext = context
+            materialized.title = prepared.fileURL?.lastPathComponent ?? configuration.title
+            return try openManagedWindow(
+                configuration: materialized, presentedValue: nil, isPrimary: isPrimary,
+                documentRequest: request
+            )
+        } catch {
+            // Revoke before session/history payload release can run application
+            // cleanup. No failed preparation ever becomes a managed window.
+            owner.revoke()
+            if let host = preparedContext?.host, !host.isClosed {
+                host.onWindowClosed = nil
+                host.windowWillClose(host.platformWindow)
+                if host.platformWindow.nativeHandle != nil { hooks.discardFailedWindow(host) }
+            }
+            session?.invalidate()
+            throw error
+        }
+    }
+
+    private func documentEnvironment(for context: DocumentWindowContext, scope: String) -> WindowSceneEnvironment {
+        WindowSceneEnvironment(
+            openWindow: OpenWindowAction(payloadHandler: { [weak self, weak context] payload in
+                guard let self, let context, self.isLiveDocumentCaller(context) else { return }
+                self.openWindow(payload: payload)
+            }),
+            dismissWindow: DismissWindowAction(payloadHandler: { [weak self, weak context] payload in
+                guard let self, let context, context.owner.isValid,
+                    !context.owner.hasCloseCommitReservation, let host = context.host
+                else { return }
+                if !self.windows.contains(where: { $0.host === host }) {
+                    // Dismiss during first construction cancels that pending
+                    // admission; it must not wait for a nonexistent HWND.
+                    host.windowWillClose(host.platformWindow)
+                    return
+                }
+                self.dismissWindow(payload: payload, from: host)
+            }),
+            supportsMultipleWindows: true,
+            sceneStorageScope: scope,
+            openSettings: OpenSettingsAction { [weak self, weak context] in
+                guard let self, let context, self.isLiveDocumentCaller(context) else { return }
+                self.openSettings()
+            },
+            newDocument: NewDocumentAction { [weak self, weak context] in
+                guard let self, let context, self.isLiveDocumentCaller(context) else { return }
+                _ = try? self.newDocument(from: context)
+            },
+            openDocument: OpenDocumentAction { [weak self, weak context] urls in
+                guard let self, let context, self.isLiveDocumentCaller(context) else { return }
+                for url in urls {
+                    guard self.isLiveDocumentCaller(context) else { return }
+                    _ = try? self.openDocument(at: url, from: context)
+                }
+            },
+            saveDocument: SaveDocumentAction { [weak context] url in
+                guard let context, context.owner.isValid else { return }
+                _ = context.save(to: url)
+            }
+        )
+    }
+
+    private func isLiveDocumentCaller(_ context: DocumentWindowContext) -> Bool {
+        context.owner.isValid && !context.owner.hasCloseCommitReservation && !isTerminated
+            && windows.contains(where: {
+                $0.host === context.host && $0.configuration.documentWindowContext === context
+            })
     }
 
     /// Opens the app's Settings scene once, or shows/restores and requests
@@ -344,48 +679,91 @@ final class WinSwiftUIWindowCoordinator {
     private func openManagedWindow(
         configuration: WindowGroupConfiguration,
         presentedValue: AnyHashable?,
-        isPrimary: Bool
+        isPrimary: Bool,
+        documentRequest: DocumentRoutingRequest? = nil
     ) throws -> WinSwiftUIWindowHost {
+        let closeBeforeStartup = lastManagedCloseID
         releaseClosedHosts()
+        if let documentRequest { try validate(documentRequest) }
         var configuration = configuration
-        configuration.instantiateWindowContent()
-        let host = try hostFactory(configuration, isPrimary)
-        host.windowEnvironment = WindowSceneEnvironment(
-            openWindow: OpenWindowAction(payloadHandler: { [weak self] payload in
-                self?.openWindow(payload: payload)
-            }),
-            dismissWindow: DismissWindowAction(payloadHandler: { [weak self, weak host] payload in
-                self?.dismissWindow(payload: payload, from: host)
-            }),
-            supportsMultipleWindows: true,
-            sceneStorageScope: sceneStorageScopeProvider(),
-            openSettings: OpenSettingsAction { [weak self] in
-                self?.openSettings()
-            }
-        )
-        host.onWindowClosed = { [weak self] closedHost in
-            self?.windowDidClose(closedHost)
+        let expectedContext = configuration.documentWindowContext
+        if configuration.isDocumentGroup || configuration.documentScene != nil || expectedContext != nil {
+            guard documentServices != nil, hasInjectedDocumentHost,
+                documentRequest != nil, expectedContext != nil
+            else { throw WindowCoordinatorError.nativeDocumentActivationUnavailable }
+        } else {
+            configuration.instantiateWindowContent()
         }
-        windows.append(
-            ManagedWindow(
-                host: host,
-                configuration: configuration,
-                presentedValue: presentedValue,
-                isPrimary: isPrimary
-            )
-        )
+        if let documentRequest { try validate(documentRequest) }
+        let host = try hostFactory(configuration, isPrimary)
+        // A faulty injected factory may return a previously managed host.
+        // Reject it without taking that other window's ownership away.
+        guard !windows.contains(where: { $0.host === host }) else {
+            throw WindowCoordinatorError.documentContextMismatch
+        }
+        if let expectedContext {
+            guard host.documentContext === expectedContext, expectedContext.host === host else {
+                // A returned host owned by another context is not ours to
+                // destroy, even if it belongs to a different coordinator.
+                // materializeDocument revokes only the context we prepared.
+                throw WindowCoordinatorError.documentContextMismatch
+            }
+        } else if host.documentContext != nil {
+            throw WindowCoordinatorError.documentContextMismatch
+        }
         do {
+            if let documentRequest { try validate(documentRequest) }
+            try host.validateDocumentAdmission(expected: expectedContext)
+            if expectedContext == nil {
+                host.windowEnvironment = WindowSceneEnvironment(
+                    openWindow: OpenWindowAction(payloadHandler: { [weak self] payload in
+                        self?.openWindow(payload: payload)
+                    }),
+                    dismissWindow: DismissWindowAction(payloadHandler: { [weak self, weak host] payload in
+                        self?.dismissWindow(payload: payload, from: host)
+                    }),
+                    supportsMultipleWindows: true,
+                    sceneStorageScope: sceneStorageScopeProvider(),
+                    openSettings: OpenSettingsAction { [weak self] in
+                        self?.openSettings()
+                    }
+                )
+            }
+            if let documentRequest { try validate(documentRequest) }
+            try host.validateDocumentAdmission(expected: expectedContext)
+            host.onWindowClosed = { [weak self] closedHost in
+                self?.windowDidClose(closedHost)
+            }
+            windows.append(
+                ManagedWindow(
+                    host: host, configuration: configuration,
+                    presentedValue: presentedValue, isPrimary: isPrimary
+                )
+            )
             try hooks.startWindow(host)
+            if let documentRequest { try validate(documentRequest) }
+            try host.validateDocumentAdmission(expected: expectedContext)
+            guard windows.contains(where: { $0.host === host }) else {
+                throw WindowCoordinatorError.windowClosedDuringStartup
+            }
         } catch {
             // A failed creation must not leave a registered phantom window
             // that consumes the Settings singleton or prevents app exit.
             // Tear down a partially attached renderer without applying the
             // normal last-window quit policy, so a later open can retry.
+            expectedContext?.owner.revoke()
             host.onWindowClosed = nil
             windows.removeAll { $0.host === host }
             host.windowWillClose(host.platformWindow)
             if host.platformWindow.nativeHandle != nil {
                 hooks.discardFailedWindow(host)
+            }
+            // A provisional child can briefly keep windows nonempty while
+            // its last admitted caller closes inside startWindow. Removing
+            // that failed child must finish the real last-window close. An
+            // initial startup failure with no close remains retryable.
+            if lastManagedCloseID != closeBeforeStartup {
+                terminateIfNoWindows()
             }
             throw error
         }
@@ -393,7 +771,7 @@ final class WinSwiftUIWindowCoordinator {
         // After `startWindow`: the session's first frame request needs a
         // window that has been created and has a presenter attached, which is
         // what `Win32Application.start` completes.
-        if isPrimary, let liveDiagnosticsConfiguration, liveDiagnosticsSession == nil {
+        if expectedContext == nil, isPrimary, let liveDiagnosticsConfiguration, liveDiagnosticsSession == nil {
             let session = LiveDiagnosticsSession(configuration: liveDiagnosticsConfiguration, host: host)
             liveDiagnosticsSession = session
             session.start()
@@ -403,6 +781,8 @@ final class WinSwiftUIWindowCoordinator {
     }
 
     private func windowDidClose(_ host: WinSwiftUIWindowHost) {
+        guard windows.contains(where: { $0.host === host }) else { return }
+        lastManagedCloseID = UUID()
         releaseClosedHosts()
         windows.removeAll { $0.host === host }
         // Outlive the wndproc frame this is running inside. The message loop
@@ -414,6 +794,10 @@ final class WinSwiftUIWindowCoordinator {
             self?.releaseClosedHosts()
         }
 
+        terminateIfNoWindows()
+    }
+
+    private func terminateIfNoWindows() {
         if windows.isEmpty, !isTerminated {
             isTerminated = true
             hooks.terminateMessageLoop()

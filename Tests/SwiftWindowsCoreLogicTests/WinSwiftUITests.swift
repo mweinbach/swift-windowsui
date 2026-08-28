@@ -21847,15 +21847,20 @@ final class DocumentGroupTests: XCTestCase {
                     FileWrapper()
                 }
             }
+            var contentBuilds = 0
             let scene = DocumentGroup(editing: TestDoc.self) { config in
+                contentBuilds += 1
                 // Exercise the typed FileDocumentConfiguration without a vacuous
                 // `is TestDoc` check (always true for FileDocumentConfiguration<TestDoc>).
-                Text(config.isEditable ? "EDIT" : "VIEW")
+                return Text(config.isEditable ? "EDIT" : "VIEW")
             }
             let config = scene.makeWindowConfiguration()
             XCTAssertTrue(config.isDocumentGroup)
             XCTAssertEqual(config.title, "Untitled")
-            XCTAssertEqual(config.content.count, 1)
+            XCTAssertTrue(config.content.isEmpty)
+            XCTAssertNotNil(config.documentScene)
+            XCTAssertNil(config.documentWindowContext)
+            XCTAssertEqual(contentBuilds, 0, "A declaration cannot fabricate an empty document for its builder.")
         }
     }
 }

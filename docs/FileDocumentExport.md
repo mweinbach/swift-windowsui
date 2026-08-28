@@ -12,7 +12,10 @@ goal's requirements.
 renderer-neutral `RetainedFileExporterConfiguration.dataProvider`. The
 retained layer imports no WinSwiftUI document or wrapper type.
 `SwiftWindowsUI/FileExport.swift` validates the destination, obtains all
-serialized bytes, and calls `Data.write(to:options: .atomic)`.
+serialized bytes, and calls `Data.write(to:options: .atomic)` through a shared
+atomic writer. The separate [document session stage](DocumentSessions.md)
+reuses that writer and typed regular-file serialization, with its own owner,
+revision, and checkpoint checks.
 `ComponentHost` delivers success only after that call returns.
 
 Foundation's atomic-save option writes an auxiliary file before replacing the
@@ -92,8 +95,11 @@ ownership work remains open, as do document-session wrapper reuse, directory
 packages, multi-file export, and complete native behavior qualification.
 The existing protocol shim's custom associated configuration types are not
 supported by this typed exporter; Apple's `WriteConfiguration` is a fixed
-typealias. No DocumentGroup, close, dirty-state, Save As session, undo, or
-external-change coordination behavior is established by this implementation.
+typealias. This standalone exporter does not change a document session's
+URL, dirty checkpoint, or undo history. The separate internal session stage
+adds those responsibilities, but native DocumentGroup activation and complete
+document close behavior remain disabled pending their finalization capability.
+External-change coordination is still unsupported.
 See Apple's [serialization requirements](https://developer.apple.com/documentation/swiftui/filedocument/filewrapper(configuration:)).
 
 `FileDocumentExportTests` exercises real round trips and replacements,

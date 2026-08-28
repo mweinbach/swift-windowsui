@@ -12,27 +12,30 @@ the executable composition root.
 | Dashboard | Cards, metrics, deterministic local model changes, and component detail panels. A full chart integration and complete asynchronous loading/failure workflows remain open. |
 | Settings and forms | Shared form, input validation, dirty state, explicit save/reset, theme and text-size controls, injectable persistence, and restart/error tests as detailed below. Audio/telemetry flags are sample configuration; native accessibility and macOS workflow qualification remain open. |
 | Data browser | Search, sorting, filters, pagination, selection, and detail inspector. Viewport-bounded row construction and a complete large-data template remain open. |
-| Document or editor | Native dialogs choose file URLs; single regular-file FileDocument export serializes and writes bytes atomically before success. TextEditor preserves unbound caret/selection, IME, and drag state across rebuilds with current bindings and records accepted nonsecure edits in its environment undo manager. Native close has a preflight veto, but document sessions, save checkpoints, and Save/Discard/Cancel are not implemented. Vertical caret navigation and internal editor scrolling remain gaps. A complete open/edit/undo/save/unsaved-change/document-window template is still required. |
+| Document or editor | Shared `DemoDocumentScene` and a strict UTF-8 value document now exercise typed per-window sessions, writable configuration, real regular-file open/save, one model undo authority, saved checkpoints, and Save/Discard/Cancel intent through an explicit headless host. TextEditor shares shaped visual lines for navigation and its own keyboard caret reveal. Default/native DocumentGroup activation remains disabled until final close approval and an owned deferred wake are integrated. Decision UI, application commands, full wheel/UIA scrolling, and the complete native workflow still require qualification; see [DocumentSessions.md](DocumentSessions.md). |
 | Media or file browser | Image loading and file-drop primitives provide building blocks; the complete thumbnail, failure/retry, selection, preview, and drag/drop workflow remains open. |
 | Navigation and presentations | Navigation and presentation examples exist in the gallery. A complete master/detail application with all competing-input and focus-restoration flows remains required. |
 | Animation and drawing lab | Gallery primitives and motion examples exist. The complete interruptible transitions, matched geometry, keyframe, effects, and gesture lab remains required. |
 
-## Audited document workflow gaps
+## Document stage and activation gate
 
-`DocumentGroup` is not a hosted document lifecycle. Its configuration does not
-yet provide the standard projected document binding, and the host does not
-install working new/open/save document actions. Native dialog URL selection
-must not be confused with decoding, saving, or owning a document session.
+`DemoDocumentScene` uses `configuration.$document` and a mounted selection
+binding through public SwiftUI-shaped source. Its internal Windows host stage
+owns a real session before the first build and keeps that session across
+reconciliation. Headless routing decodes actual `.txt` files within a 16 MiB
+synchronous input ceiling, and Save returns success only after atomic file
+replacement. Model history mixes direct document writes and accepted editor
+edits without registering duplicate inverses. Errors and cancelled operations
+preserve the current editor, model, and previous saved checkpoint.
 
-The native close path now asks the host before destroying its window;
-`windowDismissBehavior(.disabled)` can refuse ordinary close requests without
-tearing down renderers, accessibility, or coordinator ownership. The host seam
-can keep a window alive while a later decision is resolved. It does not yet
-orchestrate Save/Discard/Cancel or own document dirty state.
-`interactiveDismissDisabled` protects retained presentations separately. The
-eventual template still needs an explicit document decision before teardown,
-successful persistence before clearing dirty state, and cancellation that keeps
-the editor usable.
+This scene is not registered in the default executable. Native
+`DocumentGroup` activation fails before model creation or file access. The
+session's close intent and final reservation are exercised with injected
+headless ownership; native participant/finalization and deferred delivery must
+be integrated and tested before any live unsaved-close workflow is enabled.
+The existing `windowDismissBehavior(.disabled)` veto and retained
+`interactiveDismissDisabled` remain separate policies. Neither establishes a
+completed document decision UI or licenses destruction after a stale save.
 
 ## Run and inspect the current application
 

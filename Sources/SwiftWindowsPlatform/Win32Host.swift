@@ -504,7 +504,11 @@ public struct Win32PlatformError: Error, CustomStringConvertible, Sendable {
 }
 @MainActor
 public final class Win32Window: PlatformWindow {
-    public weak var delegate: WindowDelegate?
+    public weak var delegate: WindowDelegate? {
+        didSet {
+            if oldValue !== delegate { closeControl.noteTopologyChanged() }
+        }
+    }
 
     /// `delegate` is weak, so the neutral adapter must stay owned by its
     /// window while a platform-independent host is installed. The adapter
@@ -544,7 +548,8 @@ public final class Win32Window: PlatformWindow {
     /// button-up must not cancel its own press before the delegate can handle it.
     private var isReleasingPointerCapture = false
     private var isAnimationTimerRunning = false
-    private var isHandlingCloseRequest = false
+    private let closeControl = Win32CloseControl()
+    private var isHandlingCloseRequest: Bool { closeControl.isHandlingCloseRequest }
     private var hasDeliveredWillClose = false
     private var windowLifetimeGeneration: UInt64 = 0
 
@@ -670,6 +675,9 @@ public final class Win32Window: PlatformWindow {
     /// Existing hosts keep receiving every legacy callback; alternate hosts
     /// receive the same events through their renderer-neutral contract.
     public func setPlatformWindowHost(_ host: (any PlatformWindowHost)?) {
+        // A callback may replace the neutral participant while its adapter is
+        // still returning a vote. That old chain cannot authorize destruction.
+        closeControl.noteTopologyChanged()
         if let adapter = platformWindowHostAdapter {
             guard let host else {
                 if delegate === adapter {
@@ -1029,6 +1037,11 @@ public final class Win32Window: PlatformWindow {
 
         hasDeliveredWillClose = false
         windowLifetimeGeneration &+= 1
+        let closeLifetime = closeControl.beginLifetime(generation: windowLifetimeGeneration)
+        var finishedNativeCreation = false
+        defer {
+            if !finishedNativeCreation { closeControl.creationFailed(closeLifetime) }
+        }
 
         try Self.registerWindowClass()
 
@@ -1092,6 +1105,10 @@ public final class Win32Window: PlatformWindow {
         }
 
         hwnd = createdWindow
+        if let createdWindow {
+            closeControl.didCreate(closeLifetime, handle: UInt(bitPattern: createdWindow))
+        }
+        finishedNativeCreation = true
 
         // The `WM_SIZE` Windows delivers from inside `CreateWindowExW` arrives
         // before `hwnd` is assigned, so the wndproc's cache refresh is a no-op
@@ -1374,11 +1391,56 @@ public final class Win32Window: PlatformWindow {
         PostMessageW(hwnd, UINT(WM_CLOSE), 0, 0)
     }
 
+    /// Package hosts opt in without extending public delegate requirements or
+    /// replacing the concrete/neutral veto chain. Registration does not retain
+    /// its authority; a native attempt pins it only for that attempt.
+    @discardableResult
+    package func installCloseAuthority(_ authority: any Win32CloseAuthority) -> Win32CloseRegistration? {
+        closeControl.installAuthority(authority)
+    }
+
+    package var activeCloseAttempt: Win32CloseAttempt? { closeControl.activeAttempt }
+
+    /// A deferred approval keeps its exact intent; it is never converted into
+    /// a second untagged WM_CLOSE. The returned outcome describes this attempt,
+    /// not merely successful message submission.
+    package func attemptClose(ticket: Win32CloseTicket) -> Win32CloseAttemptOutcome {
+        guard let hwnd, !hasDeliveredWillClose else { return .unavailable }
+        return performCloseAttempt(handle: hwnd, ticket: ticket)
+    }
+
+    private func performCloseAttempt(handle: HWND, ticket: Win32CloseTicket?) -> Win32CloseAttemptOutcome {
+        guard self.hwnd == handle, !hasDeliveredWillClose else { return .unavailable }
+        let requestedLifetime = windowLifetimeGeneration
+        var participants: [AnyObject] = [self]
+        if let delegate {
+            participants.append(delegate)
+            if let adapter = delegate as? Win32PlatformWindowHostAdapter {
+                if let downstream = adapter.downstream { participants.append(downstream) }
+                if let host = adapter.host { participants.append(host) }
+            }
+        }
+        return closeControl.attemptClose(
+            expectedHandle: UInt(bitPattern: handle), ticket: ticket, participants: participants,
+            preflight: { self.delegate?.windowShouldClose(self) ?? true },
+            destroy: { rawHandle in
+                guard self.windowLifetimeGeneration == requestedLifetime,
+                    self.hwnd == handle, self.isCloseButtonEnabled, !self.hasDeliveredWillClose,
+                    let nativeHandle = HWND(bitPattern: rawHandle)
+                else {
+                    return .failed(UInt32(ERROR_INVALID_WINDOW_HANDLE))
+                }
+                if DestroyWindow(nativeHandle) { return .succeeded }
+                return .failed(GetLastError())
+            })
+    }
+
     /// Discards an HWND whose application host failed to start. Rollback is
     /// unconditional: neither a view policy nor an auxiliary delegate may
     /// retain an unowned window after its renderer has already been released.
     /// Ordinary application dismissal must use `requestClose()` instead.
     public func destroyForFailedStartup() {
+        closeControl.revokeForForcedTeardown()
         guard let hwnd else { return }
         DestroyWindow(hwnd)
     }
@@ -1388,6 +1450,7 @@ public final class Win32Window: PlatformWindow {
     public func setCloseButtonEnabled(_ enabled: Bool) {
         guard isCloseButtonEnabled != enabled else { return }
         isCloseButtonEnabled = enabled
+        closeControl.isCloseEnabled = enabled
         applyCloseButtonEnabled()
     }
 
@@ -2188,24 +2251,13 @@ public final class Win32Window: PlatformWindow {
             // Both the native close affordances and requestClose() arrive
             // here. A rejected request must not stop timers, detach a backend,
             // disconnect UIA, or remove the coordinator's live-window record.
-            guard !isHandlingCloseRequest, !hasDeliveredWillClose else { return 0 }
-            isHandlingCloseRequest = true
-            defer { isHandlingCloseRequest = false }
-            let requestedLifetime = windowLifetimeGeneration
-            guard delegate?.windowShouldClose(self) ?? true,
-                isCloseButtonEnabled,
-                let currentHandle = self.hwnd, currentHandle == hwnd,
-                windowLifetimeGeneration == requestedLifetime,
-                !hasDeliveredWillClose
-            else { return 0 }
-            // The callback can reenter native code or destroy the window
-            // itself. Recheck the handle before approving its destruction.
-            DestroyWindow(currentHandle)
+            if let hwnd { _ = performCloseAttempt(handle: hwnd, ticket: nil) }
             return 0
 
         case UINT(WM_DESTROY):
             guard !hasDeliveredWillClose else { return 0 }
             hasDeliveredWillClose = true
+            if let lifetime = closeControl.lifetime { closeControl.beginDestruction(lifetime) }
             setAnimationTimerEnabled(false)
             cancelCloseWatchdogIfNeeded()
             delegate?.windowWillClose(self)
@@ -2222,12 +2274,14 @@ public final class Win32Window: PlatformWindow {
             // API stops calling into a destroyed window. The matching release
             // of the self reference happens in `windowProc`, after this frame
             // has returned.
+            let closeLifetime = closeControl.lifetime
             let result = DefWindowProcW(hwnd, message, wParam, lParam)
             setAnimationTimerEnabled(false)
             if let hwnd {
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0)
             }
             self.hwnd = nil
+            if let closeLifetime { closeControl.completeDestruction(closeLifetime) }
             return result
 
         case UINT(WM_DROPFILES):

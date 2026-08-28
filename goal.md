@@ -2976,3 +2976,75 @@ input hashes remained unchanged during execution. All seven changed Swift files
 pass strict lint and contracts. This is focused working-source evidence, not
 sixth-batch Full/Quick, an interactive common-dialog smoke test, or a completed
 document workflow. The original nine product gates remain open.
+
+### Sixth batch: native close control and captured lifetimes
+
+The dialog slice is committed as `30d68e7`. The next increment introduces
+package-owned close outcomes, authority registration, intent tickets, concrete
+commit leases, and native window lifetimes. A veto cannot be overwritten by a
+later authority, cancelled or consumed tickets cannot be reused, and reuse of
+an HWND does not revive the old window lifetime. A prepared lease keeps its
+actual owner/session alive through final reservation, destruction, and exactly
+one terminal finish. Native destruction is reported successful only when the
+captured lifetime acknowledges it; a failed or incomplete destruction is explicit.
+This increment does not yet supply the later deferred-delivery or App/document
+integration, and it does not activate DocumentGroup.
+
+The first actual build found one unique compiler error in a new fixture,
+repeated by the parallel compiler batches: an untyped local closure could not
+be converted to the MainActor callback stored by the test lease. No XCTest case
+executed. The failed log has SHA-256
+`e23b553f7d43492e16dd1c96584159eb732b9a73ae8ab77d58cd6b8e38c62e45`;
+`artifacts/goal-sixth-close-control-compile-failure-v1/failure.json`, SHA-256
+`2b0d5706e392dff750e36c9d20bae610af3746039e8ddf0add3bfdef31c07700`,
+preserves thirteen log, receipt, and exact source files before correction.
+
+The correction explicitly types that one local closure as `@MainActor () -> Void`.
+Its body, captures, three invocation phases, and all assertions remain unchanged;
+there is no production change, concurrency-flag relaxation, cast, or unchecked
+Sendable assertion. Independent review confirms the callback type already has
+that actor requirement. The original frozen bundle remains untouched, and
+`artifacts/goal-sixth-native-actor-overlay-v1.json` records the exact one-line
+root correction for subsequent integration comparisons. The imported test file
+is therefore no longer byte-identical to its frozen input; its assertions are.
+
+The complete rerun passes 78 distinct XCTest cases across four serial invocations:
+all 37 new `Win32CloseControlTests`, twelve native close-request regressions,
+eleven window-coordinator tests, and eighteen dismissal-policy tests. There are
+no failures or skips. Its log is
+`artifacts/goal-sixth-close-control-tests-v2.log`, SHA-256
+`46133c38753da87803f9a09779aa04883e3057bc4b19c97be41411b1400cb800`.
+The tested staged tree is `781e8da0d344bb234854dfd27ee5e793ee566c2f` over
+`30d68e7`; the child exited zero and all recorded inputs, index bytes, tree, and
+Git status stayed unchanged. All three changed Swift files passed strict lint,
+with a fresh strict check of the corrected fixture. New state-machine cases use
+controlled handles rather than calling native destruction through fake HWNDs.
+Full real-machine close, document, and presentation qualification remains open.
+
+The fifth-push hosted results remain distinct. Portable CI and the ordinary
+macOS reference workflow passed at `9f983e6`. The latter actually used macOS
+15.7.7 arm64, Xcode 26.3, Swift 6.2.4, and SDK 26.2, outside the pinned reference
+identity. Its twelve canonical material images and twenty-four attached-hosting
+images remain inconclusive with Reduce Transparency enabled in both system and
+observed SwiftUI contexts. Every hosting image matches its corresponding
+canonical image; the twelve canonical images match the prior fourth candidate.
+Unshown window attachment therefore did not distinguish the material controls
+under these observed conditions. No setting or qualification was changed.
+
+The separate pinned SDK workflow stopped in the RGB synthetic fixture before
+SDK export, audit generation, or native RGB collection. The fixture compared a
+physical `/private/var/...` source path with its logical `/var/...` temporary
+root. Production collection already resolves its repository root; a narrow
+fixture-root correction and separate failure-artifact retention are being
+prepared without weakening containment checks. The failed job did not publish a
+candidate artifact, so no same-revision native RGB comparison is available yet.
+
+The isolated F9 Foundation build returned zero at 08:08:52 UTC, with no resource
+abort. Its exact generated commands passed the reviewed filename correction;
+opaque per-configuration target IDs, one dependency enumeration swap, an unused
+target-PDB name, and phony-block serialization were retained as explicit metadata
+differences without relaxing ordered command/source checks. Complete output,
+module-origin, resource, and input verification is still being sealed. No DLL
+was installed or activated, and the real XCTest/Swift Testing cohort and native
+scheduling/Unicode checks remain separate unfinished work. None of these local
+or hosted results closes an original product gate.

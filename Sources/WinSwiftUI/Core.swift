@@ -3,6 +3,9 @@ import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsLayout
 import SwiftWindowsUI
+// Expose the original wrapper so both import paths resolve the same Binding
+// declaration, including in public generic signatures.
+@_exported import struct SwiftWindowsCore.Binding
 
 public typealias CGFloat = Double
 public typealias Color = SwiftWindowsCore.Color
@@ -1149,17 +1152,6 @@ public struct ScrollAnchor: Sendable, Equatable, Hashable {
     public init() {}
 }
 public typealias Transaction = SwiftWindowsCore.Transaction
-/// `@Binding` — the property wrapper a child view declares when its parent
-/// owns the state.
-///
-/// The type has always been here (it is what `$state` projects, and what every
-/// control in this module takes), but it lived in `SwiftWindowsCore` with no
-/// alias in the module app code actually imports. So `Binding<Value>` was
-/// spellable inside the stack and *not* spellable in an app: `@Binding var
-/// hoveredIndex: Int?` — the ordinary way a SwiftUI view hands state to a
-/// subview — failed with "unknown attribute 'Binding'". One alias, and
-/// same-source app code stops having to route child state through closures.
-public typealias Binding = SwiftWindowsCore.Binding
 public protocol VectorArithmetic: AdditiveArithmetic {
     mutating func scale(by rhs: Double)
     var magnitudeSquared: Double { get }

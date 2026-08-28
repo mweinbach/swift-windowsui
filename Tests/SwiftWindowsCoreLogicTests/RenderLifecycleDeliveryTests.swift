@@ -367,6 +367,7 @@ final class RenderLifecycleDeliveryTests: XCTestCase {
         let child = ViewNode(frame: Rect(x: 0, y: 0, width: 20, height: 20))
         let runtime = makeRuntime(children: [child])
         let probe = RenderLifecycleTaskProbe()
+        let firstStart = expectNextTaskStart(on: probe)
         child.onAppearWithNode = { node in
             node.launchLifecycleTask(
                 ViewLifecycleTaskLaunch(key: "reinsert", priority: .userInitiated) {
@@ -375,13 +376,14 @@ final class RenderLifecycleDeliveryTests: XCTestCase {
         }
 
         _ = runtime.renderScene()
-        for _ in 0..<64 where probe.starts < 1 { await Task.yield() }
+        await fulfillment(of: [firstStart], timeout: 5)
         XCTAssertEqual(probe.starts, 1)
         child.removeFromParent()
         XCTAssertFalse(child.hasAppeared)
+        let secondStart = expectNextTaskStart(on: probe)
         runtime.root.addChild(child)
         _ = runtime.renderScene()
-        for _ in 0..<64 where probe.starts < 2 { await Task.yield() }
+        await fulfillment(of: [secondStart], timeout: 5)
 
         XCTAssertTrue(child.hasAppeared)
         XCTAssertEqual(probe.starts, 2, "An ordinary removal must not permanently retire task ownership")
@@ -426,8 +428,9 @@ final class RenderLifecycleDeliveryTests: XCTestCase {
         XCTAssertNil(node.onAppearWithNode)
         for _ in 0..<4 { await Task.yield() }
         XCTAssertEqual(probe.starts, 0)
+        let taskStart = expectNextTaskStart(on: probe)
         _ = runtime.renderScene()
-        for _ in 0..<64 where probe.starts < 1 { await Task.yield() }
+        await fulfillment(of: [taskStart], timeout: 5)
         XCTAssertEqual(probe.versions, [1])
         XCTAssertEqual(probe.starts, 1)
         XCTAssertFalse(node.hasPendingAppearanceCallbacks)
@@ -440,6 +443,7 @@ final class RenderLifecycleDeliveryTests: XCTestCase {
         let child = ViewNode(frame: Rect(x: 0, y: 0, width: 20, height: 20))
         let runtime = makeRuntime(children: [child])
         let probe = RenderLifecycleTaskProbe()
+        let taskStart = expectNextTaskStart(on: probe)
         child.pendingLifecycleTaskLaunches = [
             ViewLifecycleTaskLaunch(key: "same-key", priority: .userInitiated) {
                 await probe.recordStart(version: 10)
@@ -453,7 +457,7 @@ final class RenderLifecycleDeliveryTests: XCTestCase {
         }
 
         _ = runtime.renderScene()
-        for _ in 0..<64 where probe.starts < 1 { await Task.yield() }
+        await fulfillment(of: [taskStart], timeout: 5)
         _ = runtime.renderFrame()
         for _ in 0..<4 { await Task.yield() }
 
@@ -481,11 +485,14 @@ final class RenderLifecycleDeliveryTests: XCTestCase {
 
         XCTAssertEqual(hookCalls, 1)
         XCTAssertTrue(child.hasPendingAppearanceCallbacks)
+        XCTAssertEqual(child.pendingLifecycleTaskLaunches.count, 1)
         XCTAssertTrue(runtime.isDirty)
         for _ in 0..<4 { await Task.yield() }
         XCTAssertEqual(probe.starts, 0)
+        let taskStart = expectNextTaskStart(on: probe)
         _ = runtime.renderScene()
-        for _ in 0..<64 where probe.starts < 1 { await Task.yield() }
+        XCTAssertTrue(child.pendingLifecycleTaskLaunches.isEmpty)
+        await fulfillment(of: [taskStart], timeout: 5)
         XCTAssertEqual(hookCalls, 1)
         XCTAssertEqual(probe.versions, [7])
         XCTAssertEqual(probe.starts, 1)
@@ -494,6 +501,14 @@ final class RenderLifecycleDeliveryTests: XCTestCase {
         for _ in 0..<4 { await Task.yield() }
         XCTAssertEqual(probe.starts, 1)
         XCTAssertEqual(hookCalls, 1)
+    }
+
+    private func expectNextTaskStart(on probe: RenderLifecycleTaskProbe) -> XCTestExpectation {
+        let started = expectation(description: "Lifecycle task start \(probe.starts + 1)")
+        // Yield counts are not a readiness guarantee. Acknowledge the actual
+        // action after its MainActor probe has recorded the observed values.
+        probe.onStart = { started.fulfill() }
+        return started
     }
 
     private func makeRuntime(children: [ViewNode]) -> RetainedViewRuntime {
@@ -506,10 +521,14 @@ final class RenderLifecycleDeliveryTests: XCTestCase {
 private final class RenderLifecycleTaskProbe {
     var starts = 0
     var versions: [Int] = []
+    var onStart: (() -> Void)?
 
     func recordStart(version: Int? = nil) {
         starts += 1
         if let version { versions.append(version) }
+        let callback = onStart
+        onStart = nil
+        callback?()
     }
 }
 

@@ -234,6 +234,31 @@ namespace SwiftUIBaseline.Streaming {
             StringBuilder result = new StringBuilder(); Value(result, 0); return result.ToString();
         }
         public void SkipValue() { Value(null, 0); }
+        // Small PowerShell metadata cannot represent case-aliased object keys.
+        // Validate those inputs before trusting a parsed projection; raw native
+        // graphs and ledger mixins retain their existing ordinal JSON rules.
+        public void ValidateMetadataValue(int depth) {
+            White();
+            if (depth > MaximumDepth) Fail("Metadata JSON nesting exceeds 256 levels");
+            if (Peek() == '{') {
+                Expect('{');
+                HashSet<string> names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (!Consume('}')) {
+                    do {
+                        string name = PropertyName();
+                        if (!names.Add(name)) Fail("Duplicate or ambiguous metadata object member '" + name + "'");
+                        ValidateMetadataValue(depth + 1);
+                    } while (Consume(','));
+                    Expect('}');
+                }
+            } else if (Peek() == '[') {
+                Expect('[');
+                if (!Consume(']')) {
+                    do { ValidateMetadataValue(depth + 1); } while (Consume(','));
+                    Expect(']');
+                }
+            } else SkipValue();
+        }
         public Dictionary<string, string> ObjectFields() {
             Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.Ordinal);
             Expect('{');
@@ -714,7 +739,7 @@ public sealed class AuditTextInput {
     // Windows matching, Swift parsing, or behavioral classification occurs here.
     public static class AuditLedgerWriter {
         private static readonly UTF8Encoding UTF8 = new UTF8Encoding(false, true);
-        private static readonly string[] Families = new string[] {
+        internal static readonly string[] Families = new string[] {
             "view-builder", "binding-projections", "image-resizing", "long-press", "file-export"
         };
         private static readonly string[] Files = new string[] {
@@ -780,7 +805,7 @@ public sealed class AuditTextInput {
             return Canonical(raw, new string[] { "graphPath", "relationshipIndex", "relationship" },
                 new string[0], maximum);
         }
-        private static int QueueMask(string raw, int maximum) {
+        internal static int QueueMask(string raw, int maximum) {
             Dictionary<string, string> fields = JsonInput.Fields(raw, "candidate queue symbol", maximum);
             string path;
             if (!fields.TryGetValue("pathComponents", out path) || path == "null" || path.Length == 0 || path[0] != '[') return 0;
@@ -812,7 +837,7 @@ public sealed class AuditTextInput {
                     (first == "View" && last.StartsWith("fileExporter(", StringComparison.Ordinal))) mask |= 16;
             return mask;
         }
-        private static int SelectedQueues(string[] names) {
+        internal static int SelectedQueues(string[] names) {
             if (names == null) return 31;
             int mask = 0;
             foreach (string name in names) {
@@ -828,7 +853,7 @@ public sealed class AuditTextInput {
                 throw new InvalidDataException("Inventory does not match raw " + context + ".");
         }
 
-        private static void ValidateInventory(AuditLedgerOptions options, AuditLedgerSummary result,
+        internal static void ValidateInventory(AuditLedgerOptions options, AuditLedgerSummary result,
                 List<AuditGraphState> graphs, string sortedIndex, string symbolDigests,
                 string relationshipDigests, string factsPath) {
             int maximum = options.MaximumRecordCharacters;
@@ -966,7 +991,7 @@ public sealed class AuditTextInput {
             }
         }
 
-        private static bool ReadTextLine(StreamReader reader, int maximum, out string text, out string ending) {
+        internal static bool ReadTextLine(StreamReader reader, int maximum, out string text, out string ending) {
             StringBuilder value = new StringBuilder();
             ending = "";
             while (true) {
@@ -981,7 +1006,7 @@ public sealed class AuditTextInput {
                 value.Append((char)character);
             }
         }
-        private static long WriteTextFacts(AuditTextInput[] files, string output, string kind,
+        internal static long WriteTextFacts(AuditTextInput[] files, string output, string kind,
                 AuditLedgerSummary summary, int maximum) {
             long lines = 0;
             using (StreamWriter writer = Writer(output)) {
@@ -1125,6 +1150,271 @@ public sealed class AuditTextInput {
                 throw new IOException("Refusing unsafe audit index scratch cleanup.");
             Directory.Delete(spool, true);
             foreach (string name in Files) result.Inventory.OutputBytes += new FileInfo(Path.Combine(options.OutputDirectory, name)).Length;
+            return result;
+        }
+    }
+
+    public sealed class AuditReviewFileInput {
+        public string Path, RelativePath, Sha256;
+        public long Bytes;
+    }
+    public sealed class AuditReviewOptions {
+        public AuditLedgerOptions Ledger;
+        public AuditReviewFileInput[] Files;
+        public string PreciseIdentifier, OutputDirectory;
+    }
+    public sealed class AuditReviewSummary {
+        public AuditLedgerSummary Verified = new AuditLedgerSummary();
+        public long SelectedOccurrences, IncidentRelationships, LedgerInputBytes;
+        public string[] RecordFiles;
+    }
+    internal sealed class AuditReviewRow {
+        public string Raw, Ending;
+        public Dictionary<string, string> Fields;
+    }
+
+    // A review packet never infers an identifier from a spelling. Read every
+    // sealed ledger row and pair it with the original bounded graph visitor.
+    // Preserve selected row bytes (including JSON spellings and line endings),
+    // and reuse the existing inventory/text reconciliation, not a new parser.
+    public static class AuditReviewPacketWriter {
+        private static readonly UTF8Encoding UTF8 = new UTF8Encoding(false, true);
+        public static void ValidateMetadataObject(string text, int maximum) {
+            if (text == null || maximum < 1024 || maximum > 134217728)
+                throw new ArgumentOutOfRangeException("MaximumMetadataBytes");
+            JsonInput input = new JsonInput(new StringReader(text), "review metadata", maximum);
+            input.SkipUTF8BOM(); input.White();
+            if (input.Peek() != '{') throw new InvalidDataException("Review metadata must have a JSON object root.");
+            input.StartRecord(); input.ValidateMetadataValue(0); input.EndRecord(); input.EndDocument();
+        }
+        private static string Hex(byte[] bytes) { return BitConverter.ToString(bytes).Replace("-", "").ToLowerInvariant(); }
+        private static byte[] Digest(string text) {
+            using (SHA256 hash = SHA256.Create()) { return hash.ComputeHash(UTF8.GetBytes(text)); }
+        }
+        private static string Required(Dictionary<string, string> fields, string name) {
+            string value;
+            if (!fields.TryGetValue(name, out value)) throw new InvalidDataException("Missing ledger field '" + name + "'.");
+            return value;
+        }
+        private static string Text(Dictionary<string, string> fields, string name, int maximum) {
+            return JsonInput.DecodeString(Required(fields, name), name, maximum);
+        }
+        private static long Integer(Dictionary<string, string> fields, string name) {
+            long value;
+            if (!Int64.TryParse(Required(fields, name), NumberStyles.None, CultureInfo.InvariantCulture, out value))
+                throw new InvalidDataException("Ledger count/index must be a nonnegative Int64: " + name);
+            return value;
+        }
+        private static StreamWriter Writer(string path) {
+            StreamWriter result = new StreamWriter(new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None), UTF8, 65536);
+            result.NewLine = "\n"; return result;
+        }
+        private static void CopyRow(StreamWriter writer, AuditReviewRow row) { writer.Write(row.Raw); writer.Write(row.Ending); }
+        private static void Provenance(AuditReviewRow row, GraphInput graph, int maximum) {
+            if (Text(row.Fields, "graphPath", maximum) != graph.RelativePath ||
+                    Text(row.Fields, "requestedModule", maximum) != graph.RequestedModule ||
+                    Text(row.Fields, "target", maximum) != graph.Target)
+                throw new InvalidDataException("Ledger row has the wrong graph/module/target provenance.");
+        }
+        private static void VerifyFile(AuditReviewFileInput expected, string actualPath) {
+            using (FileStream input = new FileStream(actualPath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536))
+            using (SHA256 hash = SHA256.Create()) {
+                if (input.Length != expected.Bytes || Hex(hash.ComputeHash(input)) != expected.Sha256)
+                    throw new InvalidDataException("Ledger size/SHA-256 mismatch: " + expected.RelativePath);
+            }
+        }
+        private sealed class Rows : IDisposable {
+            private readonly AuditReviewFileInput file;
+            private readonly int maximum;
+            private readonly FileStream stream;
+            private readonly SHA256 hash;
+            private readonly CryptoStream hashed;
+            private readonly StreamReader reader;
+            private bool ended;
+            public Rows(AuditReviewFileInput input, int limit) {
+                file = input; maximum = limit;
+                stream = new FileStream(file.Path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536);
+                if (stream.Length != file.Bytes) { stream.Dispose(); throw new InvalidDataException("Ledger byte count changed: " + file.RelativePath); }
+                hash = SHA256.Create();
+                hashed = new CryptoStream(stream, hash, CryptoStreamMode.Read);
+                reader = new StreamReader(hashed, UTF8, false, 65536);
+            }
+            public AuditReviewRow Next() {
+                if (ended) return null;
+                string raw, ending;
+                if (!AuditLedgerWriter.ReadTextLine(reader, maximum, out raw, out ending)) {
+                    ended = true;
+                    if (Hex(hash.Hash) != file.Sha256) throw new InvalidDataException("Ledger SHA-256 mismatch: " + file.RelativePath);
+                    return null;
+                }
+                if (raw.Length == 0 || ending.Length == 0)
+                    throw new InvalidDataException("Empty or truncated NDJSON record; every ledger row must end with a newline: " + file.RelativePath);
+                Dictionary<string, string> fields = JsonInput.Fields(raw, file.RelativePath, maximum);
+                if (Text(fields, "reviewStatus", maximum) != "unreviewed")
+                    throw new InvalidDataException("Ledger records must remain unreviewed: " + file.RelativePath);
+                return new AuditReviewRow { Raw = raw, Ending = ending, Fields = fields };
+            }
+            public AuditReviewRow Need() {
+                AuditReviewRow row = Next();
+                if (row == null) throw new InvalidDataException("Missing/truncated ledger record: " + file.RelativePath);
+                return row;
+            }
+            public void End() {
+                if (Next() != null) throw new InvalidDataException("Duplicate or extra ledger record: " + file.RelativePath);
+            }
+            public void Dispose() { reader.Dispose(); hashed.Dispose(); stream.Dispose(); hash.Dispose(); }
+        }
+        public static AuditReviewSummary Write(AuditReviewOptions options) {
+            if (options == null || options.Ledger == null || String.IsNullOrWhiteSpace(options.PreciseIdentifier))
+                throw new ArgumentException("A ledger and one exact precise identifier are required.");
+            AuditLedgerOptions ledger = options.Ledger;
+            int maximum = ledger.MaximumRecordCharacters;
+            if (maximum < 1024 || maximum > 134217728 || options.PreciseIdentifier.Length > maximum)
+                throw new ArgumentOutOfRangeException("MaximumRecordCharacters");
+            Dictionary<string, AuditReviewFileInput> files = new Dictionary<string, AuditReviewFileInput>(StringComparer.Ordinal);
+            foreach (AuditReviewFileInput file in options.Files) files.Add(file.RelativePath, file);
+            string[] names = new string[] { "identities.ndjson", "occurrences.ndjson", "relationships.ndjson", "graph-fields.ndjson",
+                "partitions.ndjson", "inventory-facts.ndjson", "interface-facts.ndjson", "overlay-facts.ndjson", "candidate-queues.ndjson" };
+            if (files.Count != names.Length) throw new InvalidDataException("A complete nine-stream ledger is required.");
+            foreach (string name in names) if (!files.ContainsKey(name)) throw new InvalidDataException("Missing ledger stream: " + name);
+            AuditReviewSummary result = new AuditReviewSummary();
+            foreach (AuditReviewFileInput file in files.Values) result.LedgerInputBytes = checked(result.LedgerInputBytes + file.Bytes);
+            string native = Path.Combine(options.OutputDirectory, "native");
+            string context = Path.Combine(options.OutputDirectory, "context");
+            Directory.CreateDirectory(native); Directory.CreateDirectory(context);
+            string spool = Path.Combine(options.OutputDirectory, ".review-index-" + Guid.NewGuid().ToString("N"));
+            if (Directory.Exists(spool) || File.Exists(spool)) throw new IOException("Review scratch already exists.");
+            Directory.CreateDirectory(spool);
+            string symbolDigests = Path.Combine(spool, "symbols.bin"), relationshipDigests = Path.Combine(spool, "relationships.bin");
+            ExternalIndex index = new ExternalIndex(spool, ledger.SortChunkBytes, maximum, ledger.MergeFanIn, result.Verified.Inventory);
+            List<AuditGraphState> states = new List<AuditGraphState>();
+            using (Rows occurrences = new Rows(files["occurrences.ndjson"], maximum))
+            using (Rows relationships = new Rows(files["relationships.ndjson"], maximum))
+            using (Rows fields = new Rows(files["graph-fields.ndjson"], maximum))
+            using (Rows partitions = new Rows(files["partitions.ndjson"], maximum))
+            using (BinaryWriter symbolHashes = new BinaryWriter(new FileStream(symbolDigests, FileMode.CreateNew)))
+            using (BinaryWriter relationshipHashes = new BinaryWriter(new FileStream(relationshipDigests, FileMode.CreateNew)))
+            using (StreamWriter selectedOccurrences = Writer(Path.Combine(native, "occurrences.ndjson")))
+            using (StreamWriter selectedRelationships = Writer(Path.Combine(native, "relationships.ndjson")))
+            using (StreamWriter contextFields = Writer(Path.Combine(context, "graph-fields.ndjson")))
+            using (StreamWriter contextPartitions = Writer(Path.Combine(context, "partitions.ndjson")))
+            using (SHA256 graphSet = SHA256.Create()) {
+                string previous = null;
+                foreach (GraphInput graph in ledger.Graphs) {
+                    if (previous != null && StringComparer.Ordinal.Compare(previous, graph.RelativePath) >= 0)
+                        throw new InvalidDataException("Graph partitions are duplicated or out of order.");
+                    previous = graph.RelativePath;
+                    AuditGraphState state = new AuditGraphState { Input = graph, FirstSymbol = result.Verified.Inventory.DeclarationOccurrences };
+                    GraphVisitSummary visited = InventoryWriter.VisitGraph(graph, delegate(RawGraphRecord record) {
+                        if (record.Kind == "symbol") {
+                            AuditReviewRow row = occurrences.Need(); Provenance(row, graph, maximum);
+                            if (Integer(row.Fields, "symbolIndex") != record.Index ||
+                                    Text(row.Fields, "preciseIdentifier", maximum) != record.PreciseIdentifier ||
+                                    Required(row.Fields, "symbol") != record.Json)
+                                throw new InvalidDataException("Missing, duplicated or changed raw declaration occurrence.");
+                            long offset = symbolHashes.BaseStream.Position;
+                            symbolHashes.Write(Digest(record.InventoryJson));
+                            symbolHashes.Write(AuditLedgerWriter.QueueMask(record.Json, maximum));
+                            index.Add(record.PreciseIdentifier, result.Verified.Inventory.DeclarationOccurrences, offset);
+                            if (record.PreciseIdentifier == options.PreciseIdentifier) {
+                                CopyRow(selectedOccurrences, row); result.SelectedOccurrences++;
+                            }
+                            result.Verified.Inventory.DeclarationOccurrences++;
+                        } else if (record.Kind == "relationship") {
+                            AuditReviewRow row = relationships.Need(); Provenance(row, graph, maximum);
+                            if (Integer(row.Fields, "relationshipIndex") != record.Index || Required(row.Fields, "relationship") != record.Json)
+                                throw new InvalidDataException("Missing, duplicated or changed raw relationship.");
+                            relationshipHashes.Write(Digest(record.InventoryJson));
+                            Dictionary<string, string> relation = JsonInput.Fields(record.Json, "relationship", maximum);
+                            if (Text(relation, "source", maximum) == options.PreciseIdentifier ||
+                                    Text(relation, "target", maximum) == options.PreciseIdentifier) {
+                                CopyRow(selectedRelationships, row); result.IncidentRelationships++;
+                            }
+                            result.Verified.Inventory.RelationshipOccurrences++;
+                        } else {
+                            AuditReviewRow row = fields.Need(); Provenance(row, graph, maximum);
+                            if (Integer(row.Fields, "rootFieldIndex") != record.Index ||
+                                    Text(row.Fields, "field", maximum) != record.Name || Required(row.Fields, "value") != record.Json)
+                                throw new InvalidDataException("Missing, duplicated or changed graph context field.");
+                            CopyRow(contextFields, row); result.Verified.GraphFieldFacts++;
+                        }
+                    }, maximum);
+                    AuditReviewRow partition = partitions.Need();
+                    if (Required(partition.Fields, "graph") != visited.GraphRecord)
+                        throw new InvalidDataException("Partition context differs from the authoritative raw graph.");
+                    CopyRow(contextPartitions, partition);
+                    state.SymbolCount = visited.Statistics.DeclarationOccurrences; state.RecordDigest = Digest(visited.GraphRecord); states.Add(state);
+                    result.Verified.Inventory.Graphs++; result.Verified.Inventory.InputBytes += visited.Statistics.InputBytes;
+                    result.Verified.Inventory.LargestRecordCharacters = Math.Max(result.Verified.Inventory.LargestRecordCharacters, visited.Statistics.LargestRecordCharacters);
+                    byte[] line = UTF8.GetBytes(graph.RelativePath + "\t" + visited.Sha256 + "\n");
+                    graphSet.TransformBlock(line, 0, line.Length, null, 0);
+                }
+                occurrences.End(); relationships.End(); fields.End(); partitions.End();
+                graphSet.TransformFinalBlock(new byte[0], 0, 0);
+                result.Verified.Inventory.GraphSetSha256 = Hex(graphSet.Hash);
+            }
+            string sortedIndex = index.Finish();
+            if (result.Verified.Inventory.GraphSetSha256 != ledger.GraphSetSha256 ||
+                    result.Verified.Inventory.Graphs != ledger.ExpectedGraphs ||
+                    result.Verified.Inventory.PreciseSymbols != ledger.ExpectedPreciseSymbols ||
+                    result.Verified.Inventory.DeclarationOccurrences != ledger.ExpectedDeclarations ||
+                    result.Verified.Inventory.RelationshipOccurrences != ledger.ExpectedRelationships)
+                throw new InvalidDataException("Complete capture counts and graph-set hash do not match the ledger.");
+            AuditLedgerWriter.ValidateInventory(ledger, result.Verified, states, sortedIndex, symbolDigests, relationshipDigests,
+                Path.Combine(context, "inventory-facts.ndjson"));
+            using (Rows identities = new Rows(files["identities.ndjson"], maximum))
+            using (Rows queues = new Rows(files["candidate-queues.ndjson"], maximum))
+            using (RunReader sorted = new RunReader(sortedIndex, maximum))
+            using (BinaryReader payloads = new BinaryReader(File.OpenRead(symbolDigests)))
+            using (StreamWriter identity = Writer(Path.Combine(native, "identity.ndjson")))
+            using (StreamWriter contextQueues = Writer(Path.Combine(context, "candidate-queues.ndjson"))) {
+                int selectedQueues = AuditLedgerWriter.SelectedQueues(ledger.QueueFamilies);
+                bool found = false;
+                while (sorted.Current != null) {
+                    string identifier = sorted.Current.Identifier;
+                    long count = 0; int masks = 0;
+                    do {
+                        payloads.BaseStream.Position = sorted.Current.Offset + 32;
+                        masks |= payloads.ReadInt32(); count++; sorted.Advance();
+                    } while (sorted.Current != null && sorted.Current.Identifier == identifier);
+                    result.Verified.Inventory.LargestOccurrenceGroup = Math.Max(result.Verified.Inventory.LargestOccurrenceGroup, count);
+                    AuditReviewRow row = identities.Need();
+                    if (Text(row.Fields, "preciseIdentifier", maximum) != identifier || Integer(row.Fields, "occurrenceCount") != count)
+                        throw new InvalidDataException("Identity rows are missing, duplicated, ambiguous or have the wrong occurrence count.");
+                    if (identifier == options.PreciseIdentifier) {
+                        if (found || count != result.SelectedOccurrences) throw new InvalidDataException("Ambiguous selected identity or incomplete occurrences.");
+                        found = true; CopyRow(identity, row);
+                    }
+                    for (int family = 0; family < AuditLedgerWriter.Families.Length; family++) if ((masks & selectedQueues & (1 << family)) != 0) {
+                        AuditReviewRow queue = queues.Need();
+                        if (Text(queue.Fields, "preciseIdentifier", maximum) != identifier ||
+                                Text(queue.Fields, "family", maximum) != AuditLedgerWriter.Families[family] ||
+                                Text(queue.Fields, "selection", maximum) != "lexical-candidate-only")
+                            throw new InvalidDataException("Candidate queue records differ from the complete ledger.");
+                        CopyRow(contextQueues, queue); result.Verified.QueueRecords++;
+                    }
+                }
+                identities.End(); queues.End();
+                if (!found || result.SelectedOccurrences == 0) throw new InvalidDataException("Exact precise identifier was not found in the complete ledger.");
+            }
+            result.Verified.InterfaceFiles = ledger.Interfaces.Length;
+            result.Verified.InterfaceLines = AuditLedgerWriter.WriteTextFacts(ledger.Interfaces, Path.Combine(context, "interface-facts.ndjson"),
+                "interface", result.Verified, maximum);
+            result.Verified.OverlayFiles = ledger.Overlays.Length;
+            result.Verified.OverlayLines = AuditLedgerWriter.WriteTextFacts(ledger.Overlays, Path.Combine(context, "overlay-facts.ndjson"),
+                "overlay", result.Verified, maximum);
+            foreach (string name in new string[] { "inventory-facts.ndjson", "interface-facts.ndjson", "overlay-facts.ndjson" }) {
+                VerifyFile(files[name], files[name].Path);
+                VerifyFile(files[name], Path.Combine(context, name));
+            }
+            if (Path.GetDirectoryName(Path.GetFullPath(spool)) != Path.GetFullPath(options.OutputDirectory) ||
+                    (File.GetAttributes(spool) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("Refusing unsafe review scratch cleanup.");
+            Directory.Delete(spool, true);
+            result.RecordFiles = new string[] { "native/identity.ndjson", "native/occurrences.ndjson", "native/relationships.ndjson",
+                "context/graph-fields.ndjson", "context/partitions.ndjson", "context/inventory-facts.ndjson",
+                "context/interface-facts.ndjson", "context/overlay-facts.ndjson", "context/candidate-queues.ndjson" };
+            foreach (string name in result.RecordFiles) result.Verified.Inventory.OutputBytes += new FileInfo(Path.Combine(options.OutputDirectory, name)).Length;
             return result;
         }
     }

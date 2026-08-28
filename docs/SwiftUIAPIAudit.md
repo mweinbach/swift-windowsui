@@ -249,6 +249,11 @@ steps need explicit reviewed mappings and evidence at pinned toolchain and
 source revisions. Nothing is marked implemented, compatible, excluded,
 reviewed, or release-qualified by this command.
 
+An [exact-identifier review unit](SwiftUIAPIReview.md) can gather one identity's
+complete occurrences and incident relationships with the full surrounding
+context and explicitly pinned Windows source blobs. It does not perform the
+review: declaration, source, and behavior claims still start unverified.
+
 ## Resource bounds and publication
 
 The writer uses the shared buffered JSON record reader, a disk-backed ordinal

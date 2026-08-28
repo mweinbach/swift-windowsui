@@ -2256,3 +2256,41 @@ task-start acknowledgment is being validated without changing runtime behavior
 or removing the lifecycle assertions. This hosted run did not complete the
 test ladder or reach the product/gallery gates; the earlier local Full/Quick
 passes remain separate evidence, not a replacement for hosted success.
+
+### SDK review tooling integration and validation boundaries
+
+The shared compiler-identity parser now removes only the recognized driver
+prefix from its derived Apple Swift compiler line. It retains the compiler
+patch version and complete swiftlang/clang build suffixes, rejects ambiguous
+compiler or Xcode headers, and preserves original command/manifest receipts.
+Synthetic material checks still reject genuinely different compiler identities
+and keep inconclusive observations unqualified. The original hosted material
+failure is not rewritten into a successful run.
+
+The complete-record API review selector is integrated as a separate tool.
+It selects one exact exported identifier, reconciles the entire successful
+capture and nine-stream audit, retains all selected occurrences/relationships
+and source context, and copies only explicitly pinned regular Git blobs.
+Its new immutable output contains separate unverified declaration, source,
+and behavior claims. Both validation modes now include its synthetic suite.
+
+The integrated scripts pass 3,174 assertions on each PowerShell runtime:
+546 baseline/streaming/memory, 293 material provenance, 391 audit, 19 audit
+memory, 350 workflow, and 1,575 review-unit assertions. These were fresh-process
+suite checks, not native execution. The successful PS7 sequence is preserved
+in `artifacts/goal-fifth-sdk-tooling-fresh-ps7.log`; PS5's first five successful
+suites and its separately repeated successful review suite are in
+`artifacts/goal-fifth-sdk-tooling-fresh-ps51.log` and
+`artifacts/goal-fifth-api-review-unit-ps51-frozen-head.log`.
+
+Failed attempts remain part of the evidence. A root-created aggregate harness
+ran unrelated suites in one process before the PS7 memory check, whose measured
+peak exceeded its unchanged 768 MiB budget. Fresh memory-only processes passed
+at 192.4 MiB on PS5 and 228.8 MiB on PS7. An initial PS5 workflow fixture also
+hit the previously observed staging-directory Move access denial; its cause
+remains under investigation, with no retry or permissions workaround added to
+production. During the first fresh PS5 review run, a documentation commit
+changed HEAD and correctly tripped the repository-immutability assertion.
+Repeating that suite with files and Git state frozen passed all 1,575 checks.
+No failure log, budget, audit record, or native qualification was discarded or
+silently relaxed to obtain these results.

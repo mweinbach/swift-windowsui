@@ -109,8 +109,16 @@ Invoke-Step "pinned material capture provenance fixtures (synthetic only)" {
     & (Join-Path $PSScriptRoot "test-swiftui-material-reference.ps1")
 }
 
+Invoke-Step "RGB constructor reference tooling fixtures (synthetic only)" {
+    & (Join-Path $PSScriptRoot "test-swiftui-color-rgb-reference.ps1")
+}
+
 Invoke-Step "gallery font provenance fixtures (synthetic only)" {
     & (Join-Path $PSScriptRoot "test-gallery-font-provenance.ps1")
+}
+
+Invoke-Step "bitmap font attribution fixtures (synthetic only)" {
+    & (Join-Path $PSScriptRoot "test-gallery-bitmap-font-attribution.ps1")
 }
 
 # All SwiftPM steps below run strictly serially (shared .build/build.db).
@@ -171,6 +179,9 @@ if ($Full) {
     }
     Invoke-Step "color-effect passes and native text safety" {
         & $testScript -Sharded -Filter "SceneColorEffectPassTests|D3D11ImageRenderPassTests|SceneAtlasLifetimeTests|D3D11SharedSceneAtlasTests|NativeTextConversionSafetyTests"
+    }
+    Invoke-Step "bitmap font attribution ownership" {
+        & $testScript -Sharded -Filter "BitmapFontAttributionViewTests|NativeBitmapFontAttributionSessionTests|NativeBitmapFontDrawCaptureTests|NativeBitmapFontMetadataTests"
     }
     Invoke-Step "ScenePrimitiveScaleInvarianceTests" {
         & $testScript -Filter "ScenePrimitiveScaleInvarianceTests"

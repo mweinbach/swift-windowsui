@@ -55,6 +55,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   intake/ledger/workflow checks. Its exact-identifier packets reconcile all
   captured raw records and retain explicit committed Windows source blobs;
   passing these tooling tests does not approve an API mapping or behavior.
+- Both modes also run `test-swiftui-color-rgb-reference.ps1`. Its synthetic
+  fixtures cover strict report parsing, fixed component bounds, source and
+  compiler provenance, process failures, and separate primary/AppKit outcomes.
+  These checks compile only a managed JSON helper, not Swift or a native color
+  observer. Actual collection requires the separate clean-source workflow in
+  [ColorRGBReference.md](ColorRGBReference.md).
   Keep tracked files and Git state unchanged while validation is active. The
   review suite checks repository immutability, and the bounded-memory fixture
   measures the whole test process; standalone runs need fresh processes, not
@@ -108,6 +114,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   `WinSwiftUIBitmapStretchTests` covers ordinary bitmap
   stretch through layout, CPU scene/frame output, and D3D11. Full includes them all.
 - Quick and Full run the material diagnostic classifier's synthetic self-tests through `macos-reference-renderer`. These do not render native material on Windows or replace macOS capture, reviewed comparisons, or the unresolved material-backdrop regression.
+  The self-tests also cover the optional fixed unattached/attached hosting
+  experiment, per-arm controls, checkpoint failures, and policy restoration.
+  The original canonical capture matrix and classifier remain separate.
+- Quick and Full run the bitmap font attribution collector's synthetic suite;
+  Quick additionally includes the four bitmap attribution XCTest suites for
+  context propagation, callback ownership, cache receipts, and bounded metadata.
+  These do not fingerprint loaded glyph bytes or qualify a font profile. Actual
+  off/on retained renders and selected DirectWrite face observations remain
+  separate checks; see [BitmapFontAttribution.md](BitmapFontAttribution.md).
 - Quick and Full also run the API audit intake, ledger, default bounded
   memory, and workflow handoff fixtures. The pinned macOS capture workflow runs the same four
   scripts before export. These synthetic tests preserve full record scope,

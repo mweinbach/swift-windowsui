@@ -2401,3 +2401,118 @@ The owned source, flags, logs, and SIL are retained under
 `C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-state-object-isolation-probe-1bd182277aa047918327010b93c69a39/`.
 The current MainActor initializer restriction and its native declaration gap
 remain explicit. A safe replacement still needs design and native comparison.
+
+### Diagnostic integration: font ownership, material hosting, and RGB observers
+
+The bitmap-font attribution, material-hosting experiment, and paired RGB
+observer sources are now integrated for validation. The original font patch
+and its separate formatting overlay remain unchanged. Strict lint passes all
+25 changed Swift files, and the portable material executable compiles and
+passes all 170 synthetic checks. On both PS5 and PS7, the font collector passes
+174 synthetic assertions and the material collector passes 1,383 assertions
+across 369 fixtures. These runs do not execute native macOS rendering.
+
+The first combined Swift test build stopped before executing cases because
+the imported `CompareStringOrdinal` function expects a Swift Bool at its final
+argument, not WindowsBool. The call now supplies the same true value with the
+correct imported type; no comparison rule or path validation was changed.
+The failed log remains at `artifacts/goal-fifth-font-attribution-focused.log`,
+SHA-256 `b23fd0d6ff3319b7e8c9cac7495d7d87305b105be65d0ae85646ac27b831726d`.
+The subsequent Swift test run and actual diagnostic off/on render checks are
+still required. No baseline or comparison tolerance has changed.
+
+The material addition preserves the canonical six-fixture/two-repeat capture
+first. Its opt-in sidecar adds 24 fresh unattached/attached captures under a
+checked process-only activation-policy transition, with separate controls per
+arm and checked cleanup/restoration. It never orders or activates a window,
+changes OS preferences, or promotes an inconclusive control. The new color
+executable records fixed public constructor observations without opening a UI;
+its Windows compilation and pinned native comparisons remain pending here.
+
+The SDK follow-up confirms that the six captured interface files comprise
+four macOS files and two SwiftUICore Catalyst variants. The exporter searched
+only two framework module directories for cross-import definitions and did
+not preserve a discovery census. Zero copied definitions therefore remains
+unverified overlay completeness. The successful capture and nine audit streams
+remain intact; a separately sealed discovery/load-check plan is being prepared.
+These checks document how to establish the original full-baseline audit;
+its acceptance gate is unchanged.
+
+Two further font-integration compile failures are retained, again with zero
+executed test cases. The gallery's exclusive directory-creation check now uses
+the Bool returned by `CreateDirectoryW` directly. A test helper's metadata
+closure now carries the same MainActor annotation as the existing production
+initializer it forwards to. Neither correction changes a runtime assertion,
+comparison rule, public API, or the callback ownership contract. The logs
+`goal-fifth-font-attribution-focused-v2.log` and
+`goal-fifth-font-attribution-focused-v3.log` have SHA-256 values
+`ffa679467b527f8210d3eb7fce80a0eaad033a246efc5a4d46c7e3cbaaae1ddf`
+and `7f1e3093695096e9c366bcf18205e3c83072bdabecc3b9b7494ee4dbe9ac8d42`.
+The second attempt left one compiler process orphaned after its parent exited;
+root verified the exact PID, creation time, module, workspace argument, absent
+parent, and unchanged CPU observations before terminating only that process.
+`artifacts/goal-fifth-font-orphan-compiler.json` records the cleanup. No other
+compiler or application was stopped. The RGB observer executable did compile
+and link during that attempt, but its observations have not yet been executed.
+
+The corrected focused run now passes 138 distinct XCTest cases across 11
+targets and eight serial invocations, including all 79 new attribution cases.
+There are no failures or skips. Its log is
+`artifacts/goal-fifth-font-attribution-focused-v4.log`, SHA-256
+`beb13089c905a66eeed756f5333c550e70331b428b8d2363c34ab2556109dd53`.
+Actual off/on retained renders and native face/file observations are the next
+checks; passing these tests alone does not establish pixel neutrality or the
+cause of the hosted gallery differences.
+
+The RGB collection/comparison scripts are also integrated. Their isolated
+synthetic validation passed 125 cases on each shell: 446 assertions on PS5
+and 453 on PS7, with separate fallback-specific checks. Root validation is
+still pending. Quick and Full now include this synthetic suite. The actual
+Windows observer, both pinned native typechecks, native execution, and paired
+comparison remain separate evidence; no component tolerance was widened.
+
+The first isolated Foundation build attempt stopped before compilation when
+pinned Ninja rejected an unchanged 264-character source path. Its configuration
+had succeeded, but no Foundation target object, library, or module-origin
+receipt was produced. The immutable failure record is
+`C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-foundation-inputs-1787886013247/builds/foundation-build-1787890953218/frozen-build-phase-manifest.json`,
+SHA-256 `f0792f095da207cd979c3d17f773bc2bd9123b05829b5969a0f5e519f206e036`.
+A new bounded cohort will copy the same four frozen source views into shorter
+owned paths, verify every byte, and rebuild the same eleven targets and options.
+No installed toolchain, source fix, OS path setting, or native activation was
+substituted. The native MainActor/Unicode failure remains open.
+
+Root RGB tooling validation now passes all 125 cases under both PS5 and PS7
+(446 and 453 assertions respectively). The two diagnostic gallery fixtures
+also pass against the unchanged baselines with zero changed pixels and zero
+channel delta, both with attribution disabled and enabled. Their PNG bytes
+are identical between modes. The raw retained stepper and symbol-palette
+images were opened and inspected; this is a two-fixture diagnostic check, not
+the full 85-baseline release gate or GPU visual qualification.
+
+The actual native records identify Segoe Fluent Icons for the nine accepted
+bitmap draws and their selected scene references: both stepper chevrons and
+seven palette icons. The sparkle selects the existing vector fallback.
+Segoe MDL2 Assets appears in candidate/sentinel probes only and is not
+misreported as an accepted bitmap. Both approved font-file references were
+fingerprinted after rendering through the same checked file handles; embedded
+versions were Fluent Icons 1.54 and MDL2 Assets 1.86. These disk hashes are not
+hashes of bytes loaded by DirectWrite. Optional axes remain unimplemented,
+so the report correctly stays partial and unqualified. Ordinary text and
+atlas glyphs are not instrumented, and scene references alone do not prove
+visible contribution after clipping. Hosted observations remain required.
+
+`artifacts/goal-fifth-diagnostics-validation.json`, SHA-256
+`9377e3162f03196aafc79c3274a17636c468161e19b7473d20558dc4787e8abb`,
+seals the focused tests, synthetic tooling checks, two off/on render sets,
+actual bounded font observations, preserved failed builds, source hashes,
+strict lint, and post-edit contracts. The font, material-hosting, and RGB
+collector slices are committed separately as `6dd7dbd`, `c515e19`, and
+`c1fc350`. They remain unpushed pending the fifth batch's complete validation.
+
+A source review also found that Quick/Full invokes the bounded-memory audit
+fixture in the same PowerShell process as earlier suites, while its Windows
+measurement is the process-lifetime peak working set. Earlier allocations can
+therefore contaminate that measurement. A fresh same-engine child boundary
+for that one fixture is being implemented and tested; the existing 768 MiB
+limit, workload, and failure result will remain unchanged.

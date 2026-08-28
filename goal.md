@@ -4444,3 +4444,88 @@ Full failures, first Quick archive failure, both native collection attempts,
 and all earlier evidence remain preserved. No original requirement, timing
 target, baseline, tolerance, or one of the nine open product completion gates
 has been removed, relaxed, or marked complete.
+
+### Seventh batch publication diagnostics and first root result
+
+The sixth validated batch was pushed together through
+`c7e7987b4eb94becabee51b816ef60116069d838`; the local and remote `main`
+references matched afterward. That commit changed only this ledger relative
+to the previously validated `1ce6b9a` source tree. The following work is a new
+batch and does not inherit a claim that its combined tree passed Full or Quick.
+
+The API-audit builder now records bounded diagnostic facts if its single
+`System.IO.Directory.Move` fails. It still attempts publication once, preserves
+the original failure, and runs the existing staging cleanup. A best-effort,
+create-new sibling report contains bounded exception type/HResult facts,
+source/destination/parent path observations, the audit manifest hash, and process
+version/identity. It does not serialize exception messages, stacks, arbitrary
+exception data, or the process environment. No retry, delay, forced collection,
+sharing change, ACL exception, alternative publication path, or antivirus
+exception was added. Successful publication does not load the new helper.
+
+The three source files came from the frozen publication-diagnostics packet,
+patch SHA256 `d3bd77d53a4254c32e48c5830538797fee77a574c2a294afabae8868f27bef8d`.
+All 31 manifest members were verified before intake. The isolated candidate
+previously passed 241 diagnostic assertions plus the existing 391 ledger
+assertions once on each of PowerShell 5.1 and 7. Those isolated results are
+separate from the new root execution below.
+
+The root sequence at
+`artifacts/goal-seventh-publication-diagnostics-root-v1` invoked the new
+standalone fixture serially on PowerShell 5.1 and then PowerShell 7. It did not
+run SwiftPM. PowerShell 5.1 PID 55720 exited naturally with **0** after 9.453
+seconds: **241 diagnostic assertions and 391 existing ledger assertions
+passed**, with the existing ledger invoked exactly once. Its 1,062-byte log
+has SHA256
+`05265fa4a3da25e3ed5159603fcbe76d737a81795c3665c5f3146176fdb2e41e`;
+its test summary has SHA256
+`6a7db1caef8c9bfb6c764ab00c6f71bed823830de0b0b2d2b82ded3d4f6bf3a8`.
+The synthetic cases cover success, prepublication failure, a move failure,
+diagnostic failure, and diagnostic-name collision. The exception object,
+HResult, error ID/category, and target remain preserved through rethrow;
+the outer PowerShell ErrorRecord wrapper was observed to be a different
+object, so wrapper reference identity is not claimed.
+
+PowerShell 7 PID 17020 exited naturally with **1** after 3.703 seconds. The
+existing ledger published its first all-queues result, but its second
+image-queue publication failed with access denied. No final assertion summary
+was produced for this host; neither 241 nor 391 passing root assertions are
+claimed for it. Its 840-byte log has SHA256
+`5c8a0a03ed51d3541aa278f2eec38b77de52408e61e28e84f929d62c3bab7290`.
+The whole sequence ended after 13.406 seconds without timeout, termination,
+retry, or source/index changes. All 742 recorded input files and the index
+remained unchanged. This is a failed root validation, not a successful rerun
+or a correction of the earlier Full publication failure.
+
+The failure-only reporter captured the actual failed move before cleanup in
+`ps7/existing-ledger/.swiftui-api-audit-abff17f061454a7b96325c7c73130a97.publication-failure.json`
+inside that root output directory. Its 1,665 bytes have SHA256
+`99557c84c78abf488be47819ca24981541846a17237c0ad25008f60670c36f77`.
+The exception chain is `MethodInvocationException` / `0x80131501` wrapping
+`IOException` / `0x80070005`; neither entry supplies a Win32Exception native
+error code. Staging and parent attribute reads succeeded with Directory (16).
+Destination existence checks returned false, but its attribute read failed.
+That path error retained only the outer exception, so destination absence and
+its inner failure cause are **not established**. The existing finally cleanup
+path remains in place; the diagnostic remains. The saved failure receipts do
+not include a post-cleanup staging-path observation.
+
+A bounded source review found explicit stream disposal before publication
+and no escaping owned handle or change into the staging directory that
+explains the failure. This does not establish that every operating-system
+handle was closed, or identify another process, policy, or filesystem cause.
+The review is preserved at
+`C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-api-publication-diagnosis-c69c812c9fbf496bbf71aca155a9290c/diagnosis.md`,
+SHA256 `6f4978152e060615a816357d5107caf09e0471cff19ba18804e2a20ac476a3bf`.
+Fresh root `agent-check.ps1 -ContractsOnly` then passed with natural exit **0**
+on PowerShell 5.1, PID 50592, in 2.063 seconds, without SwiftPM or input/index
+changes. Its receipt is
+`artifacts/goal-seventh-publication-intake-contracts-v1/result.json`; the
+99-byte log has SHA256
+`d3381946a2842a46e7e40917b01bcb3355db0cbf2e6045ec0216e814dbb1641a`.
+This contract check does not turn the earlier root PS7 failure into a pass.
+
+An additive bounded projection of path-error inner exceptions is a proposed
+follow-up, not a demonstrated publication repair. This standalone fixture is
+not yet part of Quick or Full. All prior failures and the original nine open
+completion gates remain unchanged.

@@ -160,6 +160,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   hashes, rejected inputs, and publication boundaries; they do not establish
   a successful native capture or any API conformance. The opt-in large fixture
   remains separate. See [SwiftUIAPIAudit.md](SwiftUIAPIAudit.md).
+- `test-swiftui-api-audit-publication-diagnostics.ps1` is a separate opt-in
+  fixture. It checks bounded failure reporting and preservation of the original
+  publication error, then runs the existing ledger suite once. It is not yet
+  registered in Quick or Full. A failed directory move may leave a sibling
+  `.publication-failure.json` before the existing staging cleanup runs;
+  reporting is best effort and neither retries nor makes publication succeed.
+  False path-existence observations do not prove absence when the recorded
+  attribute lookup also failed. The report does not identify a handle owner or
+  establish the cause of a publication failure.
 - Quick and Full also run `test-swiftui-material-reference.ps1` for bounded
   metadata, source/tool identity, artifact hashes, and consistent control
   classifications. These synthetic fixtures do not decode native material

@@ -45,6 +45,8 @@ if (Test-Path -LiteralPath $stagingPath) { throw "Audit staging directory alread
 [void][System.IO.Directory]::CreateDirectory($stagingPath)
 $failure = $null
 $published = $false
+$publicationAttempted = $false
+$publicationAttemptedAtUTC = $null
 
 try {
     if ((Resolve-SwiftUIBaselineFileSystemPath -Path $stagingPath) -cne [System.IO.Path]::GetFullPath($stagingPath)) {
@@ -231,10 +233,22 @@ try {
     $manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
     [System.IO.File]::WriteAllText((Join-Path $stagingPath "audit.sha256"), "$manifestHash  audit.json`n", [System.Text.UTF8Encoding]::new($false))
     if (Test-Path -LiteralPath $outputPath) { throw "Audit output appeared before publication; immutable evidence is never overwritten." }
+    $publicationAttemptedAtUTC = [DateTime]::UtcNow.ToString("o")
+    $publicationAttempted = $true
     [System.IO.Directory]::Move($stagingPath, $outputPath)
     $published = $true
 } catch {
     $failure = $_
+    if ($publicationAttempted -and -not $published) {
+        try {
+            . (Join-Path $PSScriptRoot "swiftui-api-audit-publication-diagnostics.ps1")
+            [void](Write-SwiftUIAuditPublicationFailureDiagnostic -ErrorRecord $failure `
+                -StagingPath $stagingPath -OutputPath $outputPath -OutputParent $outputParent `
+                -StagingLeaf $stagingLeaf -ManifestSha256 $manifestHash -AttemptedAtUTC $publicationAttemptedAtUTC)
+        } catch {
+            # Diagnostics are best effort; preserve the original publication ErrorRecord.
+        }
+    }
     throw
 } finally {
     if (-not $published -and (Test-Path -LiteralPath $stagingPath)) {

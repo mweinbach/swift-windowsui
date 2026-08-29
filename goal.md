@@ -8147,3 +8147,46 @@ remain pending. Together the native, List, label and integration source cohorts
 contain 771 new methods (765 async and six nonisolated synchronous methods).
 Their source preservation is not a runtime pass. The original nine gates stay
 open, including real UIA/Narrator and complete lazy-collection behavior.
+
+### Ninth implementation pass: explicit overlay census workflow and stable template bytes (2026-08-29)
+
+The existing Stage A filesystem census can now be requested through a separate
+manual baseline-workflow option. Push runs and ordinary manual runs retain
+their previous behavior. An opted-in request requires the reviewed template's
+exact SHA-256 and an explicit optional-root choice. The caller binds only the
+fresh successful capture/audit and named anchor hashes into the fixed plan;
+it does not substitute discovered root paths, broaden traversal or approve
+baseline identity. The generated plan hash records integrity, not a second
+independent review.
+
+The new preflight has a two-minute limit. A requested census follows successful
+export and complete audit with a separate twenty-minute limit inside the
+existing ninety-minute job. Independent material/RGB failures are preserved;
+they do not silently suppress this separate requested stage. Cancellation or
+failed export/audit does suppress it. Existing uploads and their retention
+remain unchanged. No workflow was dispatched by this implementation step.
+
+The source packet's six-file patch has SHA-256
+`f5010220e99fe3d1a50e115459a4eab5367a1262e40ecb1f43a1002569dd2019`.
+On Windows integration, the exact-hash preflight correctly refused Git's CRLF
+checkout of the template. The root now pins only this authorization template
+to LF in .gitattributes and retains its already reviewed bytes and SHA-256
+`51090bf9a96a781dde9a65433d19ad6cd6fa3ddafbb02c3efcf3640481aa9766`.
+The caller's hash guard was not relaxed or replaced. Two additional synthetic
+assertions check the Git rule and actual line endings.
+
+All 236 focused source/synthetic assertions, the corrected ValidateOnly call,
+root contracts and whitespace checks passed. ValidateOnly explicitly reports
+no root-plan validation, SDK observation or native census. The original failed
+preflight remains a separate diagnostic. The complete workflow, managed-reader
+fixtures and live macOS census have not run for this change.
+
+The plan acknowledges the existing BCL adapter's possible incidental link-target
+metadata queries outside a reviewed boundary before controller checks. Those
+individual queries are not fully observed; this is not permission for outward
+content reads, listings or traversal. Stage A still cannot prove compiler
+module loads, overlay activation, declaration ownership, API completeness or
+behavior. Stage B and the original identity/raw-payload review requirements
+remain open. The separate native/List integration also passed strict lint of
+all 144 changed Swift files; its runtime tests remain pending. No original
+completion gate is changed or closed.

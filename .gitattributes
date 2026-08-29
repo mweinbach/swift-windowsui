@@ -1,3 +1,4 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 *.swift text eol=lf
+docs/swiftui-overlay-root-plan.template.json text eol=lf

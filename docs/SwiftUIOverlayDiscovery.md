@@ -6,6 +6,95 @@ unchanged. A successful census remains unreviewed; an incomplete census is
 diagnostic evidence only. Stage B load probes and supplemental graph
 reconciliation are not implemented by this change.
 
+The baseline capture workflow can invoke this existing Stage A producer only
+through an explicit manual request. Its default is unchanged: push runs and
+ordinary manual runs perform no overlay census. Select
+`capture_overlay_discovery: true`, supply the previously reviewed SHA-256 of
+`docs/swiftui-overlay-root-plan.template.json` at the chosen workflow revision,
+and choose `overlay_developer_frameworks` as exactly `not-selected` or
+`selected-optional`. The default `unselected` value is deliberately invalid for
+an opted-in request. Inputs reach PowerShell as environment values, not as
+interpolated script text. No additional push paths, default tests, existing
+capture flags, API allowlist entries, identity pins or qualification flags are
+changed by this option.
+
+Git keeps this hash-authorized template in LF form on Windows and macOS.
+The caller still checks its exact bytes; it does not normalize or replace the
+supplied authorization hash. The focused tests check this checkout policy and
+the actual template line endings as well as the workflow's input guards.
+
+The new caller first checks the template hash and choice without touching the
+SDK or initializing the managed reader. That preflight has a two-minute step
+limit and runs before SDK export. After a successful export and complete audit,
+the optional census runs after the existing RGB step and before the existing
+uploads, with a separate 20-minute limit inside the unchanged 90-minute job.
+Independent material or RGB failure does not relabel a successful SDK/audit or
+silently suppress the requested census; cancellation or failed export/audit
+does suppress it. The native producer's original limits and failure behavior
+remain intact. This is not permission to launch it before the caller, template
+and actual execution have been reviewed.
+
+`capture-swiftui-overlay-discovery-candidate.ps1` binds the existing successful
+capture, audit and baseline hashes into the fixed template. It fills only the
+two source-hash markers and the hashes of the explicitly named anchors. The
+baseline-manifest hash remains literal and must match the supplied baseline. All
+three root paths, both desktop targets, anchor paths, physical boundaries,
+lookup grants and census limits come from the reviewed template. A changed
+path or added/missing captured interface is an error, not a reason to expand
+authorization. The optional choice may activate only the template's literal
+developer-framework path and its one named Library metadata lookup. The
+original template bytes, generated plan and caller/source hashes are retained
+under the fresh `overlay-discovery-request/` sibling. The existing collector
+alone creates the separate fresh `overlay-discovery/` output.
+
+The template uses the recorded Xcode 26.6/MacOSX 26.5 logical locations as
+conditional physical expectations. It does not assert that those paths are
+present, canonical, readable or unchanged on a future runner. The unchanged
+census must resolve each selected present root to that exact expected path;
+there is no runtime realpath substitution, fallback installation or inferred
+permission. Internal aliases within the authorized SDK/toolchain boundaries
+remain subject to the existing recorder's rules. This profile grants metadata
+lookups but no parent-directory listings. Its explicit acknowledgement retains
+the BCL adapter's incidental link-target metadata queries, including possible
+queries outside the reviewed boundary before controller checks. It does not
+authorize outward content reads, listing or traversal; individual incidental
+metadata queries are not fully observed. Consequently a missing or denied
+selected-optional Frameworks root remains incomplete; it is not automatically
+classified absent or changed to not-selected. This also avoids treating an
+aliased optional parent as proof of absence at the literal expected location.
+
+The generated root-plan hash is an integrity seal, not an independent approval
+of values discovered at runtime. Authorization comes from the explicit request
+for the reviewed fixed template and its narrow binding code. The resulting
+plan still uses the original root-authorization schema and passes through
+`capture-swiftui-overlay-discovery.ps1` unchanged, including strict metadata,
+complete source-seal and live filesystem checks. Neither the producer nor its
+validators are replaced by the new caller. Anchor hashes are observations from
+the new successful capture; binding them does not fill baseline identity pins
+or retroactively approve the historical capture.
+
+The existing always-upload path retains both new siblings, including failure
+receipts and hidden files, with its original 30-day retention and sole
+module-cache exclusion. Early request validation does not precreate the SDK
+evidence root: an invalid request remains a job-log failure, with no fabricated
+SDK/census artifact. Later intake or census failures preserve the owned request
+receipt and any producer diagnostics without retrying or rewriting the source
+capture or audit. Existing missing-artifact failures are not suppressed.
+
+`scripts/test-swiftui-overlay-workflow.ps1` checks the new pure binding functions,
+input gates and artifact wiring using source and small synthetic objects. It
+does not run the existing census/intake reader, compiler, native probes or
+multi-gigabyte graph/ledger checks. The existing full workflow and discovery
+suites remain separate validation; their managed helper compilation is not
+part of that focused check.
+
+This option can establish a new observation's recorded filesystem contents and
+their consistency with its captured anchors. It cannot prove the old run's
+loaded binary/textual/cache slice, native overlay activation, declaration
+ownership, API completeness or behavior. Stage B resolver/load evidence is
+still unimplemented, the original raw-payload review prerequisite is unchanged,
+and identity pins remain held pending the required review.
+
 The tooling is PowerShell under `scripts/`. Pure parser, fake filesystem, and
 artifact checks run on Windows PowerShell 5.1 and PowerShell 7. The live
 entrypoint requires macOS and PowerShell 7, and refuses other platforms before

@@ -2,6 +2,23 @@ name: SwiftUI baseline candidate capture
 
 on:
   workflow_dispatch:
+    inputs:
+      capture_overlay_discovery:
+        description: "Opt in to the existing Stage A filesystem census; no identity or overlay approval"
+        type: boolean
+        default: false
+      overlay_root_plan_template_sha256:
+        description: "Reviewed SHA-256 of docs/swiftui-overlay-root-plan.template.json at this workflow revision"
+        type: string
+        default: ""
+      overlay_developer_frameworks:
+        description: "Explicit optional-root choice; selected-optional requires a present matching root"
+        type: choice
+        default: unselected
+        options:
+          - unselected
+          - not-selected
+          - selected-optional
   push:
     branches:
       - main
@@ -54,6 +71,15 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
           submodules: false
+
+      - name: Validate explicit overlay discovery request
+        id: overlay-request
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.capture_overlay_discovery }}
+        timeout-minutes: 2
+        env:
+          SWIFTUI_OVERLAY_TEMPLATE_SHA256: ${{ inputs.overlay_root_plan_template_sha256 }}
+          SWIFTUI_OVERLAY_DEVELOPER_FRAMEWORKS: ${{ inputs.overlay_developer_frameworks }}
+        run: ./scripts/capture-swiftui-overlay-discovery-candidate.ps1 -TemplateSha256 $env:SWIFTUI_OVERLAY_TEMPLATE_SHA256 -DeveloperFrameworksSelection $env:SWIFTUI_OVERLAY_DEVELOPER_FRAMEWORKS -ValidateOnly
 
       - name: Verify checkout metadata fixtures
         run: ./scripts/test-checkout-metadata.ps1
@@ -243,6 +269,16 @@ jobs:
         env:
           SWIFTUI_CAPTURE_ROOT: ${{ steps.sdk-export.outputs.capture-root }}
         run: ./scripts/capture-swiftui-color-rgb-reference.ps1 -Platform Native -CaptureRoot $env:SWIFTUI_CAPTURE_ROOT -OutputPath (Join-Path $env:GITHUB_WORKSPACE "artifacts/swiftui-baseline/github-actions/color-rgb-native")
+
+      - name: Capture opt-in overlay filesystem discovery
+        id: overlay-discovery
+        if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.capture_overlay_discovery && steps.overlay-request.outcome == 'success' && steps.sdk-export.outcome == 'success' && steps.sdk-export.outputs.capture-status == 'exported-awaiting-review' && steps.api-audit.outcome == 'success' }}
+        timeout-minutes: 20
+        env:
+          SWIFTUI_CAPTURE_ROOT: ${{ steps.sdk-export.outputs.capture-root }}
+          SWIFTUI_OVERLAY_TEMPLATE_SHA256: ${{ inputs.overlay_root_plan_template_sha256 }}
+          SWIFTUI_OVERLAY_DEVELOPER_FRAMEWORKS: ${{ inputs.overlay_developer_frameworks }}
+        run: ./scripts/capture-swiftui-overlay-discovery-candidate.ps1 -TemplateSha256 $env:SWIFTUI_OVERLAY_TEMPLATE_SHA256 -DeveloperFrameworksSelection $env:SWIFTUI_OVERLAY_DEVELOPER_FRAMEWORKS -CaptureRoot $env:SWIFTUI_CAPTURE_ROOT
 
       - name: Upload RGB synthetic test diagnostics
         if: ${{ always() && steps.rgb-fixtures.outcome != '' && steps.rgb-fixtures.outcome != 'skipped' }}

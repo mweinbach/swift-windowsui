@@ -1,0 +1,212 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "overlay-discovery-root-authorization",
+  "sourceCaptureSha256": "RUNTIME_CAPTURE_SHA256",
+  "sourceAuditSha256": "RUNTIME_AUDIT_SHA256",
+  "baselineManifestSha256": "24b9c8680528247173e74dfec68a143b85b300bbfb64d43c1e545517782bf51a",
+  "targetContexts": [
+    {
+      "target": "arm64-apple-macosx26.5",
+      "targetVariant": null
+    },
+    {
+      "target": "x86_64-apple-macosx26.5",
+      "targetVariant": null
+    }
+  ],
+  "roots": [
+    {
+      "rootId": "selected-sdk",
+      "selection": "required",
+      "logicalPath": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "expectedPhysicalPath": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "allowedPhysicalBoundary": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "reason": "Conditional literal mapping; presence, aliases and access remain unobserved until the authorized run."
+    },
+    {
+      "rootId": "selected-swift-resources",
+      "selection": "required",
+      "logicalPath": "/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift",
+      "expectedPhysicalPath": "/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift",
+      "allowedPhysicalBoundary": "/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift",
+      "reason": "Conditional literal mapping; presence, aliases and access remain unobserved until the authorized run."
+    },
+    {
+      "rootId": "platform-developer-frameworks",
+      "selection": "not-selected",
+      "logicalPath": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "expectedPhysicalPath": null,
+      "allowedPhysicalBoundary": null,
+      "reason": "Explicit operator choice only. Presence, physical mapping and access remain unobserved; selected-optional absence is incomplete because parent listing is not authorized."
+    }
+  ],
+  "identityAnchors": [
+    {
+      "anchorId": "swift-tool",
+      "logicalPath": "/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift",
+      "allowedPhysicalBoundary": "/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain",
+      "expectedSha256": "RUNTIME_ANCHOR_SHA256"
+    },
+    {
+      "anchorId": "extractor-tool",
+      "logicalPath": "/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-symbolgraph-extract",
+      "allowedPhysicalBoundary": "/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain",
+      "expectedSha256": "RUNTIME_ANCHOR_SHA256"
+    },
+    {
+      "anchorId": "sdk-settings",
+      "logicalPath": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk/SDKSettings.json",
+      "allowedPhysicalBoundary": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "expectedSha256": "RUNTIME_ANCHOR_SHA256"
+    },
+    {
+      "anchorId": "interface:SwiftUI/arm64e-apple-macos.swiftinterface",
+      "logicalPath": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk/System/Library/Frameworks/SwiftUI.framework/Modules/SwiftUI.swiftmodule/arm64e-apple-macos.swiftinterface",
+      "allowedPhysicalBoundary": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "expectedSha256": "RUNTIME_ANCHOR_SHA256"
+    },
+    {
+      "anchorId": "interface:SwiftUI/x86_64-apple-macos.swiftinterface",
+      "logicalPath": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk/System/Library/Frameworks/SwiftUI.framework/Modules/SwiftUI.swiftmodule/x86_64-apple-macos.swiftinterface",
+      "allowedPhysicalBoundary": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "expectedSha256": "RUNTIME_ANCHOR_SHA256"
+    },
+    {
+      "anchorId": "interface:SwiftUICore/arm64e-apple-ios-macabi.swiftinterface",
+      "logicalPath": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk/System/Library/Frameworks/SwiftUICore.framework/Modules/SwiftUICore.swiftmodule/arm64e-apple-ios-macabi.swiftinterface",
+      "allowedPhysicalBoundary": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "expectedSha256": "RUNTIME_ANCHOR_SHA256"
+    },
+    {
+      "anchorId": "interface:SwiftUICore/arm64e-apple-macos.swiftinterface",
+      "logicalPath": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk/System/Library/Frameworks/SwiftUICore.framework/Modules/SwiftUICore.swiftmodule/arm64e-apple-macos.swiftinterface",
+      "allowedPhysicalBoundary": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "expectedSha256": "RUNTIME_ANCHOR_SHA256"
+    },
+    {
+      "anchorId": "interface:SwiftUICore/x86_64-apple-ios-macabi.swiftinterface",
+      "logicalPath": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk/System/Library/Frameworks/SwiftUICore.framework/Modules/SwiftUICore.swiftmodule/x86_64-apple-ios-macabi.swiftinterface",
+      "allowedPhysicalBoundary": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "expectedSha256": "RUNTIME_ANCHOR_SHA256"
+    },
+    {
+      "anchorId": "interface:SwiftUICore/x86_64-apple-macos.swiftinterface",
+      "logicalPath": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk/System/Library/Frameworks/SwiftUICore.framework/Modules/SwiftUICore.swiftmodule/x86_64-apple-macos.swiftinterface",
+      "allowedPhysicalBoundary": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "expectedSha256": "RUNTIME_ANCHOR_SHA256"
+    }
+  ],
+  "lookupAuthorizations": [
+    {
+      "lookupId": "applications",
+      "kind": "ancestor-metadata",
+      "exactPath": "/Applications",
+      "purpose": "Resolve the named Xcode ancestor only.",
+      "mayEnumerateChildren": false,
+      "mayTraverseDescendants": false
+    },
+    {
+      "lookupId": "xcode-app",
+      "kind": "ancestor-metadata",
+      "exactPath": "/Applications/Xcode_26.6.app",
+      "purpose": "Resolve the named Xcode ancestor only.",
+      "mayEnumerateChildren": false,
+      "mayTraverseDescendants": false
+    },
+    {
+      "lookupId": "xcode-contents",
+      "kind": "ancestor-metadata",
+      "exactPath": "/Applications/Xcode_26.6.app/Contents",
+      "purpose": "Resolve the named Xcode ancestor only.",
+      "mayEnumerateChildren": false,
+      "mayTraverseDescendants": false
+    },
+    {
+      "lookupId": "developer",
+      "kind": "ancestor-metadata",
+      "exactPath": "/Applications/Xcode_26.6.app/Contents/Developer",
+      "purpose": "Resolve the selected developer ancestor only.",
+      "mayEnumerateChildren": false,
+      "mayTraverseDescendants": false
+    },
+    {
+      "lookupId": "platforms",
+      "kind": "ancestor-metadata",
+      "exactPath": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms",
+      "purpose": "Resolve the selected platform ancestor only.",
+      "mayEnumerateChildren": false,
+      "mayTraverseDescendants": false
+    },
+    {
+      "lookupId": "macos-platform",
+      "kind": "ancestor-metadata",
+      "exactPath": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform",
+      "purpose": "Resolve the selected platform ancestor only.",
+      "mayEnumerateChildren": false,
+      "mayTraverseDescendants": false
+    },
+    {
+      "lookupId": "platform-developer",
+      "kind": "ancestor-metadata",
+      "exactPath": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer",
+      "purpose": "Resolve the selected platform developer ancestor only.",
+      "mayEnumerateChildren": false,
+      "mayTraverseDescendants": false
+    },
+    {
+      "lookupId": "sdk-parent",
+      "kind": "ancestor-metadata",
+      "exactPath": "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs",
+      "purpose": "Resolve the selected SDK parent only; do not list SDKs.",
+      "mayEnumerateChildren": false,
+      "mayTraverseDescendants": false
+    },
+    {
+      "lookupId": "toolchains",
+      "kind": "ancestor-metadata",
+      "exactPath": "/Applications/Xcode_26.6.app/Contents/Developer/Toolchains",
+      "purpose": "Resolve the selected toolchain ancestor only.",
+      "mayEnumerateChildren": false,
+      "mayTraverseDescendants": false
+    },
+    {
+      "lookupId": "default-toolchain",
+      "kind": "ancestor-metadata",
+      "exactPath": "/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain",
+      "purpose": "Resolve the selected Swift resource ancestor only.",
+      "mayEnumerateChildren": false,
+      "mayTraverseDescendants": false
+    },
+    {
+      "lookupId": "toolchain-usr",
+      "kind": "ancestor-metadata",
+      "exactPath": "/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr",
+      "purpose": "Resolve the selected Swift resource ancestor only.",
+      "mayEnumerateChildren": false,
+      "mayTraverseDescendants": false
+    },
+    {
+      "lookupId": "toolchain-lib",
+      "kind": "ancestor-metadata",
+      "exactPath": "/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib",
+      "purpose": "Resolve the selected Swift resource parent only; do not list libraries.",
+      "mayEnumerateChildren": false,
+      "mayTraverseDescendants": false
+    }
+  ],
+  "limits": {
+    "filesystemEntries": 500000,
+    "directories": 50000,
+    "depth": 64,
+    "aliasHops": 64,
+    "copiedCandidateFiles": 10000,
+    "copiedCandidateFileBytes": 16777216,
+    "copiedCandidateBytes": 268435456,
+    "reportBytes": 268435456,
+    "definitionParseBytes": 1048576,
+    "definitionLineBytes": 65536,
+    "definitionNameOccurrences": 4096,
+    "metadataBytes": 16777216
+  },
+  "allowIncidentalLinkTargetMetadata": true
+}

@@ -8857,3 +8857,24 @@ strict formatting, contracts and source review passed. The patch has SHA-256
 `7df9b57bfd48ee8818172b11bf0eedbfe8428527255d1fedb3dcfa4e1f67a0f6`.
 Runtime validation remains pending, including the separate default-budget
 Realize failures. No work budget or original completion requirement changes.
+
+### Ninth validation pass: diagnose complete logical realization budgets (2026-08-29)
+
+Four additional async source-route tests now exercise the pending-replacement
+realization flow with the unchanged default four rounds, explicit eight and
+sixteen rounds, and an explicitly exhausted one-round/one-element budget.
+The positive cases retain completion, ordinary projected-item state, stable
+identity count and bounded row-construction assertions. The exhausted case
+requires refusal without renewing its shared budget. Their passive diagnostics
+report the completed call's counters, stored settlement state and retained
+adapter state without an extra layout or snapshot query.
+
+These tests do not change production defaults or existing oracles. They are
+intended to distinguish missing settlement work from budget exhaustion after
+the separately repaired admission, ownership and prefetch paths. They exercise
+the shared realization source route without COM or an HWND and do not replace
+the existing native HRESULT, property, action and focus tests. Exact application,
+strict formatting and source review passed; the diagnostic patch has SHA-256
+`8441e358dee14ce74330d5e5178cec6f54ce1ebd126461d7386be7a2deadb59d`.
+All four require execution before drawing a conclusion about the remaining
+Realize failures. No completion gate or work limit changes here.

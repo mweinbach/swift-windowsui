@@ -6398,3 +6398,206 @@ The earlier failed run and the later successful fixture-only checks retain
 their separate outcomes. No current-root Full, hosted exact-commit CI,
 macOS reference, native interaction, or hardware timing qualification follows
 from this failed Quick. All nine original completion gates remain open.
+
+
+### Seventh batch: preserved focus failures and metadata follow-up (2026-08-29)
+
+This is an additive record of separate checkpoints. Historical source-only
+statements below describe their stated checkpoint; the later entries record
+the subsequent intake and failed compilation. No original scope, acceptance
+target, exception policy, or completion gate changes.
+
+#### Completed metadata work recorded before the corrected focus run
+
+Additive metadata follow-up, using the fixed receipts reviewed on 2026-08-29.
+This entry adds no test execution and leaves all earlier outcomes and original completion criteria unchanged.
+
+The completed passive audit concerns the failed Quick source commit
+`91df15c6959b13f0b48cd3529bacb943d05c394b`, tree `6f86f0624a603200d0664883e8aad85031610195`.
+Its generated XCTest identities, reachability and adapter flags reconcile with the 5,461-declaration source census
+(5,109 async and 352 synchronous). Execution covered 2,323 XCTest start/terminal pairs:
+2,322 passed and the one deferred-List keyboard-focus case failed. Of 167 planned invocations, 143 were observed;
+24 invocations and 328 planned XCTest identifiers remain unobserved. Material observation remains unavailable.
+The parent-observed metadata tool `ca65cf` closed with exit 0 in 1.0397222s, separately from the audit's
+0.906s internal elapsed value. Neither metadata exit changes the original Quick outcome of exit 1.
+
+The nine Swift Testing start/pass event pairs are present, but canonical Swift Testing reconciliation is not clear.
+The 38 new issues comprise 18 per-invocation unknown-label diagnostics, the same 18 global diagnostics,
+and two identifier checks: the fixed parser accepts `method()` aliases, not the observed quoted `@Test` labels.
+A separate metadata review uniquely associates each label with one of the 134 frozen source declaration records.
+Its SceneRasterizer source pin is `45e1b627bf9764231968fb1dc5503c0d7698a6f1f32b2857ad682fc2d3adfc9b`;
+the review did not reopen the Swift file. This association does not replace the original unresolved canonical
+identity flags or establish compiled Swift Testing registration identity. No parser, audit or test was retried.
+The six original parser issues remain in order and the complete eight-field parser observation matches the archive.
+The archive's eight issue entries are those six plus its nonzero-exit and aggregate-test-failure entries;
+they are not eight failed cases. The sole List failure and the unobserved suffix remain unchanged.
+
+P9's separate post-run capsule confirms 279 pure report-predicate controls: six expected accepts and
+273 expected rejects, with zero failed expectations. The pinned source manifest is
+`64e8971059f1a33a3adf605cae851151eeef9a9b334fd66a476cac4567e82858`.
+Original caller791c9d, author053714, sealer12a332, publisher968695 and terminal sample6672b3 all returned 0;
+the retained child43080 exited 0 with both streams at EOF and no timeout or intervention.
+The original integer-QPC interval is 6.9228365s within the original 60s budget, including its 15s reserve;
+the separate UTC subtraction is 6.9188393s. Later preservation does not renew that clock.
+The post-run audit checked the nine named original files and 51 selected pins, with independent review clear.
+Original self-referential publisher/whole-qualification fields remain null; external terminal receipts carry the exits.
+This proves pure controls only: no full validator, native probe, candidate DLL, compiler or repository test ran.
+Historical F9/P6 failures, relative-path rejections and the denied/unsealed binary audit remain unchanged.
+
+The bounded SDK review uses immutable source context `292eb3c439c5f5ff5284f4cff621d57e6ed55a0a`
+and historical capture run33135644721/attempt1 at `0cb9a361130c92dfba4bc6c65ab4fd0a306f11dd`.
+It checked 18 metadata files, not the large identity, graph, relationship or interface streams.
+The saved receipts record Xcode26.6/17F113, macOS SDK26.5/25F70 and Apple Swift6.3.3;
+SDKSettings independently reports macOS26.5. All 14 saved command receipts report exit0 without timeout.
+These commands were inspected, not rerun; their recorded tool hashes are not independently verified executables.
+The 134,147 precise-identifier total remains a manifest/inventory-fact claim, not a newly computed full count.
+All 182 inspected queue entries remain lexical candidates and unreviewed, with no Windows symbol mapping.
+Windows matching, Swift source parsing, identity review and behavior-conformance authority fields are all false.
+No overlay-completeness, macOS reference behavior, Windows parity or baseline promotion follows.
+
+The following small evidence files were read and their byte lengths and SHA256 pins verified; no transitive payload replay was performed.
+
+| Evidence | Bytes | SHA256 |
+| --- | ---: | --- |
+| [Quick summary](C:/Users/maxw6/Projects/swift-windowsui/artifacts/goal-seventh-root-quick-failed-v2-audit-v1/summary.json) | 1404 | bce01b985defd3e9a1f62efac03517435d0a552a50e675d98eaea18f81c05ccb |
+| [Quick output manifest](C:/Users/maxw6/Projects/swift-windowsui/artifacts/goal-seventh-root-quick-failed-v2-audit-v1/OUTPUT-MANIFEST.json) | 569 | 542bbee26aaa634d5640b297567b0cc38d3f1e8d06ac94d27f90dc3b04e600bf |
+| [Parent audit closure](C:/Users/maxw6/Projects/swift-windowsui/artifacts/goal-seventh-root-quick-failed-v2-audit-parent-closure-v1.json) | 803 | a6fc4bad41db77f2d88d8c756800b77490efbba76e29070a31774e10bb61053d |
+| [Quoted-label and archive classification](C:/Users/maxw6/AppData/Local/Temp/quick-failed-output-classification-91df-9e39f292cb15/REPORT.md) | 5264 | af04784eeabec4bbd03a17770846e7b4bf88cca6a7c1b020c99683de3748aa7a |
+| [P9 post-run handoff](C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-p9-pure-postrun-audit-1787990560567/POSTRUN-HANDOFF.json) | 7448 | c73a3622e385b626c23d57d825e53488500ecfe1de368e2ef5c3accc83be28bd |
+| [P9 capsule manifest](C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-p9-pure-postrun-audit-1787990560567/frozen-postrun-capsule-manifest.json) | 1710 | 24f0bac670f668ca8e83fc16d6178c2201ae7f5b90300656f84fec98707efc11 |
+| [P9 freeze receipt](C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-p9-pure-postrun-audit-1787990560567/postrun-freeze-receipt.json) | 1632 | 717960ec196b0873f6b048b213ab1e4ec3863327e48001cb72c8bf8ace94efa5 |
+| [P9 independent review](C:/Users/maxw6/AppData/Local/Temp/swift-windowsui-p9-pure-postrun-audit-1787990560567/reviews/independent-postrun-review.json) | 14892 | 09b214005281e4acaa3dfbbb53c1e5974cb1bd063c6f6301b879db5126559b66 |
+| [SDK metadata review](C:/Users/maxw6/AppData/Local/Temp/codex-baseline-metadata-review-40969f20378245e78632b6f21bce7c65/report.md) | 8190 | 1fd69c88e2c75f6197ba9311ada8471922ca00f2c12ce0648e341453a7bb9904 |
+
+The separately launched root93 attempt is outside this entry; no outcome is inferred from its launch or source state.
+Original sections1-9, all nine open completion gates, the preserved38e855d prefix and all earlier evidence remain unchanged.
+
+
+#### Historical checkpoint before the first corrected95 launch
+The failed root93 attempt tested HEAD `292eb3c439c5f5ff5284f4cff621d57e6ed55a0a`, tree `36a4a7a599ab56b4f39460c6df31bd598c9b5401`.
+Launch `0e9dfc`, session56787, closed naturally as `642a4f/1`; retained direct PS5 child51948 exited1.
+The copied exit receipt records no timeout, termination attempt, capture error or source-observation error.
+Parent raw observation records18 start/terminal pairs:17 passes, one failure and75 cases unrun;
+independent reconciliation from the preserved copies is still pending at this entry.
+The new failure is `ListDeferredKeyboardFocusTests.testSynchronousRebuildFocusesTheRetainedRowAndRetiresTheOldHandler`:
+the immediate `scrollOffset > 0` assertion at line250. No passing93-case result follows from its completed capture.
+
+Parent-observed passive capture `ae0edb/0` took4.4341007s and produced17 payloads.
+These include nine compiled artifacts (one PE and eight text files), four run inputs, three supporting source files and an index copy.
+The manifest records endpoint checks for798 tracked files and the index; only the three supporting source files were copied.
+Compiled-source census and raw-case verification are explicitly false/pending in that capture manifest.
+Only the capture manifest, parent closure and copied source/process/exit JSON were read here; no PE, raw log or live `.build` was reopened.
+
+The proposed successor remains source-only:18 new tests plus77 existing tests form a95-case plan, not an executed result.
+Parent source analysis distinguishes the already-realized row's queued normal-render timing from the separate production Host gap
+when revealing a deferred far target. The original strict settlement proof remains required; this distinction does not prove a fix.
+The corrected proof and95-case plan have neither run nor been taken into root at this checkpoint.
+
+| Verified metadata | Bytes | SHA256 |
+| --- | ---: | --- |
+| [Parent capture closure](C:/Users/maxw6/Projects/swift-windowsui/artifacts/goal-seventh-root-list-focus93-capture-parent-closure-v1.json) | 1403 | 5ffaf0327651b7f36b35a057bda814aa1d291b878f488230ac099fd119c353f1 |
+| [Capture manifest](C:/Users/maxw6/Projects/swift-windowsui/artifacts/goal-seventh-root-list-focus93-postrun-v1/manifest.json) | 7754 | fbd75368aa40cfa0a95b56f072415a393bdc8279d2b8c4ca145f906433ef6f85 |
+| [Copied source receipt](C:/Users/maxw6/Projects/swift-windowsui/artifacts/goal-seventh-root-list-focus93-postrun-v1/run/goal-seventh-root-list-focus93-v1-source.json) | 226856 | ff8dc945b2b20fc34f5a10a3e04a72408e97933927bb19c32ff5ae970d8921dd |
+| [Copied process receipt](C:/Users/maxw6/Projects/swift-windowsui/artifacts/goal-seventh-root-list-focus93-postrun-v1/run/goal-seventh-root-list-focus93-v1-process.json) | 600 | 0126da769c01bcb86a34c00ca14cd73e2a4b0701d15a19fb2cd24d77603de193 |
+| [Copied exit receipt](C:/Users/maxw6/Projects/swift-windowsui/artifacts/goal-seventh-root-list-focus93-postrun-v1/run/goal-seventh-root-list-focus93-v1-exit.json) | 1109 | 2eacdb186384d34931ac9c21191228fcd79a8123e4a419f33a59dc432c91cc10 |
+
+Original sections1-9, all nine open gates, the38e855d prefix and prior failures remain unchanged.
+Native test exits, descendant closure, Quick/Full and the separate Material214 attempt receive no qualification here.
+
+
+#### Corrected95 intake, failed compilation, and exact fixture repair
+
+The four-path production/test correction was applied to root by a5f6e6/0.
+At HEAD292eb3c439c5f5ff5284f4cff621d57e6ed55a0a, the staged tree became
+a476d4782aab52d2329b98c9a813ff594d376e42 and the index SHA256 became
+ad4dd149021732a09d7506677c69aadf571e7673fcb9d6cdd19938dbe71571d3.
+All470 pre-existing root test files retained both their physical bytes and
+indexed blobs. Other tracked entries, the gitlink and goal.md were preserved.
+Root contracts passed before intake (7c5c1f/0), and contracts plus strict lint
+passed on all six changed Swift files (adcaee/session9581 -> 7511ba/0).
+These static checks did not prove that the new tests compiled.
+
+The source plan contains95 async XCTest methods,65 throwing, all MainActor,
+with no selected Swift Testing declarations. The six unchanged stock filters
+select19/8/20/15/20/13 methods. The full source expectation is5479 XCTest
+declarations:5462 Core plus17 Portable,5127 async and352 synchronous.
+The23-payload source packet was verified by a24783/0; its manifest SHA256 is
+12763a92e15f26a44636eb67844637d6e36dcea5a82822bf2d567b9b59ce95b1.
+These are source expectations, not a compiled registration result.
+
+The first corrected95 invocation was ab0fa0/session35734 -> 7a12f5/1.
+Its retained PS5 child52684 exited1 naturally, without timeout, intervention,
+capture error or source-observation error. The first of six SwiftPM calls
+failed during compilation; there were zero test lifecycles and all95 cases
+remain unrun for this attempt. Runtime/helper compilation proceeded, but the
+new test attempted to access fileprivate ViewNode.runtime at source line211;
+the same invalid expression also appeared at225. The complete8586-byte log,
+read in27ad25/0, has SHA256
+315d0857b2314238c10e6d651ceccdb1378b065910c821d4930c376aafdde261.
+No runtime focus or scroll outcome follows from this failed compile.
+
+The separately approved passive capture completed as915f42/0 in4.5169016s.
+It preserved17 payloads and checked all798 tracked source files and the index.
+Its manifest SHA256 is
+ea3f82dcf17694bbfebc8c74129bb46443b7fa371ce284a78bd00a44dab96334.
+The copied PE and all four generated Swift files are byte-identical to the
+earlier93 capture, as compared in771721/0. Their bytes do not establish
+current5479-test registration or new binary provenance. No PE or generated
+test listing was invoked. The parent closure is stored at
+[focused95 capture closure](C:/Users/maxw6/Projects/swift-windowsui/artifacts/goal-seventh-root-list-focus95-capture-parent-closure-v1.json).
+The original93 runtime failure and both earlier Quick failures remain intact.
+
+The repair replaces only the two inaccessible test expressions with the
+existing internal hasListNavigationRuntime(runtime) helper. That helper
+already evaluates exactly runtime === expected; the test already imports
+SwiftWindowsUI with @testable. The identity assertions are retained without
+changing production access control, adding a test API, altering any test ID,
+or changing the selected effects. The1286-byte patch SHA256 is
+48f50cc1232a62b90c3f8f6022268d3886f3df52df727673ddd7cf3aa22bf3ae.
+Root intake324cb0/0 verified the new19885-byte file SHA256
+d8fbeaec0bb9abeba276689ee3ca84882d274138456507239e44964a7c4e53b0,
+all798 other tracked entries, all470 old test files, production source and goal
+preservation. Its staged tree is68394f9cc00bec8df642643b68b649363805221c.
+This repair has not run at this checkpoint. A fresh95 attempt, copied
+registration/case reconciliation, Quick and Full remain required.
+
+#### Other isolated work remains separate from root validation
+
+The first owned Material214 run stopped during compilation:
+cb3887/session32213 -> 29675d/1. Only the first of11 stock calls launched;
+all214 case lifecycles were unstarted, including the known residual skip.
+The copied log identifies two distinct invalid accesses to Rect.x/y in the
+new test fixture's shared quad helper. They are not rendering-test failures.
+The separate capture completed as368910/0; its sealed35-payload outcome
+manifest is5b3482782f2dbd9ed6016c387d683709cd0b4e2d4ed11c68b7105588f2766bbc.
+All four generated Swift registry files and the test PE were absent in that
+owned build. A fixture-only successor uses Rect.origin.x/y; its commit
+2e4e6aedb2d50b26eabf0f5ba3479715c276020c and one-line patch
+6275189431892a271a7c028ca3654590dee719185a04740ca5deda65866b8f6a
+do not yet carry a new runtime result or root intake.
+
+The first Date175 metadata admission also failed before any compiler or test
+launch:9ee649/1, with failure receipt SHA256
+16b03907d07aef5c15e183c3cdc52bc0ef6def595d5ed5fda289fd2846ea5d4b.
+Its error was the path-stat/handle-fstat identity comparison, after129983734
+input bytes. The original receipt did not record the offending path or fields.
+A deterministic frozen read-order projection places Python.exe next; that is
+an inference, not a recovered observation of the original mismatch.
+A separate approved seven-file, one-byte-per-file Temp experiment
+(20cb1c/0) reproduced only the Windows executable permission-bit distinction
+for .exe/.com/.bat/.cmd; device/inode/type/size/mtime and endpoint records stayed
+equal. The proposed successor admits only that exact directional0o111
+difference, retaining every other identity/hash/reparse/read-budget check and
+adding bounded mismatch details. A metadata success, if later obtained, is
+not authorization or evidence that the175 runtime tests passed.
+
+Image sampling and the lazy-state bridge remain isolated implementation work.
+Their source checks, prospective build plans and unsupported cases do not
+establish compiled, runtime or native SwiftUI conformance. Public List
+construction remains eager; animated deferred-focus completion and the
+remaining lifecycle/state work remain open. P9's new adapters and245 authored
+controls likewise do not inherit qualification from the earlier279 pure checks.
+
+All original sections1-9, all nine open completion gates and the exact
+38e855d goal prefix are preserved. No failed, unrun, unsupported or
+source-only result is promoted to completion by this entry.

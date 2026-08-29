@@ -118,7 +118,7 @@ final class GPUIPrimitiveLayoutCoherenceTests: XCTestCase {
         XCTAssertEqual(MemoryLayout<ShadowPrimitive>.stride % 16, 0)
     }
 
-    // MARK: - ImagePrimitive ↔ ImageInstance (80 bytes; textureID is Int32 ↔ HLSL int)
+    // MARK: - ImagePrimitive ↔ ImageInstance (128 bytes; textureID/samplingKind are Int32 ↔ HLSL int)
 
     func testImagePrimitiveFieldOffsetsMatchImageInstance() async {
         XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.screenX), 0)
@@ -141,7 +141,19 @@ final class GPUIPrimitiveLayoutCoherenceTests: XCTestCase {
         XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.affineB), 68)
         XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.affineC), 72)
         XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.affineD), 76)
-        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 80)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.sourceCapLeft), 80)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.sourceCapTop), 84)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.sourceCapRight), 88)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.sourceCapBottom), 92)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.destinationCapLeft), 96)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.destinationCapTop), 100)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.destinationCapRight), 104)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.destinationCapBottom), 108)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.centerRepeatX), 112)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.centerRepeatY), 116)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.samplingKind), 120)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.offset(of: \.samplingPadding), 124)
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 128)
         XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride % 16, 0)
     }
 

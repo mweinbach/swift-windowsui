@@ -1,9 +1,6 @@
 import Foundation
-
 import SwiftWindowsCore
-
 import SwiftWindowsGraphics
-
 import Testing
 
 @Suite("GPUISceneBridge Tests")
@@ -167,10 +164,154 @@ struct GPUISceneBridgeTests {
         #expect(img.uvH == 1)
         #expect(img.opacity == 0.8)
         #expect(img.textureID == 0)
+        #expect(img.sampling == .legacy)
         #expect(
             scene.imageResources == [
                 ImageResourceBinding(textureID: 0, bitmap: bitmap)
             ])
+    }
+
+    @Test("Bitmap cap and tile descriptors survive bridge conversion and nested clips")
+    func bitmapSamplingAndNestedClips() throws {
+        let bitmap = BitmapSurface(width: 4, height: 3, bytesPerRow: 16, pixels: Data(repeating: 255, count: 48))
+        let originalKey = bitmap.contentKey
+        for mode: ImageSamplingMode in [.stretch, .tile] {
+            let sampling = try ImageSamplingPlan.resolve(
+                sourceSize: IntSize(width: 4, height: 3), destinationSize: Size(width: 8, height: 7),
+                capInsets: EdgeInsets(top: 1, leading: 1, bottom: 0, trailing: 1), mode: mode
+            ).get()
+            let frame = RenderFrame(
+                clearColor: .clear,
+                commands: [
+                    .pushClip(ClipCommand(shape: .rect(Rect(x: 0, y: 0, width: 10, height: 8), cornerRadius: 0))),
+                    .pushClip(ClipCommand(shape: .rect(Rect(x: 2, y: 1, width: 4, height: 4), cornerRadius: 0))),
+                    .drawBitmap(
+                        DrawBitmapCommand(
+                            rect: Rect(x: 1, y: 1, width: 8, height: 7), bitmap: bitmap, opacity: 0.75,
+                            sampling: sampling)),
+                    .popClip,
+                    .popClip,
+                ])
+            let scene = GPUIScene(from: frame, surfaceSize: Size(width: 12, height: 12))
+            let image = try #require(scene.layers.first?.images.first)
+            #expect(image.sampling == sampling)
+            #expect(image.screenX == 1 && image.screenY == 1 && image.screenW == 8 && image.screenH == 7)
+            #expect(image.clipX == 2 && image.clipY == 1 && image.clipWidth == 4 && image.clipHeight == 4)
+            #expect(image.opacity == 0.75)
+            #expect(scene.imageResources.count == 1)
+            #expect(scene.imageResources.first?.bitmap.contentKey == originalKey)
+            #expect(scene.imageResources.first?.bitmap.pixels == bitmap.pixels)
+            #expect(scene.validate().isEmpty)
+            let size = IntSize(width: 12, height: 12)
+            #expect(
+                GPUIRawSceneRasterizer.rasterize(frame, size: size).pixels
+                    == GPUIRawSceneRasterizer.rasterize(scene, size: size).pixels)
+        }
+    }
+
+    @Test("Image replay preserves sampling while resolving a texture ID collision")
+    func bitmapSamplingSurvivesReplayRebinding() throws {
+        let bitmap = BitmapSurface(width: 4, height: 3, bytesPerRow: 16, pixels: Data(repeating: 255, count: 48))
+        let sampling = try ImageSamplingPlan.resolve(
+            sourceSize: IntSize(width: 4, height: 3), destinationSize: Size(width: 8, height: 7),
+            capInsets: EdgeInsets(top: 1, leading: 1, bottom: 0, trailing: 1), mode: .tile
+        ).get()
+        let frame = RenderFrame(
+            clearColor: .black,
+            commands: [
+                .drawBitmap(
+                    DrawBitmapCommand(rect: Rect(x: 1, y: 1, width: 8, height: 7), bitmap: bitmap, sampling: sampling))
+            ])
+        let previous = GPUIScene(from: frame, surfaceSize: Size(width: 12, height: 12))
+        let originalImage = try #require(previous.layers.first?.images.first)
+        var scene = GPUIScene()
+        let otherBitmap = BitmapSurface(width: 1, height: 1, bytesPerRow: 4, pixels: Data([0, 0, 255, 255]))
+        scene.bindImageResource(otherBitmap, for: originalImage.textureID)
+        #expect(scene.replay(0..<previous.paintRecordCount, from: previous) == .success)
+        scene.finish()
+        let replayed = try #require(scene.layers.first?.images.first)
+        #expect(replayed.textureID != originalImage.textureID)
+        #expect(replayed.sampling == sampling)
+        #expect(scene.imageResources.count == 2)
+        #expect(
+            scene.imageResources.first(where: { $0.textureID == replayed.textureID })?.bitmap.contentKey
+                == bitmap.contentKey)
+        #expect(
+            scene.imageResources.first(where: { $0.textureID == originalImage.textureID })?.bitmap.contentKey
+                == otherBitmap.contentKey)
+        #expect(scene.validate().isEmpty)
+        let size = IntSize(width: 12, height: 12)
+        #expect(
+            GPUIRawSceneRasterizer.rasterize(scene, size: size).pixels
+                == GPUIRawSceneRasterizer.rasterize(previous, size: size).pixels)
+    }
+
+    @Test("Invalid bitmap sampling is omitted without reordering later frame commands")
+    func invalidBitmapSamplingDoesNotReorderFollowingCommands() throws {
+        let bitmap = BitmapSurface(width: 1, height: 1, bytesPerRow: 4, pixels: Data([0, 0, 255, 255]))
+        let sampling = try ImageSamplingPlan.resolve(
+            sourceSize: IntSize(width: 1, height: 1), destinationSize: Size(width: 4, height: 4),
+            capInsets: .zero, mode: .tile
+        ).get()
+        var invalid = sampling
+        invalid.samplingKind = 42
+        let frame = RenderFrame(
+            clearColor: .black,
+            commands: [
+                .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 8, height: 4), color: .white)),
+                .drawBitmap(
+                    DrawBitmapCommand(rect: Rect(x: 0, y: 0, width: 4, height: 4), bitmap: bitmap, sampling: invalid)),
+                .drawBitmap(
+                    DrawBitmapCommand(rect: Rect(x: 4, y: 0, width: 4, height: 4), bitmap: bitmap, sampling: sampling)),
+                .fillRect(FillRectCommand(rect: Rect(x: 6, y: 0, width: 2, height: 4), color: .black)),
+            ])
+        let scene = GPUIScene(from: frame, surfaceSize: Size(width: 8, height: 4))
+        #expect(scene.layers.first?.images.count == 1)
+        #expect(scene.presentationOrder().map(\.kind) == [.quad, .image, .quad])
+        let pixels = GPUIRawSceneRasterizer.rasterize(scene, size: IntSize(width: 8, height: 4))
+        #expect(Array(pixels.pixels[0..<4]) == [255, 255, 255, 255])
+        #expect(Array(pixels.pixels[16..<20]) == [0, 0, 255, 255])
+        #expect(Array(pixels.pixels[24..<28]) == [0, 0, 0, 255])
+    }
+
+    @Test("Raw bitmap placement is checked before Double to Float narrowing")
+    func bitmapPlacementChecksOriginalDoubleBeforeNarrowing() throws {
+        let invalidBitmap = BitmapSurface(width: 1, height: 1, bytesPerRow: 4, pixels: Data([0, 255, 0, 255]))
+        let validBitmap = BitmapSurface(width: 1, height: 1, bytesPerRow: 4, pixels: Data([0, 0, 255, 255]))
+        let sampling = try ImageSamplingPlan.resolve(
+            sourceSize: IntSize(width: 1, height: 1), destinationSize: Size(width: 4, height: 4),
+            capInsets: .zero, mode: .tile
+        ).get()
+        let limit = Double(GPUISceneLimits.maxCoordinate)
+        let invalidRect = Rect(x: 0, y: 0, width: limit + 0.01, height: 4)
+        #expect(Float(invalidRect.size.width) == GPUISceneLimits.maxCoordinate)
+        #expect(sampling.placementValidationFailure(rect: invalidRect) == .unrepresentableDescriptor)
+        let frame = RenderFrame(
+            clearColor: .black,
+            commands: [
+                .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 8, height: 4), color: .white)),
+                .drawBitmap(DrawBitmapCommand(rect: invalidRect, bitmap: invalidBitmap, sampling: sampling)),
+                .drawBitmap(
+                    DrawBitmapCommand(
+                        rect: Rect(x: 4, y: 0, width: 4, height: 4), bitmap: validBitmap, sampling: sampling)),
+            ])
+        let scene = GPUIScene(from: frame, surfaceSize: Size(width: 8, height: 4))
+        #expect(scene.layers.first?.images.count == 1)
+        #expect(scene.imageResources.count == 1)
+        #expect(scene.imageResources.first?.bitmap.contentKey == validBitmap.contentKey)
+        #expect(scene.presentationOrder().map(\.kind) == [.quad, .image])
+        let pixels = GPUIRawSceneRasterizer.rasterize(scene, size: IntSize(width: 8, height: 4))
+        #expect(Array(pixels.pixels[0..<4]) == [255, 255, 255, 255])
+        #expect(Array(pixels.pixels[16..<20]) == [0, 0, 255, 255])
+
+        #expect(ImageSamplingDescriptor.legacy.placementValidationFailure(rect: invalidRect) == nil)
+        let legacyFrame = RenderFrame(
+            clearColor: .black,
+            commands: [.drawBitmap(DrawBitmapCommand(rect: invalidRect, bitmap: validBitmap))])
+        let legacyScene = GPUIScene(from: legacyFrame, surfaceSize: Size(width: 8, height: 4))
+        let legacyImage = try #require(legacyScene.layers.first?.images.first)
+        #expect(legacyImage.screenW == GPUISceneLimits.maxCoordinate)
+        #expect(legacyImage.sampling == .legacy)
     }
 
     // MARK: - VAL-SCENE-008: Default clip when no clip is active

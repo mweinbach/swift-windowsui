@@ -537,9 +537,9 @@ angle:
 
 **Every family turns.** WS-19 lowered the angle for quad decoration only;
 R-ROT closed the rest, and all four GPU families now carry a
-`rotationRadians` in a slot that used to be padding (so every stride is
-unchanged and `GPUIPrimitiveLayoutCoherenceTests` still pins 144 / 80 / 64 /
-80 bytes):
+`rotationRadians` in a slot that used to be padding. The rotation offsets
+remain unchanged; `GPUIPrimitiveLayoutCoherenceTests` pins each family,
+including the image record's later affine and resize fields (128 bytes):
 
 | family | field offset | what turns |
 | --- | --- | --- |
@@ -2068,8 +2068,8 @@ straight alpha through a premultiplied blend state, so every image and every
 path fill rendered with red and blue swapped and an over-bright edge. They
 now agree, because the pixel format is part of the surface (§ 4a).
 
-**Texture filtering is shared, not approximated.** The GPU samples every
-texture — glyph atlas and image alike — through
+**Texture filtering is shared, not approximated.** The GPU samples glyph
+atlases and legacy full-image textures through
 `D3D11_FILTER_MIN_MAG_MIP_LINEAR` with `D3D11_TEXTURE_ADDRESS_CLAMP`.
 `RasterTarget` used to pick the nearest texel, which is invisible at 1:1 —
 why the `scaled image` scene's gentle gradient and the uniform opaque
@@ -2090,6 +2090,35 @@ Two things make it a transcription rather than a lookalike:
   un-premultiplied once at the end — `blend` composites in straight alpha.
   Interpolating straight-alpha colour instead drags a transparent texel's
   hue into its opaque neighbour, which is a halo the GPU never draws.
+
+Resizable bitmap leaves can carry a fixed 48-byte sampling descriptor on the
+same image primitive. The source and destination cap fractions define three
+bands per axis, and their product selects nine regions without adding quads.
+Stretch clamps taps within each source band; tile wraps only the center-band
+taps on each tiled axis. CPU and D3D11 use four premultiplied texels, then apply
+the existing opacity and blend contract. The default sampling mode retains
+the existing UV sampler. Resolved Canvas symbols and composite output images
+use that default so their already-painted pixels are not resized twice.
+Current-target replacement sources enforce canonical legacy sampling in their
+shared admission check: a resized sampling descriptor cannot preserve the
+required one-to-one mapping back to the parent target. Independent sources
+continue through the ordinary image sampler.
+
+The descriptor resolves in local layout space before placement/display scale
+and does not change `BitmapContentKey` or source texture upload identity.
+One source image remains one image resource and one primitive, independent of
+tile count. The initial source-texel-aligned cap domain and conservative tile
+phase bound are documented in [BitmapImageSizing.md](BitmapImageSizing.md).
+Invalid or unsupported requests produce a typed failure and skip that image;
+they are not repaired into ordinary stretch. Strict scene validation also
+checks hand-built descriptors that bypass normal admission.
+
+The legacy frame renderer has a separate bitmap shader and receives the same
+descriptor. A frame containing a nondefault descriptor chooses its D3D11 draw
+branch before Direct2D begins drawing; this capability decision neither
+disables Direct2D for later frames nor creates a whole-frame CPU bitmap.
+Default frame geometry remains unchanged. These implementation contracts do
+not establish native SwiftUI cap/tile, interpolation, or transform parity.
 
 The two scenes built to expose the gap now measure it closed:
 
@@ -3359,8 +3388,9 @@ shadows and paths inside a rounded container were rect-clipped on *both*
 backends — consistent, and consistently wrong against macOS.
 `GlyphPrimitive` and `ShadowPrimitive` now carry it (64 → 80 bytes each,
 padded to the 16-byte structured-buffer stride). `ImagePrimitive` initially
-reused a padding slot for rounding; its later Canvas affine basis expands
-the stride to 80 bytes while keeping the rounding slot. `PathPrimitive` carries a
+reused a padding slot for rounding; its Canvas affine basis and later bitmap
+sampling descriptor expand the stride to 128 bytes while keeping that slot.
+`PathPrimitive` carries a
 `Double`. The HLSL glyph, image and shadow pixel shaders run the same
 `roundedRectDistance` + `saturate(0.5 - d/aa)` ramp the quad shader does, and
 the CPU rasterizer multiplies `GPUIClipRegion.alpha` into those families'

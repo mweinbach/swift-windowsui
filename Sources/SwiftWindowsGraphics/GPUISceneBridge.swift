@@ -99,6 +99,11 @@ extension GPUIScene {
                 }
 
             case .drawBitmap(let cmd):
+                // Validate the original Double geometry before resource
+                // registration or Float narrowing. A value just outside the
+                // limit can otherwise round into the admitted range.
+                // The typed validator leaves legacy placement unchanged.
+                guard cmd.sampling.placementValidationFailure(rect: cmd.rect) == nil else { continue }
                 // Skip commands that result in an empty effective clip
                 let effectiveClip = Self.resolveEffectiveClip(
                     commandClip: cmd.clipRect,
@@ -363,7 +368,8 @@ extension GPUIScene {
             clipY: Float(effectiveClip.origin.y),
             clipWidth: Float(effectiveClip.size.width),
             clipHeight: Float(effectiveClip.size.height),
-            textureID: textureID
+            textureID: textureID,
+            sampling: cmd.sampling
         )
     }
 }

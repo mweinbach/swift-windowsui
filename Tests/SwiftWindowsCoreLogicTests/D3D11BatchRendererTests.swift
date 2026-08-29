@@ -134,8 +134,8 @@ final class D3D11BatchRendererTests: XCTestCase {
     }
 
     func testImagePrimitiveStride() {
-        // ImagePrimitive should be 80 bytes (20 fields * 4 bytes).
-        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 80)
+        // The original 80 bytes plus a fixed 48-byte sampling descriptor.
+        XCTAssertEqual(MemoryLayout<ImagePrimitive>.stride, 128)
     }
 
     func testMultiLayerScene() {

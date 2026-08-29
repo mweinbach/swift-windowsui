@@ -1,50 +1,117 @@
-# Ordinary bitmap stretch sizing
+# Bitmap image sizing and bounded cap/tile sampling
 
-A decoded bitmap using `Image.resizable()` now accepts finite layout proposals
-on both axes. For example, a 1-by-1 resource followed by
-`.resizable().frame(width: 8, height: 8)` produces an 8-by-8 image destination.
+A decoded bitmap using `Image.resizable()` accepts finite layout proposals on
+both axes. For example, a 1-by-1 resource followed by
+`.resizable().frame(width: 8, height: 8)` produces an 8-by-8 destination.
 The default stretch mode scales width and height independently; it does not
-preserve the source aspect ratio automatically. This follows Apple's
-[image-sizing guide](https://developer.apple.com/documentation/swiftui/fitting-images-into-available-space).
+preserve the source aspect ratio automatically. The public
+`resizable(capInsets:resizingMode:)` signature and its defaults are unchanged.
 
-The facade leaves the bitmap's `preferredSize` unset and declares both retained
-fill axes. The existing runtime still supplies the bitmap's intrinsic size
-when no finite proposal is available. A nonresizable bitmap keeps its existing
-intrinsic sizing path, including alignment inside a larger fixed frame.
-No Canvas or demo-specific path participates in this change.
+For bitmap images without an image aspect-ratio modifier, both resizing modes
+leave `preferredSize` unset and declare both retained fill axes. The runtime
+still supplies intrinsic bitmap dimensions when no finite proposal is
+available. A nonresizable bitmap keeps its intrinsic size and alignment
+inside a larger frame. Ordinary zero-cap stretch keeps the existing sampling
+path and does not acquire the new cap/tile admission limits.
 
-The source resource stays at its decoded dimensions. Scene construction emits
-the ordinary `ImagePrimitive` at the resolved destination size; frame output
-emits `DrawBitmapCommand` with that destination. CPU and D3D11 rendering use
-their existing resource and clip contracts. Stretch does not pre-rasterize a
-larger source bitmap. A larger outer fixed frame aligns the earlier stretch
-frame rather than enlarging it again; competing smaller proposals remain
-subject to the existing frame-layout limitations. A frame alone does not
-establish a clip; an explicit `.clipped()` still
-restricts drawing. See Apple's [clipping contract](https://developer.apple.com/documentation/swiftui/view/clipped(antialiased:)).
+The source stays at its decoded dimensions, with unchanged bytes and
+`BitmapContentKey`. The retained scene emits one `ImagePrimitive` and one
+source resource; frame output emits one `DrawBitmapCommand`. Their constant
+size sampling descriptor describes caps and repetition without expanding
+tiles into quads or creating a destination-sized bitmap. The descriptor
+travels through the renderer-neutral scene, CPU rasterizer, and D3D11 image
+paths. Texture reuse remains keyed by source bitmap content, not the
+destination size, mode, or caps.
 
-This correction applies only to bitmap images with `.stretch`, zero cap
-insets, and no image aspect-ratio modifier. The following remain open:
+The new sampling path admits full-source bitmaps with finite, nonnegative
+cap insets at whole source-texel boundaries. Each source axis and each
+destination axis must have a positive center after subtracting both caps.
+Zero-cap tile repeats the whole source. Nonzero caps leave the corners
+fixed; capped stretch stretches the center and each edge along its
+resizable axis, while capped tile repeats the center and those edge axes.
+A final partial tile is cropped. The initial Windows policy maps
+`leading` to the left source region and `trailing` to the right without
+directional mirroring. These are implementation policies, not qualified
+native SwiftUI edge behavior.
 
-- Image and generic-view `aspectRatio`, `scaledToFit`, and `scaledToFill` still
-  use the existing preferred-size path. Complete proposal negotiation, fit
-  bands, fill overflow, and modifier-order behavior require a separate layout
-  correction; these modes must not be treated as unrestricted stretching.
-- Tiling and nonzero cap insets retain metadata without tile or nine-slice
-  rendering. System-symbol resizing stays on its existing icon sizing path.
-- Complete ideal-size, fixed-size, stack compression, asset-catalog, image
-  interpolation, and antialiasing parity are not established by this slice.
+The descriptor holds normalized source and destination cap fractions.
+Repetition is resolved from untransformed logical destination dimensions,
+so display scale changes destination pixels without changing logical cap
+widths or tile size. CPU and D3D11 sampling interpolate premultiplied
+texels. Each capped region clamps its nonrepeating axes, and repeating
+center axes wrap within their own source region rather than sampling an
+adjacent cap. One image draw avoids overlapping blends at region borders.
 
-These gaps remain part of the full compatibility goal. This implementation
-does not establish native image pixel parity or complete `Image` support.
+To keep floating point tile phase bounded, the total center span across
+repetitions, measured in source texels, and its repeat count must each be at most
+`ImageSamplingPlan.maximumTilePhase` (4,096), with a two-ULP allowance for
+representation roundoff. Nonlegacy source dimensions are limited to the
+existing 16,384 surface-dimension bound. These are interim numeric
+restrictions; they do not establish native limits or remove unsupported
+inputs from the compatibility goal. A large admitted tile count still
+uses one primitive and one source resource.
 
-`WinSwiftUIBitmapStretchTests` exercises the public image and modifier APIs:
-resource loading, independent axis scaling, preserved source bytes, intrinsic
-nonresizable sizing, nested fixed frames, explicit clipping, display scales 1
-and 2, and reconciliation between intrinsic and stretch sizing. Separate
-tests compare scene/frame CPU output and the existing D3D11 offscreen path;
-the shared GPU harness reports a skip if no D3D11 device is available.
+Unsupported nonfinite, negative, fractional, or oversized caps, nonpositive
+centers, unsupported source regions, or excessive tile phase produce an
+`ImageSamplingFailure`. The retained image exposes the last result through
+`imageSamplingFailure`. That image contributes no paint for the failed
+plan; siblings continue painting. Unsupported sampling does not silently
+become ordinary stretch. A later valid update clears the failure and
+reuses the retained bitmap node and its unchanged source content key.
+The legacy frame renderer routes a frame that needs the new sampling
+through its D3D11 path rather than dropping the descriptor in Direct2D;
+frames using only legacy sampling keep their existing backend selection.
+
+Current-target material passes require canonical legacy sampling on their
+consuming image. Their replacement operation copies each composed child pixel
+back to its original parent pixel; cap/tile remapping is rejected by shared
+scene validation and before either backend acquires that parent region.
+Independent image passes retain ordinary cap/tile sampling. This distinction
+does not add cap/tile support to already-composited material output.
+
+An outer fixed frame aligns an earlier image frame rather than enlarging
+it again; competing smaller proposals remain subject to existing
+frame-layout limitations. A frame alone does not establish a clip.
+Explicit `.clipped()` still restricts drawing, while offsets, affine
+placement, opacity, and presentation order remain separate from sampling.
+No Canvas or demo-specific public API is needed.
+
+The following remain open:
+
+- Image and generic-view `aspectRatio`, `scaledToFit`, and `scaledToFill`
+  retain the existing preferred-size path. Complete proposal negotiation,
+  fit bands, fill overflow, and modifier-order behavior need separate work.
+- Fractional caps, zero or negative center extents, undersized destinations,
+  oversized caps, and tile phases beyond the admitted bound remain
+  unsupported. Their native behavior has not been established.
+- Asset density and source scale, orientation, right-to-left mirroring,
+  interpolation and antialiasing modifiers, and native pixel/filtering
+  parity remain unqualified. Current bitmap sizing uses one source pixel
+  per logical unit; display scale alone is not asset-density support.
+- System-symbol resizing remains on its existing icon path. Ideal-size,
+  fixed-size, stack compression, asset-catalog, and full `Image` conformance
+  are not established by this slice.
+
+`WinSwiftUIBitmapStretchTests` remains unchanged and protects the existing
+ordinary-stretch behavior: resource loading, independent axis scaling,
+source bytes, intrinsic sizing, nested frames, clipping, scales 1 and 2,
+reconciliation, and scene/frame/backend comparisons.
+`WinSwiftUIBitmapResizingTests` adds source tests for partial zero-cap tiles,
+nine distinct capped regions, asymmetric leading caps, transparent colored
+edge filtering, scales 1, 1.25, 1.5, and 2, scene/frame propagation,
+typed failures with sibling preservation,
+reconciliation and recovery, and constant primitive/resource counts at the
+tile-phase bound. It also specifies CPU/D3D11 comparisons through the
+existing device-optional harness; a missing D3D11 device is a skip, not a
+backend pass.
+
+This change records implementation and test intent only. These new tests
+have not been compiled or run in the source-only editing session. No fresh
+CPU, D3D11, native SwiftUI, or SDK qualification is claimed, and no baseline
+review flags are promoted. Once execution is authorized, run focused
+checks serially with the existing architecture and formatting checks:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIBitmapStretchTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUIBitmapResizingTests
 ```

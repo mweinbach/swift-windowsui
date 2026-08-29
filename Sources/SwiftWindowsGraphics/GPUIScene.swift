@@ -803,6 +803,13 @@ public struct GPUIScene: Equatable, Sendable {
         guard let image = GPUISceneSanitizer.sanitized(image), ensureLayer(layerIndex) else {
             return
         }
+        if !image.sampling.isLegacy {
+            let sourceSize =
+                imageResources.last(where: { $0.textureID == image.textureID }).map {
+                    IntSize(width: $0.bitmap.width, height: $0.bitmap.height)
+                } ?? imageRenderPasses.last(where: { $0.textureID == image.textureID })?.size
+            guard image.sampling.validationFailure(sourceSize: sourceSize) == nil else { return }
+        }
         if let index = layers[layerIndex].addImage(image) {
             paintRecords.append(.primitive(layerIndex: layerIndex, kind: .image, index: index))
             isFinished = false

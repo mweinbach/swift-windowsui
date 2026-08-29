@@ -192,6 +192,139 @@ final class SceneValueSanitationTests: XCTestCase {
         }
     }
 
+    // MARK: - Image sampling admission
+
+    func testMalformedImageSamplingIsRejectedWithoutRepair() throws {
+        let sampling = try ImageSamplingPlan.resolve(
+            sourceSize: IntSize(width: 4, height: 4), destinationSize: Size(width: 8, height: 8),
+            capInsets: EdgeInsets(top: 1, leading: 1, bottom: 1, trailing: 1), mode: .tile
+        ).get()
+        let mutations: [(inout ImageSamplingDescriptor) -> Void] = [
+            { $0.samplingKind = -1 },
+            { $0.samplingKind = 3 },
+            { $0.sourceCapLeft = .nan },
+            { $0.sourceCapTop = -0.1 },
+            { $0.destinationCapLeft = 0 },
+            { $0.destinationCapBottom = 1 },
+            { $0.centerRepeatX = .infinity },
+            { $0.centerRepeatY = 0 },
+            { $0.centerRepeatX = ImageSamplingPlan.maximumTilePhase + 1 },
+            { $0.samplingPadding = 1 },
+        ]
+        for mutate in mutations {
+            var invalid = sampling
+            mutate(&invalid)
+            let image = ImagePrimitive(screenW: 8, screenH: 8, textureID: 7, sampling: invalid)
+            XCTAssertNil(GPUISceneSanitizer.sanitized(image))
+            var scene = GPUIScene()
+            scene.addImage(image)
+            XCTAssertTrue(scene.layers[0].images.isEmpty)
+            XCTAssertTrue(scene.paintRecords.isEmpty)
+            scene.installHandBuiltLayer(
+                GPUILayer(
+                    images: [image], paintOperations: [GPUIPaintOperation(kind: .image, startIndex: 0, count: 1)]),
+                at: 0)
+            XCTAssertTrue(
+                scene.validate().contains {
+                    if case .invalidImageSampling(layerIndex: 0, imageIndex: 0, reason: _) = $0.kind { return true }
+                    return false
+                })
+        }
+    }
+
+    func testImageSamplingChecksWholeTexelsAgainWhenSourceBindingChanges() throws {
+        let sampling = try ImageSamplingPlan.resolve(
+            sourceSize: IntSize(width: 4, height: 4), destinationSize: Size(width: 8, height: 8),
+            capInsets: EdgeInsets(top: 1, leading: 1, bottom: 1, trailing: 1), mode: .stretch
+        ).get()
+        let original = BitmapSurface(width: 4, height: 4, bytesPerRow: 16, pixels: Data(repeating: 255, count: 64))
+        let replacement = BitmapSurface(width: 6, height: 4, bytesPerRow: 24, pixels: Data(repeating: 255, count: 96))
+        var scene = GPUIScene()
+        scene.bindImageResource(original, for: 7)
+        scene.addImage(ImagePrimitive(screenW: 8, screenH: 8, textureID: 7, sampling: sampling))
+        scene.finish()
+        XCTAssertTrue(scene.validate().isEmpty)
+        scene.bindImageResource(replacement, for: 7)
+        XCTAssertEqual(scene.validate().count, 1, "A formerly valid quarter-source cap now covers 1.5 texels")
+        XCTAssertEqual(
+            sampling.validationFailure(sourceSize: IntSize(width: 6, height: 4)), .fractionalCapInsets)
+        let invalidPixels = GPUIRawSceneRasterizer.rasterize(scene, size: IntSize(width: 8, height: 8))
+        XCTAssertEqual(Array(invalidPixels.pixels.prefix(4)), [0, 0, 0, 255])
+        scene.bindImageResource(original, for: 7)
+        XCTAssertTrue(scene.validate().isEmpty)
+        let recoveredPixels = GPUIRawSceneRasterizer.rasterize(scene, size: IntSize(width: 8, height: 8))
+        XCTAssertEqual(Array(recoveredPixels.pixels.prefix(4)), [255, 255, 255, 255])
+    }
+
+    func testInvalidHandBuiltSamplingDoesNotHideFollowingCPUCommands() {
+        let bitmap = BitmapSurface(width: 1, height: 1, bytesPerRow: 4, pixels: Data([0, 0, 255, 255]))
+        let image = ImagePrimitive(
+            screenW: 4, screenH: 4, textureID: 7,
+            sampling: ImageSamplingDescriptor(centerRepeatX: .nan, samplingKind: 2))
+        var scene = GPUIScene(imageResources: [ImageResourceBinding(textureID: 7, bitmap: bitmap)])
+        scene.installHandBuiltLayer(
+            GPUILayer(
+                quads: [QuadPrimitive(x: 4, y: 0, width: 4, height: 4, startG: 1, startA: 1, endG: 1, endA: 1)],
+                images: [image],
+                paintOperations: [
+                    GPUIPaintOperation(kind: .image, startIndex: 0, count: 1),
+                    GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
+                ]), at: 0)
+        let pixels = GPUIRawSceneRasterizer.rasterize(scene, size: IntSize(width: 8, height: 4))
+        XCTAssertEqual(Array(pixels.pixels[0..<4]), [0, 0, 0, 255])
+        XCTAssertEqual(Array(pixels.pixels[16..<20]), [0, 255, 0, 255])
+    }
+
+    func testLegacySamplingStillAdmitsExistingSourceUVPolicy() throws {
+        XCTAssertNil(ImageSamplingDescriptor.legacy.validationFailure(sourceSize: .zero, uvX: .nan))
+        let image = ImagePrimitive(screenW: 4, screenH: 4, uvX: 0.25, uvY: 0.5, uvW: 0.25, uvH: 0.5)
+        let stored = try XCTUnwrap(GPUISceneSanitizer.sanitized(image))
+        XCTAssertEqual(stored, image)
+        var tiled = image
+        tiled.sampling = ImageSamplingDescriptor(centerRepeatX: 4, centerRepeatY: 4, samplingKind: 2)
+        XCTAssertNil(GPUISceneSanitizer.sanitized(tiled))
+        XCTAssertEqual(
+            tiled.sampling.validationFailure(uvX: tiled.uvX, uvY: tiled.uvY, uvW: tiled.uvW, uvH: tiled.uvH),
+            .unsupportedSourceUV)
+    }
+
+    func testNonlegacyPlacementIsValidatedForHandBuiltScenesAndFloatUniforms() throws {
+        let sampling = try ImageSamplingPlan.resolve(
+            sourceSize: IntSize(width: 1, height: 1), destinationSize: Size(width: 4, height: 4),
+            capInsets: .zero, mode: .tile
+        ).get()
+        let mutations: [(inout ImagePrimitive) -> Void] = [
+            { $0.screenX = .nan },
+            { $0.screenY = .infinity },
+            { $0.screenW = 0 },
+            { $0.screenH = -1 },
+            { $0.screenW = .infinity },
+            { $0.screenX = GPUISceneLimits.maxCoordinate + 1 },
+            { $0.screenY = -GPUISceneLimits.maxCoordinate - 1 },
+            { $0.screenW = GPUISceneLimits.maxCoordinate + 1 },
+            { $0.screenH = GPUISceneLimits.maxCoordinate + 1 },
+        ]
+        for mutate in mutations {
+            var image = ImagePrimitive(screenW: 4, screenH: 4, sampling: sampling)
+            mutate(&image)
+            XCTAssertNil(GPUISceneSanitizer.sanitized(image))
+            var scene = GPUIScene()
+            scene.installHandBuiltLayer(
+                GPUILayer(
+                    images: [image], paintOperations: [GPUIPaintOperation(kind: .image, startIndex: 0, count: 1)]),
+                at: 0)
+            XCTAssertTrue(
+                scene.validate().contains {
+                    if case .invalidImageSampling(layerIndex: 0, imageIndex: 0, reason: _) = $0.kind { return true }
+                    return false
+                })
+        }
+        let underflow = Rect(x: 0, y: 0, width: Double.leastNonzeroMagnitude, height: 1)
+        XCTAssertEqual(sampling.placementValidationFailure(rect: underflow), .unrepresentableDescriptor)
+        XCTAssertNil(ImageSamplingDescriptor.legacy.placementValidationFailure(rect: underflow))
+        XCTAssertNil(sampling.placementValidationFailure(rect: Rect(x: 0.5, y: -1.25, width: 4.5, height: 3.25)))
+    }
+
     // MARK: - Path sanitation
 
     func testInfiniteAndNaNPathGeometryIsClampedAndRasterizesWithoutHanging() {

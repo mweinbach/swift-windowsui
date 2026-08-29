@@ -1039,19 +1039,22 @@ public struct DrawBitmapCommand: Equatable, Sendable {
     public var clipRect: Rect?
     /// Gap 4 fix: per-command blend mode, defaults to .normal.
     public var blendMode: BlendMode
+    public var sampling: ImageSamplingDescriptor
 
     public init(
         rect: Rect,
         bitmap: BitmapSurface,
         opacity: Float = 1.0,
         clipRect: Rect? = nil,
-        blendMode: BlendMode = .normal
+        blendMode: BlendMode = .normal,
+        sampling: ImageSamplingDescriptor = .legacy
     ) {
         self.rect = rect
         self.bitmap = bitmap
         self.opacity = opacity
         self.clipRect = clipRect
         self.blendMode = blendMode
+        self.sampling = sampling
     }
 }
 public struct FillPathCommand: Equatable, Sendable {

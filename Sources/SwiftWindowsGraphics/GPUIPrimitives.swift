@@ -475,7 +475,8 @@ public struct GlyphPrimitive: Equatable, Sendable {
 // MARK: - Image Primitive
 
 /// A texture-mapped quad, designed for direct upload to a D3D11 structured
-/// buffer. Total: 20 fields = 80 bytes (divisible by 16).
+/// buffer. Total: 32 fields = 128 bytes (divisible by 16). The original
+/// placement/UV fields retain their offsets; sampling occupies bytes 80...127.
 @frozen
 public struct ImagePrimitive: Equatable, Sendable {
     // Screen destination
@@ -515,6 +516,20 @@ public struct ImagePrimitive: Equatable, Sendable {
     public var affineC: Float
     public var affineD: Float
 
+    // Fixed-size cap/tile sampling, kept flat for structured-buffer upload.
+    public var sourceCapLeft: Float
+    public var sourceCapTop: Float
+    public var sourceCapRight: Float
+    public var sourceCapBottom: Float
+    public var destinationCapLeft: Float
+    public var destinationCapTop: Float
+    public var destinationCapRight: Float
+    public var destinationCapBottom: Float
+    public var centerRepeatX: Float
+    public var centerRepeatY: Float
+    public var samplingKind: Int32
+    public var samplingPadding: Float
+
     public init(
         screenX: Float = 0, screenY: Float = 0, screenW: Float = 0, screenH: Float = 0,
         uvX: Float = 0, uvY: Float = 0, uvW: Float = 1, uvH: Float = 1,
@@ -523,7 +538,8 @@ public struct ImagePrimitive: Equatable, Sendable {
         clipCornerRadius: Float = 0,
         textureID: Int32 = 0,
         rotationRadians: Float = 0,
-        affineA: Float = 1, affineB: Float = 0, affineC: Float = 0, affineD: Float = 1
+        affineA: Float = 1, affineB: Float = 0, affineC: Float = 0, affineD: Float = 1,
+        sampling: ImageSamplingDescriptor = .legacy
     ) {
         self.screenX = screenX
         self.screenY = screenY
@@ -545,9 +561,47 @@ public struct ImagePrimitive: Equatable, Sendable {
         self.affineB = affineB
         self.affineC = affineC
         self.affineD = affineD
+        sourceCapLeft = sampling.sourceCapLeft
+        sourceCapTop = sampling.sourceCapTop
+        sourceCapRight = sampling.sourceCapRight
+        sourceCapBottom = sampling.sourceCapBottom
+        destinationCapLeft = sampling.destinationCapLeft
+        destinationCapTop = sampling.destinationCapTop
+        destinationCapRight = sampling.destinationCapRight
+        destinationCapBottom = sampling.destinationCapBottom
+        centerRepeatX = sampling.centerRepeatX
+        centerRepeatY = sampling.centerRepeatY
+        samplingKind = sampling.samplingKind
+        samplingPadding = sampling.samplingPadding
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }
+
+    public var sampling: ImageSamplingDescriptor {
+        get {
+            ImageSamplingDescriptor(
+                sourceCapLeft: sourceCapLeft, sourceCapTop: sourceCapTop,
+                sourceCapRight: sourceCapRight, sourceCapBottom: sourceCapBottom,
+                destinationCapLeft: destinationCapLeft, destinationCapTop: destinationCapTop,
+                destinationCapRight: destinationCapRight, destinationCapBottom: destinationCapBottom,
+                centerRepeatX: centerRepeatX, centerRepeatY: centerRepeatY,
+                samplingKind: samplingKind, samplingPadding: samplingPadding)
+        }
+        set {
+            sourceCapLeft = newValue.sourceCapLeft
+            sourceCapTop = newValue.sourceCapTop
+            sourceCapRight = newValue.sourceCapRight
+            sourceCapBottom = newValue.sourceCapBottom
+            destinationCapLeft = newValue.destinationCapLeft
+            destinationCapTop = newValue.destinationCapTop
+            destinationCapRight = newValue.destinationCapRight
+            destinationCapBottom = newValue.destinationCapBottom
+            centerRepeatX = newValue.centerRepeatX
+            centerRepeatY = newValue.centerRepeatY
+            samplingKind = newValue.samplingKind
+            samplingPadding = newValue.samplingPadding
+        }
+    }
 
     public var contentMask: GPUIContentMask {
         get {

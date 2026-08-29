@@ -2806,6 +2806,16 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    /// Only a source bitmap leaf opts into cap/tile sampling. Symbol and
+    /// already-composited image metadata must not resize their output twice.
+    public var imageUsesBitmapResizing = false {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    /// The last bitmap sampling resolution. Unsupported inputs skip that
+    /// image, keep other paint commands, and remain inspectable by callers.
+    public private(set) var imageSamplingFailure: ImageSamplingFailure?
+
     public var imageRenderingMode: RetainedImageRenderingMode? {
         didSet { invalidateRuntime(.paint) }
     }
@@ -7568,7 +7578,8 @@ public final class ViewNode {
                 )
             )
         } else if let bitmapSurface, fillRect.size.width > 0, fillRect.size.height > 0,
-            baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect)
+            baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect),
+            let sampling = resolvedBitmapImageSampling(bitmapSurface)
         {
             commands.append(
                 .drawBitmap(
@@ -7576,7 +7587,8 @@ public final class ViewNode {
                         rect: fillRect,
                         bitmap: bitmapSurface,
                         opacity: effectiveOpacity,
-                        clipRect: effectiveClipRect
+                        clipRect: effectiveClipRect,
+                        sampling: sampling
                     )
                 )
             )
@@ -8332,6 +8344,31 @@ public final class ViewNode {
         }
 
         return Size(width: Double(bitmapSurface.width), height: Double(bitmapSurface.height))
+    }
+
+    /// Both paint paths resolve in layout space before display scale or a
+    /// transform moves the image. The descriptor then scales with its quad.
+    func resolvedBitmapImageSampling(_ bitmap: BitmapSurface) -> ImageSamplingDescriptor? {
+        guard imageUsesBitmapResizing, let imageResizingMode else {
+            imageSamplingFailure = nil
+            return .legacy
+        }
+        let localFrame = Rect(origin: .zero, size: resolvedFrame.size)
+        let localFillFrame = borderWidth > 0 ? localFrame.inset(by: borderWidth) : localFrame
+        let mode: ImageSamplingMode = imageResizingMode == .tile ? .tile : .stretch
+        switch ImageSamplingPlan.resolve(
+            sourceSize: IntSize(width: bitmap.width, height: bitmap.height),
+            destinationSize: localFillFrame.size,
+            capInsets: imageCapInsets ?? .zero,
+            mode: mode)
+        {
+        case .success(let sampling):
+            imageSamplingFailure = nil
+            return sampling
+        case .failure(let failure):
+            imageSamplingFailure = failure
+            return nil
+        }
     }
 
     /// Measure content at the width it will actually receive. Applying a

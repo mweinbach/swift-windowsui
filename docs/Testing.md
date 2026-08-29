@@ -319,8 +319,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Ful
   `CanvasSymbolAtlasLifetimeTests`, and `CanvasPixelFontScaleTests` cover
   resolved symbols, copied graphics state and order, logical coordinates,
   CPU/WARP affine placement, failure markers, atlas ownership, and PixelFont
-  spacing. Primitive layout and renderer buffer tests enforce the 80-byte image
+  spacing. Primitive layout and renderer buffer tests enforce the 128-byte image
   ABI. These tests do not establish native SwiftUI symbol or full layer parity.
+- `ImageSamplingPlanTests`, `WinSwiftUIBitmapResizingTests`, and
+  `D3D11ImageResizingTests` cover the admitted bitmap cap/tile subset: independent
+  source-band expectations, proposal filling, retained invalidation, source
+  identity, alpha filtering, phase limits, and CPU/D3D11 consumers. The original
+  `WinSwiftUIBitmapStretchTests` keeps the default and intrinsic behavior checks.
+  Test source and a compile-only build are not execution evidence; native
+  SwiftUI pixels and unsupported cap/phase cases remain separate requirements.
 - `LiveDiagnosticsAccountingTests` and `LiveDiagnosticsReportTests` cover
   rebuild intervals before/inside a frame, nested reloads, carryover, monotonic
   warmup, phase populations, and schema-2 nulls for missing evidence. Their

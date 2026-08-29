@@ -1449,6 +1449,9 @@ public final class ComponentHost {
         if target.symbolVariants != source.symbolVariants { target.symbolVariants = source.symbolVariants }
         if target.imageResizingMode != source.imageResizingMode { target.imageResizingMode = source.imageResizingMode }
         if target.imageCapInsets != source.imageCapInsets { target.imageCapInsets = source.imageCapInsets }
+        if target.imageUsesBitmapResizing != source.imageUsesBitmapResizing {
+            target.imageUsesBitmapResizing = source.imageUsesBitmapResizing
+        }
         if target.imageRenderingMode != source.imageRenderingMode {
             target.imageRenderingMode = source.imageRenderingMode
         }

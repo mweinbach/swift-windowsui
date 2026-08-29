@@ -411,6 +411,7 @@ public final class D3D11Renderer: RenderBackend {
         var didDrawFrame = false
         if
             isDirect2DEnabled,
+            frameSupportsDirect2DImageSampling(frame),
             let direct2DDeviceContext,
             let direct2DTargetBitmap
         {
@@ -1395,7 +1396,15 @@ public final class D3D11Renderer: RenderBackend {
         samplerState: UnsafeMutablePointer<ID3D11SamplerState>
     ) throws {
         let scaledCommand = scaled(bitmap: command, factor: scaleFactor)
-
+        if let failure = frameBitmapSamplingFailure(command)
+            ?? scaledCommand.sampling.placementValidationFailure(rect: scaledCommand.rect)
+        {
+            let key = "D3D11|imageSampling|\(failure)"
+            if loggedUnsupportedCommandKeys.insert(key).inserted {
+                renderLog("[D3D11Renderer] Skipping invalid bitmap sampling: \(failure).")
+            }
+            return
+        }
         guard scaledCommand.rect.size.width > 0, scaledCommand.rect.size.height > 0, scaledCommand.opacity > 0 else {
             return
         }
@@ -1435,7 +1444,19 @@ public final class D3D11Renderer: RenderBackend {
             rectWidth: Float(scaledCommand.rect.size.width),
             rectHeight: Float(scaledCommand.rect.size.height),
             opacity: scaledCommand.opacity,
-            padding: 0
+            padding: 0,
+            sourceCapLeft: scaledCommand.sampling.sourceCapLeft,
+            sourceCapTop: scaledCommand.sampling.sourceCapTop,
+            sourceCapRight: scaledCommand.sampling.sourceCapRight,
+            sourceCapBottom: scaledCommand.sampling.sourceCapBottom,
+            destinationCapLeft: scaledCommand.sampling.destinationCapLeft,
+            destinationCapTop: scaledCommand.sampling.destinationCapTop,
+            destinationCapRight: scaledCommand.sampling.destinationCapRight,
+            destinationCapBottom: scaledCommand.sampling.destinationCapBottom,
+            centerRepeatX: scaledCommand.sampling.centerRepeatX,
+            centerRepeatY: scaledCommand.sampling.centerRepeatY,
+            samplingKind: scaledCommand.sampling.samplingKind,
+            samplingPadding: scaledCommand.sampling.samplingPadding
         )
 
         let constantBufferResource = UnsafeMutableRawPointer(constantBuffer).assumingMemoryBound(to: ID3D11Resource.self)
@@ -1788,7 +1809,7 @@ private let _rectangleUniformsAlignmentCheck: Void = {
 }()
 #endif
 
-private struct BitmapUniforms {
+struct BitmapUniforms {
     // float4 boundary 1
     var surfaceWidth: Float
     var surfaceHeight: Float
@@ -1799,6 +1820,19 @@ private struct BitmapUniforms {
     var rectHeight: Float
     var opacity: Float
     var padding: Float
+    // float4 boundaries 3-5: identical to ImagePrimitive's appended fields.
+    var sourceCapLeft: Float
+    var sourceCapTop: Float
+    var sourceCapRight: Float
+    var sourceCapBottom: Float
+    var destinationCapLeft: Float
+    var destinationCapTop: Float
+    var destinationCapRight: Float
+    var destinationCapBottom: Float
+    var centerRepeatX: Float
+    var centerRepeatY: Float
+    var samplingKind: Int32
+    var samplingPadding: Float
 }
 
 #if DEBUG
@@ -1840,17 +1874,38 @@ private func scaled(fillRect command: FillRectCommand, factor: Double) -> FillRe
     )
 }
 
-private func scaled(bitmap command: DrawBitmapCommand, factor: Double) -> DrawBitmapCommand {
-    DrawBitmapCommand(
-        rect: makePixelAlignedBitmapRect(
+/// The old frame path paints pre-rasterized bitmaps at their pixel dimensions.
+/// Raw cap/tile images instead retain their requested destination geometry.
+/// Copying the command preserves sampling, blend data, and any future fields.
+func scaled(bitmap command: DrawBitmapCommand, factor: Double) -> DrawBitmapCommand {
+    var result = command
+    if command.sampling.isLegacy {
+        result.rect = makePixelAlignedBitmapRect(
             from: command.rect,
             bitmapSize: IntSize(width: command.bitmap.width, height: command.bitmap.height),
             scaleFactor: factor
-        ),
-        bitmap: command.bitmap,
-        opacity: command.opacity,
-        clipRect: command.clipRect?.scaled(by: factor)
-    )
+        )
+    } else {
+        result.rect = command.rect.scaled(by: factor)
+    }
+    result.clipRect = command.clipRect?.scaled(by: factor)
+    return result
+}
+
+/// Capability selection happens before Direct2D BeginDraw. It does not disable
+/// Direct2D, so a later ordinary frame can still use that backend. Malformed
+/// kind-zero records also take the validating D3D branch instead of stretching.
+func frameSupportsDirect2DImageSampling(_ frame: RenderFrame) -> Bool {
+    !frame.commands.contains { command in
+        guard case .drawBitmap(let bitmap) = command else { return false }
+        return bitmap.sampling != .legacy
+    }
+}
+
+func frameBitmapSamplingFailure(_ command: DrawBitmapCommand) -> ImageSamplingFailure? {
+    command.sampling.validationFailure(
+        sourceSize: IntSize(width: command.bitmap.width, height: command.bitmap.height)
+    ) ?? command.sampling.placementValidationFailure(rect: command.rect)
 }
 
 func makeLogicalBitmapRect(from rect: Rect, bitmapSize: IntSize, scaleFactor: Double) -> Rect {
@@ -2132,7 +2187,7 @@ float4 psMain(VSOutput input) : SV_Target
 }
 """#
 
-private let bitmapShaderSource = #"""
+private let bitmapShaderSource = imageSamplingShaderSource + "\n" + #"""
 cbuffer BitmapUniforms : register(b0)
 {
     float2 surfaceSize;
@@ -2140,6 +2195,11 @@ cbuffer BitmapUniforms : register(b0)
     float2 rectSize;
     float opacity;
     float padding;
+    float4 sourceCaps;
+    float4 destinationCaps;
+    float2 centerRepeats;
+    int samplingKind;
+    float samplingPadding;
 };
 
 struct VSOutput
@@ -2180,7 +2240,16 @@ float4 psMain(VSOutput input) : SV_Target
     // The texture is uploaded premultiplied (see createShaderResourceView),
     // which is what the ONE / INV_SRC_ALPHA blend state expects; scaling a
     // premultiplied colour by opacity keeps it premultiplied.
-    float4 sampleColor = textTexture.Sample(textSampler, input.uv);
+    float4 sampleColor;
+    if (samplingKind == 0)
+    {
+        sampleColor = textTexture.Sample(textSampler, input.uv);
+    }
+    else
+    {
+        sampleColor = sampleResizedImage(
+            textTexture, input.uv, sourceCaps, destinationCaps, centerRepeats, samplingKind);
+    }
     return sampleColor * opacity;
 }
 """#

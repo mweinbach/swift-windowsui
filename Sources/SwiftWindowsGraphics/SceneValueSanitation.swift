@@ -310,6 +310,17 @@ public enum GPUISceneSanitizer {
             return nil
         }
         guard image.hasValidAffineMatrix else { return nil }
+        guard
+            image.sampling.validationFailure(
+                uvX: image.uvX, uvY: image.uvY, uvW: image.uvW, uvH: image.uvH) == nil
+        else { return nil }
+        guard
+            image.sampling.placementValidationFailure(
+                rect: Rect(
+                    x: Double(image.screenX), y: Double(image.screenY),
+                    width: Double(image.screenW), height: Double(image.screenH))) == nil
+        else { return nil }
+        if !image.sampling.isLegacy && !image.rotationRadians.isFinite { return nil }
         guard clipIsRepresentable(image.clipX, image.clipY, image.clipWidth, image.clipHeight) else {
             return nil
         }
@@ -597,6 +608,8 @@ public struct SceneDefect: Equatable, Sendable, CustomStringConvertible {
         case invalidImageRenderPass(textureID: Int32, reason: String)
         /// A hand-built image bypassed the affine placement admission check.
         case invalidImagePlacement(layerIndex: Int, imageIndex: Int, reason: String)
+        /// A hand-built image bypassed cap/tile descriptor admission.
+        case invalidImageSampling(layerIndex: Int, imageIndex: Int, reason: String)
     }
 
     public var kind: Kind
@@ -622,6 +635,8 @@ public struct SceneDefect: Equatable, Sendable, CustomStringConvertible {
             return "Scene image render pass \(textureID) is invalid: \(reason)."
         case .invalidImagePlacement(let layerIndex, let imageIndex, let reason):
             return "Layer \(layerIndex) image \(imageIndex) has invalid placement: \(reason)."
+        case .invalidImageSampling(let layerIndex, let imageIndex, let reason):
+            return "Layer \(layerIndex) image \(imageIndex) has invalid sampling: \(reason)."
         }
     }
 }
@@ -683,6 +698,20 @@ extension GPUIScene {
                 SceneDefect(kind: .layerCountExceedsLimit(count: layers.count, limit: GPUISceneLimits.maxLayers)))
         }
 
+        // Build a dimension map only for scenes using the new modes. Manual
+        // renderer bindings are validated by that renderer once they resolve.
+        // Resource replacement follows the same last-binding-wins policy as
+        // the CPU and GPU image caches.
+        var samplingSourceSizes: [Int32: IntSize] = [:]
+        if layers.contains(where: { $0.images.contains(where: { !$0.sampling.isLegacy }) }) {
+            for binding in imageResources {
+                samplingSourceSizes[binding.textureID] = IntSize(
+                    width: binding.bitmap.width, height: binding.bitmap.height)
+            }
+            for pass in imageRenderPasses where samplingSourceSizes[pass.textureID] == nil {
+                samplingSourceSizes[pass.textureID] = pass.size
+            }
+        }
         for (layerIndex, layer) in layers.enumerated() {
             for (imageIndex, image) in layer.images.enumerated() {
                 if let reason = image.affinePlacementDefect {
@@ -690,6 +719,19 @@ extension GPUIScene {
                         SceneDefect(
                             kind: .invalidImagePlacement(
                                 layerIndex: layerIndex, imageIndex: imageIndex, reason: reason)))
+                }
+                if let failure = image.sampling.validationFailure(
+                    sourceSize: samplingSourceSizes[image.textureID],
+                    uvX: image.uvX, uvY: image.uvY, uvW: image.uvW, uvH: image.uvH)
+                    ?? image.sampling.placementValidationFailure(
+                        rect: Rect(
+                            x: Double(image.screenX), y: Double(image.screenY),
+                            width: Double(image.screenW), height: Double(image.screenH)))
+                {
+                    defects.append(
+                        SceneDefect(
+                            kind: .invalidImageSampling(
+                                layerIndex: layerIndex, imageIndex: imageIndex, reason: failure.description)))
                 }
             }
             for (operationIndex, operation) in layer.paintOperations.enumerated() {

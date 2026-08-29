@@ -999,6 +999,31 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         imageTextures.count
     }
 
+    /// Scene validation can see inline resources and render passes, but a
+    /// caller can also bind a bitmap directly. Validate those actual source
+    /// dimensions before uploading or issuing any image sampling commands.
+    func validateBoundImageSampling(in scene: GPUIScene) throws {
+        let passTextureIDs = Set(scene.imageRenderPasses.map(\.textureID))
+        for layer in scene.layers {
+            for image in layer.images where image.sampling != .legacy {
+                guard !passTextureIDs.contains(image.textureID), let bitmap = imageBindings[image.textureID] else {
+                    continue
+                }
+                if let failure = image.sampling.validationFailure(
+                    sourceSize: IntSize(width: bitmap.width, height: bitmap.height),
+                    uvX: image.uvX, uvY: image.uvY, uvW: image.uvW, uvH: image.uvH
+                ) {
+                    throw BatchRendererError(
+                        operation: "Validate image sampling",
+                        hresult: batchHresultInvalidArgument,
+                        details: "Texture \(image.textureID): \(failure)",
+                        failureKind: .sceneContent
+                    )
+                }
+            }
+        }
+    }
+
     public static func makeRenderPlan(
         for scene: GPUIScene,
         cachedResources: CachedResources = CachedResources()
@@ -1426,6 +1451,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         do {
             var finishedScene = scene
             finishedScene.finish()
+            try validateBoundImageSampling(in: finishedScene)
             let renderPlan = try Self.makeRenderPlan(for: finishedScene, cachedResources: cachedResourcesForTesting)
 
             gpuTimingStatus = gpuFrameTimingCollector?.beginFrame(frameID) ?? .disabled
@@ -1777,6 +1803,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
         var childScene = pass.scene
         childScene.finish()
+        try validateBoundImageSampling(in: childScene)
         let plan = try Self.makeRenderPlan(for: childScene, cachedResources: cachedResourcesForTesting)
         bindFramePipelineState(deviceContext: deviceContext, surfaceSize: pass.size)
         try updateFrameUniforms(surfaceSize: pass.size)

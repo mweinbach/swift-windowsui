@@ -7527,3 +7527,71 @@ before any XCTest case, with source/index preserved; its original records and
 failure receipt remain in
 `artifacts/goal-eighth-pointer-f20b4bf-d52a5681ea4e444fbcf17f4122eae120`.
 Fresh focused execution and the full release checks are still required.
+
+### Eighth validation checkpoint: pointer identity and all CoreLogic shards
+
+The explicit Foundation import and UUID qualifications compiled on `b660e9e`.
+The focused pointer run closed naturally with zero exits after 333.859 seconds
+including compilation; all twelve selected pointer methods passed with no
+failures or skips. A copied-evidence audit also matched all 5,659 generated
+XCTest identifiers and every 5,307 async / 352 direct adapter against source.
+That registration check is not runtime coverage for the unselected methods.
+
+The same clean source then ran stock `scripts/test.ps1 -Sharded` from its first
+shard. All 285 serial invocations reported success across 404 CoreLogic targets;
+the direct PS5 process and runner closed naturally with zero exits after
+912.391 seconds, preserving tracked source and index bytes. The exact source
+plan selects 5,642 CoreLogic XCTest methods and 134 Swift Testing declarations
+once each; the 17 Portable methods are compiled but not selected. Per-case
+outcome and skip reconciliation is a separate copied-evidence check still
+pending at this checkpoint. The capture is
+`artifacts/goal-eighth-sharded-b660e9e-capture-v1/CAPTURE.json`.
+
+The capture preserves eight generated/build text files, five closed run
+records, and five source inputs. Its streamed test executable hash matches the
+earlier pointer executable; the capture neither copied nor executed that PE.
+This standalone CoreLogic run does not include the agent-check tooling stages,
+Portable execution, retained screenshots, gallery comparison, or the Full gate.
+The two earlier Full failures and the missing-import failure remain preserved.
+
+### Eighth implementation pass: capped and tiled bitmap sampling integrated
+
+Resizable bitmap leaves now resolve admitted cap insets and tile repetition
+into one constant-size sampling descriptor. The original source bitmap and
+content identity remain unchanged, independent of destination size or tile
+count. CPU, batch D3D11, and legacy D3D11 paths select matching source bands,
+clamp fixed-band taps, wrap repeating center taps, and interpolate premultiplied
+texels. Ordinary zero-cap stretch retains its prior sampler and admission.
+
+The image primitive keeps its original 80-byte field prefix and appends 48
+sampling bytes for a 128-byte stride. Sampling propagates through retained
+reconciliation and scene/frame output. The legacy frame renderer chooses its
+D3D11 path before drawing when Direct2D cannot honor the descriptor, without
+permanently changing later frame selection. Current-target material replacement
+requires canonical legacy sampling because it copies child pixels back to the
+same parent positions; unsupported remapping is rejected before replacement.
+
+The reviewed 28-path join adds 48 XCTest and four Swift Testing methods. Two
+new regressions cover the material interaction. Twenty-one newly authored
+MainActor test signatures were made async to avoid the documented Windows
+discovery cast failure, without changing their assertions. Independent review
+also corrected one new fixture that converted shader/pipeline attachment
+errors into availability skips after a successful device probe: those errors
+now fail the test, with cleanup retained. Other original test bodies and all
+existing pixel tolerances remain unchanged; four existing assertions migrate
+only image stride/offset or default-sampling contracts.
+
+Before the documentation additions, the entire staged root tree exactly
+matched reviewed private tree `6ee0ad05531d99c21a2b7de7859c02f03ac0e622`.
+All image handoff payload hashes and 28 source endpoints were checked. The
+README and compatibility matrix now describe the implemented subset; the
+README also corrects its stale statement that retained Canvas symbols were
+not wired. Current root contracts and strict formatting passed. The image
+join itself still requires fresh compilation, runtime tests, and rendering;
+the preceding `b660e9e` shard result is not transferred to it.
+
+Fractional/oversized caps, nonpositive centers, partial UVs, excessive tile
+phase, asset density/orientation, RTL mirroring, full aspect negotiation and
+native pixels remain required future work, documented in `BitmapImageSizing.md`.
+Typed refusal of those inputs does not exempt them from the full Image goal.
+All original requirements and all nine completion gates remain unchanged.

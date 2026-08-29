@@ -217,6 +217,12 @@ public struct GPUISceneImageRenderPass: Equatable, Sendable {
     /// the root render target's dimensions. Actual containment is checked above.
     func currentTargetImageDefect(_ image: ImagePrimitive) -> String? {
         guard input == .currentTarget else { return nil }
+        // Replacement copies each result pixel back to its original parent
+        // pixel. Cap/tile remapping would violate that correspondence, and
+        // neither replacement path applies the ordinary image sampler.
+        guard image.sampling == .legacy else {
+            return "current-target images require legacy sampling without caps or tiling"
+        }
         guard image.textureID == textureID,
             image.screenW == Float(size.width), image.screenH == Float(size.height),
             image.uvX == 0, image.uvY == 0, image.uvW == 1, image.uvH == 1,

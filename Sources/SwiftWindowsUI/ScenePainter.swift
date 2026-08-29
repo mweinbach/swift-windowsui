@@ -1258,7 +1258,8 @@ public enum ScenePainter {
                         ), displayScale: displayScale), toLayer: layerIndex)
             } else if let bitmapSurface = node.bitmapSurface,
                 fillRect.size.width > 0, fillRect.size.height > 0,
-                clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
+                clipAllowsDrawing(clip: effectiveClip, rect: fillRect),
+                let sampling = node.resolvedBitmapImageSampling(bitmapSurface)
             {
                 let scaledFillRect = scaleRect(quadFillRect, by: displayScale)
                 let clipR = clipRectFloats(effectiveClip, surfaceSize: surfaceSize, displayScale: displayScale)
@@ -1280,7 +1281,8 @@ public enum ScenePainter {
                             // node's own clip, not only by its ancestors'.
                             clipCornerRadius: Float(
                                 effectiveClip.resolvedCornerRadius(forQuadRect: fillRect) * displayScale),
-                            textureID: textureID
+                            textureID: textureID,
+                            sampling: sampling
                         ), displayScale: displayScale), toLayer: layerIndex)
             }
 

@@ -38,8 +38,9 @@ CPU scene, frame fallback, and D3D11 WARP paths. Native SwiftUI Canvas capture
 density still needs reference qualification.
 
 Symbol placement preserves context-authored translation, scale, shear,
-reflection, and rotation. ImagePrimitive now has an 80-byte structured-buffer
-stride, adding four Float basis entries at offsets 64, 68, 72, and 76. The
+reflection, and rotation. ImagePrimitive keeps four Float basis entries at
+offsets 64, 68, 72, and 76. Its stride is 128 bytes after the bitmap resize
+sampling fields; resolved Canvas symbols keep the default sampling mode. The
 identity basis preserves the established image route. CPU inverse placement
 and the D3D11 vertex shader share the transform contract; reflected edges
 follow the GPU top/left rule. This does not extend general inherited View

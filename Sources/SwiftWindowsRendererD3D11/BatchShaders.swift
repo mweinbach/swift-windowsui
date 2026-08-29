@@ -572,7 +572,7 @@ float4 psMain(VSOutput input) : SV_Target
 
 // MARK: - Instanced Image Shader (StructuredBuffer at t0, Texture2D at t1)
 
-private let batchImageShaderSharedSource = #"""
+private let batchImageShaderSharedSource = imageSamplingShaderSource + "\n" + #"""
 cbuffer FrameUniforms : register(b0)
 {
     float2 surfaceSize;
@@ -594,8 +594,14 @@ struct ImageInstance
     // centre: an offscreen pass composited back through a turned transform.
     float rotationRadians;
     // Column basis applied about the centre before rotation. Appended to
-    // preserve all earlier offsets; ImagePrimitive now has an 80-byte stride.
+    // preserve all earlier offsets.
     float affineA, affineB, affineC, affineD;
+    // Fixed-size nine-region sampling; ImagePrimitive has a 128-byte stride.
+    float sourceCapLeft, sourceCapTop, sourceCapRight, sourceCapBottom;
+    float destinationCapLeft, destinationCapTop, destinationCapRight, destinationCapBottom;
+    float centerRepeatX, centerRepeatY;
+    int samplingKind;
+    float samplingPadding;
 };
 
 // Shared with the quad shader's roundedRectDistance for a uniform radius; the
@@ -622,6 +628,11 @@ struct VSOutput
     float4 clipRect : TEXCOORD2;
     float2 pixelPosition : TEXCOORD3;
     float clipRadius : TEXCOORD4;
+    float2 localUnit : TEXCOORD5;
+    nointerpolation float4 sourceCaps : TEXCOORD6;
+    nointerpolation float4 destinationCaps : TEXCOORD7;
+    nointerpolation float2 centerRepeats : TEXCOORD8;
+    nointerpolation int samplingKind : TEXCOORD9;
 };
 
 VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
@@ -688,7 +699,24 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     output.clipRect = float4(inst.clipX, inst.clipY, inst.clipWidth, inst.clipHeight);
     output.pixelPosition = pixelPosition;
     output.clipRadius = inst.clipCornerRadius;
+    output.localUnit = unit;
+    output.sourceCaps = float4(inst.sourceCapLeft, inst.sourceCapTop, inst.sourceCapRight, inst.sourceCapBottom);
+    output.destinationCaps = float4(
+        inst.destinationCapLeft, inst.destinationCapTop, inst.destinationCapRight, inst.destinationCapBottom);
+    output.centerRepeats = float2(inst.centerRepeatX, inst.centerRepeatY);
+    output.samplingKind = inst.samplingKind;
     return output;
+}
+
+float4 sampleBatchImage(VSOutput input)
+{
+    if (input.samplingKind == 0)
+    {
+        return imageTexture.Sample(imageSampler, input.uv);
+    }
+    return sampleResizedImage(
+        imageTexture, input.localUnit, input.sourceCaps, input.destinationCaps,
+        input.centerRepeats, input.samplingKind);
 }
 """#
 
@@ -725,7 +753,7 @@ float4 psMain(VSOutput input) : SV_Target
     // bilinear sampler correct at transparent edges. Scaling a
     // premultiplied colour by opacity scales RGB and A together, so the
     // result stays premultiplied.
-    float4 sampleColor = imageTexture.Sample(imageSampler, input.uv);
+    float4 sampleColor = sampleBatchImage(input);
     return sampleColor * input.opacity * clipAlpha;
 }
 """#
@@ -791,7 +819,7 @@ cbuffer ColorEffectChain : register(b1)
 
 float4 psMain(VSOutput input) : SV_Target
 {
-    float4 sampled = imageTexture.Sample(imageSampler, input.uv);
+    float4 sampled = sampleBatchImage(input);
     if (sampled.a <= 0.0) return float4(0.0, 0.0, 0.0, 0.0);
 
     float4 color = float4(saturate(sampled.rgb / sampled.a), sampled.a);

@@ -227,6 +227,12 @@ private struct BilinearAxisTap {
     let high: Int
     let fraction: Double
 
+    init(_ tap: ImageSamplingAxisTap) {
+        low = tap.low
+        high = tap.high
+        fraction = tap.fraction
+    }
+
     init(normalized: Double, size: Int) {
         let bounded = clamp(normalized, lower: 0, upper: 1)
         let texel = bounded * Double(size) - 0.5
@@ -909,12 +915,20 @@ private struct RasterTarget {
     }
 
     mutating func drawImage(_ image: ImagePrimitive, bitmap: BitmapSurface) {
+        let sampling = image.sampling
+        let sourceSize = IntSize(width: bitmap.width, height: bitmap.height)
+        guard
+            sampling.validationFailure(
+                sourceSize: sourceSize, uvX: image.uvX, uvY: image.uvY, uvW: image.uvW, uvH: image.uvH) == nil
+        else { return }
         let rect = Rect(
             x: Double(image.screenX),
             y: Double(image.screenY),
             width: Double(image.screenW),
             height: Double(image.screenH)
         )
+        guard sampling.placementValidationFailure(rect: rect) == nil else { return }
+        let samplingKernel = ImageSamplingKernel(sampling: sampling, sourceSize: sourceSize)
         guard
             !GPUIClipEncoding.isEmpty(
                 clipX: image.clipX, clipY: image.clipY, clipWidth: image.clipWidth,
@@ -932,8 +946,9 @@ private struct RasterTarget {
             return
         }
         let bounds = scan.bounds
-        let sampleWidth = image.hasIdentityAffineTransform ? max(rect.size.width, 1) : rect.size.width
-        let sampleHeight = image.hasIdentityAffineTransform ? max(rect.size.height, 1) : rect.size.height
+        let legacyIdentity = sampling.isLegacy && image.hasIdentityAffineTransform
+        let sampleWidth = legacyIdentity ? max(rect.size.width, 1) : rect.size.width
+        let sampleHeight = legacyIdentity ? max(rect.size.height, 1) : rect.size.height
 
         let sourceWidth = max(1, Int(bitmap.width))
         let sourceHeight = max(1, Int(bitmap.height))
@@ -951,10 +966,18 @@ private struct RasterTarget {
                 guard scan.covers(pixelCenterX, pixelCenterY) else { continue }
                 let tx = clamp((pixelCenterX - rect.minX) / sampleWidth, lower: 0, upper: 1)
                 let ty = clamp((pixelCenterY - rect.minY) / sampleHeight, lower: 0, upper: 1)
-                let tapX = BilinearAxisTap(
-                    normalized: Double(image.uvX) + Double(image.uvW) * tx, size: sourceWidth)
-                let tapY = BilinearAxisTap(
-                    normalized: Double(image.uvY) + Double(image.uvH) * ty, size: sourceHeight)
+                let tapX: BilinearAxisTap
+                let tapY: BilinearAxisTap
+                if let samplingKernel {
+                    let taps = samplingKernel.taps(unitX: Float(tx), unitY: Float(ty))
+                    tapX = BilinearAxisTap(taps.x)
+                    tapY = BilinearAxisTap(taps.y)
+                } else {
+                    tapX = BilinearAxisTap(
+                        normalized: Double(image.uvX) + Double(image.uvW) * tx, size: sourceWidth)
+                    tapY = BilinearAxisTap(
+                        normalized: Double(image.uvY) + Double(image.uvH) * ty, size: sourceHeight)
+                }
 
                 // The GPU filters *premultiplied* texels — every upload is
                 // normalized to premultiplied BGRA before it reaches the

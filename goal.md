@@ -9008,3 +9008,44 @@ Realize failures. No completion gate or work limit changes here.
   render-pass regression class. Native modifier-edge semantics, general clip/
   blend/color composition, Canvas integration, hardware timing, recovery and
   reference comparisons remain open to their original acceptance requirements.
+
+### Ninth integration: bounded asynchronous file-preview template, 2026-08-29
+
+- The reviewed FilePreview feature joins the material/native/List foundation
+  after `0a0299fd2990993208a73ae6948aca4ace8cf406`. Its source origin remains
+  `ebff7a7e7e8677ca51ad33ba38d684d661202018` on `ab63afc`; that historical source
+  identity is not the forthcoming compiled or executed root identity.
+- A reusable window-owned model, preview service and shared SwiftUI-shaped
+  template provide selection, text decoding, loading/failure/cancellation,
+  retry, typed file-URL drop and explicit import actions. The Gallery exposes
+  the template using the ordinary List, task, observation, focus and native
+  service routes. No framework bypass or Windows-only drawing API is added.
+- The default demo still selects Dashboard. Its FilePreview model begins
+  suspended; selecting Gallery mounts the template and admits deterministic
+  sample preview work. Real file reads require imported or dropped URLs, and
+  opening the importer requires its explicit action. This is a source trace,
+  not an observed default-startup, idle, native dialog, or teardown result.
+- The service limits admission to 64 records and the first 64 supplied URLs,
+  32,768 UTF-8 bytes per URL spelling, 65,536 preview bytes, and 8,192-byte read
+  chunks plus one overflow probe. It allows one physical read with only the
+  latest request pending. Cancellation cannot preempt a blocking OS read;
+  metadata checks and opening are separate operations and do not prove
+  race-free no-follow behavior or physical file locality.
+- The feature adds 85 async cases: 48 model, 23 service and 14 interaction
+  methods. All four test/support files and their original assertions remain
+  intact. Service cases use owned temporary files; the symbolic-link case may
+  explicitly skip if Windows denies link creation. Such a skip must be counted
+  and disclosed, not removed, retried with elevation, or promoted to a pass.
+- The exact 210,461-byte patch, SHA-256
+  `ba01c19c0bbebcc87eb8f07b6852cfd34b3a0b6ff13a1f8279fe6e9eee58e129`, is retained
+  under `artifacts/goal-ninth-file-preview-native-list-intake-v1`. Parent
+  application `de50fb/0` applied the ten-file delta without conflicts and
+  matched all nine Swift postimages to the independently reviewed composition.
+  Strict lint and architecture contracts passed (`ce0376/0`). The earlier
+  Editor and List-label fixes are preserved rather than imported twice.
+- This commit has not yet been compiled or run. Real import/drop/select/cancel/
+  error flows, native owner/renderer teardown, settled idle, macOS, Narrator,
+  DPI, retained pixel review and performance still require evidence. Full
+  media grid/list behavior, asynchronous thumbnails, image preview and outgoing
+  drag remain original requirements; this text-preview slice does not replace
+  them. The unchanged original goal and all nine completion gates remain open.

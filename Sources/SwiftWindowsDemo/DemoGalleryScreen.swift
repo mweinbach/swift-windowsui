@@ -107,6 +107,7 @@ enum DemoGalleryCategory: String, CaseIterable, Hashable {
                 "segmented", "stepper", "picker", "slider", "progress", "validation", "text",
                 "scroll", "geometry", "phase", "visibility", "observation", "animation",
                 "long press", "hold", "gesture", "touch",
+                "file", "files", "import", "drop", "preview", "utf8", "utf-8", "cancel", "retry",
             ]
         case .visuals:
             return [
@@ -171,6 +172,8 @@ struct DemoGalleryScreen: View {
                                 DemoComponentShowcase(model: model, compact: compact)
                                 DemoObservationShowcase(model: model, state: windowState.observation)
                                 DemoLongPressShowcase(state: windowState.longPress)
+                                DemoFileBrowserTemplate(model: windowState.fileBrowser)
+                                    .frame(height: 560)
                             }
 
                             if visibleCategories.contains(.presentations) {

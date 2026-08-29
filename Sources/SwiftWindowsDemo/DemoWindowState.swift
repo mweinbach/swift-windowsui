@@ -11,4 +11,9 @@
 final class DemoWindowState: ObservableObject {
     let observation = DemoObservationState()
     let longPress = DemoLongPressState()
+    let fileBrowser: DemoFileBrowserModel
+
+    init(fileBrowser: DemoFileBrowserModel = DemoFileBrowserModel()) {
+        self.fileBrowser = fileBrowser
+    }
 }

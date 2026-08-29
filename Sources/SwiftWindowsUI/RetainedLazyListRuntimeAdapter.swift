@@ -2018,7 +2018,7 @@ package final class RetainedLazyListRuntimeAdapter {
         switch materialized {
         case .record(let record):
             guard record.request.token == token, recordIsCurrent(record),
-                record.nodes.allSatisfy({ $0.parent == nil && $0.runtime == nil }),
+                record.nodes.allSatisfy({ $0.parent == nil && $0.retainedLazyListRuntime == nil }),
                 authorityIsCurrent(authority, additionalProofs: record.identityProofs)
             else { return .obsolete }
             // Empty output has already consumed its prepaid element. It is not
@@ -2027,7 +2027,7 @@ package final class RetainedLazyListRuntimeAdapter {
             let found = matches(record.nodes)
             guard authorityIsCurrent(authority, additionalProofs: record.identityProofs),
                 recordIsCurrent(record),
-                record.nodes.allSatisfy({ $0.parent == nil && $0.runtime == nil })
+                record.nodes.allSatisfy({ $0.parent == nil && $0.retainedLazyListRuntime == nil })
             else { return .obsolete }
             return found ? .found : .notFound
         case .workRemaining:

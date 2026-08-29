@@ -8298,3 +8298,24 @@ The initial failed compile remains recorded above. This repair still requires
 fresh compilation, all affected tests, and actual native menu/UIA behavior;
 source review alone closes none of those requirements. The original nine
 completion gates and the original compatibility destination remain unchanged.
+
+### Ninth validation pass: preserve the lazy probe ownership check (2026-08-29)
+
+The next compile at `ab7844d151d2b2823a3053eb8759483dcfa54e02`
+compiled SwiftWindowsPlatform and SwiftWindowsRendererD3D11, then stopped
+before tests on two accesses to ViewNode's fileprivate runtime from the lazy
+List adapter. Its direct child exited naturally with code 1 after 36.609
+seconds, without timeout or termination; tracked-source and index endpoints
+were unchanged. The 9,666-byte log has SHA-256
+`a66b40236cbccb183022ff5b5369a64dc78d1700a4a4a1dbd590b00603270ddf`.
+No XCTest or Swift Testing case began in this attempt.
+
+Both checks now use the already-existing internal read-only
+retainedLazyListRuntime getter. Its body returns the same private runtime
+value. The checks still require nil parent and nil runtime both before and
+after the opaque scroll matcher; authority, identity and record validation
+remain in the same order. Only these two member names changed. No access
+level was broadened, no new API was added and no test source changed.
+Contracts before and after the change, strict formatting, exact two-edit
+preservation and whitespace checks passed. Compilation and execution still
+need a fresh attempt; all original goal gates remain open.
